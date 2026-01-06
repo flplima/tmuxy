@@ -1,0 +1,29 @@
+{
+  "productName": "tmuxy",
+  "version": "1.0.0",
+  "identifier": "com.tmuxy.app",
+  "build": {
+    "beforeDevCommand": "npm run dev -w tmuxy-ui",
+    "beforeBuildCommand": "npm run build -w tmuxy-ui",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../tmuxy-ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "tmuxy",
+        "width": 800,
+        "height": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

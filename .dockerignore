@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+
+# Dependencies
+node_modules
+packages/*/node_modules
+
+# Build artifacts
+target
+packages/*/target
+dist
+packages/*/dist
+.next
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+*.tmp
+*.temp

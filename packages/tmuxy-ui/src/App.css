@@ -1,0 +1,61 @@
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #2d2d2d;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.app-container .pane-container {
+  margin-top: 8px;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.loading, .error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+.error {
+  flex-direction: column;
+}
+
+.error h2 {
+  color: #f48771;
+  margin-bottom: 1rem;
+}
+
+.pane-container {
+  background-color: #2d2d2d;
+}
+
+.pane-active {
+  z-index: 1;
+}
+
+.pane-single {
+  background-color: transparent;
+}
+
+.pane-single .pane-content {
+  background-color: transparent;
+}

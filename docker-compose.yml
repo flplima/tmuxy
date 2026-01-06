@@ -1,0 +1,44 @@
+services:
+  tmuxy-dev:
+    build: .
+    image: tmuxy-dev
+    container_name: tmuxy-dev
+    network_mode: host
+    stdin_open: true
+    tty: true
+    user: claude
+    working_dir: /workspace
+    volumes:
+      # Project workspace
+      - .:/workspace
+      # Container config files
+      - ./docker:/home/claude/docker:ro
+      # Dotfiles scripts (tmux-run, etc.)
+      - ~/dotfiles/scripts:/home/claude/dotfiles/scripts:ro
+      # pptr-cli (mounted at same path as host for script compatibility)
+      - ~/projects/workbench/pptr-cli:/home/felipe/projects/workbench/pptr-cli:ro
+      # Claude config (auth and settings)
+      - ~/.claude:/home/claude/.claude
+      # SSH keys for git
+      - ~/.ssh:/home/claude/.ssh:ro
+      # Cargo cache for faster builds
+      - tmuxy-cargo-registry:/usr/local/cargo/registry
+      - tmuxy-cargo-git:/usr/local/cargo/git
+    environment:
+      - CHROME_CDP_URL=http://localhost:9222
+      - TMUX_SESSION=dev
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 256m
+    mem_limit: 4g
+    command: >
+      bash -c '
+        cp /home/claude/docker/.tmuxy.conf /home/claude/.tmuxy.conf 2>/dev/null || true
+        tmux -f /home/claude/docker/.tmux-dev.conf new-session -d -s "$$TMUX_SESSION" 2>/dev/null || true
+        tmux send-keys -t "$$TMUX_SESSION" "claude --dangerously-skip-permissions" Enter
+        exec tmux attach-session -t "$$TMUX_SESSION"
+      '
+
+volumes:
+  tmuxy-cargo-registry:
+  tmuxy-cargo-git:

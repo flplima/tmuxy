@@ -1,0 +1,101 @@
+.pane-layout {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.pane-layout-single {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-layout-item {
+  border-radius: 4px;
+  overflow: hidden;
+  background: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* Animate position and size with CSS transitions (no scale transforms) */
+  transition: left 200ms ease-out, top 200ms ease-out, width 200ms ease-out, height 200ms ease-out, box-shadow 150ms ease-out;
+}
+
+/* Disable transitions during resize for immediate feedback */
+.pane-layout-resizing .pane-layout-item {
+  transition: box-shadow 150ms ease-out;
+}
+
+/* Disable ALL transitions during commit phase for instant updates */
+.pane-layout-committing .pane-layout-item {
+  transition: none;
+}
+
+.pane-layout-item.pane-active {
+  opacity: 1;
+}
+
+.pane-layout-item.pane-inactive {
+  opacity: 0.6;
+}
+
+.pane-layout-item.pane-inactive:hover {
+  opacity: 0.85;
+}
+
+/* During drag - the pane being dragged */
+.pane-layout-item.pane-dragging {
+  z-index: 100;
+  opacity: 0.85;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  cursor: grabbing;
+}
+
+/* Drop target indicator - shows where pane will land (swap) */
+.drop-target-indicator {
+  border: 2px dashed rgba(100, 150, 255, 0.8);
+  border-radius: 4px;
+  background: rgba(100, 150, 255, 0.1);
+  z-index: 50;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+
+/* Resize dividers */
+.resize-divider {
+  position: absolute;
+  background: transparent;
+  z-index: 50;
+}
+
+.resize-divider-h {
+  cursor: ns-resize;
+}
+
+.resize-divider-v {
+  cursor: ew-resize;
+}
+
+.resize-divider:hover {
+  background: rgba(100, 150, 255, 0.3);
+}
+
+.resize-divider:active {
+  background: rgba(100, 150, 255, 0.5);
+}
+
+/* During resize - add visual feedback */
+.pane-layout-resizing .resize-divider:active,
+.pane-layout-resizing .resize-divider {
+  background: rgba(100, 150, 255, 0.5);
+}
+
+/* Prevent text selection during drag/resize */
+.pane-layout-dragging,
+.pane-layout-resizing {
+  user-select: none;
+}

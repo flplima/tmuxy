@@ -1,0 +1,30 @@
+{
+  "name": "tmuxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A tmux terminal wrapper - available as Tauri app or web server",
+  "workspaces": ["packages/tmuxy-ui"],
+  "scripts": {
+    "claude": "./scripts/dev.sh",
+    "docker:attach": "docker exec -it tmuxy-dev bash",
+    "docker:attach:dev": "docker exec -it tmuxy-dev tmux attach-session -t dev",
+    "docker:attach:tmuxy": "docker exec -it tmuxy-dev tmux attach-session -t tmuxy",
+
+    "build": "npm run build -w tmuxy-ui",
+
+    "web:dev": "cargo run -p web-server -- --dev",
+    "web:build": "npm run build && cargo build -p web-server --release",
+    "web:start": "cargo run -p web-server --release",
+
+    "tauri:dev": "cargo tauri dev --manifest-path packages/tauri-app/Cargo.toml",
+    "tauri:build": "cargo tauri build --manifest-path packages/tauri-app/Cargo.toml",
+
+    "test": "npm run test -w tmuxy-ui",
+    "test:e2e": "jest --config tests/jest.config.js --runInBand"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
+    "jest": "^29.7.0",
+    "puppeteer": "^24.0.0"
+  }
+}

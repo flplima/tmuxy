@@ -1,0 +1,104 @@
+/* Rich Content Styles */
+
+/* Hyperlinks */
+.rich-link {
+  color: #6ab0f3;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.rich-link:hover {
+  color: #8cc4ff;
+  text-decoration-style: solid;
+}
+
+.rich-link:active {
+  color: #4a9ae8;
+}
+
+.rich-link-invalid {
+  color: inherit;
+  /* No special styling for invalid links */
+}
+
+/* Images */
+.rich-image-container {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 2px 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.rich-image-container.rich-image-loaded {
+  opacity: 1;
+}
+
+.rich-image {
+  display: block;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.rich-image-error {
+  display: inline-block;
+  padding: 2px 6px;
+  background-color: rgba(229, 57, 53, 0.2);
+  border: 1px solid rgba(229, 57, 53, 0.4);
+  border-radius: 3px;
+  color: #e57373;
+  font-size: 0.85em;
+  font-family: inherit;
+}
+
+/* Image hover effects */
+.rich-image:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  cursor: zoom-in;
+}
+
+/* Image lightbox (future enhancement) */
+.rich-image-lightbox {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+}
+
+.rich-image-lightbox img {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+/* Animation for loading images */
+@keyframes rich-image-pulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.rich-image-container:not(.rich-image-loaded)::before {
+  content: '';
+  display: inline-block;
+  width: 48px;
+  height: 32px;
+  background: linear-gradient(90deg, #333 25%, #444 50%, #333 75%);
+  background-size: 200% 100%;
+  animation: rich-image-pulse 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}

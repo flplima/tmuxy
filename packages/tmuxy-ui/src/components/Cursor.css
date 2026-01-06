@@ -1,0 +1,42 @@
+.terminal-cursor {
+  background-color: #d4d4d4;
+  color: #1e1e1e;
+}
+
+.terminal-cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+.terminal-cursor-inactive {
+  background-color: transparent;
+  outline: 1px solid #888;
+  color: inherit;
+}
+
+.terminal-cursor-copy {
+  background-color: #264f78;
+  color: #d4d4d4;
+}
+
+.terminal-cursor-underline {
+  background-color: transparent;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: #d4d4d4;
+  text-decoration-thickness: 2px;
+}
+
+.terminal-cursor-bar {
+  background-color: transparent;
+  color: inherit;
+  border-left: 2px solid #d4d4d4;
+}
+
+@keyframes cursor-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}

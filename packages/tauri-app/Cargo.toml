@@ -1,0 +1,16 @@
+[package]
+name = "tauri-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Tmuxy Tauri desktop application"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tmuxy-core = { path = "../tmuxy-core" }

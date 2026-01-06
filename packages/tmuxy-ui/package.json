@@ -1,0 +1,35 @@
+{
+  "name": "tmuxy-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "@xstate/react": "^6.0.0",
+    "anser": "^2.3.5",
+    "ansi-to-html": "^0.7.2",
+    "framer-motion": "^12.23.26",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "xstate": "^5.25.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.2.6",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "happy-dom": "^20.0.10",
+    "jsdom": "^27.2.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.12"
+  }
+}
