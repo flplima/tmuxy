@@ -7,18 +7,17 @@
 
 use super::connection::ControlModeConnection;
 use super::parser::ControlModeEvent;
-use super::state::StateAggregator;
-use crate::TmuxState;
-use std::time::Duration;
-use tokio::time::interval;
+use super::state::{ChangeType, StateAggregator};
+use crate::{StateUpdate, TmuxState};
+use std::time::{Duration, Instant};
 
 /// Trait for emitting state changes (adapter pattern).
 ///
 /// Implement this trait in web-server (WebSocketEmitter) and tauri-app (TauriEmitter)
 /// to receive state updates from the monitor.
 pub trait StateEmitter: Send + Sync {
-    /// Called when tmux state changes
-    fn emit_state(&self, state: TmuxState);
+    /// Called when tmux state changes (full or delta update)
+    fn emit_state(&self, update: StateUpdate);
 
     /// Called when an error occurs
     fn emit_error(&self, error: String);
@@ -35,6 +34,11 @@ pub struct MonitorConfig {
 
     /// Whether to create the session if it doesn't exist
     pub create_session: bool,
+
+    /// Minimum interval between output-triggered state emissions (debounce).
+    /// Set to 0 to disable debouncing.
+    /// Recommended: 16ms (60fps) for smooth but efficient updates.
+    pub output_debounce: Duration,
 }
 
 impl Default for MonitorConfig {
@@ -43,6 +47,7 @@ impl Default for MonitorConfig {
             session: String::new(),
             sync_interval: Duration::from_millis(500),
             create_session: false,
+            output_debounce: Duration::from_millis(16), // ~60fps
         }
     }
 }
@@ -95,9 +100,10 @@ impl TmuxMonitor {
                 "#{pane_left},#{pane_top},",
                 "#{pane_width},#{pane_height},",
                 "#{cursor_x},#{cursor_y},",
-                "#{pane_active},#{pane_current_command},",
+                "#{pane_active},#{pane_current_command},#{pane_title},",
                 "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
-                "#{window_id}'"
+                "#{window_id},#{T:pane-border-format},",
+                "#{alternate_on},#{mouse_any_flag}'"
             ))
             .await?;
 
@@ -119,10 +125,31 @@ impl TmuxMonitor {
             return;
         }
 
-        // Periodic sync interval for cursor position updates
-        let mut sync_timer = interval(self.config.sync_interval);
+        // Dynamic sync interval: 500ms normally, 50ms when a pane is in copy mode
+        // (copy mode cursor position is only available via list-panes, so faster polling is needed)
+        let copy_mode_sync_interval = Duration::from_millis(50);
+        let mut last_sync = tokio::time::Instant::now();
+        // Initial delay before first sync to let captures complete
+        let mut next_sync_at = tokio::time::Instant::now() + self.config.sync_interval + Duration::from_secs(1);
+
+        // Debouncing state for output events
+        let mut last_output_emit = Instant::now() - self.config.output_debounce;
+        let mut pending_output_emit = false;
+        let debounce_enabled = !self.config.output_debounce.is_zero();
 
         loop {
+            // Calculate debounce timeout
+            let debounce_sleep = if pending_output_emit && debounce_enabled {
+                let elapsed = last_output_emit.elapsed();
+                if elapsed >= self.config.output_debounce {
+                    Duration::ZERO
+                } else {
+                    self.config.output_debounce - elapsed
+                }
+            } else {
+                Duration::from_secs(3600) // Effectively infinite
+            };
+
             tokio::select! {
                 // Process control mode events
                 event = self.connection.recv() => {
@@ -135,20 +162,48 @@ impl TmuxMonitor {
                         Some(event) => {
                             let result = self.aggregator.process_event(event);
 
-                            // Request content refresh for resized panes
-                            for pane_id in &result.panes_needing_refresh {
-                                // Queue the pane ID first so we can match the response
-                                self.aggregator.queue_capture(pane_id.clone());
-                                // Use capture-pane -e to include escape sequences
-                                let cmd = format!("capture-pane -t {} -p -e", pane_id);
-                                if let Err(e) = self.connection.send_command(&cmd).await {
-                                    emitter.emit_error(format!("Failed to capture pane {}: {}", pane_id, e));
+                            // Request content refresh for resized panes (batched for efficiency)
+                            if !result.panes_needing_refresh.is_empty() {
+                                // Build batch of capture-pane commands
+                                let commands: Vec<String> = result
+                                    .panes_needing_refresh
+                                    .iter()
+                                    .map(|pane_id| format!("capture-pane -t {} -p -e", pane_id))
+                                    .collect();
+
+                                // Queue the pane IDs first (before sending commands)
+                                // so they're ready when responses arrive
+                                self.aggregator.queue_captures(&result.panes_needing_refresh);
+
+                                // Send all commands with single flush
+                                if let Err(e) = self.connection.send_commands_batch(&commands).await {
+                                    emitter.emit_error(format!("Failed to batch capture panes: {}", e));
                                 }
                             }
 
                             if result.state_changed {
-                                let state = self.aggregator.to_tmux_state();
-                                emitter.emit_state(state);
+                                // Debounce output events, emit others immediately
+                                let should_debounce = debounce_enabled
+                                    && matches!(result.change_type, ChangeType::PaneOutput { .. });
+
+                                if should_debounce {
+                                    // Mark that we have pending output to emit
+                                    pending_output_emit = true;
+
+                                    // If enough time has passed, emit now
+                                    if last_output_emit.elapsed() >= self.config.output_debounce {
+                                        let update = self.aggregator.to_state_update();
+                                        emitter.emit_state(update);
+                                        last_output_emit = Instant::now();
+                                        pending_output_emit = false;
+                                    }
+                                } else {
+                                    // Non-output changes emit immediately
+                                    let update = self.aggregator.to_state_update();
+                                    emitter.emit_state(update);
+                                    last_output_emit = Instant::now();
+                                    pending_output_emit = false;
+                                }
                             }
                         }
                         None => {
@@ -158,29 +213,59 @@ impl TmuxMonitor {
                     }
                 }
 
-                // Periodic state sync
-                _ = sync_timer.tick() => {
-                    // Query window info (for window names, needed for stack detection)
-                    if let Err(e) = self.connection
-                        .send_command("list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active}'")
-                        .await
-                    {
-                        emitter.emit_error(format!("Failed to sync window state: {}", e));
+                // Debounce timer - emit pending output
+                _ = tokio::time::sleep(debounce_sleep), if pending_output_emit => {
+                    let update = self.aggregator.to_state_update();
+                    emitter.emit_state(update);
+                    last_output_emit = Instant::now();
+                    pending_output_emit = false;
+                }
+
+                // Periodic state sync (dynamic interval based on copy mode)
+                _ = tokio::time::sleep_until(next_sync_at) => {
+                    let in_copy_mode = self.aggregator.has_pane_in_copy_mode();
+
+                    // In copy mode, only query pane info (for cursor position)
+                    // to minimize latency. Full sync (with list-windows) runs at normal interval.
+                    let sync_commands = if in_copy_mode && last_sync.elapsed() < self.config.sync_interval {
+                        vec![
+                            concat!(
+                                "list-panes -s -F '",
+                                "#{pane_id},#{pane_index},",
+                                "#{pane_left},#{pane_top},",
+                                "#{pane_width},#{pane_height},",
+                                "#{cursor_x},#{cursor_y},",
+                                "#{pane_active},#{pane_current_command},#{pane_title},",
+                                "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+                                "#{window_id},#{T:pane-border-format},",
+                                "#{alternate_on},#{mouse_any_flag}'"
+                            ).to_string(),
+                        ]
+                    } else {
+                        last_sync = tokio::time::Instant::now();
+                        vec![
+                            "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active}'".to_string(),
+                            concat!(
+                                "list-panes -s -F '",
+                                "#{pane_id},#{pane_index},",
+                                "#{pane_left},#{pane_top},",
+                                "#{pane_width},#{pane_height},",
+                                "#{cursor_x},#{cursor_y},",
+                                "#{pane_active},#{pane_current_command},#{pane_title},",
+                                "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+                                "#{window_id},#{T:pane-border-format},",
+                                "#{alternate_on},#{mouse_any_flag}'"
+                            ).to_string(),
+                        ]
+                    };
+
+                    if let Err(e) = self.connection.send_commands_batch(&sync_commands).await {
+                        emitter.emit_error(format!("Failed to sync state: {}", e));
                     }
 
-                    // Query pane info for cursor position (current session only)
-                    if let Err(e) = self.connection.send_command(concat!(
-                        "list-panes -s -F '",
-                        "#{pane_id},#{pane_index},",
-                        "#{pane_left},#{pane_top},",
-                        "#{pane_width},#{pane_height},",
-                        "#{cursor_x},#{cursor_y},",
-                        "#{pane_active},#{pane_current_command},",
-                        "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
-                        "#{window_id}'"
-                    )).await {
-                        emitter.emit_error(format!("Failed to sync pane state: {}", e));
-                    }
+                    // Schedule next sync: fast in copy mode, normal otherwise
+                    let interval = if in_copy_mode { copy_mode_sync_interval } else { self.config.sync_interval };
+                    next_sync_at = tokio::time::Instant::now() + interval;
                 }
             }
         }
@@ -194,7 +279,7 @@ impl TmuxMonitor {
     }
 
     /// Get current state without waiting for events.
-    pub fn current_state(&self) -> TmuxState {
+    pub fn current_state(&mut self) -> TmuxState {
         self.aggregator.to_tmux_state()
     }
 
@@ -214,57 +299,19 @@ impl TmuxMonitor {
     }
 }
 
-/// Helper function to run the monitor with automatic reconnection.
-pub async fn run_with_reconnect<E: StateEmitter>(
-    config: MonitorConfig,
-    emitter: &E,
-    max_retries: u32,
-) {
-    let mut retries = 0;
-    let mut backoff = Duration::from_millis(100);
-    const MAX_BACKOFF: Duration = Duration::from_secs(10);
-
-    loop {
-        match TmuxMonitor::connect(config.clone()).await {
-            Ok(mut monitor) => {
-                retries = 0;
-                backoff = Duration::from_millis(100);
-
-                monitor.run(emitter).await;
-
-                // If we get here, the connection was closed
-                // Continue to reconnect
-            }
-            Err(e) => {
-                emitter.emit_error(format!("Failed to connect: {}", e));
-            }
-        }
-
-        retries += 1;
-        if retries > max_retries {
-            emitter.emit_error("Max reconnection attempts reached".to_string());
-            break;
-        }
-
-        // Exponential backoff
-        tokio::time::sleep(backoff).await;
-        backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
     struct TestEmitter {
-        states: Arc<Mutex<Vec<TmuxState>>>,
+        updates: Arc<Mutex<Vec<StateUpdate>>>,
         errors: Arc<Mutex<Vec<String>>>,
     }
 
     impl StateEmitter for TestEmitter {
-        fn emit_state(&self, state: TmuxState) {
-            self.states.lock().unwrap().push(state);
+        fn emit_state(&self, update: StateUpdate) {
+            self.updates.lock().unwrap().push(update);
         }
 
         fn emit_error(&self, error: String) {

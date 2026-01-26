@@ -194,6 +194,14 @@ pub struct TmuxPane {
     pub in_mode: bool, // true if in copy mode
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
+    /// True if the application is in alternate screen mode (vim, less, htop)
+    /// Used to determine scroll behavior (wheel -> arrow keys vs copy mode)
+    #[serde(default)]
+    pub alternate_on: bool,
+    /// True if the application has mouse tracking enabled
+    /// When true, mouse events should be forwarded as SGR sequences
+    #[serde(default)]
+    pub mouse_any_flag: bool,
 }
 
 /// A single tmux window (tab)
@@ -337,6 +345,12 @@ pub struct PaneDelta {
     pub copy_cursor_x: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub copy_cursor_y: Option<u32>,
+    /// Alternate screen mode (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alternate_on: Option<bool>,
+    /// Mouse any flag (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mouse_any_flag: Option<bool>,
 }
 
 impl PaneDelta {
@@ -355,6 +369,8 @@ impl PaneDelta {
             && self.in_mode.is_none()
             && self.copy_cursor_x.is_none()
             && self.copy_cursor_y.is_none()
+            && self.alternate_on.is_none()
+            && self.mouse_any_flag.is_none()
     }
 }
 
@@ -551,6 +567,9 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             in_mode: info.in_mode,
             copy_cursor_x: info.copy_cursor_x,
             copy_cursor_y: info.copy_cursor_y,
+            // These are populated in control mode, not available in polling mode
+            alternate_on: false,
+            mouse_any_flag: false,
         });
     }
 

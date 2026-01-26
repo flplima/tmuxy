@@ -23,6 +23,10 @@ export interface TmuxPane {
   inMode: boolean;
   copyCursorX: number;
   copyCursorY: number;
+  /** True if application is in alternate screen mode (vim, less, htop) */
+  alternateOn: boolean;
+  /** True if application has mouse tracking enabled */
+  mouseAnyFlag: boolean;
 }
 
 export interface TmuxWindow {
@@ -131,6 +135,8 @@ export interface ServerPane {
   in_mode: boolean;
   copy_cursor_x: number;
   copy_cursor_y: number;
+  alternate_on?: boolean;
+  mouse_any_flag?: boolean;
 }
 
 export interface ServerWindow {
@@ -187,6 +193,8 @@ export interface PaneDelta {
   in_mode?: boolean;
   copy_cursor_x?: number;
   copy_cursor_y?: number;
+  alternate_on?: boolean;
+  mouse_any_flag?: boolean;
 }
 
 export interface WindowDelta {

@@ -89,6 +89,12 @@ pub struct PaneState {
     /// Tmux-reported cursor position (authoritative)
     pub tmux_cursor_x: u32,
     pub tmux_cursor_y: u32,
+
+    /// Whether application is in alternate screen mode (vim, less, htop)
+    pub alternate_on: bool,
+
+    /// Whether application wants mouse events (mouse tracking enabled)
+    pub mouse_any_flag: bool,
 }
 
 impl PaneState {
@@ -112,6 +118,8 @@ impl PaneState {
             copy_cursor_y: 0,
             tmux_cursor_x: 0,
             tmux_cursor_y: 0,
+            alternate_on: false,
+            mouse_any_flag: false,
         }
     }
 
@@ -203,6 +211,8 @@ impl PaneState {
             in_mode: self.in_mode,
             copy_cursor_x: self.copy_cursor_x,
             copy_cursor_y: self.copy_cursor_y,
+            alternate_on: self.alternate_on,
+            mouse_any_flag: self.mouse_any_flag,
         }
     }
 }
@@ -895,7 +905,7 @@ impl StateAggregator {
     }
 
     /// Parse a line from list-panes output.
-    /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,title,in_mode,copy_x,copy_y,window_id`
+    /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,title,in_mode,copy_x,copy_y,window_id,border_title,alternate_on,mouse_any_flag`
     /// Returns (pane_id, needs_capture) if successfully parsed.
     /// needs_capture is true if pane is new OR was resized.
     fn parse_list_panes_line(&mut self, line: &str) -> Option<(String, bool)> {
@@ -923,11 +933,29 @@ impl StateAggregator {
         let copy_cursor_x: u32 = parts.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
         let copy_cursor_y: u32 = parts.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
         let window_id = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
-        // border_title is the last field and may contain commas, so join remaining parts
-        let border_title = if parts.len() > 15 {
-            parts[15..].join(",")
+
+        // Parse remaining fields, handling border_title which may contain commas
+        // Fields after window_id: border_title (may have commas), alternate_on, mouse_any_flag
+        // We parse from the end to find the known fixed fields
+        let remaining_parts = if parts.len() > 15 { &parts[15..] } else { &[] };
+
+        // The last two fields should be alternate_on and mouse_any_flag
+        let (border_title, alternate_on, mouse_any_flag) = if remaining_parts.len() >= 2 {
+            let last_idx = remaining_parts.len() - 1;
+            let mouse_flag = remaining_parts[last_idx] == "1";
+            let alt_on = remaining_parts[last_idx - 1] == "1";
+            // Everything before the last two fields is border_title
+            let title_parts = if remaining_parts.len() > 2 {
+                remaining_parts[..remaining_parts.len() - 2].join(",")
+            } else {
+                String::new()
+            };
+            (title_parts, alt_on, mouse_flag)
+        } else if remaining_parts.len() == 1 {
+            // Only border_title, no mouse flags (old format compat)
+            (remaining_parts[0].to_string(), false, false)
         } else {
-            String::new()
+            (String::new(), false, false)
         };
 
         let pane_id_string = pane_id.to_string();
@@ -952,6 +980,8 @@ impl StateAggregator {
         pane.copy_cursor_x = copy_cursor_x;
         pane.copy_cursor_y = copy_cursor_y;
         pane.window_id = window_id;
+        pane.alternate_on = alternate_on;
+        pane.mouse_any_flag = mouse_any_flag;
 
         // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = cursor_x;
@@ -1206,6 +1236,12 @@ impl StateAggregator {
         }
         if prev.copy_cursor_y != curr.copy_cursor_y {
             delta.copy_cursor_y = Some(curr.copy_cursor_y);
+        }
+        if prev.alternate_on != curr.alternate_on {
+            delta.alternate_on = Some(curr.alternate_on);
+        }
+        if prev.mouse_any_flag != curr.mouse_any_flag {
+            delta.mouse_any_flag = Some(curr.mouse_any_flag);
         }
 
         delta
