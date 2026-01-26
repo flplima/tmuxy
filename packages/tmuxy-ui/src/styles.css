@@ -716,7 +716,6 @@ body {
 /* Tmux Button */
 .tmux-button-container {
   position: relative;
-  margin-left: var(--spacing-xl);
 }
 
 .tmux-button {
@@ -1012,4 +1011,180 @@ body {
   width: 12px;
   height: 12px;
   cursor: sw-resize;
+}
+
+/* ============================================
+   Status Bar Actions
+   ============================================ */
+
+.statusbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+/* ============================================
+   File Picker
+   ============================================ */
+
+.file-picker-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  background-color: var(--bg-medium);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.file-picker-button:hover {
+  background-color: var(--bg-elevated-alt);
+  border-color: var(--bg-highlight-alt);
+  color: var(--text-primary);
+}
+
+.file-picker-button.active {
+  background-color: var(--accent-green-bg);
+  border-color: var(--accent-green-border);
+  color: var(--accent-green-bright);
+}
+
+.file-picker-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1100;
+  display: flex;
+  pointer-events: none;
+}
+
+.file-picker {
+  position: absolute;
+  top: var(--statusbar-height);
+  right: 0;
+  width: 320px;
+  max-height: calc(100vh - var(--statusbar-height) - 60px);
+  background-color: var(--bg-dark);
+  border: 1px solid var(--border-medium);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: -4px 4px 16px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.file-picker-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background-color: var(--bg-medium);
+  border-bottom: 1px solid var(--border-medium);
+}
+
+.file-picker-up,
+.file-picker-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.file-picker-up:hover,
+.file-picker-close:hover {
+  background-color: var(--bg-highlight);
+  color: var(--text-primary);
+}
+
+.file-picker-path {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-picker-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-sm);
+}
+
+.file-picker-loading,
+.file-picker-error,
+.file-picker-empty {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+}
+
+.file-picker-error {
+  color: var(--error-text);
+}
+
+.file-tree {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.file-tree-item:hover {
+  background-color: var(--bg-highlight);
+}
+
+.file-tree-item.selected {
+  background-color: var(--accent-blue-bg-hover);
+}
+
+.file-tree-item.is-dir {
+  color: var(--accent-green);
+}
+
+.file-tree-item.is-dir i {
+  color: var(--accent-green);
+}
+
+.file-tree-item i {
+  width: 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.file-tree-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-symlink {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }

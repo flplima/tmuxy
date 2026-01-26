@@ -8,13 +8,15 @@ use axum::{
     routing::get,
     Router,
 };
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::process::Stdio;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::signal;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tmuxy_core::session;
@@ -55,10 +57,33 @@ impl ViteChild {
     }
 }
 
-#[derive(Clone)]
+/// Tracks connections for a single tmux session
+pub struct SessionConnections {
+    /// ID of the primary (controlling) connection, if any
+    pub primary_id: Option<u64>,
+    /// All connection IDs in order of connection time
+    pub connections: Vec<u64>,
+    /// Channels to send messages to specific connections (for primary_changed notifications)
+    pub connection_channels: HashMap<u64, mpsc::Sender<String>>,
+}
+
+impl SessionConnections {
+    pub fn new() -> Self {
+        Self {
+            primary_id: None,
+            connections: Vec::new(),
+            connection_channels: HashMap::new(),
+        }
+    }
+}
+
 pub struct AppState {
     pub broadcast_tx: broadcast::Sender<String>,
     pub dev_mode: bool,
+    /// Per-session connection tracking
+    pub sessions: RwLock<HashMap<String, SessionConnections>>,
+    /// Counter for generating unique connection IDs
+    pub next_conn_id: AtomicU64,
 }
 
 #[tokio::main]
@@ -82,6 +107,8 @@ async fn main() {
     let state = Arc::new(AppState {
         broadcast_tx: broadcast_tx.clone(),
         dev_mode,
+        sessions: RwLock::new(HashMap::new()),
+        next_conn_id: AtomicU64::new(1),
     });
 
     // Note: Per-connection monitoring is now started in handle_socket
@@ -103,9 +130,13 @@ async fn main() {
     let app = if dev_mode {
         // Dev mode: proxy to Vite
         // - /ws: our tmux websocket
+        // - /api/snapshot: tmux state snapshot for debugging
+        // - /api/directory: directory listing for file picker
         // - everything else: proxy to Vite (HTTP and WebSocket)
         Router::new()
             .route("/ws", get(ws_handler))
+            .route("/api/snapshot", get(snapshot_handler))
+            .route("/api/directory", get(directory_handler))
             .fallback_service(tower::service_fn(|req: Request| async move {
                 Ok::<_, std::convert::Infallible>(proxy_to_vite(req).await)
             }))
@@ -114,6 +145,8 @@ async fn main() {
     } else {
         Router::new()
             .route("/ws", get(ws_handler))
+            .route("/api/snapshot", get(snapshot_handler))
+            .route("/api/directory", get(directory_handler))
             .fallback_service(ServeDir::new("dist"))
             .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any))
             .with_state(state)
@@ -170,6 +203,37 @@ async fn shutdown_signal(vite_child: Option<ViteChild>) {
 #[derive(Debug, serde::Deserialize)]
 struct WsQuery {
     session: Option<String>,
+}
+
+/// Query parameters for directory listing
+#[derive(Debug, serde::Deserialize)]
+struct DirectoryQuery {
+    path: Option<String>,
+}
+
+/// Handler to list directory contents for file picker
+async fn directory_handler(
+    Query(query): Query<DirectoryQuery>,
+) -> Response {
+    let path = query.path.unwrap_or_else(|| "/".to_string());
+
+    match websocket::list_directory(&path) {
+        Ok(entries) => {
+            Response::builder()
+                .status(axum::http::StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&entries).unwrap()))
+                .unwrap()
+        }
+        Err(e) => {
+            let error = serde_json::json!({ "error": e });
+            Response::builder()
+                .status(axum::http::StatusCode::BAD_REQUEST)
+                .header("Content-Type", "application/json")
+                .body(Body::from(error.to_string()))
+                .unwrap()
+        }
+    }
 }
 
 async fn ws_handler(
@@ -348,4 +412,123 @@ async fn spawn_vite_dev_server() -> Option<ViteChild> {
 
     #[cfg(not(unix))]
     return None; // On non-Unix, we rely on tokio's kill_on_drop
+}
+
+/// Query parameters for snapshot endpoint
+#[derive(Debug, serde::Deserialize)]
+struct SnapshotQuery {
+    session: Option<String>,
+}
+
+/// Handler to capture tmux state snapshot for debugging.
+/// Returns JSON: { rows: number, cols: number, lines: string[] }
+async fn snapshot_handler(
+    Query(query): Query<SnapshotQuery>,
+) -> Response {
+    let session = query.session.unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
+
+    // Find the workspace root
+    let workspace_root = std::env::current_dir()
+        .ok()
+        .and_then(|p| {
+            let mut current = p;
+            loop {
+                let pkg_json = current.join("package.json");
+                if pkg_json.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&pkg_json) {
+                        if content.contains("\"workspaces\"") {
+                            return Some(current);
+                        }
+                    }
+                }
+                if !current.pop() {
+                    break;
+                }
+            }
+            None
+        })
+        .unwrap_or_else(|| std::env::current_dir().unwrap());
+
+    let release_path = workspace_root.join("target/release/tmux-capture");
+    let debug_path = workspace_root.join("target/debug/tmux-capture");
+
+    let binary_path = if release_path.exists() {
+        release_path
+    } else if debug_path.exists() {
+        debug_path
+    } else {
+        let json = serde_json::json!({
+            "error": "tmux-capture binary not found. Run: cargo build -p tmuxy-core --bin tmux-capture",
+        });
+        return Response::builder()
+            .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json.to_string()))
+            .unwrap();
+    };
+
+    // Run tmux-capture from workspace root so relative paths work
+    let output = match std::process::Command::new(&binary_path)
+        .args([&session, "200"])
+        .current_dir(&workspace_root)
+        .output()
+    {
+        Ok(output) => output,
+        Err(e) => {
+            let json = serde_json::json!({
+                "error": format!("Failed to run tmux-capture: {}", e),
+            });
+            return Response::builder()
+                .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json.to_string()))
+                .unwrap();
+        }
+    };
+
+    if !output.status.success() {
+        let json = serde_json::json!({
+            "error": format!("tmux-capture failed: {}", String::from_utf8_lossy(&output.stderr)),
+        });
+        return Response::builder()
+            .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json.to_string()))
+            .unwrap();
+    }
+
+    // Output is the relative path to the snapshot file - resolve it from workspace root
+    let relative_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let snapshot_path = workspace_root.join(&relative_path);
+
+    // Read the snapshot file and return as JSON with rows, cols, and lines
+    match std::fs::read_to_string(&snapshot_path) {
+        Ok(content) => {
+            let lines: Vec<&str> = content.lines().collect();
+            let rows = lines.len();
+            let cols = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+
+            let json = serde_json::json!({
+                "rows": rows,
+                "cols": cols,
+                "lines": lines,
+            });
+
+            Response::builder()
+                .status(axum::http::StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json.to_string()))
+                .unwrap()
+        }
+        Err(e) => {
+            let json = serde_json::json!({
+                "error": format!("Failed to read snapshot file '{}': {}", snapshot_path.display(), e),
+            });
+            Response::builder()
+                .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json.to_string()))
+                .unwrap()
+        }
+    }
 }
