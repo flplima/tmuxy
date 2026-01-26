@@ -69,8 +69,8 @@ export function transformServerState(payload: ServerState): {
 }
 
 /**
- * Build groups from window names.
- * Group windows have the pattern: __%{pane_id}_group_{n}
+ * Build pane groups from window names.
+ * Pane group windows have the pattern: __%{pane_id}_group_{n}
  * After a swap, the "parent" pane may be in a hidden window, so we need to
  * determine which pane is actually visible (in the active window).
  *
@@ -84,34 +84,34 @@ export function buildGroupsFromWindows(
 ): Record<string, { id: string; paneIds: string[]; activeIndex: number }> {
   const groups: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {};
 
-  // Find all group windows and group by parent pane
-  const groupWindowsByParent = new Map<string, TmuxWindow[]>();
+  // Find all pane group windows and group by parent pane
+  const paneGroupWindowsByParent = new Map<string, TmuxWindow[]>();
   for (const window of windows) {
-    if (window.isGroupWindow && window.groupParentPane) {
-      const parentId = window.groupParentPane;
-      if (!groupWindowsByParent.has(parentId)) {
-        groupWindowsByParent.set(parentId, []);
+    if (window.isPaneGroupWindow && window.paneGroupParentPane) {
+      const parentId = window.paneGroupParentPane;
+      if (!paneGroupWindowsByParent.has(parentId)) {
+        paneGroupWindowsByParent.set(parentId, []);
       }
-      groupWindowsByParent.get(parentId)!.push(window);
+      paneGroupWindowsByParent.get(parentId)!.push(window);
     }
   }
 
-  // Build groups from grouped windows
-  for (const [parentPaneId, groupWindows] of groupWindowsByParent) {
-    // Sort by group index
-    groupWindows.sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
+  // Build groups from pane group windows
+  for (const [parentPaneId, paneGroupWindows] of paneGroupWindowsByParent) {
+    // Sort by pane group index
+    paneGroupWindows.sort((a, b) => (a.paneGroupIndex ?? 0) - (b.paneGroupIndex ?? 0));
 
     // Get existing group paneIds if available (preserves membership across swaps)
     const existingGroup = existingGroups[parentPaneId];
     const existingPaneIds = existingGroup?.paneIds || [];
 
     // Collect ALL panes that are part of this group
-    // Sources: existing membership + parent + panes in group windows
+    // Sources: existing membership + parent + panes in pane group windows
     const allGroupPaneIds = new Set<string>(existingPaneIds);
     allGroupPaneIds.add(parentPaneId);
 
-    for (const groupWindow of groupWindows) {
-      const paneInWindow = panes.find((p) => p.windowId === groupWindow.id);
+    for (const paneGroupWindow of paneGroupWindows) {
+      const paneInWindow = panes.find((p) => p.windowId === paneGroupWindow.id);
       if (paneInWindow) {
         allGroupPaneIds.add(paneInWindow.tmuxId);
       }

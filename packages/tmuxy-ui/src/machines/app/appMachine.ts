@@ -398,8 +398,8 @@ export const appMachine = setup({
           })),
         },
 
-        // Group Operations
-        GROUP_ADD_PANE: {
+        // Pane Group Operations
+        PANE_GROUP_ADD: {
           actions: sendTo('tmux', ({ context, event }) => {
             const group = context.groups[event.paneId];
             const nextIndex = group ? group.paneIds.length : 1;
@@ -412,7 +412,7 @@ export const appMachine = setup({
             };
           }),
         },
-        GROUP_SWITCH: {
+        PANE_GROUP_SWITCH: {
           actions: enqueueActions(({ context, event, enqueue }) => {
             const group = context.groups[event.groupId];
             if (!group) return;
@@ -434,7 +434,7 @@ export const appMachine = setup({
             );
           }),
         },
-        GROUP_CLOSE_PANE: {
+        PANE_GROUP_CLOSE: {
           actions: enqueueActions(({ context, event, enqueue }) => {
             const group = context.groups[event.groupId];
             if (!group) return;
@@ -447,7 +447,7 @@ export const appMachine = setup({
             if (!paneToClose) return;
 
             const windowWithPane = context.windows.find((w) => w.id === paneToClose.windowId);
-            const isInGroupWindow = windowWithPane?.isGroupWindow ?? false;
+            const isInPaneGroupWindow = windowWithPane?.isPaneGroupWindow ?? false;
 
             if (isClosingVisible && group.paneIds.length > 1) {
               // Closing the visible pane - need to swap another pane into view first
@@ -458,9 +458,9 @@ export const appMachine = setup({
               // Find where the next pane is
               const nextPane = context.panes.find((p) => p.tmuxId === nextPaneId);
               const nextWindow = nextPane ? context.windows.find((w) => w.id === nextPane.windowId) : null;
-              const nextIsInGroupWindow = nextWindow?.isGroupWindow ?? false;
+              const nextIsInPaneGroupWindow = nextWindow?.isPaneGroupWindow ?? false;
 
-              if (nextIsInGroupWindow && nextWindow) {
+              if (nextIsInPaneGroupWindow && nextWindow) {
                 // Swap the visible pane with next, then kill the now-hidden window
                 enqueue(
                   sendTo('tmux', {
@@ -473,8 +473,8 @@ export const appMachine = setup({
             }
 
             // Closing a non-visible pane or last pane in group
-            if (isInGroupWindow && windowWithPane) {
-              // Pane is in a group window - kill the window
+            if (isInPaneGroupWindow && windowWithPane) {
+              // Pane is in a pane group window - kill the window
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,

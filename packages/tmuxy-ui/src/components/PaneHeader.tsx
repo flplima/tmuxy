@@ -24,7 +24,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
     e.preventDefault();
     e.stopPropagation();
     if (group && group.paneIds.length > 1) {
-      send({ type: 'GROUP_CLOSE_PANE', groupId: group.id, paneId: closePaneId });
+      send({ type: 'PANE_GROUP_CLOSE', groupId: group.id, paneId: closePaneId });
     } else {
       send({ type: 'FOCUS_PANE', paneId: closePaneId });
       send({ type: 'SEND_COMMAND', command: 'kill-pane' });
@@ -35,7 +35,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
     e.preventDefault();
     e.stopPropagation();
     if (group) {
-      send({ type: 'GROUP_SWITCH', groupId: group.id, paneId: switchPaneId });
+      send({ type: 'PANE_GROUP_SWITCH', groupId: group.id, paneId: switchPaneId });
     }
   };
 

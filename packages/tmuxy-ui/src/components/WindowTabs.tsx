@@ -19,8 +19,8 @@ export function WindowTabs() {
 
   const [hoveredWindow, setHoveredWindow] = useState<number | null>(null);
 
-  // Filter out group windows (they are hidden and managed separately)
-  const visibleWindows = windows.filter((w) => !w.isGroupWindow);
+  // Filter out pane group windows (they are hidden and managed separately)
+  const visibleWindows = windows.filter((w) => !w.isPaneGroupWindow);
   const hasMultipleWindows = visibleWindows.length > 1;
 
   const handleWindowClick = useCallback(

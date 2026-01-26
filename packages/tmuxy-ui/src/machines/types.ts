@@ -240,10 +240,10 @@ export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
 export type SendCommandEvent = { type: 'SEND_COMMAND'; command: string };
 export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 
-// Group events
-export type GroupAddPaneEvent = { type: 'GROUP_ADD_PANE'; paneId: string };
-export type GroupSwitchEvent = { type: 'GROUP_SWITCH'; groupId: string; paneId: string };
-export type GroupClosePaneEvent = { type: 'GROUP_CLOSE_PANE'; groupId: string; paneId: string };
+// Pane group events
+export type PaneGroupAddEvent = { type: 'PANE_GROUP_ADD'; paneId: string };
+export type PaneGroupSwitchEvent = { type: 'PANE_GROUP_SWITCH'; groupId: string; paneId: string };
+export type PaneGroupCloseEvent = { type: 'PANE_GROUP_CLOSE'; groupId: string; paneId: string };
 
 // Float events
 export type ToggleFloatViewEvent = { type: 'TOGGLE_FLOAT_VIEW' };
@@ -283,9 +283,9 @@ export type AppMachineEvent =
   | FocusPaneEvent
   | SendCommandEvent
   | SendKeysEvent
-  | GroupAddPaneEvent
-  | GroupSwitchEvent
-  | GroupClosePaneEvent
+  | PaneGroupAddEvent
+  | PaneGroupSwitchEvent
+  | PaneGroupCloseEvent
   | ToggleFloatViewEvent
   | CreateFloatEvent
   | ConvertToFloatEvent
