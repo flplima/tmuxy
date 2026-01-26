@@ -79,79 +79,10 @@ function captureTmuxSnapshot(sessionName) {
   throw new Error(`Snapshot file not found: ${result}`);
 }
 
-/**
- * Get pane count in a session
- */
-function getTmuxPaneCount(sessionName) {
-  const result = runTmuxCommand(`list-panes -t ${sessionName} -F "#{pane_id}"`);
-  return result.split('\n').filter(line => line.trim()).length;
-}
-
-/**
- * Get detailed pane info
- */
-function getTmuxPaneInfo(sessionName) {
-  const result = runTmuxCommand(
-    `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_index}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_top}|#{pane_left}"`
-  );
-  return result.split('\n').filter(line => line.trim()).map(line => {
-    const [id, index, width, height, active, top, left] = line.split('|');
-    return {
-      id,
-      index: parseInt(index, 10),
-      width: parseInt(width, 10),
-      height: parseInt(height, 10),
-      active: active === '1',
-      y: parseInt(top, 10),
-      x: parseInt(left, 10),
-    };
-  });
-}
-
-/**
- * Get active pane ID
- */
-function getActiveTmuxPane(sessionName) {
-  return runTmuxCommand(`display-message -t ${sessionName} -p "#{pane_id}"`);
-}
-
-/**
- * Get window count
- */
-function getTmuxWindowCount(sessionName) {
-  const result = runTmuxCommand(`list-windows -t ${sessionName} -F "#{window_index}"`);
-  return result.split('\n').filter(line => line.trim()).length;
-}
-
-/**
- * Check if current pane is zoomed
- */
-function isPaneZoomed(sessionName) {
-  try {
-    const result = runTmuxCommand(`display-message -t ${sessionName} -p "#{window_zoomed_flag}"`);
-    return result.trim() === '1';
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Send keys directly to tmux (bypassing UI)
- */
-function sendKeysToTmux(sessionName, keys) {
-  runTmuxCommand(`send-keys -t ${sessionName} ${keys}`);
-}
-
 module.exports = {
   runTmuxCommand,
   generateTestSessionName,
   createTmuxSession,
   killTmuxSession,
   captureTmuxSnapshot,
-  getTmuxPaneCount,
-  getTmuxPaneInfo,
-  getActiveTmuxPane,
-  getTmuxWindowCount,
-  isPaneZoomed,
-  sendKeysToTmux,
 };

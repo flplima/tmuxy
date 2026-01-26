@@ -71,7 +71,23 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
   const url = `${tmuxyUrl}?session=${encodeURIComponent(sessionName)}`;
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForSelector('[role="log"]', { timeout: 10000 });
-  await delay(DELAYS.EXTRA_LONG); // Give tmux state time to sync
+
+  // Wait for terminal to show shell prompt ($ or # or % or >)
+  const startTime = Date.now();
+  const timeout = 15000;
+  while (Date.now() - startTime < timeout) {
+    const content = await page.evaluate(() => {
+      const logs = document.querySelectorAll('[role="log"]');
+      return Array.from(logs).map(l => l.textContent || '').join('\n');
+    });
+    // Wait for shell prompt character
+    if (content.match(/[$#%>]\s*$/m)) {
+      break;
+    }
+    await delay(200);
+  }
+
+  await delay(DELAYS.LONG); // Allow rendering to stabilize
   return url;
 }
 

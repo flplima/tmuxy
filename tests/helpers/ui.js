@@ -129,6 +129,47 @@ async function getTerminalText(page) {
   });
 }
 
+/**
+ * Wait for specific text to appear in terminal
+ */
+async function waitForTerminalText(page, text, timeout = 15000) {
+  const startTime = Date.now();
+  let lastContent = '';
+
+  while (Date.now() - startTime < timeout) {
+    const content = await page.evaluate(() => {
+      const logs = document.querySelectorAll('[role="log"]');
+      return Array.from(logs).map(l => l.textContent || '').join('\n');
+    });
+    lastContent = content;
+    if (content.includes(text)) {
+      return content;
+    }
+    await delay(150);
+  }
+  throw new Error(`Timeout waiting for text "${text}" in terminal. Last content (${lastContent.length} chars): "${lastContent.slice(0, 200)}"`);
+}
+
+/**
+ * Get terminal text content for a specific pane by ID
+ */
+async function getPaneText(page, paneId) {
+  return await page.evaluate((id) => {
+    const pane = document.querySelector(`[data-pane-id="${id}"]`);
+    if (!pane) return null;
+    const terminal = pane.querySelector('.terminal-content, [role="log"]');
+    return terminal ? terminal.textContent || '' : null;
+  }, paneId);
+}
+
+/**
+ * Check if UI contains a specific text string
+ */
+async function uiContainsText(page, text) {
+  const content = await getTerminalText(page);
+  return content.includes(text);
+}
+
 // ==================== UI Interactions ====================
 
 /**
@@ -371,6 +412,86 @@ async function cycleLayoutKeyboard(page) {
   await delay(DELAYS.EXTRA_LONG);
 }
 
+// ==================== Copy Mode Operations ====================
+
+/**
+ * Enter copy mode via keyboard (Ctrl+A [)
+ */
+async function enterCopyModeKeyboard(page) {
+  await sendTmuxPrefix(page);
+  await delay(DELAYS.SHORT);
+  await page.keyboard.press('[');
+  await delay(DELAYS.LONG);
+}
+
+/**
+ * Exit copy mode via keyboard (q in vi mode)
+ */
+async function exitCopyModeKeyboard(page) {
+  await page.keyboard.press('q');
+  await delay(DELAYS.LONG);
+}
+
+/**
+ * Scroll up in pane to enter copy mode
+ */
+async function scrollPaneUp(page, paneId) {
+  await page.evaluate((id) => {
+    const pane = document.querySelector(`.pane-wrapper[data-pane-id="${id}"]`);
+    if (pane) {
+      pane.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true }));
+    }
+  }, paneId);
+  await delay(DELAYS.LONG);
+}
+
+/**
+ * Scroll down in pane
+ */
+async function scrollPaneDown(page, paneId) {
+  await page.evaluate((id) => {
+    const pane = document.querySelector(`.pane-wrapper[data-pane-id="${id}"]`);
+    if (pane) {
+      pane.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, bubbles: true }));
+    }
+  }, paneId);
+  await delay(DELAYS.LONG);
+}
+
+/**
+ * Check if pane header shows copy mode
+ */
+async function isPaneCopyModeVisible(page, paneId) {
+  return await page.evaluate((id) => {
+    const pane = document.querySelector(`[data-pane-id="${id}"]`);
+    if (!pane) return false;
+    const header = pane.querySelector('.pane-header, .pane-title');
+    return header && header.textContent.includes('[COPY MODE]');
+  }, paneId);
+}
+
+/**
+ * Check if pane has copy mode styling (green header)
+ */
+async function hasCopyModeStyling(page, paneId) {
+  return await page.evaluate((id) => {
+    const pane = document.querySelector(`[data-pane-id="${id}"]`);
+    if (!pane) return false;
+    const header = pane.querySelector('.pane-header');
+    return header && header.classList.contains('pane-header-copy-mode');
+  }, paneId);
+}
+
+/**
+ * Get first visible pane ID
+ */
+async function getFirstPaneId(page) {
+  return await page.evaluate(() => {
+    const pane = document.querySelector('.pane-wrapper[data-pane-id]');
+    return pane ? pane.getAttribute('data-pane-id') : null;
+  });
+}
+
 module.exports = {
   // Keyboard
   sendKeyCombo,
@@ -382,6 +503,9 @@ module.exports = {
   getUIPaneCount,
   getUIPaneInfo,
   getTerminalText,
+  waitForTerminalText,
+  getPaneText,
+  uiContainsText,
   // UI interactions
   clickPane,
   clickButton,
@@ -405,4 +529,12 @@ module.exports = {
   killPaneKeyboard,
   // Layout
   cycleLayoutKeyboard,
+  // Copy mode
+  enterCopyModeKeyboard,
+  exitCopyModeKeyboard,
+  scrollPaneUp,
+  scrollPaneDown,
+  isPaneCopyModeVisible,
+  hasCopyModeStyling,
+  getFirstPaneId,
 };

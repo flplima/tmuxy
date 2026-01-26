@@ -7,16 +7,12 @@
 const {
   getBrowser,
   waitForServer,
-  isCdpAvailable,
   navigateToSession,
-  delay,
+  focusPage,
 } = require('./browser');
-const {
-  createTmuxSession,
-  killTmuxSession,
-  generateTestSessionName,
-} = require('./tmux');
-const { TMUXY_URL, CDP_PORT, DELAYS } = require('./config');
+const { splitPaneKeyboard, navigatePaneKeyboard } = require('./ui');
+const TmuxTestSession = require('./TmuxTestSession');
+const { TMUXY_URL } = require('./config');
 
 /**
  * Create test context with beforeAll/afterAll/beforeEach/afterEach
@@ -28,14 +24,14 @@ const { TMUXY_URL, CDP_PORT, DELAYS } = require('./config');
  * beforeEach(ctx.beforeEach);
  * afterEach(ctx.afterEach);
  *
- * Then use ctx.page, ctx.browser, ctx.testSession in tests
+ * Then use ctx.page, ctx.browser, ctx.session in tests
  */
 function createTestContext() {
   const ctx = {
     browser: null,
     page: null,
-    testSession: null,
-    wasConnected: false,
+    session: null,        // TmuxTestSession instance
+    testSession: null,    // Session name (for backwards compatibility)
     browserAvailable: true,
     serverAvailable: true,
   };
@@ -53,12 +49,10 @@ function createTestContext() {
     }
 
     // Get browser
-    console.log('Getting browser...');
+    console.log('Launching browser...');
     try {
-      const cdpAvailable = await isCdpAvailable(CDP_PORT);
-      ctx.wasConnected = cdpAvailable;
       ctx.browser = await getBrowser();
-      console.log('Browser connected successfully');
+      console.log('Browser launched successfully');
     } catch (error) {
       console.error('Browser not available:', error.message);
       ctx.browserAvailable = false;
@@ -67,7 +61,7 @@ function createTestContext() {
 
   ctx.afterAll = async () => {
     if (ctx.page) await ctx.page.close();
-    if (ctx.browser && !ctx.wasConnected) {
+    if (ctx.browser) {
       await ctx.browser.close();
     }
   };
@@ -75,22 +69,30 @@ function createTestContext() {
   ctx.beforeEach = async () => {
     if (!ctx.browserAvailable || !ctx.browser) return;
 
-    ctx.testSession = generateTestSessionName();
-    console.log(`Creating test session: ${ctx.testSession}`);
-    createTmuxSession(ctx.testSession);
+    // Create new TmuxTestSession
+    ctx.session = new TmuxTestSession();
+    ctx.testSession = ctx.session.name; // backwards compatibility
+    console.log(`Creating test session: ${ctx.session.name}`);
+    ctx.session.create();
 
     ctx.page = await ctx.browser.newPage();
   };
 
   ctx.afterEach = async () => {
     if (ctx.page) {
-      await ctx.page.close();
+      // Close the context (which also closes the page) for proper Playwright cleanup
+      if (ctx.page._context) {
+        await ctx.page._context.close();
+      } else {
+        await ctx.page.close();
+      }
       ctx.page = null;
     }
 
-    if (ctx.testSession) {
-      console.log(`Killing test session: ${ctx.testSession}`);
-      killTmuxSession(ctx.testSession);
+    if (ctx.session) {
+      console.log(`Killing test session: ${ctx.session.name}`);
+      ctx.session.destroy();
+      ctx.session = null;
       ctx.testSession = null;
     }
   };
@@ -106,7 +108,7 @@ function createTestContext() {
    * Navigate to the test session
    */
   ctx.navigateToSession = async () => {
-    return await navigateToSession(ctx.page, ctx.testSession);
+    return await navigateToSession(ctx.page, ctx.session.name);
   };
 
   /**
@@ -118,6 +120,40 @@ function createTestContext() {
       return true;
     }
     return false;
+  };
+
+  /**
+   * Setup multiple panes with alternating split directions
+   * @param {number} count - Number of panes to create (default: 3)
+   */
+  ctx.setupPanes = async (count = 3) => {
+    await ctx.navigateToSession();
+    await focusPage(ctx.page);
+    for (let i = 1; i < count; i++) {
+      await splitPaneKeyboard(ctx.page, i % 2 === 0 ? 'vertical' : 'horizontal');
+    }
+  };
+
+  /**
+   * Setup two panes with a single split
+   * @param {string} direction - 'horizontal' or 'vertical' (default: 'horizontal')
+   */
+  ctx.setupTwoPanes = async (direction = 'horizontal') => {
+    await ctx.navigateToSession();
+    await focusPage(ctx.page);
+    await splitPaneKeyboard(ctx.page, direction);
+  };
+
+  /**
+   * Setup a 4-pane grid layout
+   */
+  ctx.setupFourPanes = async () => {
+    await ctx.navigateToSession();
+    await focusPage(ctx.page);
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await navigatePaneKeyboard(ctx.page, 'up');
+    await splitPaneKeyboard(ctx.page, 'vertical');
   };
 
   return ctx;
