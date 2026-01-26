@@ -1,24 +1,79 @@
-import { fromCallback } from 'xstate';
-import type { KeyPressEvent } from '../types';
+/**
+ * Keyboard Actor - Formats DOM keyboard events into tmux key syntax
+ *
+ * All key interpretation (prefix, bindings, command mode) is handled by tmux natively.
+ * This actor simply captures keydown events and sends formatted keys via send-keys.
+ *
+ * IME Composition Handling:
+ * - During IME composition (CJK input, dead keys), we suppress individual keydowns
+ * - The composed text is sent as a single unit when composition ends
+ * - This prevents garbled text during pinyin/kana input
+ */
 
-export interface KeyboardActorInput {
-  onKeyPress: (event: KeyPressEvent) => void;
+import { fromCallback, type AnyActorRef } from 'xstate';
+
+export type KeyboardActorEvent =
+  | { type: 'UPDATE_SESSION'; sessionName: string };
+
+export interface KeyboardActorInput { parent: AnyActorRef }
+
+const KEY_MAP: Record<string, string> = {
+  Enter: 'Enter', Backspace: 'BSpace', Delete: 'DC',
+  ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+  Tab: 'Tab', Escape: 'Escape', Home: 'Home', End: 'End',
+  PageUp: 'PPage', PageDown: 'NPage', Insert: 'IC',
+  ' ': 'Space',
+  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
+  F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+};
+
+function formatTmuxKey(event: KeyboardEvent): string {
+  const modifiers: string[] = [];
+  if (event.ctrlKey) modifiers.push('C');
+  if (event.altKey || event.metaKey) modifiers.push('M');
+  if (event.shiftKey && event.key.length > 1) modifiers.push('S');
+
+  const mapped = KEY_MAP[event.key];
+  if (mapped) {
+    return modifiers.length > 0 ? `${modifiers.join('-')}-${mapped}` : mapped;
+  } else if (event.key.length === 1) {
+    return modifiers.length > 0 ? `${modifiers.join('-')}-${event.key.toLowerCase()}` : event.key;
+  }
+  return '';
 }
 
 /**
- * Keyboard actor - captures and normalizes keyboard events
- *
- * Listens to keydown events and emits KEY_PRESS events to parent.
- * The parent machine handles the prefix mode logic.
+ * Escape text for use with tmux send-keys -l (literal mode)
+ * This handles special characters that might be interpreted by tmux
  */
-export const keyboardActor = fromCallback<never, KeyboardActorInput>(
-  ({ input }) => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Always prevent default for our app
-      event.preventDefault();
-      event.stopImmediatePropagation();
+function escapeLiteralText(text: string): string {
+  // Escape single quotes by ending quote, adding escaped quote, starting new quote
+  // 'text' -> 'text'\''more'
+  return "'" + text.replace(/'/g, "'\\''") + "'";
+}
 
-      input.onKeyPress({
+export function createKeyboardActor() {
+  return fromCallback<KeyboardActorEvent, KeyboardActorInput>(({ input, receive }) => {
+    let sessionName = 'tmuxy';
+    let isComposing = false;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Skip during IME composition
+      // keyCode 229 is a special value indicating IME is processing
+      if (isComposing || event.isComposing || event.keyCode === 229) {
+        return;
+      }
+
+      event.preventDefault();
+      const key = formatTmuxKey(event);
+      if (!key) return;
+
+      input.parent.send({
+        type: 'SEND_TMUX_COMMAND',
+        command: `send-keys -t ${sessionName} ${key}`,
+      });
+
+      input.parent.send({
         type: 'KEY_PRESS',
         key: event.key,
         ctrlKey: event.ctrlKey,
@@ -28,135 +83,39 @@ export const keyboardActor = fromCallback<never, KeyboardActorInput>(
       });
     };
 
+    const handleCompositionStart = () => {
+      isComposing = true;
+    };
+
+    const handleCompositionEnd = (event: CompositionEvent) => {
+      isComposing = false;
+
+      // Send the composed text as a literal string
+      const composedText = event.data;
+      if (composedText) {
+        // Use -l flag for literal text to avoid key interpretation
+        const escaped = escapeLiteralText(composedText);
+        input.parent.send({
+          type: 'SEND_TMUX_COMMAND',
+          command: `send-keys -t ${sessionName} -l ${escaped}`,
+        });
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('compositionstart', handleCompositionStart);
+    window.addEventListener('compositionend', handleCompositionEnd);
+
+    receive((event) => {
+      if (event.type === 'UPDATE_SESSION') {
+        sessionName = event.sessionName;
+      }
+    });
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('compositionstart', handleCompositionStart);
+      window.removeEventListener('compositionend', handleCompositionEnd);
     };
-  }
-);
-
-// ============================================
-// Key Mapping Utilities
-// ============================================
-
-const KEY_MAP: Record<string, string> = {
-  Enter: 'Enter',
-  Backspace: 'BSpace',
-  Delete: 'DC',
-  ArrowUp: 'Up',
-  ArrowDown: 'Down',
-  ArrowLeft: 'Left',
-  ArrowRight: 'Right',
-  Tab: 'Tab',
-  Escape: 'Escape',
-  Home: 'Home',
-  End: 'End',
-  PageUp: 'PPage',
-  PageDown: 'NPage',
-  Insert: 'IC',
-  F1: 'F1',
-  F2: 'F2',
-  F3: 'F3',
-  F4: 'F4',
-  F5: 'F5',
-  F6: 'F6',
-  F7: 'F7',
-  F8: 'F8',
-  F9: 'F9',
-  F10: 'F10',
-  F11: 'F11',
-  F12: 'F12',
-  ' ': 'Space',
-};
-
-const PANE_NAV_MAP: Record<string, string> = {
-  'C-h': 'L', // select-pane -L
-  'C-j': 'D', // select-pane -D
-  'C-k': 'U', // select-pane -U
-  'C-l': 'R', // select-pane -R
-};
-
-const PREFIX_BINDINGS: Record<string, string> = {
-  '%': 'split-window -h',
-  '"': 'split-window -v',
-  c: 'new-window',
-  n: 'next-window',
-  p: 'previous-window',
-  x: 'kill-pane',
-  z: 'resize-pane -Z',
-  '[': 'copy-mode',
-  d: 'detach-client',
-  '0': 'select-window -t :0',
-  '1': 'select-window -t :1',
-  '2': 'select-window -t :2',
-  '3': 'select-window -t :3',
-  '4': 'select-window -t :4',
-  '5': 'select-window -t :5',
-  '6': 'select-window -t :6',
-  '7': 'select-window -t :7',
-  '8': 'select-window -t :8',
-  '9': 'select-window -t :9',
-  o: 'select-pane -t :.+',
-  Up: 'select-pane -U',
-  Down: 'select-pane -D',
-  Left: 'select-pane -L',
-  Right: 'select-pane -R',
-  '{': 'swap-pane -U',
-  '}': 'swap-pane -D',
-  Space: 'next-layout',
-};
-
-/**
- * Convert key event to tmux key format
- */
-export function formatTmuxKey(event: KeyPressEvent): string {
-  const modifiers: string[] = [];
-  if (event.ctrlKey) modifiers.push('C');
-  if (event.altKey || event.metaKey) modifiers.push('M');
-  if (event.shiftKey && event.key.length > 1) modifiers.push('S');
-
-  const mappedKey = KEY_MAP[event.key];
-
-  if (mappedKey) {
-    return modifiers.length > 0 ? `${modifiers.join('-')}-${mappedKey}` : mappedKey;
-  } else if (event.key.length === 1) {
-    return modifiers.length > 0
-      ? `${modifiers.join('-')}-${event.key.toLowerCase()}`
-      : event.key;
-  }
-
-  return '';
-}
-
-/**
- * Check if key is prefix trigger (C-a)
- */
-export function isPrefixKey(event: KeyPressEvent): boolean {
-  return event.ctrlKey && event.key.toLowerCase() === 'a';
-}
-
-/**
- * Check if key is command mode trigger (: or ;)
- */
-export function isCommandModeKey(key: string): boolean {
-  return key === ':' || key === ';';
-}
-
-/**
- * Get pane navigation command if key is a nav key
- */
-export function getPaneNavCommand(key: string): string | null {
-  const direction = PANE_NAV_MAP[key];
-  if (direction) {
-    return `select-pane -${direction}`;
-  }
-  return null;
-}
-
-/**
- * Get prefix binding command if key has a binding
- */
-export function getPrefixBinding(key: string): string | null {
-  return PREFIX_BINDINGS[key] || null;
+  });
 }
