@@ -66,28 +66,41 @@ async function waitForServer(url = TMUXY_URL, timeout = 30000) {
 
 /**
  * Navigate to tmuxy with session parameter
+ * Includes retry logic for WebSocket connection race conditions
  */
 async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
   const url = `${tmuxyUrl}?session=${encodeURIComponent(sessionName)}`;
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('[role="log"]', { timeout: 10000 });
+  const maxRetries = 3;
 
-  // Wait for terminal to show shell prompt ($ or # or % or >)
-  const startTime = Date.now();
-  const timeout = 15000;
-  while (Date.now() - startTime < timeout) {
-    const content = await page.evaluate(() => {
-      const logs = document.querySelectorAll('[role="log"]');
-      return Array.from(logs).map(l => l.textContent || '').join('\n');
-    });
-    // Wait for shell prompt character
-    if (content.match(/[$#%>]\s*$/m)) {
-      break;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForSelector('[role="log"]', { timeout: 10000 });
+
+    // Wait for terminal content (shell prompt)
+    try {
+      await page.waitForFunction(
+        () => {
+          const logs = document.querySelectorAll('[role="log"]');
+          const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+          // Content must have > 5 chars and contain shell prompt
+          return content.length > 5 && /[$#%>]/.test(content);
+        },
+        { timeout: 5000, polling: 100 }
+      );
+      // Success - terminal content loaded
+      await delay(DELAYS.SHORT);
+      return url;
+    } catch {
+      if (attempt < maxRetries) {
+        console.log(`Terminal content not ready (attempt ${attempt}/${maxRetries}), retrying...`);
+        await delay(500);
+      }
     }
-    await delay(200);
   }
 
-  await delay(DELAYS.LONG); // Allow rendering to stabilize
+  // Final attempt - just continue even if content seems empty
+  console.log('Warning: Terminal content may not be fully loaded');
+  await delay(DELAYS.MEDIUM);
   return url;
 }
 

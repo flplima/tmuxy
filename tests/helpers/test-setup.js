@@ -112,6 +112,15 @@ function createTestContext() {
   };
 
   /**
+   * Setup page for test - navigate and focus
+   * This is the most common test setup pattern
+   */
+  ctx.setupPage = async () => {
+    await navigateToSession(ctx.page, ctx.session.name);
+    await focusPage(ctx.page);
+  };
+
+  /**
    * Skip test if prerequisites not met
    */
   ctx.skipIfNotReady = () => {

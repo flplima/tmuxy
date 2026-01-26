@@ -11,8 +11,7 @@ const {
   focusPage,
   getTerminalText,
   waitForTerminalText,
-  typeInTerminal,
-  pressEnter,
+  runCommand,
   getUIPaneCount,
   DELAYS,
 } = require('./helpers');
@@ -34,7 +33,6 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
 
       await ctx.navigateToSession();
 
-      // Verify app container exists
       const appContainer = await ctx.page.$('#root');
       expect(appContainer).not.toBeNull();
     });
@@ -44,12 +42,9 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
 
       await ctx.navigateToSession();
 
-      // The page should load without error and show terminal content
-      // WebSocket connection is implied by terminal rendering
       const terminalContent = await ctx.page.$('[role="log"]');
       expect(terminalContent).not.toBeNull();
 
-      // Should not show disconnected/error state
       const errorState = await ctx.page.$('.error-state, .disconnected');
       expect(errorState).toBeNull();
     });
@@ -59,49 +54,31 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
 
       await ctx.navigateToSession();
 
-      // Verify single pane
       const paneCount = await getUIPaneCount(ctx.page);
       expect(paneCount).toBe(1);
 
-      // Wait for shell prompt to appear
-      await delay(DELAYS.EXTRA_LONG);
       const text = await getTerminalText(ctx.page);
-      // Shell prompts typically contain $ or # or %
       expect(text.match(/[$#%>]/) || text.length > 0).toBeTruthy();
     });
 
     test('Echo command - output appears in UI', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Type echo command
-      await typeInTerminal(ctx.page, 'echo hello_test_123');
-      await pressEnter(ctx.page);
-
-      // Verify output appears
-      await waitForTerminalText(ctx.page, 'hello_test_123');
+      await runCommand(ctx.page, 'echo hello_test_123', 'hello_test_123');
     });
 
     test('Snapshot match - tmux capture matches UI content', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Run a distinctive command
       const testString = `snapshot_test_${Date.now()}`;
-      await typeInTerminal(ctx.page, `echo ${testString}`);
-      await pressEnter(ctx.page);
+      const uiText = await runCommand(ctx.page, `echo ${testString}`, testString);
 
-      // Wait for text to appear in UI
-      const uiText = await waitForTerminalText(ctx.page, testString);
-
-      // Get tmux captured text
       const tmuxText = ctx.session.runCommand(`capture-pane -t ${ctx.session.name} -p`);
 
-      // Both should contain the test string
       expect(uiText).toContain(testString);
       expect(tmuxText).toContain(testString);
     });
@@ -114,16 +91,10 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
     test('Multi-line output - seq 1 10 renders all lines', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await typeInTerminal(ctx.page, 'seq 1 10');
-      await pressEnter(ctx.page);
+      const text = await runCommand(ctx.page, 'seq 1 10', '10');
 
-      // Wait for last number to appear
-      const text = await waitForTerminalText(ctx.page, '10');
-
-      // Verify all numbers appear
       for (let i = 1; i <= 10; i++) {
         expect(text).toContain(String(i));
       }
@@ -132,42 +103,23 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
     test('Long line wrapping - 200 character line handles correctly', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Generate a long string of x characters, add marker at end
-      await typeInTerminal(ctx.page, 'printf "x%.0s" {1..200} && echo DONE');
-      await pressEnter(ctx.page);
-
-      const text = await waitForTerminalText(ctx.page, 'DONE');
-      // Should contain many x characters (may be wrapped)
+      const text = await runCommand(ctx.page, 'printf "x%.0s" {1..200} && echo DONE', 'DONE');
       const xCount = (text.match(/x/g) || []).length;
-      expect(xCount).toBeGreaterThanOrEqual(50); // At least partial render
+      expect(xCount).toBeGreaterThanOrEqual(50);
     });
 
     test('ANSI colors - red and green text renders', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await typeInTerminal(ctx.page, 'echo -e "\\e[31mRED_TEXT\\e[0m \\e[32mGREEN_TEXT\\e[0m"');
-      await pressEnter(ctx.page);
-
-      // Check that text content appears
-      const text = await waitForTerminalText(ctx.page, 'RED_TEXT');
+      const text = await runCommand(ctx.page, 'echo -e "\\e[31mRED_TEXT\\e[0m \\e[32mGREEN_TEXT\\e[0m"', 'RED_TEXT');
       expect(text).toContain('GREEN_TEXT');
 
-      // Check that colored spans exist
       const hasColoredSpans = await ctx.page.evaluate(() => {
         const spans = document.querySelectorAll('[role="log"] span');
-        for (const span of spans) {
-          const style = window.getComputedStyle(span);
-          // Red or green color
-          if (style.color.includes('255') || style.color.includes('rgb')) {
-            return true;
-          }
-        }
         return spans.length > 0;
       });
       expect(hasColoredSpans).toBe(true);
@@ -176,13 +128,9 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
     test('Bold/italic/underline - text styles render', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await typeInTerminal(ctx.page, 'echo -e "\\e[1mBOLD\\e[0m \\e[3mITALIC\\e[0m \\e[4mUNDERLINE\\e[0m"');
-      await pressEnter(ctx.page);
-
-      const text = await waitForTerminalText(ctx.page, 'BOLD');
+      const text = await runCommand(ctx.page, 'echo -e "\\e[1mBOLD\\e[0m \\e[3mITALIC\\e[0m \\e[4mUNDERLINE\\e[0m"', 'BOLD');
       expect(text).toContain('ITALIC');
       expect(text).toContain('UNDERLINE');
     });
@@ -190,53 +138,35 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
     test('256 colors - extended colors render', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Output a few 256-color codes
-      await typeInTerminal(ctx.page, 'echo -e "\\e[38;5;196mRED256\\e[0m \\e[38;5;46mGREEN256\\e[0m"');
-      await pressEnter(ctx.page);
-
-      const text = await waitForTerminalText(ctx.page, 'RED256');
+      const text = await runCommand(ctx.page, 'echo -e "\\e[38;5;196mRED256\\e[0m \\e[38;5;46mGREEN256\\e[0m"', 'RED256');
       expect(text).toContain('GREEN256');
     });
 
     test('True color (24-bit) - RGB colors render', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await typeInTerminal(ctx.page, 'echo -e "\\e[38;2;255;100;0mORANGE_RGB\\e[0m"');
-      await pressEnter(ctx.page);
-
-      await waitForTerminalText(ctx.page, 'ORANGE_RGB');
+      await runCommand(ctx.page, 'echo -e "\\e[38;2;255;100;0mORANGE_RGB\\e[0m"', 'ORANGE_RGB');
     });
 
     test('Unicode characters - CJK and emoji render', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await typeInTerminal(ctx.page, 'echo "UNICODE_TEST symbols"');
-      await pressEnter(ctx.page);
-
-      const text = await waitForTerminalText(ctx.page, 'UNICODE_TEST');
+      const text = await runCommand(ctx.page, 'echo "UNICODE_TEST symbols"', 'UNICODE_TEST');
       expect(text).toContain('symbols');
     });
 
     test('Box drawing characters - alignment preserved', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Create a simple box
-      await typeInTerminal(ctx.page, 'echo -e "BOX_TOP\\n|test|\\nBOX_BTM"');
-      await pressEnter(ctx.page);
-
-      const text = await waitForTerminalText(ctx.page, 'BOX_TOP');
+      const text = await runCommand(ctx.page, 'echo -e "BOX_TOP\\n|test|\\nBOX_BTM"', 'BOX_TOP');
       expect(text).toContain('test');
       expect(text).toContain('BOX_BTM');
     });
@@ -244,10 +174,8 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
     test('Cursor position - cursor renders at correct position', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Verify cursor element exists
       const cursor = await ctx.page.$('.terminal-cursor, .cursor');
       expect(cursor).not.toBeNull();
     });
@@ -255,13 +183,9 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
     test('Empty lines preserved - output with blank lines', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await typeInTerminal(ctx.page, 'echo -e "LINE1\\n\\nLINE3"');
-      await pressEnter(ctx.page);
-
-      const text = await waitForTerminalText(ctx.page, 'LINE1');
+      const text = await runCommand(ctx.page, 'echo -e "LINE1\\n\\nLINE3"', 'LINE1');
       expect(text).toContain('LINE3');
     });
   });
@@ -273,17 +197,10 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
     test('Scroll region - less command works', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Create a file and open with less
-      await typeInTerminal(ctx.page, 'seq 1 100 | less');
-      await pressEnter(ctx.page);
+      await runCommand(ctx.page, 'seq 1 100 | less', '1');
 
-      // Verify less is running (shows numbers)
-      await waitForTerminalText(ctx.page, '1');
-
-      // Quit less
       await ctx.page.keyboard.press('q');
       await delay(DELAYS.LONG);
     });
@@ -291,25 +208,16 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
     test('Alternate screen - vim activates and exits correctly', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Open vim (enters alternate screen)
-      await typeInTerminal(ctx.page, 'vim');
-      await pressEnter(ctx.page);
+      await runCommand(ctx.page, 'vim', 'VIM', 15000);
 
-      // Vim shows "VIM" or similar on startup
-      const vimText = await waitForTerminalText(ctx.page, 'VIM', 15000);
-      expect(vimText).toContain('VIM');
-
-      // Exit vim
       await ctx.page.keyboard.press('Escape');
       await delay(DELAYS.SHORT);
-      await typeInTerminal(ctx.page, ':q!');
-      await pressEnter(ctx.page);
+      await ctx.page.keyboard.type(':q!');
+      await ctx.page.keyboard.press('Enter');
       await delay(DELAYS.LONG);
 
-      // Should be back to shell (no more VIM text visible)
       const afterText = await getTerminalText(ctx.page);
       expect(afterText.includes('VIM')).toBe(false);
     });
@@ -317,47 +225,30 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
     test('Terminal title - OSC title sequence updates pane header', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Set terminal title
       const testTitle = 'TestTitle123';
-      await typeInTerminal(ctx.page, `echo -ne "\\033]0;${testTitle}\\007"`);
-      await pressEnter(ctx.page);
-      await delay(DELAYS.EXTRA_LONG);
+      await runCommand(ctx.page, `echo -ne "\\033]0;${testTitle}\\007"`, '$');
+      await delay(DELAYS.LONG);
 
-      // Check if title appears in pane header
       const headerText = await ctx.page.evaluate(() => {
         const header = document.querySelector('.pane-header, .pane-title');
         return header ? header.textContent : '';
       });
-
-      // Title might be shown in header
-      // Note: This depends on implementation - may need adjustment
       expect(headerText.length).toBeGreaterThan(0);
     });
 
     test('Clear screen - clear command resets display', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Add some output
-      await typeInTerminal(ctx.page, 'echo "BEFORE_CLEAR_TEXT"');
-      await pressEnter(ctx.page);
+      const beforeText = await runCommand(ctx.page, 'echo "BEFORE_CLEAR_TEXT"', 'BEFORE_CLEAR_TEXT');
 
-      const beforeText = await waitForTerminalText(ctx.page, 'BEFORE_CLEAR_TEXT');
+      await runCommand(ctx.page, 'clear', '$');
+      await delay(DELAYS.LONG);
 
-      // Clear screen
-      await typeInTerminal(ctx.page, 'clear');
-      await pressEnter(ctx.page);
-      await delay(DELAYS.EXTRA_LONG);
-
-      // The "BEFORE_CLEAR_TEXT" should no longer be visible
-      // (it may be in scrollback but not on visible screen)
       const afterText = await getTerminalText(ctx.page);
-      // After clear, the screen should have less content or different content
       expect(afterText.length).toBeLessThanOrEqual(beforeText.length);
     });
   });

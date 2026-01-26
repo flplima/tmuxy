@@ -130,24 +130,26 @@ async function getTerminalText(page) {
 }
 
 /**
- * Wait for specific text to appear in terminal
+ * Wait for specific text to appear in terminal using Playwright's waitForFunction
+ * This is more reliable than manual polling as it uses browser-side waiting
  */
-async function waitForTerminalText(page, text, timeout = 15000) {
-  const startTime = Date.now();
-  let lastContent = '';
-
-  while (Date.now() - startTime < timeout) {
-    const content = await page.evaluate(() => {
-      const logs = document.querySelectorAll('[role="log"]');
-      return Array.from(logs).map(l => l.textContent || '').join('\n');
-    });
-    lastContent = content;
-    if (content.includes(text)) {
-      return content;
-    }
-    await delay(150);
+async function waitForTerminalText(page, text, timeout = 10000) {
+  try {
+    await page.waitForFunction(
+      (searchText) => {
+        const logs = document.querySelectorAll('[role="log"]');
+        const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+        return content.includes(searchText);
+      },
+      text,
+      { timeout, polling: 100 }
+    );
+    // Return the content after it's found
+    return await getTerminalText(page);
+  } catch (error) {
+    const content = await getTerminalText(page);
+    throw new Error(`Timeout waiting for "${text}" in terminal (${timeout}ms). Content (${content.length} chars): "${content.slice(0, 200)}"`);
   }
-  throw new Error(`Timeout waiting for text "${text}" in terminal. Last content (${lastContent.length} chars): "${lastContent.slice(0, 200)}"`);
 }
 
 /**
@@ -168,6 +170,26 @@ async function getPaneText(page, paneId) {
 async function uiContainsText(page, text) {
   const content = await getTerminalText(page);
   return content.includes(text);
+}
+
+/**
+ * Run a command in terminal and wait for expected output
+ * This is a common pattern extracted for reuse
+ */
+async function runCommand(page, command, expectedOutput, timeout = 10000) {
+  await typeInTerminal(page, command);
+  await pressEnter(page);
+  return await waitForTerminalText(page, expectedOutput, timeout);
+}
+
+/**
+ * Run a command and return terminal text after a delay (for commands without specific output)
+ */
+async function runCommandWithDelay(page, command, delayMs = 1000) {
+  await typeInTerminal(page, command);
+  await pressEnter(page);
+  await delay(delayMs);
+  return await getTerminalText(page);
 }
 
 // ==================== UI Interactions ====================
@@ -506,6 +528,8 @@ module.exports = {
   waitForTerminalText,
   getPaneText,
   uiContainsText,
+  runCommand,
+  runCommandWithDelay,
   // UI interactions
   clickPane,
   clickButton,
