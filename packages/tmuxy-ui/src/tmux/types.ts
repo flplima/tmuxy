@@ -244,14 +244,17 @@ export type StateListener = (state: ServerState) => void;
 export type ErrorListener = (error: string) => void;
 export type ConnectionInfoListener = (connectionId: number, isPrimary: boolean) => void;
 export type PrimaryChangedListener = (isPrimary: boolean) => void;
+export type ReconnectionListener = (reconnecting: boolean, attempt: number) => void;
 
 export interface TmuxAdapter {
   connect(): Promise<void>;
   disconnect(): void;
   isConnected(): boolean;
+  isReconnecting(): boolean;
   invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
   onStateChange(listener: StateListener): () => void;
   onError(listener: ErrorListener): () => void;
   onConnectionInfo(listener: ConnectionInfoListener): () => void;
   onPrimaryChanged(listener: PrimaryChangedListener): () => void;
+  onReconnection(listener: ReconnectionListener): () => void;
 }

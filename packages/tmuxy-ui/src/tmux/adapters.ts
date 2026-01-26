@@ -4,6 +4,7 @@ import {
   ErrorListener,
   ConnectionInfoListener,
   PrimaryChangedListener,
+  ReconnectionListener,
   ServerState,
   ServerPane,
   ServerWindow,
@@ -60,20 +61,28 @@ function getSessionFromUrl(): string {
 // Batching constants
 const KEY_BATCH_INTERVAL_MS = 16; // Batch keystrokes within ~1 frame
 
+// Reconnection constants
+const MAX_RECONNECT_DELAY_MS = 30000; // 30 seconds max
+const INITIAL_RECONNECT_DELAY_MS = 1000; // Start at 1 second
+const KEEPALIVE_INTERVAL_MS = 10000; // 10 seconds between pings
+
 export class WebSocketAdapter implements TmuxAdapter {
   private ws: WebSocket | null = null;
   private pendingRequests = new Map<string, PendingRequest>();
   private messageQueue: string[] = [];
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
   private connecting: Promise<void> | null = null;
   private connected = false;
+  private reconnecting = false;
   private intentionalDisconnect = false; // Prevent auto-reconnect on explicit disconnect
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private keepaliveInterval: ReturnType<typeof setInterval> | null = null;
 
   private stateListeners = new Set<StateListener>();
   private errorListeners = new Set<ErrorListener>();
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
   private primaryChangedListeners = new Set<PrimaryChangedListener>();
+  private reconnectionListeners = new Set<ReconnectionListener>();
 
   // Keyboard batching state
   private pendingKeys: Map<string, string[]> = new Map(); // session -> keys[]
@@ -101,6 +110,15 @@ export class WebSocketAdapter implements TmuxAdapter {
         this.connecting = null;
         this.reconnectAttempts = 0;
 
+        // Clear reconnecting state if was reconnecting
+        if (this.reconnecting) {
+          this.reconnecting = false;
+          this.notifyReconnection(false, 0);
+        }
+
+        // Start keepalive pings
+        this.startKeepalive();
+
         while (this.messageQueue.length > 0) {
           const msg = this.messageQueue.shift();
           if (msg) this.ws?.send(msg);
@@ -120,6 +138,7 @@ export class WebSocketAdapter implements TmuxAdapter {
       this.ws.onclose = () => {
         this.connected = false;
         this.ws = null;
+        this.stopKeepalive();
         // Only auto-reconnect if not intentionally disconnected
         if (!this.intentionalDisconnect) {
           this.attemptReconnect();
@@ -137,6 +156,16 @@ export class WebSocketAdapter implements TmuxAdapter {
   disconnect(): void {
     this.intentionalDisconnect = true; // Prevent auto-reconnect
     this.reconnectAttempts = 0; // Reset reconnect counter
+    this.reconnecting = false;
+
+    // Clear any pending reconnect timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    // Stop keepalive
+    this.stopKeepalive();
 
     // Clear any pending key batch timeout
     if (this.keyBatchTimeout) {
@@ -164,6 +193,10 @@ export class WebSocketAdapter implements TmuxAdapter {
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  isReconnecting(): boolean {
+    return this.reconnecting;
   }
 
   /**
@@ -281,13 +314,63 @@ export class WebSocketAdapter implements TmuxAdapter {
     return () => this.primaryChangedListeners.delete(listener);
   }
 
+  onReconnection(listener: ReconnectionListener): () => void {
+    this.reconnectionListeners.add(listener);
+    return () => this.reconnectionListeners.delete(listener);
+  }
+
   private attemptReconnect() {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
-      setTimeout(() => {
-        this.connect().catch(console.error);
-      }, delay);
+    // Set reconnecting state on first attempt
+    if (!this.reconnecting) {
+      this.reconnecting = true;
+    }
+
+    this.reconnectAttempts++;
+    this.notifyReconnection(true, this.reconnectAttempts);
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (max)
+    const delay = Math.min(
+      INITIAL_RECONNECT_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1),
+      MAX_RECONNECT_DELAY_MS
+    );
+
+    console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      this.connect().catch((err) => {
+        console.error('[WebSocket] Reconnect failed:', err);
+        // Will trigger onclose which calls attemptReconnect again
+      });
+    }, delay);
+  }
+
+  /**
+   * Start keepalive pings to detect stale connections
+   */
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.keepaliveInterval = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        // Send a ping via WebSocket ping frame if available,
+        // otherwise send a no-op message
+        try {
+          // WebSocket API doesn't expose ping, so we send a lightweight invoke
+          this.sendCommand('ping', {});
+        } catch {
+          // Ignore ping errors
+        }
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+  }
+
+  /**
+   * Stop keepalive pings
+   */
+  private stopKeepalive(): void {
+    if (this.keepaliveInterval) {
+      clearInterval(this.keepaliveInterval);
+      this.keepaliveInterval = null;
     }
   }
 
@@ -343,6 +426,10 @@ export class WebSocketAdapter implements TmuxAdapter {
 
   private notifyPrimaryChanged(isPrimary: boolean) {
     this.primaryChangedListeners.forEach((listener) => listener(isPrimary));
+  }
+
+  private notifyReconnection(reconnecting: boolean, attempt: number) {
+    this.reconnectionListeners.forEach((listener) => listener(reconnecting, attempt));
   }
 
   /**
@@ -519,6 +606,7 @@ export class TauriAdapter implements TmuxAdapter {
   private errorListeners = new Set<ErrorListener>();
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
   private primaryChangedListeners = new Set<PrimaryChangedListener>();
+  private reconnectionListeners = new Set<ReconnectionListener>();
 
   async connect(): Promise<void> {
     try {
@@ -550,6 +638,10 @@ export class TauriAdapter implements TmuxAdapter {
     return this.connected;
   }
 
+  isReconnecting(): boolean {
+    return false; // Tauri doesn't reconnect
+  }
+
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     const { invoke } = await import('@tauri-apps/api/core');
     return invoke(cmd, args);
@@ -573,6 +665,11 @@ export class TauriAdapter implements TmuxAdapter {
   onPrimaryChanged(listener: PrimaryChangedListener): () => void {
     this.primaryChangedListeners.add(listener);
     return () => this.primaryChangedListeners.delete(listener);
+  }
+
+  onReconnection(listener: ReconnectionListener): () => void {
+    this.reconnectionListeners.add(listener);
+    return () => this.reconnectionListeners.delete(listener);
   }
 
   private notifyStateChange(state: ServerState) {
