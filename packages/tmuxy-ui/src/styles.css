@@ -483,7 +483,7 @@ body {
 
 /* Shared close button styles */
 .pane-close,
-.stack-tab-close {
+.group-tab-close {
   position: absolute;
   right: 0;
   top: 0;
@@ -504,41 +504,41 @@ body {
 }
 
 .pane-header:hover .pane-close,
-.stack-tab:hover .stack-tab-close {
+.group-tab:hover .group-tab-close {
   opacity: 1;
 }
 
 .pane-header-active .pane-close,
-.stack-tab-active .stack-tab-close {
+.group-tab-active .group-tab-close {
   color: var(--pane-header-text-active);
 }
 
 .pane-close:hover,
-.stack-tab-close:hover {
+.group-tab-close:hover {
   background-color: var(--error-color);
   color: white;
   opacity: 1;
 }
 
-/* Stacked Pane Header */
-.pane-header-stacked {
+/* Grouped Pane Header */
+.pane-header-grouped {
   justify-content: flex-start;
   padding: 0;
   gap: 0;
 }
 
-.stack-tabs {
+.group-tabs {
   display: flex;
   flex: 1;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
-.stack-tabs::-webkit-scrollbar {
+.group-tabs::-webkit-scrollbar {
   display: none;
 }
 
-.stack-tab {
+.group-tab {
   position: relative;
   display: flex;
   align-items: center;
@@ -552,15 +552,15 @@ body {
   flex-shrink: 0;
 }
 
-.stack-tab:hover {
+.group-tab:hover {
   background-color: #333;
 }
 
-.stack-tab-active {
+.group-tab-active {
   background-color: var(--pane-header-bg-active);
 }
 
-.stack-tab-title {
+.group-tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -568,7 +568,7 @@ body {
   color: var(--pane-header-text-inactive);
 }
 
-.stack-tab-active .stack-tab-title {
+.group-tab-active .group-tab-title {
   color: var(--pane-header-text-active);
 }
 

@@ -13,8 +13,8 @@ export type { TmuxPane, TmuxWindow, TmuxPopup, ServerState };
 // Shared State Types
 // ============================================
 
-/** Pane stack - groups panes that share the same visual position (like tabs) */
-export interface PaneStack {
+/** Pane group - groups panes that share the same visual position (like tabs) */
+export interface PaneGroup {
   id: string;
   paneIds: string[];
   activeIndex: number;
@@ -78,7 +78,7 @@ export interface ResizeState {
 export interface PendingUpdate {
   panes: TmuxPane[];
   windows: TmuxWindow[];
-  stacks: Record<string, PaneStack>;
+  groups: Record<string, PaneGroup>;
   activeWindowId: string | null;
   activePaneId: string | null;
   totalWidth: number;
@@ -98,7 +98,7 @@ export interface AppMachineContext {
   windows: TmuxWindow[];
   totalWidth: number;
   totalHeight: number;
-  stacks: Record<string, PaneStack>;
+  groups: Record<string, PaneGroup>;
   targetCols: number;
   targetRows: number;
   drag: DragState | null;
@@ -240,10 +240,10 @@ export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
 export type SendCommandEvent = { type: 'SEND_COMMAND'; command: string };
 export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 
-// Stack events
-export type StackAddPaneEvent = { type: 'STACK_ADD_PANE'; paneId: string };
-export type StackSwitchEvent = { type: 'STACK_SWITCH'; stackId: string; paneId: string };
-export type StackClosePaneEvent = { type: 'STACK_CLOSE_PANE'; stackId: string; paneId: string };
+// Group events
+export type GroupAddPaneEvent = { type: 'GROUP_ADD_PANE'; paneId: string };
+export type GroupSwitchEvent = { type: 'GROUP_SWITCH'; groupId: string; paneId: string };
+export type GroupClosePaneEvent = { type: 'GROUP_CLOSE_PANE'; groupId: string; paneId: string };
 
 // Float events
 export type ToggleFloatViewEvent = { type: 'TOGGLE_FLOAT_VIEW' };
@@ -283,9 +283,9 @@ export type AppMachineEvent =
   | FocusPaneEvent
   | SendCommandEvent
   | SendKeysEvent
-  | StackAddPaneEvent
-  | StackSwitchEvent
-  | StackClosePaneEvent
+  | GroupAddPaneEvent
+  | GroupSwitchEvent
+  | GroupClosePaneEvent
   | ToggleFloatViewEvent
   | CreateFloatEvent
   | ConvertToFloatEvent

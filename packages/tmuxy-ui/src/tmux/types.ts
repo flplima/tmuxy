@@ -37,12 +37,12 @@ export interface TmuxWindow {
   index: number;
   name: string;
   active: boolean;
-  /** True if this is a hidden stack window */
-  isStackWindow: boolean;
-  /** Parent pane ID if this is a stack window (e.g., "%5") */
-  stackParentPane: string | null;
-  /** Stack index if this is a stack window (0, 1, 2...) */
-  stackIndex: number | null;
+  /** True if this is a hidden group window */
+  isGroupWindow: boolean;
+  /** Parent pane ID if this is a group window (e.g., "%5") */
+  groupParentPane: string | null;
+  /** Group index if this is a group window (0, 1, 2...) */
+  groupIndex: number | null;
   /** True if this is a hidden float window */
   isFloatWindow: boolean;
   /** Pane ID if this is a float window (e.g., "%5") */
@@ -153,9 +153,9 @@ export interface ServerWindow {
   index: number;
   name: string;
   active: boolean;
-  is_stack_window: boolean;
-  stack_parent_pane: string | null;
-  stack_index: number | null;
+  is_group_window: boolean;
+  group_parent_pane: string | null;
+  group_index: number | null;
   is_float_window?: boolean;
   float_pane_id?: string | null;
 }
@@ -212,9 +212,9 @@ export interface PaneDelta {
 export interface WindowDelta {
   name?: string;
   active?: boolean;
-  is_stack_window?: boolean;
-  stack_parent_pane?: string | null;
-  stack_index?: number | null;
+  is_group_window?: boolean;
+  group_parent_pane?: string | null;
+  group_index?: number | null;
   is_float_window?: boolean;
   float_pane_id?: string | null;
 }

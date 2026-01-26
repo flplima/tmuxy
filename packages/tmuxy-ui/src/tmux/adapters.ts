@@ -587,9 +587,9 @@ export class WebSocketAdapter implements TmuxAdapter {
       ...window,
       ...(delta.name !== undefined && { name: delta.name }),
       ...(delta.active !== undefined && { active: delta.active }),
-      ...(delta.is_stack_window !== undefined && { is_stack_window: delta.is_stack_window }),
-      ...(delta.stack_parent_pane !== undefined && { stack_parent_pane: delta.stack_parent_pane }),
-      ...(delta.stack_index !== undefined && { stack_index: delta.stack_index }),
+      ...(delta.is_group_window !== undefined && { is_group_window: delta.is_group_window }),
+      ...(delta.group_parent_pane !== undefined && { group_parent_pane: delta.group_parent_pane }),
+      ...(delta.group_index !== undefined && { group_index: delta.group_index }),
     };
   }
 }

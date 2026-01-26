@@ -3,7 +3,7 @@
 //! Aggregates control mode events into coherent state using vt100 terminal emulation.
 
 use super::parser::ControlModeEvent;
-use crate::{extract_cells_from_screen, extract_cells_with_urls, parse_float_window_name, parse_stack_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow};
+use crate::{extract_cells_from_screen, extract_cells_with_urls, parse_float_window_name, parse_group_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow};
 use std::collections::HashMap;
 
 /// Type of change that occurred
@@ -267,16 +267,16 @@ impl WindowState {
     }
 
     pub fn to_tmux_window(&self) -> TmuxWindow {
-        let stack_info = parse_stack_window_name(&self.name);
+        let group_info = parse_group_window_name(&self.name);
         let float_info = parse_float_window_name(&self.name);
         TmuxWindow {
             id: self.id.clone(),
             index: self.index,
             name: self.name.clone(),
             active: self.active,
-            is_stack_window: stack_info.is_some(),
-            stack_parent_pane: stack_info.as_ref().map(|s| s.parent_pane_id.clone()),
-            stack_index: stack_info.as_ref().map(|s| s.stack_index),
+            is_group_window: group_info.is_some(),
+            group_parent_pane: group_info.as_ref().map(|g| g.parent_pane_id.clone()),
+            group_index: group_info.as_ref().map(|g| g.group_index),
             is_float_window: float_info.is_some(),
             float_pane_id: float_info.map(|f| f.pane_id),
         }
@@ -1312,14 +1312,14 @@ impl StateAggregator {
         if prev.active != curr.active {
             delta.active = Some(curr.active);
         }
-        if prev.is_stack_window != curr.is_stack_window {
-            delta.is_stack_window = Some(curr.is_stack_window);
+        if prev.is_group_window != curr.is_group_window {
+            delta.is_group_window = Some(curr.is_group_window);
         }
-        if prev.stack_parent_pane != curr.stack_parent_pane {
-            delta.stack_parent_pane = Some(curr.stack_parent_pane.clone());
+        if prev.group_parent_pane != curr.group_parent_pane {
+            delta.group_parent_pane = Some(curr.group_parent_pane.clone());
         }
-        if prev.stack_index != curr.stack_index {
-            delta.stack_index = Some(curr.stack_index);
+        if prev.group_index != curr.group_index {
+            delta.group_index = Some(curr.group_index);
         }
         if prev.is_float_window != curr.is_float_window {
             delta.is_float_window = Some(curr.is_float_window);
@@ -1339,11 +1339,11 @@ impl StateAggregator {
 
     /// Convert current state to TmuxState for the frontend.
     pub fn to_tmux_state(&mut self) -> TmuxState {
-        // Get panes for the active window AND stack windows
-        // Stack windows are hidden windows that contain stacked panes
+        // Get panes for the active window AND group windows
+        // Group windows are hidden windows that contain grouped panes
         let active_window = self.active_window_id.as_ref();
 
-        // Collect pane IDs in the active window (needed to check for orphaned stacks)
+        // Collect pane IDs in the active window (needed to check for orphaned groups)
         let active_window_pane_ids: std::collections::HashSet<String> = self
             .panes
             .values()
@@ -1351,13 +1351,13 @@ impl StateAggregator {
             .map(|p| p.id.clone())
             .collect();
 
-        // Build a map from stack window ID to parent pane ID (only for valid stacks)
-        // A stack is valid only if its parent pane exists in the active window
-        let valid_stack_windows: std::collections::HashSet<String> = self
+        // Build a map from group window ID to parent pane ID (only for valid groups)
+        // A group is valid only if its parent pane exists in the active window
+        let valid_group_windows: std::collections::HashSet<String> = self
             .windows
             .values()
             .filter_map(|w| {
-                parse_stack_window_name(&w.name).and_then(|info| {
+                parse_group_window_name(&w.name).and_then(|info| {
                     // Only include if parent pane exists in active window
                     if active_window_pane_ids.contains(&info.parent_pane_id) {
                         Some(w.id.clone())
@@ -1389,13 +1389,13 @@ impl StateAggregator {
                 if p.window_id.is_empty() {
                     return false;
                 }
-                // Include panes from active window, valid stack windows, OR float windows
+                // Include panes from active window, valid group windows, OR float windows
                 let is_active_window = active_window
                     .map(|w| p.window_id == *w)
                     .unwrap_or(false);
-                let is_valid_stack_window = valid_stack_windows.contains(&p.window_id);
+                let is_valid_group_window = valid_group_windows.contains(&p.window_id);
                 let is_float_window = float_windows.contains(&p.window_id);
-                is_active_window || is_valid_stack_window || is_float_window
+                is_active_window || is_valid_group_window || is_float_window
             })
             .map(|p| p.to_tmux_pane())
             .collect();

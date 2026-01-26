@@ -1,61 +1,51 @@
-import { useAppSend } from '../machines/AppContext';
-import type { PaneStack } from '../machines/types';
-import type { TmuxPane } from '../tmux/types';
-import './PaneHeader.css';
+/**
+ * PaneHeader - Draggable pane header with title and close button
+ *
+ * Shows the tmux pane title left-aligned, with close button on right.
+ */
+
+import { useAppSend, usePane, usePaneGroup } from '../machines/AppContext';
 
 interface PaneHeaderProps {
-  tmuxId: string;
-  paneIndex: number;
-  command: string;
-  isActive: boolean;
-  stack?: PaneStack;
-  stackPanes?: TmuxPane[]; // All panes in the stack (for tab display)
+  paneId: string;
 }
 
-export function PaneHeader({
-  tmuxId,
-  paneIndex,
-  command,
-  isActive,
-  stack,
-  stackPanes,
-}: PaneHeaderProps) {
+export function PaneHeader({ paneId }: PaneHeaderProps) {
   const send = useAppSend();
+  const pane = usePane(paneId);
+  const { group, groupPanes } = usePaneGroup(paneId);
 
-  const handleClose = (e: React.MouseEvent, paneId: string = tmuxId) => {
+  if (!pane) return null;
+
+  const { tmuxId, borderTitle, active: isActive, inMode } = pane;
+  const displayTitle = inMode ? '[COPY MODE]' : (borderTitle || tmuxId);
+
+  const handleClose = (e: React.MouseEvent, closePaneId: string = tmuxId) => {
     e.preventDefault();
     e.stopPropagation();
-    if (stack && stack.paneIds.length > 1) {
-      // Close pane in stack
-      send({ type: 'STACK_CLOSE_PANE', stackId: stack.id, paneId });
+    if (group && group.paneIds.length > 1) {
+      send({ type: 'GROUP_CLOSE_PANE', groupId: group.id, paneId: closePaneId });
     } else {
-      // Close regular pane
-      send({ type: 'FOCUS_PANE', paneId });
+      send({ type: 'FOCUS_PANE', paneId: closePaneId });
       send({ type: 'SEND_COMMAND', command: 'kill-pane' });
     }
   };
 
-  const handleAddToStack = (e: React.MouseEvent) => {
+  const handleSwitchTab = (e: React.MouseEvent, switchPaneId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    send({ type: 'STACK_ADD_PANE', paneId: tmuxId });
-  };
-
-  const handleSwitchTab = (e: React.MouseEvent, paneId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (stack) {
-      send({ type: 'STACK_SWITCH', stackId: stack.id, paneId });
+    if (group) {
+      send({ type: 'GROUP_SWITCH', groupId: group.id, paneId: switchPaneId });
     }
   };
 
   const handleDragStart = (e: React.MouseEvent) => {
-    // Prevent drag on buttons
     const target = e.target as HTMLElement;
     if (
       target.classList.contains('pane-close') ||
-      target.classList.contains('pane-add') ||
-      target.classList.contains('stack-tab')
+      target.classList.contains('group-tab') ||
+      target.classList.contains('group-tab-close') ||
+      target.closest('.group-tab')
     ) {
       return;
     }
@@ -70,36 +60,57 @@ export function PaneHeader({
     });
   };
 
-  // Render as tabs if this pane is part of a stack with multiple panes
-  const isStacked = stack && stack.paneIds.length > 1;
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    // Don't toggle zoom when clicking close button or tabs
+    if (
+      target.classList.contains('pane-close') ||
+      target.classList.contains('group-tab') ||
+      target.classList.contains('group-tab-close') ||
+      target.closest('.group-tab')
+    ) {
+      return;
+    }
 
-  if (isStacked && stackPanes) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Focus the pane first, then toggle zoom
+    send({ type: 'FOCUS_PANE', paneId: tmuxId });
+    send({ type: 'SEND_COMMAND', command: 'resize-pane -Z' });
+  };
+
+  // Grouped panes - show tabs
+  const isGrouped = group && group.paneIds.length > 1;
+
+  if (isGrouped && groupPanes) {
+    const groupedHeaderClass = `pane-header pane-header-grouped ${isActive ? 'pane-header-active' : ''} ${inMode ? 'pane-header-copy-mode' : ''}`;
     return (
       <div
-        className={`pane-header pane-header-stacked ${isActive ? 'pane-header-active' : ''}`}
+        className={groupedHeaderClass}
         onMouseDown={handleDragStart}
+        onDoubleClick={handleDoubleClick}
         role="tablist"
-        aria-label={`Stack with ${stackPanes.length} panes`}
+        aria-label={`Group with ${groupPanes.length} panes`}
       >
-        <div className="stack-tabs">
-          {stackPanes.map((pane) => {
-            const isActiveTab = stack.paneIds[stack.activeIndex] === pane.tmuxId;
+        <div className="group-tabs">
+          {groupPanes.map((groupPane) => {
+            const isActiveTab = group.paneIds[group.activeIndex] === groupPane.tmuxId;
+            const tabTitle = groupPane.inMode ? '[COPY MODE]' : (groupPane.borderTitle || groupPane.tmuxId);
             return (
               <div
-                key={pane.tmuxId}
-                className={`stack-tab ${isActiveTab ? 'stack-tab-active' : ''}`}
-                onClick={(e) => handleSwitchTab(e, pane.tmuxId)}
+                key={groupPane.tmuxId}
+                className={`group-tab ${isActiveTab ? 'group-tab-active' : ''}`}
+                onClick={(e) => handleSwitchTab(e, groupPane.tmuxId)}
                 role="tab"
                 aria-selected={isActiveTab}
-                aria-label={`Pane ${pane.id}: ${pane.command}`}
+                aria-label={`Pane ${groupPane.tmuxId}: ${groupPane.title}`}
               >
-                <span className="stack-tab-index">{pane.id}</span>
-                <span className="stack-tab-command">{pane.command}</span>
+                <span className="group-tab-title">{tabTitle}</span>
                 <button
-                  className="stack-tab-close"
-                  onClick={(e) => handleClose(e, pane.tmuxId)}
+                  className="group-tab-close"
+                  onClick={(e) => handleClose(e, groupPane.tmuxId)}
                   title="Close tab"
-                  aria-label={`Close pane ${pane.id}`}
+                  aria-label={`Close pane ${groupPane.tmuxId}`}
                 >
                   &times;
                 </button>
@@ -107,28 +118,28 @@ export function PaneHeader({
             );
           })}
         </div>
-        <button className="pane-add" onClick={handleAddToStack} title="Add to stack" aria-label={`Add pane to stack ${stack.id}`}>
-          +
-        </button>
       </div>
     );
   }
 
-  // Regular single-pane header
+  // Regular pane header - centered title with close button on right
+  const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${inMode ? 'pane-header-copy-mode' : ''}`;
+
   return (
     <div
-      className={`pane-header ${isActive ? 'pane-header-active' : ''}`}
+      className={headerClass}
       onMouseDown={handleDragStart}
+      onDoubleClick={handleDoubleClick}
       role="toolbar"
-      aria-label={`Pane ${paneIndex} toolbar`}
+      aria-label={`Pane ${tmuxId} toolbar`}
     >
-      <span className="pane-index">{paneIndex}</span>
-      <span className="pane-command">{command}</span>
-      <span className="pane-id">{tmuxId}</span>
-      <button className="pane-add" onClick={handleAddToStack} title="Add to stack" aria-label={`Stack pane ${paneIndex}`}>
-        +
-      </button>
-      <button className="pane-close" onClick={(e) => handleClose(e)} title="Close pane" aria-label={`Close pane ${paneIndex}`}>
+      <span className="pane-title">{displayTitle}</span>
+      <button
+        className="pane-close"
+        onClick={(e) => handleClose(e)}
+        title="Close pane"
+        aria-label={`Close pane ${tmuxId}`}
+      >
         &times;
       </button>
     </div>

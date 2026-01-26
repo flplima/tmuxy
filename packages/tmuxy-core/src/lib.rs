@@ -233,12 +233,12 @@ pub struct TmuxWindow {
     pub index: u32,
     pub name: String,
     pub active: bool,
-    /// True if this is a hidden stack window (name starts with "__%")
-    pub is_stack_window: bool,
-    /// Parent pane ID if this is a stack window (e.g., "%5")
-    pub stack_parent_pane: Option<String>,
-    /// Stack index if this is a stack window (0, 1, 2...)
-    pub stack_index: Option<u32>,
+    /// True if this is a hidden group window (name starts with "__%")
+    pub is_group_window: bool,
+    /// Parent pane ID if this is a group window (e.g., "%5")
+    pub group_parent_pane: Option<String>,
+    /// Group index if this is a group window (0, 1, 2...)
+    pub group_index: Option<u32>,
     /// True if this is a hidden float window (name starts with "__float_")
     #[serde(default)]
     pub is_float_window: bool,
@@ -247,10 +247,10 @@ pub struct TmuxWindow {
     pub float_pane_id: Option<String>,
 }
 
-/// Info parsed from a stack window name
-pub struct StackWindowInfo {
+/// Info parsed from a group window name
+pub struct GroupWindowInfo {
     pub parent_pane_id: String,
-    pub stack_index: u32,
+    pub group_index: u32,
 }
 
 /// Info parsed from a float window name
@@ -277,17 +277,17 @@ pub fn parse_float_window_name(name: &str) -> Option<FloatWindowInfo> {
     })
 }
 
-/// Parse a stack window name pattern: "__%{pane_id}_stack_{n}"
+/// Parse a group window name pattern: "__%{pane_id}_group_{n}"
 /// Returns None if the name doesn't match the pattern
-pub fn parse_stack_window_name(name: &str) -> Option<StackWindowInfo> {
-    // Pattern: __%{pane_id}_stack_{n}
-    // Example: __%5_stack_1
+pub fn parse_group_window_name(name: &str) -> Option<GroupWindowInfo> {
+    // Pattern: __%{pane_id}_group_{n}
+    // Example: __%5_group_1
     if !name.starts_with("__%") {
         return None;
     }
 
     let rest = &name[3..]; // Skip "__%"
-    let parts: Vec<&str> = rest.split("_stack_").collect();
+    let parts: Vec<&str> = rest.split("_group_").collect();
     if parts.len() != 2 {
         return None;
     }
@@ -298,11 +298,11 @@ pub fn parse_stack_window_name(name: &str) -> Option<StackWindowInfo> {
     }
 
     let pane_id = format!("%{}", parts[0]);
-    let stack_index = parts[1].parse::<u32>().ok()?;
+    let group_index = parts[1].parse::<u32>().ok()?;
 
-    Some(StackWindowInfo {
+    Some(GroupWindowInfo {
         parent_pane_id: pane_id,
-        stack_index,
+        group_index,
     })
 }
 
@@ -437,11 +437,11 @@ pub struct WindowDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_stack_window: Option<bool>,
+    pub is_group_window: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stack_parent_pane: Option<Option<String>>,
+    pub group_parent_pane: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stack_index: Option<Option<u32>>,
+    pub group_index: Option<Option<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_float_window: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -452,9 +452,9 @@ impl WindowDelta {
     pub fn is_empty(&self) -> bool {
         self.name.is_none()
             && self.active.is_none()
-            && self.is_stack_window.is_none()
-            && self.stack_parent_pane.is_none()
-            && self.stack_index.is_none()
+            && self.is_group_window.is_none()
+            && self.group_parent_pane.is_none()
+            && self.group_index.is_none()
             && self.is_float_window.is_none()
             && self.float_pane_id.is_none()
     }
@@ -639,17 +639,17 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
     let windows: Vec<TmuxWindow> = window_infos
         .into_iter()
         .map(|w| {
-            // Check if this is a stack or float window
-            let stack_info = parse_stack_window_name(&w.name);
+            // Check if this is a group or float window
+            let group_info = parse_group_window_name(&w.name);
             let float_info = parse_float_window_name(&w.name);
             TmuxWindow {
                 id: w.id,
                 index: w.index,
                 name: w.name,
                 active: w.active,
-                is_stack_window: stack_info.is_some(),
-                stack_parent_pane: stack_info.as_ref().map(|s| s.parent_pane_id.clone()),
-                stack_index: stack_info.as_ref().map(|s| s.stack_index),
+                is_group_window: group_info.is_some(),
+                group_parent_pane: group_info.as_ref().map(|g| g.parent_pane_id.clone()),
+                group_index: group_info.as_ref().map(|g| g.group_index),
                 is_float_window: float_info.is_some(),
                 float_pane_id: float_info.map(|f| f.pane_id),
             }
@@ -694,22 +694,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_stack_window_name() {
-        // Valid stack window names
-        let info = parse_stack_window_name("__%5_stack_1").unwrap();
+    fn test_parse_group_window_name() {
+        // Valid group window names
+        let info = parse_group_window_name("__%5_group_1").unwrap();
         assert_eq!(info.parent_pane_id, "%5");
-        assert_eq!(info.stack_index, 1);
+        assert_eq!(info.group_index, 1);
 
-        let info = parse_stack_window_name("__%123_stack_42").unwrap();
+        let info = parse_group_window_name("__%123_group_42").unwrap();
         assert_eq!(info.parent_pane_id, "%123");
-        assert_eq!(info.stack_index, 42);
+        assert_eq!(info.group_index, 42);
 
         // Invalid names should return None
-        assert!(parse_stack_window_name("workspace").is_none());
-        assert!(parse_stack_window_name("_workspace").is_none());
-        assert!(parse_stack_window_name("__workspace").is_none());
-        assert!(parse_stack_window_name("__%5_notstack_1").is_none());
-        assert!(parse_stack_window_name("__%5_stack_").is_none());
-        assert!(parse_stack_window_name("__%_stack_1").is_none());
+        assert!(parse_group_window_name("workspace").is_none());
+        assert!(parse_group_window_name("_workspace").is_none());
+        assert!(parse_group_window_name("__workspace").is_none());
+        assert!(parse_group_window_name("__%5_notgroup_1").is_none());
+        assert!(parse_group_window_name("__%5_group_").is_none());
+        assert!(parse_group_window_name("__%_group_1").is_none());
     }
 }

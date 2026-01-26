@@ -1,4 +1,4 @@
-import type { AppMachineContext, TmuxPane, TmuxPopup, PaneStack, ResizeState, FloatPaneState } from './types';
+import type { AppMachineContext, TmuxPane, TmuxPopup, PaneGroup, ResizeState, FloatPaneState } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 
 // ============================================
@@ -293,28 +293,28 @@ export const selectPanePixelDimensions = createMemoizedSelector(
 );
 
 // ============================================
-// Stack Selectors
+// Group Selectors
 // ============================================
 
-export function selectStacks(context: AppMachineContext): Record<string, PaneStack> {
-  return context.stacks;
+export function selectGroups(context: AppMachineContext): Record<string, PaneGroup> {
+  return context.groups;
 }
 
 /**
- * Select visible panes - filters out hidden stack panes
- * For stacks, only the active pane is visible
+ * Select visible panes - filters out hidden group panes
+ * For groups, only the active pane is visible
  */
 function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
   const previewPanes = selectPreviewPanes(context);
-  const stacksArray = Object.values(context.stacks);
+  const groupsArray = Object.values(context.groups);
 
-  if (stacksArray.length === 0) return previewPanes;
+  if (groupsArray.length === 0) return previewPanes;
 
   // Build a Set of hidden pane IDs for O(1) lookup
   const hiddenPaneIds = new Set<string>();
-  for (const stack of stacksArray) {
-    const activePaneId = stack.paneIds[stack.activeIndex];
-    for (const paneId of stack.paneIds) {
+  for (const group of groupsArray) {
+    const activePaneId = group.paneIds[group.activeIndex];
+    for (const paneId of group.paneIds) {
       if (paneId !== activePaneId) {
         hiddenPaneIds.add(paneId);
       }
@@ -327,7 +327,7 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
 export const selectVisiblePanes = createMemoizedSelector(
   (ctx: AppMachineContext) => ({
     panes: ctx.panes,
-    stacks: ctx.stacks,
+    groups: ctx.groups,
     resize: ctx.resize,
     charWidth: ctx.charWidth,
     charHeight: ctx.charHeight,
@@ -336,23 +336,23 @@ export const selectVisiblePanes = createMemoizedSelector(
 );
 
 /**
- * Find the stack that contains a given pane (if any)
+ * Find the group that contains a given pane (if any)
  */
-export const selectStackForPane = createMemoizedSelectorWithArg(
-  (ctx: AppMachineContext, _paneId: string) => ctx.stacks,
-  (context: AppMachineContext, paneId: string): PaneStack | undefined => {
-    return Object.values(context.stacks).find((stack) => stack.paneIds.includes(paneId));
+export const selectGroupForPane = createMemoizedSelectorWithArg(
+  (ctx: AppMachineContext, _paneId: string) => ctx.groups,
+  (context: AppMachineContext, paneId: string): PaneGroup | undefined => {
+    return Object.values(context.groups).find((group) => group.paneIds.includes(paneId));
   }
 );
 
 /**
- * Get all panes in a stack (resolved from pane IDs)
+ * Get all panes in a group (resolved from pane IDs)
  */
-export function selectStackPanes(
+export function selectGroupPanes(
   context: AppMachineContext,
-  stack: PaneStack
+  group: PaneGroup
 ): TmuxPane[] {
-  return stack.paneIds
+  return group.paneIds
     .map((id) => context.panes.find((p) => p.tmuxId === id))
     .filter((p): p is TmuxPane => p !== undefined);
 }

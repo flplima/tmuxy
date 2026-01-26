@@ -12,13 +12,13 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
 import { appMachine, type AppMachineActor } from './app';
-import type { AppMachineContext, AppMachineEvent, TmuxPane, PaneStack } from './types';
+import type { AppMachineContext, AppMachineEvent, TmuxPane, PaneGroup } from './types';
 import {
   selectPaneById,
   selectIsPaneInActiveWindow as selectIsPaneInActiveWindowFn,
   selectIsSinglePane as selectIsSinglePaneFn,
-  selectStackForPane,
-  selectStackPanes as selectStackPanesFn,
+  selectGroupForPane,
+  selectGroupPanes as selectGroupPanesFn,
 } from './selectors';
 import { createAdapter } from '../tmux/adapters';
 import { createTmuxActor } from './actors/tmuxActor';
@@ -45,9 +45,9 @@ export {
   selectGridDimensions,
   selectCharSize,
   selectPanePixelDimensions,
-  selectStacks,
-  selectStackForPane,
-  selectStackPanes,
+  selectGroups,
+  selectGroupForPane,
+  selectGroupPanes,
   selectVisiblePanes,
   selectPaneById,
   selectIsPaneInActiveWindow,
@@ -163,12 +163,12 @@ export function useIsSinglePane(): boolean {
   return useSelector(actor, (snapshot) => selectIsSinglePaneFn(snapshot.context));
 }
 
-/** Get the stack containing a pane, with resolved pane data */
-export function usePaneStack(paneId: string): { stack: PaneStack | undefined; stackPanes: TmuxPane[] } {
+/** Get the group containing a pane, with resolved pane data */
+export function usePaneGroup(paneId: string): { group: PaneGroup | undefined; groupPanes: TmuxPane[] } {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => {
-    const stack = selectStackForPane(snapshot.context, paneId);
-    const stackPanes = stack ? selectStackPanesFn(snapshot.context, stack) : [];
-    return { stack, stackPanes };
+    const group = selectGroupForPane(snapshot.context, paneId);
+    const groupPanes = group ? selectGroupPanesFn(snapshot.context, group) : [];
+    return { group, groupPanes };
   });
 }

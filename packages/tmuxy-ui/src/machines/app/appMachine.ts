@@ -22,7 +22,7 @@ import {
   DEFAULT_CHAR_WIDTH,
   DEFAULT_CHAR_HEIGHT,
 } from '../constants';
-import { transformServerState, buildStacksFromWindows } from './helpers';
+import { transformServerState, buildGroupsFromWindows } from './helpers';
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
 import type { KeyboardActorEvent } from '../actors/keyboardActor';
@@ -54,7 +54,7 @@ export const appMachine = setup({
     windows: [],
     totalWidth: 0,
     totalHeight: 0,
-    stacks: {},
+    groups: {},
     targetCols: DEFAULT_COLS,
     targetRows: DEFAULT_ROWS,
     drag: null,
@@ -186,7 +186,7 @@ export const appMachine = setup({
             target: 'removingPane',
             actions: enqueueActions(({ event, context, enqueue }) => {
               const transformed = transformServerState(event.state);
-              const stacks = buildStacksFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.stacks);
+              const groups = buildGroupsFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.groups);
 
               // Find removed panes
               const currentPaneIds = context.panes.map(p => p.tmuxId);
@@ -207,7 +207,7 @@ export const appMachine = setup({
                 assign({
                   pendingUpdate: {
                     ...transformed,
-                    stacks,
+                    groups,
                   },
                   lastUpdateTime: Date.now(),
                 })
@@ -218,7 +218,7 @@ export const appMachine = setup({
             // Normal update without pane removal
             actions: enqueueActions(({ event, context, enqueue }) => {
               const transformed = transformServerState(event.state);
-              const stacks = buildStacksFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.stacks);
+              const groups = buildGroupsFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.groups);
 
               // Detect new panes for enter animation
               const currentPaneIds = context.panes.map(p => p.tmuxId);
@@ -228,7 +228,7 @@ export const appMachine = setup({
               enqueue(
                 assign({
                   ...transformed,
-                  stacks,
+                  groups,
                   lastUpdateTime: Date.now(),
                 })
               );
@@ -398,13 +398,13 @@ export const appMachine = setup({
           })),
         },
 
-        // Stack Operations
-        STACK_ADD_PANE: {
+        // Group Operations
+        GROUP_ADD_PANE: {
           actions: sendTo('tmux', ({ context, event }) => {
-            const stack = context.stacks[event.paneId];
-            const nextIndex = stack ? stack.paneIds.length : 1;
+            const group = context.groups[event.paneId];
+            const nextIndex = group ? group.paneIds.length : 1;
             const paneNum = event.paneId.replace('%', '');
-            const windowName = `__%${paneNum}_stack_${nextIndex}`;
+            const windowName = `__%${paneNum}_group_${nextIndex}`;
             const windowIndex = 1000 + parseInt(paneNum, 10) * 10 + nextIndex;
             return {
               type: 'SEND_COMMAND' as const,
@@ -412,19 +412,19 @@ export const appMachine = setup({
             };
           }),
         },
-        STACK_SWITCH: {
+        GROUP_SWITCH: {
           actions: enqueueActions(({ context, event, enqueue }) => {
-            const stack = context.stacks[event.stackId];
-            if (!stack) return;
+            const group = context.groups[event.groupId];
+            if (!group) return;
 
-            const currentPaneId = stack.paneIds[stack.activeIndex];
+            const currentPaneId = group.paneIds[group.activeIndex];
             const targetPaneId = event.paneId;
 
             if (currentPaneId === targetPaneId) return;
 
-            // Verify target pane exists and is part of this stack
+            // Verify target pane exists and is part of this group
             const targetPane = context.panes.find((p) => p.tmuxId === targetPaneId);
-            if (!targetPane || !stack.paneIds.includes(targetPaneId)) return;
+            if (!targetPane || !group.paneIds.includes(targetPaneId)) return;
 
             enqueue(
               sendTo('tmux', {
@@ -434,12 +434,12 @@ export const appMachine = setup({
             );
           }),
         },
-        STACK_CLOSE_PANE: {
+        GROUP_CLOSE_PANE: {
           actions: enqueueActions(({ context, event, enqueue }) => {
-            const stack = context.stacks[event.stackId];
-            if (!stack) return;
+            const group = context.groups[event.groupId];
+            if (!group) return;
 
-            const visiblePaneId = stack.paneIds[stack.activeIndex];
+            const visiblePaneId = group.paneIds[group.activeIndex];
             const isClosingVisible = visiblePaneId === event.paneId;
 
             // Find which window the pane to close is in
@@ -447,20 +447,20 @@ export const appMachine = setup({
             if (!paneToClose) return;
 
             const windowWithPane = context.windows.find((w) => w.id === paneToClose.windowId);
-            const isInStackWindow = windowWithPane?.isStackWindow ?? false;
+            const isInGroupWindow = windowWithPane?.isGroupWindow ?? false;
 
-            if (isClosingVisible && stack.paneIds.length > 1) {
+            if (isClosingVisible && group.paneIds.length > 1) {
               // Closing the visible pane - need to swap another pane into view first
-              const currentIdx = stack.paneIds.indexOf(event.paneId);
-              const nextIdx = currentIdx < stack.paneIds.length - 1 ? currentIdx + 1 : currentIdx - 1;
-              const nextPaneId = stack.paneIds[nextIdx];
+              const currentIdx = group.paneIds.indexOf(event.paneId);
+              const nextIdx = currentIdx < group.paneIds.length - 1 ? currentIdx + 1 : currentIdx - 1;
+              const nextPaneId = group.paneIds[nextIdx];
 
               // Find where the next pane is
               const nextPane = context.panes.find((p) => p.tmuxId === nextPaneId);
               const nextWindow = nextPane ? context.windows.find((w) => w.id === nextPane.windowId) : null;
-              const nextIsInStackWindow = nextWindow?.isStackWindow ?? false;
+              const nextIsInGroupWindow = nextWindow?.isGroupWindow ?? false;
 
-              if (nextIsInStackWindow && nextWindow) {
+              if (nextIsInGroupWindow && nextWindow) {
                 // Swap the visible pane with next, then kill the now-hidden window
                 enqueue(
                   sendTo('tmux', {
@@ -472,9 +472,9 @@ export const appMachine = setup({
               }
             }
 
-            // Closing a non-visible pane or last pane in stack
-            if (isInStackWindow && windowWithPane) {
-              // Pane is in a stack window - kill the window
+            // Closing a non-visible pane or last pane in group
+            if (isInGroupWindow && windowWithPane) {
+              // Pane is in a group window - kill the window
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
@@ -666,13 +666,13 @@ export const appMachine = setup({
         TMUX_STATE_UPDATE: {
           actions: enqueueActions(({ event, context, enqueue }) => {
             const transformed = transformServerState(event.state);
-            const stacks = buildStacksFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.stacks);
+            const groups = buildGroupsFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.groups);
 
             enqueue(
               assign({
                 pendingUpdate: {
                   ...transformed,
-                  stacks,
+                  groups,
                 },
                 lastUpdateTime: Date.now(),
               })

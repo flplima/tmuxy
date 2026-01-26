@@ -69,56 +69,56 @@ export function transformServerState(payload: ServerState): {
 }
 
 /**
- * Build stacks from window names.
- * Stack windows have the pattern: __%{pane_id}_stack_{n}
+ * Build groups from window names.
+ * Group windows have the pattern: __%{pane_id}_group_{n}
  * After a swap, the "parent" pane may be in a hidden window, so we need to
  * determine which pane is actually visible (in the active window).
  *
- * @param existingStacks - Previous stacks to preserve paneIds from (handles swap case)
+ * @param existingGroups - Previous groups to preserve paneIds from (handles swap case)
  */
-export function buildStacksFromWindows(
+export function buildGroupsFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
   activeWindowId: string | null,
-  existingStacks: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {}
+  existingGroups: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {}
 ): Record<string, { id: string; paneIds: string[]; activeIndex: number }> {
-  const stacks: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {};
+  const groups: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {};
 
-  // Find all stack windows and group by parent pane
-  const stackWindowsByParent = new Map<string, TmuxWindow[]>();
+  // Find all group windows and group by parent pane
+  const groupWindowsByParent = new Map<string, TmuxWindow[]>();
   for (const window of windows) {
-    if (window.isStackWindow && window.stackParentPane) {
-      const parentId = window.stackParentPane;
-      if (!stackWindowsByParent.has(parentId)) {
-        stackWindowsByParent.set(parentId, []);
+    if (window.isGroupWindow && window.groupParentPane) {
+      const parentId = window.groupParentPane;
+      if (!groupWindowsByParent.has(parentId)) {
+        groupWindowsByParent.set(parentId, []);
       }
-      stackWindowsByParent.get(parentId)!.push(window);
+      groupWindowsByParent.get(parentId)!.push(window);
     }
   }
 
-  // Build stacks from grouped windows
-  for (const [parentPaneId, stackWindows] of stackWindowsByParent) {
-    // Sort by stack index
-    stackWindows.sort((a, b) => (a.stackIndex ?? 0) - (b.stackIndex ?? 0));
+  // Build groups from grouped windows
+  for (const [parentPaneId, groupWindows] of groupWindowsByParent) {
+    // Sort by group index
+    groupWindows.sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
 
-    // Get existing stack paneIds if available (preserves membership across swaps)
-    const existingStack = existingStacks[parentPaneId];
-    const existingPaneIds = existingStack?.paneIds || [];
+    // Get existing group paneIds if available (preserves membership across swaps)
+    const existingGroup = existingGroups[parentPaneId];
+    const existingPaneIds = existingGroup?.paneIds || [];
 
-    // Collect ALL panes that are part of this stack
-    // Sources: existing membership + parent + panes in stack windows
-    const allStackPaneIds = new Set<string>(existingPaneIds);
-    allStackPaneIds.add(parentPaneId);
+    // Collect ALL panes that are part of this group
+    // Sources: existing membership + parent + panes in group windows
+    const allGroupPaneIds = new Set<string>(existingPaneIds);
+    allGroupPaneIds.add(parentPaneId);
 
-    for (const stackWindow of stackWindows) {
-      const paneInWindow = panes.find((p) => p.windowId === stackWindow.id);
+    for (const groupWindow of groupWindows) {
+      const paneInWindow = panes.find((p) => p.windowId === groupWindow.id);
       if (paneInWindow) {
-        allStackPaneIds.add(paneInWindow.tmuxId);
+        allGroupPaneIds.add(paneInWindow.tmuxId);
       }
     }
 
     // Remove any panes that no longer exist
-    const validPaneIds = [...allStackPaneIds].filter((id) => panes.some((p) => p.tmuxId === id));
+    const validPaneIds = [...allGroupPaneIds].filter((id) => panes.some((p) => p.tmuxId === id));
 
     // Find which pane is currently visible (in the active window)
     let visiblePaneId: string | null = null;
@@ -148,10 +148,10 @@ export function buildStacksFromWindows(
       }
     }
 
-    // Only create a stack if there are multiple panes
+    // Only create a group if there are multiple panes
     if (paneIds.length > 1) {
       // The visible pane is always at index 0 (we put it first)
-      stacks[parentPaneId] = {
+      groups[parentPaneId] = {
         id: parentPaneId,
         paneIds,
         activeIndex: 0,
@@ -159,7 +159,7 @@ export function buildStacksFromWindows(
     }
   }
 
-  return stacks;
+  return groups;
 }
 
 /**
