@@ -87,6 +87,13 @@ impl TmuxMonitor {
 
     /// Synchronize initial state by querying tmux.
     pub async fn sync_initial_state(&mut self) -> Result<(), String> {
+        // Enable flow control (tmux 3.2+)
+        // pause-after=5 means pause output if client is 5+ seconds behind
+        // This prevents unbounded memory growth during heavy output
+        self.connection
+            .send_command("refresh-client -f pause-after=5")
+            .await?;
+
         // Get list of windows
         self.connection
             .send_command("list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active}'")
@@ -178,6 +185,17 @@ impl TmuxMonitor {
                                 // Send all commands with single flush
                                 if let Err(e) = self.connection.send_commands_batch(&commands).await {
                                     emitter.emit_error(format!("Failed to batch capture panes: {}", e));
+                                }
+                            }
+
+                            // Handle flow control: send continue after pause
+                            // This resumes output for the paused pane after we've processed the backlog
+                            if let ChangeType::FlowPause { ref pane_id } = result.change_type {
+                                // Small delay to let the UI process the pause notification,
+                                // then immediately resume output
+                                let continue_cmd = format!("refresh-client -A '{}:continue'", pane_id);
+                                if let Err(e) = self.connection.send_command(&continue_cmd).await {
+                                    emitter.emit_error(format!("Failed to resume pane {}: {}", pane_id, e));
                                 }
                             }
 

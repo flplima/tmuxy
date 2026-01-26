@@ -23,6 +23,10 @@ pub enum ChangeType {
     Session,
     /// Full state refresh needed
     Full,
+    /// Flow control: pane paused
+    FlowPause { pane_id: String },
+    /// Flow control: pane resumed
+    FlowContinue { pane_id: String },
 }
 
 impl Default for ChangeType {
@@ -95,6 +99,9 @@ pub struct PaneState {
 
     /// Whether application wants mouse events (mouse tracking enabled)
     pub mouse_any_flag: bool,
+
+    /// Whether this pane's output is paused due to flow control
+    pub paused: bool,
 }
 
 impl PaneState {
@@ -120,6 +127,7 @@ impl PaneState {
             tmux_cursor_y: 0,
             alternate_on: false,
             mouse_any_flag: false,
+            paused: false,
         }
     }
 
@@ -213,6 +221,7 @@ impl PaneState {
             copy_cursor_y: self.copy_cursor_y,
             alternate_on: self.alternate_on,
             mouse_any_flag: self.mouse_any_flag,
+            paused: self.paused,
         }
     }
 }
@@ -744,6 +753,34 @@ impl StateAggregator {
                 ProcessEventResult::default()
             }
 
+            // ============================================
+            // Flow Control Events (tmux 3.2+ pause-after)
+            // ============================================
+
+            ControlModeEvent::Pause { pane_id } => {
+                if let Some(pane) = self.panes.get_mut(&pane_id) {
+                    pane.paused = true;
+                    return ProcessEventResult {
+                        state_changed: true,
+                        change_type: ChangeType::FlowPause { pane_id },
+                        ..Default::default()
+                    };
+                }
+                ProcessEventResult::default()
+            }
+
+            ControlModeEvent::Continue { pane_id } => {
+                if let Some(pane) = self.panes.get_mut(&pane_id) {
+                    pane.paused = false;
+                    return ProcessEventResult {
+                        state_changed: true,
+                        change_type: ChangeType::FlowContinue { pane_id },
+                        ..Default::default()
+                    };
+                }
+                ProcessEventResult::default()
+            }
+
             _ => ProcessEventResult::default(),
         }
     }
@@ -1245,6 +1282,9 @@ impl StateAggregator {
         }
         if prev.mouse_any_flag != curr.mouse_any_flag {
             delta.mouse_any_flag = Some(curr.mouse_any_flag);
+        }
+        if prev.paused != curr.paused {
+            delta.paused = Some(curr.paused);
         }
 
         delta

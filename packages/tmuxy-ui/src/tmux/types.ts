@@ -27,6 +27,8 @@ export interface TmuxPane {
   alternateOn: boolean;
   /** True if application has mouse tracking enabled */
   mouseAnyFlag: boolean;
+  /** True if output is paused due to flow control (backpressure) */
+  paused: boolean;
 }
 
 export interface TmuxWindow {
@@ -141,6 +143,7 @@ export interface ServerPane {
   copy_cursor_y: number;
   alternate_on?: boolean;
   mouse_any_flag?: boolean;
+  paused?: boolean;
 }
 
 export interface ServerWindow {
@@ -201,6 +204,7 @@ export interface PaneDelta {
   copy_cursor_y?: number;
   alternate_on?: boolean;
   mouse_any_flag?: boolean;
+  paused?: boolean;
 }
 
 export interface WindowDelta {

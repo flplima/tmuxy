@@ -202,6 +202,10 @@ pub struct TmuxPane {
     /// When true, mouse events should be forwarded as SGR sequences
     #[serde(default)]
     pub mouse_any_flag: bool,
+    /// True if this pane's output is paused due to flow control
+    /// When true, UI should show a pause indicator
+    #[serde(default)]
+    pub paused: bool,
 }
 
 /// A single tmux window (tab)
@@ -381,6 +385,9 @@ pub struct PaneDelta {
     /// Mouse any flag (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mouse_any_flag: Option<bool>,
+    /// Flow control pause state (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused: Option<bool>,
 }
 
 impl PaneDelta {
@@ -401,6 +408,7 @@ impl PaneDelta {
             && self.copy_cursor_y.is_none()
             && self.alternate_on.is_none()
             && self.mouse_any_flag.is_none()
+            && self.paused.is_none()
     }
 }
 
@@ -606,6 +614,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             // These are populated in control mode, not available in polling mode
             alternate_on: false,
             mouse_any_flag: false,
+            paused: false,
         });
     }
 
