@@ -1,152 +1,200 @@
-import type { TmuxPane, TmuxWindow, ServerState } from '../tmux/types';
+/**
+ * Machine Types
+ *
+ * All type definitions for state machines and their events.
+ */
+
+import type { TmuxPane, TmuxWindow, TmuxPopup, ServerState } from '../tmux/types';
 
 // Re-export domain types
-export type { TmuxPane, TmuxWindow, ServerState };
+export type { TmuxPane, TmuxWindow, TmuxPopup, ServerState };
 
 // ============================================
-// App Machine Context
+// Shared State Types
 // ============================================
 
-// Pane stack - groups panes that share the same visual position (like tabs)
+/** Pane stack - groups panes that share the same visual position (like tabs) */
 export interface PaneStack {
-  id: string; // Stack ID (usually the first pane's tmuxId)
-  paneIds: string[]; // tmuxIds of panes in this stack
-  activeIndex: number; // Index of the active pane in the stack
+  id: string;
+  paneIds: string[];
+  activeIndex: number;
 }
 
+/** Drag operation state */
 export interface DragState {
   draggedPaneId: string;
   targetPaneId: string | null;
-  targetNewWindow: boolean; // True when dragging over status bar to create new window
+  targetNewWindow: boolean;
   startX: number;
   startY: number;
   currentX: number;
   currentY: number;
+  /** Original position of dragged pane (for stable visual tracking during swaps) */
+  originalX: number;
+  originalY: number;
+  originalWidth: number;
+  originalHeight: number;
+  /** Original position of target pane when first hovered (for stable drop indicator) */
+  targetOriginalX: number | null;
+  targetOriginalY: number | null;
+  targetOriginalWidth: number | null;
+  targetOriginalHeight: number | null;
 }
 
+/** Resize operation state */
 export interface ResizeState {
   paneId: string;
   handle: 'n' | 's' | 'e' | 'w';
   startX: number;
   startY: number;
   originalPane: TmuxPane;
-  /** Raw pixel offset from start position - follows cursor freely */
+  /** Original neighbor panes affected by this resize (for stable preview) */
+  originalNeighbors: TmuxPane[];
   pixelDelta: { x: number; y: number };
-  /** Grid-snapped delta in cols/rows - calculated on mouse release */
   delta: { cols: number; rows: number };
+  /** Last delta that was sent to tmux (to avoid duplicate commands) */
+  lastSentDelta: { cols: number; rows: number };
+}
+
+// ============================================
+// App Machine Types
+// ============================================
+
+/** Pending state update stored during pane exit animation */
+export interface PendingUpdate {
+  panes: TmuxPane[];
+  windows: TmuxWindow[];
+  stacks: Record<string, PaneStack>;
+  activeWindowId: string | null;
+  activePaneId: string | null;
+  totalWidth: number;
+  totalHeight: number;
+  sessionName: string;
+  statusLine: string;
+  popup: TmuxPopup | null;
 }
 
 export interface AppMachineContext {
-  // Connection
   connected: boolean;
   error: string | null;
-
-  // Tmux state (from server)
-  /** Session name (e.g., "tmuxy") */
   sessionName: string;
-  /** Active window ID (e.g., "@0") */
   activeWindowId: string | null;
-  /** Active pane ID (e.g., "%0") */
   activePaneId: string | null;
   panes: TmuxPane[];
   windows: TmuxWindow[];
   totalWidth: number;
   totalHeight: number;
-
-  // Preview panes (computed from panes + drag/resize state)
-  // Updated in real-time during drag/resize operations
-  previewPanes: TmuxPane[];
-
-  // Pane stacks - groups of panes that share the same visual position
-  // Key is stack ID (parent pane ID), value is the stack info
-  // Stacks are computed from window names on each state update
   stacks: Record<string, PaneStack>;
-
-  // UI target dimensions (source of truth - what we want tmux to be)
   targetCols: number;
   targetRows: number;
-
-  // Drag state (only present in dragging/committingDrag states)
   drag: DragState | null;
-
-  // Resize state (only present in resizing/committingResize states)
   resize: ResizeState | null;
-
-  // Command input for command mode
-  commandInput: string;
-
-  // UI config
   charWidth: number;
   charHeight: number;
+  /** Whether this client is the primary connection (controls window size) */
+  isPrimary: boolean;
+  /** Connection ID assigned by the server */
+  connectionId: number | null;
+  /** Tmux status line with ANSI escape codes */
+  statusLine: string;
+  /** Pending state update during pane exit animation */
+  pendingUpdate: PendingUpdate | null;
+  /** Container dimensions for centering calculations */
+  containerWidth: number;
+  containerHeight: number;
+  /** Timestamp of last tmux state update (for activity tracking) */
+  lastUpdateTime: number;
+  /**
+   * Active popup (if any)
+   * Note: Requires tmux with control mode popup support (PR #4361)
+   */
+  popup: TmuxPopup | null;
 }
 
 // ============================================
-// App Machine Events
+// Drag Machine Types
+// ============================================
+
+export interface DragMachineContext {
+  panes: TmuxPane[];
+  activePaneId: string | null;
+  charWidth: number;
+  charHeight: number;
+  containerWidth: number;
+  containerHeight: number;
+  drag: DragState | null;
+}
+
+export type DragMachineEvent =
+  | { type: 'DRAG_START'; paneId: string; startX: number; startY: number; panes: TmuxPane[]; activePaneId: string | null; charWidth: number; charHeight: number; containerWidth: number; containerHeight: number }
+  | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
+  | { type: 'DRAG_END' }
+  | { type: 'DRAG_CANCEL' }
+  | KeyPressEvent;
+
+// ============================================
+// Resize Machine Types
+// ============================================
+
+export interface ResizeMachineContext {
+  panes: TmuxPane[];
+  charWidth: number;
+  charHeight: number;
+  resize: ResizeState | null;
+}
+
+export type ResizeMachineEvent =
+  | { type: 'RESIZE_START'; paneId: string; handle: 'n' | 's' | 'e' | 'w'; startX: number; startY: number; panes: TmuxPane[]; charWidth: number; charHeight: number }
+  | { type: 'RESIZE_MOVE'; clientX: number; clientY: number }
+  | { type: 'RESIZE_END' }
+  | { type: 'RESIZE_CANCEL' }
+  | KeyPressEvent
+  | { type: 'SEND_RESIZE_COMMAND'; command: string; deltaCols: number; deltaRows: number };
+
+// ============================================
+// Child Machine → Parent Events
+// ============================================
+
+/** Events sent from drag machine to parent */
+export type DragParentEvent =
+  | { type: 'SEND_TMUX_COMMAND'; command: string }
+  | { type: 'DRAG_STATE_UPDATE'; drag: DragState | null }
+  | { type: 'DRAG_COMPLETED' }
+  | { type: 'DRAG_ERROR'; error: string };
+
+/** Events sent from resize machine to parent */
+export type ResizeParentEvent =
+  | { type: 'SEND_TMUX_COMMAND'; command: string }
+  | { type: 'RESIZE_STATE_UPDATE'; resize: ResizeState | null }
+  | { type: 'RESIZE_COMPLETED' }
+  | { type: 'RESIZE_ERROR'; error: string };
+
+/** All events from child machines to parent */
+export type ChildMachineEvent = DragParentEvent | ResizeParentEvent;
+
+// ============================================
+// App Machine Events (External API)
 // ============================================
 
 // Tmux connection events
-export type TmuxConnectedEvent = {
-  type: 'TMUX_CONNECTED';
-};
-
-export type TmuxStateUpdateEvent = {
-  type: 'TMUX_STATE_UPDATE';
-  state: ServerState;
-};
-
-export type TmuxErrorEvent = {
-  type: 'TMUX_ERROR';
-  error: string;
-};
-
-export type TmuxDisconnectedEvent = {
-  type: 'TMUX_DISCONNECTED';
-};
+export type TmuxConnectedEvent = { type: 'TMUX_CONNECTED' };
+export type TmuxStateUpdateEvent = { type: 'TMUX_STATE_UPDATE'; state: ServerState };
+export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
+export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
+export type ConnectionInfoEvent = { type: 'CONNECTION_INFO'; connectionId: number; isPrimary: boolean };
+export type PrimaryChangedEvent = { type: 'PRIMARY_CHANGED'; isPrimary: boolean };
 
 // Drag events
-export type DragStartEvent = {
-  type: 'DRAG_START';
-  paneId: string;
-  startX: number;
-  startY: number;
-};
-
-export type DragMoveEvent = {
-  type: 'DRAG_MOVE';
-  clientX: number;
-  clientY: number;
-};
-
-export type DragEndEvent = {
-  type: 'DRAG_END';
-};
-
-export type DragCancelEvent = {
-  type: 'DRAG_CANCEL';
-};
+export type DragStartEvent = { type: 'DRAG_START'; paneId: string; startX: number; startY: number };
+export type DragMoveEvent = { type: 'DRAG_MOVE'; clientX: number; clientY: number };
+export type DragEndEvent = { type: 'DRAG_END' };
+export type DragCancelEvent = { type: 'DRAG_CANCEL' };
 
 // Resize events
-export type ResizeStartEvent = {
-  type: 'RESIZE_START';
-  paneId: string;
-  handle: 'n' | 's' | 'e' | 'w';
-  startX: number;
-  startY: number;
-};
-
-export type ResizeMoveEvent = {
-  type: 'RESIZE_MOVE';
-  clientX: number;
-  clientY: number;
-};
-
-export type ResizeEndEvent = {
-  type: 'RESIZE_END';
-};
-
-export type ResizeCancelEvent = {
-  type: 'RESIZE_CANCEL';
-};
+export type ResizeStartEvent = { type: 'RESIZE_START'; paneId: string; handle: 'n' | 's' | 'e' | 'w'; startX: number; startY: number };
+export type ResizeMoveEvent = { type: 'RESIZE_MOVE'; clientX: number; clientY: number };
+export type ResizeEndEvent = { type: 'RESIZE_END' };
+export type ResizeCancelEvent = { type: 'RESIZE_CANCEL' };
 
 // Keyboard events
 export type KeyPressEvent = {
@@ -158,81 +206,35 @@ export type KeyPressEvent = {
   metaKey: boolean;
 };
 
-// Command mode events
-export type CommandModeEnterEvent = {
-  type: 'COMMAND_MODE_ENTER';
-};
-
-export type CommandModeExitEvent = {
-  type: 'COMMAND_MODE_EXIT';
-};
-
-export type CommandInputEvent = {
-  type: 'COMMAND_INPUT';
-  value: string;
-};
-
-export type CommandSubmitEvent = {
-  type: 'COMMAND_SUBMIT';
-};
-
 // UI config events
-export type SetCharSizeEvent = {
-  type: 'SET_CHAR_SIZE';
-  charWidth: number;
-  charHeight: number;
-};
+export type SetCharSizeEvent = { type: 'SET_CHAR_SIZE'; charWidth: number; charHeight: number };
+export type SetTargetSizeEvent = { type: 'SET_TARGET_SIZE'; cols: number; rows: number };
+export type SetContainerSizeEvent = { type: 'SET_CONTAINER_SIZE'; width: number; height: number };
+export type SetAnimationRootEvent = { type: 'SET_ANIMATION_ROOT'; element: HTMLElement };
+export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLElement };
 
-// Set target window size (UI is source of truth)
-export type SetTargetSizeEvent = {
-  type: 'SET_TARGET_SIZE';
-  cols: number;
-  rows: number;
-};
+// Animation events from animation actor
+export type AnimationLeaveCompleteEvent = { type: 'ANIMATION_LEAVE_COMPLETE' };
+export type AnimationDragCompleteEvent = { type: 'ANIMATION_DRAG_COMPLETE' };
 
-// Pane focus event
-export type FocusPaneEvent = {
-  type: 'FOCUS_PANE';
-  paneId: string;
-};
-
-// Send tmux command
-export type SendCommandEvent = {
-  type: 'SEND_COMMAND';
-  command: string;
-};
-
-// Send keys to tmux
-export type SendKeysEvent = {
-  type: 'SEND_KEYS';
-  paneId: string;
-  keys: string;
-};
+// Pane events
+export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
+export type SendCommandEvent = { type: 'SEND_COMMAND'; command: string };
+export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 
 // Stack events
-export type StackAddPaneEvent = {
-  type: 'STACK_ADD_PANE';
-  paneId: string; // The pane to add a new stacked pane to
-};
+export type StackAddPaneEvent = { type: 'STACK_ADD_PANE'; paneId: string };
+export type StackSwitchEvent = { type: 'STACK_SWITCH'; stackId: string; paneId: string };
+export type StackClosePaneEvent = { type: 'STACK_CLOSE_PANE'; stackId: string; paneId: string };
 
-export type StackSwitchEvent = {
-  type: 'STACK_SWITCH';
-  stackId: string;
-  paneId: string; // The pane to switch to
-};
-
-export type StackClosePaneEvent = {
-  type: 'STACK_CLOSE_PANE';
-  stackId: string;
-  paneId: string;
-};
-
-// Union of all events
+/** All events the app machine can receive from external sources */
 export type AppMachineEvent =
   | TmuxConnectedEvent
   | TmuxStateUpdateEvent
   | TmuxErrorEvent
   | TmuxDisconnectedEvent
+  | ConnectionInfoEvent
+  | PrimaryChangedEvent
   | DragStartEvent
   | DragMoveEvent
   | DragEndEvent
@@ -242,12 +244,13 @@ export type AppMachineEvent =
   | ResizeEndEvent
   | ResizeCancelEvent
   | KeyPressEvent
-  | CommandModeEnterEvent
-  | CommandModeExitEvent
-  | CommandInputEvent
-  | CommandSubmitEvent
   | SetCharSizeEvent
   | SetTargetSizeEvent
+  | SetContainerSizeEvent
+  | SetAnimationRootEvent
+  | ObserveContainerEvent
+  | AnimationLeaveCompleteEvent
+  | AnimationDragCompleteEvent
   | FocusPaneEvent
   | SendCommandEvent
   | SendKeysEvent
@@ -255,22 +258,5 @@ export type AppMachineEvent =
   | StackSwitchEvent
   | StackClosePaneEvent;
 
-// ============================================
-// Actor Types
-// ============================================
-
-export interface TmuxActorInput {
-  onConnected: () => void;
-  onStateUpdate: (state: ServerState) => void;
-  onError: (error: string) => void;
-  onDisconnected: () => void;
-}
-
-export interface TmuxActorRef {
-  sendCommand: (command: string) => Promise<void>;
-  sendKeys: (paneId: string, keys: string) => Promise<void>;
-}
-
-export interface KeyboardActorInput {
-  onKeyPress: (event: KeyPressEvent) => void;
-}
+/** All events the app machine handles (external + child machine events) */
+export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

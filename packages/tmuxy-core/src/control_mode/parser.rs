@@ -123,6 +123,35 @@ pub enum ControlModeEvent {
     UnlinkedWindowClose {
         window_id: String,
     },
+
+    // ============================================
+    // Popup Events (requires tmux with PR #4361)
+    // ============================================
+
+    /// Popup opened
+    /// Note: This event requires tmux with control mode popup support.
+    /// Format: %popup-open popup_id width height x y [command]
+    PopupOpen {
+        popup_id: String,
+        width: u32,
+        height: u32,
+        x: u32,
+        y: u32,
+        command: Option<String>,
+    },
+
+    /// Popup output (content update)
+    /// Format: %popup-output popup_id content
+    PopupOutput {
+        popup_id: String,
+        content: Vec<u8>,
+    },
+
+    /// Popup closed
+    /// Format: %popup-close popup_id
+    PopupClose {
+        popup_id: String,
+    },
 }
 
 /// Parser for control mode notifications
@@ -330,7 +359,74 @@ impl Parser {
             });
         }
 
+        // ============================================
+        // Popup Events (requires tmux with PR #4361)
+        // ============================================
+
+        // %popup-open popup_id width height x y [command]
+        if line.starts_with("%popup-open ") {
+            return self.parse_popup_open(line);
+        }
+
+        // %popup-output popup_id content
+        if line.starts_with("%popup-output ") {
+            return self.parse_popup_output(line);
+        }
+
+        // %popup-close popup_id
+        if line.starts_with("%popup-close ") {
+            let rest = &line["%popup-close ".len()..];
+            return Some(ControlModeEvent::PopupClose {
+                popup_id: rest.trim().to_string(),
+            });
+        }
+
         None
+    }
+
+    fn parse_popup_open(&self, line: &str) -> Option<ControlModeEvent> {
+        // %popup-open popup_id width height x y [command]
+        let rest = &line["%popup-open ".len()..];
+        let parts: Vec<&str> = rest.splitn(6, ' ').collect();
+
+        if parts.len() < 5 {
+            return None;
+        }
+
+        let popup_id = parts[0].to_string();
+        let width: u32 = parts[1].parse().ok()?;
+        let height: u32 = parts[2].parse().ok()?;
+        let x: u32 = parts[3].parse().ok()?;
+        let y: u32 = parts[4].parse().ok()?;
+        let command = parts.get(5).map(|s| s.to_string());
+
+        Some(ControlModeEvent::PopupOpen {
+            popup_id,
+            width,
+            height,
+            x,
+            y,
+            command,
+        })
+    }
+
+    fn parse_popup_output(&self, line: &str) -> Option<ControlModeEvent> {
+        // %popup-output popup_id content
+        let rest = &line["%popup-output ".len()..];
+
+        // Find the space after popup_id
+        if let Some(space_idx) = rest.find(' ') {
+            let popup_id = rest[..space_idx].to_string();
+            let value = &rest[space_idx + 1..];
+            let content = decode_octal(value);
+            return Some(ControlModeEvent::PopupOutput { popup_id, content });
+        }
+
+        // No content (empty output)
+        Some(ControlModeEvent::PopupOutput {
+            popup_id: rest.trim().to_string(),
+            content: Vec::new(),
+        })
     }
 
     fn parse_output(&self, line: &str) -> Option<ControlModeEvent> {

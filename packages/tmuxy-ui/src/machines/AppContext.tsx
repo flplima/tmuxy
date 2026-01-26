@@ -1,125 +1,174 @@
-import { createContext, useContext, ReactNode } from 'react';
+/**
+ * AppContext - XState machine provider and typed hooks for accessing state.
+ *
+ * Components use the exported hooks to:
+ * - useAppSelector(selector) - derive values from machine context
+ * - useAppSend() - get the machine's send function
+ * - useAppState('stateName') - check if machine is in a specific state
+ * - useIsDragging() - check if drag is in progress
+ * - useIsResizing() - check if resize is in progress
+ */
+
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
-import { appMachine, AppMachineActor } from './appMachine';
-import type { AppMachineContext, AppMachineEvent } from './types';
+import { appMachine, type AppMachineActor } from './app';
+import type { AppMachineContext, AppMachineEvent, TmuxPane, PaneStack } from './types';
+import {
+  selectPaneById,
+  selectIsPaneInActiveWindow as selectIsPaneInActiveWindowFn,
+  selectIsSinglePane as selectIsSinglePaneFn,
+  selectStackForPane,
+  selectStackPanes as selectStackPanesFn,
+} from './selectors';
+import { createAdapter } from '../tmux/adapters';
+import { createTmuxActor } from './actors/tmuxActor';
+import { createKeyboardActor } from './actors/keyboardActor';
+import { createSizeActor } from './actors/sizeActor';
+
+// Re-export all selectors
+export {
+  selectPreviewPanes,
+  selectPanes,
+  selectDraggedPaneId,
+  selectDragTargetNewWindow,
+  selectDragOffsetX,
+  selectDragOffsetY,
+  selectDragOriginalPosition,
+  selectDropTarget,
+  selectResize,
+  selectResizePixelDelta,
+  selectWindows,
+  selectActiveWindowId,
+  selectIsConnected,
+  selectError,
+  selectIsPrimary,
+  selectGridDimensions,
+  selectCharSize,
+  selectPanePixelDimensions,
+  selectStacks,
+  selectStackForPane,
+  selectStackPanes,
+  selectVisiblePanes,
+  selectPaneById,
+  selectIsPaneInActiveWindow,
+  selectIsSinglePane,
+  selectStatusLine,
+  selectContainerSize,
+  selectPopup,
+  selectHasPopup,
+} from './selectors';
 
 // ============================================
 // Context
 // ============================================
 
-const AppActorContext = createContext<AppMachineActor | null>(null);
+const AppContext = createContext<AppMachineActor | null>(null);
+
+/**
+ * Measure char width from rendered monospace font.
+ */
+function measureCharWidth(): number {
+  const testEl = document.createElement('pre');
+  testEl.className = 'terminal-content';
+  testEl.style.position = 'absolute';
+  testEl.style.visibility = 'hidden';
+  testEl.style.top = '-9999px';
+  testEl.textContent = 'MMMMMMMMMM';
+  document.body.appendChild(testEl);
+  const width = testEl.getBoundingClientRect().width / 10;
+  document.body.removeChild(testEl);
+  return width;
+}
 
 // ============================================
 // Provider
 // ============================================
 
-interface AppProviderProps {
-  children: ReactNode;
-}
+export function AppProvider({ children }: { children: ReactNode }) {
+  // Create adapter and actors once
+  const actors = useMemo(() => {
+    const adapter = createAdapter();
+    return {
+      tmuxActor: createTmuxActor(adapter),
+      keyboardActor: createKeyboardActor(),
+      sizeActor: createSizeActor(measureCharWidth),
+    };
+  }, []);
 
-export function AppProvider({ children }: AppProviderProps) {
-  const actorRef = useActorRef(appMachine);
+  const actorRef = useActorRef(
+    appMachine.provide({
+      actors,
+    })
+  );
 
-  return <AppActorContext.Provider value={actorRef}>{children}</AppActorContext.Provider>;
+  return <AppContext.Provider value={actorRef}>{children}</AppContext.Provider>;
 }
 
 // ============================================
-// Core Hooks
+// Hooks
 // ============================================
 
-/**
- * Get the app machine actor ref
- * Use this to send events to the machine
- */
-export function useAppActor(): AppMachineActor {
-  const actorRef = useContext(AppActorContext);
-  if (!actorRef) {
-    throw new Error('useAppActor must be used within AppProvider');
-  }
-  return actorRef;
+function useAppActor(): AppMachineActor {
+  const actor = useContext(AppContext);
+  if (!actor) throw new Error('useAppActor must be used within AppProvider');
+  return actor;
 }
 
-/**
- * Send events to the app machine
- */
-export function useAppSend(): (event: AppMachineEvent) => void {
-  const actorRef = useAppActor();
-  return actorRef.send;
-}
-
-/**
- * Select state from the app machine context with auto-subscription
- */
+/** Type-safe selector hook for app machine context */
 export function useAppSelector<T>(selector: (context: AppMachineContext) => T): T {
-  const actorRef = useAppActor();
-  return useSelector(actorRef, (snapshot) => selector(snapshot.context));
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => selector(snapshot.context));
 }
 
-// ============================================
-// State Matching Hooks
-// ============================================
-
-type TopLevelState = 'connecting' | 'idle' | 'dragging' | 'committingDrag' | 'resizing' | 'committingResize';
-type IdleSubState = 'normal' | 'prefixWait' | 'commandMode';
-
-/**
- * Check if machine matches a top-level state
- */
-export function useAppState(stateValue: TopLevelState): boolean {
-  const actorRef = useAppActor();
-  return useSelector(actorRef, (snapshot) => snapshot.matches(stateValue));
+/** Get the send function for app machine events */
+export function useAppSend(): (event: AppMachineEvent) => void {
+  const actor = useAppActor();
+  return actor.send;
 }
 
-/**
- * Check if machine matches a nested idle state (e.g., 'idle.prefixWait')
- */
-export function useIdleSubState(subState: IdleSubState): boolean {
-  const actorRef = useAppActor();
-  return useSelector(actorRef, (snapshot) => snapshot.matches({ idle: subState }));
+/** Check if the machine is in a given state (supports nested states) */
+export function useAppState(stateValue: string): boolean {
+  const actor = useAppActor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return useSelector(actor, (snapshot) => snapshot.matches(stateValue as any));
 }
 
-/**
- * Check if currently dragging (active drag, not committing)
- */
+/** Check if a drag operation is in progress */
 export function useIsDragging(): boolean {
-  return useAppState('dragging');
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => snapshot.context.drag !== null);
 }
 
-/**
- * Check if drag is being committed (waiting for server)
- */
-export function useIsCommittingDrag(): boolean {
-  return useAppState('committingDrag');
-}
-
-/**
- * Check if currently resizing (active resize, not committing)
- */
+/** Check if a resize operation is in progress */
 export function useIsResizing(): boolean {
-  return useAppState('resizing');
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => snapshot.context.resize !== null);
 }
 
-/**
- * Check if resize is being committed (waiting for server)
- */
-export function useIsCommittingResize(): boolean {
-  return useAppState('committingResize');
+/** Get a specific pane by ID (with resize preview) */
+export function usePane(paneId: string): TmuxPane | undefined {
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => selectPaneById(snapshot.context, paneId));
 }
 
-/**
- * Check if in prefix key wait mode
- */
-export function useIsPrefixMode(): boolean {
-  return useIdleSubState('prefixWait');
+/** Check if a pane is in the active window */
+export function useIsPaneInActiveWindow(paneId: string): boolean {
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => selectIsPaneInActiveWindowFn(snapshot.context, paneId));
 }
 
-/**
- * Check if in command mode
- */
-export function useIsCommandMode(): boolean {
-  return useIdleSubState('commandMode');
+/** Check if there's only a single visible pane */
+export function useIsSinglePane(): boolean {
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => selectIsSinglePaneFn(snapshot.context));
 }
 
-// Re-export selectors for convenience
-export * from './selectors';
-export type { TmuxPane, TmuxWindow } from './types';
+/** Get the stack containing a pane, with resolved pane data */
+export function usePaneStack(paneId: string): { stack: PaneStack | undefined; stackPanes: TmuxPane[] } {
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => {
+    const stack = selectStackForPane(snapshot.context, paneId);
+    const stackPanes = stack ? selectStackPanesFn(snapshot.context, stack) : [];
+    return { stack, stackPanes };
+  });
+}

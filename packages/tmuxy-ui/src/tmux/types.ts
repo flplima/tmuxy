@@ -7,7 +7,7 @@ export interface TmuxPane {
   tmuxId: string;
   /** Window this pane belongs to (e.g., "@0") */
   windowId: string;
-  content: string[];
+  content: PaneContent;
   cursorX: number;
   cursorY: number;
   width: number;
@@ -16,6 +16,10 @@ export interface TmuxPane {
   y: number;
   active: boolean;
   command: string;
+  /** Pane title (set by shell/application) */
+  title: string;
+  /** Evaluated pane-border-format from tmux config */
+  borderTitle: string;
   inMode: boolean;
   copyCursorX: number;
   copyCursorY: number;
@@ -35,6 +39,30 @@ export interface TmuxWindow {
   stackIndex: number | null;
 }
 
+/**
+ * Tmux popup state
+ * Note: Requires tmux with control mode popup support (PR #4361)
+ */
+export interface TmuxPopup {
+  /** Popup ID */
+  id: string;
+  /** Popup content (terminal cells) */
+  content: PaneContent;
+  /** Cursor position */
+  cursorX: number;
+  cursorY: number;
+  /** Popup dimensions */
+  width: number;
+  height: number;
+  /** Position relative to window */
+  x: number;
+  y: number;
+  /** Whether the popup is active */
+  active: boolean;
+  /** Command running in popup */
+  command: string;
+}
+
 export interface TmuxState {
   /** Session name (e.g., "tmuxy") */
   sessionName: string;
@@ -48,21 +76,145 @@ export interface TmuxState {
   totalHeight: number;
   connected: boolean;
   error: string | null;
+  /** Active popup (if any) - requires tmux with control mode popup support */
+  popup?: TmuxPopup | null;
 }
+
+// ============================================
+// Structured Cell Types (from Rust backend)
+// ============================================
+
+/** Color can be indexed (0-255) or RGB */
+export type CellColor = number | { r: number; g: number; b: number };
+
+/** Cell style attributes */
+export interface CellStyle {
+  fg?: CellColor;
+  bg?: CellColor;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  inverse?: boolean;
+}
+
+/** A single terminal cell with character and optional styling */
+export interface TerminalCell {
+  c: string; // character
+  s?: CellStyle; // style (optional)
+}
+
+/** A line of terminal cells */
+export type CellLine = TerminalCell[];
+
+/** Pane content is always structured cells */
+export type PaneContent = CellLine[];
 
 // ============================================
 // Server Types (snake_case from backend)
 // ============================================
 
+export interface ServerPane {
+  id: number;
+  tmux_id: string;
+  window_id: string;
+  content: PaneContent;
+  cursor_x: number;
+  cursor_y: number;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  active: boolean;
+  command: string;
+  title: string;
+  border_title: string;
+  in_mode: boolean;
+  copy_cursor_x: number;
+  copy_cursor_y: number;
+}
+
+export interface ServerWindow {
+  id: string;
+  index: number;
+  name: string;
+  active: boolean;
+  is_stack_window: boolean;
+  stack_parent_pane: string | null;
+  stack_index: number | null;
+}
+
+export interface ServerPopup {
+  id: string;
+  content: PaneContent;
+  cursor_x: number;
+  cursor_y: number;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  active: boolean;
+  command: string;
+}
+
 export interface ServerState {
   session_name: string;
   active_window_id: string | null;
   active_pane_id: string | null;
-  panes: Record<string, unknown>[];
-  windows: Record<string, unknown>[];
+  panes: ServerPane[];
+  windows: ServerWindow[];
   total_width: number;
   total_height: number;
+  status_line: string;
+  popup?: ServerPopup | null;
 }
+
+// ============================================
+// Delta Types (for incremental updates)
+// ============================================
+
+export interface PaneDelta {
+  content?: PaneContent;
+  cursor_x?: number;
+  cursor_y?: number;
+  width?: number;
+  height?: number;
+  x?: number;
+  y?: number;
+  active?: boolean;
+  command?: string;
+  title?: string;
+  border_title?: string;
+  in_mode?: boolean;
+  copy_cursor_x?: number;
+  copy_cursor_y?: number;
+}
+
+export interface WindowDelta {
+  name?: string;
+  active?: boolean;
+  is_stack_window?: boolean;
+  stack_parent_pane?: string | null;
+  stack_index?: number | null;
+}
+
+export interface ServerDelta {
+  seq: number;
+  panes?: Record<string, PaneDelta | null>; // null = removed
+  windows?: Record<string, WindowDelta | null>; // null = removed
+  new_panes?: ServerPane[];
+  new_windows?: ServerWindow[];
+  active_window_id?: string;
+  active_pane_id?: string;
+  status_line?: string;
+  total_width?: number;
+  total_height?: number;
+  /** Popup change: ServerPopup = new/updated, null = closed, undefined = no change */
+  popup?: ServerPopup | null;
+}
+
+export type StateUpdate =
+  | { type: 'full'; state: ServerState }
+  | { type: 'delta'; delta: ServerDelta };
 
 // ============================================
 // Adapter Types
@@ -70,6 +222,8 @@ export interface ServerState {
 
 export type StateListener = (state: ServerState) => void;
 export type ErrorListener = (error: string) => void;
+export type ConnectionInfoListener = (connectionId: number, isPrimary: boolean) => void;
+export type PrimaryChangedListener = (isPrimary: boolean) => void;
 
 export interface TmuxAdapter {
   connect(): Promise<void>;
@@ -78,4 +232,6 @@ export interface TmuxAdapter {
   invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
   onStateChange(listener: StateListener): () => void;
   onError(listener: ErrorListener): () => void;
+  onConnectionInfo(listener: ConnectionInfoListener): () => void;
+  onPrimaryChanged(listener: PrimaryChangedListener): () => void;
 }

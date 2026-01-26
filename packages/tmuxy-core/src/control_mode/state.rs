@@ -3,8 +3,33 @@
 //! Aggregates control mode events into coherent state using vt100 terminal emulation.
 
 use super::parser::ControlModeEvent;
-use crate::{parse_stack_window_name, TmuxPane, TmuxState, TmuxWindow};
+use crate::{extract_cells_from_screen, parse_stack_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow};
 use std::collections::HashMap;
+
+/// Type of change that occurred
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangeType {
+    /// No change
+    None,
+    /// Pane output changed (high frequency, may be debounced)
+    PaneOutput { pane_id: String },
+    /// Pane layout/position changed
+    PaneLayout,
+    /// Window-related change (add, close, rename, focus)
+    Window,
+    /// Pane focus changed within window
+    PaneFocus,
+    /// Session-related change
+    Session,
+    /// Full state refresh needed
+    Full,
+}
+
+impl Default for ChangeType {
+    fn default() -> Self {
+        ChangeType::None
+    }
+}
 
 /// Result of processing a control mode event
 #[derive(Debug, Default)]
@@ -13,6 +38,8 @@ pub struct ProcessEventResult {
     pub state_changed: bool,
     /// Pane IDs that need their content refreshed via capture-pane
     pub panes_needing_refresh: Vec<String>,
+    /// Type of change that occurred (for smart update strategies)
+    pub change_type: ChangeType,
 }
 
 /// State of a single pane with terminal emulation
@@ -46,6 +73,12 @@ pub struct PaneState {
     /// Running command
     pub command: String,
 
+    /// Pane title (set by shell/application)
+    pub title: String,
+
+    /// Evaluated pane-border-format from tmux config
+    pub border_title: String,
+
     /// In copy mode
     pub in_mode: bool,
 
@@ -72,6 +105,8 @@ impl PaneState {
             height,
             active: false,
             command: String::new(),
+            title: String::new(),
+            border_title: String::new(),
             in_mode: false,
             copy_cursor_x: 0,
             copy_cursor_y: 0,
@@ -136,110 +171,35 @@ impl PaneState {
         }
     }
 
-    /// Get the rendered screen content as lines
-    pub fn get_content(&self) -> Vec<String> {
-        let screen = self.terminal.screen();
-        let mut lines = Vec::with_capacity(self.height as usize);
-
-        for row in 0..screen.size().0 {
-            let mut line = String::new();
-
-            for col in 0..screen.size().1 {
-                let cell = screen.cell(row, col).unwrap();
-
-                // Build ANSI escape sequence for this cell
-                let mut has_style = false;
-                let mut style = String::from("\x1b[");
-
-                // Bold
-                if cell.bold() {
-                    style.push_str("1;");
-                    has_style = true;
-                }
-
-                // Italic
-                if cell.italic() {
-                    style.push_str("3;");
-                    has_style = true;
-                }
-
-                // Underline
-                if cell.underline() {
-                    style.push_str("4;");
-                    has_style = true;
-                }
-
-                // Inverse/Reverse
-                if cell.inverse() {
-                    style.push_str("7;");
-                    has_style = true;
-                }
-
-                // Foreground color
-                match cell.fgcolor() {
-                    vt100::Color::Default => {}
-                    vt100::Color::Idx(idx) => {
-                        style.push_str(&format!("38;5;{};", idx));
-                        has_style = true;
-                    }
-                    vt100::Color::Rgb(r, g, b) => {
-                        style.push_str(&format!("38;2;{};{};{};", r, g, b));
-                        has_style = true;
-                    }
-                }
-
-                // Background color
-                match cell.bgcolor() {
-                    vt100::Color::Default => {}
-                    vt100::Color::Idx(idx) => {
-                        style.push_str(&format!("48;5;{};", idx));
-                        has_style = true;
-                    }
-                    vt100::Color::Rgb(r, g, b) => {
-                        style.push_str(&format!("48;2;{};{};{};", r, g, b));
-                        has_style = true;
-                    }
-                }
-
-                if has_style {
-                    // Remove trailing semicolon and close
-                    style.pop();
-                    style.push('m');
-                    line.push_str(&style);
-                }
-
-                // Add the character
-                line.push_str(&cell.contents());
-
-                if has_style {
-                    line.push_str("\x1b[0m");
-                }
-            }
-
-            // Trim trailing whitespace but preserve content
-            let trimmed = line.trim_end();
-            lines.push(trimmed.to_string());
-        }
-
-        lines
+    /// Get the rendered screen content as structured cells
+    pub fn get_content(&self) -> PaneContent {
+        extract_cells_from_screen(self.terminal.screen())
     }
 
     /// Convert to TmuxPane struct
     pub fn to_tmux_pane(&self) -> TmuxPane {
+        // Use vt100 emulator cursor for immediate feedback on output events.
+        // The vt100 cursor is updated on every %output event, while tmux_cursor_x/y
+        // are only updated on periodic list-panes responses (every 500ms).
+        let screen = self.terminal.screen();
+        let vt100_cursor_x = screen.cursor_position().1 as u32;
+        let vt100_cursor_y = screen.cursor_position().0 as u32;
+
         TmuxPane {
             id: self.index,
             tmux_id: self.id.clone(),
             window_id: self.window_id.clone(),
             content: self.get_content(),
-            // Use tmux's authoritative cursor position instead of vt100 emulator
-            cursor_x: self.tmux_cursor_x,
-            cursor_y: self.tmux_cursor_y,
+            cursor_x: vt100_cursor_x,
+            cursor_y: vt100_cursor_y,
             width: self.width,
             height: self.height,
             x: self.x,
             y: self.y,
             active: self.active,
             command: self.command.clone(),
+            title: self.title.clone(),
+            border_title: self.border_title.clone(),
             in_mode: self.in_mode,
             copy_cursor_x: self.copy_cursor_x,
             copy_cursor_y: self.copy_cursor_y,
@@ -293,6 +253,74 @@ impl WindowState {
     }
 }
 
+/// Popup state (for control mode popup support)
+pub struct PopupState {
+    /// Popup ID
+    pub id: String,
+
+    /// Terminal emulator for popup content
+    pub terminal: vt100::Parser,
+
+    /// Dimensions
+    pub width: u32,
+    pub height: u32,
+
+    /// Position
+    pub x: u32,
+    pub y: u32,
+
+    /// Whether the popup is active
+    pub active: bool,
+
+    /// Command running in popup
+    pub command: String,
+}
+
+impl PopupState {
+    pub fn new(id: &str, width: u32, height: u32, x: u32, y: u32, command: Option<String>) -> Self {
+        Self {
+            id: id.to_string(),
+            terminal: vt100::Parser::new(height as u16, width as u16, 0),
+            width,
+            height,
+            x,
+            y,
+            active: true,
+            command: command.unwrap_or_default(),
+        }
+    }
+
+    /// Process output for the popup
+    pub fn process_output(&mut self, content: &[u8]) {
+        self.terminal.process(content);
+    }
+
+    /// Get popup content as structured cells
+    pub fn get_content(&self) -> PaneContent {
+        extract_cells_from_screen(self.terminal.screen())
+    }
+
+    /// Convert to TmuxPopup for sending to frontend
+    pub fn to_tmux_popup(&self) -> TmuxPopup {
+        let screen = self.terminal.screen();
+        let cursor_x = screen.cursor_position().1 as u32;
+        let cursor_y = screen.cursor_position().0 as u32;
+
+        TmuxPopup {
+            id: self.id.clone(),
+            content: self.get_content(),
+            cursor_x,
+            cursor_y,
+            width: self.width,
+            height: self.height,
+            x: self.x,
+            y: self.y,
+            active: self.active,
+            command: self.command.clone(),
+        }
+    }
+}
+
 /// Aggregates control mode events into coherent state
 pub struct StateAggregator {
     /// Session name (e.g., "tmuxy")
@@ -311,9 +339,27 @@ pub struct StateAggregator {
     default_width: u32,
     default_height: u32,
 
-    /// Queue of pane IDs waiting for capture-pane responses.
-    /// Uses FIFO order since tmux responses come back in order.
+    /// Queue of pane IDs for pending capture-pane commands (FIFO).
+    /// We use a queue because we can't reliably match command numbers when
+    /// attaching to an existing session (tmux's counter may be at a different point).
     pending_captures: std::collections::VecDeque<String>,
+
+    /// Cached status line (optimization: only refresh on window events or periodic sync)
+    cached_status_line: String,
+
+    /// Whether status line needs refresh
+    status_line_dirty: bool,
+
+    // Delta state tracking
+    /// Previous state snapshot for delta computation
+    prev_state: Option<crate::TmuxState>,
+
+    /// Sequence number for delta updates
+    delta_seq: u64,
+
+    /// Active popup state (if any)
+    /// Note: Requires tmux with control mode popup support (PR #4361)
+    popup: Option<PopupState>,
 }
 
 impl StateAggregator {
@@ -326,6 +372,11 @@ impl StateAggregator {
             default_width: 80,
             default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
+            cached_status_line: String::new(),
+            status_line_dirty: true, // Fetch on first state request
+            prev_state: None,
+            delta_seq: 0,
+            popup: None,
         }
     }
 
@@ -339,12 +390,92 @@ impl StateAggregator {
             default_width: 80,
             default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
+            cached_status_line: String::new(),
+            status_line_dirty: true, // Fetch on first state request
+            prev_state: None,
+            delta_seq: 0,
+            popup: None,
         }
     }
 
-    /// Queue a pending capture-pane command.
-    pub fn queue_capture(&mut self, pane_id: String) {
-        self.pending_captures.push_back(pane_id);
+    /// Mark status line as needing refresh (call on window-related events)
+    pub fn mark_status_line_dirty(&mut self) {
+        self.status_line_dirty = true;
+    }
+
+    /// Refresh status line if dirty, otherwise use cached value.
+    /// Width is the total terminal width from pane layout, used for padding.
+    fn get_status_line(&mut self, width: usize) -> String {
+        if self.status_line_dirty {
+            self.cached_status_line = crate::executor::capture_status_line(&self.session_name, width)
+                .unwrap_or_default();
+            self.status_line_dirty = false;
+        }
+        self.cached_status_line.clone()
+    }
+
+    /// Check if output looks like capture-pane output (terminal content).
+    /// capture-pane output has different characteristics than list-panes/list-windows:
+    /// - list-panes: lines start with %pane_id followed by comma-separated fields
+    /// - list-windows: lines start with @window_id followed by comma-separated fields
+    /// - capture-pane: terminal content with ANSI escapes, arbitrary text
+    fn looks_like_capture_output(&self, output: &str) -> bool {
+        // Empty output is not capture output (could be from a command that produces no output)
+        if output.is_empty() {
+            return false;
+        }
+
+        // Check all non-empty lines
+        let lines: Vec<&str> = output.lines().collect();
+        if lines.is_empty() {
+            return false;
+        }
+
+        // list-panes output: each line starts with %N, (pane ID, comma)
+        // list-windows output: each line starts with @N, (window ID, comma)
+        // Both have consistent comma-separated format
+        let first_line = lines[0];
+
+        // If it looks like list-panes format
+        if first_line.starts_with('%') && first_line.contains(',') {
+            // Check if all lines follow the pattern
+            let all_list_panes = lines.iter().all(|line| {
+                line.starts_with('%') && line.contains(',')
+            });
+            if all_list_panes {
+                return false; // This is list-panes output
+            }
+        }
+
+        // If it looks like list-windows format
+        if first_line.starts_with('@') && first_line.contains(',') {
+            // Check if all lines follow the pattern
+            let all_list_windows = lines.iter().all(|line| {
+                line.starts_with('@') && line.contains(',')
+            });
+            if all_list_windows {
+                return false; // This is list-windows output
+            }
+        }
+
+        // If we have pending captures and the output doesn't match list formats,
+        // it's likely capture-pane output
+        true
+    }
+
+    /// Queue capture-pane commands for matching responses.
+    /// Pane IDs are queued in the order the commands were sent (FIFO).
+    /// We use FIFO because we can't reliably match command numbers when
+    /// attaching to an existing session (tmux's counter may be different).
+    pub fn queue_captures(&mut self, pane_ids: &[String]) {
+        for pane_id in pane_ids {
+            self.pending_captures.push_back(pane_id.clone());
+        }
+    }
+
+    /// Check if any pane is currently in copy mode
+    pub fn has_pane_in_copy_mode(&self) -> bool {
+        self.panes.values().any(|p| p.in_mode)
     }
 
     /// Process a control mode event.
@@ -352,18 +483,32 @@ impl StateAggregator {
     pub fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
         match event {
             ControlModeEvent::Output { pane_id, content } => {
+                let changed = self.handle_output(&pane_id, &content);
                 ProcessEventResult {
-                    state_changed: self.handle_output(&pane_id, &content),
+                    state_changed: changed,
                     panes_needing_refresh: Vec::new(),
+                    change_type: if changed {
+                        ChangeType::PaneOutput { pane_id: pane_id.clone() }
+                    } else {
+                        ChangeType::None
+                    },
                 }
             }
 
             ControlModeEvent::ExtendedOutput {
                 pane_id, content, ..
-            } => ProcessEventResult {
-                state_changed: self.handle_output(&pane_id, &content),
-                panes_needing_refresh: Vec::new(),
-            },
+            } => {
+                let changed = self.handle_output(&pane_id, &content);
+                ProcessEventResult {
+                    state_changed: changed,
+                    panes_needing_refresh: Vec::new(),
+                    change_type: if changed {
+                        ChangeType::PaneOutput { pane_id: pane_id.clone() }
+                    } else {
+                        ChangeType::None
+                    },
+                }
+            }
 
             ControlModeEvent::LayoutChange {
                 window_id, layout, ..
@@ -372,6 +517,7 @@ impl StateAggregator {
                 ProcessEventResult {
                     state_changed: true,
                     panes_needing_refresh: resized_panes,
+                    change_type: ChangeType::PaneLayout,
                 }
             }
 
@@ -379,6 +525,7 @@ impl StateAggregator {
                 self.windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
+                self.status_line_dirty = true; // Window added - refresh status line
                 // Don't emit state yet - wait for WindowRenamed or list-windows
                 // to populate the window name. This prevents brief flashes of
                 // windows appearing with empty names (which breaks stack detection).
@@ -390,14 +537,24 @@ impl StateAggregator {
                 // Remove panes belonging to this window
                 self.panes
                     .retain(|_, p| p.window_id != window_id);
-                ProcessEventResult { state_changed: true, ..Default::default() }
+                self.status_line_dirty = true; // Window closed - refresh status line
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Window,
+                    ..Default::default()
+                }
             }
 
             ControlModeEvent::WindowRenamed { window_id, name } => {
                 if let Some(window) = self.windows.get_mut(&window_id) {
                     window.name = name;
                 }
-                ProcessEventResult { state_changed: true, ..Default::default() }
+                self.status_line_dirty = true; // Window renamed - refresh status line
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Window,
+                    ..Default::default()
+                }
             }
 
             ControlModeEvent::WindowPaneChanged {
@@ -410,7 +567,11 @@ impl StateAggregator {
                         pane.active = pane.id == pane_id;
                     }
                 }
-                ProcessEventResult { state_changed: true, ..Default::default() }
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::PaneFocus,
+                    ..Default::default()
+                }
             }
 
             ControlModeEvent::PaneModeChanged { pane_id: _ } => {
@@ -418,7 +579,11 @@ impl StateAggregator {
                 // provides the authoritative in_mode state. Toggling here could cause
                 // desync if events are duplicated or lost.
                 // The next list-panes response will set the correct in_mode value.
-                ProcessEventResult { state_changed: true, ..Default::default() }
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::PaneFocus,
+                    ..Default::default()
+                }
             }
 
             ControlModeEvent::SessionWindowChanged { window_id, .. } => {
@@ -427,30 +592,54 @@ impl StateAggregator {
                     window.active = *id == window_id;
                 }
                 self.active_window_id = Some(window_id);
-                ProcessEventResult { state_changed: true, ..Default::default() }
+                self.status_line_dirty = true; // Active window changed - refresh status line
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Window,
+                    ..Default::default()
+                }
             }
 
             ControlModeEvent::CommandResponse { output, success, .. } => {
-                // Check if this looks like a capture-pane response
-                // capture-pane output is terminal content, not structured data
-                let first_line = output.lines().next().unwrap_or("");
-                let looks_like_list_panes = first_line.starts_with('%') && first_line.matches(',').count() >= 5;
-                let looks_like_list_windows = first_line.starts_with('@') && first_line.contains(',');
+                // First, try to match pending capture-pane responses using heuristics.
+                // capture-pane output characteristics:
+                // - Doesn't look like list-panes output (no leading %pane_id,pane_index,...)
+                // - Doesn't look like list-windows output (no leading @window_id,...)
+                // - Usually multi-line with terminal content (ANSI escape codes, text)
+                //
+                // Note: We use FIFO because tmux command numbers can't be reliably
+                // tracked when attaching to an existing session.
+                if !self.pending_captures.is_empty() && success {
+                    // Check if this looks like capture-pane output
+                    let is_capture_output = self.looks_like_capture_output(&output);
 
-                // If we have pending captures and this doesn't look like list-panes/list-windows,
-                // treat it as a capture-pane response
-                if !self.pending_captures.is_empty() && !looks_like_list_panes && !looks_like_list_windows {
-                    if let Some(pane_id) = self.pending_captures.pop_front() {
-                        if let Some(pane) = self.panes.get_mut(&pane_id) {
-                            // capture-pane -p -e returns plain text with ANSI colors but no cursor positioning.
-                            // We need to reset the terminal and process from the top.
-                            pane.reset_and_process_capture(output.as_bytes());
+                    if is_capture_output {
+                        if let Some(pane_id) = self.pending_captures.pop_front() {
+                            if let Some(pane) = self.panes.get_mut(&pane_id) {
+                                // capture-pane -p -e returns plain text with ANSI colors but no cursor positioning.
+                                // We need to reset the terminal and process from the top.
+                                pane.reset_and_process_capture(output.as_bytes());
+
+                                // After processing capture output, the vt100 cursor is at the end
+                                // of the content (last row). Reposition it to tmux's actual cursor
+                                // position so subsequent %output events render correctly.
+                                let cursor_seq = format!(
+                                    "\x1b[{};{}H",
+                                    pane.tmux_cursor_y + 1,
+                                    pane.tmux_cursor_x + 1
+                                );
+                                pane.terminal.process(cursor_seq.as_bytes());
+                            }
+                            return ProcessEventResult {
+                                state_changed: true,
+                                change_type: ChangeType::PaneOutput { pane_id },
+                                ..Default::default()
+                            };
                         }
-                        return ProcessEventResult { state_changed: true, ..Default::default() };
                     }
                 }
 
-                // Parse list-panes/list-windows responses to update state
+                // Not a capture-pane response - parse list-panes/list-windows responses to update state
                 let resized_panes = if success {
                     self.handle_command_response(&output)
                 } else {
@@ -459,22 +648,87 @@ impl StateAggregator {
                 ProcessEventResult {
                     state_changed: true,
                     panes_needing_refresh: resized_panes,
+                    change_type: ChangeType::Full, // Command responses may update many things
                 }
             }
 
             ControlModeEvent::SessionsChanged => {
-                ProcessEventResult { state_changed: true, ..Default::default() }
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Session,
+                    ..Default::default()
+                }
             }
             ControlModeEvent::SessionChanged { session_name, .. } => {
                 self.session_name = session_name;
-                ProcessEventResult { state_changed: true, ..Default::default() }
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Session,
+                    ..Default::default()
+                }
             }
             ControlModeEvent::SessionRenamed { name, .. } => {
                 self.session_name = name;
-                ProcessEventResult { state_changed: true, ..Default::default() }
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Session,
+                    ..Default::default()
+                }
             }
             ControlModeEvent::Exit { .. } => {
-                ProcessEventResult { state_changed: true, ..Default::default() }
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Session,
+                    ..Default::default()
+                }
+            }
+
+            // ============================================
+            // Popup Events (requires tmux with PR #4361)
+            // ============================================
+
+            ControlModeEvent::PopupOpen {
+                popup_id,
+                width,
+                height,
+                x,
+                y,
+                command,
+            } => {
+                self.popup = Some(PopupState::new(&popup_id, width, height, x, y, command));
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Full, // Popup changes affect keyboard routing
+                    ..Default::default()
+                }
+            }
+
+            ControlModeEvent::PopupOutput { popup_id, content } => {
+                if let Some(ref mut popup) = self.popup {
+                    if popup.id == popup_id {
+                        popup.process_output(&content);
+                        return ProcessEventResult {
+                            state_changed: true,
+                            change_type: ChangeType::Full,
+                            ..Default::default()
+                        };
+                    }
+                }
+                ProcessEventResult::default()
+            }
+
+            ControlModeEvent::PopupClose { popup_id } => {
+                if let Some(ref popup) = self.popup {
+                    if popup.id == popup_id {
+                        self.popup = None;
+                        return ProcessEventResult {
+                            state_changed: true,
+                            change_type: ChangeType::Full,
+                            ..Default::default()
+                        };
+                    }
+                }
+                ProcessEventResult::default()
             }
 
             _ => ProcessEventResult::default(),
@@ -482,11 +736,18 @@ impl StateAggregator {
     }
 
     fn handle_output(&mut self, pane_id: &str, content: &[u8]) -> bool {
-        let pane = self.panes.entry(pane_id.to_string()).or_insert_with(|| {
-            PaneState::new(pane_id, self.default_width, self.default_height)
-        });
-        pane.process_output(content);
-        true
+        // Only process output for panes we know about from list-panes.
+        // This prevents creating panes from other tmux sessions.
+        // Panes are added via parse_list_panes_line() which sets window_id.
+        if let Some(pane) = self.panes.get_mut(pane_id) {
+            // Only process if pane has a valid window_id (was seen in list-panes)
+            if !pane.window_id.is_empty() {
+                pane.process_output(content);
+                return true;
+            }
+        }
+        // Ignore output from unknown panes (likely from other sessions)
+        false
     }
 
     /// Handle layout change and return list of pane IDs that need content refresh.
@@ -617,22 +878,29 @@ impl StateAggregator {
         }
 
         // Try to parse as list-windows output
+        let mut is_list_windows_response = false;
         for line in output.lines() {
             if line.contains('@') && line.contains(',') {
                 self.parse_list_windows_line(line);
+                is_list_windows_response = true;
             }
+        }
+
+        // Refresh status line on periodic sync (list-windows response)
+        if is_list_windows_response {
+            self.status_line_dirty = true;
         }
 
         resized_panes
     }
 
     /// Parse a line from list-panes output.
-    /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,in_mode,copy_x,copy_y,window_id`
+    /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,title,in_mode,copy_x,copy_y,window_id`
     /// Returns (pane_id, needs_capture) if successfully parsed.
     /// needs_capture is true if pane is new OR was resized.
     fn parse_list_panes_line(&mut self, line: &str) -> Option<(String, bool)> {
         let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 10 {
+        if parts.len() < 11 {
             return None;
         }
 
@@ -650,10 +918,17 @@ impl StateAggregator {
         let cursor_y: u32 = parts[7].parse().unwrap_or(0);
         let active = parts[8] == "1";
         let command = parts[9].to_string();
-        let in_mode = parts.get(10).map(|s| *s == "1").unwrap_or(false);
-        let copy_cursor_x: u32 = parts.get(11).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let copy_cursor_y: u32 = parts.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let window_id = parts.get(13).map(|s| s.to_string()).unwrap_or_default();
+        let title = parts[10].to_string();
+        let in_mode = parts.get(11).map(|s| *s == "1").unwrap_or(false);
+        let copy_cursor_x: u32 = parts.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let copy_cursor_y: u32 = parts.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let window_id = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
+        // border_title is the last field and may contain commas, so join remaining parts
+        let border_title = if parts.len() > 15 {
+            parts[15..].join(",")
+        } else {
+            String::new()
+        };
 
         let pane_id_string = pane_id.to_string();
 
@@ -671,6 +946,8 @@ impl StateAggregator {
         let was_resized = pane.resize(width, height);
         pane.active = active;
         pane.command = command;
+        pane.title = title;
+        pane.border_title = border_title;
         pane.in_mode = in_mode;
         pane.copy_cursor_x = copy_cursor_x;
         pane.copy_cursor_y = copy_cursor_y;
@@ -716,18 +993,286 @@ impl StateAggregator {
         }
     }
 
+    /// Convert current state to a StateUpdate (full or delta) for efficient transmission.
+    /// Returns Full state on first call or when too many changes occurred.
+    /// Returns Delta with only changed fields on subsequent calls.
+    pub fn to_state_update(&mut self) -> crate::StateUpdate {
+        let current = self.to_tmux_state();
+
+        // First state or no previous state - send full
+        let prev = match &self.prev_state {
+            None => {
+                self.prev_state = Some(current.clone());
+                self.delta_seq = 1;
+                return crate::StateUpdate::Full { state: current };
+            }
+            Some(prev) => prev,
+        };
+
+        // Compute delta
+        self.delta_seq += 1;
+        let mut delta = crate::TmuxDelta::new(self.delta_seq);
+
+        // Check for dimension changes
+        if current.total_width != prev.total_width {
+            delta.total_width = Some(current.total_width);
+        }
+        if current.total_height != prev.total_height {
+            delta.total_height = Some(current.total_height);
+        }
+
+        // Check for active window/pane changes
+        if current.active_window_id != prev.active_window_id {
+            delta.active_window_id = current.active_window_id.clone();
+        }
+        if current.active_pane_id != prev.active_pane_id {
+            delta.active_pane_id = current.active_pane_id.clone();
+        }
+
+        // Check for status line changes
+        if current.status_line != prev.status_line {
+            delta.status_line = Some(current.status_line.clone());
+        }
+
+        // Build maps for efficient lookup
+        let prev_panes: std::collections::HashMap<&str, &crate::TmuxPane> =
+            prev.panes.iter().map(|p| (p.tmux_id.as_str(), p)).collect();
+        let curr_panes: std::collections::HashMap<&str, &crate::TmuxPane> =
+            current.panes.iter().map(|p| (p.tmux_id.as_str(), p)).collect();
+
+        let prev_windows: std::collections::HashMap<&str, &crate::TmuxWindow> =
+            prev.windows.iter().map(|w| (w.id.as_str(), w)).collect();
+        let curr_windows: std::collections::HashMap<&str, &crate::TmuxWindow> =
+            current.windows.iter().map(|w| (w.id.as_str(), w)).collect();
+
+        // Track pane changes
+        let mut pane_deltas: std::collections::HashMap<String, Option<crate::PaneDelta>> =
+            std::collections::HashMap::new();
+        let mut new_panes: Vec<crate::TmuxPane> = Vec::new();
+
+        // Find new and modified panes
+        for (id, curr_pane) in &curr_panes {
+            match prev_panes.get(id) {
+                None => {
+                    // New pane
+                    new_panes.push((*curr_pane).clone());
+                }
+                Some(prev_pane) => {
+                    // Check for changes
+                    let pane_delta = self.compute_pane_delta(prev_pane, curr_pane);
+                    if !pane_delta.is_empty() {
+                        pane_deltas.insert(id.to_string(), Some(pane_delta));
+                    }
+                }
+            }
+        }
+
+        // Find removed panes
+        for id in prev_panes.keys() {
+            if !curr_panes.contains_key(id) {
+                pane_deltas.insert(id.to_string(), None); // None = removed
+            }
+        }
+
+        // Track window changes
+        let mut window_deltas: std::collections::HashMap<String, Option<crate::WindowDelta>> =
+            std::collections::HashMap::new();
+        let mut new_windows: Vec<crate::TmuxWindow> = Vec::new();
+
+        // Find new and modified windows
+        for (id, curr_window) in &curr_windows {
+            match prev_windows.get(id) {
+                None => {
+                    new_windows.push((*curr_window).clone());
+                }
+                Some(prev_window) => {
+                    let window_delta = self.compute_window_delta(prev_window, curr_window);
+                    if !window_delta.is_empty() {
+                        window_deltas.insert(id.to_string(), Some(window_delta));
+                    }
+                }
+            }
+        }
+
+        // Find removed windows
+        for id in prev_windows.keys() {
+            if !curr_windows.contains_key(id) {
+                window_deltas.insert(id.to_string(), None);
+            }
+        }
+
+        // Populate delta fields if there are changes
+        if !pane_deltas.is_empty() {
+            delta.panes = Some(pane_deltas);
+        }
+        if !new_panes.is_empty() {
+            delta.new_panes = Some(new_panes);
+        }
+        if !window_deltas.is_empty() {
+            delta.windows = Some(window_deltas);
+        }
+        if !new_windows.is_empty() {
+            delta.new_windows = Some(new_windows);
+        }
+
+        // Check for popup changes
+        match (&current.popup, &prev.popup) {
+            (Some(curr_popup), None) => {
+                // Popup opened - send full popup state
+                delta.popup = Some(Some(curr_popup.clone()));
+            }
+            (None, Some(_)) => {
+                // Popup closed
+                delta.popup = Some(None);
+            }
+            (Some(curr_popup), Some(prev_popup)) => {
+                // Popup exists in both - check for changes
+                // For simplicity, send full popup if anything changed
+                if curr_popup.id != prev_popup.id
+                    || curr_popup.content != prev_popup.content
+                    || curr_popup.cursor_x != prev_popup.cursor_x
+                    || curr_popup.cursor_y != prev_popup.cursor_y
+                    || curr_popup.width != prev_popup.width
+                    || curr_popup.height != prev_popup.height
+                    || curr_popup.x != prev_popup.x
+                    || curr_popup.y != prev_popup.y
+                    || curr_popup.active != prev_popup.active
+                    || curr_popup.command != prev_popup.command
+                {
+                    delta.popup = Some(Some(curr_popup.clone()));
+                }
+            }
+            (None, None) => {
+                // No popup change
+            }
+        }
+
+        // Update previous state
+        self.prev_state = Some(current.clone());
+
+        // If delta is empty, still send it (for seq number tracking)
+        // If delta is too large (> 50% of panes changed), send full state instead
+        let total_panes = current.panes.len();
+        let changed_panes = delta.panes.as_ref().map(|p| p.len()).unwrap_or(0)
+            + delta.new_panes.as_ref().map(|p| p.len()).unwrap_or(0);
+
+        if total_panes > 0 && changed_panes > total_panes / 2 {
+            // Too many changes - send full state
+            crate::StateUpdate::Full { state: current }
+        } else {
+            crate::StateUpdate::Delta { delta }
+        }
+    }
+
+    /// Compute delta between two panes
+    fn compute_pane_delta(&self, prev: &crate::TmuxPane, curr: &crate::TmuxPane) -> crate::PaneDelta {
+        let mut delta = crate::PaneDelta::default();
+
+        if prev.content != curr.content {
+            delta.content = Some(curr.content.clone());
+        }
+        if prev.cursor_x != curr.cursor_x {
+            delta.cursor_x = Some(curr.cursor_x);
+        }
+        if prev.cursor_y != curr.cursor_y {
+            delta.cursor_y = Some(curr.cursor_y);
+        }
+        if prev.width != curr.width {
+            delta.width = Some(curr.width);
+        }
+        if prev.height != curr.height {
+            delta.height = Some(curr.height);
+        }
+        if prev.x != curr.x {
+            delta.x = Some(curr.x);
+        }
+        if prev.y != curr.y {
+            delta.y = Some(curr.y);
+        }
+        if prev.active != curr.active {
+            delta.active = Some(curr.active);
+        }
+        if prev.command != curr.command {
+            delta.command = Some(curr.command.clone());
+        }
+        if prev.border_title != curr.border_title {
+            delta.border_title = Some(curr.border_title.clone());
+        }
+        if prev.in_mode != curr.in_mode {
+            delta.in_mode = Some(curr.in_mode);
+        }
+        if prev.copy_cursor_x != curr.copy_cursor_x {
+            delta.copy_cursor_x = Some(curr.copy_cursor_x);
+        }
+        if prev.copy_cursor_y != curr.copy_cursor_y {
+            delta.copy_cursor_y = Some(curr.copy_cursor_y);
+        }
+
+        delta
+    }
+
+    /// Compute delta between two windows
+    fn compute_window_delta(
+        &self,
+        prev: &crate::TmuxWindow,
+        curr: &crate::TmuxWindow,
+    ) -> crate::WindowDelta {
+        let mut delta = crate::WindowDelta::default();
+
+        if prev.name != curr.name {
+            delta.name = Some(curr.name.clone());
+        }
+        if prev.active != curr.active {
+            delta.active = Some(curr.active);
+        }
+        if prev.is_stack_window != curr.is_stack_window {
+            delta.is_stack_window = Some(curr.is_stack_window);
+        }
+        if prev.stack_parent_pane != curr.stack_parent_pane {
+            delta.stack_parent_pane = Some(curr.stack_parent_pane.clone());
+        }
+        if prev.stack_index != curr.stack_index {
+            delta.stack_index = Some(curr.stack_index);
+        }
+
+        delta
+    }
+
+    /// Reset delta tracking (force full state on next call)
+    pub fn reset_delta_tracking(&mut self) {
+        self.prev_state = None;
+        self.delta_seq = 0;
+    }
+
     /// Convert current state to TmuxState for the frontend.
-    pub fn to_tmux_state(&self) -> TmuxState {
+    pub fn to_tmux_state(&mut self) -> TmuxState {
         // Get panes for the active window AND stack windows
         // Stack windows are hidden windows that contain stacked panes
         let active_window = self.active_window_id.as_ref();
 
-        // Find all stack window IDs (windows whose names match the stack pattern)
-        let stack_window_ids: std::collections::HashSet<String> = self
+        // Collect pane IDs in the active window (needed to check for orphaned stacks)
+        let active_window_pane_ids: std::collections::HashSet<String> = self
+            .panes
+            .values()
+            .filter(|p| active_window.map(|w| p.window_id == *w).unwrap_or(false))
+            .map(|p| p.id.clone())
+            .collect();
+
+        // Build a map from stack window ID to parent pane ID (only for valid stacks)
+        // A stack is valid only if its parent pane exists in the active window
+        let valid_stack_windows: std::collections::HashSet<String> = self
             .windows
             .values()
-            .filter(|w| parse_stack_window_name(&w.name).is_some())
-            .map(|w| w.id.clone())
+            .filter_map(|w| {
+                parse_stack_window_name(&w.name).and_then(|info| {
+                    // Only include if parent pane exists in active window
+                    if active_window_pane_ids.contains(&info.parent_pane_id) {
+                        Some(w.id.clone())
+                    } else {
+                        None
+                    }
+                })
+            })
             .collect();
 
         let panes: Vec<TmuxPane> = self
@@ -738,12 +1283,12 @@ impl StateAggregator {
                 if p.window_id.is_empty() {
                     return false;
                 }
-                // Include panes from active window OR from stack windows
+                // Include panes from active window OR from valid stack windows
                 let is_active_window = active_window
                     .map(|w| p.window_id == *w)
                     .unwrap_or(false);
-                let is_stack_window = stack_window_ids.contains(&p.window_id);
-                is_active_window || is_stack_window
+                let is_valid_stack_window = valid_stack_windows.contains(&p.window_id);
+                is_active_window || is_valid_stack_window
             })
             .map(|p| p.to_tmux_pane())
             .collect();
@@ -772,6 +1317,9 @@ impl StateAggregator {
             .find(|p| p.active)
             .map(|p| p.tmux_id.clone());
 
+        // Get status line (uses cache if not dirty)
+        let status_line = self.get_status_line(total_width as usize);
+
         TmuxState {
             session_name: self.session_name.clone(),
             active_window_id: self.active_window_id.clone(),
@@ -780,6 +1328,8 @@ impl StateAggregator {
             windows,
             total_width,
             total_height,
+            status_line,
+            popup: self.popup.as_ref().map(|p| p.to_tmux_popup()),
         }
     }
 
@@ -805,6 +1355,19 @@ impl StateAggregator {
         self.windows.clear();
         self.active_window_id = None;
         self.pending_captures.clear();
+        self.cached_status_line.clear();
+        self.status_line_dirty = true;
+        self.popup = None;
+    }
+
+    /// Check if a popup is currently active
+    pub fn has_popup(&self) -> bool {
+        self.popup.is_some()
+    }
+
+    /// Get the current popup state
+    pub fn get_popup(&self) -> Option<&PopupState> {
+        self.popup.as_ref()
     }
 }
 
