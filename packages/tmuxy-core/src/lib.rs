@@ -43,6 +43,9 @@ pub struct CellStyle {
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default)]
     pub inverse: bool,
+    /// OSC 8 hyperlink URL (if cell is part of a hyperlink)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -57,6 +60,7 @@ impl CellStyle {
             && !self.italic
             && !self.underline
             && !self.inverse
+            && self.url.is_none()
     }
 }
 
@@ -101,6 +105,15 @@ pub fn content_to_hash_string(content: &PaneContent) -> String {
 /// This is the single source of truth for cell extraction, used by both
 /// parse_ansi_to_cells (polling mode) and PaneState::get_content (control mode).
 pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
+    extract_cells_with_urls(screen, None)
+}
+
+/// Extract structured cells from a vt100 screen with optional OSC parser for hyperlinks.
+/// When osc_parser is provided, URL information is included in cell styles.
+pub fn extract_cells_with_urls(
+    screen: &vt100::Screen,
+    osc_parser: Option<&control_mode::OscParser>,
+) -> PaneContent {
     let (rows, cols) = screen.size();
     let mut lines: Vec<TerminalLine> = Vec::with_capacity(rows as usize);
 
@@ -126,6 +139,9 @@ pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
                 vt100::Color::Rgb(r, g, b) => Some(CellColor::Rgb { r, g, b }),
             };
 
+            // Get URL from OSC parser if available
+            let url = osc_parser.and_then(|p| p.get_url(row as u32, col as u32).cloned());
+
             let style = CellStyle {
                 fg,
                 bg,
@@ -133,6 +149,7 @@ pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
                 italic: cell.italic(),
                 underline: cell.underline(),
                 inverse: cell.inverse(),
+                url,
             };
 
             line.push(TerminalCell::with_style(char_content, style));

@@ -9,15 +9,18 @@
 //! - `connection` - Manage the tmux -CC subprocess
 //! - `state` - Aggregate events into coherent state
 //! - `monitor` - High-level API with adapter pattern
+//! - `osc` - OSC (Operating System Command) sequence parser
 
 mod connection;
 mod monitor;
 mod octal;
+mod osc;
 mod parser;
 mod state;
 
 pub use connection::ControlModeConnection;
 pub use monitor::{MonitorConfig, StateEmitter, TmuxMonitor};
 pub use octal::decode_octal;
+pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};
-pub use state::{ProcessEventResult, StateAggregator};
+pub use state::{ChangeType, ProcessEventResult, StateAggregator};

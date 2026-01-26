@@ -3,7 +3,7 @@
 //! Aggregates control mode events into coherent state using vt100 terminal emulation.
 
 use super::parser::ControlModeEvent;
-use crate::{extract_cells_from_screen, parse_float_window_name, parse_stack_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow};
+use crate::{extract_cells_from_screen, extract_cells_with_urls, parse_float_window_name, parse_stack_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow};
 use std::collections::HashMap;
 
 /// Type of change that occurred
@@ -60,6 +60,9 @@ pub struct PaneState {
     /// Terminal emulator for this pane
     pub terminal: vt100::Parser,
 
+    /// OSC sequence parser for hyperlinks and clipboard
+    pub osc_parser: super::osc::OscParser,
+
     /// Raw output buffer (for rich content like images)
     pub raw_buffer: Vec<u8>,
 
@@ -111,6 +114,7 @@ impl PaneState {
             index: 0,
             window_id: String::new(),
             terminal: vt100::Parser::new(height as u16, width as u16, 0),
+            osc_parser: super::osc::OscParser::new(),
             raw_buffer: Vec::new(),
             x: 0,
             y: 0,
@@ -142,8 +146,12 @@ impl PaneState {
             self.raw_buffer = self.raw_buffer[start..].to_vec();
         }
 
+        // Process through OSC parser to extract hyperlinks/clipboard
+        // Returns content with OSC sequences stripped for vt100
+        let processed = self.osc_parser.process(content);
+
         // Process through terminal emulator
-        self.terminal.process(content);
+        self.terminal.process(&processed);
     }
 
     /// Reset terminal and process capture-pane output.
@@ -189,7 +197,7 @@ impl PaneState {
 
     /// Get the rendered screen content as structured cells
     pub fn get_content(&self) -> PaneContent {
-        extract_cells_from_screen(self.terminal.screen())
+        extract_cells_with_urls(self.terminal.screen(), Some(&self.osc_parser))
     }
 
     /// Convert to TmuxPane struct

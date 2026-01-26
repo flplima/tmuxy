@@ -105,6 +105,8 @@ export interface CellStyle {
   italic?: boolean;
   underline?: boolean;
   inverse?: boolean;
+  /** OSC 8 hyperlink URL */
+  url?: string;
 }
 
 /** A single terminal cell with character and optional styling */

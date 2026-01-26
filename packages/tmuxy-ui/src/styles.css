@@ -257,6 +257,23 @@ body {
   min-height: var(--line-height-terminal);
 }
 
+/* Terminal hyperlinks (OSC 8) */
+.terminal-hyperlink {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color);
+  color: inherit;
+  cursor: pointer;
+}
+
+.terminal-hyperlink:hover {
+  color: var(--link-hover);
+  text-decoration-color: var(--link-hover);
+}
+
+.terminal-hyperlink:active {
+  color: var(--link-active);
+}
+
 /* ============================================
    Cursor
    ============================================ */
