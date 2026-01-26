@@ -4,6 +4,8 @@ services:
     image: tmuxy-dev
     container_name: tmuxy-dev
     network_mode: host
+    init: true          # Proper init process to reap zombie processes
+    pids_limit: 50000   # Safety buffer for process count
     stdin_open: true
     tty: true
     user: claude
@@ -21,6 +23,8 @@ services:
       - ~/.claude:/home/claude/.claude
       # SSH keys for git
       - ~/.ssh:/home/claude/.ssh:ro
+      # GitHub CLI auth
+      - ~/.config/gh:/home/claude/.config/gh:ro
       # Cargo cache for faster builds
       - tmuxy-cargo-registry:/usr/local/cargo/registry
       - tmuxy-cargo-git:/usr/local/cargo/git
@@ -29,15 +33,9 @@ services:
       - TMUX_SESSION=dev
     security_opt:
       - no-new-privileges:true
-    shm_size: 256m
-    mem_limit: 4g
-    command: >
-      bash -c '
-        cp /home/claude/docker/.tmuxy.conf /home/claude/.tmuxy.conf 2>/dev/null || true
-        tmux -f /home/claude/docker/.tmux-dev.conf new-session -d -s "$$TMUX_SESSION" 2>/dev/null || true
-        tmux send-keys -t "$$TMUX_SESSION" "claude --dangerously-skip-permissions" Enter
-        exec tmux attach-session -t "$$TMUX_SESSION"
-      '
+    shm_size: 1g
+    mem_limit: 6g
+    command: bash -c "npm run web:dev:start && claude --dangerously-skip-permissions"
 
 volumes:
   tmuxy-cargo-registry:
