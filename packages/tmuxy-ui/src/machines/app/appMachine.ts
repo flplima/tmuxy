@@ -419,12 +419,9 @@ export const appMachine = setup({
 
             if (currentPaneId === targetPaneId) return;
 
-            const targetWindow = context.windows.find((w) => {
-              if (!w.isStackWindow || w.stackParentPane !== event.stackId) return false;
-              const paneInWindow = context.panes.find((p) => p.windowId === w.id);
-              return paneInWindow?.tmuxId === targetPaneId;
-            });
-            if (!targetWindow) return;
+            // Verify target pane exists and is part of this stack
+            const targetPane = context.panes.find((p) => p.tmuxId === targetPaneId);
+            if (!targetPane || !stack.paneIds.includes(targetPaneId)) return;
 
             enqueue(
               sendTo('tmux', {
@@ -442,18 +439,26 @@ export const appMachine = setup({
             const visiblePaneId = stack.paneIds[stack.activeIndex];
             const isClosingVisible = visiblePaneId === event.paneId;
 
+            // Find which window the pane to close is in
+            const paneToClose = context.panes.find((p) => p.tmuxId === event.paneId);
+            if (!paneToClose) return;
+
+            const windowWithPane = context.windows.find((w) => w.id === paneToClose.windowId);
+            const isInStackWindow = windowWithPane?.isStackWindow ?? false;
+
             if (isClosingVisible && stack.paneIds.length > 1) {
+              // Closing the visible pane - need to swap another pane into view first
               const currentIdx = stack.paneIds.indexOf(event.paneId);
               const nextIdx = currentIdx < stack.paneIds.length - 1 ? currentIdx + 1 : currentIdx - 1;
               const nextPaneId = stack.paneIds[nextIdx];
 
-              const nextWindow = context.windows.find((w) => {
-                if (!w.isStackWindow) return false;
-                const paneInWindow = context.panes.find((p) => p.windowId === w.id);
-                return paneInWindow?.tmuxId === nextPaneId;
-              });
+              // Find where the next pane is
+              const nextPane = context.panes.find((p) => p.tmuxId === nextPaneId);
+              const nextWindow = nextPane ? context.windows.find((w) => w.id === nextPane.windowId) : null;
+              const nextIsInStackWindow = nextWindow?.isStackWindow ?? false;
 
-              if (nextWindow) {
+              if (nextIsInStackWindow && nextWindow) {
+                // Swap the visible pane with next, then kill the now-hidden window
                 enqueue(
                   sendTo('tmux', {
                     type: 'SEND_COMMAND' as const,
@@ -464,22 +469,19 @@ export const appMachine = setup({
               }
             }
 
-            const targetWindow = context.windows.find((w) => {
-              if (!w.isStackWindow) return false;
-              const paneInWindow = context.panes.find((p) => p.windowId === w.id);
-              return paneInWindow?.tmuxId === event.paneId;
-            });
-
-            if (targetWindow) {
+            // Closing a non-visible pane or last pane in stack
+            if (isInStackWindow && windowWithPane) {
+              // Pane is in a stack window - kill the window
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
-                  command: `kill-window -t ${targetWindow.id}`,
+                  command: `kill-window -t ${windowWithPane.id}`,
                 })
               );
               return;
             }
 
+            // Pane is in main window - just kill the pane
             enqueue(
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
