@@ -41,6 +41,10 @@ export interface TmuxWindow {
   stackParentPane: string | null;
   /** Stack index if this is a stack window (0, 1, 2...) */
   stackIndex: number | null;
+  /** True if this is a hidden float window */
+  isFloatWindow: boolean;
+  /** Pane ID if this is a float window (e.g., "%5") */
+  floatPaneId: string | null;
 }
 
 /**
@@ -147,6 +151,8 @@ export interface ServerWindow {
   is_stack_window: boolean;
   stack_parent_pane: string | null;
   stack_index: number | null;
+  is_float_window?: boolean;
+  float_pane_id?: string | null;
 }
 
 export interface ServerPopup {
@@ -203,6 +209,8 @@ export interface WindowDelta {
   is_stack_window?: boolean;
   stack_parent_pane?: string | null;
   stack_index?: number | null;
+  is_float_window?: boolean;
+  float_pane_id?: string | null;
 }
 
 export interface ServerDelta {

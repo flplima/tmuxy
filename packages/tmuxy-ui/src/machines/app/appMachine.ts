@@ -70,6 +70,9 @@ export const appMachine = setup({
     lastUpdateTime: 0,
     // Popup state (requires tmux with control mode popup support - PR #4361)
     popup: null,
+    // Float pane state
+    floatViewVisible: false,
+    floatPanes: {},
   },
   invoke: [
     {
@@ -488,6 +491,149 @@ export const appMachine = setup({
                 command: `kill-pane -t ${event.paneId}`,
               })
             );
+          }),
+        },
+
+        // Float Operations
+        TOGGLE_FLOAT_VIEW: {
+          actions: assign({
+            floatViewVisible: ({ context }) => !context.floatViewVisible,
+          }),
+        },
+        CREATE_FLOAT: {
+          actions: enqueueActions(({ context, enqueue }) => {
+            // Get next available window index for floats (start at 2000)
+            const floatWindows = context.windows.filter((w) => w.isFloatWindow);
+            const maxIndex = floatWindows.reduce((max, w) => Math.max(max, w.index), 1999);
+            const nextIndex = maxIndex + 1;
+
+            // Create a new window for the float pane
+            // The pane number will be assigned by tmux, we use placeholder in name
+            // After creation, we'll need to rename based on actual pane ID
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `new-window -d -t :${nextIndex} -n "__float_temp"`,
+              })
+            );
+
+            // Show float view if not visible
+            if (!context.floatViewVisible) {
+              enqueue(assign({ floatViewVisible: true }));
+            }
+          }),
+        },
+        CONVERT_TO_FLOAT: {
+          actions: enqueueActions(({ context, event, enqueue }) => {
+            const pane = context.panes.find((p) => p.tmuxId === event.paneId);
+            if (!pane) return;
+
+            const paneNum = event.paneId.replace('%', '');
+            const windowName = `__float_${paneNum}`;
+
+            // Move pane to a new hidden window
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `break-pane -d -t ${event.paneId} -n "${windowName}"`,
+              })
+            );
+
+            // Rename the window properly (break-pane doesn't support -n properly)
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `rename-window -t ${event.paneId} "${windowName}"`,
+              })
+            );
+
+            // Initialize float state for this pane
+            const floatState = {
+              paneId: event.paneId,
+              x: 100, // Default position
+              y: 100,
+              width: Math.min(pane.width * context.charWidth, context.containerWidth - 200),
+              height: Math.min(pane.height * context.charHeight, context.containerHeight - 200),
+              pinned: false,
+            };
+
+            enqueue(
+              assign({
+                floatPanes: { ...context.floatPanes, [event.paneId]: floatState },
+                floatViewVisible: true,
+              })
+            );
+          }),
+        },
+        EMBED_FLOAT: {
+          actions: enqueueActions(({ context, event, enqueue }) => {
+            const floatWindow = context.windows.find((w) => w.isFloatWindow && w.floatPaneId === event.paneId);
+            if (!floatWindow) return;
+
+            // Move float pane back to the active window
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `join-pane -s ${event.paneId} -t ${context.activeWindowId}`,
+              })
+            );
+
+            // Remove from float panes
+            const { [event.paneId]: _, ...remainingFloats } = context.floatPanes;
+            enqueue(assign({ floatPanes: remainingFloats }));
+          }),
+        },
+        PIN_FLOAT: {
+          actions: assign({
+            floatPanes: ({ context, event }) => ({
+              ...context.floatPanes,
+              [event.paneId]: { ...context.floatPanes[event.paneId], pinned: true },
+            }),
+          }),
+        },
+        UNPIN_FLOAT: {
+          actions: assign({
+            floatPanes: ({ context, event }) => ({
+              ...context.floatPanes,
+              [event.paneId]: { ...context.floatPanes[event.paneId], pinned: false },
+            }),
+          }),
+        },
+        MOVE_FLOAT: {
+          actions: assign({
+            floatPanes: ({ context, event }) => ({
+              ...context.floatPanes,
+              [event.paneId]: { ...context.floatPanes[event.paneId], x: event.x, y: event.y },
+            }),
+          }),
+        },
+        RESIZE_FLOAT: {
+          actions: assign({
+            floatPanes: ({ context, event }) => ({
+              ...context.floatPanes,
+              [event.paneId]: {
+                ...context.floatPanes[event.paneId],
+                width: event.width,
+                height: event.height,
+              },
+            }),
+          }),
+        },
+        CLOSE_FLOAT: {
+          actions: enqueueActions(({ context, event, enqueue }) => {
+            const floatWindow = context.windows.find((w) => w.isFloatWindow && w.floatPaneId === event.paneId);
+            if (floatWindow) {
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `kill-window -t ${floatWindow.id}`,
+                })
+              );
+            }
+
+            // Remove from float panes
+            const { [event.paneId]: _, ...remainingFloats } = context.floatPanes;
+            enqueue(assign({ floatPanes: remainingFloats }));
           }),
         },
       },

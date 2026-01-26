@@ -1,0 +1,1015 @@
+/**
+ * Tmuxy UI Styles
+ *
+ * All styles consolidated with CSS variables for consistency.
+ */
+
+/* ============================================
+   CSS Variables
+   ============================================ */
+
+:root {
+  /* Terminal Colors - xterm colorscheme (16 standard colors) */
+  --term-black: #000000;
+  --term-red: #cd0000;
+  --term-green: #00cd00;
+  --term-yellow: #cdcd00;
+  --term-blue: #0000ee;
+  --term-magenta: #cd00cd;
+  --term-cyan: #00cdcd;
+  --term-white: #e5e5e5;
+  --term-bright-black: #7f7f7f;
+  --term-bright-red: #ff0000;
+  --term-bright-green: #00ff00;
+  --term-bright-yellow: #ffff00;
+  --term-bright-blue: #5c5cff;
+  --term-bright-magenta: #ff00ff;
+  --term-bright-cyan: #00ffff;
+  --term-bright-white: #ffffff;
+
+  /* Terminal defaults */
+  --term-foreground: var(--term-white);
+  --term-background: var(--term-black);
+
+  /* Colors - Backgrounds */
+  --bg-black: var(--term-black);
+  --bg-dark: #1e1e1e;
+  --bg-dark-alt: #252526;
+  --bg-medium: #2d2d2d;
+  --bg-elevated-alt: #3d3d3d;
+  --bg-highlight: #4a4a4a;
+  --bg-highlight-alt: #5a5a5a;
+
+  /* Colors - Text */
+  --text-primary: var(--term-white);
+  --text-secondary: #cccccc;
+  --text-muted: #a0a0a0;
+  --text-dimmed: var(--term-bright-black);
+  --text-subtle: #6a6a6a;
+  --text-faint: #5a5a5a;
+  --text-dark: #1e1e1e;
+
+  /* Colors - Borders */
+  --border-medium: #3d3d3d;
+  --border-light: #4a4a4a;
+
+  /* Colors - Pane Header */
+  --pane-header-bg-active: #444;
+  --pane-header-bg-inactive: #1a1a1a;
+  --pane-header-text-active: var(--term-bright-white);
+  --pane-header-text-inactive: var(--term-bright-black);
+
+  /* Colors - Accent (Green) */
+  --accent-green: var(--term-green);
+  --accent-green-bright: var(--term-bright-green);
+  --accent-green-bg: #1a3d1a;
+  --accent-green-border: #2d5a2d;
+  --accent-green-hover: #254d25;
+
+  /* Colors - Accent (Blue) */
+  --accent-blue: #094771;
+  --accent-blue-light: rgba(100, 150, 255, 0.8);
+  --accent-blue-glow: rgba(100, 150, 255, 0.6);
+  --accent-blue-bg: rgba(100, 150, 255, 0.1);
+  --accent-blue-bg-hover: rgba(100, 150, 255, 0.3);
+  --accent-blue-bg-active: rgba(100, 150, 255, 0.5);
+
+  /* Colors - Links */
+  --link-color: var(--term-bright-blue);
+  --link-hover: var(--term-bright-cyan);
+  --link-active: var(--term-blue);
+
+  /* Colors - Error */
+  --error-color: var(--term-bright-red);
+  --error-light: #f48771;
+  --error-text: #e57373;
+  --error-bg: rgba(255, 0, 0, 0.2);
+  --error-border: rgba(255, 0, 0, 0.4);
+
+  /* Colors - Cursor */
+  --cursor-bg: var(--term-white);
+  --cursor-text: var(--term-black);
+  --cursor-copy-bg: var(--term-blue);
+  --cursor-inactive: var(--term-bright-black);
+
+  /* Colors - Tmux Status */
+  --tmux-status-bg: var(--term-green);
+
+  /* Typography */
+  --font-mono: 'Monaco', 'Menlo', 'Courier New', monospace;
+  --font-size-sm: 8px;
+  --font-size-md: 10px;
+  --font-size-base: 11px;
+  --font-size-lg: 12px;
+  --font-size-xl: 14px;
+  --font-size-2xl: 16px;
+
+  /* Line Heights */
+  --line-height-terminal: 20px; /* CHAR_HEIGHT */
+
+  /* Spacing */
+  --spacing-xs: 2px;
+  --spacing-md: 4px;
+  --spacing-lg: 6px;
+  --spacing-xl: 8px;
+  --spacing-2xl: 10px;
+  --spacing-3xl: 12px;
+
+  /* Sizes */
+  --statusbar-height: 32px;
+  --pane-header-height: 10.4px;
+
+  /* Border Radius */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  /* Transitions */
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.15s ease;
+  --transition-slow: 0.2s ease;
+  --transition-layout: 250ms linear;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* Z-index */
+  --z-base: 1;
+  --z-elevated: 50;
+  --z-dragging: 100;
+  --z-dropdown: 1000;
+}
+
+/* ============================================
+   Base / Reset
+   ============================================ */
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--bg-black);
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* ============================================
+   App Container
+   ============================================ */
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.app-container .pane-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pane-container {
+  background-color: var(--bg-black);
+}
+
+.pane-container.secondary-client {
+  overflow: auto;
+}
+
+/* Loading / Error States */
+.loading,
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background-color: var(--bg-black);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.error {
+  flex-direction: column;
+}
+
+.error h2 {
+  color: var(--error-light);
+  margin-bottom: 1rem;
+}
+
+/* Pane States */
+.pane-active {
+  z-index: var(--z-base);
+}
+
+.pane-content {
+  padding: var(--spacing-md);
+  padding-top: 0;
+}
+
+.pane-single {
+  background-color: transparent;
+}
+
+.pane-single .pane-content {
+  background-color: transparent;
+}
+
+.pane-wrapper:focus {
+  outline: none;
+}
+
+/* ============================================
+   Terminal
+   ============================================ */
+
+.terminal-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-black);
+}
+
+.terminal-content {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-terminal);
+  color: var(--text-primary);
+  white-space: pre;
+  overflow: hidden;
+}
+
+.terminal-line {
+  height: var(--line-height-terminal);
+  min-height: var(--line-height-terminal);
+}
+
+/* ============================================
+   Cursor
+   ============================================ */
+
+.terminal-cursor {
+  background-color: var(--cursor-bg);
+  color: var(--cursor-text);
+}
+
+.terminal-cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+.terminal-cursor-inactive {
+  background-color: transparent;
+  outline: 1px solid var(--cursor-inactive);
+  color: inherit;
+}
+
+.terminal-cursor-copy {
+  background-color: var(--cursor-copy-bg);
+  color: var(--text-primary);
+}
+
+.terminal-cursor-underline {
+  background-color: transparent;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--cursor-bg);
+  text-decoration-thickness: 2px;
+}
+
+.terminal-cursor-bar {
+  background-color: transparent;
+  color: inherit;
+  border-left: 2px solid var(--cursor-bg);
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ============================================
+   Pane Layout
+   ============================================ */
+
+.pane-layout {
+  position: absolute;
+  top: var(--line-height-terminal);
+  left: var(--line-height-terminal);
+  right: var(--line-height-terminal);
+  bottom: var(--line-height-terminal);
+}
+
+.pane-layout-single {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+.pane-layout-item {
+  overflow: hidden;
+  background: var(--bg-black);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  outline: none;
+  /* Animate position/size changes for swaps and resizes */
+  transition:
+    left 250ms linear,
+    top 250ms linear,
+    width 250ms linear,
+    height 250ms linear,
+    box-shadow var(--transition-layout);
+  border-width: 1px;
+  border-style: solid;
+}
+
+.pane-layout-item.pane-active {
+  border-color: var(--accent-green);
+}
+
+.pane-layout-item.pane-inactive {
+  border-color: var(--pane-header-bg-inactive);
+}
+
+.pane-layout-item.pane-dragging {
+  z-index: var(--z-dragging);
+  opacity: 0.85;
+  box-shadow: var(--shadow-lg);
+  cursor: grabbing;
+  /* Remove browser default focus/drag outline */
+  outline: none;
+  /* Disable position transitions during drag - transform handles movement */
+  transition: box-shadow var(--transition-layout);
+}
+
+/* Exit animation - pane is being removed */
+.pane-layout-item.pane-leaving {
+  opacity: 0;
+  transform: translateY(50px) scale(0.85);
+  transition:
+    opacity 250ms linear,
+    transform 250ms linear;
+  pointer-events: none;
+}
+
+/* Copy Mode - green border when active pane is in copy mode */
+.pane-layout-item.pane-active.pane-copy-mode {
+  border-color: var(--term-green);
+}
+
+/* Resize Dividers */
+.resize-divider {
+  position: absolute;
+  background: transparent;
+  z-index: var(--z-elevated);
+}
+
+.resize-divider-h {
+  cursor: ns-resize;
+}
+
+.resize-divider-v {
+  cursor: ew-resize;
+}
+
+/* Resize dividers are invisible - only cursor changes on hover */
+
+.pane-layout-dragging,
+.pane-layout-resizing {
+  user-select: none;
+}
+
+/* Performance hints for animated panes */
+.pane-layout-item {
+  will-change: transform;
+}
+
+.pane-layout-dragging .pane-layout-item,
+.pane-layout-resizing .pane-layout-item {
+  will-change: transform, left, top, width, height;
+}
+
+/* Disable position transitions during resize for instant feedback */
+.pane-layout-resizing .pane-layout-item {
+  transition: box-shadow var(--transition-layout);
+}
+
+/* Drag placeholder - shows original position during drag */
+.pane-drag-placeholder {
+  background: linear-gradient(
+    135deg,
+    rgba(100, 150, 255, 0.1) 0%,
+    rgba(100, 150, 255, 0.2) 100%
+  );
+  border: 2px dashed var(--accent-blue-light);
+  border-radius: var(--radius-md);
+  box-sizing: border-box;
+  z-index: var(--z-elevated);
+}
+
+/* ============================================
+   Pane Header
+   ============================================ */
+
+.pane-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--pane-header-height);
+  background-color: var(--pane-header-bg-inactive);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--pane-header-text-inactive);
+  user-select: none;
+  cursor: grab;
+  box-sizing: border-box;
+}
+
+.pane-header:active {
+  cursor: grabbing;
+}
+
+.pane-header-active {
+  background-color: var(--pane-header-bg-active);
+  color: var(--pane-header-text-active);
+}
+
+/* Copy mode header - green background when active and in copy mode */
+.pane-header-active.pane-header-copy-mode {
+  background-color: var(--term-green);
+  color: var(--text-dark);
+}
+
+.pane-title {
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 var(--spacing-3xl) 0 var(--spacing-sm);
+}
+
+/* Shared close button styles */
+.pane-close,
+.stack-tab-close {
+  position: absolute;
+  right: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pane-header-height);
+  height: var(--pane-header-height);
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--pane-header-text-inactive);
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity var(--transition-normal), background-color var(--transition-normal), color var(--transition-normal);
+}
+
+.pane-header:hover .pane-close,
+.stack-tab:hover .stack-tab-close {
+  opacity: 1;
+}
+
+.pane-header-active .pane-close,
+.stack-tab-active .stack-tab-close {
+  color: var(--pane-header-text-active);
+}
+
+.pane-close:hover,
+.stack-tab-close:hover {
+  background-color: var(--error-color);
+  color: white;
+  opacity: 1;
+}
+
+/* Stacked Pane Header */
+.pane-header-stacked {
+  justify-content: flex-start;
+  padding: 0;
+  gap: 0;
+}
+
+.stack-tabs {
+  display: flex;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.stack-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.stack-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--spacing-3xl);
+  height: var(--pane-header-height);
+  background-color: var(--pane-header-bg-inactive);
+  border-right: 1px solid #333;
+  cursor: pointer;
+  transition: background-color var(--transition-normal);
+  flex-shrink: 0;
+}
+
+.stack-tab:hover {
+  background-color: #333;
+}
+
+.stack-tab-active {
+  background-color: var(--pane-header-bg-active);
+}
+
+.stack-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--pane-header-text-inactive);
+}
+
+.stack-tab-active .stack-tab-title {
+  color: var(--pane-header-text-active);
+}
+
+/* ============================================
+   Status Bar
+   ============================================ */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  height: var(--statusbar-height);
+  background-color: var(--bg-dark);
+  border-bottom: 1px solid var(--border-medium);
+  padding: 0 var(--spacing-xl);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  user-select: none;
+}
+
+.statusbar-command {
+  background-color: var(--bg-medium);
+}
+
+.statusbar-prefix {
+  background-color: var(--accent-green-bg);
+  border-bottom-color: var(--accent-green-border);
+}
+
+/* Window Tabs */
+.window-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex: 1;
+  overflow-x: auto;
+}
+
+.window-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-3xl);
+  background-color: var(--bg-medium);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all var(--transition-normal);
+  position: relative;
+  min-width: 60px;
+}
+
+.window-tab:hover {
+  background-color: var(--bg-elevated-alt);
+  color: var(--text-primary);
+}
+
+.window-tab-active {
+  background-color: var(--bg-highlight);
+  color: white;
+}
+
+.window-tab-active:hover {
+  background-color: var(--bg-highlight-alt);
+}
+
+.window-index {
+  color: var(--accent-green);
+  font-weight: bold;
+  font-size: var(--font-size-base);
+}
+
+.window-tab-active .window-index {
+  color: var(--accent-green-bright);
+}
+
+.window-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.window-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-left: var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-xl);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.window-close:hover {
+  background-color: var(--error-color);
+  color: white;
+}
+
+.window-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background-color: transparent;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-subtle);
+  font-size: var(--font-size-2xl);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.window-new:hover {
+  background-color: var(--bg-elevated-alt);
+  border-color: var(--text-subtle);
+  color: var(--text-muted);
+}
+
+.window-tab-placeholder {
+  border: 2px dashed var(--accent-blue-light);
+  background-color: rgba(100, 150, 255, 0.15);
+  color: rgba(100, 150, 255, 0.9);
+  cursor: default;
+  animation: pulse-placeholder 1s ease-in-out infinite;
+}
+
+@keyframes pulse-placeholder {
+  0%, 100% { background-color: rgba(100, 150, 255, 0.15); }
+  50% { background-color: rgba(100, 150, 255, 0.25); }
+}
+
+/* Command Mode */
+.command-prefix {
+  color: var(--accent-green);
+  font-weight: bold;
+  margin-right: var(--spacing-md);
+}
+
+.command-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: inherit;
+  padding: var(--spacing-md);
+}
+
+.command-input::placeholder {
+  color: var(--text-faint);
+}
+
+/* Tmux Button */
+.tmux-button-container {
+  position: relative;
+  margin-left: var(--spacing-xl);
+}
+
+.tmux-button {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-2xl);
+  background-color: var(--bg-medium);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.tmux-button:hover {
+  background-color: var(--bg-elevated-alt);
+  border-color: var(--bg-highlight-alt);
+  color: var(--text-primary);
+}
+
+.tmux-button-active {
+  background-color: var(--accent-green-bg);
+  border-color: var(--accent-green-border);
+  color: var(--accent-green-bright);
+}
+
+.tmux-button-active:hover {
+  background-color: var(--accent-green-hover);
+  border-color: #3d6a3d;
+}
+
+.tmux-button i {
+  font-size: var(--font-size-lg);
+}
+
+.tmux-button-label {
+  font-weight: 500;
+}
+
+/* Tmux Dropdown */
+.tmux-dropdown {
+  position: absolute;
+  top: calc(100% + var(--spacing-xl));
+  right: 0;
+  min-width: 220px;
+  background-color: var(--bg-dark-alt);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  z-index: var(--z-dropdown);
+}
+
+.tmux-dropdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-xl) var(--spacing-3xl);
+  background-color: var(--bg-dark);
+  border-bottom: 1px solid var(--border-medium);
+  font-size: var(--font-size-base);
+  color: var(--text-dimmed);
+}
+
+.tmux-dropdown-hint {
+  font-style: italic;
+  color: #606060;
+}
+
+.tmux-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xl);
+  width: 100%;
+  padding: var(--spacing-xl) var(--spacing-3xl);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--transition-fast);
+}
+
+.tmux-dropdown-item:hover {
+  background-color: #2a2d2e;
+}
+
+.tmux-dropdown-item:active {
+  background-color: var(--accent-blue);
+}
+
+.tmux-dropdown-item i {
+  width: 16px;
+  text-align: center;
+  color: var(--text-dimmed);
+  font-size: var(--font-size-lg);
+}
+
+.tmux-dropdown-item:hover i {
+  color: var(--text-secondary);
+}
+
+.tmux-dropdown-item-label {
+  flex: 1;
+}
+
+.tmux-dropdown-item-key {
+  padding: var(--spacing-xs) var(--spacing-lg);
+  background-color: var(--border-medium);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-md);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* ============================================
+   Tmux Status Bar (Bottom)
+   ============================================ */
+
+.tmux-status-bar {
+  width: 100%;
+  background-color: var(--tmux-status-bg);
+  display: flex;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.tmux-status-bar-content {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-terminal);
+  white-space: pre;
+  margin: 0;
+  padding: var(--spacing-md) 0;
+  color: var(--text-dark);
+}
+
+/* ============================================
+   Float Panes
+   ============================================ */
+
+.float-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.float-pane {
+  position: absolute;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.float-pane:hover {
+  border-color: var(--border-hover);
+}
+
+.float-pinned {
+  border-color: var(--accent-primary);
+}
+
+.float-dragging,
+.float-resizing {
+  user-select: none;
+}
+
+.float-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 24px;
+  padding: 0 var(--spacing-sm);
+  background: var(--bg-elevated-alt);
+  cursor: move;
+  flex-shrink: 0;
+}
+
+.float-title {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.float-buttons {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.float-buttons button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+
+.float-buttons button:hover {
+  background: var(--bg-highlight);
+  color: var(--text-primary);
+}
+
+.float-pin-active {
+  color: var(--accent-primary) !important;
+}
+
+.float-content {
+  flex: 1;
+  overflow: hidden;
+  background: var(--bg-black);
+}
+
+/* Resize handles */
+.float-resize {
+  position: absolute;
+  z-index: 10;
+}
+
+.float-resize-n {
+  top: -3px;
+  left: 6px;
+  right: 6px;
+  height: 6px;
+  cursor: n-resize;
+}
+
+.float-resize-s {
+  bottom: -3px;
+  left: 6px;
+  right: 6px;
+  height: 6px;
+  cursor: s-resize;
+}
+
+.float-resize-e {
+  right: -3px;
+  top: 6px;
+  bottom: 6px;
+  width: 6px;
+  cursor: e-resize;
+}
+
+.float-resize-w {
+  left: -3px;
+  top: 6px;
+  bottom: 6px;
+  width: 6px;
+  cursor: w-resize;
+}
+
+.float-resize-ne {
+  top: -3px;
+  right: -3px;
+  width: 12px;
+  height: 12px;
+  cursor: ne-resize;
+}
+
+.float-resize-nw {
+  top: -3px;
+  left: -3px;
+  width: 12px;
+  height: 12px;
+  cursor: nw-resize;
+}
+
+.float-resize-se {
+  bottom: -3px;
+  right: -3px;
+  width: 12px;
+  height: 12px;
+  cursor: se-resize;
+}
+
+.float-resize-sw {
+  bottom: -3px;
+  left: -3px;
+  width: 12px;
+  height: 12px;
+  cursor: sw-resize;
+}

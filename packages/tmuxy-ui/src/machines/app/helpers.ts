@@ -161,3 +161,49 @@ export function buildStacksFromWindows(
 
   return stacks;
 }
+
+/**
+ * Build float pane states from windows.
+ * Float windows have the pattern: __float_{pane_num}
+ * Preserves existing float positions/state for panes that are still float windows.
+ *
+ * @param existingFloats - Previous float states to preserve positions from
+ */
+export function buildFloatPanesFromWindows(
+  windows: TmuxWindow[],
+  panes: TmuxPane[],
+  existingFloats: Record<string, { paneId: string; x: number; y: number; width: number; height: number; pinned: boolean }> = {},
+  containerWidth: number,
+  containerHeight: number,
+  charWidth: number,
+  charHeight: number
+): Record<string, { paneId: string; x: number; y: number; width: number; height: number; pinned: boolean }> {
+  const floatPanes: Record<string, { paneId: string; x: number; y: number; width: number; height: number; pinned: boolean }> = {};
+
+  for (const window of windows) {
+    if (!window.isFloatWindow || !window.floatPaneId) continue;
+
+    const paneId = window.floatPaneId;
+    const pane = panes.find((p) => p.tmuxId === paneId);
+
+    // Check if we have existing state for this float
+    const existing = existingFloats[paneId];
+
+    if (existing) {
+      // Preserve existing position and state
+      floatPanes[paneId] = existing;
+    } else if (pane) {
+      // Initialize new float with default position
+      floatPanes[paneId] = {
+        paneId,
+        x: 100,
+        y: 100,
+        width: Math.min(pane.width * charWidth, containerWidth - 200),
+        height: Math.min(pane.height * charHeight, containerHeight - 200),
+        pinned: false,
+      };
+    }
+  }
+
+  return floatPanes;
+}

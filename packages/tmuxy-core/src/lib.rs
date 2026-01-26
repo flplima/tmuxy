@@ -212,18 +212,48 @@ pub struct TmuxWindow {
     pub index: u32,
     pub name: String,
     pub active: bool,
-    /// True if this is a hidden stack window (name starts with "__")
+    /// True if this is a hidden stack window (name starts with "__%")
     pub is_stack_window: bool,
     /// Parent pane ID if this is a stack window (e.g., "%5")
     pub stack_parent_pane: Option<String>,
     /// Stack index if this is a stack window (0, 1, 2...)
     pub stack_index: Option<u32>,
+    /// True if this is a hidden float window (name starts with "__float_")
+    #[serde(default)]
+    pub is_float_window: bool,
+    /// Pane ID if this is a float window (e.g., "%5")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_pane_id: Option<String>,
 }
 
 /// Info parsed from a stack window name
 pub struct StackWindowInfo {
     pub parent_pane_id: String,
     pub stack_index: u32,
+}
+
+/// Info parsed from a float window name
+pub struct FloatWindowInfo {
+    pub pane_id: String,
+}
+
+/// Parse a float window name pattern: "__float_{pane_num}"
+/// Returns None if the name doesn't match the pattern
+pub fn parse_float_window_name(name: &str) -> Option<FloatWindowInfo> {
+    // Pattern: __float_{pane_num}
+    // Example: __float_5 (for pane %5)
+    if !name.starts_with("__float_") {
+        return None;
+    }
+
+    let pane_num = &name[8..]; // Skip "__float_"
+    if pane_num.is_empty() || !pane_num.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+
+    Some(FloatWindowInfo {
+        pane_id: format!("%{}", pane_num),
+    })
 }
 
 /// Parse a stack window name pattern: "__%{pane_id}_stack_{n}"
@@ -387,6 +417,10 @@ pub struct WindowDelta {
     pub stack_parent_pane: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_index: Option<Option<u32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_float_window: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_pane_id: Option<Option<String>>,
 }
 
 impl WindowDelta {
@@ -396,6 +430,8 @@ impl WindowDelta {
             && self.is_stack_window.is_none()
             && self.stack_parent_pane.is_none()
             && self.stack_index.is_none()
+            && self.is_float_window.is_none()
+            && self.float_pane_id.is_none()
     }
 }
 
@@ -577,8 +613,9 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
     let windows: Vec<TmuxWindow> = window_infos
         .into_iter()
         .map(|w| {
-            // Check if this is a stack window
+            // Check if this is a stack or float window
             let stack_info = parse_stack_window_name(&w.name);
+            let float_info = parse_float_window_name(&w.name);
             TmuxWindow {
                 id: w.id,
                 index: w.index,
@@ -587,6 +624,8 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
                 is_stack_window: stack_info.is_some(),
                 stack_parent_pane: stack_info.as_ref().map(|s| s.parent_pane_id.clone()),
                 stack_index: stack_info.as_ref().map(|s| s.stack_index),
+                is_float_window: float_info.is_some(),
+                float_pane_id: float_info.map(|f| f.pane_id),
             }
         })
         .collect();

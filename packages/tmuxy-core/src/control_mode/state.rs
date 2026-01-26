@@ -3,7 +3,7 @@
 //! Aggregates control mode events into coherent state using vt100 terminal emulation.
 
 use super::parser::ControlModeEvent;
-use crate::{extract_cells_from_screen, parse_stack_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow};
+use crate::{extract_cells_from_screen, parse_float_window_name, parse_stack_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow};
 use std::collections::HashMap;
 
 /// Type of change that occurred
@@ -251,6 +251,7 @@ impl WindowState {
 
     pub fn to_tmux_window(&self) -> TmuxWindow {
         let stack_info = parse_stack_window_name(&self.name);
+        let float_info = parse_float_window_name(&self.name);
         TmuxWindow {
             id: self.id.clone(),
             index: self.index,
@@ -259,6 +260,8 @@ impl WindowState {
             is_stack_window: stack_info.is_some(),
             stack_parent_pane: stack_info.as_ref().map(|s| s.parent_pane_id.clone()),
             stack_index: stack_info.as_ref().map(|s| s.stack_index),
+            is_float_window: float_info.is_some(),
+            float_pane_id: float_info.map(|f| f.pane_id),
         }
     }
 }
@@ -1270,6 +1273,12 @@ impl StateAggregator {
         if prev.stack_index != curr.stack_index {
             delta.stack_index = Some(curr.stack_index);
         }
+        if prev.is_float_window != curr.is_float_window {
+            delta.is_float_window = Some(curr.is_float_window);
+        }
+        if prev.float_pane_id != curr.float_pane_id {
+            delta.float_pane_id = Some(curr.float_pane_id.clone());
+        }
 
         delta
     }
@@ -1311,6 +1320,19 @@ impl StateAggregator {
             })
             .collect();
 
+        // Float windows are always included (they contain floating panes)
+        let float_windows: std::collections::HashSet<String> = self
+            .windows
+            .values()
+            .filter_map(|w| {
+                if parse_float_window_name(&w.name).is_some() {
+                    Some(w.id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         let panes: Vec<TmuxPane> = self
             .panes
             .values()
@@ -1319,12 +1341,13 @@ impl StateAggregator {
                 if p.window_id.is_empty() {
                     return false;
                 }
-                // Include panes from active window OR from valid stack windows
+                // Include panes from active window, valid stack windows, OR float windows
                 let is_active_window = active_window
                     .map(|w| p.window_id == *w)
                     .unwrap_or(false);
                 let is_valid_stack_window = valid_stack_windows.contains(&p.window_id);
-                is_active_window || is_valid_stack_window
+                let is_float_window = float_windows.contains(&p.window_id);
+                is_active_window || is_valid_stack_window || is_float_window
             })
             .map(|p| p.to_tmux_pane())
             .collect();

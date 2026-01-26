@@ -20,6 +20,20 @@ export interface PaneStack {
   activeIndex: number;
 }
 
+/** Float pane position and state */
+export interface FloatPaneState {
+  /** Pane ID (e.g., "%5") */
+  paneId: string;
+  /** Position in pixels relative to container */
+  x: number;
+  y: number;
+  /** Size in pixels */
+  width: number;
+  height: number;
+  /** Whether this float is pinned (visible even when float view is hidden) */
+  pinned: boolean;
+}
+
 /** Drag operation state */
 export interface DragState {
   draggedPaneId: string;
@@ -109,6 +123,10 @@ export interface AppMachineContext {
    * Note: Requires tmux with control mode popup support (PR #4361)
    */
   popup: TmuxPopup | null;
+  /** Whether the float view is currently visible */
+  floatViewVisible: boolean;
+  /** Float pane positions and states (keyed by pane ID) */
+  floatPanes: Record<string, FloatPaneState>;
 }
 
 // ============================================
@@ -227,6 +245,17 @@ export type StackAddPaneEvent = { type: 'STACK_ADD_PANE'; paneId: string };
 export type StackSwitchEvent = { type: 'STACK_SWITCH'; stackId: string; paneId: string };
 export type StackClosePaneEvent = { type: 'STACK_CLOSE_PANE'; stackId: string; paneId: string };
 
+// Float events
+export type ToggleFloatViewEvent = { type: 'TOGGLE_FLOAT_VIEW' };
+export type CreateFloatEvent = { type: 'CREATE_FLOAT' };
+export type ConvertToFloatEvent = { type: 'CONVERT_TO_FLOAT'; paneId: string };
+export type EmbedFloatEvent = { type: 'EMBED_FLOAT'; paneId: string };
+export type PinFloatEvent = { type: 'PIN_FLOAT'; paneId: string };
+export type UnpinFloatEvent = { type: 'UNPIN_FLOAT'; paneId: string };
+export type MoveFloatEvent = { type: 'MOVE_FLOAT'; paneId: string; x: number; y: number };
+export type ResizeFloatEvent = { type: 'RESIZE_FLOAT'; paneId: string; width: number; height: number };
+export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: string };
+
 /** All events the app machine can receive from external sources */
 export type AppMachineEvent =
   | TmuxConnectedEvent
@@ -256,7 +285,16 @@ export type AppMachineEvent =
   | SendKeysEvent
   | StackAddPaneEvent
   | StackSwitchEvent
-  | StackClosePaneEvent;
+  | StackClosePaneEvent
+  | ToggleFloatViewEvent
+  | CreateFloatEvent
+  | ConvertToFloatEvent
+  | EmbedFloatEvent
+  | PinFloatEvent
+  | UnpinFloatEvent
+  | MoveFloatEvent
+  | ResizeFloatEvent
+  | CloseFloatEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

@@ -1,4 +1,4 @@
-import type { AppMachineContext, TmuxPane, TmuxPopup, PaneStack, ResizeState } from './types';
+import type { AppMachineContext, TmuxPane, TmuxPopup, PaneStack, ResizeState, FloatPaneState } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 
 // ============================================
@@ -355,6 +355,41 @@ export function selectStackPanes(
   return stack.paneIds
     .map((id) => context.panes.find((p) => p.tmuxId === id))
     .filter((p): p is TmuxPane => p !== undefined);
+}
+
+// ============================================
+// Float Selectors
+// ============================================
+
+export function selectFloatViewVisible(context: AppMachineContext): boolean {
+  return context.floatViewVisible;
+}
+
+export function selectFloatPanes(context: AppMachineContext): FloatPaneState[] {
+  return Object.values(context.floatPanes);
+}
+
+export function selectFloatPaneState(context: AppMachineContext, paneId: string): FloatPaneState | undefined {
+  return context.floatPanes[paneId];
+}
+
+/**
+ * Get all visible float panes (visible when float view is shown, or pinned)
+ */
+export function selectVisibleFloatPanes(context: AppMachineContext): FloatPaneState[] {
+  const floats = Object.values(context.floatPanes);
+  if (context.floatViewVisible) {
+    return floats;
+  }
+  // Only pinned floats are visible when float view is hidden
+  return floats.filter((f) => f.pinned);
+}
+
+/**
+ * Get float pane IDs (for filtering from tiled panes)
+ */
+export function selectFloatPaneIds(context: AppMachineContext): string[] {
+  return Object.keys(context.floatPanes);
 }
 
 // ============================================
