@@ -121,11 +121,11 @@ describe('Category 7: Mouse Events', () => {
 
         // Scroll up
         await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await ctx.page.mouse.wheel({ deltaY: -100 });
+        await ctx.page.mouse.wheel(0, -100);
         await delay(DELAYS.LONG);
 
         // Scroll down
-        await ctx.page.mouse.wheel({ deltaY: 100 });
+        await ctx.page.mouse.wheel(0, 100);
         await delay(DELAYS.LONG);
 
         expect(ctx.session.exists()).toBe(true);
@@ -168,7 +168,7 @@ describe('Category 7: Mouse Events', () => {
       if (terminal) {
         const box = await terminal.boundingBox();
 
-        await ctx.page.mouse.click(box.x + 50, box.y + 50, { clickCount: 2 });
+        await ctx.page.mouse.dblclick(box.x + 50, box.y + 50);
         await delay(DELAYS.LONG);
 
         expect(ctx.session.exists()).toBe(true);

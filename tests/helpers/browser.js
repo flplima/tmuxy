@@ -1,11 +1,11 @@
 /**
  * Browser Helpers
  *
- * Puppeteer setup and browser interaction utilities
+ * Playwright setup and browser interaction utilities
  */
 
-const puppeteer = require('puppeteer');
-const { CDP_PORT, TMUXY_URL, DELAYS } = require('./config');
+const { chromium } = require('playwright');
+const { TMUXY_URL, DELAYS } = require('./config');
 
 /**
  * Helper to wait for a given time
@@ -15,47 +15,36 @@ function delay(ms) {
 }
 
 /**
- * Check if Chrome DevTools Protocol is available
- */
-async function isCdpAvailable(port = CDP_PORT) {
-  try {
-    const response = await fetch(`http://localhost:${port}/json/version`);
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Connect to existing CDP or launch headless browser
+ * Launch a fresh headless browser for tests
  */
 async function getBrowser() {
-  const cdpAvailable = await isCdpAvailable();
+  console.log('Launching headless Chromium via Playwright');
 
-  if (cdpAvailable) {
-    console.log(`Connecting to existing Chrome on port ${CDP_PORT}`);
-    const response = await fetch(`http://localhost:${CDP_PORT}/json/version`);
-    const data = await response.json();
-    console.log(`Using WebSocket endpoint: ${data.webSocketDebuggerUrl}`);
-
-    return await puppeteer.connect({
-      browserWSEndpoint: data.webSocketDebuggerUrl,
-      defaultViewport: { width: 1280, height: 720 },
-    });
-  }
-
-  console.log('Launching headless Chrome');
-  return await puppeteer.launch({
+  const browser = await chromium.launch({
     headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      `--remote-debugging-port=${CDP_PORT}`,
     ],
-    defaultViewport: { width: 1280, height: 720 },
-    timeout: 30000,
   });
+
+  // Create a wrapper that mimics Puppeteer's browser API
+  return {
+    _browser: browser,
+    async newPage() {
+      const context = await browser.newContext({
+        viewport: { width: 1280, height: 720 },
+      });
+      const page = await context.newPage();
+      // Add Puppeteer-compatible helpers
+      page._context = context;
+      return page;
+    },
+    async close() {
+      await browser.close();
+    },
+  };
 }
 
 /**
@@ -80,7 +69,7 @@ async function waitForServer(url = TMUXY_URL, timeout = 30000) {
  */
 async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
   const url = `${tmuxyUrl}?session=${encodeURIComponent(sessionName)}`;
-  await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForSelector('[role="log"]', { timeout: 10000 });
   await delay(DELAYS.EXTRA_LONG); // Give tmux state time to sync
   return url;
@@ -96,7 +85,6 @@ async function focusPage(page) {
 
 module.exports = {
   delay,
-  isCdpAvailable,
   getBrowser,
   waitForServer,
   navigateToSession,

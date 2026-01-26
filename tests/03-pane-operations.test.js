@@ -313,7 +313,7 @@ describe('Category 3: Pane Operations', () => {
       const header = await ctx.page.$('.pane-header');
       if (header) {
         const box = await header.boundingBox();
-        await ctx.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { clickCount: 2 });
+        await ctx.page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
         await delay(DELAYS.EXTRA_LONG);
 
         expect(ctx.session.isPaneZoomed()).toBe(true);

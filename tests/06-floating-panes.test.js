@@ -90,7 +90,7 @@ describe('Category 6: Floating Panes', () => {
       await focusPage(ctx.page);
 
       // Resize viewport
-      await ctx.page.setViewport({ width: 800, height: 600 });
+      await ctx.page.setViewportSize({ width: 800, height: 600 });
       await delay(DELAYS.EXTRA_LONG);
 
       // App should still be functional
@@ -101,7 +101,7 @@ describe('Category 6: Floating Panes', () => {
       expect(stillFunctional).toBe(true);
 
       // Restore viewport
-      await ctx.page.setViewport({ width: 1280, height: 720 });
+      await ctx.page.setViewportSize({ width: 1280, height: 720 });
     });
   });
 });
