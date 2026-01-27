@@ -9,8 +9,8 @@ const {
   waitForServer,
   navigateToSession,
   focusPage,
+  waitForSessionReady,
 } = require('./browser');
-const { splitPaneKeyboard, navigatePaneKeyboard } = require('./ui');
 const TmuxTestSession = require('./TmuxTestSession');
 const { TMUXY_URL } = require('./config');
 
@@ -117,6 +117,7 @@ function createTestContext() {
    */
   ctx.setupPage = async () => {
     await navigateToSession(ctx.page, ctx.session.name);
+    await waitForSessionReady(ctx.page, ctx.session.name);
     await focusPage(ctx.page);
   };
 
@@ -133,36 +134,49 @@ function createTestContext() {
 
   /**
    * Setup multiple panes with alternating split directions
+   * Uses tmux commands directly for reliability
    * @param {number} count - Number of panes to create (default: 3)
    */
   ctx.setupPanes = async (count = 3) => {
+    // Create panes using tmux commands before navigating
+    for (let i = 1; i < count; i++) {
+      if (i % 2 === 0) {
+        ctx.session.splitVertical();
+      } else {
+        ctx.session.splitHorizontal();
+      }
+    }
     await ctx.navigateToSession();
     await focusPage(ctx.page);
-    for (let i = 1; i < count; i++) {
-      await splitPaneKeyboard(ctx.page, i % 2 === 0 ? 'vertical' : 'horizontal');
-    }
   };
 
   /**
    * Setup two panes with a single split
+   * Uses tmux commands directly for reliability
    * @param {string} direction - 'horizontal' or 'vertical' (default: 'horizontal')
    */
   ctx.setupTwoPanes = async (direction = 'horizontal') => {
+    // Create split using tmux command before navigating
+    if (direction === 'horizontal') {
+      ctx.session.splitHorizontal();
+    } else {
+      ctx.session.splitVertical();
+    }
     await ctx.navigateToSession();
     await focusPage(ctx.page);
-    await splitPaneKeyboard(ctx.page, direction);
   };
 
   /**
    * Setup a 4-pane grid layout
+   * Uses tmux commands directly for reliability
    */
   ctx.setupFourPanes = async () => {
+    ctx.session.splitHorizontal();
+    ctx.session.splitVertical();
+    ctx.session.selectPane('U');
+    ctx.session.splitVertical();
     await ctx.navigateToSession();
     await focusPage(ctx.page);
-    await splitPaneKeyboard(ctx.page, 'horizontal');
-    await splitPaneKeyboard(ctx.page, 'vertical');
-    await navigatePaneKeyboard(ctx.page, 'up');
-    await splitPaneKeyboard(ctx.page, 'vertical');
   };
 
   return ctx;

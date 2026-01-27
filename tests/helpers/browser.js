@@ -108,8 +108,95 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
  * Focus the page for keyboard input
  */
 async function focusPage(page) {
-  await page.click('body');
+  // Click on the terminal element to ensure focus
+  const terminal = await page.$('[role="log"]');
+  if (terminal) {
+    await terminal.click();
+  } else {
+    await page.click('body');
+  }
   await delay(DELAYS.MEDIUM);
+}
+
+/**
+ * Wait for the WebSocket connection to be established and session to be ready
+ * This ensures keyboard events will be sent to the correct session
+ */
+async function waitForSessionReady(page, sessionName, timeout = 10000) {
+  const start = Date.now();
+
+  // Wait for the UI to show connected state and have terminal content
+  try {
+    await page.waitForFunction(
+      () => {
+        // Check if terminal has content (means connection is established)
+        const logs = document.querySelectorAll('[role="log"]');
+        const content = Array.from(logs).map(l => l.textContent || '').join('');
+        // Content should have shell prompt
+        return content.length > 5 && /[$#%>]/.test(content);
+      },
+      { timeout, polling: 100 }
+    );
+  } catch {
+    console.log('Warning: Session may not be fully ready');
+  }
+
+  // Additional delay to ensure keyboard actor has received UPDATE_SESSION
+  await delay(DELAYS.LONG);
+}
+
+/**
+ * Wait for UI to show expected window count
+ * @param {Page} page - Playwright page
+ * @param {number} expectedCount - Expected window count
+ * @param {number} timeout - Max wait time in ms
+ */
+async function waitForWindowCount(page, expectedCount, timeout = 5000) {
+  try {
+    await page.waitForFunction(
+      (count) => {
+        const tabs = document.querySelectorAll('.window-tab');
+        return tabs.length === count;
+      },
+      expectedCount,
+      { timeout, polling: 100 }
+    );
+  } catch {
+    // Timeout - log warning but don't fail
+    const actualCount = await page.evaluate(() => {
+      return document.querySelectorAll('.window-tab').length;
+    });
+    console.log(`Warning: Expected ${expectedCount} windows, found ${actualCount}`);
+  }
+}
+
+/**
+ * Wait for UI to show expected pane count
+ * @param {Page} page - Playwright page
+ * @param {number} expectedCount - Expected pane count
+ * @param {number} timeout - Max wait time in ms
+ */
+async function waitForPaneCount(page, expectedCount, timeout = 5000) {
+  try {
+    await page.waitForFunction(
+      (count) => {
+        // Check both data-pane-id elements and [role="log"] elements
+        const paneIds = document.querySelectorAll('[data-pane-id]');
+        const logs = document.querySelectorAll('[role="log"]');
+        return paneIds.length === count || logs.length === count;
+      },
+      expectedCount,
+      { timeout, polling: 100 }
+    );
+  } catch {
+    // Timeout - log warning but don't fail
+    const actualCount = await page.evaluate(() => {
+      const paneIds = document.querySelectorAll('[data-pane-id]');
+      const logs = document.querySelectorAll('[role="log"]');
+      return Math.max(paneIds.length, logs.length);
+    });
+    console.log(`Warning: Expected ${expectedCount} panes, found ${actualCount}`);
+  }
 }
 
 module.exports = {
@@ -118,4 +205,7 @@ module.exports = {
   waitForServer,
   navigateToSession,
   focusPage,
+  waitForSessionReady,
+  waitForWindowCount,
+  waitForPaneCount,
 };

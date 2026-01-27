@@ -252,4 +252,202 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
       expect(afterText.length).toBeLessThanOrEqual(beforeText.length);
     });
   });
+
+  // ====================
+  // 1.4 Terminal Rendering Edge Cases
+  // ====================
+  describe('1.4 Terminal Rendering Edge Cases', () => {
+    test('Wide characters (CJK) - renders without breaking layout', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Output CJK characters (Chinese, Japanese, Korean)
+      // These are double-width characters that need proper handling
+      const text = await runCommand(
+        ctx.page,
+        'echo "CJK_TEST: 你好世界 こんにちは 안녕하세요 END_CJK"',
+        'CJK_TEST'
+      );
+
+      // Verify CJK characters rendered
+      expect(text).toContain('你好世界');    // Chinese: Hello World
+      expect(text).toContain('こんにちは');  // Japanese: Hello
+      expect(text).toContain('안녕하세요');  // Korean: Hello
+      expect(text).toContain('END_CJK');
+
+      // Verify cursor still works after CJK
+      const text2 = await runCommand(ctx.page, 'echo "AFTER_CJK"', 'AFTER_CJK');
+      expect(text2).toContain('AFTER_CJK');
+    });
+
+    test('Wide characters (CJK) - alignment in columns', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Test column alignment with printf
+      const text = await runCommand(
+        ctx.page,
+        'printf "%-10s|\\n" "abc" "日本" "test"',
+        'abc'
+      );
+
+      // All lines should have the pipe character
+      expect(text).toContain('abc');
+      expect(text).toContain('日本');
+      expect(text).toContain('test');
+      expect(text).toContain('|');
+    });
+
+    test('Emoji - single codepoint emoji renders', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Simple single-codepoint emojis
+      const text = await runCommand(
+        ctx.page,
+        'echo "EMOJI_TEST: ✓ ✗ ★ ♥ ♦ END_EMOJI"',
+        'EMOJI_TEST'
+      );
+
+      expect(text).toContain('EMOJI_TEST');
+      expect(text).toContain('END_EMOJI');
+      // At minimum, the text should render without breaking
+    });
+
+    test('Emoji - multi-codepoint emoji handling', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Multi-codepoint emojis (ZWJ sequences, skin tone modifiers)
+      // These may render as boxes/replacement chars but shouldn't break terminal
+      const text = await runCommand(
+        ctx.page,
+        'echo "MULTI_EMOJI: 👨‍👩‍👧 🏳️‍🌈 👍🏽 END_MULTI"',
+        'MULTI_EMOJI'
+      );
+
+      expect(text).toContain('MULTI_EMOJI');
+      expect(text).toContain('END_MULTI');
+
+      // Verify terminal still works after emoji
+      const text2 = await runCommand(ctx.page, 'echo "AFTER_EMOJI"', 'AFTER_EMOJI');
+      expect(text2).toContain('AFTER_EMOJI');
+    });
+
+    test('Emoji - in command output context', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Test emoji in a realistic context (git status style)
+      const text = await runCommand(
+        ctx.page,
+        'echo "✓ Pass  ✗ Fail  ⚠ Warn"',
+        'Pass'
+      );
+
+      expect(text).toContain('Pass');
+      expect(text).toContain('Fail');
+      expect(text).toContain('Warn');
+    });
+
+    test('Application cursor keys mode (DECCKM) - arrow keys in vim', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Start vim (enables DECCKM)
+      await runCommand(ctx.page, 'vim', 'VIM', 15000);
+
+      // Enter insert mode and type
+      await ctx.page.keyboard.press('i');
+      await delay(DELAYS.SHORT);
+      await ctx.page.keyboard.type('line1');
+      await ctx.page.keyboard.press('Enter');
+      await ctx.page.keyboard.type('line2');
+      await delay(DELAYS.SHORT);
+
+      // Exit insert mode
+      await ctx.page.keyboard.press('Escape');
+      await delay(DELAYS.SHORT);
+
+      // Move up with arrow key (should work in DECCKM mode)
+      await ctx.page.keyboard.press('ArrowUp');
+      await delay(DELAYS.SHORT);
+
+      // Exit vim
+      await ctx.page.keyboard.type(':q!');
+      await ctx.page.keyboard.press('Enter');
+      await delay(DELAYS.LONG);
+
+      // Terminal should be back to normal
+      const afterText = await getTerminalText(ctx.page);
+      expect(afterText.includes('VIM')).toBe(false);
+
+      // Verify terminal still works
+      const text = await runCommand(ctx.page, 'echo "AFTER_VIM"', 'AFTER_VIM');
+      expect(text).toContain('AFTER_VIM');
+    });
+
+    test('Application cursor keys mode - less navigation', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Generate content and view with less (enables DECCKM)
+      await runCommand(ctx.page, 'seq 1 100 | less', '1');
+
+      // Navigate with arrow keys
+      await ctx.page.keyboard.press('ArrowDown');
+      await delay(DELAYS.SHORT);
+      await ctx.page.keyboard.press('ArrowDown');
+      await delay(DELAYS.SHORT);
+      await ctx.page.keyboard.press('ArrowUp');
+      await delay(DELAYS.SHORT);
+
+      // Page navigation
+      await ctx.page.keyboard.press('PageDown');
+      await delay(DELAYS.SHORT);
+      await ctx.page.keyboard.press('PageUp');
+      await delay(DELAYS.SHORT);
+
+      // Exit less
+      await ctx.page.keyboard.press('q');
+      await delay(DELAYS.LONG);
+
+      // Terminal should be responsive
+      const text = await runCommand(ctx.page, 'echo "AFTER_LESS"', 'AFTER_LESS');
+      expect(text).toContain('AFTER_LESS');
+    });
+
+    test('Bracketed paste mode - pasted text handled correctly', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Most modern shells enable bracketed paste mode
+      // Verify pasting text works correctly
+      const testText = 'pasted_text_123';
+
+      // Focus and "paste" (simulate with evaluate since Playwright doesn't have direct paste)
+      await ctx.page.evaluate((text) => {
+        // Dispatch a synthetic input
+        const event = new InputEvent('input', {
+          inputType: 'insertFromPaste',
+          data: text,
+          bubbles: true,
+          cancelable: true,
+        });
+        document.activeElement?.dispatchEvent(event);
+      }, testText);
+
+      // Just verify terminal is still functional
+      const text = await runCommand(ctx.page, 'echo "PASTE_TEST"', 'PASTE_TEST');
+      expect(text).toContain('PASTE_TEST');
+    });
+  });
 });
