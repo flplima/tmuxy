@@ -78,7 +78,6 @@ Tracks all clients connected to a single tmux session:
 
 ```rust
 pub struct SessionConnections {
-    pub primary_id: Option<u64>,           // Primary client controls resize
     pub connections: Vec<u64>,             // All connection IDs
     pub connection_channels: HashMap<...>, // Per-connection direct message channels
     pub client_sizes: HashMap<u64, (u32, u32)>,  // Viewport sizes
@@ -143,8 +142,7 @@ if let Some(tx) = command_tx {
 { "type": "event", "name": "tmux-state-update", "payload": {...} }
 
 // Connection management
-{ "type": "connection_info", "connection_id": 1, "is_primary": true }
-{ "type": "primary_changed", "is_primary": true }
+{ "type": "connection_info", "connection_id": 1 }
 ```
 
 ### 5. Frontend State Machine (XState)
@@ -182,8 +180,7 @@ The React frontend uses XState for state management. All client logic lives in t
 
 1. **Client connects** via WebSocket with `?session=name`
 2. Server generates unique `connection_id`
-3. First client becomes **primary** (controls resize)
-4. Server checks if session monitor exists:
+3. Server checks if session monitor exists:
    - **No monitor:** Start new monitor, store handle in `SessionConnections`
    - **Has monitor:** Subscribe to existing `state_tx` channel
 5. Client receives `connection_info` message

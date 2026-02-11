@@ -19,7 +19,6 @@ import {
   useAppState,
   selectPreviewPanes,
   selectError,
-  selectIsPrimary,
 } from './machines/AppContext';
 import { initDebugHelpers } from './utils/debug';
 
@@ -30,7 +29,6 @@ function App() {
   // Select minimal state needed at App level
   const panes = useAppSelector(selectPreviewPanes);
   const error = useAppSelector(selectError);
-  const isPrimary = useAppSelector(selectIsPrimary);
   const isConnecting = useAppState('connecting');
   const send = useAppSend();
 
@@ -70,7 +68,7 @@ function App() {
       <StatusBar />
       <div
         ref={containerRef}
-        className={`pane-container${isPrimary ? '' : ' secondary-client'}`}
+        className="pane-container"
         style={{ position: 'relative' }}
       >
         <PaneLayout>

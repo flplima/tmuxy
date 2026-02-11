@@ -244,8 +244,7 @@ export type StateUpdate =
 
 export type StateListener = (state: ServerState) => void;
 export type ErrorListener = (error: string) => void;
-export type ConnectionInfoListener = (connectionId: number, isPrimary: boolean) => void;
-export type PrimaryChangedListener = (isPrimary: boolean) => void;
+export type ConnectionInfoListener = (connectionId: number) => void;
 export type ReconnectionListener = (reconnecting: boolean, attempt: number) => void;
 
 export interface TmuxAdapter {
@@ -257,6 +256,5 @@ export interface TmuxAdapter {
   onStateChange(listener: StateListener): () => void;
   onError(listener: ErrorListener): () => void;
   onConnectionInfo(listener: ConnectionInfoListener): () => void;
-  onPrimaryChanged(listener: PrimaryChangedListener): () => void;
   onReconnection(listener: ReconnectionListener): () => void;
 }

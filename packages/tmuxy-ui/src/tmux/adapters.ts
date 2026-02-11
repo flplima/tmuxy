@@ -3,7 +3,6 @@ import {
   StateListener,
   ErrorListener,
   ConnectionInfoListener,
-  PrimaryChangedListener,
   ReconnectionListener,
   ServerState,
   ServerPane,
@@ -81,7 +80,6 @@ export class WebSocketAdapter implements TmuxAdapter {
   private stateListeners = new Set<StateListener>();
   private errorListeners = new Set<ErrorListener>();
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
-  private primaryChangedListeners = new Set<PrimaryChangedListener>();
   private reconnectionListeners = new Set<ReconnectionListener>();
 
   // Keyboard batching state
@@ -309,10 +307,6 @@ export class WebSocketAdapter implements TmuxAdapter {
     return () => this.connectionInfoListeners.delete(listener);
   }
 
-  onPrimaryChanged(listener: PrimaryChangedListener): () => void {
-    this.primaryChangedListeners.add(listener);
-    return () => this.primaryChangedListeners.delete(listener);
-  }
 
   onReconnection(listener: ReconnectionListener): () => void {
     this.reconnectionListeners.add(listener);
@@ -403,9 +397,7 @@ export class WebSocketAdapter implements TmuxAdapter {
         const error = msg.payload as { message: string };
         this.notifyError(error.message);
       } else if (msg.type === 'connection_info') {
-        this.notifyConnectionInfo(msg.connection_id ?? 0, msg.is_primary ?? false);
-      } else if (msg.type === 'primary_changed') {
-        this.notifyPrimaryChanged(msg.is_primary ?? false);
+        this.notifyConnectionInfo(msg.connection_id ?? 0);
       }
     } catch (e) {
       console.error('Failed to parse message:', e);
@@ -420,12 +412,8 @@ export class WebSocketAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(connectionId: number, isPrimary: boolean) {
-    this.connectionInfoListeners.forEach((listener) => listener(connectionId, isPrimary));
-  }
-
-  private notifyPrimaryChanged(isPrimary: boolean) {
-    this.primaryChangedListeners.forEach((listener) => listener(isPrimary));
+  private notifyConnectionInfo(connectionId: number) {
+    this.connectionInfoListeners.forEach((listener) => listener(connectionId));
   }
 
   private notifyReconnection(reconnecting: boolean, attempt: number) {
@@ -605,7 +593,6 @@ export class TauriAdapter implements TmuxAdapter {
   private stateListeners = new Set<StateListener>();
   private errorListeners = new Set<ErrorListener>();
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
-  private primaryChangedListeners = new Set<PrimaryChangedListener>();
   private reconnectionListeners = new Set<ReconnectionListener>();
 
   async connect(): Promise<void> {
@@ -619,7 +606,7 @@ export class TauriAdapter implements TmuxAdapter {
       this.connected = true;
 
       // Tauri is always primary
-      this.notifyConnectionInfo(0, true);
+      this.notifyConnectionInfo(0);
     } catch (e) {
       this.notifyError('Failed to connect to Tauri');
       throw e;
@@ -662,10 +649,6 @@ export class TauriAdapter implements TmuxAdapter {
     return () => this.connectionInfoListeners.delete(listener);
   }
 
-  onPrimaryChanged(listener: PrimaryChangedListener): () => void {
-    this.primaryChangedListeners.add(listener);
-    return () => this.primaryChangedListeners.delete(listener);
-  }
 
   onReconnection(listener: ReconnectionListener): () => void {
     this.reconnectionListeners.add(listener);
@@ -680,8 +663,8 @@ export class TauriAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(connectionId: number, isPrimary: boolean) {
-    this.connectionInfoListeners.forEach((listener) => listener(connectionId, isPrimary));
+  private notifyConnectionInfo(connectionId: number) {
+    this.connectionInfoListeners.forEach((listener) => listener(connectionId));
   }
 }
 

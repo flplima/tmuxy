@@ -215,10 +215,6 @@ export function selectError(context: AppMachineContext): string | null {
   return context.error;
 }
 
-export function selectIsPrimary(context: AppMachineContext): boolean {
-  return context.isPrimary;
-}
-
 // ============================================
 // Container Size Selector
 // ============================================

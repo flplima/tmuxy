@@ -105,8 +105,6 @@ export interface AppMachineContext {
   resize: ResizeState | null;
   charWidth: number;
   charHeight: number;
-  /** Whether this client is the primary connection (controls window size) */
-  isPrimary: boolean;
   /** Connection ID assigned by the server */
   connectionId: number | null;
   /** Tmux status line with ANSI escape codes */
@@ -199,8 +197,7 @@ export type TmuxConnectedEvent = { type: 'TMUX_CONNECTED' };
 export type TmuxStateUpdateEvent = { type: 'TMUX_STATE_UPDATE'; state: ServerState };
 export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
-export type ConnectionInfoEvent = { type: 'CONNECTION_INFO'; connectionId: number; isPrimary: boolean };
-export type PrimaryChangedEvent = { type: 'PRIMARY_CHANGED'; isPrimary: boolean };
+export type ConnectionInfoEvent = { type: 'CONNECTION_INFO'; connectionId: number };
 
 // Drag events
 export type DragStartEvent = { type: 'DRAG_START'; paneId: string; startX: number; startY: number };
@@ -264,7 +261,6 @@ export type AppMachineEvent =
   | TmuxErrorEvent
   | TmuxDisconnectedEvent
   | ConnectionInfoEvent
-  | PrimaryChangedEvent
   | DragStartEvent
   | DragMoveEvent
   | DragEndEvent

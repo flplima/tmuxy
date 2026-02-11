@@ -61,7 +61,6 @@ export const appMachine = setup({
     resize: null,
     charWidth: DEFAULT_CHAR_WIDTH,
     charHeight: DEFAULT_CHAR_HEIGHT,
-    isPrimary: true,
     connectionId: null,
     statusLine: '',
     pendingUpdate: null as PendingUpdate | null,
@@ -115,11 +114,20 @@ export const appMachine = setup({
             targetRows: event.rows,
           })
         );
-        if (context.isPrimary && context.connected) {
+        // Only resize if connected and target is smaller than current tmux size
+        // This prevents resize loops when multiple clients have different viewports
+        const shouldResize =
+          context.connected &&
+          context.totalWidth > 0 &&
+          context.totalHeight > 0 &&
+          (event.cols < context.totalWidth || event.rows < context.totalHeight);
+        if (shouldResize) {
+          const newCols = Math.min(event.cols, context.totalWidth);
+          const newRows = Math.min(event.rows, context.totalHeight);
           enqueue(
             sendTo('tmux', {
               type: 'SEND_COMMAND' as const,
-              command: `resize-window -x ${event.cols} -y ${event.rows}`,
+              command: `resize-window -x ${newCols} -y ${newRows}`,
             })
           );
         }
@@ -144,16 +152,10 @@ export const appMachine = setup({
       actions: assign(() => ({})), // Handled by AppContext spawning
     },
 
-    // Connection info events (handled globally)
+    // Connection info events
     CONNECTION_INFO: {
       actions: assign(({ event }) => ({
-        isPrimary: event.isPrimary,
         connectionId: event.connectionId,
-      })),
-    },
-    PRIMARY_CHANGED: {
-      actions: assign(({ event }) => ({
-        isPrimary: event.isPrimary,
       })),
     },
   },
@@ -253,17 +255,19 @@ export const appMachine = setup({
                 });
               }
 
-              // If tmux dimensions don't match our target, send a resize command
-              if (
-                context.isPrimary &&
+              // If tmux is larger than our target, send a resize command to shrink it
+              // Only resize DOWN to prevent loops when multiple clients have different viewports
+              const shouldResize =
                 context.targetCols > 0 &&
                 context.targetRows > 0 &&
-                (transformed.totalWidth !== context.targetCols || transformed.totalHeight !== context.targetRows)
-              ) {
+                (context.targetCols < transformed.totalWidth || context.targetRows < transformed.totalHeight);
+              if (shouldResize) {
+                const newCols = Math.min(context.targetCols, transformed.totalWidth);
+                const newRows = Math.min(context.targetRows, transformed.totalHeight);
                 enqueue(
                   sendTo('tmux', {
                     type: 'SEND_COMMAND' as const,
-                    command: `resize-window -x ${context.targetCols} -y ${context.targetRows}`,
+                    command: `resize-window -x ${newCols} -y ${newRows}`,
                   })
                 );
               }
