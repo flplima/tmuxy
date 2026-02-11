@@ -793,158 +793,90 @@ body {
 }
 
 /* ============================================
-   Float Panes
+   Float Panes - Simple centered design
+   - Always centered on screen
+   - Semi-transparent backdrop (click to close)
+   - No drag, resize, or grouping
+   - Green border on all 4 sides of content
    ============================================ */
 
-.float-container {
+/* Full-screen overlay container */
+.float-overlay {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-  z-index: 100;
+  z-index: 1000;
 }
 
+/* Semi-transparent backdrop */
+.float-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+/* Float pane - centered via JS positioning */
 .float-pane {
   position: absolute;
-  background: var(--bg-dark);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-black);
   border-radius: var(--radius-md);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  pointer-events: auto;
 }
 
-.float-pane:hover {
-  border-color: var(--border-hover);
-}
-
-.float-pinned {
-  border-color: var(--accent-primary);
-}
-
-.float-dragging,
-.float-resizing {
-  user-select: none;
-}
-
+/* Float header - simple, no drag */
 .float-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 24px;
-  padding: 0 var(--spacing-sm);
+  height: 28px;
+  padding: 0 var(--spacing-lg);
   background: var(--bg-elevated-alt);
-  cursor: move;
   flex-shrink: 0;
 }
 
 .float-title {
-  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.float-buttons {
+/* Float close button */
+.float-close {
   display: flex;
-  gap: var(--spacing-xs);
-}
-
-.float-buttons button {
-  background: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
   border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 2px 4px;
-  font-size: 12px;
-  line-height: 1;
   border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+  line-height: 1;
+  transition: all var(--transition-fast);
 }
 
-.float-buttons button:hover {
-  background: var(--bg-highlight);
-  color: var(--text-primary);
+.float-close:hover {
+  background: var(--error-color);
+  color: white;
 }
 
-.float-pin-active {
-  color: var(--accent-primary) !important;
-}
-
+/* Float content - green border on all 4 sides */
 .float-content {
   flex: 1;
   overflow: hidden;
   background: var(--bg-black);
-}
-
-/* Resize handles */
-.float-resize {
-  position: absolute;
-  z-index: 10;
-}
-
-.float-resize-n {
-  top: -3px;
-  left: 6px;
-  right: 6px;
-  height: 6px;
-  cursor: n-resize;
-}
-
-.float-resize-s {
-  bottom: -3px;
-  left: 6px;
-  right: 6px;
-  height: 6px;
-  cursor: s-resize;
-}
-
-.float-resize-e {
-  right: -3px;
-  top: 6px;
-  bottom: 6px;
-  width: 6px;
-  cursor: e-resize;
-}
-
-.float-resize-w {
-  left: -3px;
-  top: 6px;
-  bottom: 6px;
-  width: 6px;
-  cursor: w-resize;
-}
-
-.float-resize-ne {
-  top: -3px;
-  right: -3px;
-  width: 12px;
-  height: 12px;
-  cursor: ne-resize;
-}
-
-.float-resize-nw {
-  top: -3px;
-  left: -3px;
-  width: 12px;
-  height: 12px;
-  cursor: nw-resize;
-}
-
-.float-resize-se {
-  bottom: -3px;
-  right: -3px;
-  width: 12px;
-  height: 12px;
-  cursor: se-resize;
-}
-
-.float-resize-sw {
-  bottom: -3px;
-  left: -3px;
-  width: 12px;
-  height: 12px;
-  cursor: sw-resize;
+  border: 1px solid var(--accent-green);
+  box-sizing: border-box;
 }
 
 
