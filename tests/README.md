@@ -76,9 +76,9 @@ tests/
 | 12 - Popup Support | 5 | Stability tests only (feature blocked) |
 | 13 - Performance | 8 | Rapid output, many panes, stress tests |
 | 14 - Workflows | 10 | Real-world usage scenarios |
-| 15 - Glitch Detection | 8 (2 active, 6 CI-skipped) | Visual stability, flicker, attribute churn |
+| 15 - Glitch Detection | 8 | Visual stability, flicker, attribute churn |
 
-**Total: 205 tests**
+**Total: 209 tests**
 
 ## Architecture
 
