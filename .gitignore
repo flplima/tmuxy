@@ -29,6 +29,9 @@ target/
 # Tauri
 src-tauri/target
 
+# Environment
+.env
+
 # BDG session files
 .bdg/
 

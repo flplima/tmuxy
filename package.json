@@ -19,7 +19,7 @@
     "web:build": "npm run build && cargo build -p web-server --release",
     "web:start": "cargo run -p web-server --release",
     "tauri:dev": "cargo tauri dev --manifest-path packages/tauri-app/Cargo.toml",
-    "tauri:build": "cargo tauri build --manifest-path packages/tauri-app/Cargo.toml",
+    "tauri:build": "./scripts/build-tauri.sh",
     "test": "npm run test -w tmuxy-ui",
     "test:e2e": "jest --config tests/jest.config.js --runInBand"
   },

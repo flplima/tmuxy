@@ -37,8 +37,8 @@ pptr --tab "$TAB_NAME" evaluate '(() => {
 
     // Get pane header info
     const header = paneEl.querySelector(".pane-header");
-    const paneIndex = header?.querySelector(".pane-index")?.textContent || "";
-    const command = header?.querySelector(".pane-command")?.textContent ||
+    // Note: pane index is not displayed in UI, use data-pane-command attribute instead
+    const command = header?.querySelector(".pane-title")?.textContent ||
                    paneEl.getAttribute("data-pane-command") || "";
 
     // Check if active
@@ -56,7 +56,6 @@ pptr --tab "$TAB_NAME" evaluate '(() => {
 
     return {
       id: paneId,
-      index: parseInt(paneIndex) || 0,
       title: command,
       active: isActive,
       cursor: { x: cursorX, y: cursorY },

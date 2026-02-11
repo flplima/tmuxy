@@ -1,216 +1,176 @@
-# tmux-wrapper
+# Tmuxy
 
-A Tauri desktop application that wraps a tmux session and provides a terminal interface through a React UI.
+A web-based tmux interface with React frontend and Rust backend. Available as a web application or Tauri desktop app.
 
 ## Features
 
-- **tmux Integration**: Automatically creates or attaches to a tmux session named "tmux-wrapper"
-- **Real-time Updates**: Monitors tmux state changes and updates the UI in real-time
-- **Keyboard Support**: Full keyboard input support for interacting with the tmux session
-- **Professional Terminal Emulator**: Uses xterm.js for full VT100/xterm-compatible terminal emulation
-- **Scrollback Buffer**: Access full terminal history (10,000 lines) with scroll wheel support
-- **Mouse Support**: Selection, copy/paste, and scroll wheel navigation
-- **Clickable Links**: URLs in terminal output are automatically detected and clickable
+- **Multi-pane support**: Split panes horizontally/vertically, navigate, resize, zoom
+- **Multi-window support**: Create, switch, and manage multiple tmux windows
+- **Real-time updates**: Tmux state polled every 100ms and pushed via WebSocket
+- **Keyboard shortcuts**: Full tmux keybinding support (Ctrl+a prefix)
+- **Rich content**: iTerm2 and Kitty image protocol support
+- **Dual deployment**: Run as web server or native Tauri desktop app
+
+## Project Structure
+
+```
+tmuxy/
+├── packages/
+│   ├── tmuxy-core/      # Core Rust library for tmux interaction
+│   ├── tmuxy-ui/        # React/Vite frontend (XState state management)
+│   ├── web-server/      # Axum web server with WebSocket + Vite proxy
+│   └── tauri-app/       # Tauri desktop app wrapper
+├── tests/               # E2E tests (Jest + Puppeteer)
+│   ├── helpers/         # Test utilities
+│   └── *.test.js        # Test suites by operation
+└── docker/              # Docker development environment
+```
+
+## Docker Development
+
+The dev container runs an interactive bash shell with output logged to `/var/log/shell.log`. View logs with:
+
+```bash
+docker logs -f tmuxy-dev
+```
 
 ## Prerequisites
 
 - **tmux**: Must be installed and available in PATH
-  ```bash
-  # Ubuntu/Debian
-  sudo apt-get install tmux
-
-  # macOS
-  brew install tmux
-
-  # Fedora/RHEL
-  sudo dnf install tmux
-  ```
-
-- **Node.js**: Version 18 or higher
-- **Rust**: Latest stable version
-- **npm** or **yarn**: For package management
-
-## Installation
-
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd tmux-wrapper
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+- **Node.js**: Version 18+
+- **Rust**: Latest stable
+- **Chrome/Chromium**: For E2E tests (CDP on port 9222)
 
 ## Development
 
-Start the development server:
+### Web Server (Browser)
+
+```bash
+# Start dev server (Rust backend + Vite HMR on single port)
+npm run web:dev
+
+# Opens at http://localhost:3853
+# - WebSocket at /ws
+# - Vite HMR proxied for hot reload
+```
+
+#### Background Mode (pm2)
+
+```bash
+# Start dev server in background
+npm run web:dev:start
+
+# View logs
+npm run web:dev:logs
+
+# Stop server
+npm run web:dev:stop
+
+# Other pm2 commands
+pm2 status          # List running processes
+pm2 restart tmuxy-dev  # Restart the server
+pm2 delete tmuxy-dev   # Remove from pm2
+```
+
+### Tauri App (Desktop)
 
 ```bash
 npm run tauri:dev
 ```
 
-This will:
-1. Start the Vite development server for the React frontend
-2. Build and run the Tauri application
-3. Automatically create or attach to a tmux session named "tmux-wrapper"
+## Production Build
 
-## Testing
-
-### Frontend Tests
-
-Run frontend tests with Vitest:
+### Web Server
 
 ```bash
-npm run test
+npm run web:build   # Build frontend + backend
+npm run web:start   # Run production server
 ```
 
-Run tests in watch mode:
-
-```bash
-npm run test -- --watch
-```
-
-Run tests with UI:
-
-```bash
-npm run test -- --ui
-```
-
-### Backend Tests
-
-Run Rust tests:
-
-```bash
-cd src-tauri
-cargo test
-```
-
-Run integration tests (requires tmux installed):
-
-```bash
-cd src-tauri
-cargo test -- --ignored
-```
-
-## Building
-
-Build the application for production:
+### Tauri App
 
 ```bash
 npm run tauri:build
 ```
 
-This creates platform-specific installers in `src-tauri/target/release/bundle/`
+## Testing
+
+### Unit Tests (Vitest)
+
+```bash
+npm test
+```
+
+### E2E Tests (Jest + Puppeteer)
+
+```bash
+# Requires: web server running + Chrome with CDP on port 9222
+npm run web:dev:start
+google-chrome --remote-debugging-port=9222 &
+
+npm run test:e2e
+
+# View server logs if tests fail
+npm run web:dev:logs
+```
+
+E2E test suites:
+- `smoke.test.js` - Quick verification of all operations
+- `pane-split.test.js` - Split operations
+- `pane-navigate.test.js` - Navigation (arrow keys, vim-style, mouse)
+- `pane-swap.test.js` - Swap pane positions
+- `pane-zoom.test.js` - Zoom/unzoom panes
+- `pane-resize.test.js` - Resize via divider drag
+- `pane-close.test.js` - Kill/close panes
+- `window-operations.test.js` - Window create/switch/select
+- `layout.test.js` - Layout cycling
+- `image-rendering.test.js` - iTerm2/Kitty image protocols
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────┐
 │      React Frontend (Vite)          │
-│  ┌───────────────────────────────┐  │
-│  │  Terminal Renderer Component  │  │
-│  │  - Display tmux output        │  │
-│  │  - Handle keyboard input      │  │
-│  └───────────────────────────────┘  │
-│              ↕ IPC                  │
+│  - XState for state management      │
+│  - Terminal.tsx renders panes       │
+│  - PaneLayout.tsx handles grid      │
+│  - StatusBar.tsx for window tabs    │
 └─────────────────────────────────────┘
-                 ↕
-         Tauri Event System
-         (Commands & Events)
-                 ↕
+                 ↕ WebSocket (/ws)
 ┌─────────────────────────────────────┐
-│       Rust Backend (Tauri)          │
-│  ┌───────────────────────────────┐  │
-│  │  tmux Session Manager         │  │
-│  │  - Create/attach session      │  │
-│  │  - Monitor state (polling)    │  │
-│  │  - Send keys to tmux          │  │
-│  │  - Capture pane content       │  │
-│  └───────────────────────────────┘  │
+│   Axum Web Server (web-server)      │
+│  - Proxies Vite in dev mode         │
+│  - Serves static files in prod      │
+│  - WebSocket handler                │
 └─────────────────────────────────────┘
                  ↕
 ┌─────────────────────────────────────┐
-│      tmux Session                   │
-│      (Session: "tmux-wrapper")      │
-│  ┌───────────────────────────────┐  │
-│  │  Single Window, Single Pane   │  │
-│  │  - Running bash/shell         │  │
-│  └───────────────────────────────┘  │
+│   tmuxy-core (Rust library)         │
+│  - Control mode connection          │
+│  - State monitoring (100ms poll)    │
+│  - Command execution                │
+└─────────────────────────────────────┘
+                 ↕
+┌─────────────────────────────────────┐
+│         tmux session                │
 └─────────────────────────────────────┘
 ```
 
-## Project Structure
+## Keyboard Shortcuts
 
-```
-tmux-wrapper/
-├── src/                      # React frontend
-│   ├── App.tsx              # Main component
-│   ├── components/          # React components
-│   │   └── Terminal.tsx     # Terminal renderer
-│   ├── hooks/               # Custom hooks
-│   │   ├── useTauriEvents.ts
-│   │   └── useKeyboardHandler.ts
-│   ├── types/               # TypeScript types
-│   └── test/                # Frontend tests
-├── src-tauri/               # Rust backend
-│   ├── src/
-│   │   ├── main.rs         # Application entry
-│   │   ├── commands.rs     # Tauri commands
-│   │   └── tmux/           # tmux integration
-│   │       ├── session.rs  # Session management
-│   │       ├── executor.rs # Command execution
-│   │       └── monitor.rs  # State monitoring
-│   ├── Cargo.toml
-│   └── tauri.conf.json
-├── TAURI_RESEARCH.md        # Tauri documentation research
-├── REACT_RESEARCH.md        # React/Vite research
-├── TMUX_RESEARCH.md         # tmux research
-├── PLAN.md                  # Implementation plan
-└── README.md
-```
-
-## How It Works
-
-1. **Initialization**: On startup, the Tauri backend creates or attaches to a tmux session named "tmux-wrapper"
-
-2. **Monitoring**: A background task polls the tmux session every 100ms to capture state changes
-
-3. **State Updates**: When changes are detected, the backend emits events to the frontend with the new state
-
-4. **Rendering**: The React frontend receives state updates and renders the terminal content with ANSI formatting
-
-5. **Keyboard Input**: The frontend captures keyboard events and sends them to the backend via IPC commands
-
-6. **Command Execution**: The backend forwards keyboard input to tmux using `tmux send-keys`
-
-## Known Limitations
-
-- **Polling-based**: Uses polling (100ms interval) instead of true event-driven updates
-- **Single Pane**: No split panes or multiple windows support
-
-## Future Enhancements
-
-See [PLAN.md](./PLAN.md) for detailed future enhancements including:
-- ~~Mouse support~~ ✅ **Implemented**
-- ~~Full terminal emulator (xterm.js)~~ ✅ **Implemented**
-- ~~Scrollback buffer~~ ✅ **Implemented**
-- Multiple panes/windows
-- Configuration UI
-- Performance optimizations (adaptive polling, channels)
-
-## Research Documentation
-
-- [TAURI_RESEARCH.md](./TAURI_RESEARCH.md) - Detailed Tauri IPC, commands, events, testing
-- [REACT_RESEARCH.md](./REACT_RESEARCH.md) - React/Vite/Vitest setup and testing strategies
-- [TMUX_RESEARCH.md](./TMUX_RESEARCH.md) - tmux scripting, hooks, monitoring approaches
-- [PLAN.md](./PLAN.md) - Complete implementation plan and architecture
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+a "` | Split horizontal |
+| `Ctrl+a %` | Split vertical |
+| `Ctrl+a Arrow` | Navigate panes |
+| `Ctrl+a z` | Toggle zoom |
+| `Ctrl+a x` | Kill pane |
+| `Ctrl+a c` | New window |
+| `Ctrl+a n/p` | Next/prev window |
+| `Ctrl+a 0-9` | Select window |
+| `Ctrl+a Space` | Cycle layouts |
+| `Ctrl+a {/}` | Swap pane up/down |
 
 ## License
 
 ISC
-
-## Contributing
-
-Contributions are welcome! Please read the implementation plan and research documents before contributing.

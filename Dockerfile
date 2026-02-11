@@ -15,6 +15,13 @@ RUN apt-get update && apt-get install -y \
     bc \
     procps \
     yq \
+    neovim \
+    && rm -rf /var/lib/apt/lists/*
+
+# GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js 22.x (LTS)
@@ -29,8 +36,22 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal
 
-# Claude Code CLI
-RUN npm install -g @anthropic-ai/claude-code
+# Claude Code CLI + pm2 process manager
+RUN npm install -g @anthropic-ai/claude-code pm2
+
+# Agent Browser (browser automation for Claude)
+# Install Chromium dependencies first (agent-browser's --with-deps uses sudo which isn't available)
+RUN apt-get update && apt-get install -y \
+    libxcb-shm0 libx11-xcb1 libx11-6 libxcb1 libxext6 libxrandr2 \
+    libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxi6 \
+    libgtk-3-0 libpangocairo-1.0-0 libpango-1.0-0 libatk1.0-0 \
+    libcairo-gobject2 libcairo2 libgdk-pixbuf-2.0-0 libxrender1 \
+    libasound2 libfreetype6 libfontconfig1 libdbus-1-3 libnss3 \
+    libnspr4 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libatspi2.0-0 \
+    libcups2 libxshmfence1 libgbm1 \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g agent-browser \
+    && agent-browser install
 
 # Non-root user (matches typical host UID)
 RUN useradd -m -s /bin/bash -u 1000 claude
@@ -43,8 +64,11 @@ RUN echo 'export PATH=/usr/local/cargo/bin:/home/claude/dotfiles/scripts:$PATH' 
 RUN mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
     && chown -R claude:claude /usr/local/cargo
 
+# Create log file writable by claude user
+RUN touch /var/log/shell.log && chown claude:claude /var/log/shell.log
+
 USER claude
 WORKDIR /workspace
 
-# Default command
-CMD ["claude"]
+# Default command - interactive bash with logging for docker logs
+CMD ["script", "-q", "-a", "/var/log/shell.log", "-c", "claude --dangerously-skip-permissions"]
