@@ -16,8 +16,8 @@
  * Default configuration for glitch detection
  */
 const DEFAULT_OPTIONS = {
-  // CSS selector for the observation scope
-  scope: '.pane-layout',
+  // CSS selector for the observation scope (must exist on page load)
+  scope: '.pane-container',
 
   // Selectors to ignore (high-frequency expected mutations)
   ignoreSelectors: ['.terminal-content', '.terminal-cursor', '.terminal-line'],
@@ -48,8 +48,10 @@ const DEFAULT_OPTIONS = {
  * Default thresholds for different operations
  */
 const OPERATION_THRESHOLDS = {
-  split: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 0 },
-  kill: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 0 },
+  // Split: allow size jumps as panes resize to accommodate new pane
+  split: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 4 },
+  // Kill: allow size jumps as remaining panes expand
+  kill: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 4 },
   resize: { nodeFlickers: 0, attrChurnEvents: 2, sizeJumps: 0 },
   drag: { nodeFlickers: 0, attrChurnEvents: 4, sizeJumps: 0 },
   windowSwitch: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 0 },

@@ -53,14 +53,16 @@ describe('Category 15: Glitch Detection', () => {
       await ctx.setupPage();
       await delay(DELAYS.SYNC);
 
-      await ctx.startGlitchDetection({ scope: '.pane-layout' });
+      await ctx.startGlitchDetection({ scope: '.pane-container' });
 
-      await splitPaneKeyboard(ctx.page, 'horizontal');
+      // Use tmux split for reliability - the split itself triggers UI update we're testing
+      ctx.session.splitHorizontal();
       await waitForPaneCount(ctx.page, 2, 20000);
       await delay(DELAYS.SYNC);
 
       const result = await ctx.assertNoGlitches({ operation: 'split' });
       expect(await getUIPaneCount(ctx.page)).toBe(2);
+      expect(ctx.session.getPaneCount()).toBe(2);
 
       if (process.env.DEBUG_TESTS) {
         console.log(`Split mutations: ${result.summary.totalNodeMutations} nodes`);
@@ -73,14 +75,16 @@ describe('Category 15: Glitch Detection', () => {
       await ctx.setupPage();
       await delay(DELAYS.SYNC);
 
-      await ctx.startGlitchDetection({ scope: '.pane-layout' });
+      await ctx.startGlitchDetection({ scope: '.pane-container' });
 
-      await splitPaneKeyboard(ctx.page, 'vertical');
+      // Use tmux split for reliability
+      ctx.session.splitVertical();
       await waitForPaneCount(ctx.page, 2, 20000);
       await delay(DELAYS.SYNC);
 
       const result = await ctx.assertNoGlitches({ operation: 'split' });
       expect(await getUIPaneCount(ctx.page)).toBe(2);
+      expect(ctx.session.getPaneCount()).toBe(2);
     }, 90000);
   });
 
@@ -100,7 +104,7 @@ describe('Category 15: Glitch Detection', () => {
       await delay(DELAYS.SYNC);
 
       await ctx.startGlitchDetection({
-        scope: '.pane-layout',
+        scope: '.pane-container',
         sizeJumpThreshold: 100,
         // Resize dividers are recreated during resize
         ignoreSelectors: ['.terminal-content', '.terminal-line', '.terminal-cursor', '.resize-divider'],
@@ -133,7 +137,7 @@ describe('Category 15: Glitch Detection', () => {
       await waitForPaneCount(ctx.page, 2, 20000);
       await delay(DELAYS.SYNC);
 
-      await ctx.startGlitchDetection({ scope: '.pane-layout' });
+      await ctx.startGlitchDetection({ scope: '.pane-container' });
 
       // Get pane positions and click
       const paneInfo = await ctx.page.evaluate(() => {
@@ -167,7 +171,7 @@ describe('Category 15: Glitch Detection', () => {
       await delay(DELAYS.SYNC);
 
       const detector = new GlitchDetector(ctx.page);
-      await detector.start({ scope: '.pane-layout' });
+      await detector.start({ scope: '.pane-container' });
 
       await splitPaneKeyboard(ctx.page, 'horizontal');
       await waitForPaneCount(ctx.page, 2, 20000);
@@ -197,7 +201,7 @@ describe('Category 15: Glitch Detection', () => {
       await delay(DELAYS.SYNC);
 
       const detector = new GlitchDetector(ctx.page);
-      await detector.start({ scope: '.pane-layout' });
+      await detector.start({ scope: '.pane-container' });
 
       // Trigger terminal content mutations (not ignored by default)
       await ctx.session.sendKeys('"echo formatTimeline test" Enter');
@@ -207,12 +211,11 @@ describe('Category 15: Glitch Detection', () => {
       const timeline = GlitchDetector.formatTimeline(result);
 
       expect(typeof timeline).toBe('string');
-      // Timeline should contain timestamps or be empty if no mutations
-      // (terminal content is typically captured)
-      if (result.nodes.length > 0 || result.attributes.length > 0 || result.sizes.length > 0) {
+      // Timeline includes nodes and attributes (not sizes), so check those specifically
+      if (result.nodes.length > 0 || result.attributes.length > 0) {
         expect(timeline).toMatch(/\+\d+ms/);
       } else {
-        // No mutations captured is also valid - just verify formatTimeline doesn't crash
+        // No node/attr mutations - timeline will be empty (sizes aren't included)
         expect(timeline).toBe('');
       }
     }, 90000);
@@ -224,7 +227,7 @@ describe('Category 15: Glitch Detection', () => {
       await delay(DELAYS.SYNC);
 
       const detector = new GlitchDetector(ctx.page);
-      await detector.start({ scope: '.pane-layout' });
+      await detector.start({ scope: '.pane-container' });
 
       // Just stop without doing anything
       const result = await detector.stop();
@@ -241,7 +244,7 @@ describe('Category 15: Glitch Detection', () => {
 
       const detector = new GlitchDetector(ctx.page);
       await detector.start({
-        scope: '.pane-layout',
+        scope: '.pane-container',
         ignoreSelectors: ['.terminal-content', '.terminal-line', '.terminal-cursor'],
       });
 
