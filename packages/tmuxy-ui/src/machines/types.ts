@@ -230,6 +230,7 @@ export type SetTargetSizeEvent = { type: 'SET_TARGET_SIZE'; cols: number; rows: 
 export type SetContainerSizeEvent = { type: 'SET_CONTAINER_SIZE'; width: number; height: number };
 export type SetAnimationRootEvent = { type: 'SET_ANIMATION_ROOT'; element: HTMLElement };
 export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLElement };
+export type StopObserveContainerEvent = { type: 'STOP_OBSERVE_CONTAINER' };
 
 // Animation events from animation actor
 export type AnimationLeaveCompleteEvent = { type: 'ANIMATION_LEAVE_COMPLETE' };
@@ -278,6 +279,7 @@ export type AppMachineEvent =
   | SetContainerSizeEvent
   | SetAnimationRootEvent
   | ObserveContainerEvent
+  | StopObserveContainerEvent
   | AnimationLeaveCompleteEvent
   | AnimationDragCompleteEvent
   | FocusPaneEvent

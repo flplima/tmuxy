@@ -137,6 +137,9 @@ export const appMachine = setup({
         element: event.element,
       })),
     },
+    STOP_OBSERVE_CONTAINER: {
+      actions: sendTo('size', { type: 'STOP_OBSERVE' as const }),
+    },
     SET_ANIMATION_ROOT: {
       actions: assign(() => ({})), // Handled by AppContext spawning
     },
