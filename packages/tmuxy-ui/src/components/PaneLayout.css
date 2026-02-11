@@ -34,6 +34,11 @@
   transition: none;
 }
 
+/* Disable ALL animations when enableAnimations is false */
+.pane-layout-no-animations .pane-layout-item {
+  transition: none;
+}
+
 .pane-layout-item.pane-active {
   opacity: 1;
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useMemo, useState, ReactNode } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useAnimatedPane } from '../hooks/useAnimatedPane';
 import {
   useAppSelector,
   useAppSend,
@@ -14,6 +14,7 @@ import {
   selectGridDimensions,
   selectDropTarget,
   selectStacks,
+  selectEnableAnimations,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
 import './PaneLayout.css';
@@ -27,9 +28,9 @@ interface PaneLayoutProps {
 }
 
 /**
- * PaneLayout renders tmux panes using CSS positioning with framer-motion animations
+ * PaneLayout renders tmux panes using CSS positioning with spring animations
  *
- * - Drag by pane header to swap panes (pane follows cursor)
+ * - Drag by pane header to swap panes (pane follows cursor with spring physics)
  * - Resize from dividers between panes
  * - Events sent to appMachine on mouse actions
  */
@@ -44,6 +45,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const { charWidth, charHeight } = useAppSelector(selectGridDimensions);
   const dragOffsetX = useAppSelector(selectDragOffsetX);
   const dragOffsetY = useAppSelector(selectDragOffsetY);
+  const enableAnimations = useAppSelector(selectEnableAnimations);
 
   // Use state hooks for machine state
   const isDragging = useIsDragging();
@@ -200,49 +202,31 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   return (
     <div
       ref={containerRef}
-      className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing ? 'pane-layout-resizing' : ''} ${animationsDisabled ? 'pane-layout-committing' : ''}`}
+      className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing ? 'pane-layout-resizing' : ''} ${animationsDisabled ? 'pane-layout-committing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
     >
-      <AnimatePresence>
-        {visiblePanes.map((pane) => {
-          const isDraggedPane = pane.tmuxId === draggedPaneId;
-          const baseStyle = getPaneStyle(pane);
+      {visiblePanes.map((pane) => {
+        const isDraggedPane = pane.tmuxId === draggedPaneId;
+        const baseStyle = getPaneStyle(pane);
 
-          // When committing, all panes animate via layout - no manual offset
-          // When dragging, dragged pane follows cursor, others animate via layout
-          const shouldFollowCursor = isDraggedPane && isDragging && !isCommitting;
+        // When committing, all panes animate via layout - no manual offset
+        // When dragging, dragged pane follows cursor, others stay at origin
+        const shouldFollowCursor = isDraggedPane && isDragging && !isCommitting;
 
-          // Disable framer-motion layout animations entirely - they use scale transforms
-          // which scale terminal text. Instead, use CSS transitions for width/height.
-          // Only use framer-motion for drag offset animation.
-
-          return (
-            <motion.div
-              key={pane.tmuxId}
-              data-pane-id={pane.tmuxId}
-              className={getPaneClassName(pane)}
-              style={baseStyle}
-              // Dragged pane follows cursor with offset (only during active drag)
-              animate={shouldFollowCursor ? {
-                x: dragOffset.x,
-                y: dragOffset.y,
-                zIndex: 100,
-              } : {
-                x: 0,
-                y: 0,
-                zIndex: 1,
-              }}
-              transition={{
-                type: 'spring',
-                stiffness: 500,
-                damping: 30,
-                mass: 0.5,
-              }}
-            >
-              {children(pane)}
-            </motion.div>
-          );
-        })}
-      </AnimatePresence>
+        return (
+          <AnimatedPaneWrapper
+            key={pane.tmuxId}
+            pane={pane}
+            className={getPaneClassName(pane)}
+            style={baseStyle}
+            targetX={shouldFollowCursor ? dragOffset.x : 0}
+            targetY={shouldFollowCursor ? dragOffset.y : 0}
+            elevated={shouldFollowCursor}
+            enableAnimations={enableAnimations}
+          >
+            {children(pane)}
+          </AnimatedPaneWrapper>
+        );
+      })}
 
       {/* Drop target indicator for swap - hide when committing */}
       {dropTarget && !isCommitting && (
@@ -260,6 +244,49 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
       {/* Resize dividers between adjacent panes */}
       <ResizeDividers panes={visiblePanes} charWidth={charWidth} charHeight={charHeight} />
+    </div>
+  );
+}
+
+// ============================================
+// Animated Pane Wrapper
+// ============================================
+
+interface AnimatedPaneWrapperProps {
+  pane: TmuxPane;
+  className: string;
+  style: React.CSSProperties;
+  targetX: number;
+  targetY: number;
+  elevated: boolean;
+  enableAnimations: boolean;
+  children: ReactNode;
+}
+
+/**
+ * Wrapper component for panes with spring animation.
+ * Uses useAnimatedPane hook to apply spring physics to transform.
+ */
+function AnimatedPaneWrapper({
+  pane,
+  className,
+  style,
+  targetX,
+  targetY,
+  elevated,
+  enableAnimations,
+  children,
+}: AnimatedPaneWrapperProps) {
+  const setRef = useAnimatedPane(targetX, targetY, elevated, enableAnimations);
+
+  return (
+    <div
+      ref={setRef}
+      data-pane-id={pane.tmuxId}
+      className={className}
+      style={style}
+    >
+      {children}
     </div>
   );
 }

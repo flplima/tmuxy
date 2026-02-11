@@ -455,3 +455,14 @@ export function selectPopup(context: AppMachineContext): TmuxPopup | null {
 export function selectHasPopup(context: AppMachineContext): boolean {
   return context.popup !== null;
 }
+
+// ============================================
+// Animation Selectors
+// ============================================
+
+/**
+ * Select whether browser-side animations are enabled
+ */
+export function selectEnableAnimations(context: AppMachineContext): boolean {
+  return context.enableAnimations;
+}

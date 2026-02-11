@@ -125,6 +125,8 @@ export interface AppMachineContext {
   floatViewVisible: boolean;
   /** Float pane positions and states (keyed by pane ID) */
   floatPanes: Record<string, FloatPaneState>;
+  /** Whether browser-side animations are enabled */
+  enableAnimations: boolean;
 }
 
 // ============================================

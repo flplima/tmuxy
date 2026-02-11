@@ -15,6 +15,7 @@ const {
 } = require('./browser');
 const TmuxTestSession = require('./TmuxTestSession');
 const { TMUXY_URL, DELAYS } = require('./config');
+const { GlitchDetector } = require('./glitch-detector');
 
 /**
  * Compute Levenshtein edit distance between two strings.
@@ -155,6 +156,9 @@ async function assertSnapshotsMatch(page) {
  *   Enable for rendering-focused suites (basic connectivity, floating panes,
  *   status bar, OSC protocols). Disabled by default for logic/functional suites
  *   to avoid the polling overhead.
+ * @param {boolean} [options.glitchDetection=false] - Enable glitch detection in afterEach.
+ *   When enabled, afterEach will assert no glitches were detected during the test.
+ *   Can also be used manually via ctx.glitchDetector.
  *
  * Usage:
  * const ctx = createTestContext({ snapshot: true });
@@ -165,7 +169,7 @@ async function assertSnapshotsMatch(page) {
  *
  * Then use ctx.page, ctx.browser, ctx.session in tests
  */
-function createTestContext({ snapshot = false } = {}) {
+function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   const ctx = {
     browser: null,
     page: null,
@@ -173,6 +177,7 @@ function createTestContext({ snapshot = false } = {}) {
     testSession: null,    // Session name (for backwards compatibility)
     browserAvailable: true,
     serverAvailable: true,
+    glitchDetector: null, // GlitchDetector instance (when glitchDetection enabled)
   };
 
   ctx.beforeAll = async () => {
@@ -228,6 +233,18 @@ function createTestContext({ snapshot = false } = {}) {
       }
     }
 
+    // Check for glitches if detector was started (manual or automatic)
+    if (ctx.glitchDetector?.isRunning) {
+      try {
+        await ctx.glitchDetector.assertNoGlitches({ operation: 'test' });
+      } catch (e) {
+        // Re-throw as a test failure
+        throw e;
+      } finally {
+        ctx.glitchDetector = null;
+      }
+    }
+
     if (ctx.page) {
       // Close the context (which also closes the page) for proper Playwright cleanup
       if (ctx.page._context) {
@@ -273,6 +290,38 @@ function createTestContext({ snapshot = false } = {}) {
     // Set page reference for WebSocket routing
     ctx.session.setPage(ctx.page);
     await focusPage(ctx.page);
+
+    // Auto-start glitch detection if enabled
+    if (glitchDetection) {
+      ctx.glitchDetector = new GlitchDetector(ctx.page);
+      await ctx.glitchDetector.start();
+    }
+  };
+
+  /**
+   * Start glitch detection manually (for targeted tests)
+   * @param {Object} options - GlitchDetector options
+   */
+  ctx.startGlitchDetection = async (options = {}) => {
+    if (!ctx.page) {
+      throw new Error('Page not available. Call setupPage() first.');
+    }
+    ctx.glitchDetector = new GlitchDetector(ctx.page);
+    await ctx.glitchDetector.start(options);
+    return ctx.glitchDetector;
+  };
+
+  /**
+   * Stop glitch detection and assert no glitches
+   * @param {Object} options - Assertion options (operation, thresholds)
+   */
+  ctx.assertNoGlitches = async (options = {}) => {
+    if (!ctx.glitchDetector) {
+      throw new Error('GlitchDetector not started. Call startGlitchDetection() first.');
+    }
+    const result = await ctx.glitchDetector.assertNoGlitches(options);
+    ctx.glitchDetector = null;
+    return result;
   };
 
   /**

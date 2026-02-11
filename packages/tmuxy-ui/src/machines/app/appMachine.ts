@@ -72,6 +72,8 @@ export const appMachine = setup({
     // Float pane state
     floatViewVisible: false,
     floatPanes: {},
+    // Animation settings
+    enableAnimations: true,
   },
   invoke: [
     {

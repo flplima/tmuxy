@@ -322,3 +322,166 @@ See [.agents/learnings/2026_02_09_tmux_control_mode.md](.agents/learnings/2026_0
 4. **Broadcast channel for state** - All clients in a session share a single broadcast channel for state updates, reducing memory and CPU overhead.
 
 5. **State machine in frontend** - All client logic lives in XState, keeping React components purely presentational.
+
+## Testing
+
+The project has three distinct testing approaches, each serving different purposes.
+
+### 1. E2E Snapshot Tests (Jest + Playwright)
+
+**Goal:** Verify the UI renders terminal content identically to native tmux.
+
+These tests compare two text snapshots:
+- **UI Snapshot:** `window.getSnapshot()` - Renders the React terminal grid to ASCII text
+- **Tmux Snapshot:** `window.getTmuxSnapshot()` → `tmux capture-pane -p` - Native tmux output
+
+```javascript
+// Test suites enable snapshot comparison in afterEach
+const ctx = createTestContext({ snapshot: true });
+
+// After each test, compare UI vs tmux output
+// Uses Levenshtein edit distance with threshold (≤8 chars difference allowed)
+assertSnapshotsMatch(page);
+```
+
+**Tolerance:** Small differences (≤8 character edits per row) are tolerated for terminal emulation edge cases (escape sequences, cursor positioning).
+
+**Enabled for:** Rendering-focused suites (basic connectivity, floating panes, status bar, OSC protocols).
+
+### 2. E2E Functional Tests (Jest + Playwright)
+
+**Goal:** Verify features work correctly with real browser interactions.
+
+Tests use real tmux sessions, real keyboard/mouse events, and real WebSocket connections. No mocking.
+
+```javascript
+// Real keyboard
+await ctx.page.keyboard.press('Enter');
+
+// Real mouse
+await ctx.page.mouse.click(x, y);
+
+// State consistency - UI matches tmux
+const uiPaneCount = await getUIPaneCount(ctx.page);
+expect(uiPaneCount).toBe(ctx.session.getPaneCount());
+```
+
+**Categories:**
+- Basic connectivity & rendering
+- Keyboard input
+- Pane/window operations
+- Mouse events
+- Copy mode
+- Status bar
+- Session connection
+- OSC protocols
+- Workflows
+
+### 3. E2E Performance Tests (Jest + Playwright)
+
+**Goal:** Ensure operations complete within acceptable time bounds.
+
+```javascript
+// Output performance - large content renders quickly
+await runCommand(ctx.page, 'seq 1 2000 && echo "SEQ_DONE"', 'SEQ_DONE', 15000);
+expect(elapsed).toBeLessThan(20000);
+
+// Input latency - keyboard round-trip
+const elapsed = await measureKeyboardRoundTrip(ctx.page);
+expect(elapsed).toBeLessThan(500);
+
+// Layout performance - many panes
+ctx.session.splitHorizontal(); // repeat 5x
+await waitForPaneCount(ctx.page, 6);
+```
+
+**Metrics:**
+- Rapid output (yes | head -500)
+- Large output (seq 1 2000)
+- Many panes (6+ panes)
+- Keyboard latency (<500ms)
+- Mouse click latency (<500ms)
+- Workflow round-trips (<15s)
+
+### 4. Glitch Detection Tests (Jest + Playwright + MutationObserver)
+
+**Goal:** Detect visual instability (flicker, layout shifts, attribute churn) that functional tests miss.
+
+These tests inject MutationObserver + size polling into the browser to catch DOM mutations during operations.
+
+```javascript
+// Start glitch detection before operation
+await ctx.startGlitchDetection({ scope: '.pane-layout' });
+
+// Perform operation
+await splitPaneKeyboard(ctx.page, 'horizontal');
+await waitForPaneCount(ctx.page, 2);
+
+// Assert no glitches detected
+await ctx.assertNoGlitches({ operation: 'split' });
+```
+
+**Detection types:**
+- **Node flicker:** Element added then removed (or vice versa) within 100ms
+- **Attribute churn:** Same attribute changing >2 times within 200ms
+- **Size jumps:** Pane dimensions changing >20px between frames outside resize
+
+**Exclusions (expected mutations):**
+- Terminal content (`.terminal-content`, `.terminal-line`)
+- Cursor updates (`.terminal-cursor`)
+- CSS transition styles during animations
+
+**File:** `tests/15-glitch-detection.test.js`
+
+### 5. Unit Tests (Vitest + React Testing Library)
+
+**Goal:** Test React components in isolation.
+
+```javascript
+// packages/tmuxy-ui/src/test/Terminal.test.tsx
+describe('Terminal', () => {
+  it('renders terminal lines', () => {
+    const content = createContent(['hello', 'world']);
+    render(<Terminal content={content} />);
+    expect(screen.getByTestId('terminal')).toBeInTheDocument();
+  });
+});
+```
+
+**Scope:** Component rendering, props handling, accessibility attributes.
+
+### Running Tests
+
+```bash
+# E2E tests (requires dev server running)
+npm run web:dev:start
+npm run test:e2e
+
+# Specific E2E suite
+npm run test:e2e -- --testPathPattern="01-basic-connectivity"
+
+# Unit tests
+npm test
+```
+
+### Test Files
+
+```
+tests/
+├── helpers/
+│   ├── TmuxTestSession.js    # Tmux session wrapper
+│   ├── browser.js            # Playwright utilities
+│   ├── ui.js                 # UI interaction helpers
+│   ├── glitch-detector.js    # MutationObserver harness for flicker detection
+│   └── test-setup.js         # Context factory, snapshot comparison
+├── 01-basic-connectivity.test.js  # Smoke tests, rendering (snapshot: true)
+├── 02-keyboard-input.test.js      # Keyboard handling
+├── 03-pane-operations.test.js     # Split, navigate, resize
+├── ...
+├── 14-workflows.test.js           # Real-world scenarios
+└── 15-glitch-detection.test.js    # Visual stability tests (flicker, churn)
+
+packages/tmuxy-ui/src/test/
+├── Terminal.test.tsx              # Terminal component tests
+└── App.test.tsx                   # App component tests
+```

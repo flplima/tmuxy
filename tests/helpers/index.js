@@ -12,6 +12,7 @@ const assertions = require('./assertions');
 const testSetup = require('./test-setup');
 const performance = require('./performance');
 const TmuxTestSession = require('./TmuxTestSession');
+const { GlitchDetector, OPERATION_THRESHOLDS } = require('./glitch-detector');
 
 // ==================== Known Limitations Registry ====================
 
@@ -126,4 +127,8 @@ module.exports = {
 
   // Synthetic events
   sendSyntheticEvent,
+
+  // Glitch detection
+  GlitchDetector,
+  OPERATION_THRESHOLDS,
 };

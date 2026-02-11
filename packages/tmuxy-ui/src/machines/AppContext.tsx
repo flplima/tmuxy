@@ -56,6 +56,7 @@ export {
   selectContainerSize,
   selectPopup,
   selectHasPopup,
+  selectEnableAnimations,
 } from './selectors';
 
 // ============================================

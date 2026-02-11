@@ -14,7 +14,6 @@
     "@xstate/react": "^6.0.0",
     "anser": "^2.3.5",
     "ansi-to-html": "^0.7.2",
-    "framer-motion": "^12.23.26",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "xstate": "^5.25.0"

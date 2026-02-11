@@ -38,6 +38,7 @@ tests/
 │   ├── browser.js            # Browser/Playwright utilities
 │   ├── ui.js                 # UI interaction helpers
 │   ├── assertions.js         # Custom assertions
+│   ├── glitch-detector.js    # MutationObserver harness for flicker detection
 │   └── test-setup.js         # Jest setup/teardown
 ├── 01-basic-connectivity.test.js   # Smoke tests, rendering
 ├── 02-keyboard-input.test.js       # Keyboard handling
@@ -53,6 +54,7 @@ tests/
 ├── 12-popup-support.test.js        # Tmux popup (stability only)
 ├── 13-performance.test.js          # Stress tests
 ├── 14-workflows.test.js            # Real-world scenarios
+├── 15-glitch-detection.test.js     # Visual stability (flicker, churn)
 └── README.md                       # This file
 ```
 
@@ -74,8 +76,9 @@ tests/
 | 12 - Popup Support | 5 | Stability tests only (feature blocked) |
 | 13 - Performance | 8 | Rapid output, many panes, stress tests |
 | 14 - Workflows | 10 | Real-world usage scenarios |
+| 15 - Glitch Detection | 8 (2 active, 6 CI-skipped) | Visual stability, flicker, attribute churn |
 
-**Total: 197 tests**
+**Total: 205 tests**
 
 ## Architecture
 
@@ -164,6 +167,29 @@ test('Test name', async () => {
 ```
 
 This allows partial test runs and CI flexibility.
+
+### Glitch Detection
+
+Tests can detect visual instability using MutationObserver:
+
+```javascript
+// Manual glitch detection
+await ctx.startGlitchDetection({ scope: '.pane-layout' });
+await splitPaneKeyboard(ctx.page, 'horizontal');
+await ctx.assertNoGlitches({ operation: 'split' });
+
+// Or use GlitchDetector directly
+const detector = new GlitchDetector(ctx.page);
+await detector.start();
+// ... operation ...
+const result = await detector.stop();
+console.log(GlitchDetector.formatTimeline(result));
+```
+
+**Detection types:**
+- **Node flicker:** Element added→removed (or vice versa) within 100ms
+- **Attribute churn:** Same attribute changing rapidly (>2x in 200ms)
+- **Size jumps:** Pane dimensions changing >20px unexpectedly
 
 ### State Consistency
 

@@ -5,3 +5,5 @@
 export { usePaneScroll } from './usePaneScroll';
 export { usePaneMouse } from './usePaneMouse';
 export { useClickOutside } from './useClickOutside';
+export { useAnimatedPane } from './useAnimatedPane';
+export { usePrevious } from './usePrevious';
