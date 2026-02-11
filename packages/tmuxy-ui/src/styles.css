@@ -440,14 +440,13 @@ body {
 }
 
 /* ============================================
-   Pane Header
+   Pane Header - Tab-style design
+   Pattern: | tab1 x | tab2 x | + |
    ============================================ */
 
 .pane-header {
-  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
   height: var(--pane-header-height);
   background-color: var(--pane-header-bg-inactive);
   font-family: var(--font-mono);
@@ -456,6 +455,8 @@ body {
   user-select: none;
   cursor: grab;
   box-sizing: border-box;
+  padding: 0;
+  gap: 0;
 }
 
 .pane-header:active {
@@ -467,12 +468,119 @@ body {
   color: var(--pane-header-text-active);
 }
 
-/* Copy mode header - green background when active and in copy mode */
+/* Copy mode header - green tint when active and in copy mode */
 .pane-header-active.pane-header-copy-mode {
-  background-color: var(--term-green);
-  color: var(--text-dark);
+  background-color: var(--accent-green-bg);
 }
 
+/* Pane tabs container - scrollable */
+.pane-tabs {
+  display: flex;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+  height: 100%;
+}
+
+.pane-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Individual pane tab */
+.pane-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0 var(--spacing-lg);
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.pane-tab:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.pane-tab-active {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.pane-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--pane-header-text-inactive);
+  max-width: 150px;
+}
+
+.pane-tab-active .pane-tab-title {
+  color: var(--pane-header-text-active);
+}
+
+/* Pane tab close button */
+.pane-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-subtle);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0.3;
+  transition: opacity var(--transition-fast), background-color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.pane-tab:hover .pane-tab-close,
+.pane-tab-active .pane-tab-close {
+  opacity: 0.7;
+}
+
+.pane-tab-close:hover {
+  opacity: 1;
+  background-color: var(--error-color);
+  color: white;
+}
+
+/* Pane tab add button */
+.pane-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pane-header-height);
+  height: calc(var(--pane-header-height) - 4px);
+  margin: 2px 4px;
+  padding: 0;
+  background: transparent;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-subtle);
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.pane-tab-add:hover {
+  color: var(--text-muted);
+  border-color: var(--text-subtle);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Legacy styles kept for backwards compatibility */
 .pane-title {
   text-align: left;
   white-space: nowrap;
@@ -481,7 +589,6 @@ body {
   padding: 0 var(--spacing-3xl) 0 var(--spacing-sm);
 }
 
-/* Shared close button styles */
 .pane-close,
 .group-tab-close {
   position: absolute;
@@ -500,7 +607,7 @@ body {
   cursor: pointer;
   line-height: 1;
   opacity: 0;
-  transition: opacity var(--transition-normal), background-color var(--transition-normal), color var(--transition-normal);
+  transition: opacity var(--transition-normal), background-color var(--transition-normal);
 }
 
 .pane-header:hover .pane-close,
@@ -508,25 +615,13 @@ body {
   opacity: 1;
 }
 
-.pane-header-active .pane-close,
-.group-tab-active .group-tab-close {
-  color: var(--pane-header-text-active);
-}
-
 .pane-close:hover,
 .group-tab-close:hover {
   background-color: var(--error-color);
   color: white;
-  opacity: 1;
 }
 
-/* Grouped Pane Header */
-.pane-header-grouped {
-  justify-content: flex-start;
-  padding: 0;
-  gap: 0;
-}
-
+/* Group tabs (kept for legacy support) */
 .group-tabs {
   display: flex;
   flex: 1;
@@ -573,285 +668,73 @@ body {
 }
 
 /* ============================================
-   Status Bar
+   Status Bar - Minimalist flat design
    ============================================ */
 
 .statusbar {
   display: flex;
   align-items: center;
   height: var(--statusbar-height);
-  background-color: var(--bg-dark);
-  border-bottom: 1px solid var(--border-medium);
-  padding: 0 var(--spacing-xl);
+  padding: 0 var(--spacing-sm);
   font-family: var(--font-mono);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-sm);
   user-select: none;
+  background: transparent;
 }
 
-.statusbar-command {
-  background-color: var(--bg-medium);
-}
-
-.statusbar-prefix {
-  background-color: var(--accent-green-bg);
-  border-bottom-color: var(--accent-green-border);
-}
-
-/* Window Tabs */
+/* Window Tabs - Flat buttons */
 .window-tabs {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
+  gap: 0;
   flex: 1;
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.window-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .window-tab {
   display: flex;
   align-items: center;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-md) var(--spacing-3xl);
-  background-color: var(--bg-medium);
-  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-xl);
+  background: transparent;
+  border: none;
   cursor: pointer;
   color: var(--text-muted);
-  transition: all var(--transition-normal);
-  position: relative;
-  min-width: 60px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  transition: color var(--transition-fast);
+  white-space: nowrap;
 }
 
 .window-tab:hover {
-  background-color: var(--bg-elevated-alt);
   color: var(--text-primary);
 }
 
 .window-tab-active {
-  background-color: var(--bg-highlight);
-  color: white;
-}
-
-.window-tab-active:hover {
-  background-color: var(--bg-highlight-alt);
-}
-
-.window-index {
-  color: var(--accent-green);
-  font-weight: bold;
-  font-size: var(--font-size-base);
-}
-
-.window-tab-active .window-index {
-  color: var(--accent-green-bright);
+  color: var(--text-primary);
 }
 
 .window-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 120px;
+  max-width: 150px;
 }
 
-.window-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  margin-left: var(--spacing-md);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: var(--font-size-xl);
-  cursor: pointer;
-  line-height: 1;
-}
-
-.window-close:hover {
-  background-color: var(--error-color);
-  color: white;
-}
-
-.window-new {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  background-color: transparent;
-  border: 1px dashed var(--border-light);
-  border-radius: var(--radius-md);
+.window-tab-add {
   color: var(--text-subtle);
-  font-size: var(--font-size-2xl);
-  cursor: pointer;
-  transition: all var(--transition-normal);
+  font-size: var(--font-size-lg);
+  padding: var(--spacing-sm) var(--spacing-lg);
 }
 
-.window-new:hover {
-  background-color: var(--bg-elevated-alt);
-  border-color: var(--text-subtle);
+.window-tab-add:hover {
   color: var(--text-muted);
 }
 
-.window-tab-placeholder {
-  border: 2px dashed var(--accent-blue-light);
-  background-color: rgba(100, 150, 255, 0.15);
-  color: rgba(100, 150, 255, 0.9);
-  cursor: default;
-  animation: pulse-placeholder 1s ease-in-out infinite;
-}
-
-@keyframes pulse-placeholder {
-  0%, 100% { background-color: rgba(100, 150, 255, 0.15); }
-  50% { background-color: rgba(100, 150, 255, 0.25); }
-}
-
-/* Command Mode */
-.command-prefix {
-  color: var(--accent-green);
-  font-weight: bold;
-  margin-right: var(--spacing-md);
-}
-
-.command-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: inherit;
-  padding: var(--spacing-md);
-}
-
-.command-input::placeholder {
-  color: var(--text-faint);
-}
-
-/* Tmux Button */
-.tmux-button-container {
-  position: relative;
-}
-
-.tmux-button {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-md) var(--spacing-2xl);
-  background-color: var(--bg-medium);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: var(--font-size-base);
-  cursor: pointer;
-  transition: all var(--transition-normal);
-}
-
-.tmux-button:hover {
-  background-color: var(--bg-elevated-alt);
-  border-color: var(--bg-highlight-alt);
-  color: var(--text-primary);
-}
-
-.tmux-button-active {
-  background-color: var(--accent-green-bg);
-  border-color: var(--accent-green-border);
-  color: var(--accent-green-bright);
-}
-
-.tmux-button-active:hover {
-  background-color: var(--accent-green-hover);
-  border-color: #3d6a3d;
-}
-
-.tmux-button i {
-  font-size: var(--font-size-lg);
-}
-
-.tmux-button-label {
-  font-weight: 500;
-}
-
-/* Tmux Dropdown */
-.tmux-dropdown {
-  position: absolute;
-  top: calc(100% + var(--spacing-xl));
-  right: 0;
-  min-width: 220px;
-  background-color: var(--bg-dark-alt);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  overflow: hidden;
-  z-index: var(--z-dropdown);
-}
-
-.tmux-dropdown-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-xl) var(--spacing-3xl);
-  background-color: var(--bg-dark);
-  border-bottom: 1px solid var(--border-medium);
-  font-size: var(--font-size-base);
-  color: var(--text-dimmed);
-}
-
-.tmux-dropdown-hint {
-  font-style: italic;
-  color: #606060;
-}
-
-.tmux-dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2xl);
-  width: 100%;
-  padding: var(--spacing-xl) var(--spacing-3xl);
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: var(--font-size-lg);
-  cursor: pointer;
-  text-align: left;
-  transition: background-color var(--transition-fast);
-}
-
-.tmux-dropdown-item:hover {
-  background-color: #2a2d2e;
-}
-
-.tmux-dropdown-item:active {
-  background-color: var(--accent-blue);
-}
-
-.tmux-dropdown-item i {
-  width: 16px;
-  text-align: center;
-  color: var(--text-dimmed);
-  font-size: var(--font-size-lg);
-}
-
-.tmux-dropdown-item:hover i {
-  color: var(--text-secondary);
-}
-
-.tmux-dropdown-item-label {
-  flex: 1;
-}
-
-.tmux-dropdown-item-key {
-  padding: var(--spacing-xs) var(--spacing-lg);
-  background-color: var(--border-medium);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-md);
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-}
 
 /* ============================================
    Tmux Status Bar (Bottom)
@@ -1030,15 +913,6 @@ body {
   cursor: sw-resize;
 }
 
-/* ============================================
-   Status Bar Actions
-   ============================================ */
-
-.statusbar-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
 
 /* ============================================
    File Picker
