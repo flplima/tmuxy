@@ -420,25 +420,23 @@ export const appMachine = setup({
           }),
         },
         PANE_GROUP_SWITCH: {
-          actions: enqueueActions(({ context, event, enqueue }) => {
+          actions: assign(({ context, event }) => {
             const group = context.groups[event.groupId];
-            if (!group) return;
+            if (!group) return {};
 
-            const currentPaneId = group.paneIds[group.activeIndex];
-            const targetPaneId = event.paneId;
+            const targetIndex = group.paneIds.indexOf(event.paneId);
+            if (targetIndex === -1 || targetIndex === group.activeIndex) return {};
 
-            if (currentPaneId === targetPaneId) return;
-
-            // Verify target pane exists and is part of this group
-            const targetPane = context.panes.find((p) => p.tmuxId === targetPaneId);
-            if (!targetPane || !group.paneIds.includes(targetPaneId)) return;
-
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `swap-pane -s ${currentPaneId} -t ${targetPaneId}`,
-              })
-            );
+            // Update activeIndex to show the selected tab
+            return {
+              groups: {
+                ...context.groups,
+                [event.groupId]: {
+                  ...group,
+                  activeIndex: targetIndex,
+                },
+              },
+            };
           }),
         },
         PANE_GROUP_CLOSE: {

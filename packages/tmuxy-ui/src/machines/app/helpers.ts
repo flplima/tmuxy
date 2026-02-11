@@ -150,11 +150,14 @@ export function buildGroupsFromWindows(
 
     // Only create a group if there are multiple panes
     if (paneIds.length > 1) {
-      // The visible pane is always at index 0 (we put it first)
+      // Preserve activeIndex from existing group if valid, otherwise default to 0
+      const existingActiveIndex = existingGroup?.activeIndex ?? 0;
+      const activeIndex = existingActiveIndex < paneIds.length ? existingActiveIndex : 0;
+
       groups[parentPaneId] = {
         id: parentPaneId,
         paneIds,
-        activeIndex: 0,
+        activeIndex,
       };
     }
   }
