@@ -301,6 +301,11 @@ export function selectGroups(context: AppMachineContext): Record<string, PaneGro
 }
 
 /**
+ * Alias for selectGroups (legacy name for compatibility)
+ */
+export const selectStacks = selectGroups;
+
+/**
  * Select visible panes - filters out hidden group panes
  * For groups, only the active pane is visible
  */

@@ -5,21 +5,19 @@
  * All state is accessed via hooks - no prop drilling.
  */
 
+import './styles.css';
 import { StatusBar } from './components/StatusBar';
 import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
+import { Pane } from './components/Pane';
 import { PopupContainer } from './components/Popup';
 import { FloatContainer } from './components/FloatPane';
 import {
   useAppSelector,
   useAppState,
   selectPreviewPanes,
-  selectIsConnected,
   selectError,
   selectIsPrimary,
-  selectGridDimensions,
-  selectStatusLine,
-  selectPopup,
 } from './machines/AppContext';
 import { initDebugHelpers } from './utils/debug';
 
@@ -29,45 +27,29 @@ initDebugHelpers();
 function App() {
   // Select minimal state needed at App level
   const panes = useAppSelector(selectPreviewPanes);
-  const connected = useAppSelector(selectIsConnected);
   const error = useAppSelector(selectError);
   const isPrimary = useAppSelector(selectIsPrimary);
   const isConnecting = useAppState('connecting');
-  const gridDimensions = useAppSelector(selectGridDimensions);
-  const statusLine = useAppSelector(selectStatusLine);
-  const popup = useAppSelector(selectPopup);
 
-  // Expose state for debugging
-  if (typeof window !== 'undefined' && window.setAppState) {
-    window.setAppState(() => ({
-      panes,
-      connected,
-      error,
-      isPrimary,
-      isConnecting,
-      totalWidth: gridDimensions.totalWidth,
-      totalHeight: gridDimensions.totalHeight,
-      statusLine,
-      popup,
-    }));
-  }
-
-  if (error) {
-    return (
-      <div className="error" data-testid="error-display">
-        <h2>Error</h2>
-        <p>{error}</p>
-      </div>
-    );
-  }
-
+  // Show loading while connecting OR while we have no panes yet
   if (isConnecting || panes.length === 0) {
+    // If there's an error during connection, show it
+    if (error) {
+      return (
+        <div className="error" data-testid="error-display">
+          <h2>Error</h2>
+          <p>{error}</p>
+        </div>
+      );
+    }
     return (
       <div className="loading" data-testid="loading-display">
         <p>Connecting to tmux...</p>
       </div>
     );
   }
+
+  // Once we have panes, show the UI (ignore transient errors)
 
   return (
     <div className="app-container">
@@ -76,7 +58,9 @@ function App() {
         className={`pane-container${isPrimary ? '' : ' secondary-client'}`}
         style={{ position: 'relative' }}
       >
-        <PaneLayout />
+        <PaneLayout>
+          {(pane) => <Pane paneId={pane.tmuxId} />}
+        </PaneLayout>
         {/* Float panes overlay - renders above tiled panes */}
         <FloatContainer />
         {/* Popup overlay - renders when tmux popup is active */}

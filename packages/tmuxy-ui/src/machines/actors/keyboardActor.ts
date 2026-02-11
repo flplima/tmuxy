@@ -79,10 +79,10 @@ const PREFIX_BINDINGS: Record<string, string | ((session: string) => string)> = 
   ']': (session) => `paste-buffer -t ${session}`,
 
   // Other
-  'd': (session) => `detach-client`,
+  'd': () => `detach-client`,
   't': (session) => `clock-mode -t ${session}`,
-  '?': (session) => `list-keys`,
-  ':': (session) => `command-prompt`,
+  '?': () => `list-keys`,
+  ':': () => `command-prompt`,
 
   // Send prefix to nested tmux (Ctrl+A Ctrl+A sends literal Ctrl+A)
   'a': (session) => `send-keys -t ${session} C-a`,

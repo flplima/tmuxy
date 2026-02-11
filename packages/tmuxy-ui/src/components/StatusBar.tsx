@@ -5,53 +5,47 @@
  * Prefix/command mode is handled natively by tmux.
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   useAppSend,
 } from '../machines/AppContext';
-import { PREFIX_BINDINGS, type TmuxMenuItem } from '../constants/menuItems';
-import { useClickOutside } from '../hooks';
+import { type TmuxMenuItem } from '../constants/menuItems';
 import { TmuxMenu } from './TmuxMenu';
 import { WindowTabs } from './WindowTabs';
-import { FilePicker, FilePickerButton } from './FilePicker';
 
 export function StatusBar() {
   const send = useAppSend();
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [filePickerOpen, setFilePickerOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
-  const handleCloseMenu = useCallback(() => setMenuOpen(false), []);
-  useClickOutside(menuRef, handleCloseMenu, menuOpen);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [menuOpen]);
 
   const handleMenuItemClick = useCallback(
     (item: TmuxMenuItem) => {
       setMenuOpen(false);
-      const command = PREFIX_BINDINGS[item.key];
-      if (command) {
-        send({ type: 'SEND_COMMAND', command });
+      if (item.command) {
+        send({ type: 'SEND_COMMAND', command: item.command });
       }
     },
     [send]
   );
-
-  const toggleFilePicker = useCallback(() => {
-    setFilePickerOpen((open) => !open);
-  }, []);
-
-  const closeFilePicker = useCallback(() => {
-    setFilePickerOpen(false);
-  }, []);
 
   return (
     <div className="statusbar">
       <WindowTabs />
 
       <div className="statusbar-actions">
-        <FilePickerButton onClick={toggleFilePicker} isOpen={filePickerOpen} />
-
         <div className="tmux-button-container" ref={menuRef}>
           <button
             className={`tmux-button ${menuOpen ? 'tmux-button-active' : ''}`}
@@ -68,8 +62,6 @@ export function StatusBar() {
           {menuOpen && <TmuxMenu onItemClick={handleMenuItemClick} />}
         </div>
       </div>
-
-      <FilePicker isOpen={filePickerOpen} onClose={closeFilePicker} rootPath="/" />
     </div>
   );
 }

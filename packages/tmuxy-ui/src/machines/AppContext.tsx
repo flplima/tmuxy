@@ -46,6 +46,7 @@ export {
   selectCharSize,
   selectPanePixelDimensions,
   selectGroups,
+  selectStacks,
   selectGroupForPane,
   selectGroupPanes,
   selectVisiblePanes,
@@ -88,6 +89,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Create adapter and actors once
   const actors = useMemo(() => {
     const adapter = createAdapter();
+    // Expose adapter for E2E testing (dev mode only)
+    if (typeof window !== 'undefined' && import.meta.env.DEV) {
+      (window as unknown as { _adapter: typeof adapter })._adapter = adapter;
+    }
     return {
       tmuxActor: createTmuxActor(adapter),
       keyboardActor: createKeyboardActor(),
@@ -100,6 +105,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       actors,
     })
   );
+
+  // Expose XState actor for debugging (dev mode only)
+  useMemo(() => {
+    if (typeof window !== 'undefined' && import.meta.env.DEV) {
+      (window as unknown as { app: typeof actorRef }).app = actorRef;
+    }
+  }, [actorRef]);
 
   return <AppContext.Provider value={actorRef}>{children}</AppContext.Provider>;
 }
@@ -143,6 +155,28 @@ export function useIsDragging(): boolean {
 export function useIsResizing(): boolean {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.resize !== null);
+}
+
+/**
+ * Check if a drag operation is in the "committing" phase
+ * (after user released mouse, waiting for tmux to confirm swap)
+ * TODO: Implement proper committing state in drag machine
+ */
+export function useIsCommittingDrag(): boolean {
+  // For now, always return false - proper implementation would
+  // check if drag machine is in a "committing" state
+  return false;
+}
+
+/**
+ * Check if a resize operation is in the "committing" phase
+ * (after user released mouse, waiting for tmux to confirm resize)
+ * TODO: Implement proper committing state in resize machine
+ */
+export function useIsCommittingResize(): boolean {
+  // For now, always return false - proper implementation would
+  // check if resize machine is in a "committing" state
+  return false;
 }
 
 /** Get a specific pane by ID (with resize preview) */

@@ -1,60 +1,69 @@
-import { fromCallback } from 'xstate';
-import { createAdapter } from '../../tmux/adapters';
+import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxAdapter, ServerState } from '../../tmux/types';
 
-export interface TmuxActorInput {
-  onConnected: () => void;
-  onStateUpdate: (state: ServerState) => void;
-  onError: (error: string) => void;
-  onDisconnected: () => void;
-}
+export type TmuxActorEvent =
+  | { type: 'SEND_COMMAND'; command: string }
+  | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
+  | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number };
 
-export interface TmuxActorEmit {
-  type: 'SEND_COMMAND';
-  command: string;
+export interface TmuxActorInput {
+  parent: AnyActorRef;
 }
 
 /**
- * Tmux actor - handles WebSocket/Tauri communication
+ * Create a tmux actor with the given adapter.
  *
- * Uses fromCallback to manage the adapter lifecycle:
+ * The actor handles WebSocket/Tauri communication:
  * - Connects on actor start
- * - Sends events to parent via input callbacks
+ * - Sends events to parent via parent.send()
  * - Receives commands from parent via receive callback
  * - Disconnects on actor stop
  */
-export const tmuxActor = fromCallback<TmuxActorEmit, TmuxActorInput>(
-  ({ input, receive }) => {
-    const adapter: TmuxAdapter = createAdapter();
+export function createTmuxActor(adapter: TmuxAdapter) {
+  return fromCallback<TmuxActorEvent, TmuxActorInput>(({ input, receive }) => {
+    const { parent } = input;
 
     // Subscribe to adapter events
-    const unsubscribeState = adapter.onStateChange((state) => {
-      input.onStateUpdate(state);
+    const unsubscribeState = adapter.onStateChange((state: ServerState) => {
+      parent.send({ type: 'TMUX_STATE_UPDATE', state });
     });
 
-    const unsubscribeError = adapter.onError((error) => {
-      input.onError(error);
+    const unsubscribeError = adapter.onError((error: string) => {
+      parent.send({ type: 'TMUX_ERROR', error });
     });
 
     // Connect to backend
     adapter
       .connect()
       .then(() => {
-        input.onConnected();
-        // Request initial state
-        adapter.invoke('get_state').catch(console.error);
+        parent.send({ type: 'TMUX_CONNECTED' });
       })
       .catch((error) => {
-        input.onError(error.message || 'Failed to connect');
+        parent.send({ type: 'TMUX_ERROR', error: error.message || 'Failed to connect' });
       });
 
     // Handle commands from parent machine
     receive((event) => {
       if (event.type === 'SEND_COMMAND') {
         adapter
-          .invoke<void>('send_command', { command: event.command })
+          .invoke<void>('run_tmux_command', { command: event.command })
           .catch((error) => {
-            input.onError(error.message || 'Command failed');
+            parent.send({ type: 'TMUX_ERROR', error: error.message || 'Command failed' });
+          });
+      } else if (event.type === 'INVOKE') {
+        adapter
+          .invoke(event.cmd, event.args || {})
+          .catch((error) => {
+            parent.send({ type: 'TMUX_ERROR', error: error.message || 'Invoke failed' });
+          });
+      } else if (event.type === 'FETCH_INITIAL_STATE') {
+        adapter
+          .invoke<ServerState>('get_initial_state', { cols: event.cols, rows: event.rows })
+          .then((state) => {
+            parent.send({ type: 'TMUX_STATE_UPDATE', state });
+          })
+          .catch((error) => {
+            parent.send({ type: 'TMUX_ERROR', error: error.message || 'Failed to fetch state' });
           });
       }
     });
@@ -65,12 +74,12 @@ export const tmuxActor = fromCallback<TmuxActorEmit, TmuxActorInput>(
       unsubscribeError();
       adapter.disconnect();
     };
-  }
-);
+  });
+}
 
 /**
  * Helper to send command to tmux actor
  */
-export function sendTmuxCommand(command: string): TmuxActorEmit {
+export function sendTmuxCommand(command: string): TmuxActorEvent {
   return { type: 'SEND_COMMAND', command };
 }
