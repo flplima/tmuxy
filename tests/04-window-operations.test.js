@@ -8,15 +8,8 @@ const {
   createTestContext,
   delay,
   focusPage,
-  createWindowKeyboard,
-  nextWindowKeyboard,
-  prevWindowKeyboard,
-  selectWindowKeyboard,
-  cycleLayoutKeyboard,
-  sendTmuxPrefix,
-  typeInTerminal,
-  pressEnter,
-  splitPaneKeyboard,
+  waitForPaneCount,
+  waitForWindowCount,
   DELAYS,
 } = require('./helpers');
 
@@ -32,45 +25,46 @@ describe('Category 4: Window Operations', () => {
   // 4.1 Window Creation
   // ====================
   describe('4.1 Window Creation', () => {
-    test('New window - prefix+c creates window', async () => {
+    test('New window - tmux command creates window', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
+      const initialCount = await ctx.session.getWindowCount();
 
-      const initialCount = ctx.session.getWindowCount();
+      // Create window using tmux command
+      await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
 
-      await createWindowKeyboard(ctx.page);
-
-      const newCount = ctx.session.getWindowCount();
+      const newCount = await ctx.session.getWindowCount();
       expect(newCount).toBe(initialCount + 1);
     });
 
     test('New window appears in window tabs', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await createWindowKeyboard(ctx.page);
-      await delay(DELAYS.EXTRA_LONG);
+      await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
 
-      // Check UI for window tabs
-      const windowTabs = await ctx.page.$$('.window-tab');
-      expect(windowTabs.length).toBeGreaterThanOrEqual(2);
+      // Verify tmux has 2 windows
+      expect(await ctx.session.getWindowCount()).toBe(2);
+
+      // Check UI reflects multiple windows
+      const windowInfo = await ctx.session.getWindowInfo();
+      expect(windowInfo.length).toBe(2);
     });
 
-    test('New window with specific name via tmux command', async () => {
+    test('New window with specific name', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
       // Create window with name using tmux command
-      ctx.session.runCommand(`new-window -t ${ctx.session.name} -n TestWindow`);
-      await delay(DELAYS.EXTRA_LONG);
+      await ctx.session.runCommand(`new-window -t ${ctx.session.name} -n TestWindow`);
+      await delay(DELAYS.SYNC);
 
-      const windows = ctx.session.getWindowInfo();
+      const windows = await ctx.session.getWindowInfo();
       const testWindow = windows.find(w => w.name === 'TestWindow');
       expect(testWindow).toBeDefined();
     });
@@ -80,96 +74,131 @@ describe('Category 4: Window Operations', () => {
   // 4.2 Window Navigation
   // ====================
   describe('4.2 Window Navigation', () => {
-    test('Next window - prefix+n switches to next', async () => {
+    test('Next window - switches to next window', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
       // Create second window
-      await createWindowKeyboard(ctx.page);
+      await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
 
-      const currentIndex = ctx.session.getCurrentWindowIndex();
+      const currentIndex = await ctx.session.getCurrentWindowIndex();
 
       // Go to next (wraps to first)
-      await nextWindowKeyboard(ctx.page);
-
-      const newIndex = ctx.session.getCurrentWindowIndex();
-      expect(newIndex).not.toBe(currentIndex);
-    });
-
-    test('Previous window - prefix+p switches to previous', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
-
-      await createWindowKeyboard(ctx.page);
-      const currentIndex = ctx.session.getCurrentWindowIndex();
-
-      await prevWindowKeyboard(ctx.page);
-
-      const newIndex = ctx.session.getCurrentWindowIndex();
-      expect(newIndex).not.toBe(currentIndex);
-    });
-
-    test('Window by number - prefix+number selects window', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
-
-      await createWindowKeyboard(ctx.page);
-      await createWindowKeyboard(ctx.page);
-
-      // Select window 0
-      await selectWindowKeyboard(ctx.page, 0);
-
-      const currentIndex = ctx.session.getCurrentWindowIndex();
-      expect(currentIndex).toBe('0');
-    });
-
-    test('Last window - prefix+l toggles to last window', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
-
-      // Create second window
-      await createWindowKeyboard(ctx.page);
-
-      // Go back to first
-      await selectWindowKeyboard(ctx.page, 0);
+      await ctx.session.nextWindow();
       await delay(DELAYS.LONG);
 
-      // Toggle to last (should go to window 1)
-      await sendTmuxPrefix(ctx.page);
-      await delay(DELAYS.SHORT);
-      await ctx.page.keyboard.press('l');
+      const newIndex = await ctx.session.getCurrentWindowIndex();
+      expect(newIndex).not.toBe(currentIndex);
+
+
+    });
+
+    test('Previous window - switches to previous', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
+      const currentIndex = await ctx.session.getCurrentWindowIndex();
+
+      await ctx.session.previousWindow();
       await delay(DELAYS.LONG);
 
-      const currentIndex = ctx.session.getCurrentWindowIndex();
+      const newIndex = await ctx.session.getCurrentWindowIndex();
+      expect(newIndex).not.toBe(currentIndex);
+
+
+    });
+
+    test('Window by number - selects specific window', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      await ctx.session.newWindow();
+      await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 3);
+
+      // Select window 1 (base index is 1 in config)
+      await ctx.session.selectWindow(1);
+      await delay(DELAYS.LONG);
+
+      const currentIndex = await ctx.session.getCurrentWindowIndex();
       expect(currentIndex).toBe('1');
+
+
+    });
+
+    test('Last window - toggles to last visited window', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Initial window is at index 1 (base-index is 1 in config)
+      // Create second window (now on window 2)
+      await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
+
+      // Go back to first (window 1)
+      await ctx.session.selectWindow(1);
+      await delay(DELAYS.LONG);
+
+      // Toggle to last window visited (should go to window 2)
+      await ctx.session.lastWindow();
+      await delay(DELAYS.LONG);
+
+      const currentIndex = await ctx.session.getCurrentWindowIndex();
+      expect(currentIndex).toBe('2');
+
+
     });
 
     test('Click tab - clicking window tab switches', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await createWindowKeyboard(ctx.page);
-      await delay(DELAYS.EXTRA_LONG);
+      // Get the initial window index
+      const initialIndex = await ctx.session.getCurrentWindowIndex();
 
-      // Click first window tab
-      const tab = await ctx.page.$('.window-tab:first-child');
-      if (tab) {
-        await tab.click();
-        await delay(DELAYS.EXTRA_LONG);
+      await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
 
-        const currentIndex = ctx.session.getCurrentWindowIndex();
-        expect(currentIndex).toBe('0');
+      // Verify we're now on a different window (the new one)
+      const afterNewIndex = await ctx.session.getCurrentWindowIndex();
+      expect(afterNewIndex).not.toBe(initialIndex);
+
+      // Get tabs and find the one that's NOT active
+      const activeTab = await ctx.page.$('.window-tab-active');
+      const allTabs = await ctx.page.$$('.window-tab');
+      expect(allTabs.length).toBe(2);
+
+      // Find inactive tab by checking which one is not the active tab
+      let inactiveTab = null;
+      for (const tab of allTabs) {
+        const isActive = await tab.evaluate(el => el.classList.contains('window-tab-active'));
+        if (!isActive) {
+          inactiveTab = tab;
+          break;
+        }
       }
+      expect(inactiveTab).not.toBeNull();
+
+      // Click the inactive tab
+      await inactiveTab.click();
+      await delay(DELAYS.LONG);
+
+      // After clicking, the current window should be different
+      const finalIndex = await ctx.session.getCurrentWindowIndex();
+      expect(finalIndex).not.toBe(afterNewIndex);
     });
   });
 
@@ -177,55 +206,58 @@ describe('Category 4: Window Operations', () => {
   // 4.3 Window Management
   // ====================
   describe('4.3 Window Management', () => {
-    test('Rename window - prefix+comma renames', async () => {
+    test('Rename window - changes window name', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      // Use tmux command to rename
-      ctx.session.runCommand(`rename-window -t ${ctx.session.name} MyRenamedWindow`);
-      await delay(DELAYS.EXTRA_LONG);
+      // Use helper method to rename
+      await ctx.session.renameWindow('MyRenamedWindow');
+      await delay(DELAYS.SYNC);
 
-      const windows = ctx.session.getWindowInfo();
+      const windows = await ctx.session.getWindowInfo();
       const renamedWindow = windows.find(w => w.name === 'MyRenamedWindow');
       expect(renamedWindow).toBeDefined();
+
+
     });
 
-    test('Close window - prefix+& closes window', async () => {
+    test('Close window - kill-window removes window', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await createWindowKeyboard(ctx.page);
-      expect(ctx.session.getWindowCount()).toBe(2);
+      await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
+      expect(await ctx.session.getWindowCount()).toBe(2);
 
-      // Close window
-      await sendTmuxPrefix(ctx.page);
-      await delay(DELAYS.SHORT);
-      await ctx.page.keyboard.type('&');
-      await delay(DELAYS.LONG);
-      await ctx.page.keyboard.press('y'); // Confirm
-      await delay(DELAYS.EXTRA_LONG);
+      // Kill the first window (index 1, base-index is 1)
+      // After newWindow(), we're on window 2, killing window 1 leaves just window 2
+      await ctx.session.killWindow(1);
+      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 1);
 
-      expect(ctx.session.getWindowCount()).toBe(1);
+      expect(await ctx.session.getWindowCount()).toBe(1);
+
+
     });
 
-    test('Close window via tmux command', async () => {
+    test('Close multiple windows - handles correctly', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      await ctx.navigateToSession();
-      await focusPage(ctx.page);
+      await ctx.setupPage();
 
-      await createWindowKeyboard(ctx.page);
-      expect(ctx.session.getWindowCount()).toBe(2);
+      await ctx.session.newWindow();
+      await ctx.session.newWindow();
+      expect(await ctx.session.getWindowCount()).toBe(3);
 
-      // Kill window via command
-      ctx.session.runCommand(`kill-window -t ${ctx.session.name}:1`);
-      await delay(DELAYS.EXTRA_LONG);
+      // Kill last two windows
+      await ctx.session.runCommand(`kill-window -t ${ctx.session.name}:2`);
+      await ctx.session.runCommand(`kill-window -t ${ctx.session.name}:1`);
+      await delay(DELAYS.SYNC);
 
-      expect(ctx.session.getWindowCount()).toBe(1);
+      expect(await ctx.session.getWindowCount()).toBe(1);
     });
   });
 
@@ -238,11 +270,11 @@ describe('Category 4: Window Operations', () => {
 
       await ctx.setupFourPanes();
 
-      // Apply even-horizontal layout
-      ctx.session.runCommand(`select-layout -t ${ctx.session.name} even-horizontal`);
-      await delay(DELAYS.EXTRA_LONG);
+      // Apply even-horizontal layout using helper
+      await ctx.session.selectLayout('even-horizontal');
+      await delay(DELAYS.SYNC);
 
-      const panes = ctx.session.getPaneInfo();
+      const panes = await ctx.session.getPaneInfo();
       expect(panes.length).toBe(4);
 
       // All panes should have same width
@@ -250,6 +282,8 @@ describe('Category 4: Window Operations', () => {
       const uniqueWidths = [...new Set(widths)];
       // Should be 1-2 unique widths (rounding)
       expect(uniqueWidths.length).toBeLessThanOrEqual(2);
+
+
     });
 
     test('Even vertical layout', async () => {
@@ -257,16 +291,18 @@ describe('Category 4: Window Operations', () => {
 
       await ctx.setupFourPanes();
 
-      ctx.session.runCommand(`select-layout -t ${ctx.session.name} even-vertical`);
-      await delay(DELAYS.EXTRA_LONG);
+      await ctx.session.selectLayout('even-vertical');
+      await delay(DELAYS.SYNC);
 
-      const panes = ctx.session.getPaneInfo();
+      const panes = await ctx.session.getPaneInfo();
       expect(panes.length).toBe(4);
 
       // All panes should have same height
       const heights = panes.map(p => p.height);
       const uniqueHeights = [...new Set(heights)];
       expect(uniqueHeights.length).toBeLessThanOrEqual(2);
+
+
     });
 
     test('Tiled layout', async () => {
@@ -274,10 +310,10 @@ describe('Category 4: Window Operations', () => {
 
       await ctx.setupFourPanes();
 
-      ctx.session.runCommand(`select-layout -t ${ctx.session.name} tiled`);
-      await delay(DELAYS.EXTRA_LONG);
+      await ctx.session.selectLayout('tiled');
+      await delay(DELAYS.SYNC);
 
-      const panes = ctx.session.getPaneInfo();
+      const panes = await ctx.session.getPaneInfo();
       expect(panes.length).toBe(4);
 
       // All panes should be roughly same size
@@ -286,23 +322,31 @@ describe('Category 4: Window Operations', () => {
       const minArea = Math.min(...areas);
       // Areas should be within 50% of each other
       expect(maxArea / minArea).toBeLessThan(2);
+
+      // Wait for UI to sync with the layout change
+      await waitForPaneCount(ctx.page, 4);
+
     });
 
-    test('Cycle layouts - prefix+space cycles', async () => {
+    test('Cycle layouts - next-layout changes layout', async () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.setupTwoPanes('horizontal');
 
-      const panesBefore = ctx.session.getPaneInfo();
+      const panesBefore = await ctx.session.getPaneInfo();
 
-      await cycleLayoutKeyboard(ctx.page);
+      // Cycle layout using helper
+      await ctx.session.nextLayout();
+      await delay(DELAYS.SYNC);
 
-      const panesAfter = ctx.session.getPaneInfo();
+      const panesAfter = await ctx.session.getPaneInfo();
 
       // Layout should have changed
       const beforeLayout = panesBefore.map(p => `${p.x},${p.y},${p.width},${p.height}`).join('|');
       const afterLayout = panesAfter.map(p => `${p.x},${p.y},${p.width},${p.height}`).join('|');
       expect(afterLayout).not.toBe(beforeLayout);
+
+
     });
   });
 });

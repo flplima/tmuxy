@@ -6,25 +6,25 @@ Comprehensive analysis of the E2E test suite identifying issues, opportunities f
 
 ## Current Status Summary
 
-**All 204 tests passing** (as of 2025-01-27)
+**All 194 tests passing** (as of 2025-01-27)
 
 | Category | Total Tests | Status |
 |----------|-------------|--------|
-| 1. Basic Connectivity | 27 | ✅ Solid - added CJK, emoji, DECCKM tests |
-| 2. Keyboard Input | 31 | ✅ Fixed - prefix mode handling + helper tests |
+| 1. Basic Connectivity | 27 | ✅ Solid - CJK, emoji, DECCKM tests |
+| 2. Keyboard Input | 25 | ✅ Cleaned - removed duplicate helper tests |
 | 3. Pane Operations | 16 | ✅ Solid |
 | 4. Window Operations | 15 | ✅ Solid |
-| 5. Pane UI Structure | 11 | ✅ Fixed - renamed from "Pane Groups" |
-| 6. Floating Panes | 12 | ✅ Fixed - tests UI component structure |
-| 7. Mouse Events | 13 | ✅ Fixed - real assertions |
-| 8. Copy Mode | 17 | ✅ Fixed - full vi-mode workflow |
-| 9. Status Bar | 14 | ✅ Fixed - proper element assertions |
-| 10. Session/Connection | 12 | ✅ Solid - added WebSocket edge cases + error handling |
-| 11. OSC Protocols | 6 | ✅ Solid |
-| 12. Popup Support | 8 | ✅ Fixed - tests popup command handling |
+| 5. Pane UI Structure | 11 | ✅ Solid |
+| 6. Floating Panes | 8 | ✅ Rewritten - honest about feature status |
+| 7. Mouse Events | 14 | ✅ Fixed - removed fallback logic, added tmux test |
+| 8. Copy Mode | 17 | ✅ Strengthened - cursor position verification |
+| 9. Status Bar | 16 | ✅ Fixed - removed fallback logic, added tmux tests |
+| 10. Session/Connection | 12 | ✅ Solid - WebSocket edge cases + error handling |
+| 11. OSC Protocols | 6 | ✅ Improved - better assertions, malformed handling |
+| 12. Popup Support | 5 | ✅ Rewritten - honest about feature status |
 | 13. Performance | 8 | ✅ Solid |
-| 14. Workflows | 14 | ✅ Solid |
-| **TOTAL** | **204** | **100% passing** |
+| 14. Workflows | 14 | ✅ Improved - realistic Unicode tests |
+| **TOTAL** | **194** | **100% passing** |
 
 ---
 
@@ -153,25 +153,25 @@ ctx.setupLayout({ panes: 4, layout: 'grid' | 'horizontal' | 'vertical' })
 
 ## Test Quality Metrics
 
-All tests are now solid with no known issues.
+All tests have meaningful assertions - no "cheating" tests remain.
 
 | Category | Total | Quality | Notes |
 |----------|-------|---------|-------|
 | 1. Basic Connectivity | 27 | ✅ | Page load, CJK, emoji, DECCKM |
-| 2. Keyboard Input | 31 | ✅ | Full prefix mode + helpers |
+| 2. Keyboard Input | 25 | ✅ | Prefix mode, ctrl keys, F-keys |
 | 3. Pane Operations | 16 | ✅ | Split, zoom, close, resize |
 | 4. Window Operations | 15 | ✅ | Create, switch, rename, kill |
 | 5. Pane UI Structure | 11 | ✅ | Headers, close buttons |
-| 6. Floating Panes | 12 | ✅ | Float component + events |
-| 7. Mouse Events | 13 | ✅ | Click, scroll, resize, select |
-| 8. Copy Mode | 17 | ✅ | Vi-mode selection, search |
-| 9. Status Bar | 14 | ✅ | Elements, interactions |
+| 6. Floating Panes | 8 | ✅ | App structure, event stability |
+| 7. Mouse Events | 14 | ✅ | Click, scroll, resize, selection |
+| 8. Copy Mode | 17 | ✅ | Navigation, search with cursor verification |
+| 9. Status Bar | 16 | ✅ | Tabs, menu, UI/tmux sync |
 | 10. Session/Connection | 12 | ✅ | WebSocket edge cases, error handling |
-| 11. OSC Protocols | 6 | ✅ | OSC 8 (hyperlinks), OSC 52 |
-| 12. Popup Support | 8 | ✅ | Popup commands |
+| 11. OSC Protocols | 6 | ✅ | OSC 8 text, OSC 52 stability |
+| 12. Popup Support | 5 | ✅ | Command stability |
 | 13. Performance | 8 | ✅ | Load time, stress tests |
-| 14. Workflows | 14 | ✅ | Dev workflows, multi-step |
-| **TOTAL** | **204** | **100%** | **All passing** |
+| 14. Workflows | 14 | ✅ | Dev workflows, Unicode |
+| **TOTAL** | **194** | **100%** | **All passing** |
 
 ---
 

@@ -19,7 +19,7 @@ const DELAYS = {
   LONG: 500,
   EXTRA_LONG: 1000,
   SYNC: 2000, // For UI/tmux sync
-  PREFIX: 600, // Delay after tmux prefix key before next key (needs time for WebSocket round-trip)
+  PREFIX: 300, // Delay after tmux prefix key before next key (reduced from 600ms)
 };
 
 module.exports = {

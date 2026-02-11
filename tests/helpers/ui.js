@@ -121,11 +121,19 @@ async function typeChar(page, char) {
  * Type text in terminal
  */
 async function typeInTerminal(page, text) {
-  await page.click('body');
-  await delay(DELAYS.SHORT);
+  // Click the terminal element directly for reliable focus (not body)
+  const terminal = await page.$('[role="log"]');
+  if (terminal) {
+    await terminal.click();
+  } else {
+    await page.click('body');
+  }
+  await delay(DELAYS.MEDIUM);
+  // Use per-character typing with reduced delay (15ms vs original 30ms)
+  // Bulk typing can cause missed characters in terminal emulators
   for (const char of text) {
     await page.keyboard.type(char);
-    await delay(20);
+    await delay(15);
   }
 }
 
@@ -262,6 +270,24 @@ async function runCommand(page, command, expectedOutput, timeout = 10000) {
 }
 
 /**
+ * Run a command via tmux send-keys (more reliable than browser typing)
+ * and wait for the output to appear in the browser.
+ * Use this when testing UI behavior, not keyboard input handling.
+ *
+ * @param {TmuxTestSession} session - The tmux test session
+ * @param {Page} page - Playwright page
+ * @param {string} command - The command to run
+ * @param {string} expectedOutput - Text to wait for in terminal
+ * @param {number} timeout - Timeout in ms
+ */
+async function runCommandViaTmux(session, page, command, expectedOutput, timeout = 10000) {
+  // Use tmux send-keys with literal flag for reliable input
+  session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
+  session.runCommand(`send-keys -t ${session.name} Enter`);
+  return await waitForTerminalText(page, expectedOutput, timeout);
+}
+
+/**
  * Run a command and return terminal text after a delay (for commands without specific output)
  */
 async function runCommandWithDelay(page, command, delayMs = 1000) {
@@ -368,7 +394,8 @@ async function splitPaneKeyboard(page, direction = 'horizontal') {
   } else {
     await sendPrefixCommand(page, '5', { shift: true });
   }
-  await delay(DELAYS.EXTRA_LONG);
+  // Reduced delay - callers should use waitForPaneCount for reliable sync
+  await delay(DELAYS.LONG);
 }
 
 /**
@@ -384,14 +411,14 @@ async function splitPaneUI(page, direction = 'horizontal') {
     const directButton = await page.$(splitBtnSelector);
     if (directButton) {
       await directButton.click();
-      await delay(DELAYS.EXTRA_LONG);
+      await delay(DELAYS.LONG);
       return;
     }
 
     // Fallback to menu
     const menuText = direction === 'horizontal' ? 'Split Horizontal' : 'Split Vertical';
     await clickMenuItem(page, 'tmux', menuText);
-    await delay(DELAYS.EXTRA_LONG);
+    await delay(DELAYS.LONG);
   } catch {
     // Try pane context menu
     const panes = await getUIPaneInfo(page);
@@ -434,7 +461,7 @@ async function swapPaneKeyboard(page, direction = 'down') {
   } else {
     await sendPrefixCommand(page, '[', { shift: true });
   }
-  await delay(DELAYS.EXTRA_LONG);
+  await delay(DELAYS.LONG);
 }
 
 // ==================== Zoom Operations ====================
@@ -444,7 +471,7 @@ async function swapPaneKeyboard(page, direction = 'down') {
  */
 async function toggleZoomKeyboard(page) {
   await sendPrefixCommand(page, 'z');
-  await delay(DELAYS.EXTRA_LONG);
+  await delay(DELAYS.LONG);
 }
 
 // ==================== Window Operations ====================
@@ -454,7 +481,7 @@ async function toggleZoomKeyboard(page) {
  */
 async function createWindowKeyboard(page) {
   await sendPrefixCommand(page, 'c');
-  await delay(DELAYS.EXTRA_LONG);
+  await delay(DELAYS.LONG);
 }
 
 /**
@@ -486,7 +513,7 @@ async function selectWindowKeyboard(page, number) {
  */
 async function killPaneKeyboard(page) {
   await sendPrefixCommand(page, 'x');
-  await delay(DELAYS.EXTRA_LONG);
+  await delay(DELAYS.LONG);
 }
 
 // ==================== Layout Operations ====================
@@ -496,7 +523,7 @@ async function killPaneKeyboard(page) {
  */
 async function cycleLayoutKeyboard(page) {
   await sendPrefixCommand(page, ' ');
-  await delay(DELAYS.EXTRA_LONG);
+  await delay(DELAYS.LONG);
 }
 
 // ==================== Copy Mode Operations ====================
@@ -549,7 +576,7 @@ async function isPaneCopyModeVisible(page, paneId) {
   return await page.evaluate((id) => {
     const pane = document.querySelector(`[data-pane-id="${id}"]`);
     if (!pane) return false;
-    const header = pane.querySelector('.pane-header, .pane-title');
+    const header = pane.querySelector('.pane-tab, .pane-title');
     return header && header.textContent.includes('[COPY MODE]');
   }, paneId);
 }
@@ -561,8 +588,8 @@ async function hasCopyModeStyling(page, paneId) {
   return await page.evaluate((id) => {
     const pane = document.querySelector(`[data-pane-id="${id}"]`);
     if (!pane) return false;
-    const header = pane.querySelector('.pane-header');
-    return header && header.classList.contains('pane-header-copy-mode');
+    const header = pane.querySelector('.pane-tab');
+    return header && header.classList.contains('pane-tab-copy-mode');
   }, paneId);
 }
 
@@ -573,6 +600,154 @@ async function getFirstPaneId(page) {
   return await page.evaluate(() => {
     const pane = document.querySelector('.pane-wrapper[data-pane-id]');
     return pane ? pane.getAttribute('data-pane-id') : null;
+  });
+}
+
+// ==================== Pane Group Operations ====================
+
+/**
+ * Click the "add to group" button on the active pane header
+ */
+async function clickPaneGroupAdd(page) {
+  // Use Playwright's native click for better React event handling
+  const button = await page.$('.pane-add-tab');
+  if (!button) throw new Error('Pane group add button not found');
+  await button.click();
+  await delay(DELAYS.SYNC);
+}
+
+/**
+ * Click the "+" button in a grouped pane's tab bar
+ */
+async function clickGroupTabAdd(page) {
+  // Use Playwright's native click for better React event handling
+  const button = await page.$('.pane-add-tab');
+  if (!button) throw new Error('Group tab add button not found');
+  await button.click();
+  await delay(DELAYS.SYNC);
+}
+
+/**
+ * Get the number of tabs in the pane group (0 if not grouped)
+ * If there are multiple panes, returns the tab count of the first grouped pane found
+ */
+async function getGroupTabCount(page) {
+  return await page.evaluate(() => {
+    // Find pane-tabs-rows that have more than 1 tab (grouped)
+    const tabRows = document.querySelectorAll('.pane-tabs-row');
+    for (const row of tabRows) {
+      const tabs = row.querySelectorAll('.pane-tab');
+      if (tabs.length > 1) {
+        return tabs.length; // Return the first grouped pane's tab count
+      }
+    }
+    return 0; // No grouped panes
+  });
+}
+
+/**
+ * Click a group tab by index (0-based)
+ */
+async function clickGroupTab(page, index) {
+  // Use Playwright's native click for better React event handling
+  const tabs = await page.$$('.pane-tabs-row .pane-tab');
+  if (index >= tabs.length) throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
+  await tabs[index].click();
+  await delay(DELAYS.SYNC);
+}
+
+/**
+ * Click the close button on a group tab by index (0-based)
+ */
+async function clickGroupTabClose(page, index) {
+  // Use Playwright's native click for better React event handling
+  const closeButtons = await page.$$('.pane-tabs-row .pane-tab-close');
+  if (index >= closeButtons.length) throw new Error(`Group tab close at index ${index} not found (${closeButtons.length} buttons)`);
+  await closeButtons[index].click();
+  await delay(DELAYS.SYNC);
+}
+
+/**
+ * Wait for a specific number of group tabs to appear in a grouped pane
+ * For single pane: waits for that pane to have expectedCount tabs
+ * For multiple panes: waits for any grouped pane to have expectedCount tabs
+ */
+async function waitForGroupTabs(page, expectedCount, timeout = 15000) {
+  try {
+    await page.waitForFunction(
+      (count) => {
+        const tabRows = document.querySelectorAll('.pane-tabs-row');
+        for (const row of tabRows) {
+          const tabs = row.querySelectorAll('.pane-tab');
+          if (tabs.length === count) {
+            return true;
+          }
+        }
+        return false;
+      },
+      expectedCount,
+      { timeout, polling: 100 }
+    );
+    return true;
+  } catch {
+    const actual = await getGroupTabCount(page);
+    throw new Error(`Expected ${expectedCount} group tabs, found ${actual} (timeout ${timeout}ms)`);
+  }
+}
+
+/**
+ * Check if any pane header is in grouped mode (has multiple tabs)
+ */
+async function isHeaderGrouped(page) {
+  return await page.evaluate(() => {
+    // Check if any pane-tabs-row has more than 1 tab
+    const tabRows = document.querySelectorAll('.pane-tabs-row');
+    for (const row of tabRows) {
+      if (row.querySelectorAll('.pane-tab').length > 1) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+/**
+ * Get info about group tabs (title, active state)
+ */
+async function getGroupTabInfo(page) {
+  return await page.evaluate(() => {
+    const tabs = document.querySelectorAll('.pane-tabs-row .pane-tab');
+    return Array.from(tabs).map((tab, index) => ({
+      index,
+      title: tab.querySelector('.pane-tab-title')?.textContent?.trim() || '',
+      active: tab.classList.contains('pane-tab-active'),
+    }));
+  });
+}
+
+/**
+ * Get pane header titles from the UI DOM
+ * Returns a map of pane_id -> header title text (stripped of close/add buttons)
+ */
+async function getUIPaneTitles(page) {
+  return await page.evaluate(() => {
+    const titles = {};
+    const panes = document.querySelectorAll('[data-pane-id]');
+    for (const pane of panes) {
+      const paneId = pane.getAttribute('data-pane-id');
+      // For grouped panes, get the active tab title
+      const groupTab = pane.querySelector('.pane-tab-active .pane-tab-title');
+      if (groupTab) {
+        titles[paneId] = groupTab.textContent?.trim() || '';
+        continue;
+      }
+      // For single panes, get the pane-tab-title span
+      const titleEl = pane.querySelector('.pane-tab-title');
+      if (titleEl) {
+        titles[paneId] = titleEl.textContent?.trim() || '';
+      }
+    }
+    return titles;
   });
 }
 
@@ -592,6 +767,7 @@ module.exports = {
   getPaneText,
   uiContainsText,
   runCommand,
+  runCommandViaTmux,
   runCommandWithDelay,
   // UI interactions
   clickPane,
@@ -624,4 +800,14 @@ module.exports = {
   isPaneCopyModeVisible,
   hasCopyModeStyling,
   getFirstPaneId,
+  // Pane groups
+  clickPaneGroupAdd,
+  clickGroupTabAdd,
+  getGroupTabCount,
+  clickGroupTab,
+  clickGroupTabClose,
+  waitForGroupTabs,
+  isHeaderGrouped,
+  getGroupTabInfo,
+  getUIPaneTitles,
 };

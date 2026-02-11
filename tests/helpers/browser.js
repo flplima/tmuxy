@@ -108,11 +108,10 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
  * Focus the page for keyboard input
  */
 async function focusPage(page) {
-  // Click on the terminal element to ensure focus
-  const terminal = await page.$('[role="log"]');
-  if (terminal) {
-    await terminal.click();
-  } else {
+  // Use locator instead of element handle to avoid DOM detachment on re-render
+  try {
+    await page.locator('[role="log"]').first().click({ timeout: 5000 });
+  } catch {
     await page.click('body');
   }
   await delay(DELAYS.MEDIUM);
@@ -139,6 +138,16 @@ async function waitForSessionReady(page, sessionName, timeout = 10000) {
     );
   } catch {
     console.log('Warning: Session may not be fully ready');
+  }
+
+  // Wait for adapter to be available and responding
+  try {
+    await page.waitForFunction(
+      () => typeof window._adapter?.invoke === 'function',
+      { timeout: 5000, polling: 100 }
+    );
+  } catch {
+    console.log('Warning: WebSocket adapter may not be available');
   }
 
   // Additional delay to ensure keyboard actor has received UPDATE_SESSION
