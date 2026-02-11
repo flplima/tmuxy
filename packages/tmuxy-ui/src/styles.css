@@ -215,10 +215,8 @@ body {
 
 .pane-content {
   padding: var(--spacing-md);
-  padding-top: 0;
   flex: 1;
-  border: 1px solid var(--pane-header-bg-inactive);
-  border-top: none;
+  border: 1px solid var(--border-medium);
   box-sizing: border-box;
 }
 
@@ -506,9 +504,8 @@ body {
   gap: var(--spacing-sm);
   padding: 0 var(--spacing-lg);
   height: 100%;
-  background-color: var(--pane-header-bg-inactive);
+  background-color: var(--border-medium);
   border: none;
-  border-right: 1px solid var(--border-subtle);
   cursor: pointer;
   transition: background-color var(--transition-fast);
   flex-shrink: 0;
@@ -516,12 +513,12 @@ body {
 }
 
 .pane-tab:hover {
-  background-color: #3a3a3a;
+  background-color: var(--border-light);
 }
 
 /* Selected tab in a group (but pane not active) - slightly brighter */
 .pane-tab-selected {
-  background-color: #3a3a3a;
+  background-color: var(--border-light);
 }
 
 /* Active tab: green background, black text */
