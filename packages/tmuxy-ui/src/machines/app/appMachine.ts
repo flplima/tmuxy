@@ -114,6 +114,20 @@ export const appMachine = setup({
             targetRows: event.rows,
           })
         );
+
+        // If connected but no panes yet, fetch initial state with correct viewport size
+        // This handles the race condition where TMUX_CONNECTED fires before SET_TARGET_SIZE
+        const needsInitialFetch = context.connected && context.panes.length === 0;
+        if (needsInitialFetch) {
+          enqueue(
+            sendTo('tmux', {
+              type: 'FETCH_INITIAL_STATE' as const,
+              cols: event.cols,
+              rows: event.rows,
+            })
+          );
+        }
+
         // Only resize if connected and target is smaller than current tmux size
         // This prevents resize loops when multiple clients have different viewports
         const shouldResize =
@@ -164,10 +178,25 @@ export const appMachine = setup({
       on: {
         TMUX_CONNECTED: {
           target: 'idle',
-          actions: [
-            assign({ connected: true, error: null }),
-            sendTo('size', { type: 'CONNECTED' as const }),
-          ],
+          actions: enqueueActions(({ context, enqueue }) => {
+            enqueue(assign({ connected: true, error: null }));
+            enqueue(sendTo('size', { type: 'CONNECTED' as const }));
+
+            // Only fetch initial state if we already have a computed target size
+            // If targetCols/targetRows are still defaults, SET_TARGET_SIZE will trigger the fetch
+            const hasComputedSize =
+              context.targetCols !== DEFAULT_COLS || context.targetRows !== DEFAULT_ROWS;
+            if (hasComputedSize) {
+              enqueue(
+                sendTo('tmux', {
+                  type: 'FETCH_INITIAL_STATE' as const,
+                  cols: context.targetCols,
+                  rows: context.targetRows,
+                })
+              );
+            }
+            // Otherwise, sizeActor will send SET_TARGET_SIZE which triggers FETCH_INITIAL_STATE
+          }),
         },
         TMUX_ERROR: {
           actions: assign(({ event }) => ({ error: event.error })),

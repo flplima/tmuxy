@@ -39,6 +39,8 @@ npm run test:e2e        # E2E tests (requires server + Chrome CDP)
 
 3. **Modular helpers** - Helpers live in the `helpers/` directory, organized by domain (e.g., `browser.js`, `ui.js`, `tmux.js`). Avoid monolithic files. Classes like `TmuxTestSession` encapsulate related functionality.
 
+4. **Commit after completing tasks** - After finishing a significant feature, bug fix, or task, always commit and push the changes. This preserves work and allows for incremental progress tracking.
+
 ### React Components
 
 1. **Avoid `useEffect`** - Do not use `useEffect` unless the alternative is significantly more complex. Side effects belong in the state machine, not in components.

@@ -601,7 +601,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
     let pane_infos = executor::get_all_panes_info(session_name)?;
     let window_infos = executor::get_windows(session_name)?;
 
-    // Find active window first (panes from get_all_panes_info belong to this window)
+    // Find active window
     let active_window_id = window_infos
         .iter()
         .find(|w| w.active)
@@ -626,8 +626,8 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
 
         panes.push(TmuxPane {
             id: info.index,
-            tmux_id: info.id,
-            window_id: active_window_id.clone().unwrap_or_default(),
+            tmux_id: info.id.clone(),
+            window_id: info.window_id,
             content: parse_ansi_to_cells(&content, info.width, info.height),
             cursor_x: info.cursor_x,
             cursor_y: info.cursor_y,

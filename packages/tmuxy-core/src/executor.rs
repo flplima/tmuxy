@@ -20,6 +20,7 @@ pub struct PaneInfo {
     pub in_mode: bool,   // true if pane is in copy mode
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
+    pub window_id: String,  // window this pane belongs to (e.g., "@0")
     pub group_id: Option<String>,       // from @tmuxy_pane_group_id
     pub group_tab_index: Option<u32>,   // from @tmuxy_pane_group_index
 }
@@ -334,47 +335,31 @@ pub fn resize_window_default(cols: u32, rows: u32) -> Result<(), String> {
 
 /// Get information about all panes in the current window
 pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
-    // Format uses tab delimiter to handle titles with commas
-    // Fields: pane_id, pane_index, pane_left, pane_top, pane_width, pane_height, cursor_x, cursor_y, pane_active, pane_current_command, pane_title, pane_in_mode, copy_cursor_x, copy_cursor_y
+    // Use comma delimiter (matching control mode state.rs parser)
+    // Fields: pane_id, pane_index, pane_left, pane_top, pane_width, pane_height, cursor_x, cursor_y, pane_active, pane_current_command, pane_title, pane_in_mode, copy_cursor_x, copy_cursor_y, window_id, border_title, group_id, group_tab_index
     let output = execute_tmux_command(&[
         "list-panes",
         "-t",
         session_name,
         "-F",
-        "#{pane_id}\t#{pane_index}\t#{pane_left}\t#{pane_top}\t#{pane_width}\t#{pane_height}\t#{cursor_x}\t#{cursor_y}\t#{pane_active}\t#{pane_current_command}\t#{pane_title}\t#{pane_in_mode}\t#{copy_cursor_x}\t#{copy_cursor_y}\t#{T:pane-border-format}\t#{@tmuxy_pane_group_id}\t#{@tmuxy_pane_group_index}",
+        "#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id},#{T:pane-border-format},#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index}",
     ])?;
 
     let mut panes = Vec::new();
 
     for line in output.lines() {
-        let parts: Vec<&str> = line.split('\t').collect();
+        let parts: Vec<&str> = line.split(',').collect();
         if parts.len() < 14 {
             continue;
         }
 
-        // Fields after copy_cursor_y (index 14):
-        // border_title (may contain tabs), then group_id, group_tab_index
-        // Parse from the end: last two fields are group_tab_index and group_id
-        let (border_title, group_id, group_tab_index) = if parts.len() > 16 {
-            // border_title may span multiple tab-separated fields
-            let border = parts[14..parts.len() - 2].join("\t");
-            let gid_str = parts[parts.len() - 2];
-            let gtab_str = parts[parts.len() - 1];
-            let gid = if gid_str.is_empty() { None } else { Some(gid_str.to_string()) };
-            let gtab = gtab_str.parse::<u32>().ok();
-            (border, gid, gtab)
-        } else if parts.len() == 16 {
-            // No border_title content, just group fields
-            let gid_str = parts[15];
-            let gid = if gid_str.is_empty() { None } else { Some(gid_str.to_string()) };
-            let gtab = parts.get(16).and_then(|s| s.parse::<u32>().ok());
-            // parts[14] is border_title (empty or single field)
-            (parts[14].to_string(), gid, gtab)
-        } else if parts.len() > 14 {
-            (parts[14..].join("\t"), None, None)
-        } else {
-            (String::new(), None, None)
-        };
+        // Parse optional fields from the end
+        let window_id = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
+        let border_title = parts.get(15).map(|s| s.to_string()).unwrap_or_default();
+        let group_id = parts.get(16).and_then(|s| {
+            if s.is_empty() { None } else { Some(s.to_string()) }
+        });
+        let group_tab_index = parts.get(17).and_then(|s| s.parse::<u32>().ok());
 
         let pane = PaneInfo {
             id: parts[0].to_string(),
@@ -392,6 +377,7 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
             in_mode: parts[11] == "1",
             copy_cursor_x: parts[12].parse().unwrap_or(0),
             copy_cursor_y: parts[13].parse().unwrap_or(0),
+            window_id,
             group_id,
             group_tab_index,
         };
