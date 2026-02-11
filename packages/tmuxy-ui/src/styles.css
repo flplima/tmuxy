@@ -486,10 +486,9 @@ body {
   /* Copy mode styling */
 }
 
-/* Pane tabs container - scrollable */
+/* Pane tabs container - no flex grow, just wrap content */
 .pane-tabs {
   display: flex;
-  flex: 1;
   overflow-x: auto;
   scrollbar-width: none;
   height: 100%;
