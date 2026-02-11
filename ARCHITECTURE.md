@@ -11,43 +11,39 @@ Tmuxy provides a browser-based UI for tmux sessions. It consists of:
 3. **tmuxy-ui** - React frontend with XState state machine
 4. **tauri-app** - Desktop app wrapper (optional)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Browser Clients                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                      │
-│  │ Client 1 │  │ Client 2 │  │ Client 3 │   ...                │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘                      │
-│       │             │             │                             │
-│       └─────────────┼─────────────┘                             │
-│                     │ WebSocket                                 │
-└─────────────────────┼───────────────────────────────────────────┘
-                      │
-┌─────────────────────┼───────────────────────────────────────────┐
-│                     ▼                                           │
-│              ┌─────────────┐                                    │
-│              │ Web Server  │  (Axum + WebSocket)                │
-│              └──────┬──────┘                                    │
-│                     │                                           │
-│         ┌───────────┴───────────┐                               │
-│         ▼                       ▼                               │
-│  ┌─────────────┐        ┌─────────────┐                         │
-│  │ Session A   │        │ Session B   │   (per-session)         │
-│  │ Connections │        │ Connections │                         │
-│  └──────┬──────┘        └──────┬──────┘                         │
-│         │                      │                                │
-│         ▼                      ▼                                │
-│  ┌─────────────┐        ┌─────────────┐                         │
-│  │  Monitor A  │        │  Monitor B  │   (one per session)     │
-│  └──────┬──────┘        └──────┬──────┘                         │
-│         │                      │                                │
-└─────────┼──────────────────────┼────────────────────────────────┘
-          │ control mode         │ control mode
-          │ (tmux -CC)           │ (tmux -CC)
-          ▼                      ▼
-    ┌───────────┐          ┌───────────┐
-    │  tmux     │          │  tmux     │
-    │ session A │          │ session B │
-    └───────────┘          └───────────┘
+```mermaid
+graph TD
+    subgraph Browsers["Browser Clients"]
+        C1[Client 1]
+        C2[Client 2]
+        C3[Client 3]
+    end
+
+    subgraph Server["Web Server (Axum + WebSocket)"]
+        WS[WebSocket Handler]
+
+        subgraph SA["Session A (per-session)"]
+            ConnsA[Connections]
+            MonA[Monitor A]
+        end
+
+        subgraph SB["Session B (per-session)"]
+            ConnsB[Connections]
+            MonB[Monitor B]
+        end
+    end
+
+    subgraph Tmux["tmux processes"]
+        TA["tmux session A"]
+        TB["tmux session B"]
+    end
+
+    C1 & C2 & C3 -->|WebSocket| WS
+    WS --> ConnsA & ConnsB
+    ConnsA --> MonA
+    ConnsB --> MonB
+    MonA <-->|"control mode (tmux -CC)"| TA
+    MonB <-->|"control mode (tmux -CC)"| TB
 ```
 
 ## Key Components
@@ -149,29 +145,26 @@ if let Some(tx) = command_tx {
 
 The React frontend uses XState for state management. All client logic lives in the state machine, not in React components.
 
-```
-┌─────────────────────────────────────────────┐
-│              appMachine                      │
-│  ┌─────────────────────────────────────┐    │
-│  │ Actors                              │    │
-│  │  ├─ tmuxActor (WebSocket)           │    │
-│  │  ├─ keyboardActor (input handling)  │    │
-│  │  └─ sizeActor (viewport tracking)   │    │
-│  └─────────────────────────────────────┘    │
-│                     │                        │
-│                     ▼                        │
-│  ┌─────────────────────────────────────┐    │
-│  │ Context (state)                     │    │
-│  │  ├─ panes, windows                  │    │
-│  │  ├─ activePaneId, activeWindowIndex │    │
-│  │  ├─ groups (pane groupings)         │    │
-│  │  └─ copyMode, prefixMode, etc.      │    │
-│  └─────────────────────────────────────┘    │
-└─────────────────────────────────────────────┘
-                      │
-                      ▼
-              React Components
-        (read state, send events)
+```mermaid
+graph TD
+    subgraph AppMachine["appMachine"]
+        subgraph Actors
+            TA["tmuxActor (WebSocket)"]
+            KA["keyboardActor (input handling)"]
+            SA["sizeActor (viewport tracking)"]
+        end
+
+        Actors --> Context
+
+        subgraph Context["Context (state)"]
+            PW["panes, windows"]
+            Active["activePaneId, activeWindowIndex"]
+            Groups["groups (pane groupings)"]
+            Modes["copyMode, prefixMode, etc."]
+        end
+    end
+
+    AppMachine --> RC["React Components<br/>(read state, send events)"]
 ```
 
 ## Data Flow
@@ -190,42 +183,26 @@ The React frontend uses XState for state management. All client logic lives in t
 
 ### State Update Flow
 
-```
-tmux session
-     │
-     │ control mode notifications (%output, %layout-change, etc.)
-     ▼
-TmuxMonitor
-     │
-     │ StateEmitter.emit_state(StateUpdate)
-     ▼
-WebSocketEmitter
-     │
-     │ broadcast::Sender.send(JSON)
-     ▼
-session_tx (broadcast channel)
-     │
-     ├──────────────┬──────────────┐
-     ▼              ▼              ▼
-  Client 1      Client 2      Client 3
+```mermaid
+graph TD
+    TS["tmux session"] -->|"control mode notifications<br/>(%output, %layout-change, etc.)"| TM[TmuxMonitor]
+    TM -->|"StateEmitter.emit_state(StateUpdate)"| WSE[WebSocketEmitter]
+    WSE -->|"broadcast::Sender.send(JSON)"| STX["session_tx (broadcast channel)"]
+    STX --> C1[Client 1]
+    STX --> C2[Client 2]
+    STX --> C3[Client 3]
 ```
 
 ### Command Execution Flow
 
-```
-Client
-     │
-     │ { "type": "invoke", "cmd": "send_keys", "args": {...} }
-     ▼
-WebSocket Handler
-     │
-     │ match cmd
-     ▼
-executor::send_keys()  ──or──  monitor_command_tx.send()
-     │                              │
-     │ subprocess                   │ through control mode
-     ▼                              ▼
-   tmux                           tmux
+```mermaid
+graph TD
+    Client -->|'invoke: send_keys'| WSH[WebSocket Handler]
+    WSH -->|match cmd| Decision{route}
+    Decision -->|subprocess| Exec["executor::send_keys()"]
+    Decision -->|through control mode| Mon["monitor_command_tx.send()"]
+    Exec --> Tmux1[tmux]
+    Mon --> Tmux2[tmux]
 ```
 
 ## Tmux Configuration
@@ -277,10 +254,18 @@ When tmux control mode (`tmux -CC`) is attached to a session, running external `
 
 ### Architecture
 
-```
-Frontend → WebSocket → send_via_control_mode() → Monitor → stdin → tmux -CC
-                                                     ↑
-Events:  Frontend ← WebSocket ← Monitor ← stdout ← tmux -CC
+```mermaid
+graph LR
+    subgraph Commands
+        FE1[Frontend] -->|WebSocket| SCM["send_via_control_mode()"]
+        SCM --> Mon[Monitor]
+        Mon -->|stdin| TMX["tmux -CC"]
+    end
+
+    subgraph Events
+        TMX2["tmux -CC"] -->|stdout| Mon2[Monitor]
+        Mon2 -->|WebSocket| FE2[Frontend]
+    end
 ```
 
 ### Implementation
@@ -324,7 +309,7 @@ Use tmux short command aliases (preferred in control mode):
 
 **Note:** `new` is short for `new-session`, NOT `new-window`. Use `neww` for creating windows.
 
-See [learnings/2026_02_09_tmux_control_mode.md](/workspace/learnings/2026_02_09_tmux_control_mode.md) for detailed documentation.
+See [.agents/learnings/2026_02_09_tmux_control_mode.md](.agents/learnings/2026_02_09_tmux_control_mode.md) for detailed documentation.
 
 ## Key Design Decisions
 

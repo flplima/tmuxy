@@ -35,5 +35,9 @@ src-tauri/target
 # BDG session files
 .bdg/
 
+# Agent local settings (not shared)
+.agents/settings.local.json
+.agents/CLAUDE.local.md
+
 # Test snapshots
 snapshots/
