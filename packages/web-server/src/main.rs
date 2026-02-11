@@ -17,8 +17,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::signal;
 use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
+use tmuxy_core::control_mode::MonitorCommandSender;
 use tmuxy_core::session;
 
 
@@ -57,7 +59,7 @@ impl ViteChild {
     }
 }
 
-/// Tracks connections for a single tmux session
+/// Tracks connections and shared resources for a single tmux session
 pub struct SessionConnections {
     /// ID of the primary (controlling) connection, if any
     pub primary_id: Option<u64>,
@@ -65,14 +67,27 @@ pub struct SessionConnections {
     pub connections: Vec<u64>,
     /// Channels to send messages to specific connections (for primary_changed notifications)
     pub connection_channels: HashMap<u64, mpsc::Sender<String>>,
+    /// Each client's reported viewport size (cols, rows) for min-size computation
+    pub client_sizes: HashMap<u64, (u32, u32)>,
+    /// Sender for commands to the session's monitor (resize, etc.)
+    pub monitor_command_tx: Option<MonitorCommandSender>,
+    /// Broadcast channel for state updates (shared by all clients in this session)
+    pub state_tx: broadcast::Sender<String>,
+    /// Handle to the monitor task (so we can stop it when last client leaves)
+    pub monitor_handle: Option<JoinHandle<()>>,
 }
 
 impl SessionConnections {
     pub fn new() -> Self {
+        let (state_tx, _) = broadcast::channel(100);
         Self {
             primary_id: None,
             connections: Vec::new(),
             connection_channels: HashMap::new(),
+            client_sizes: HashMap::new(),
+            monitor_command_tx: None,
+            state_tx,
+            monitor_handle: None,
         }
     }
 }
@@ -92,14 +107,10 @@ async fn main() {
     let dev_mode = std::env::args().any(|arg| arg == "--dev")
         || std::env::var("TMUXY_DEV").is_ok();
 
-    // Initialize tmux session
-    match session::create_or_attach_default() {
-        Ok(_) => println!("tmuxy session initialized"),
-        Err(e) => {
-            eprintln!("Failed to create tmux session: {}", e);
-            eprintln!("Make sure tmux is installed and available in PATH");
-        }
-    }
+    // Note: We intentionally don't create the default tmux session at startup.
+    // Sessions are created on-demand when clients connect (via WebSocket handler).
+    // This avoids tmux 3.3a crashes when external tmux commands are run while
+    // control mode is attached to any session.
 
     // Create broadcast channel for state updates (kept for backward compatibility)
     let (broadcast_tx, _) = broadcast::channel::<String>(100);

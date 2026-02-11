@@ -60,11 +60,6 @@ fn is_octal_digit(b: u8) -> bool {
     b >= b'0' && b <= b'7'
 }
 
-/// Decode octal escapes and convert to String (lossy)
-pub fn decode_octal_to_string(input: &str) -> String {
-    String::from_utf8_lossy(&decode_octal(input)).into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,10 +139,4 @@ mod tests {
         assert_eq!(decoded[2], b'8');
     }
 
-    #[test]
-    fn test_decode_to_string() {
-        let input = r"Hello\033[1mWorld";
-        let result = decode_octal_to_string(input);
-        assert_eq!(result, "Hello\x1b[1mWorld");
-    }
 }

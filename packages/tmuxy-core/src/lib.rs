@@ -5,7 +5,7 @@ pub mod session;
 use serde::{Deserialize, Serialize};
 
 // Re-export key binding types and functions
-pub use executor::{get_prefix_bindings, get_prefix_key, KeyBinding};
+pub use executor::{get_prefix_bindings, get_prefix_key, get_root_bindings, process_key, KeyBinding};
 
 /// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";
@@ -223,6 +223,14 @@ pub struct TmuxPane {
     /// When true, UI should show a pause indicator
     #[serde(default)]
     pub paused: bool,
+    /// Pane group ID (from @tmuxy_pane_group_id user option)
+    /// When set, this pane belongs to the group identified by this ID (parent pane's tmux_id)
+    #[serde(default)]
+    pub group_id: Option<String>,
+    /// Pane group tab index (from @tmuxy_pane_group_index user option)
+    /// Determines tab ordering within the group (0, 1, 2...)
+    #[serde(default)]
+    pub group_tab_index: Option<u32>,
 }
 
 /// A single tmux window (tab)
@@ -242,9 +250,15 @@ pub struct TmuxWindow {
     /// True if this is a hidden float window (name starts with "__float_")
     #[serde(default)]
     pub is_float_window: bool,
-    /// Pane ID if this is a float window (e.g., "%5")
+    /// Parent window ID for float window (from @float_parent option)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub float_pane_id: Option<String>,
+    pub float_parent: Option<String>,
+    /// Float window width in chars (from @float_width option)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_width: Option<u32>,
+    /// Float window height in chars (from @float_height option)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_height: Option<u32>,
 }
 
 /// Info parsed from a pane group window name
@@ -253,28 +267,10 @@ pub struct PaneGroupWindowInfo {
     pub pane_group_index: u32,
 }
 
-/// Info parsed from a float window name
-pub struct FloatWindowInfo {
-    pub pane_id: String,
-}
-
-/// Parse a float window name pattern: "__float_{pane_num}"
-/// Returns None if the name doesn't match the pattern
-pub fn parse_float_window_name(name: &str) -> Option<FloatWindowInfo> {
-    // Pattern: __float_{pane_num}
-    // Example: __float_5 (for pane %5)
-    if !name.starts_with("__float_") {
-        return None;
-    }
-
-    let pane_num = &name[8..]; // Skip "__float_"
-    if pane_num.is_empty() || !pane_num.chars().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
-
-    Some(FloatWindowInfo {
-        pane_id: format!("%{}", pane_num),
-    })
+/// Check if a window name matches the float window pattern: "__float_{title}"
+/// Returns true if the name starts with "__float_"
+pub fn is_float_window_name(name: &str) -> bool {
+    name.starts_with("__float_")
 }
 
 /// Parse a pane group window name pattern: "__%{pane_id}_group_{n}"
@@ -359,6 +355,9 @@ pub struct TmuxError {
 /// Delta update for a single pane (only changed fields)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PaneDelta {
+    /// Window ID (only if changed, e.g. after swap-pane across windows)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<String>,
     /// Content (only if changed) - structured cells or ANSI strings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<PaneContent>,
@@ -405,11 +404,18 @@ pub struct PaneDelta {
     /// Flow control pause state (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused: Option<bool>,
+    /// Pane group ID (only if changed): Some(Some(x)) = set, Some(None) = cleared, None = unchanged
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<Option<String>>,
+    /// Pane group tab index (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_tab_index: Option<Option<u32>>,
 }
 
 impl PaneDelta {
     pub fn is_empty(&self) -> bool {
-        self.content.is_none()
+        self.window_id.is_none()
+            && self.content.is_none()
             && self.cursor_x.is_none()
             && self.cursor_y.is_none()
             && self.width.is_none()
@@ -426,6 +432,8 @@ impl PaneDelta {
             && self.alternate_on.is_none()
             && self.mouse_any_flag.is_none()
             && self.paused.is_none()
+            && self.group_id.is_none()
+            && self.group_tab_index.is_none()
     }
 }
 
@@ -445,7 +453,11 @@ pub struct WindowDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_float_window: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub float_pane_id: Option<Option<String>>,
+    pub float_parent: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_width: Option<Option<u32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_height: Option<Option<u32>>,
 }
 
 impl WindowDelta {
@@ -456,7 +468,9 @@ impl WindowDelta {
             && self.pane_group_parent_pane.is_none()
             && self.pane_group_index.is_none()
             && self.is_float_window.is_none()
-            && self.float_pane_id.is_none()
+            && self.float_parent.is_none()
+            && self.float_width.is_none()
+            && self.float_height.is_none()
     }
 }
 
@@ -632,6 +646,8 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             alternate_on: false,
             mouse_any_flag: false,
             paused: false,
+            group_id: info.group_id,
+            group_tab_index: info.group_tab_index,
         });
     }
 
@@ -641,17 +657,20 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
         .map(|w| {
             // Check if this is a pane group or float window
             let pane_group_info = parse_pane_group_window_name(&w.name);
-            let float_info = parse_float_window_name(&w.name);
             TmuxWindow {
                 id: w.id,
                 index: w.index,
-                name: w.name,
+                name: w.name.clone(),
                 active: w.active,
                 is_pane_group_window: pane_group_info.is_some(),
                 pane_group_parent_pane: pane_group_info.as_ref().map(|g| g.parent_pane_id.clone()),
                 pane_group_index: pane_group_info.as_ref().map(|g| g.pane_group_index),
-                is_float_window: float_info.is_some(),
-                float_pane_id: float_info.map(|f| f.pane_id),
+                is_float_window: is_float_window_name(&w.name),
+                // Float window options are only available in control mode (via list-windows)
+                // Polling mode doesn't support these
+                float_parent: None,
+                float_width: None,
+                float_height: None,
             }
         })
         .collect();

@@ -15,9 +15,13 @@ pub struct PaneInfo {
     pub cursor_y: u32,
     pub active: bool,
     pub command: String, // current running command (e.g., "bash", "vim")
+    pub title: String,   // pane title (set by shell/application)
+    pub border_title: String, // evaluated pane-border-format
     pub in_mode: bool,   // true if pane is in copy mode
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
+    pub group_id: Option<String>,       // from @tmuxy_pane_group_id
+    pub group_tab_index: Option<u32>,   // from @tmuxy_pane_group_index
 }
 
 /// Information about a tmux window
@@ -280,17 +284,47 @@ pub fn resize_pane_default(pane_id: &str, direction: &str, adjustment: u32) -> R
     resize_pane(pane_id, direction, adjustment)
 }
 
-/// Resize the entire tmux window to specific dimensions (columns x rows)
+/// Resize all tmux windows in the session to specific dimensions (columns x rows).
+/// This ensures hidden windows (e.g., pane group containers) stay in sync with the viewport.
 pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<(), String> {
-    execute_tmux_command(&[
-        "resize-window",
+    eprintln!("[resize_window] session={} cols={} rows={}", session_name, cols, rows);
+    let cols_str = cols.to_string();
+    let rows_str = rows.to_string();
+
+    // List all window IDs in the session
+    let output = execute_tmux_command(&[
+        "list-windows",
         "-t",
         session_name,
-        "-x",
-        &cols.to_string(),
-        "-y",
-        &rows.to_string(),
+        "-F",
+        "#{window_id}",
     ])?;
+
+    let window_ids: Vec<&str> = output.trim().lines().filter(|l| !l.is_empty()).collect();
+    eprintln!("[resize_window] window_ids={:?}", window_ids);
+    if window_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Build a single compound command: resize-window -t @1 -x C -y R \; resize-window -t @2 ...
+    let mut args: Vec<&str> = Vec::new();
+    for (i, window_id) in window_ids.iter().enumerate() {
+        if i > 0 {
+            args.push(";");
+        }
+        args.push("resize-window");
+        args.push("-t");
+        args.push(window_id);
+        args.push("-x");
+        args.push(&cols_str);
+        args.push("-y");
+        args.push(&rows_str);
+    }
+
+    eprintln!("[resize_window] executing: tmux {:?}", args);
+    let result = execute_tmux_command(&args);
+    eprintln!("[resize_window] result={:?}", result);
+    result?;
     Ok(())
 }
 
@@ -300,22 +334,47 @@ pub fn resize_window_default(cols: u32, rows: u32) -> Result<(), String> {
 
 /// Get information about all panes in the current window
 pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
-    // Format: pane_id,pane_index,pane_left,pane_top,pane_width,pane_height,cursor_x,cursor_y,pane_active,pane_current_command,pane_in_mode,copy_cursor_x,copy_cursor_y
+    // Format uses tab delimiter to handle titles with commas
+    // Fields: pane_id, pane_index, pane_left, pane_top, pane_width, pane_height, cursor_x, cursor_y, pane_active, pane_current_command, pane_title, pane_in_mode, copy_cursor_x, copy_cursor_y
     let output = execute_tmux_command(&[
         "list-panes",
         "-t",
         session_name,
         "-F",
-        "#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y}",
+        "#{pane_id}\t#{pane_index}\t#{pane_left}\t#{pane_top}\t#{pane_width}\t#{pane_height}\t#{cursor_x}\t#{cursor_y}\t#{pane_active}\t#{pane_current_command}\t#{pane_title}\t#{pane_in_mode}\t#{copy_cursor_x}\t#{copy_cursor_y}\t#{T:pane-border-format}\t#{@tmuxy_pane_group_id}\t#{@tmuxy_pane_group_index}",
     ])?;
 
     let mut panes = Vec::new();
 
     for line in output.lines() {
-        let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() != 13 {
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 14 {
             continue;
         }
+
+        // Fields after copy_cursor_y (index 14):
+        // border_title (may contain tabs), then group_id, group_tab_index
+        // Parse from the end: last two fields are group_tab_index and group_id
+        let (border_title, group_id, group_tab_index) = if parts.len() > 16 {
+            // border_title may span multiple tab-separated fields
+            let border = parts[14..parts.len() - 2].join("\t");
+            let gid_str = parts[parts.len() - 2];
+            let gtab_str = parts[parts.len() - 1];
+            let gid = if gid_str.is_empty() { None } else { Some(gid_str.to_string()) };
+            let gtab = gtab_str.parse::<u32>().ok();
+            (border, gid, gtab)
+        } else if parts.len() == 16 {
+            // No border_title content, just group fields
+            let gid_str = parts[15];
+            let gid = if gid_str.is_empty() { None } else { Some(gid_str.to_string()) };
+            let gtab = parts.get(16).and_then(|s| s.parse::<u32>().ok());
+            // parts[14] is border_title (empty or single field)
+            (parts[14].to_string(), gid, gtab)
+        } else if parts.len() > 14 {
+            (parts[14..].join("\t"), None, None)
+        } else {
+            (String::new(), None, None)
+        };
 
         let pane = PaneInfo {
             id: parts[0].to_string(),
@@ -328,9 +387,13 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
             cursor_y: parts[7].parse().unwrap_or(0),
             active: parts[8] == "1",
             command: parts[9].to_string(),
-            in_mode: parts[10] == "1",
-            copy_cursor_x: parts[11].parse().unwrap_or(0),
-            copy_cursor_y: parts[12].parse().unwrap_or(0),
+            title: parts[10].to_string(),
+            border_title,
+            in_mode: parts[11] == "1",
+            copy_cursor_x: parts[12].parse().unwrap_or(0),
+            copy_cursor_y: parts[13].parse().unwrap_or(0),
+            group_id,
+            group_tab_index,
         };
 
         panes.push(pane);
@@ -382,6 +445,313 @@ pub fn get_windows(session_name: &str) -> Result<Vec<WindowInfo>, String> {
 
 pub fn get_windows_default() -> Result<Vec<WindowInfo>, String> {
     get_windows(DEFAULT_SESSION_NAME)
+}
+
+/// Capture the rendered tmux status line with ANSI escape sequences.
+/// Produces a full-width string with spaces between left+windows and right sections,
+/// matching tmux's actual rendered status bar output.
+pub fn capture_status_line(session_name: &str, width: usize) -> Result<String, String> {
+    // Get status-left-length and status-right-length from tmux options
+    let meta = execute_tmux_command(&[
+        "display-message", "-t", session_name, "-p",
+        "#{status-left-length}\n#{status-right-length}",
+    ])?;
+    let meta_lines: Vec<&str> = meta.trim_end().lines().collect();
+    let max_left_len: usize = meta_lines.get(0).and_then(|s| s.parse().ok()).unwrap_or(30);
+    let max_right_len: usize = meta_lines.get(1).and_then(|s| s.parse().ok()).unwrap_or(50);
+
+    // Get status-left (rendered) - preserve trailing spaces from format
+    let left_raw = execute_tmux_command(&[
+        "display-message", "-t", session_name, "-p", "#{T:status-left}",
+    ])?;
+    let left_raw = left_raw.trim_end_matches('\n').to_string();
+
+    // Get window list - add separator space after each window format, then trim
+    // the trailing one (separator only goes between windows, not after the last)
+    let windows_raw = execute_tmux_command(&[
+        "display-message", "-t", session_name, "-p",
+        "#{W:#{T:window-status-format} ,#{T:window-status-current-format} }",
+    ])?;
+    let windows_raw = windows_raw.trim_end_matches('\n')
+        .strip_suffix(' ').unwrap_or(windows_raw.trim_end_matches('\n'))
+        .to_string();
+
+    // Get status-right: first get the raw format, evaluate #(cmd) patterns,
+    // then pass back through display-message for variable expansion
+    let right_format = execute_tmux_command(&[
+        "display-message", "-t", session_name, "-p", "#{status-right}",
+    ])?;
+    let right_format = evaluate_shell_commands(right_format.trim_end_matches('\n'));
+    let right_raw = execute_tmux_command(&[
+        "display-message", "-t", session_name, "-p", &right_format,
+    ])?;
+    let right_raw = right_raw.trim_end_matches('\n').to_string();
+
+    // Convert tmux style codes to ANSI and unescape ## → #
+    let left_ansi = convert_tmux_style_to_ansi(&left_raw);
+    let windows_ansi = convert_tmux_style_to_ansi(&windows_raw);
+    let right_ansi = convert_tmux_style_to_ansi(&right_raw);
+
+    // Measure visible lengths (strip ANSI codes)
+    let left_visible_len = visible_len(&left_ansi).min(max_left_len);
+    let windows_visible_len = visible_len(&windows_ansi);
+    let right_visible_len = visible_len(&right_ansi).min(max_right_len);
+
+    // Truncate left/right sections to their max lengths if needed
+    let left_ansi = truncate_ansi(&left_ansi, max_left_len);
+    let right_ansi = truncate_ansi(&right_ansi, max_right_len);
+
+    // Calculate padding between left+windows and right
+    let left_windows_len = left_visible_len + windows_visible_len;
+    let padding = if left_windows_len + right_visible_len < width {
+        width - left_windows_len - right_visible_len
+    } else {
+        1 // At least one space separator
+    };
+
+    Ok(format!("{}{}{}{}", left_ansi, windows_ansi, " ".repeat(padding), right_ansi))
+}
+
+/// Evaluate #(cmd) patterns in a tmux format string by running the shell commands
+fn evaluate_shell_commands(input: &str) -> String {
+    let mut result = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '#' && chars.peek() == Some(&'(') {
+            chars.next(); // consume '('
+            let mut cmd = String::new();
+            let mut depth = 1;
+            while let Some(&ch) = chars.peek() {
+                chars.next();
+                if ch == '(' {
+                    depth += 1;
+                    cmd.push(ch);
+                } else if ch == ')' {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                    cmd.push(ch);
+                } else {
+                    cmd.push(ch);
+                }
+            }
+            // Execute the command and use its output
+            if let Ok(output) = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&cmd)
+                .output()
+            {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                result.push_str(stdout.trim_end_matches('\n'));
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+/// Calculate visible length of a string (strips ANSI escape codes)
+fn visible_len(s: &str) -> usize {
+    let mut len = 0;
+    let mut in_escape = false;
+    for c in s.chars() {
+        if in_escape {
+            if c == 'm' {
+                in_escape = false;
+            }
+        } else if c == '\x1b' {
+            in_escape = true;
+        } else {
+            len += 1;
+        }
+    }
+    len
+}
+
+/// Truncate a string with ANSI codes to a maximum visible length
+fn truncate_ansi(s: &str, max_visible: usize) -> String {
+    let mut result = String::new();
+    let mut visible_count = 0;
+    let mut in_escape = false;
+
+    for c in s.chars() {
+        if in_escape {
+            result.push(c);
+            if c == 'm' {
+                in_escape = false;
+            }
+        } else if c == '\x1b' {
+            in_escape = true;
+            result.push(c);
+        } else {
+            if visible_count >= max_visible {
+                break;
+            }
+            result.push(c);
+            visible_count += 1;
+        }
+    }
+
+    result
+}
+
+/// Convert tmux style codes like #[fg=#89b4fa,bold] to ANSI escape codes.
+/// Also unescapes ## → # (tmux's escape for literal # in format output).
+fn convert_tmux_style_to_ansi(input: &str) -> String {
+    let mut result = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '#' {
+            match chars.peek() {
+                Some(&'[') => {
+                    // Parse tmux style code #[...]
+                    chars.next(); // consume '['
+                    let mut style = String::new();
+                    while let Some(&ch) = chars.peek() {
+                        if ch == ']' {
+                            chars.next();
+                            break;
+                        }
+                        style.push(chars.next().unwrap());
+                    }
+                    let ansi = tmux_style_to_ansi(&style);
+                    result.push_str(&ansi);
+                }
+                Some(&'#') => {
+                    // ## is tmux's escape for a literal #
+                    chars.next(); // consume second '#'
+                    result.push('#');
+                }
+                _ => {
+                    result.push(c);
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+/// Convert a single tmux style specification to ANSI escape sequence
+fn tmux_style_to_ansi(style: &str) -> String {
+    if style.is_empty() || style == "default" {
+        return "\x1b[0m".to_string();
+    }
+
+    let mut codes = Vec::new();
+
+    for part in style.split(',') {
+        let part = part.trim();
+
+        if part == "bold" {
+            codes.push("1".to_string());
+        } else if part == "dim" {
+            codes.push("2".to_string());
+        } else if part == "italic" {
+            codes.push("3".to_string());
+        } else if part == "underscore" || part == "underline" {
+            codes.push("4".to_string());
+        } else if part == "blink" {
+            codes.push("5".to_string());
+        } else if part == "reverse" {
+            codes.push("7".to_string());
+        } else if part == "hidden" {
+            codes.push("8".to_string());
+        } else if part == "strikethrough" {
+            codes.push("9".to_string());
+        } else if part == "nobold" {
+            codes.push("22".to_string());
+        } else if part == "nodim" {
+            codes.push("22".to_string());
+        } else if part == "noitalic" {
+            codes.push("23".to_string());
+        } else if part == "nounderscore" || part == "nounderline" {
+            codes.push("24".to_string());
+        } else if part == "noblink" {
+            codes.push("25".to_string());
+        } else if part == "noreverse" {
+            codes.push("27".to_string());
+        } else if part == "nohidden" {
+            codes.push("28".to_string());
+        } else if part == "nostrikethrough" {
+            codes.push("29".to_string());
+        } else if let Some(color) = part.strip_prefix("fg=") {
+            if let Some(ansi) = color_to_ansi(color, true) {
+                codes.push(ansi);
+            }
+        } else if let Some(color) = part.strip_prefix("bg=") {
+            if let Some(ansi) = color_to_ansi(color, false) {
+                codes.push(ansi);
+            }
+        }
+    }
+
+    if codes.is_empty() {
+        String::new()
+    } else {
+        format!("\x1b[{}m", codes.join(";"))
+    }
+}
+
+/// Convert a tmux color specification to ANSI code
+fn color_to_ansi(color: &str, is_fg: bool) -> Option<String> {
+    let base = if is_fg { 38 } else { 48 };
+
+    if color == "default" {
+        return Some(if is_fg { "39".to_string() } else { "49".to_string() });
+    }
+
+    // Hex color: #RRGGBB
+    if let Some(hex) = color.strip_prefix('#') {
+        if hex.len() == 6 {
+            if let (Ok(r), Ok(g), Ok(b)) = (
+                u8::from_str_radix(&hex[0..2], 16),
+                u8::from_str_radix(&hex[2..4], 16),
+                u8::from_str_radix(&hex[4..6], 16),
+            ) {
+                return Some(format!("{};2;{};{};{}", base, r, g, b));
+            }
+        }
+    }
+
+    // Color index (0-255)
+    if let Ok(idx) = color.parse::<u8>() {
+        return Some(format!("{};5;{}", base, idx));
+    }
+
+    // Named colors
+    let color_code = match color.to_lowercase().as_str() {
+        "black" => Some(0),
+        "red" => Some(1),
+        "green" => Some(2),
+        "yellow" => Some(3),
+        "blue" => Some(4),
+        "magenta" => Some(5),
+        "cyan" => Some(6),
+        "white" => Some(7),
+        "brightblack" => Some(8),
+        "brightred" => Some(9),
+        "brightgreen" => Some(10),
+        "brightyellow" => Some(11),
+        "brightblue" => Some(12),
+        "brightmagenta" => Some(13),
+        "brightcyan" => Some(14),
+        "brightwhite" => Some(15),
+        _ => None,
+    };
+
+    color_code.map(|idx| format!("{};5;{}", base, idx))
+}
+
+pub fn capture_status_line_default(width: usize) -> Result<String, String> {
+    capture_status_line(DEFAULT_SESSION_NAME, width)
 }
 
 /// Close/kill the current window
@@ -559,49 +929,63 @@ fn find_window_arg<'a>(parts: &'a [&'a str]) -> Option<&'a str> {
 fn validate_and_fix_target(session_name: &str, cmd: &str, command_name: &str) -> Result<String, String> {
     // For commands with -t, check if the target includes the session
     // If it's just a pane ID (%N) or window ID (@N), those are global and fine
-    // If it's a window index without session, prepend the session
+    // If it's a window index without session (e.g., :1234), prepend the session
 
-    let mut result = cmd.to_string();
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    let mut new_parts: Vec<String> = Vec::new();
+    let mut i = 0;
 
-    // Special handling for select-window with -t index
-    if command_name == "select-window" {
-        // Pattern: select-window -t N (where N is just a number)
-        let re_pattern = format!(r"-t\s+(\d+)(?:\s|$)");
-        if let Ok(re) = regex::Regex::new(&re_pattern) {
-            if let Some(caps) = re.captures(&result) {
-                if let Some(m) = caps.get(1) {
-                    let window_idx = m.as_str();
-                    let new_target = format!("{}:{}", session_name, window_idx);
-                    result = result.replace(&format!("-t {}", window_idx), &format!("-t {}", new_target));
-                }
-            }
+    while i < parts.len() {
+        if parts[i] == "-t" && i + 1 < parts.len() {
+            let target = parts[i + 1];
+            new_parts.push("-t".to_string());
+
+            // Check if target needs session prefix
+            let fixed_target = fix_target_session(session_name, target, command_name);
+            new_parts.push(fixed_target);
+            i += 2;
+            continue;
+        }
+        new_parts.push(parts[i].to_string());
+        i += 1;
+    }
+
+    Ok(new_parts.join(" "))
+}
+
+/// Fix a target string to include session name if needed
+fn fix_target_session(session_name: &str, target: &str, command_name: &str) -> String {
+    // Pane IDs (%N) and window IDs (@N) are global - don't modify
+    if target.starts_with('%') || target.starts_with('@') {
+        return target.to_string();
+    }
+
+    // If target already has session:window format, leave it
+    if target.contains(':') {
+        // Target is like ":1234" (current session, window 1234) or "session:window"
+        // If it starts with ':', it means "current session" - prepend our session
+        if target.starts_with(':') {
+            return format!("{}{}", session_name, target);
+        }
+        // Already has explicit session
+        return target.to_string();
+    }
+
+    // For window-related commands, bare numbers are window indices
+    let window_commands = [
+        "select-window", "new-window", "kill-window", "resize-window",
+        "swap-window", "move-window", "link-window", "unlink-window",
+    ];
+
+    if window_commands.contains(&command_name) {
+        // Bare number is a window index - prepend session
+        if target.parse::<u32>().is_ok() {
+            return format!("{}:{}", session_name, target);
         }
     }
 
-    // For resize-window, if target is just a number, prepend session
-    if command_name == "resize-window" {
-        // Check if -t value is just a number (window index) instead of session:window
-        let parts: Vec<&str> = result.split_whitespace().collect();
-        let mut new_parts: Vec<String> = Vec::new();
-        let mut i = 0;
-        while i < parts.len() {
-            if parts[i] == "-t" && i + 1 < parts.len() {
-                let target = parts[i + 1];
-                // If target doesn't contain ':' and isn't a % or @ reference
-                if !target.contains(':') && !target.starts_with('%') && !target.starts_with('@') {
-                    new_parts.push("-t".to_string());
-                    new_parts.push(format!("{}:{}", session_name, target));
-                    i += 2;
-                    continue;
-                }
-            }
-            new_parts.push(parts[i].to_string());
-            i += 1;
-        }
-        result = new_parts.join(" ");
-    }
-
-    Ok(result)
+    // Default: return as-is (might be a pane reference or other valid target)
+    target.to_string()
 }
 
 /// Execute a prefix key binding by looking up the binding in tmux and executing it
@@ -773,8 +1157,70 @@ pub fn get_prefix_key() -> Result<String, String> {
     Ok("C-b".to_string()) // Default prefix
 }
 
+/// Get all root key bindings from tmux (bind -n keybindings)
+/// These are keybindings that work without pressing the prefix key first
+pub fn get_root_bindings() -> Result<Vec<KeyBinding>, String> {
+    let output = execute_tmux_command(&["list-keys", "-T", "root"])?;
+
+    let mut bindings = Vec::new();
+
+    for line in output.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+
+        // Format: bind-key -T root C-h select-pane -L
+        if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == "root" {
+            let bound_key = parts[3];
+
+            // Unescape the key
+            let key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
+                bound_key[1..].to_string()
+            } else {
+                bound_key.to_string()
+            };
+
+            // Get the command (everything after the key)
+            let command = parts[4..].join(" ");
+
+            bindings.push(KeyBinding {
+                key,
+                command,
+                description: String::new(),
+            });
+        }
+    }
+
+    Ok(bindings)
+}
+
+/// Process a key press - check root bindings first, then send-keys
+/// This allows `bind -n` keybindings to work through the web interface
+pub fn process_key(session_name: &str, key: &str) -> Result<(), String> {
+    // Get root bindings and check if this key matches
+    if let Ok(bindings) = get_root_bindings() {
+        for binding in bindings {
+            if binding.key == key {
+                // Execute the bound command instead of send-keys
+                // Replace any #{...} or session references with the actual session
+                let command = binding.command
+                    .replace("#{session_name}", session_name);
+
+                return run_tmux_command_for_session(session_name, &command).map(|_| ());
+            }
+        }
+    }
+
+    // No root binding found - send the key normally
+    send_keys(session_name, key)
+}
+
+pub fn process_key_default(key: &str) -> Result<(), String> {
+    process_key(crate::DEFAULT_SESSION_NAME, key)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_pane_info_parsing() {
         let output = "80,24,5,10";
@@ -795,5 +1241,62 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0], "line1");
         assert_eq!(lines[2], "line3");
+    }
+
+    #[test]
+    fn test_fix_target_session_pane_id() {
+        // Pane IDs should not be modified
+        assert_eq!(fix_target_session("tmuxy", "%0", "select-pane"), "%0");
+        assert_eq!(fix_target_session("tmuxy", "%123", "swap-pane"), "%123");
+    }
+
+    #[test]
+    fn test_fix_target_session_window_id() {
+        // Window IDs (@N) should not be modified
+        assert_eq!(fix_target_session("tmuxy", "@0", "kill-window"), "@0");
+        assert_eq!(fix_target_session("tmuxy", "@5", "select-window"), "@5");
+    }
+
+    #[test]
+    fn test_fix_target_session_colon_prefix() {
+        // :N means "window N in current session" - should prepend session
+        assert_eq!(fix_target_session("tmuxy", ":1234", "new-window"), "tmuxy:1234");
+        assert_eq!(fix_target_session("tmuxy", ":0", "select-window"), "tmuxy:0");
+    }
+
+    #[test]
+    fn test_fix_target_session_explicit_session() {
+        // session:window should not be modified
+        assert_eq!(fix_target_session("tmuxy", "other:0", "new-window"), "other:0");
+        assert_eq!(fix_target_session("tmuxy", "mysession:5", "kill-window"), "mysession:5");
+    }
+
+    #[test]
+    fn test_fix_target_session_bare_number() {
+        // Bare numbers for window commands should get session prepended
+        assert_eq!(fix_target_session("tmuxy", "1234", "new-window"), "tmuxy:1234");
+        assert_eq!(fix_target_session("tmuxy", "0", "select-window"), "tmuxy:0");
+        assert_eq!(fix_target_session("tmuxy", "5", "kill-window"), "tmuxy:5");
+    }
+
+    #[test]
+    fn test_validate_and_fix_target_new_window() {
+        // new-window with :N target should get session prepended
+        let result = validate_and_fix_target("tmuxy", "new-window -d -t :1234 -n \"test\"", "new-window").unwrap();
+        assert_eq!(result, "new-window -d -t tmuxy:1234 -n \"test\"");
+    }
+
+    #[test]
+    fn test_validate_and_fix_target_select_window() {
+        // select-window with bare number should get session prepended
+        let result = validate_and_fix_target("tmuxy", "select-window -t 5", "select-window").unwrap();
+        assert_eq!(result, "select-window -t tmuxy:5");
+    }
+
+    #[test]
+    fn test_validate_and_fix_target_pane_commands() {
+        // Commands with pane IDs should not modify the target
+        let result = validate_and_fix_target("tmuxy", "swap-pane -s %0 -t %1", "swap-pane").unwrap();
+        assert_eq!(result, "swap-pane -s %0 -t %1");
     }
 }

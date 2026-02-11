@@ -3,11 +3,30 @@ use std::path::PathBuf;
 
 use crate::DEFAULT_SESSION_NAME;
 
-/// Get the path to the tmuxy config file
-fn get_config_path() -> PathBuf {
-    dirs::home_dir()
+/// Get the path to the tmuxy config file.
+/// Checks: ~/.tmuxy.conf, then docker/.tmuxy.conf relative to working directory.
+pub fn get_config_path() -> Option<PathBuf> {
+    let home_config = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".tmuxy.conf")
+        .join(".tmuxy.conf");
+    if home_config.exists() {
+        return Some(home_config);
+    }
+
+    // Check docker/.tmuxy.conf relative to working directory or ancestor
+    if let Ok(mut dir) = std::env::current_dir() {
+        loop {
+            let docker_config = dir.join("docker/.tmuxy.conf");
+            if docker_config.exists() {
+                return Some(docker_config);
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+    }
+
+    None
 }
 
 pub fn session_exists(session_name: &str) -> Result<bool, String> {
@@ -25,10 +44,10 @@ pub fn create_session(session_name: &str) -> Result<(), String> {
     let mut args = vec!["new-session", "-d", "-s", session_name];
 
     // Use custom config if it exists
-    let config_str = config_path.to_string_lossy().to_string();
-    if config_path.exists() {
+    let config_str = config_path.as_ref().map(|p| p.to_string_lossy().to_string());
+    if let Some(ref cs) = config_str {
         args.insert(0, "-f");
-        args.insert(1, &config_str);
+        args.insert(1, cs);
     }
 
     Command::new("tmux")
@@ -40,11 +59,10 @@ pub fn create_session(session_name: &str) -> Result<(), String> {
 }
 
 /// Source the tmuxy config file in an existing session
-pub fn source_config(session_name: &str) -> Result<(), String> {
-    let config_path = get_config_path();
-    if !config_path.exists() {
+pub fn source_config(_session_name: &str) -> Result<(), String> {
+    let Some(config_path) = get_config_path() else {
         return Ok(()); // No config to source
-    }
+    };
 
     let config_str = config_path.to_string_lossy().to_string();
     Command::new("tmux")

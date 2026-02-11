@@ -5,11 +5,25 @@
 //! - WebSocket (web-server)
 //! - Tauri events (tauri-app)
 
-use super::connection::ControlModeConnection;
+use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 use super::parser::ControlModeEvent;
 use super::state::{ChangeType, StateAggregator};
 use crate::{StateUpdate, TmuxState};
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
+
+/// Commands that can be sent to the monitor from external code
+#[derive(Debug)]
+pub enum MonitorCommand {
+    /// Resize all windows in the session to the given dimensions
+    ResizeWindow { cols: u32, rows: u32 },
+    /// Run an arbitrary tmux command through control mode
+    /// Use this for commands that crash when run externally with control mode attached (e.g., new-window)
+    RunCommand { command: String },
+    /// Gracefully shutdown the monitor
+    /// Sends detach-client and waits for the connection to close cleanly
+    Shutdown,
+}
 
 /// Trait for emitting state changes (adapter pattern).
 ///
@@ -35,10 +49,17 @@ pub struct MonitorConfig {
     /// Whether to create the session if it doesn't exist
     pub create_session: bool,
 
-    /// Minimum interval between output-triggered state emissions (debounce).
-    /// Set to 0 to disable debouncing.
-    /// Recommended: 16ms (60fps) for smooth but efficient updates.
-    pub output_debounce: Duration,
+    /// Minimum interval between throttled state emissions.
+    /// Used when high-frequency output is detected.
+    /// Recommended: 16ms (60fps) for smooth updates during bulk output.
+    pub throttle_interval: Duration,
+
+    /// Number of events in rate window that triggers throttle mode.
+    /// Below this threshold, events emit immediately for low latency.
+    pub throttle_threshold: u32,
+
+    /// Window for counting events to detect high-frequency output.
+    pub rate_window: Duration,
 }
 
 impl Default for MonitorConfig {
@@ -47,10 +68,15 @@ impl Default for MonitorConfig {
             session: String::new(),
             sync_interval: Duration::from_millis(500),
             create_session: false,
-            output_debounce: Duration::from_millis(16), // ~60fps
+            throttle_interval: Duration::from_millis(16), // ~60fps when throttling
+            throttle_threshold: 20,                        // >20 events/100ms triggers throttle
+            rate_window: Duration::from_millis(100),
         }
     }
 }
+
+/// Handle for sending commands to a running TmuxMonitor
+pub type MonitorCommandSender = mpsc::Sender<MonitorCommand>;
 
 /// The main tmux control mode monitor.
 ///
@@ -67,26 +93,57 @@ pub struct TmuxMonitor {
 
     /// Configuration
     config: MonitorConfig,
+
+    /// Channel for receiving commands from external code
+    command_rx: mpsc::Receiver<MonitorCommand>,
 }
 
 impl TmuxMonitor {
     /// Connect to a tmux session in control mode.
-    pub async fn connect(config: MonitorConfig) -> Result<Self, String> {
-        let connection = if config.create_session {
-            ControlModeConnection::new_session(&config.session).await?
-        } else {
-            ControlModeConnection::connect(&config.session).await?
+    /// Returns the monitor and a sender for sending commands to it.
+    pub async fn connect(config: MonitorConfig) -> Result<(Self, MonitorCommandSender), String> {
+        // First try to attach to existing session
+        // If that fails and create_session is true, create a new session
+        let connection = match ControlModeConnection::connect(&config.session).await {
+            Ok(conn) => conn,
+            Err(e) if config.create_session && e.contains("does not exist") => {
+                // Session doesn't exist, try to create it
+                ControlModeConnection::new_session(&config.session).await?
+            }
+            Err(e) => return Err(e),
         };
 
-        Ok(Self {
-            connection,
-            aggregator: StateAggregator::new(),
-            config,
-        })
+        let (command_tx, command_rx) = mpsc::channel(32);
+
+        Ok((
+            Self {
+                connection,
+                aggregator: StateAggregator::new(),
+                config,
+                command_rx,
+            },
+            command_tx,
+        ))
     }
 
     /// Synchronize initial state by querying tmux.
     pub async fn sync_initial_state(&mut self) -> Result<(), String> {
+        // Resize the window to the initial PTY size to ensure panes aren't tiny.
+        // When running in a background process (pm2), the PTY may start small.
+        // The browser will send a proper resize once it connects.
+        self.connection
+            .send_command(&format!(
+                "resizew -t {} -x {} -y {}",
+                self.config.session, INITIAL_PTY_COLS, INITIAL_PTY_ROWS
+            ))
+            .await?;
+
+        // Source tmuxy config to ensure pane-border-status and other settings are applied
+        if let Some(config_path) = crate::session::get_config_path() {
+            let cmd = format!("source-file {}", config_path.to_string_lossy());
+            self.connection.send_command(&cmd).await?;
+        }
+
         // Enable flow control (tmux 3.2+)
         // pause-after=5 means pause output if client is 5+ seconds behind
         // This prevents unbounded memory growth during heavy output
@@ -94,9 +151,9 @@ impl TmuxMonitor {
             .send_command("refresh-client -f pause-after=5")
             .await?;
 
-        // Get list of windows
+        // Get list of windows (including float window options)
         self.connection
-            .send_command("list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active}'")
+            .send_command("list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@float_parent},#{@float_width},#{@float_height}'")
             .await?;
 
         // Get list of panes with all details (for current session only)
@@ -110,7 +167,8 @@ impl TmuxMonitor {
                 "#{pane_active},#{pane_current_command},#{pane_title},",
                 "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
                 "#{window_id},#{T:pane-border-format},",
-                "#{alternate_on},#{mouse_any_flag}'"
+                "#{alternate_on},#{mouse_any_flag},",
+                "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index}'"
             ))
             .await?;
 
@@ -139,27 +197,42 @@ impl TmuxMonitor {
         // Initial delay before first sync to let captures complete
         let mut next_sync_at = tokio::time::Instant::now() + self.config.sync_interval + Duration::from_secs(1);
 
-        // Debouncing state for output events
-        let mut last_output_emit = Instant::now() - self.config.output_debounce;
+        // Adaptive throttling state for output events
+        // - First event always emits immediately
+        // - Track event rate over 100ms window
+        // - If high throughput (>20 events/100ms), throttle at 16ms
+        // - Otherwise, emit immediately for low latency typing
+        let mut last_output_emit = Instant::now() - self.config.throttle_interval;
         let mut pending_output_emit = false;
-        let debounce_enabled = !self.config.output_debounce.is_zero();
+        let mut rate_window_start = Instant::now();
+        let mut rate_event_count: u32 = 0;
+        let throttle_enabled = !self.config.throttle_interval.is_zero();
 
         loop {
-            // Calculate debounce timeout
-            let debounce_sleep = if pending_output_emit && debounce_enabled {
-                let elapsed = last_output_emit.elapsed();
-                if elapsed >= self.config.output_debounce {
-                    Duration::ZERO
+            // Calculate throttle timeout (only used when in high-throughput mode)
+            let throttle_sleep = if pending_output_emit && throttle_enabled {
+                // Check if we're in high-throughput mode
+                let in_throttle_mode = rate_event_count > self.config.throttle_threshold;
+                if in_throttle_mode {
+                    let elapsed = last_output_emit.elapsed();
+                    if elapsed >= self.config.throttle_interval {
+                        Duration::ZERO
+                    } else {
+                        self.config.throttle_interval - elapsed
+                    }
                 } else {
-                    self.config.output_debounce - elapsed
+                    // Low throughput - emit immediately
+                    Duration::ZERO
                 }
             } else {
                 Duration::from_secs(3600) // Effectively infinite
             };
 
+            // eprintln!("[monitor] Entering select!");
             tokio::select! {
                 // Process control mode events
                 event = self.connection.recv() => {
+                    eprintln!("[monitor] recv() returned: {:?}", event.as_ref().map(|e| std::mem::discriminant(e)));
                     match event {
                         Some(ControlModeEvent::Exit { reason }) => {
                             let msg = reason.unwrap_or_else(|| "disconnected".to_string());
@@ -200,41 +273,67 @@ impl TmuxMonitor {
                             }
 
                             if result.state_changed {
-                                // Debounce output events, emit others immediately
-                                let should_debounce = debounce_enabled
-                                    && matches!(result.change_type, ChangeType::PaneOutput { .. });
+                                // Adaptive throttling for output events:
+                                // - Track event rate in a sliding window
+                                // - Low throughput (typing): emit immediately
+                                // - High throughput (cat large_file): throttle at 16ms
+                                let is_output_event = matches!(result.change_type, ChangeType::PaneOutput { .. });
 
-                                if should_debounce {
-                                    // Mark that we have pending output to emit
-                                    pending_output_emit = true;
+                                if is_output_event && throttle_enabled {
+                                    // Update rate tracking
+                                    let now = Instant::now();
+                                    if now.duration_since(rate_window_start) > self.config.rate_window {
+                                        // Reset window
+                                        rate_window_start = now;
+                                        rate_event_count = 1;
+                                    } else {
+                                        rate_event_count += 1;
+                                    }
 
-                                    // If enough time has passed, emit now
-                                    if last_output_emit.elapsed() >= self.config.output_debounce {
-                                        let update = self.aggregator.to_state_update();
-                                        emitter.emit_state(update);
+                                    // Determine if we're in high-throughput mode
+                                    let in_throttle_mode = rate_event_count > self.config.throttle_threshold;
+
+                                    if in_throttle_mode {
+                                        // High throughput: throttle at 16ms interval
+                                        pending_output_emit = true;
+                                        if last_output_emit.elapsed() >= self.config.throttle_interval {
+                                            if let Some(update) = self.aggregator.to_state_update() {
+                                                emitter.emit_state(update);
+                                            }
+                                            last_output_emit = Instant::now();
+                                            pending_output_emit = false;
+                                        }
+                                    } else {
+                                        // Low throughput (typing): emit immediately for low latency
+                                        if let Some(update) = self.aggregator.to_state_update() {
+                                            emitter.emit_state(update);
+                                        }
                                         last_output_emit = Instant::now();
                                         pending_output_emit = false;
                                     }
                                 } else {
-                                    // Non-output changes emit immediately
-                                    let update = self.aggregator.to_state_update();
-                                    emitter.emit_state(update);
+                                    // Non-output changes always emit immediately
+                                    if let Some(update) = self.aggregator.to_state_update() {
+                                        emitter.emit_state(update);
+                                    }
                                     last_output_emit = Instant::now();
                                     pending_output_emit = false;
                                 }
                             }
                         }
                         None => {
+                            eprintln!("[monitor] Control mode recv() returned None - connection closed");
                             emitter.emit_error("Control mode connection closed".to_string());
                             break;
                         }
                     }
                 }
 
-                // Debounce timer - emit pending output
-                _ = tokio::time::sleep(debounce_sleep), if pending_output_emit => {
-                    let update = self.aggregator.to_state_update();
-                    emitter.emit_state(update);
+                // Throttle timer - emit pending output when in high-throughput mode
+                _ = tokio::time::sleep(throttle_sleep), if pending_output_emit => {
+                    if let Some(update) = self.aggregator.to_state_update() {
+                        emitter.emit_state(update);
+                    }
                     last_output_emit = Instant::now();
                     pending_output_emit = false;
                 }
@@ -246,7 +345,8 @@ impl TmuxMonitor {
                     // In copy mode, only query pane info (for cursor position)
                     // to minimize latency. Full sync (with list-windows) runs at normal interval.
                     let sync_commands = if in_copy_mode && last_sync.elapsed() < self.config.sync_interval {
-                        vec![
+                        let copy_pane_ids = self.aggregator.get_panes_in_copy_mode();
+                        let mut cmds = vec![
                             concat!(
                                 "list-panes -s -F '",
                                 "#{pane_id},#{pane_index},",
@@ -256,13 +356,20 @@ impl TmuxMonitor {
                                 "#{pane_active},#{pane_current_command},#{pane_title},",
                                 "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
                                 "#{window_id},#{T:pane-border-format},",
-                                "#{alternate_on},#{mouse_any_flag}'"
+                                "#{alternate_on},#{mouse_any_flag},",
+                "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index}'"
                             ).to_string(),
-                        ]
+                        ];
+                        // Capture content for each pane in copy mode so scrolling is visible
+                        for pane_id in &copy_pane_ids {
+                            cmds.push(format!("capture-pane -t {} -p -e", pane_id));
+                        }
+                        self.aggregator.queue_captures(&copy_pane_ids);
+                        cmds
                     } else {
                         last_sync = tokio::time::Instant::now();
                         vec![
-                            "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active}'".to_string(),
+                            "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@float_parent},#{@float_width},#{@float_height}'".to_string(),
                             concat!(
                                 "list-panes -s -F '",
                                 "#{pane_id},#{pane_index},",
@@ -272,7 +379,8 @@ impl TmuxMonitor {
                                 "#{pane_active},#{pane_current_command},#{pane_title},",
                                 "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
                                 "#{window_id},#{T:pane-border-format},",
-                                "#{alternate_on},#{mouse_any_flag}'"
+                                "#{alternate_on},#{mouse_any_flag},",
+                "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index}'"
                             ).to_string(),
                         ]
                     };
@@ -285,8 +393,58 @@ impl TmuxMonitor {
                     let interval = if in_copy_mode { copy_mode_sync_interval } else { self.config.sync_interval };
                     next_sync_at = tokio::time::Instant::now() + interval;
                 }
+
+                // Handle external commands (resize, etc.)
+                cmd = self.command_rx.recv() => {
+                    eprintln!("[monitor] Received command: {:?}", cmd);
+                    match cmd {
+                        Some(MonitorCommand::ResizeWindow { cols, rows }) => {
+                            eprintln!("[monitor] Processing ResizeWindow: {}x{}", cols, rows);
+                            // Get all window IDs in the session
+                            // Don't use -t flag since we're already in control mode for this session
+                            let list_cmd = "list-windows -F '#{window_id}'";
+                            if let Err(e) = self.connection.send_command(&list_cmd).await {
+                                emitter.emit_error(format!("Failed to list windows for resize: {}", e));
+                                continue;
+                            }
+
+                            // Send resize commands for all windows
+                            // We'll need to wait for the list-windows response and then send resize commands
+                            // For now, just send a single resize command for the session's current window
+                            // Don't use -t flag since we're already in control mode for this session
+                            let resize_cmd = format!("resizew -x {} -y {}", cols, rows);
+                            if let Err(e) = self.connection.send_command(&resize_cmd).await {
+                                emitter.emit_error(format!("Failed to resize window: {}", e));
+                            } else {
+                                eprintln!("[monitor] Sent resize command: {}", resize_cmd);
+                            }
+                        }
+                        Some(MonitorCommand::RunCommand { command }) => {
+                            eprintln!("[monitor] Processing RunCommand: {}", command);
+                            // Control mode expects raw tmux commands without shell escaping
+                            // Frontend sends \; for shell compatibility, convert to ; for control mode
+                            let unescaped = command.replace(" \\; ", " ; ");
+                            if let Err(e) = self.connection.send_command(&unescaped).await {
+                                emitter.emit_error(format!("Failed to run command: {}", e));
+                            } else {
+                                eprintln!("[monitor] Sent command via control mode: {}", unescaped);
+                            }
+                        }
+                        Some(MonitorCommand::Shutdown) => {
+                            eprintln!("[monitor] Received shutdown command, gracefully closing");
+                            self.connection.graceful_close().await;
+                            break;
+                        }
+                        None => {
+                            // Command channel closed, stop monitoring
+                            eprintln!("[monitor] Command channel closed, stopping");
+                            break;
+                        }
+                    }
+                }
             }
         }
+        eprintln!("[monitor] run() exiting");
     }
 
     /// Send a tmux command through control mode.

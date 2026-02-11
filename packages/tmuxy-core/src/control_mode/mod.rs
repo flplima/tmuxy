@@ -19,7 +19,7 @@ mod parser;
 mod state;
 
 pub use connection::ControlModeConnection;
-pub use monitor::{MonitorConfig, StateEmitter, TmuxMonitor};
+pub use monitor::{MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor};
 pub use octal::decode_octal;
 pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};

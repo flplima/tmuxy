@@ -101,13 +101,16 @@ fn capture_tmux_session(session: &str, timeout_ms: u64) -> Result<Vec<u8>, Strin
                 close(slave_fd).ok();
             }
 
-            // Set TERM
+            // Set TERM and locale to ensure UTF-8 box-drawing characters
             env::set_var("TERM", "xterm-256color");
+            env::set_var("LANG", "en_US.UTF-8");
+            env::set_var("LC_ALL", "en_US.UTF-8");
 
-            // Exec tmux attach in read-only mode
+            // Exec tmux attach in read-only mode with UTF-8 forced
             let tmux = CString::new("tmux").unwrap();
             let args = [
                 CString::new("tmux").unwrap(),
+                CString::new("-u").unwrap(), // Force UTF-8 mode
                 CString::new("attach-session").unwrap(),
                 CString::new("-r").unwrap(),
                 CString::new("-t").unwrap(),
@@ -144,8 +147,8 @@ fn capture_tmux_session(session: &str, timeout_ms: u64) -> Result<Vec<u8>, Strin
                     Ok(n) => {
                         output.extend_from_slice(&buf[..n]);
                     }
-                    Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
-                        // No data available, wait a bit
+                    Err(nix::errno::Errno::EAGAIN) => {
+                        // No data available (EWOULDBLOCK is same on most Unix), wait a bit
                         std::thread::sleep(Duration::from_millis(5));
                     }
                     Err(_) => break,
@@ -173,16 +176,11 @@ fn render_to_plain_text(data: &[u8], cols: u16, rows: u16) -> String {
         let mut line = String::new();
         for col in 0..cols {
             let cell = screen.cell(row, col).unwrap();
-            line.push(cell.contents().chars().next().unwrap_or(' '));
+            let ch = cell.contents().chars().next().unwrap_or(' ');
+            line.push(ch);
         }
-        // Trim trailing spaces but keep the line
-        let trimmed = line.trim_end();
-        lines.push(trimmed.to_string());
-    }
-
-    // Remove trailing empty lines
-    while lines.last().is_some_and(|l| l.is_empty()) {
-        lines.pop();
+        // Keep full-width lines (don't trim trailing spaces)
+        lines.push(line);
     }
 
     lines.join("\n")

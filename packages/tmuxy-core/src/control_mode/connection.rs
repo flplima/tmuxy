@@ -8,6 +8,12 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
 
+/// Default initial PTY size (cols x rows) for the `script` wrapper.
+/// Large enough to avoid tiny panes that crash vt100, but will be resized
+/// by the browser once it connects and sends its viewport dimensions.
+pub const INITIAL_PTY_COLS: u32 = 200;
+pub const INITIAL_PTY_ROWS: u32 = 50;
+
 /// Connection to tmux control mode
 pub struct ControlModeConnection {
     /// The tmux -CC child process
@@ -23,15 +29,77 @@ pub struct ControlModeConnection {
     command_counter: u32,
 }
 
+/// Spawn the stdout parser task that reads raw bytes, converts to UTF-8 lossily,
+/// and feeds parsed events into the channel.
+///
+/// Uses `read_until(b'\n')` instead of `lines()` to avoid failing on non-UTF-8
+/// bytes that the `script` PTY wrapper may introduce into the stream.
+fn spawn_parser_task(
+    stdout: tokio::process::ChildStdout,
+    tx: mpsc::Sender<ControlModeEvent>,
+) {
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout);
+        let mut parser = Parser::new();
+        let mut buf = Vec::with_capacity(4096);
+
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf).await {
+                Ok(0) => {
+                    // EOF - tmux process exited
+                    break;
+                }
+                Ok(_) => {
+                    // Strip trailing \n and \r
+                    while buf.last() == Some(&b'\n') || buf.last() == Some(&b'\r') {
+                        buf.pop();
+                    }
+
+                    // Convert to string lossily (replaces invalid UTF-8 with U+FFFD)
+                    let line = String::from_utf8_lossy(&buf);
+
+                    if let Some(event) = parser.parse_line(&line) {
+                        if tx.send(event).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[tmuxy] parser task: read error: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+}
+
 impl ControlModeConnection {
     /// Connect to a tmux session in control mode.
     ///
     /// This spawns `tmux -CC attach-session -t <session>` wrapped in `script`
     /// to provide a PTY (required for tmux control mode).
     pub async fn connect(session_name: &str) -> Result<Self, String> {
+        // First check if the session exists to avoid spawning control mode processes
+        // that wait indefinitely for a non-existent session. This prevents a race condition
+        // in tmux 3.3a where multiple waiting control mode clients crash the server.
+        let check = std::process::Command::new("tmux")
+            .args(["has-session", "-t", session_name])
+            .output()
+            .map_err(|e| format!("Failed to check session: {}", e))?;
+
+        if !check.status.success() {
+            return Err(format!("Session '{}' does not exist", session_name));
+        }
+
         // Use `script` to provide a PTY for tmux -CC
         // Without a PTY, tmux fails with "tcgetattr failed: Inappropriate ioctl for device"
-        let tmux_cmd = format!("tmux -CC attach-session -t {}", session_name);
+        // Set PTY size via stty before starting tmux to avoid tiny default dimensions
+        // when running in a background process (e.g., pm2) with no real terminal.
+        let tmux_cmd = format!(
+            "stty cols {} rows {} 2>/dev/null; tmux -CC attach-session -t {}",
+            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, session_name
+        );
         let mut child = Command::new("script")
             .args(["-q", "/dev/null", "-c", &tmux_cmd])
             .stdin(Stdio::piped())
@@ -50,24 +118,8 @@ impl ControlModeConnection {
             .take()
             .ok_or("Failed to get stdout handle")?;
 
-        // Channel for parsed events
         let (tx, rx) = mpsc::channel(1000);
-
-        // Spawn stdout parser task
-        tokio::spawn(async move {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
-            let mut parser = Parser::new();
-
-            while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(event) = parser.parse_line(&line) {
-                    // If send fails, the receiver is dropped - exit the loop
-                    if tx.send(event).await.is_err() {
-                        break;
-                    }
-                }
-            }
-        });
+        spawn_parser_task(stdout, tx);
 
         Ok(Self {
             child,
@@ -83,7 +135,11 @@ impl ControlModeConnection {
     /// to provide a PTY (required for tmux control mode).
     pub async fn new_session(session_name: &str) -> Result<Self, String> {
         // Use `script` to provide a PTY for tmux -CC
-        let tmux_cmd = format!("tmux -CC new-session -s {}", session_name);
+        // Set PTY size via stty to avoid tiny default dimensions in background processes.
+        let tmux_cmd = format!(
+            "stty cols {} rows {} 2>/dev/null; tmux -CC new-session -s {}",
+            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, session_name
+        );
         let mut child = Command::new("script")
             .args(["-q", "/dev/null", "-c", &tmux_cmd])
             .stdin(Stdio::piped())
@@ -103,20 +159,7 @@ impl ControlModeConnection {
             .ok_or("Failed to get stdout handle")?;
 
         let (tx, rx) = mpsc::channel(1000);
-
-        tokio::spawn(async move {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
-            let mut parser = Parser::new();
-
-            while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(event) = parser.parse_line(&line) {
-                    if tx.send(event).await.is_err() {
-                        break;
-                    }
-                }
-            }
-        });
+        spawn_parser_task(stdout, tx);
 
         Ok(Self {
             child,
@@ -130,9 +173,13 @@ impl ControlModeConnection {
     ///
     /// Commands are sent as plain text followed by newline.
     /// The response will come as a `CommandResponse` event.
+    /// Returns the command number that tmux will use in the response.
     pub async fn send_command(&mut self, cmd: &str) -> Result<u32, String> {
-        self.command_counter += 1;
+        // Note: tmux command numbers start at 0, and we track them in sync.
+        // We capture the current counter value BEFORE incrementing so it matches
+        // what tmux will report in the %begin/%end response.
         let cmd_num = self.command_counter;
+        self.command_counter += 1;
 
         self.stdin
             .write_all(format!("{}\n", cmd).as_bytes())
@@ -145,6 +192,37 @@ impl ControlModeConnection {
             .map_err(|e| format!("Failed to flush stdin: {}", e))?;
 
         Ok(cmd_num)
+    }
+
+    /// Send multiple tmux commands in a batch with a single flush.
+    ///
+    /// More efficient than calling send_command multiple times because
+    /// it reduces system calls by batching writes and flushing once.
+    /// Returns the command number of the first command (what tmux will report).
+    pub async fn send_commands_batch(&mut self, commands: &[String]) -> Result<u32, String> {
+        if commands.is_empty() {
+            return Ok(self.command_counter);
+        }
+
+        // Capture first command number BEFORE incrementing (to match tmux's numbering)
+        let first_cmd_num = self.command_counter;
+
+        // Write all commands without flushing
+        for cmd in commands {
+            self.stdin
+                .write_all(format!("{}\n", cmd).as_bytes())
+                .await
+                .map_err(|e| format!("Failed to send command: {}", e))?;
+            self.command_counter += 1;
+        }
+
+        // Single flush for all commands
+        self.stdin
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush stdin: {}", e))?;
+
+        Ok(first_cmd_num)
     }
 
     /// Receive the next event from control mode.
@@ -173,6 +251,37 @@ impl ControlModeConnection {
             .kill()
             .await
             .map_err(|e| format!("Failed to kill tmux control mode: {}", e))
+    }
+
+    /// Gracefully close the control mode connection.
+    ///
+    /// Sends a detach-client command to cleanly disconnect from the session,
+    /// then waits for the connection to close. This is preferred over kill()
+    /// for tmux 3.3a which can crash if the control mode client is killed
+    /// while processing commands.
+    ///
+    /// Falls back to kill() if graceful shutdown times out.
+    pub async fn graceful_close(&mut self) {
+        // Send detach-client to cleanly disconnect
+        // Ignore errors - the connection might already be closing
+        let _ = self.send_command("detach-client").await;
+
+        // Wait for the process to exit (up to 500ms)
+        let timeout = tokio::time::Duration::from_millis(500);
+        match tokio::time::timeout(timeout, self.child.wait()).await {
+            Ok(Ok(_)) => {
+                // Process exited cleanly
+                eprintln!("[control_mode] Graceful detach successful");
+            }
+            Ok(Err(e)) => {
+                eprintln!("[control_mode] Error waiting for exit: {}", e);
+            }
+            Err(_) => {
+                // Timeout - fall back to kill
+                eprintln!("[control_mode] Graceful detach timed out, killing");
+                let _ = self.child.kill().await;
+            }
+        }
     }
 
     /// Get the current command counter value.
