@@ -1,0 +1,47 @@
+/**
+ * Layout Constants
+ *
+ * Shared constants for pane layout calculations and UI spacing.
+ *
+ * Key invariant for vertical axis:
+ *   PANE_HEADER_HEIGHT + 2 * PANE_INSET_Y = CHAR_HEIGHT
+ *   so each pane's overhead consumes exactly 1 character row.
+ *
+ * Key invariant for horizontal axis:
+ *   paneInsetX = charWidth / 2  (computed at runtime from measured charWidth)
+ *   so adjacent pane boxes tile seamlessly with the tmux divider column consumed
+ *   equally by both sides. Terminal content padding = paneInsetX - PANE_BORDER.
+ */
+
+// Character dimensions (approximate for monospace font; charWidth is measured at runtime)
+export const CHAR_WIDTH = 9.6;
+export const CHAR_HEIGHT = 20;
+
+// Pane header
+export const PANE_HEADER_HEIGHT = 16;
+
+// Pane border: 1px solid around each pane-layout-item
+export const PANE_BORDER = 1;
+
+// Vertical inset: border + small padding so header + 2*inset = CHAR_HEIGHT
+// (CHAR_HEIGHT - PANE_HEADER_HEIGHT) / 2 = (20 - 16) / 2 = 2
+export const PANE_INSET_Y = (CHAR_HEIGHT - PANE_HEADER_HEIGHT) / 2;
+
+// Horizontal inset computed at runtime: charWidth / 2
+// Exported helper to derive it from measured charWidth.
+export function paneInsetX(charWidth: number): number {
+  return charWidth / 2;
+}
+
+// Horizontal padding inside .pane-content so terminal chars align to the char grid.
+// padding = paneInsetX - border
+export function paneContentPaddingH(charWidth: number): number {
+  return charWidth / 2 - PANE_BORDER;
+}
+
+// Status bars
+export const STATUS_BAR_HEIGHT = 33; // 32px height + 1px border
+export const TMUX_STATUS_BAR_HEIGHT = 28; // 20px line-height + 4px padding top/bottom
+
+// Inset around pane layout (1 char height on each side)
+export const LAYOUT_INSET = CHAR_HEIGHT;
