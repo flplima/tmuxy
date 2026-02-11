@@ -216,6 +216,21 @@ body {
 .pane-content {
   padding: var(--spacing-md);
   padding-top: 0;
+  flex: 1;
+  border: 1px solid var(--pane-header-bg-inactive);
+  border-top: none;
+  box-sizing: border-box;
+}
+
+/* Active pane content has green border */
+.pane-layout-item.pane-active .pane-content,
+.pane-active .pane-content {
+  border-color: var(--accent-green);
+}
+
+/* Copy mode has bright green border */
+.pane-layout-item.pane-active.pane-copy-mode .pane-content {
+  border-color: var(--term-green);
 }
 
 .pane-single {
@@ -351,16 +366,15 @@ body {
     width 250ms linear,
     height 250ms linear,
     box-shadow var(--transition-layout);
-  border-width: 1px;
-  border-style: solid;
+  /* No border on wrapper - border is on pane-content */
 }
 
 .pane-layout-item.pane-active {
-  border-color: var(--accent-green);
+  /* Active state handled by pane-content border */
 }
 
 .pane-layout-item.pane-inactive {
-  border-color: var(--pane-header-bg-inactive);
+  /* Inactive state handled by pane-content border */
 }
 
 .pane-layout-item.pane-dragging {
@@ -386,7 +400,7 @@ body {
 
 /* Copy Mode - green border when active pane is in copy mode */
 .pane-layout-item.pane-active.pane-copy-mode {
-  border-color: var(--term-green);
+  /* Copy mode border color handled by pane-content */
 }
 
 /* Resize Dividers */
@@ -448,7 +462,7 @@ body {
   display: flex;
   align-items: center;
   height: var(--pane-header-height);
-  background-color: var(--pane-header-bg-inactive);
+  background-color: transparent;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   color: var(--pane-header-text-inactive);
@@ -464,13 +478,12 @@ body {
 }
 
 .pane-header-active {
-  background-color: var(--pane-header-bg-active);
-  color: var(--pane-header-text-active);
+  /* Active state is shown via tab background colors */
 }
 
-/* Copy mode header - green tint when active and in copy mode */
+/* Copy mode header - handled via tab styling */
 .pane-header-active.pane-header-copy-mode {
-  background-color: var(--accent-green-bg);
+  /* Copy mode styling */
 }
 
 /* Pane tabs container - scrollable */
@@ -494,7 +507,7 @@ body {
   gap: var(--spacing-sm);
   padding: 0 var(--spacing-lg);
   height: 100%;
-  background: transparent;
+  background-color: var(--pane-header-bg-inactive);
   border: none;
   border-right: 1px solid var(--border-subtle);
   cursor: pointer;
@@ -504,11 +517,21 @@ body {
 }
 
 .pane-tab:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: #3a3a3a;
 }
 
+/* Selected tab in a group (but pane not active) - slightly brighter */
+.pane-tab-selected {
+  background-color: #3a3a3a;
+}
+
+/* Active tab: green background, black text */
 .pane-tab-active {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--accent-green);
+}
+
+.pane-tab-active:hover {
+  background-color: var(--accent-green);
 }
 
 .pane-tab-title {
@@ -516,12 +539,14 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-sm);
-  color: var(--pane-header-text-inactive);
+  color: var(--text-muted);
   max-width: 150px;
 }
 
+/* Active tab title: black text */
 .pane-tab-active .pane-tab-title {
-  color: var(--pane-header-text-active);
+  color: var(--bg-black);
+  font-weight: 500;
 }
 
 /* Pane tab close button */
@@ -539,14 +564,23 @@ body {
   font-size: var(--font-size-base);
   cursor: pointer;
   line-height: 1;
-  opacity: 0.3;
+  opacity: 0.5;
   transition: opacity var(--transition-fast), background-color var(--transition-fast);
   flex-shrink: 0;
 }
 
-.pane-tab:hover .pane-tab-close,
+.pane-tab:hover .pane-tab-close {
+  opacity: 0.8;
+}
+
+/* Active tab close button: dark color on green background */
 .pane-tab-active .pane-tab-close {
-  opacity: 0.7;
+  color: var(--bg-black);
+  opacity: 0.6;
+}
+
+.pane-tab-active:hover .pane-tab-close {
+  opacity: 0.8;
 }
 
 .pane-tab-close:hover {

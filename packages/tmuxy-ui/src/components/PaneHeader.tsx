@@ -19,12 +19,12 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
   const { group, groupPanes } = usePaneGroup(paneId);
   const tabsRef = useRef<HTMLDivElement>(null);
 
-  // Scroll active tab into view
+  // Scroll selected tab into view
   useEffect(() => {
     if (!tabsRef.current || !group) return;
-    const activeTab = tabsRef.current.querySelector('.pane-tab-active');
-    if (activeTab) {
-      activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    const selectedTab = tabsRef.current.querySelector('.pane-tab-selected');
+    if (selectedTab) {
+      selectedTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     }
   }, [group?.activeIndex]);
 
@@ -108,7 +108,10 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
     >
       <div className="pane-tabs" ref={tabsRef}>
         {tabPanes.map((tabPane) => {
-          const isActiveTab = tabPane.tmuxId === activeTabId;
+          const isSelectedTab = tabPane.tmuxId === activeTabId;
+          // Tab is "active" (green) only if this pane is the active tmux pane
+          // AND it's the selected tab in the group
+          const isActivePane = tabPane.active && isSelectedTab;
           const tabTitle = tabPane.inMode
             ? '[COPY]'
             : (tabPane.borderTitle || tabPane.tmuxId);
@@ -116,10 +119,10 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
           return (
             <div
               key={tabPane.tmuxId}
-              className={`pane-tab ${isActiveTab ? 'pane-tab-active' : ''}`}
+              className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''}`}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               role="tab"
-              aria-selected={isActiveTab}
+              aria-selected={isSelectedTab}
               aria-label={`Pane ${tabPane.tmuxId}`}
             >
               <span className="pane-tab-title">{tabTitle}</span>
