@@ -22,7 +22,19 @@ import {
   DEFAULT_CHAR_WIDTH,
   DEFAULT_CHAR_HEIGHT,
 } from '../constants';
-import { transformServerState, buildGroupsFromWindows } from './helpers';
+import { transformServerState, buildGroupsFromWindows, buildFloatPanesFromWindows } from './helpers';
+import type { TmuxWindow } from '../types';
+
+/**
+ * Find a float window by pane ID.
+ * Float windows have the pattern: __float_{pane_num}
+ * Example: __float_5 for pane %5
+ */
+function findFloatWindowByPaneId(windows: TmuxWindow[], paneId: string): TmuxWindow | undefined {
+  const paneNum = paneId.replace('%', '');
+  const floatWindowName = `__float_${paneNum}`;
+  return windows.find((w) => w.isFloatWindow && w.name === floatWindowName);
+}
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
 import type { KeyboardActorEvent } from '../actors/keyboardActor';
@@ -238,12 +250,24 @@ export const appMachine = setup({
                 }
               });
 
+              // Build float panes from windows with __float_ naming pattern
+              const floatPanes = buildFloatPanesFromWindows(
+                transformed.windows,
+                transformed.panes,
+                context.floatPanes,
+                context.containerWidth,
+                context.containerHeight,
+                context.charWidth,
+                context.charHeight
+              );
+
               // Store the pending update to apply after animation
               enqueue(
                 assign({
                   pendingUpdate: {
                     ...transformed,
                     groups,
+                    floatPanes,
                   },
                   lastUpdateTime: Date.now(),
                 })
@@ -256,6 +280,17 @@ export const appMachine = setup({
               const transformed = transformServerState(event.state);
               const groups = buildGroupsFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.groups);
 
+              // Build float panes from windows with __float_ naming pattern
+              const floatPanes = buildFloatPanesFromWindows(
+                transformed.windows,
+                transformed.panes,
+                context.floatPanes,
+                context.containerWidth,
+                context.containerHeight,
+                context.charWidth,
+                context.charHeight
+              );
+
               // Detect new panes for enter animation
               const currentPaneIds = context.panes.map(p => p.tmuxId);
               const newPaneIds = transformed.panes.map(p => p.tmuxId);
@@ -265,6 +300,7 @@ export const appMachine = setup({
                 assign({
                   ...transformed,
                   groups,
+                  floatPanes,
                   lastUpdateTime: Date.now(),
                 })
               );
@@ -438,36 +474,84 @@ export const appMachine = setup({
 
         // Pane Group Operations
         PANE_GROUP_ADD: {
-          actions: sendTo('tmux', ({ context, event }) => {
+          actions: enqueueActions(({ context, event, enqueue }) => {
             const group = context.groups[event.paneId];
             const nextIndex = group ? group.paneIds.length : 1;
             const paneNum = event.paneId.replace('%', '');
             const windowName = `__%${paneNum}_group_${nextIndex}`;
             const windowIndex = 1000 + parseInt(paneNum, 10) * 10 + nextIndex;
-            return {
-              type: 'SEND_COMMAND' as const,
-              command: `new-window -d -t :${windowIndex} -n "${windowName}"`,
-            };
+
+            // Get the parent pane's dimensions to size the hidden window correctly
+            const parentPane = context.panes.find((p) => p.tmuxId === event.paneId);
+            const paneWidth = parentPane?.width ?? context.totalWidth;
+            const paneHeight = parentPane?.height ?? context.totalHeight;
+
+            // Create the hidden window and resize it to match parent pane dimensions
+            // The new pane stays in the hidden window - user clicks the tab to switch
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `new-window -d -t :${windowIndex} -n "${windowName}" \\; resize-window -t :${windowIndex} -x ${paneWidth} -y ${paneHeight}`,
+              })
+            );
+            // Force state sync after window creation to ensure the new pane appears
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`,
+              })
+            );
           }),
         },
         PANE_GROUP_SWITCH: {
-          actions: assign(({ context, event }) => {
+          actions: enqueueActions(({ context, event, enqueue }) => {
             const group = context.groups[event.groupId];
-            if (!group) return {};
+            if (!group) return;
 
             const targetIndex = group.paneIds.indexOf(event.paneId);
-            if (targetIndex === -1 || targetIndex === group.activeIndex) return {};
+            if (targetIndex === -1 || targetIndex === group.activeIndex) return;
+
+            // Get the currently visible pane (the one in the main layout)
+            const currentVisiblePaneId = group.paneIds[group.activeIndex];
+
+            // Get the visible pane's current dimensions
+            const visiblePane = context.panes.find((p) => p.tmuxId === currentVisiblePaneId);
+            const targetPane = context.panes.find((p) => p.tmuxId === event.paneId);
+
+            // Find the window containing the target pane (hidden window)
+            const targetWindow = context.windows.find((w) => w.id === targetPane?.windowId);
+
+            // Resize the hidden window and swap in a single chained command
+            // This ensures proper sequencing: resize happens before swap
+            if (visiblePane && targetWindow) {
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId}`,
+                })
+              );
+            } else {
+              // Fallback: just swap without resize
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `swap-pane -s ${event.paneId} -t ${currentVisiblePaneId}`,
+                })
+              );
+            }
 
             // Update activeIndex to show the selected tab
-            return {
-              groups: {
-                ...context.groups,
-                [event.groupId]: {
-                  ...group,
-                  activeIndex: targetIndex,
+            enqueue(
+              assign({
+                groups: {
+                  ...context.groups,
+                  [event.groupId]: {
+                    ...group,
+                    activeIndex: targetIndex,
+                  },
                 },
-              },
-            };
+              })
+            );
           }),
         },
         PANE_GROUP_CLOSE: {
@@ -504,6 +588,13 @@ export const appMachine = setup({
                     command: `swap-pane -s ${event.paneId} -t ${nextPaneId} \\; kill-window -t ${nextWindow.id}`,
                   })
                 );
+                // Force state sync after the swap/kill
+                enqueue(
+                  sendTo('tmux', {
+                    type: 'SEND_COMMAND' as const,
+                    command: `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`,
+                  })
+                );
                 return;
               }
             }
@@ -515,6 +606,14 @@ export const appMachine = setup({
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
                   command: `kill-window -t ${windowWithPane.id}`,
+                })
+              );
+              // Force state sync after a delay to ensure the window is killed
+              // The periodic sync should handle this, but we add a backup
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`,
                 })
               );
               return;
@@ -603,7 +702,7 @@ export const appMachine = setup({
         },
         EMBED_FLOAT: {
           actions: enqueueActions(({ context, event, enqueue }) => {
-            const floatWindow = context.windows.find((w) => w.isFloatWindow && w.floatPaneId === event.paneId);
+            const floatWindow = findFloatWindowByPaneId(context.windows, event.paneId);
             if (!floatWindow) return;
 
             // Move float pane back to the active window
@@ -657,7 +756,7 @@ export const appMachine = setup({
         },
         CLOSE_FLOAT: {
           actions: enqueueActions(({ context, event, enqueue }) => {
-            const floatWindow = context.windows.find((w) => w.isFloatWindow && w.floatPaneId === event.paneId);
+            const floatWindow = findFloatWindowByPaneId(context.windows, event.paneId);
             if (floatWindow) {
               enqueue(
                 sendTo('tmux', {
@@ -676,6 +775,31 @@ export const appMachine = setup({
     },
 
     removingPane: {
+      // Fallback timeout: if animation doesn't complete (e.g., no animation actor),
+      // auto-transition to idle after 300ms
+      after: {
+        300: {
+          target: 'idle',
+          actions: enqueueActions(({ context, enqueue }) => {
+            if (!context.pendingUpdate) return;
+
+            const update = context.pendingUpdate;
+
+            enqueue(
+              assign({
+                ...update,
+                pendingUpdate: null,
+              })
+            );
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_SESSION' as const,
+                sessionName: update.sessionName,
+              })
+            );
+          }),
+        },
+      },
       on: {
         ANIMATION_LEAVE_COMPLETE: {
           target: 'idle',
@@ -703,12 +827,22 @@ export const appMachine = setup({
           actions: enqueueActions(({ event, context, enqueue }) => {
             const transformed = transformServerState(event.state);
             const groups = buildGroupsFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.groups);
+            const floatPanes = buildFloatPanesFromWindows(
+              transformed.windows,
+              transformed.panes,
+              context.floatPanes,
+              context.containerWidth,
+              context.containerHeight,
+              context.charWidth,
+              context.charHeight
+            );
 
             enqueue(
               assign({
                 pendingUpdate: {
                   ...transformed,
                   groups,
+                  floatPanes,
                 },
                 lastUpdateTime: Date.now(),
               })

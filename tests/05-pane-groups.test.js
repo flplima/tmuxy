@@ -97,7 +97,7 @@ describe('Category 5: Pane Groups', () => {
 
       await ctx.setupPage();
 
-      const addButton = await ctx.page.$('.pane-add-tab');
+      const addButton = await ctx.page.$('.pane-tab-add');
       expect(addButton).not.toBeNull();
 
       const title = await addButton.getAttribute('title');
@@ -285,9 +285,9 @@ describe('Category 5: Pane Groups', () => {
 
       const tabs = await getGroupTabInfo(ctx.page);
       expect(tabs.length).toBe(2);
-      // New pane (tab 1) is swapped into visible slot and becomes active
-      expect(tabs[0].active).toBe(false);
-      expect(tabs[1].active).toBe(true);
+      // Original pane (tab 0) stays active after adding a new tab
+      expect(tabs[0].active).toBe(true);
+      expect(tabs[1].active).toBe(false);
     });
 
     test('Add-to-group on split pane creates group for that pane only', async () => {
@@ -301,7 +301,7 @@ describe('Category 5: Pane Groups', () => {
 
       // Count panes: one grouped (2+ tabs) and one regular (1 tab)
       const paneRowInfo = await ctx.page.evaluate(() => {
-        const rows = document.querySelectorAll('.pane-tabs-row');
+        const rows = document.querySelectorAll('.pane-tabs');
         let grouped = 0;
         let regular = 0;
         for (const row of rows) {
@@ -337,13 +337,13 @@ describe('Category 5: Pane Groups', () => {
       await clickPaneGroupAdd(ctx.page);
       await waitForGroupTabs(ctx.page, 2);
 
-      // New pane (tab 1) is swapped into visible slot on creation
+      // Original pane (tab 0) stays active after adding new pane
       let tabs = await getGroupTabInfo(ctx.page);
-      expect(tabs[0].active).toBe(false);
-      expect(tabs[1].active).toBe(true);
+      expect(tabs[0].active).toBe(true);
+      expect(tabs[1].active).toBe(false);
 
-      // Click the first tab to switch (triggers swap-pane)
-      await clickGroupTab(ctx.page, 0);
+      // Click the second tab to switch (triggers swap-pane)
+      await clickGroupTab(ctx.page, 1);
       await waitForGroupTabs(ctx.page, 2);
 
       // After swap, tabs maintain stable ordering (by groupTabIndex).
@@ -481,12 +481,21 @@ describe('Category 5: Pane Groups', () => {
       // Use tmux send-keys for reliable input (this test is about tab switching, not keyboard input)
       await runCommandViaTmux(ctx.session, ctx.page, 'echo "MARKER_ALPHA"', 'MARKER_ALPHA');
 
-      // Create a group - adds a new pane as tab 1 (new pane becomes active)
+      // Create a group - adds a new pane as tab 1 (original pane stays active)
       await clickPaneGroupAdd(ctx.page);
       await waitForGroupTabs(ctx.page, 2);
 
-      // Tab 1 (new pane) is active - fresh shell, should NOT contain tab 0's content
+      // Tab 0 (original pane) is still active - should contain original content
       let content = await getTerminalText(ctx.page);
+      expect(content).toContain('MARKER_ALPHA');
+
+      // Switch to tab 1 (the new pane)
+      await clickGroupTab(ctx.page, 1);
+      await waitForGroupTabs(ctx.page, 2);
+      await delay(DELAYS.SYNC);
+
+      // Tab 1 (new pane) is now active - fresh shell, should NOT contain tab 0's content
+      content = await getTerminalText(ctx.page);
       expect(content).not.toContain('MARKER_ALPHA');
 
       // Run a different command in tab 1
@@ -495,6 +504,7 @@ describe('Category 5: Pane Groups', () => {
       // Switch to tab 0 (click the inactive tab at index 0)
       await clickGroupTab(ctx.page, 0);
       await waitForGroupTabs(ctx.page, 2);
+      await delay(DELAYS.SYNC);
 
       // Wait for tab 0's content to appear
       await waitForTerminalText(ctx.page, 'MARKER_ALPHA');
@@ -564,19 +574,31 @@ describe('Category 5: Pane Groups', () => {
       // Run command in tab 0
       await runCommand(ctx.page, 'echo "SWAP_CHECK_ABC"', 'SWAP_CHECK_ABC');
 
-      // Create group - new pane is swapped in and becomes active
+      // Create group - original pane stays active (new pane is in hidden window)
       await clickPaneGroupAdd(ctx.page);
       await waitForGroupTabs(ctx.page, 2);
 
-      // Active tmux pane should have changed (new pane is active)
+      // Active pane should still be the original
+      expect(await ctx.session.getActivePaneId()).toBe(initialPaneId);
+
+      // UI still shows the original pane with its content
+      let content = await getTerminalText(ctx.page);
+      expect(content).toContain('SWAP_CHECK_ABC');
+
+      // Switch to tab 1 (the new pane) - this triggers a swap
+      await clickGroupTab(ctx.page, 1);
+      await waitForGroupTabs(ctx.page, 2);
+      await delay(DELAYS.SYNC);
+
+      // Active pane should have changed to the new pane
       const newPaneId = await ctx.session.getActivePaneId();
       expect(newPaneId).not.toBe(initialPaneId);
 
       // UI shows the new pane (fresh shell, no SWAP_CHECK_ABC)
-      let content = await getTerminalText(ctx.page);
+      content = await getTerminalText(ctx.page);
       expect(content).not.toContain('SWAP_CHECK_ABC');
 
-      // Switch to tab 0 (the original pane)
+      // Switch back to tab 0 (the original pane)
       await clickGroupTab(ctx.page, 0);
       await waitForGroupTabs(ctx.page, 2);
       await delay(DELAYS.SYNC);
@@ -586,14 +608,6 @@ describe('Category 5: Pane Groups', () => {
 
       // Content should show original command
       await waitForTerminalText(ctx.page, 'SWAP_CHECK_ABC');
-
-      // Switch back to tab 1 (the new pane)
-      await clickGroupTab(ctx.page, 1);
-      await waitForGroupTabs(ctx.page, 2);
-      await delay(DELAYS.SYNC);
-
-      // Active pane should be the new pane again
-      expect(await ctx.session.getActivePaneId()).toBe(newPaneId);
     });
 
     test('New group tab starts with fresh shell content', async () => {

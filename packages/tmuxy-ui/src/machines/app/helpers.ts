@@ -98,61 +98,79 @@ export function buildGroupsFromWindows(
 
   // Build groups from pane group windows
   for (const [parentPaneId, paneGroupWindows] of paneGroupWindowsByParent) {
-    // Sort by pane group index
+    // Sort by pane group index to maintain consistent ordering
     paneGroupWindows.sort((a, b) => (a.paneGroupIndex ?? 0) - (b.paneGroupIndex ?? 0));
 
-    // Get existing group paneIds if available (preserves membership across swaps)
+    // Get existing group to preserve membership across swaps
     const existingGroup = existingGroups[parentPaneId];
-    const existingPaneIds = existingGroup?.paneIds || [];
 
-    // Collect ALL panes that are part of this group
-    // Sources: existing membership + parent + panes in pane group windows
-    const allGroupPaneIds = new Set<string>(existingPaneIds);
-    allGroupPaneIds.add(parentPaneId);
+    // Collect all panes that should be in this group:
+    // 1. From existing group (preserves membership after swaps)
+    // 2. Parent pane
+    // 3. Panes currently in pane group windows
+    const allPaneIds = new Set<string>();
 
+    // Preserve existing membership (critical for swap tracking)
+    if (existingGroup) {
+      for (const paneId of existingGroup.paneIds) {
+        // Only keep panes that still exist
+        if (panes.some((p) => p.tmuxId === paneId)) {
+          allPaneIds.add(paneId);
+        }
+      }
+    }
+
+    // Add parent pane
+    if (panes.some((p) => p.tmuxId === parentPaneId)) {
+      allPaneIds.add(parentPaneId);
+    }
+
+    // Add panes from pane group windows
     for (const paneGroupWindow of paneGroupWindows) {
       const paneInWindow = panes.find((p) => p.windowId === paneGroupWindow.id);
       if (paneInWindow) {
-        allGroupPaneIds.add(paneInWindow.tmuxId);
+        allPaneIds.add(paneInWindow.tmuxId);
       }
     }
 
-    // Remove any panes that no longer exist
-    const validPaneIds = [...allGroupPaneIds].filter((id) => panes.some((p) => p.tmuxId === id));
-
-    // Find which pane is currently visible (in the active window)
-    let visiblePaneId: string | null = null;
-    for (const paneId of validPaneIds) {
-      const pane = panes.find((p) => p.tmuxId === paneId);
-      if (pane && pane.windowId === activeWindowId) {
-        visiblePaneId = paneId;
-        break;
-      }
-    }
-
-    // Build paneIds array: visible pane first, then hidden panes
+    // Build paneIds in stable order:
+    // Index 0: parent pane (original pane that the group was created from)
+    // Index 1+: other panes, using existing order if available
     const paneIds: string[] = [];
 
-    // First, add the visible pane (the one in active window)
-    if (visiblePaneId) {
-      paneIds.push(visiblePaneId);
-    } else if (validPaneIds.length > 0) {
-      // Fallback: use first valid pane
-      paneIds.push(validPaneIds[0]);
+    // Add parent pane first (always at index 0)
+    if (allPaneIds.has(parentPaneId)) {
+      paneIds.push(parentPaneId);
+      allPaneIds.delete(parentPaneId);
     }
 
-    // Then add the rest (hidden panes), avoiding duplicates
-    for (const paneId of validPaneIds) {
-      if (!paneIds.includes(paneId)) {
-        paneIds.push(paneId);
+    // Add remaining panes, preserving existing order when possible
+    if (existingGroup) {
+      for (const paneId of existingGroup.paneIds) {
+        if (allPaneIds.has(paneId)) {
+          paneIds.push(paneId);
+          allPaneIds.delete(paneId);
+        }
       }
+    }
+
+    // Add any new panes that weren't in the existing group
+    for (const paneId of allPaneIds) {
+      paneIds.push(paneId);
     }
 
     // Only create a group if there are multiple panes
     if (paneIds.length > 1) {
-      // Preserve activeIndex from existing group if valid, otherwise default to 0
-      const existingActiveIndex = existingGroup?.activeIndex ?? 0;
-      const activeIndex = existingActiveIndex < paneIds.length ? existingActiveIndex : 0;
+      // Find which pane is currently visible (in the active window)
+      // This determines activeIndex
+      let activeIndex = 0;
+      for (let i = 0; i < paneIds.length; i++) {
+        const pane = panes.find((p) => p.tmuxId === paneIds[i]);
+        if (pane && pane.windowId === activeWindowId) {
+          activeIndex = i;
+          break;
+        }
+      }
 
       groups[parentPaneId] = {
         id: parentPaneId,
@@ -172,6 +190,19 @@ export function buildGroupsFromWindows(
  *
  * @param existingFloats - Previous float states to preserve positions from
  */
+/**
+ * Parse pane ID from float window name.
+ * Float windows have the pattern: __float_{pane_num}
+ * Example: __float_5 -> %5
+ */
+function parseFloatWindowPaneId(windowName: string): string | null {
+  const match = windowName.match(/^__float_(\d+)$/);
+  if (match) {
+    return `%${match[1]}`;
+  }
+  return null;
+}
+
 export function buildFloatPanesFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
@@ -184,9 +215,12 @@ export function buildFloatPanesFromWindows(
   const floatPanes: Record<string, { paneId: string; x: number; y: number; width: number; height: number; pinned: boolean }> = {};
 
   for (const window of windows) {
-    if (!window.isFloatWindow || !window.floatPaneId) continue;
+    if (!window.isFloatWindow) continue;
 
-    const paneId = window.floatPaneId;
+    // Parse pane ID from window name (e.g., __float_5 -> %5)
+    const paneId = parseFloatWindowPaneId(window.name);
+    if (!paneId) continue;
+
     const pane = panes.find((p) => p.tmuxId === paneId);
 
     // Check if we have existing state for this float

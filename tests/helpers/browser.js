@@ -85,7 +85,7 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
           // Content must have > 5 chars and contain shell prompt
           return content.length > 5 && /[$#%>]/.test(content);
         },
-        { timeout: 5000, polling: 100 }
+        { timeout: 3000, polling: 50 }
       );
       // Success - terminal content loaded
       await delay(DELAYS.SHORT);
@@ -121,7 +121,7 @@ async function focusPage(page) {
  * Wait for the WebSocket connection to be established and session to be ready
  * This ensures keyboard events will be sent to the correct session
  */
-async function waitForSessionReady(page, sessionName, timeout = 10000) {
+async function waitForSessionReady(page, sessionName, timeout = 5000) {
   const start = Date.now();
 
   // Wait for the UI to show connected state and have terminal content
@@ -134,7 +134,7 @@ async function waitForSessionReady(page, sessionName, timeout = 10000) {
         // Content should have shell prompt
         return content.length > 5 && /[$#%>]/.test(content);
       },
-      { timeout, polling: 100 }
+      { timeout, polling: 50 }
     );
   } catch {
     console.log('Warning: Session may not be fully ready');
@@ -160,7 +160,7 @@ async function waitForSessionReady(page, sessionName, timeout = 10000) {
  * @param {number} expectedCount - Expected window count
  * @param {number} timeout - Max wait time in ms
  */
-async function waitForWindowCount(page, expectedCount, timeout = 5000) {
+async function waitForWindowCount(page, expectedCount, timeout = 3000) {
   try {
     await page.waitForFunction(
       (count) => {
@@ -168,7 +168,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 5000) {
         return tabs.length === count;
       },
       expectedCount,
-      { timeout, polling: 100 }
+      { timeout, polling: 50 }
     );
   } catch {
     // Timeout - log warning but don't fail
@@ -185,7 +185,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 5000) {
  * @param {number} expectedCount - Expected pane count
  * @param {number} timeout - Max wait time in ms
  */
-async function waitForPaneCount(page, expectedCount, timeout = 5000) {
+async function waitForPaneCount(page, expectedCount, timeout = 3000) {
   try {
     await page.waitForFunction(
       (count) => {
@@ -195,7 +195,7 @@ async function waitForPaneCount(page, expectedCount, timeout = 5000) {
         return paneIds.length === count || logs.length === count;
       },
       expectedCount,
-      { timeout, polling: 100 }
+      { timeout, polling: 50 }
     );
   } catch {
     // Timeout - log warning but don't fail

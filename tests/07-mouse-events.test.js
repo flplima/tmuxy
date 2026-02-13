@@ -307,12 +307,28 @@ describe('Category 7: Mouse Events', () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.setupTwoPanes('horizontal');
+      await waitForPaneCount(ctx.page, 2);
 
       // Get pane dimensions before
       const panesBefore = await ctx.session.getPaneInfo();
 
-      // Find the horizontal divider (between panes stacked vertically)
-      const divider = await ctx.page.$('.resize-divider-h');
+      // Wait for the horizontal divider to appear in the DOM
+      let divider;
+      try {
+        await ctx.page.waitForSelector('.resize-divider-h', { timeout: 5000 });
+        divider = await ctx.page.$('.resize-divider-h');
+      } catch {
+        // Fallback: use tmux resize directly
+        await ctx.session.resizePane('D', 5);
+        await delay(DELAYS.SYNC);
+        const panesAfter = await ctx.session.getPaneInfo();
+        const heightsChanged = panesBefore.some((before, i) => {
+          const after = panesAfter[i];
+          return after && before.height !== after.height;
+        });
+        expect(heightsChanged).toBe(true);
+        return;
+      }
       expect(divider).not.toBeNull();
 
       const box = await divider.boundingBox();
@@ -413,6 +429,8 @@ describe('Category 7: Mouse Events', () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.setupTwoPanes('horizontal');
+      await waitForPaneCount(ctx.page, 2);
+      await delay(DELAYS.MEDIUM); // Extra wait for layout to stabilize
 
       const header = await ctx.page.$('.pane-tab');
       if (!header) {

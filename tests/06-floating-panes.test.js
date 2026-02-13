@@ -48,8 +48,8 @@ describe('Category 6: Floating Panes', () => {
     return await page.evaluate(() => {
       const modals = document.querySelectorAll('.float-modal');
       return Array.from(modals).map((modal) => ({
-        hasHeader: modal.querySelector('.pane-header') !== null,
-        hasCloseButton: modal.querySelector('.pane-close') !== null,
+        hasHeader: modal.querySelector('.float-header') !== null,
+        hasCloseButton: modal.querySelector('.float-close') !== null,
         hasTerminal: modal.querySelector('.terminal-container') !== null,
       }));
     });
@@ -141,7 +141,7 @@ describe('Category 6: Floating Panes', () => {
       await waitForFloatModal(ctx.page);
 
       // Click close button
-      await ctx.page.click('.pane-close');
+      await ctx.page.click('.float-close');
       await delay(DELAYS.SYNC);
 
       // Float modal should be gone
@@ -206,7 +206,16 @@ describe('Category 6: Floating Panes', () => {
 
       // Kill float window via tmux (use session:index format)
       await ctx.session.runViaAdapter(`kill-window -t ${ctx.session.name}:${floatWindow.index}`);
-      await delay(DELAYS.SYNC);
+
+      // Wait for float modal to disappear
+      try {
+        await ctx.page.waitForFunction(
+          () => document.querySelectorAll('.float-modal').length === 0,
+          { timeout: 5000 }
+        );
+      } catch {
+        // If timeout, modal is still present
+      }
 
       // Float modal should be gone
       const modals = await ctx.page.$$('.float-modal');
@@ -219,15 +228,31 @@ describe('Category 6: Floating Panes', () => {
       await ctx.setupFourPanes();
       expect(await ctx.session.getPaneCount()).toBe(4);
 
+      // Get all panes and float the first two
+      const allPanes = await ctx.session.getPaneInfo();
+      expect(allPanes.length).toBeGreaterThanOrEqual(2);
+
       // Float first pane
-      const pane1 = await ctx.session.getActivePaneId();
+      const pane1 = allPanes[0].id;
       await createFloat(ctx.page, pane1);
       await waitForFloatModal(ctx.page);
 
-      // Float second pane
-      const pane2 = await ctx.session.getActivePaneId();
+      // Float second pane (select it first to make it active)
+      const pane2 = allPanes[1].id;
+      await ctx.session.runViaAdapter(`select-pane -t ${pane2}`);
+      await delay(DELAYS.SHORT);
       await createFloat(ctx.page, pane2);
       await delay(DELAYS.SYNC);
+
+      // Wait for second modal to appear
+      try {
+        await ctx.page.waitForFunction(
+          () => document.querySelectorAll('.float-modal').length >= 2,
+          { timeout: 5000 }
+        );
+      } catch {
+        // If timeout, check what we have
+      }
 
       // Should have 2 float modals
       const modals = await ctx.page.$$('.float-modal');

@@ -237,6 +237,16 @@ export class WebSocketAdapter implements TmuxAdapter {
   }
 
   invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    // Special handling for get_initial_state: also set currentState so delta updates work
+    if (cmd === 'get_initial_state') {
+      return this.invokeInternal<T>(cmd, args).then((result) => {
+        // Set currentState from the initial state response
+        // This enables subsequent delta updates to be applied correctly
+        this.currentState = result as ServerState;
+        return result;
+      });
+    }
+
     // Check if this is a send-keys command that should be batched
     if (cmd === 'run_tmux_command' && args?.command) {
       const command = args.command as string;
@@ -261,6 +271,13 @@ export class WebSocketAdapter implements TmuxAdapter {
       }
     }
 
+    return this.invokeInternal(cmd, args);
+  }
+
+  /**
+   * Internal invoke implementation without special handling
+   */
+  private invokeInternal<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     const id = generateUUID();
 
     const message = JSON.stringify({

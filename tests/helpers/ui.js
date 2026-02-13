@@ -610,7 +610,7 @@ async function getFirstPaneId(page) {
  */
 async function clickPaneGroupAdd(page) {
   // Use Playwright's native click for better React event handling
-  const button = await page.$('.pane-add-tab');
+  const button = await page.$('.pane-tab-add');
   if (!button) throw new Error('Pane group add button not found');
   await button.click();
   await delay(DELAYS.SYNC);
@@ -621,7 +621,7 @@ async function clickPaneGroupAdd(page) {
  */
 async function clickGroupTabAdd(page) {
   // Use Playwright's native click for better React event handling
-  const button = await page.$('.pane-add-tab');
+  const button = await page.$('.pane-tab-add');
   if (!button) throw new Error('Group tab add button not found');
   await button.click();
   await delay(DELAYS.SYNC);
@@ -634,7 +634,7 @@ async function clickGroupTabAdd(page) {
 async function getGroupTabCount(page) {
   return await page.evaluate(() => {
     // Find pane-tabs-rows that have more than 1 tab (grouped)
-    const tabRows = document.querySelectorAll('.pane-tabs-row');
+    const tabRows = document.querySelectorAll('.pane-tabs');
     for (const row of tabRows) {
       const tabs = row.querySelectorAll('.pane-tab');
       if (tabs.length > 1) {
@@ -650,7 +650,7 @@ async function getGroupTabCount(page) {
  */
 async function clickGroupTab(page, index) {
   // Use Playwright's native click for better React event handling
-  const tabs = await page.$$('.pane-tabs-row .pane-tab');
+  const tabs = await page.$$('.pane-tabs .pane-tab');
   if (index >= tabs.length) throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
   await tabs[index].click();
   await delay(DELAYS.SYNC);
@@ -661,7 +661,7 @@ async function clickGroupTab(page, index) {
  */
 async function clickGroupTabClose(page, index) {
   // Use Playwright's native click for better React event handling
-  const closeButtons = await page.$$('.pane-tabs-row .pane-tab-close');
+  const closeButtons = await page.$$('.pane-tabs .pane-tab-close');
   if (index >= closeButtons.length) throw new Error(`Group tab close at index ${index} not found (${closeButtons.length} buttons)`);
   await closeButtons[index].click();
   await delay(DELAYS.SYNC);
@@ -676,7 +676,7 @@ async function waitForGroupTabs(page, expectedCount, timeout = 15000) {
   try {
     await page.waitForFunction(
       (count) => {
-        const tabRows = document.querySelectorAll('.pane-tabs-row');
+        const tabRows = document.querySelectorAll('.pane-tabs');
         for (const row of tabRows) {
           const tabs = row.querySelectorAll('.pane-tab');
           if (tabs.length === count) {
@@ -701,7 +701,7 @@ async function waitForGroupTabs(page, expectedCount, timeout = 15000) {
 async function isHeaderGrouped(page) {
   return await page.evaluate(() => {
     // Check if any pane-tabs-row has more than 1 tab
-    const tabRows = document.querySelectorAll('.pane-tabs-row');
+    const tabRows = document.querySelectorAll('.pane-tabs');
     for (const row of tabRows) {
       if (row.querySelectorAll('.pane-tab').length > 1) {
         return true;
@@ -716,7 +716,7 @@ async function isHeaderGrouped(page) {
  */
 async function getGroupTabInfo(page) {
   return await page.evaluate(() => {
-    const tabs = document.querySelectorAll('.pane-tabs-row .pane-tab');
+    const tabs = document.querySelectorAll('.pane-tabs .pane-tab');
     return Array.from(tabs).map((tab, index) => ({
       index,
       title: tab.querySelector('.pane-tab-title')?.textContent?.trim() || '',
