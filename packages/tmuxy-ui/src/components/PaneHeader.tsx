@@ -4,13 +4,22 @@
  * Always shows panes as tabs (even single panes).
  * Pattern: |tab1 x| tab2 x| + |
  * Scrollable when tabs overflow.
+ * Right-click shows context menu with pane operations.
  */
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { useAppSend, usePane, usePaneGroup } from '../machines/AppContext';
+import { PaneContextMenu } from './PaneContextMenu';
 
 interface PaneHeaderProps {
   paneId: string;
+}
+
+interface ContextMenuState {
+  visible: boolean;
+  x: number;
+  y: number;
+  targetPaneId: string;
 }
 
 export function PaneHeader({ paneId }: PaneHeaderProps) {
@@ -18,6 +27,12 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
   const pane = usePane(paneId);
   const { group, groupPanes } = usePaneGroup(paneId);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    targetPaneId: '',
+  });
 
   // Scroll selected tab into view
   useEffect(() => {
@@ -27,6 +42,21 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
       selectedTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     }
   }, [group?.activeIndex]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, targetPaneId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      targetPaneId,
+    });
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  }, []);
 
   if (!pane) return null;
 
@@ -121,6 +151,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
               key={tabPane.tmuxId}
               className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''}`}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
+              onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
               role="tab"
               aria-selected={isSelectedTab}
               aria-label={`Pane ${tabPane.tmuxId}`}
@@ -146,6 +177,14 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
       >
         +
       </button>
+      {contextMenu.visible && (
+        <PaneContextMenu
+          paneId={contextMenu.targetPaneId}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={closeContextMenu}
+        />
+      )}
     </div>
   );
 }
