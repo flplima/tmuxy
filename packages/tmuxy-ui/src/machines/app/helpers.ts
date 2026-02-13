@@ -3,7 +3,8 @@
  */
 
 import type { ServerState, ServerPopup } from '../../tmux/types';
-import type { TmuxPane, TmuxWindow, TmuxPopup } from '../types';
+import type { TmuxPane, TmuxWindow, TmuxPopup, PaneGroupTransition } from '../types';
+import { PANE_GROUP_TRANSITION_TIMEOUT } from '../types';
 
 /**
  * Convert snake_case object keys to camelCase
@@ -75,12 +76,14 @@ export function transformServerState(payload: ServerState): {
  * determine which pane is actually visible (in the active window).
  *
  * @param existingGroups - Previous groups to preserve paneIds from (handles swap case)
+ * @param pendingTransitions - In-flight optimistic tab switches to respect
  */
 export function buildGroupsFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
   activeWindowId: string | null,
-  existingGroups: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {}
+  existingGroups: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {},
+  pendingTransitions: PaneGroupTransition[] = []
 ): Record<string, { id: string; paneIds: string[]; activeIndex: number }> {
   const groups: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {};
 
@@ -161,14 +164,37 @@ export function buildGroupsFromWindows(
 
     // Only create a group if there are multiple panes
     if (paneIds.length > 1) {
-      // Find which pane is currently visible (in the active window)
-      // This determines activeIndex
-      let activeIndex = 0;
+      // Check if there's a pending transition for this group
+      const now = Date.now();
+      const pendingTransition = pendingTransitions.find(
+        (t) => t.groupId === parentPaneId && (now - t.initiatedAt) < PANE_GROUP_TRANSITION_TIMEOUT
+      );
+
+      // Find which pane is currently visible in tmux (server state)
+      let serverActiveIndex = 0;
       for (let i = 0; i < paneIds.length; i++) {
         const pane = panes.find((p) => p.tmuxId === paneIds[i]);
         if (pane && pane.windowId === activeWindowId) {
-          activeIndex = i;
+          serverActiveIndex = i;
           break;
+        }
+      }
+
+      // Determine final activeIndex:
+      // - If pending transition exists and target matches server: confirmed, use server
+      // - If pending transition exists and target differs: still transitioning, use pending target
+      // - If no pending transition: use server state
+      let activeIndex = serverActiveIndex;
+      if (pendingTransition) {
+        const pendingTargetIndex = paneIds.indexOf(pendingTransition.targetPaneId);
+        if (pendingTargetIndex !== -1) {
+          if (serverActiveIndex === pendingTargetIndex) {
+            // Server confirmed our transition
+            activeIndex = serverActiveIndex;
+          } else {
+            // Still transitioning, keep optimistic state
+            activeIndex = pendingTargetIndex;
+          }
         }
       }
 
@@ -181,6 +207,53 @@ export function buildGroupsFromWindows(
   }
 
   return groups;
+}
+
+/**
+ * Reconcile pending group transitions after a state update.
+ * Removes transitions that are:
+ * - Confirmed: server state matches the target
+ * - Timed out: transition took too long
+ * - Orphaned: group no longer exists
+ *
+ * @returns Updated pending transitions array
+ */
+export function reconcilePendingTransitions(
+  pendingTransitions: PaneGroupTransition[],
+  groups: Record<string, { id: string; paneIds: string[]; activeIndex: number }>,
+  panes: TmuxPane[],
+  activeWindowId: string | null
+): PaneGroupTransition[] {
+  const now = Date.now();
+
+  return pendingTransitions.filter((transition) => {
+    // Remove timed out transitions
+    if (now - transition.initiatedAt >= PANE_GROUP_TRANSITION_TIMEOUT) {
+      return false;
+    }
+
+    // Remove if group no longer exists
+    const group = groups[transition.groupId];
+    if (!group) {
+      return false;
+    }
+
+    // Remove if target pane no longer in group
+    if (!group.paneIds.includes(transition.targetPaneId)) {
+      return false;
+    }
+
+    // Check if server has confirmed this transition
+    // (target pane is now in the active window)
+    const targetPane = panes.find((p) => p.tmuxId === transition.targetPaneId);
+    if (targetPane && targetPane.windowId === activeWindowId) {
+      // Server confirmed - remove the pending transition
+      return false;
+    }
+
+    // Transition still pending
+    return true;
+  });
 }
 
 /**

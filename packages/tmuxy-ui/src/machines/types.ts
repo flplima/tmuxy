@@ -20,6 +20,16 @@ export interface PaneGroup {
   activeIndex: number;
 }
 
+/** Pending pane group tab switch - tracks in-flight optimistic updates */
+export interface PaneGroupTransition {
+  groupId: string;
+  targetPaneId: string;
+  initiatedAt: number;
+}
+
+/** Timeout for pending transitions (ms) - after this, accept server state */
+export const PANE_GROUP_TRANSITION_TIMEOUT = 2000;
+
 /** Float pane position and state */
 export interface FloatPaneState {
   /** Pane ID (e.g., "%5") */
@@ -100,6 +110,8 @@ export interface AppMachineContext {
   totalWidth: number;
   totalHeight: number;
   groups: Record<string, PaneGroup>;
+  /** Pending pane group tab switches (optimistic updates awaiting server confirmation) */
+  pendingGroupTransitions: PaneGroupTransition[];
   targetCols: number;
   targetRows: number;
   drag: DragState | null;

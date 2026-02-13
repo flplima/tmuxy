@@ -22,7 +22,7 @@ import {
   DEFAULT_CHAR_WIDTH,
   DEFAULT_CHAR_HEIGHT,
 } from '../constants';
-import { transformServerState, buildGroupsFromWindows, buildFloatPanesFromWindows } from './helpers';
+import { transformServerState, buildGroupsFromWindows, buildFloatPanesFromWindows, reconcilePendingTransitions } from './helpers';
 import type { TmuxWindow } from '../types';
 
 /**
@@ -67,6 +67,7 @@ export const appMachine = setup({
     totalWidth: 0,
     totalHeight: 0,
     groups: {},
+    pendingGroupTransitions: [],
     targetCols: DEFAULT_COLS,
     targetRows: DEFAULT_ROWS,
     drag: null,
@@ -234,7 +235,21 @@ export const appMachine = setup({
             target: 'removingPane',
             actions: enqueueActions(({ event, context, enqueue }) => {
               const transformed = transformServerState(event.state);
-              const groups = buildGroupsFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.groups);
+              const groups = buildGroupsFromWindows(
+                transformed.windows,
+                transformed.panes,
+                transformed.activeWindowId,
+                context.groups,
+                context.pendingGroupTransitions
+              );
+
+              // Reconcile pending transitions (remove confirmed/timed out)
+              const pendingGroupTransitions = reconcilePendingTransitions(
+                context.pendingGroupTransitions,
+                groups,
+                transformed.panes,
+                transformed.activeWindowId
+              );
 
               // Find removed panes
               const currentPaneIds = context.panes.map(p => p.tmuxId);
@@ -269,6 +284,7 @@ export const appMachine = setup({
                     groups,
                     floatPanes,
                   },
+                  pendingGroupTransitions,
                   lastUpdateTime: Date.now(),
                 })
               );
@@ -278,7 +294,21 @@ export const appMachine = setup({
             // Normal update without pane removal
             actions: enqueueActions(({ event, context, enqueue }) => {
               const transformed = transformServerState(event.state);
-              const groups = buildGroupsFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.groups);
+              const groups = buildGroupsFromWindows(
+                transformed.windows,
+                transformed.panes,
+                transformed.activeWindowId,
+                context.groups,
+                context.pendingGroupTransitions
+              );
+
+              // Reconcile pending transitions (remove confirmed/timed out)
+              const pendingGroupTransitions = reconcilePendingTransitions(
+                context.pendingGroupTransitions,
+                groups,
+                transformed.panes,
+                transformed.activeWindowId
+              );
 
               // Build float panes from windows with __float_ naming pattern
               const floatPanes = buildFloatPanesFromWindows(
@@ -301,6 +331,7 @@ export const appMachine = setup({
                   ...transformed,
                   groups,
                   floatPanes,
+                  pendingGroupTransitions,
                   lastUpdateTime: Date.now(),
                 })
               );
@@ -542,7 +573,20 @@ export const appMachine = setup({
               );
             }
 
-            // Update activeIndex to show the selected tab
+            // Add pending transition for optimistic update tracking
+            // This prevents server state from clobbering our activeIndex during the swap
+            const newTransition = {
+              groupId: event.groupId,
+              targetPaneId: event.paneId,
+              initiatedAt: Date.now(),
+            };
+
+            // Remove any existing transition for this group and add the new one
+            const updatedTransitions = context.pendingGroupTransitions
+              .filter((t) => t.groupId !== event.groupId)
+              .concat(newTransition);
+
+            // Update activeIndex optimistically and track the pending transition
             enqueue(
               assign({
                 groups: {
@@ -552,6 +596,7 @@ export const appMachine = setup({
                     activeIndex: targetIndex,
                   },
                 },
+                pendingGroupTransitions: updatedTransitions,
               })
             );
           }),
@@ -828,7 +873,19 @@ export const appMachine = setup({
         TMUX_STATE_UPDATE: {
           actions: enqueueActions(({ event, context, enqueue }) => {
             const transformed = transformServerState(event.state);
-            const groups = buildGroupsFromWindows(transformed.windows, transformed.panes, transformed.activeWindowId, context.groups);
+            const groups = buildGroupsFromWindows(
+              transformed.windows,
+              transformed.panes,
+              transformed.activeWindowId,
+              context.groups,
+              context.pendingGroupTransitions
+            );
+            const pendingGroupTransitions = reconcilePendingTransitions(
+              context.pendingGroupTransitions,
+              groups,
+              transformed.panes,
+              transformed.activeWindowId
+            );
             const floatPanes = buildFloatPanesFromWindows(
               transformed.windows,
               transformed.panes,
@@ -846,6 +903,7 @@ export const appMachine = setup({
                   groups,
                   floatPanes,
                 },
+                pendingGroupTransitions,
                 lastUpdateTime: Date.now(),
               })
             );
