@@ -523,11 +523,13 @@ export const appMachine = setup({
 
             // Resize the hidden window and swap in a single chained command
             // This ensures proper sequencing: resize happens before swap
+            // Also chain list-panes to refresh pane-window mappings after swap
+            const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
             if (visiblePane && targetWindow) {
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
-                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId}`,
+                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; ${listPanesCmd}`,
                 })
               );
             } else {
@@ -535,7 +537,7 @@ export const appMachine = setup({
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
-                  command: `swap-pane -s ${event.paneId} -t ${currentVisiblePaneId}`,
+                  command: `swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; ${listPanesCmd}`,
                 })
               );
             }

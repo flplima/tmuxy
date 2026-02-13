@@ -252,6 +252,7 @@ body {
   height: 100%;
   overflow: hidden;
   background-color: var(--bg-black);
+  user-select: none;
 }
 
 .terminal-content {
@@ -263,6 +264,7 @@ body {
   color: var(--text-primary);
   white-space: pre;
   overflow: hidden;
+  user-select: none;
 }
 
 .terminal-line {
@@ -811,8 +813,8 @@ body {
   cursor: pointer;
 }
 
-/* Float pane - centered via JS positioning */
-.float-pane {
+/* Float modal - centered via JS positioning */
+.float-modal {
   position: absolute;
   background: var(--bg-black);
   border-radius: var(--radius-md);

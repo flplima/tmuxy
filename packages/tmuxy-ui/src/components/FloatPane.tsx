@@ -7,7 +7,7 @@
  * - Green border on all sides when active
  */
 
-import { useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { Terminal } from './Terminal';
 import {
   useAppSend,
@@ -20,9 +20,10 @@ import type { FloatPaneState } from '../machines/types';
 
 interface FloatPaneProps {
   floatState: FloatPaneState;
+  zIndex?: number;
 }
 
-export function FloatPane({ floatState }: FloatPaneProps) {
+export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const send = useAppSend();
   const pane = usePane(floatState.paneId);
   const { charHeight } = useAppSelector(selectCharSize);
@@ -55,13 +56,13 @@ export function FloatPane({ floatState }: FloatPaneProps) {
 
   return (
     <div
-      className="float-pane"
+      className="float-modal"
       style={{
         position: 'absolute',
         left,
         top,
         width: floatWidth,
-        zIndex: 1000,
+        zIndex,
       }}
       onClick={handleClick}
     >
@@ -94,7 +95,10 @@ export function FloatPane({ floatState }: FloatPaneProps) {
 }
 
 /**
- * FloatContainer - Container for float panes with backdrop
+ * FloatContainer - Container for float panes with stacked backdrops
+ *
+ * Each float gets its own backdrop for proper stacking when multiple
+ * floats are open. Clicking a backdrop closes just that float.
  */
 export function FloatContainer() {
   const send = useAppSend();
@@ -102,23 +106,27 @@ export function FloatContainer() {
 
   const visibleFloats = Object.values(floatPanes);
 
-  const handleBackdropClick = useCallback(() => {
-    // Close all float panes when clicking backdrop
-    visibleFloats.forEach((f) => {
-      send({ type: 'CLOSE_FLOAT', paneId: f.paneId });
-    });
-  }, [send, visibleFloats]);
+  const handleBackdropClick = useCallback(
+    (paneId: string) => {
+      send({ type: 'CLOSE_FLOAT', paneId });
+    },
+    [send]
+  );
 
   if (visibleFloats.length === 0) return null;
 
   return (
     <div className="float-overlay">
-      {/* Semi-transparent backdrop */}
-      <div className="float-backdrop" onClick={handleBackdropClick} />
-
-      {/* Float panes */}
-      {visibleFloats.map((floatState) => (
-        <FloatPane key={floatState.paneId} floatState={floatState} />
+      {/* Stacked backdrops and float panes */}
+      {visibleFloats.map((floatState, index) => (
+        <React.Fragment key={floatState.paneId}>
+          <div
+            className="float-backdrop"
+            style={{ zIndex: 1000 + index * 2 }}
+            onClick={() => handleBackdropClick(floatState.paneId)}
+          />
+          <FloatPane floatState={floatState} zIndex={1001 + index * 2} />
+        </React.Fragment>
       ))}
     </div>
   );

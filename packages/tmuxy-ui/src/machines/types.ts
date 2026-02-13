@@ -79,6 +79,7 @@ export interface PendingUpdate {
   panes: TmuxPane[];
   windows: TmuxWindow[];
   groups: Record<string, PaneGroup>;
+  floatPanes: Record<string, FloatPaneState>;
   activeWindowId: string | null;
   activePaneId: string | null;
   totalWidth: number;

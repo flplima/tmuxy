@@ -32,18 +32,38 @@ export function WindowTabs() {
     send({ type: 'SEND_COMMAND', command: 'new-window' });
   }, [send]);
 
+  const handleCloseWindow = useCallback(
+    (windowIndex: number, e: React.MouseEvent) => {
+      e.stopPropagation();
+      send({ type: 'SEND_COMMAND', command: `kill-window -t :${windowIndex}` });
+    },
+    [send]
+  );
+
   return (
     <div className="window-tabs">
       {visibleWindows.map((window) => (
-        <button
+        <div
           key={window.index}
           className={`window-tab ${window.active ? 'window-tab-active' : ''}`}
-          onClick={() => handleWindowClick(window.index)}
-          aria-label={`Window ${window.index}: ${window.name}${window.active ? ' (active)' : ''}`}
-          aria-pressed={window.active}
         >
-          <span className="window-name">{window.name || `Window ${window.index}`}</span>
-        </button>
+          <button
+            className="window-tab-button"
+            onClick={() => handleWindowClick(window.index)}
+            aria-label={`Window ${window.index}: ${window.name}${window.active ? ' (active)' : ''}`}
+            aria-pressed={window.active}
+          >
+            <span className="window-name">{window.name || `Window ${window.index}`}</span>
+          </button>
+          <button
+            className="window-close"
+            onClick={(e) => handleCloseWindow(window.index, e)}
+            title="Close window"
+            aria-label={`Close window ${window.index}`}
+          >
+            ×
+          </button>
+        </div>
       ))}
       <button
         className="window-tab window-tab-add"

@@ -3,6 +3,7 @@
   height: 100%;
   overflow: hidden;
   background-color: #1e1e1e;
+  user-select: none;
 }
 
 .terminal-content {
@@ -14,6 +15,7 @@
   color: #d4d4d4;
   white-space: pre;
   overflow: hidden;
+  user-select: none;
 }
 
 .terminal-line {
