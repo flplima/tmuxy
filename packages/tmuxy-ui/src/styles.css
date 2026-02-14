@@ -519,9 +519,7 @@ body {
   min-width: 0;
 }
 
-.pane-tab:hover {
-  background-color: var(--border-light);
-}
+/* No hover effect - keep it simple like a real terminal */
 
 /* Selected tab in a group (but pane not active) - slightly brighter */
 .pane-tab-selected {
@@ -533,9 +531,7 @@ body {
   background-color: var(--accent-green);
 }
 
-.pane-tab-active:hover {
-  background-color: var(--accent-green);
-}
+/* No hover effect on active tab */
 
 .pane-tab-title {
   overflow: hidden;
@@ -567,29 +563,14 @@ body {
   font-size: var(--font-size-base);
   cursor: pointer;
   line-height: 1;
-  opacity: 0.5;
-  transition: opacity var(--transition-fast), background-color var(--transition-fast);
+  opacity: 0.7;
   flex-shrink: 0;
-}
-
-.pane-tab:hover .pane-tab-close {
-  opacity: 0.8;
 }
 
 /* Active tab close button: dark color on green background */
 .pane-tab-active .pane-tab-close {
   color: var(--bg-black);
-  opacity: 0.6;
-}
-
-.pane-tab-active:hover .pane-tab-close {
-  opacity: 0.8;
-}
-
-.pane-tab-close:hover {
-  opacity: 1;
-  background-color: var(--error-color);
-  color: white;
+  opacity: 0.7;
 }
 
 /* Pane tab add button */
@@ -611,11 +592,7 @@ body {
   flex-shrink: 0;
 }
 
-.pane-tab-add:hover {
-  color: var(--text-muted);
-  border-color: var(--text-subtle);
-  background-color: rgba(255, 255, 255, 0.05);
-}
+/* No hover effect on add button */
 
 /* Legacy styles kept for backwards compatibility */
 .pane-title {

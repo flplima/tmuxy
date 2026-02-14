@@ -40,15 +40,11 @@
 }
 
 .pane-layout-item.pane-active {
-  opacity: 1;
+  /* No special styling - same as inactive */
 }
 
 .pane-layout-item.pane-inactive {
-  opacity: 0.6;
-}
-
-.pane-layout-item.pane-inactive:hover {
-  opacity: 0.85;
+  /* No dim effect - keep full opacity like a real terminal */
 }
 
 /* During drag - the pane being dragged */
@@ -85,18 +81,16 @@
   cursor: ew-resize;
 }
 
-.resize-divider:hover {
+/* No hover effect on resize dividers - keep it minimal */
+
+.resize-divider:active {
   background: rgba(100, 150, 255, 0.3);
 }
 
-.resize-divider:active {
-  background: rgba(100, 150, 255, 0.5);
-}
-
-/* During resize - add visual feedback */
+/* During resize - subtle visual feedback */
 .pane-layout-resizing .resize-divider:active,
 .pane-layout-resizing .resize-divider {
-  background: rgba(100, 150, 255, 0.5);
+  background: rgba(100, 150, 255, 0.3);
 }
 
 /* Prevent text selection during drag/resize */
