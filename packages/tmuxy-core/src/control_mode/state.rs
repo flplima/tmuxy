@@ -174,6 +174,15 @@ impl PaneState {
         self.terminal = vt100::Parser::new(self.height as u16, self.width as u16, 0);
         self.raw_buffer.clear();
 
+        // Strip trailing newline to prevent scroll when content exactly fills terminal.
+        // capture-pane output typically ends with \n, but processing this final newline
+        // would push the cursor past the last row, causing unwanted scroll.
+        let content = if content.ends_with(b"\n") {
+            &content[..content.len() - 1]
+        } else {
+            content
+        };
+
         // Normalize newlines: capture-pane outputs \n only, but vt100 treats \n as
         // "move down" without returning to column 0. We need \r\n for proper line handling.
         let normalized: Vec<u8> = content.iter().flat_map(|&b| {
@@ -217,6 +226,13 @@ impl PaneState {
     /// since %output events from background processes continue arriving during copy mode.
     pub fn process_copy_mode_capture(&mut self, content: &[u8]) {
         let mut temp_terminal = vt100::Parser::new(self.height as u16, self.width as u16, 0);
+
+        // Strip trailing newline to prevent scroll when content exactly fills terminal.
+        let content = if content.ends_with(b"\n") {
+            &content[..content.len() - 1]
+        } else {
+            content
+        };
 
         // Normalize newlines: capture-pane outputs \n only, but vt100 treats \n as
         // "move down" without returning to column 0. We need \r\n for proper line handling.

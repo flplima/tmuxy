@@ -742,3 +742,43 @@ mod tests {
         assert!(parse_pane_group_window_name("__group__1").is_none());
     }
 }
+
+#[cfg(test)]
+mod vt100_capture_test {
+    #[test]
+    fn test_capture_pane_first_line() {
+        // Simulate capture-pane output (14 lines ending with newline)
+        let content = b"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n";
+
+        // Strip trailing newline (as done in reset_and_process_capture)
+        let content = if content.ends_with(b"\n") {
+            &content[..content.len() - 1]
+        } else {
+            &content[..]
+        };
+
+        // Create terminal with 14 rows, 128 cols
+        let mut terminal = vt100::Parser::new(14, 128, 0);
+
+        // Normalize newlines (as done in reset_and_process_capture)
+        let normalized: Vec<u8> = content.iter().flat_map(|&b| {
+            if b == b'\n' {
+                vec![b'\r', b'\n']
+            } else {
+                vec![b]
+            }
+        }).collect();
+
+        // Process the content
+        terminal.process(&normalized);
+
+        // Extract cells
+        let screen = terminal.screen();
+        let content = crate::extract_cells_from_screen(screen);
+
+        // Check first 3 rows
+        assert_eq!(content[0][0].char, "1", "First row should start with '1'");
+        assert_eq!(content[1][0].char, "2", "Second row should start with '2'");
+        assert_eq!(content[2][0].char, "3", "Third row should start with '3'");
+    }
+}
