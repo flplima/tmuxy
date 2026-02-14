@@ -21,8 +21,6 @@ import {
 import type { TmuxPane } from '../machines/types';
 import './PaneLayout.css';
 
-const PANE_GAP = 2; // Minimal gap between panes
-const HALF_GAP = PANE_GAP / 2; // 1px offset for each pane
 const ANIMATION_DISABLE_DURATION = 1000; // Disable animations for 1 second after commit
 
 interface PaneLayoutProps {
@@ -147,7 +145,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, [isDragging, isResizing, send]);
 
-  // Compute base position for each pane with gap adjustments and centering
+  // Compute base position for each pane with centering
   // Each pane has a header (1 char height) above its content.
   // The header occupies the row above pane.y (for non-top panes, this is the tmux divider row).
   const getPaneStyle = useCallback(
@@ -157,9 +155,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       const headerY = Math.max(0, pane.y - 1);
       return {
         position: 'absolute',
-        left: centeringOffset.x + pane.x * charWidth + HALF_GAP,
-        top: centeringOffset.y + headerY * charHeight + HALF_GAP,
-        // Don't subtract PANE_GAP to ensure exact char width fitting for all columns
+        left: centeringOffset.x + pane.x * charWidth,
+        top: centeringOffset.y + headerY * charHeight,
         width: pane.width * charWidth,
         // +1 row for header (header is exactly 1 char height)
         height: (pane.height + 1) * charHeight,
@@ -183,13 +180,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [draggedPaneId]
   );
 
-  // Single pane - no grid needed, but still apply HALF_GAP margin for consistent 8px spacing
+  // Single pane - no grid needed
   if (visiblePanes.length === 1) {
     return (
       <div
         className="pane-layout-single"
         data-pane-id={visiblePanes[0].tmuxId}
-        style={{ margin: HALF_GAP }}
       >
         {children(visiblePanes[0])}
       </div>
@@ -231,9 +227,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
           className="drop-target-indicator"
           style={{
             position: 'absolute',
-            left: centeringOffset.x + dropTarget.x * charWidth + HALF_GAP,
+            left: centeringOffset.x + dropTarget.x * charWidth,
             // Position so header occupies row above content
-            top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight + HALF_GAP,
+            top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
             width: dropTarget.width * charWidth,
             // +1 row for header
             height: (dropTarget.height + 1) * charHeight,
@@ -309,19 +305,6 @@ interface DividerSegment {
 
 function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }: ResizeDividersProps) {
   const send = useAppSend();
-
-  // Helper to count horizontal dividers above a given y position
-  const countDividersAbove = (y: number): number => {
-    if (y === 0) return 0;
-    const dividerRows = new Set<number>();
-    panes.forEach((p) => {
-      const bottomEdge = p.y + p.height;
-      if (panes.some((other) => other.y === bottomEdge + 1)) {
-        dividerRows.add(bottomEdge);
-      }
-    });
-    return Array.from(dividerRows).filter((row) => row < y).length;
-  };
 
   // Collect divider segments grouped by position
   // Key is the y-position for horizontal dividers, x-position for vertical
@@ -433,23 +416,21 @@ function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }: Resiz
 
   const dividerElements: React.ReactElement[] = [];
 
-  // Render horizontal dividers
+  // Render horizontal dividers (between vertically stacked panes)
+  // These are positioned at the header row (pane.y - 1) since headers use divider rows
   horizontalDividers.forEach((segments, yPos) => {
     const merged = mergeSegments(segments);
-    // Calculate vertical compression for this divider position
-    const dividersAbove = countDividersAbove(yPos);
-    const verticalCompression = dividersAbove * (charHeight - charWidth);
     merged.forEach((seg, idx) => {
       dividerElements.push(
         <div
           key={`h-${yPos}-${idx}`}
           className="resize-divider resize-divider-h"
           style={{
-            left: centeringOffset.x + seg.start * charWidth + HALF_GAP,
-            // Position with vertical compression, gap is now charWidth
-            top: centeringOffset.y + yPos * charHeight - verticalCompression,
-            width: (seg.end - seg.start) * charWidth - PANE_GAP,
-            height: charWidth, // Use charWidth for consistent divider thickness
+            left: centeringOffset.x + seg.start * charWidth,
+            // Position at the divider row (which is now the header row for the pane below)
+            top: centeringOffset.y + yPos * charHeight,
+            width: (seg.end - seg.start) * charWidth,
+            height: charHeight, // Full char height (header height)
           }}
           onMouseDown={(e) => {
             e.preventDefault();
@@ -467,26 +448,22 @@ function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }: Resiz
     });
   });
 
-  // Render vertical dividers
+  // Render vertical dividers (between horizontally adjacent panes)
   verticalDividers.forEach((segments, xPos) => {
     const merged = mergeSegments(segments);
     merged.forEach((seg, idx) => {
-      // Calculate vertical compression for start and end positions
-      const dividersAboveStart = countDividersAbove(seg.start);
-      const dividersAboveEnd = countDividersAbove(seg.end);
-      const startCompression = dividersAboveStart * (charHeight - charWidth);
-      const endCompression = dividersAboveEnd * (charHeight - charWidth);
-      // Height is reduced by the difference in compression
-      const heightReduction = endCompression - startCompression;
+      // Vertical divider spans from header row (y-1) to content bottom (y + height)
+      const headerY = Math.max(0, seg.start - 1);
       dividerElements.push(
         <div
           key={`v-${xPos}-${idx}`}
           className="resize-divider resize-divider-v"
           style={{
-            left: centeringOffset.x + xPos * charWidth + HALF_GAP,
-            top: centeringOffset.y + seg.start * charHeight - startCompression + HALF_GAP,
+            left: centeringOffset.x + xPos * charWidth,
+            top: centeringOffset.y + headerY * charHeight,
             width: charWidth,
-            height: (seg.end - seg.start) * charHeight - PANE_GAP - heightReduction,
+            // Height spans header + content rows
+            height: (seg.end - headerY) * charHeight,
           }}
           onMouseDown={(e) => {
             e.preventDefault();

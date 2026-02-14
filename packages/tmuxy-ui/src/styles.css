@@ -219,7 +219,7 @@ body {
 }
 
 .pane-content {
-  padding: 0;
+  padding: 0 4px; /* Horizontal padding for visual separation between vertical splits */
   flex: 1;
   outline: 1px solid var(--border-medium);
   outline-offset: -1px;
