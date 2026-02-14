@@ -402,12 +402,10 @@ export class WebSocketAdapter implements TmuxAdapter {
           this.pendingRequests.delete(msg.id);
         }
       } else if (msg.type === 'event' && msg.name === 'tmux-state-changed') {
-        // Legacy full state update (for backwards compatibility)
         const state = msg.payload as ServerState;
         this.currentState = state;
         this.notifyStateChange(state);
       } else if (msg.type === 'event' && msg.name === 'tmux-state-update') {
-        // New delta protocol
         const update = msg.payload as StateUpdate;
         this.handleStateUpdate(update);
       } else if (msg.type === 'event' && msg.name === 'tmux-error') {

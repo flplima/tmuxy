@@ -22,10 +22,9 @@ tmuxy/
 ## Development
 
 ```bash
-npm run web:dev         # Start dev server on http://localhost:3853
-npm run web:dev:start   # Start dev server in background (pm2)
-npm run web:dev:stop    # Stop background dev server
-npm run web:dev:logs    # View dev server logs
+npm start               # Start dev server with hot reload (pm2 + cargo-watch)
+npm run stop            # Stop dev server
+npm run logs            # View dev server logs
 npm run tauri:dev       # Start Tauri desktop app
 npm test                # Unit tests (Vitest)
 npm run test:e2e        # E2E tests (requires server + Chrome CDP)
@@ -35,13 +34,15 @@ npm run test:e2e        # E2E tests (requires server + Chrome CDP)
 
 ### General Principles
 
-1. **No legacy code** - Remove dead code immediately. No commented-out code, no unused imports, no deprecated functions kept "just in case".
+1. **No legacy code** - Remove dead code immediately. No commented-out code, no unused imports, no deprecated functions kept "just in case". No backwards compatibility shims unless explicitly requested.
 
-2. **DRY (Don't Repeat Yourself)** - Extract repeated logic into reusable functions. If you write similar code twice, refactor it.
+2. **No "not doing" comments** - Don't add comments explaining what the code doesn't do (e.g., `/* No hover effect */`). Comments should explain what the code does, not what it doesn't do.
 
-3. **Modular helpers** - Helpers live in the `helpers/` directory, organized by domain (e.g., `browser.js`, `ui.js`, `tmux.js`). Avoid monolithic files. Classes like `TmuxTestSession` encapsulate related functionality.
+3. **DRY (Don't Repeat Yourself)** - Extract repeated logic into reusable functions. If you write similar code twice, refactor it.
 
-4. **Commit after completing tasks** - After finishing a significant feature, bug fix, or task, always commit and push the changes. This preserves work and allows for incremental progress tracking.
+4. **Modular helpers** - Helpers live in the `helpers/` directory, organized by domain (e.g., `browser.js`, `ui.js`, `tmux.js`). Avoid monolithic files. Classes like `TmuxTestSession` encapsulate related functionality.
+
+5. **Commit after completing tasks** - After finishing a significant feature, bug fix, or task, always commit and push the changes. This preserves work and allows for incremental progress tracking.
 
 ### React Components
 

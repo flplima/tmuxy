@@ -14,7 +14,7 @@ import {
   selectGridDimensions,
   selectContainerSize,
   selectDropTarget,
-  selectStacks,
+  selectGroups,
   selectEnableAnimations,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
@@ -40,7 +40,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   // Select state from machine
   const previewPanes = useAppSelector(selectPreviewPanes);
-  const stacks = useAppSelector(selectStacks);
+  const groups = useAppSelector(selectGroups);
   const draggedPaneId = useAppSelector(selectDraggedPaneId);
   const dropTarget = useAppSelector(selectDropTarget);
   const { charWidth, charHeight, totalWidth, totalHeight } = useAppSelector(selectGridDimensions);
@@ -83,21 +83,21 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // During resize, previewPanes contains real-time dimension updates
   const basePanes = previewPanes;
 
-  // Filter panes to only show visible ones (for stacks, only show active pane)
+  // Filter panes to only show visible ones (for groups, only show active pane)
   const visiblePanes = useMemo(() => {
-    const stacksArray = Object.values(stacks);
-    if (stacksArray.length === 0) return basePanes;
+    const groupsArray = Object.values(groups);
+    if (groupsArray.length === 0) return basePanes;
 
     return basePanes.filter((pane) => {
       // Find if this pane is in a stack
-      const stack = stacksArray.find((s) => s.paneIds.includes(pane.tmuxId));
+      const stack = groupsArray.find((s) => s.paneIds.includes(pane.tmuxId));
       if (!stack) return true; // Not in a stack, always visible
 
       // In a stack - only show if it's the active pane
       const activePaneId = stack.paneIds[stack.activeIndex];
       return pane.tmuxId === activePaneId;
     });
-  }, [basePanes, stacks]);
+  }, [basePanes, groups]);
 
   // Memoize drag offset object to prevent unnecessary re-renders
   const dragOffset = useMemo(() => ({ x: dragOffsetX, y: dragOffsetY }), [dragOffsetX, dragOffsetY]);

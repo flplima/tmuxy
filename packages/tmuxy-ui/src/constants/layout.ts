@@ -47,6 +47,3 @@ export function paneContentPaddingH(charWidth: number): number {
 export const STATUS_BAR_HEIGHT = 37; // 36px height + 1px border
 export const TMUX_STATUS_BAR_HEIGHT = 29; // 21px line-height + 4px padding top/bottom
 
-// Inset around pane layout (now uses CONTAINER_PADDING)
-// Kept for backwards compatibility, but prefer CONTAINER_PADDING
-export const LAYOUT_INSET = CONTAINER_PADDING;

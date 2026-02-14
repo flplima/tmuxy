@@ -519,9 +519,7 @@ body {
   min-width: 0;
 }
 
-/* No hover effect - keep it simple like a real terminal */
-
-/* Selected tab in a group (but pane not active) - slightly brighter */
+/* Selected tab in a group (but pane not active) */
 .pane-tab-selected {
   background-color: var(--border-light);
 }
@@ -530,8 +528,6 @@ body {
 .pane-tab-active {
   background-color: var(--accent-green);
 }
-
-/* No hover effect on active tab */
 
 .pane-tab-title {
   overflow: hidden;
@@ -592,94 +588,6 @@ body {
   flex-shrink: 0;
 }
 
-/* No hover effect on add button */
-
-/* Legacy styles kept for backwards compatibility */
-.pane-title {
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 var(--spacing-3xl) 0 var(--spacing-sm);
-}
-
-.pane-close,
-.group-tab-close {
-  position: absolute;
-  right: 0;
-  top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--pane-header-height);
-  height: var(--pane-header-height);
-  padding: 0;
-  background: transparent;
-  border: none;
-  color: var(--pane-header-text-inactive);
-  font-size: var(--font-size-lg);
-  cursor: pointer;
-  line-height: 1;
-  opacity: 0;
-  transition: opacity var(--transition-normal), background-color var(--transition-normal);
-}
-
-.pane-header:hover .pane-close,
-.group-tab:hover .group-tab-close {
-  opacity: 1;
-}
-
-.pane-close:hover,
-.group-tab-close:hover {
-  background-color: var(--error-color);
-  color: white;
-}
-
-/* Group tabs (kept for legacy support) */
-.group-tabs {
-  display: flex;
-  flex: 1;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.group-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.group-tab {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 var(--spacing-3xl);
-  height: var(--pane-header-height);
-  background-color: var(--pane-header-bg-inactive);
-  border-right: 1px solid #333;
-  cursor: pointer;
-  transition: background-color var(--transition-normal);
-  flex-shrink: 0;
-}
-
-.group-tab:hover {
-  background-color: #333;
-}
-
-.group-tab-active {
-  background-color: var(--pane-header-bg-active);
-}
-
-.group-tab-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-sm);
-  color: var(--pane-header-text-inactive);
-}
-
-.group-tab-active .group-tab-title {
-  color: var(--pane-header-text-active);
-}
 
 /* ============================================
    Status Bar - Minimalist flat design

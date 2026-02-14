@@ -45,7 +45,6 @@ export {
   selectCharSize,
   selectPanePixelDimensions,
   selectGroups,
-  selectStacks,
   selectGroupForPane,
   selectGroupPanes,
   selectVisiblePanes,

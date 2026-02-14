@@ -39,13 +39,6 @@
   transition: none;
 }
 
-.pane-layout-item.pane-active {
-  /* No special styling - same as inactive */
-}
-
-.pane-layout-item.pane-inactive {
-  /* No dim effect - keep full opacity like a real terminal */
-}
 
 /* During drag - the pane being dragged */
 .pane-layout-item.pane-dragging {
@@ -80,8 +73,6 @@
 .resize-divider-v {
   cursor: ew-resize;
 }
-
-/* No hover effect on resize dividers - keep it minimal */
 
 .resize-divider:active {
   background: rgba(100, 150, 255, 0.3);
