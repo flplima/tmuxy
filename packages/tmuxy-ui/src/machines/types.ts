@@ -99,6 +99,12 @@ export interface PendingUpdate {
   popup: TmuxPopup | null;
 }
 
+/** Stored pane group state (persisted in tmux environment) */
+export interface TmuxyGroupsEnv {
+  version: number;
+  groups: Record<string, { id: string; paneIds: string[]; activeIndex: number }>;
+}
+
 export interface AppMachineContext {
   connected: boolean;
   error: string | null;
@@ -110,6 +116,8 @@ export interface AppMachineContext {
   totalWidth: number;
   totalHeight: number;
   groups: Record<string, PaneGroup>;
+  /** Stored group state from tmux environment (source of truth for persistence) */
+  groupsEnv: TmuxyGroupsEnv;
   /** Pending pane group tab switches (optimistic updates awaiting server confirmation) */
   pendingGroupTransitions: PaneGroupTransition[];
   targetCols: number;
