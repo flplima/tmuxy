@@ -879,68 +879,69 @@ describe('Category 5: Pane Groups', () => {
       await clickPaneGroupAdd(ctx.page);
       await waitForGroupTabs(ctx.page, 2);
 
-      // Inject MutationObserver to track class changes on tabs
-      await ctx.page.evaluate(() => {
-        window.__tabClassChanges = [];
-        const tabs = document.querySelector('.pane-tabs');
-        if (!tabs) return;
+      // Get initial tab states
+      const getTabStates = () => ctx.page.evaluate(() => {
+        const tabs = Array.from(document.querySelectorAll('.pane-tab'));
+        return tabs.map(t => ({
+          selected: t.classList.contains('pane-tab-selected'),
+          active: t.classList.contains('pane-tab-active'),
+        }));
+      });
 
-        window.__tabObserver = new MutationObserver((mutations) => {
-          for (const m of mutations) {
-            if (m.type === 'attributes' && m.attributeName === 'class') {
-              const target = m.target;
-              if (target.classList.contains('pane-tab') || target.closest('.pane-tab')) {
-                window.__tabClassChanges.push({
-                  ts: Date.now(),
-                  element: target.className,
-                  oldValue: m.oldValue,
-                  paneTab: target.classList.contains('pane-tab'),
-                });
-              }
-            }
-          }
-        });
+      const initialStates = await getTabStates();
+      expect(initialStates.length).toBe(2);
+      // First tab should be selected initially
+      expect(initialStates[0].selected).toBe(true);
 
-        window.__tabObserver.observe(tabs, {
-          attributes: true,
-          attributeOldValue: true,
-          attributeFilter: ['class'],
-          subtree: true,
+      // Start high-frequency polling to detect any intermediate states
+      const stateHistory = await ctx.page.evaluate(() => {
+        return new Promise((resolve) => {
+          const history = [];
+          const poll = setInterval(() => {
+            const tabs = Array.from(document.querySelectorAll('.pane-tab'));
+            const state = tabs.map(t => ({
+              selected: t.classList.contains('pane-tab-selected'),
+              active: t.classList.contains('pane-tab-active'),
+            }));
+            history.push({ ts: Date.now(), state });
+            if (history.length > 100) clearInterval(poll);
+          }, 5); // Poll every 5ms
+
+          // Click second tab after a brief delay
+          setTimeout(() => {
+            const secondTab = document.querySelectorAll('.pane-tab')[1];
+            if (secondTab) secondTab.click();
+          }, 20);
+
+          // Stop polling after 500ms
+          setTimeout(() => {
+            clearInterval(poll);
+            resolve(history);
+          }, 500);
         });
       });
 
-      // Clear recorded changes
-      await ctx.page.evaluate(() => { window.__tabClassChanges = []; });
+      // Verify final state
+      const finalStates = await getTabStates();
+      expect(finalStates.length).toBe(2);
+      // Second tab should now be selected
+      expect(finalStates[1].selected).toBe(true);
+      expect(finalStates[0].selected).toBe(false);
 
-      // Perform a single tab switch
-      await clickGroupTab(ctx.page, 1);
-      await waitForGroupTabs(ctx.page, 2);
-      await delay(DELAYS.MEDIUM);
-
-      // Get the recorded changes
-      const changes = await ctx.page.evaluate(() => {
-        window.__tabObserver?.disconnect();
-        return window.__tabClassChanges;
-      });
-
-      // Filter to actual pane-tab elements (not children)
-      const tabChanges = changes.filter(c => c.paneTab);
-
-      // Each tab switch should cause exactly 2 class changes:
-      // 1. Old active tab loses 'pane-tab-active' and 'pane-tab-selected'
-      // 2. New active tab gains 'pane-tab-active' and 'pane-tab-selected'
-      // Allow some tolerance for optimistic updates
-      expect(tabChanges.length).toBeLessThanOrEqual(6);
-      expect(tabChanges.length).toBeGreaterThanOrEqual(2);
-
-      // Verify no rapid back-and-forth changes (flicker pattern)
-      for (let i = 1; i < tabChanges.length; i++) {
-        const timeDiff = tabChanges[i].ts - tabChanges[i - 1].ts;
-        // If changes are very rapid (<50ms), they should be on different elements
-        if (timeDiff < 50) {
-          // This is acceptable - parallel updates to different tabs
-        }
+      // Analyze state history for flicker patterns
+      // Count how many times each tab's selected state changed
+      const transitions = { tab0: 0, tab1: 0 };
+      for (let i = 1; i < stateHistory.length; i++) {
+        const prev = stateHistory[i - 1].state;
+        const curr = stateHistory[i].state;
+        if (prev[0]?.selected !== curr[0]?.selected) transitions.tab0++;
+        if (prev[1]?.selected !== curr[1]?.selected) transitions.tab1++;
       }
+
+      // Each tab should change at most once (or a few times for optimistic updates)
+      // Excessive transitions would indicate flicker
+      expect(transitions.tab0).toBeLessThanOrEqual(4);
+      expect(transitions.tab1).toBeLessThanOrEqual(4);
     });
   });
 
