@@ -1,4 +1,4 @@
-import type { AppMachineContext, TmuxPane, TmuxPopup, PaneGroup, ResizeState, FloatPaneState } from './types';
+import type { AppMachineContext, TmuxPane, PaneGroup, ResizeState, FloatPaneState } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 
 // ============================================
@@ -298,52 +298,55 @@ export const selectPanePixelDimensions = createMemoizedSelector(
 );
 
 // ============================================
-// Group Selectors
+// Pane Group Selectors
 // ============================================
 
-export function selectGroups(context: AppMachineContext): Record<string, PaneGroup> {
-  return context.groups;
+export function selectPaneGroups(context: AppMachineContext): Record<string, PaneGroup> {
+  return context.paneGroups;
+}
+
+/**
+ * Get the active pane ID in a group (derived from which pane is in the active window)
+ */
+export function getActivePaneInGroup(context: AppMachineContext, group: PaneGroup): string | null {
+  for (const paneId of group.paneIds) {
+    const pane = context.panes.find(p => p.tmuxId === paneId);
+    if (pane?.windowId === context.activeWindowId) {
+      return paneId;
+    }
+  }
+  return null;
+}
+
+/**
+ * Get the active index in a group (derived from which pane is in the active window)
+ */
+export function getActiveIndexInGroup(context: AppMachineContext, group: PaneGroup): number {
+  const activePaneId = getActivePaneInGroup(context, group);
+  return activePaneId ? group.paneIds.indexOf(activePaneId) : 0;
 }
 
 /**
  * Select visible panes - filters out hidden group panes
- * For groups, only the active pane is visible.
- * During pending transitions, show whichever group pane is in the active window.
+ * For groups, only the pane in the active window is visible.
  */
 function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
   const previewPanes = selectPreviewPanes(context);
-  const groupsArray = Object.values(context.groups);
+  const groupsArray = Object.values(context.paneGroups);
 
   if (groupsArray.length === 0) return previewPanes;
 
   // Build a Set of hidden pane IDs for O(1) lookup
   const hiddenPaneIds = new Set<string>();
 
-  // Build a Set of pane IDs in groups with pending transitions
-  const pendingGroupIds = new Set(
-    context.pendingGroupTransitions.map(t => t.groupId)
-  );
-
   for (const group of groupsArray) {
-    // During a pending transition, show whichever pane is currently in the active window
-    if (pendingGroupIds.has(group.id)) {
-      // Find which group pane is in the active window
-      const paneInActiveWindow = context.panes.find(
-        p => group.paneIds.includes(p.tmuxId) && p.windowId === context.activeWindowId
-      );
-      // Hide all group panes except the one in the active window
-      for (const paneId of group.paneIds) {
-        if (paneId !== paneInActiveWindow?.tmuxId) {
-          hiddenPaneIds.add(paneId);
-        }
-      }
-    } else {
-      // Normal case: hide all except the active pane
-      const activePaneId = group.paneIds[group.activeIndex];
-      for (const paneId of group.paneIds) {
-        if (paneId !== activePaneId) {
-          hiddenPaneIds.add(paneId);
-        }
+    // The active pane is whichever one is in the active window
+    const activePaneId = getActivePaneInGroup(context, group);
+
+    // Hide all group panes except the one in the active window
+    for (const paneId of group.paneIds) {
+      if (paneId !== activePaneId) {
+        hiddenPaneIds.add(paneId);
       }
     }
   }
@@ -354,11 +357,10 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
 export const selectVisiblePanes = createMemoizedSelector(
   (ctx: AppMachineContext) => ({
     panes: ctx.panes,
-    groups: ctx.groups,
+    paneGroups: ctx.paneGroups,
     resize: ctx.resize,
     charWidth: ctx.charWidth,
     charHeight: ctx.charHeight,
-    pendingGroupTransitions: ctx.pendingGroupTransitions,
     activeWindowId: ctx.activeWindowId,
   }),
   selectVisiblePanesUncached
@@ -367,17 +369,17 @@ export const selectVisiblePanes = createMemoizedSelector(
 /**
  * Find the group that contains a given pane (if any)
  */
-export const selectGroupForPane = createMemoizedSelectorWithArg(
-  (ctx: AppMachineContext, _paneId: string) => ctx.groups,
+export const selectPaneGroupForPane = createMemoizedSelectorWithArg(
+  (ctx: AppMachineContext, _paneId: string) => ctx.paneGroups,
   (context: AppMachineContext, paneId: string): PaneGroup | undefined => {
-    return Object.values(context.groups).find((group) => group.paneIds.includes(paneId));
+    return Object.values(context.paneGroups).find((group) => group.paneIds.includes(paneId));
   }
 );
 
 /**
  * Get all panes in a group (resolved from pane IDs)
  */
-export function selectGroupPanes(
+export function selectPaneGroupPanes(
   context: AppMachineContext,
   group: PaneGroup
 ): TmuxPane[] {
@@ -463,25 +465,6 @@ export function selectIsPaneInActiveWindow(context: AppMachineContext, paneId: s
 
 export function selectIsSinglePane(context: AppMachineContext): boolean {
   return selectVisiblePanes(context).length === 1;
-}
-
-// ============================================
-// Popup Selectors
-// ============================================
-
-/**
- * Select the active popup (if any)
- * Note: Requires tmux with control mode popup support (PR #4361)
- */
-export function selectPopup(context: AppMachineContext): TmuxPopup | null {
-  return context.popup;
-}
-
-/**
- * Check if a popup is currently active
- */
-export function selectHasPopup(context: AppMachineContext): boolean {
-  return context.popup !== null;
 }
 
 // ============================================

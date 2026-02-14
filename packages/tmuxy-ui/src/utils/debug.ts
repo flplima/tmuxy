@@ -8,7 +8,7 @@ import type { PaneGroup, FloatPaneState } from '../machines/types';
 interface AppState {
   panes: TmuxPane[];
   windows: TmuxWindow[];
-  groups: Record<string, PaneGroup>;
+  paneGroups: Record<string, PaneGroup>;
   floatPanes: Record<string, FloatPaneState>;
   activeWindowId: string | null;
   totalWidth: number;
@@ -106,7 +106,7 @@ function buildSnapshot(): string[] {
   const state = window.app?.getSnapshot()?.context;
   if (!state) return ['Error: No app state available (window.app not set)'];
 
-  const { panes, groups, floatPanes, activeWindowId, totalWidth, totalHeight, statusLine } = state;
+  const { panes, paneGroups, floatPanes, activeWindowId, totalWidth, totalHeight, statusLine } = state;
   if (!panes || panes.length === 0) return ['Error: No panes'];
 
   // Filter to visible panes in the active window
@@ -119,11 +119,15 @@ function buildSnapshot(): string[] {
     visiblePanes = visiblePanes.filter(p => !floatPaneIds.has(p.tmuxId));
   }
 
-  // Exclude non-active group members
-  if (groups) {
+  // Exclude non-active group members (active = in active window)
+  if (paneGroups) {
     const hiddenGroupPaneIds = new Set<string>();
-    for (const group of Object.values(groups)) {
-      const activePaneId = group.paneIds[group.activeIndex];
+    for (const group of Object.values(paneGroups)) {
+      // Find which group pane is in the active window
+      const activePaneId = group.paneIds.find(paneId => {
+        const pane = panes.find(p => p.tmuxId === paneId);
+        return pane?.windowId === winId;
+      });
       for (const paneId of group.paneIds) {
         if (paneId !== activePaneId) {
           hiddenGroupPaneIds.add(paneId);

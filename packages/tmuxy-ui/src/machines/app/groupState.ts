@@ -13,8 +13,7 @@
 
 export interface PaneGroupData {
   id: string; // UUID like "g_abc123"
-  paneIds: string[]; // Ordered list of pane IDs in group
-  activeIndex: number; // Which pane is currently visible
+  paneIds: string[]; // Ordered list of pane IDs in group (active pane derived from windowId)
 }
 
 export interface TmuxyGroupsEnv {
@@ -152,16 +151,9 @@ export function reconcileGroups(
 
     // Only keep group if it has 2+ panes
     if (validPaneIds.length >= 2) {
-      // Adjust activeIndex if needed
-      let activeIndex = group.activeIndex;
-      if (activeIndex >= validPaneIds.length) {
-        activeIndex = validPaneIds.length - 1;
-      }
-
       reconciled.groups[groupId] = {
         id: groupId,
         paneIds: validPaneIds,
-        activeIndex,
       };
     }
   }
@@ -200,7 +192,6 @@ export function createGroup(
       [groupId]: {
         id: groupId,
         paneIds: [paneId1, paneId2],
-        activeIndex: 0, // First pane is active
       },
     },
   };
@@ -251,16 +242,6 @@ export function removePaneFromGroup(
     return { ...groups, groups: remainingGroups };
   }
 
-  // Adjust activeIndex if needed
-  let activeIndex = group.activeIndex;
-  const removedIndex = group.paneIds.indexOf(paneId);
-  if (removedIndex <= activeIndex && activeIndex > 0) {
-    activeIndex--;
-  }
-  if (activeIndex >= newPaneIds.length) {
-    activeIndex = newPaneIds.length - 1;
-  }
-
   return {
     ...groups,
     groups: {
@@ -268,33 +249,6 @@ export function removePaneFromGroup(
       [group.id]: {
         ...group,
         paneIds: newPaneIds,
-        activeIndex,
-      },
-    },
-  };
-}
-
-/**
- * Set the active pane in a group
- */
-export function setGroupActivePane(
-  groups: TmuxyGroupsEnv,
-  groupId: string,
-  paneId: string
-): TmuxyGroupsEnv {
-  const group = groups.groups[groupId];
-  if (!group) return groups;
-
-  const index = group.paneIds.indexOf(paneId);
-  if (index === -1) return groups;
-
-  return {
-    ...groups,
-    groups: {
-      ...groups.groups,
-      [groupId]: {
-        ...group,
-        activeIndex: index,
       },
     },
   };
@@ -305,14 +259,13 @@ export function setGroupActivePane(
  */
 export function toUIGroups(
   stored: TmuxyGroupsEnv
-): Record<string, { id: string; paneIds: string[]; activeIndex: number }> {
-  const result: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {};
+): Record<string, { id: string; paneIds: string[] }> {
+  const result: Record<string, { id: string; paneIds: string[] }> = {};
 
   for (const [groupId, group] of Object.entries(stored.groups)) {
     result[groupId] = {
       id: groupId,
       paneIds: group.paneIds,
-      activeIndex: group.activeIndex,
     };
   }
 

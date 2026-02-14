@@ -14,7 +14,8 @@ import {
   selectGridDimensions,
   selectContainerSize,
   selectDropTarget,
-  selectGroups,
+  selectPaneGroups,
+  selectActiveWindowId,
   selectEnableAnimations,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
@@ -40,7 +41,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   // Select state from machine
   const previewPanes = useAppSelector(selectPreviewPanes);
-  const groups = useAppSelector(selectGroups);
+  const paneGroups = useAppSelector(selectPaneGroups);
+  const activeWindowId = useAppSelector(selectActiveWindowId);
   const draggedPaneId = useAppSelector(selectDraggedPaneId);
   const dropTarget = useAppSelector(selectDropTarget);
   const { charWidth, charHeight, totalWidth, totalHeight } = useAppSelector(selectGridDimensions);
@@ -85,19 +87,19 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   // Filter panes to only show visible ones (for groups, only show active pane)
   const visiblePanes = useMemo(() => {
-    const groupsArray = Object.values(groups);
+    const groupsArray = Object.values(paneGroups);
     if (groupsArray.length === 0) return basePanes;
 
     return basePanes.filter((pane) => {
-      // Find if this pane is in a stack
-      const stack = groupsArray.find((s) => s.paneIds.includes(pane.tmuxId));
-      if (!stack) return true; // Not in a stack, always visible
+      // Find if this pane is in a group
+      const group = groupsArray.find((g) => g.paneIds.includes(pane.tmuxId));
+      if (!group) return true; // Not in a group, always visible
 
-      // In a stack - only show if it's the active pane
-      const activePaneId = stack.paneIds[stack.activeIndex];
-      return pane.tmuxId === activePaneId;
+      // In a group - only show if it's in the active window
+      // The active pane is whichever one is in the active window
+      return pane.windowId === activeWindowId;
     });
-  }, [basePanes, groups]);
+  }, [basePanes, paneGroups, activeWindowId]);
 
   // Memoize drag offset object to prevent unnecessary re-renders
   const dragOffset = useMemo(() => ({ x: dragOffsetX, y: dragOffsetY }), [dragOffsetX, dragOffsetY]);

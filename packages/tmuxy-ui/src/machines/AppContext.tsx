@@ -17,8 +17,9 @@ import {
   selectPaneById,
   selectIsPaneInActiveWindow as selectIsPaneInActiveWindowFn,
   selectIsSinglePane as selectIsSinglePaneFn,
-  selectGroupForPane,
-  selectGroupPanes as selectGroupPanesFn,
+  selectPaneGroupForPane,
+  selectPaneGroupPanes as selectPaneGroupPanesFn,
+  getActivePaneInGroup,
 } from './selectors';
 import { createAdapter } from '../tmux/adapters';
 import { createTmuxActor } from './actors/tmuxActor';
@@ -44,17 +45,17 @@ export {
   selectGridDimensions,
   selectCharSize,
   selectPanePixelDimensions,
-  selectGroups,
-  selectGroupForPane,
-  selectGroupPanes,
+  selectPaneGroups,
+  selectPaneGroupForPane,
+  selectPaneGroupPanes,
+  getActivePaneInGroup,
+  getActiveIndexInGroup,
   selectVisiblePanes,
   selectPaneById,
   selectIsPaneInActiveWindow,
   selectIsSinglePane,
   selectStatusLine,
   selectContainerSize,
-  selectPopup,
-  selectHasPopup,
   selectEnableAnimations,
 } from './selectors';
 
@@ -196,12 +197,13 @@ export function useIsSinglePane(): boolean {
   return useSelector(actor, (snapshot) => selectIsSinglePaneFn(snapshot.context));
 }
 
-/** Get the group containing a pane, with resolved pane data */
-export function usePaneGroup(paneId: string): { group: PaneGroup | undefined; groupPanes: TmuxPane[] } {
+/** Get the group containing a pane, with resolved pane data and active pane ID */
+export function usePaneGroup(paneId: string): { group: PaneGroup | undefined; groupPanes: TmuxPane[]; activePaneId: string | null } {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => {
-    const group = selectGroupForPane(snapshot.context, paneId);
-    const groupPanes = group ? selectGroupPanesFn(snapshot.context, group) : [];
-    return { group, groupPanes };
+    const group = selectPaneGroupForPane(snapshot.context, paneId);
+    const groupPanes = group ? selectPaneGroupPanesFn(snapshot.context, group) : [];
+    const activePaneId = group ? getActivePaneInGroup(snapshot.context, group) : null;
+    return { group, groupPanes, activePaneId };
   });
 }

@@ -49,30 +49,6 @@ export interface TmuxWindow {
   floatPaneId: string | null;
 }
 
-/**
- * Tmux popup state
- * Note: Requires tmux with control mode popup support (PR #4361)
- */
-export interface TmuxPopup {
-  /** Popup ID */
-  id: string;
-  /** Popup content (terminal cells) */
-  content: PaneContent;
-  /** Cursor position */
-  cursorX: number;
-  cursorY: number;
-  /** Popup dimensions */
-  width: number;
-  height: number;
-  /** Position relative to window */
-  x: number;
-  y: number;
-  /** Whether the popup is active */
-  active: boolean;
-  /** Command running in popup */
-  command: string;
-}
-
 export interface TmuxState {
   /** Session name (e.g., "tmuxy") */
   sessionName: string;
@@ -86,8 +62,6 @@ export interface TmuxState {
   totalHeight: number;
   connected: boolean;
   error: string | null;
-  /** Active popup (if any) - requires tmux with control mode popup support */
-  popup?: TmuxPopup | null;
 }
 
 // ============================================
@@ -160,19 +134,6 @@ export interface ServerWindow {
   float_pane_id?: string | null;
 }
 
-export interface ServerPopup {
-  id: string;
-  content: PaneContent;
-  cursor_x: number;
-  cursor_y: number;
-  width: number;
-  height: number;
-  x: number;
-  y: number;
-  active: boolean;
-  command: string;
-}
-
 export interface ServerState {
   session_name: string;
   active_window_id: string | null;
@@ -182,7 +143,6 @@ export interface ServerState {
   total_width: number;
   total_height: number;
   status_line: string;
-  popup?: ServerPopup | null;
 }
 
 // ============================================
@@ -230,8 +190,6 @@ export interface ServerDelta {
   status_line?: string;
   total_width?: number;
   total_height?: number;
-  /** Popup change: ServerPopup = new/updated, null = closed, undefined = no change */
-  popup?: ServerPopup | null;
 }
 
 export type StateUpdate =

@@ -4,10 +4,10 @@
  * All type definitions for state machines and their events.
  */
 
-import type { TmuxPane, TmuxWindow, TmuxPopup, ServerState } from '../tmux/types';
+import type { TmuxPane, TmuxWindow, ServerState } from '../tmux/types';
 
 // Re-export domain types
-export type { TmuxPane, TmuxWindow, TmuxPopup, ServerState };
+export type { TmuxPane, TmuxWindow, ServerState };
 
 // ============================================
 // Shared State Types
@@ -16,19 +16,8 @@ export type { TmuxPane, TmuxWindow, TmuxPopup, ServerState };
 /** Pane group - groups panes that share the same visual position (like tabs) */
 export interface PaneGroup {
   id: string;
-  paneIds: string[];
-  activeIndex: number;
+  paneIds: string[];  // Tab order - active pane is derived from which pane is in activeWindowId
 }
-
-/** Pending pane group tab switch - tracks in-flight optimistic updates */
-export interface PaneGroupTransition {
-  groupId: string;
-  targetPaneId: string;
-  initiatedAt: number;
-}
-
-/** Timeout for pending transitions (ms) - after this, accept server state */
-export const PANE_GROUP_TRANSITION_TIMEOUT = 2000;
 
 /** Float pane position and state */
 export interface FloatPaneState {
@@ -88,7 +77,7 @@ export interface ResizeState {
 export interface PendingUpdate {
   panes: TmuxPane[];
   windows: TmuxWindow[];
-  groups: Record<string, PaneGroup>;
+  paneGroups: Record<string, PaneGroup>;
   floatPanes: Record<string, FloatPaneState>;
   activeWindowId: string | null;
   activePaneId: string | null;
@@ -96,13 +85,12 @@ export interface PendingUpdate {
   totalHeight: number;
   sessionName: string;
   statusLine: string;
-  popup: TmuxPopup | null;
 }
 
 /** Stored pane group state (persisted in tmux environment) */
 export interface TmuxyGroupsEnv {
   version: number;
-  groups: Record<string, { id: string; paneIds: string[]; activeIndex: number }>;
+  groups: Record<string, { id: string; paneIds: string[] }>;
 }
 
 export interface AppMachineContext {
@@ -115,11 +103,9 @@ export interface AppMachineContext {
   windows: TmuxWindow[];
   totalWidth: number;
   totalHeight: number;
-  groups: Record<string, PaneGroup>;
+  paneGroups: Record<string, PaneGroup>;
   /** Stored group state from tmux environment (source of truth for persistence) */
-  groupsEnv: TmuxyGroupsEnv;
-  /** Pending pane group tab switches (optimistic updates awaiting server confirmation) */
-  pendingGroupTransitions: PaneGroupTransition[];
+  paneGroupsEnv: TmuxyGroupsEnv;
   targetCols: number;
   targetRows: number;
   drag: DragState | null;
@@ -137,11 +123,6 @@ export interface AppMachineContext {
   containerHeight: number;
   /** Timestamp of last tmux state update (for activity tracking) */
   lastUpdateTime: number;
-  /**
-   * Active popup (if any)
-   * Note: Requires tmux with control mode popup support (PR #4361)
-   */
-  popup: TmuxPopup | null;
   /** Whether the float view is currently visible */
   floatViewVisible: boolean;
   /** Float pane positions and states (keyed by pane ID) */

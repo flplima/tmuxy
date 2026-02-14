@@ -11,7 +11,6 @@ import { StatusBar } from './components/StatusBar';
 import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
-import { PopupContainer } from './components/Popup';
 import { FloatContainer } from './components/FloatPane';
 import {
   useAppSelector,
@@ -76,8 +75,6 @@ function App() {
         </PaneLayout>
         {/* Float panes overlay - renders above tiled panes */}
         <FloatContainer />
-        {/* Popup overlay - renders when tmux popup is active */}
-        <PopupContainer />
       </div>
       <TmuxStatusBar />
     </div>

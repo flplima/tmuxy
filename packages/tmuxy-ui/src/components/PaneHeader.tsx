@@ -88,7 +88,7 @@ interface ContextMenuState {
 export function PaneHeader({ paneId }: PaneHeaderProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
-  const { group, groupPanes } = usePaneGroup(paneId);
+  const { group, groupPanes, activePaneId } = usePaneGroup(paneId);
   const tabsRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
@@ -99,12 +99,12 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
 
   // Scroll selected tab into view
   useEffect(() => {
-    if (!tabsRef.current || !group) return;
+    if (!tabsRef.current || !activePaneId) return;
     const selectedTab = tabsRef.current.querySelector('.pane-tab-selected');
     if (selectedTab) {
       selectedTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     }
-  }, [group?.activeIndex]);
+  }, [activePaneId]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, targetPaneId: string) => {
     e.preventDefault();
@@ -128,7 +128,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
   // Build list of panes to show as tabs
   // If in a group, show all group panes; otherwise just this pane
   const tabPanes = groupPanes && groupPanes.length > 0 ? groupPanes : [pane];
-  const activeTabId = group ? group.paneIds[group.activeIndex] : tmuxId;
+  const activeTabId = activePaneId ?? tmuxId;
 
   const handleClose = (e: React.MouseEvent, closePaneId: string) => {
     e.preventDefault();

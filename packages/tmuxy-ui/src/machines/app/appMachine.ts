@@ -26,10 +26,8 @@ import {
   transformServerState,
   buildGroupsFromWindows,
   buildFloatPanesFromWindows,
-  reconcilePendingTransitions,
   findGroupForPane,
   createNewGroup,
-  updateGroupActivePane,
   reconcileGroupsWithPanes,
   makeGroupWindowName,
   type TmuxyGroupsEnv,
@@ -78,9 +76,8 @@ export const appMachine = setup({
     windows: [],
     totalWidth: 0,
     totalHeight: 0,
-    groups: {},
-    groupsEnv: { version: 1, groups: {} } as TmuxyGroupsEnv,
-    pendingGroupTransitions: [],
+    paneGroups: {},
+    paneGroupsEnv: { version: 1, groups: {} } as TmuxyGroupsEnv,
     targetCols: DEFAULT_COLS,
     targetRows: DEFAULT_ROWS,
     drag: null,
@@ -93,8 +90,6 @@ export const appMachine = setup({
     containerWidth: 0,
     containerHeight: 0,
     lastUpdateTime: 0,
-    // Popup state (requires tmux with control mode popup support - PR #4361)
-    popup: null,
     // Float pane state
     floatViewVisible: false,
     floatPanes: {},
@@ -249,25 +244,16 @@ export const appMachine = setup({
             actions: enqueueActions(({ event, context, enqueue }) => {
               const transformed = transformServerState(event.state);
 
-              // Reconcile groupsEnv with current panes (remove references to deleted panes)
-              const { env: reconciledGroupsEnv, changed: groupsEnvChanged, saveCommand: reconcileSaveCmd } =
-                reconcileGroupsWithPanes(context.groupsEnv, transformed.panes.map(p => p.tmuxId));
+              // Reconcile paneGroupsEnv with current panes (remove references to deleted panes)
+              const { env: reconciledPaneGroupsEnv, changed: paneGroupsEnvChanged, saveCommand: reconcileSaveCmd } =
+                reconcileGroupsWithPanes(context.paneGroupsEnv, transformed.panes.map(p => p.tmuxId));
 
-              const groups = buildGroupsFromWindows(
+              const paneGroups = buildGroupsFromWindows(
                 transformed.windows,
                 transformed.panes,
                 transformed.activeWindowId,
-                context.groups,
-                context.pendingGroupTransitions,
-                reconciledGroupsEnv
-              );
-
-              // Reconcile pending transitions (remove confirmed/timed out)
-              const pendingGroupTransitions = reconcilePendingTransitions(
-                context.pendingGroupTransitions,
-                groups,
-                transformed.panes,
-                transformed.activeWindowId
+                context.paneGroups,
+                reconciledPaneGroupsEnv
               );
 
               // Find removed panes
@@ -295,8 +281,8 @@ export const appMachine = setup({
                 context.charHeight
               );
 
-              // If groupsEnv changed, save to tmux environment
-              if (groupsEnvChanged && reconcileSaveCmd) {
+              // If paneGroupsEnv changed, save to tmux environment
+              if (paneGroupsEnvChanged && reconcileSaveCmd) {
                 enqueue(
                   sendTo('tmux', {
                     type: 'SEND_COMMAND' as const,
@@ -310,11 +296,10 @@ export const appMachine = setup({
                 assign({
                   pendingUpdate: {
                     ...transformed,
-                    groups,
+                    paneGroups,
                     floatPanes,
                   },
-                  groupsEnv: reconciledGroupsEnv,
-                  pendingGroupTransitions,
+                  paneGroupsEnv: reconciledPaneGroupsEnv,
                   lastUpdateTime: Date.now(),
                 })
               );
@@ -325,22 +310,13 @@ export const appMachine = setup({
             actions: enqueueActions(({ event, context, enqueue }) => {
               const transformed = transformServerState(event.state);
 
-              // Build groups using groupsEnv as source of truth for UUID-based groups
-              const groups = buildGroupsFromWindows(
+              // Build pane groups using paneGroupsEnv as source of truth for UUID-based groups
+              const paneGroups = buildGroupsFromWindows(
                 transformed.windows,
                 transformed.panes,
                 transformed.activeWindowId,
-                context.groups,
-                context.pendingGroupTransitions,
-                context.groupsEnv
-              );
-
-              // Reconcile pending transitions (remove confirmed/timed out)
-              const pendingGroupTransitions = reconcilePendingTransitions(
-                context.pendingGroupTransitions,
-                groups,
-                transformed.panes,
-                transformed.activeWindowId
+                context.paneGroups,
+                context.paneGroupsEnv
               );
 
               // Build float panes from windows with __float_ naming pattern
@@ -359,8 +335,8 @@ export const appMachine = setup({
               const newPaneIds = transformed.panes.map(p => p.tmuxId);
               const addedPanes = newPaneIds.filter(id => !currentPaneIds.includes(id));
 
-              // Update groupsEnv if new panes were discovered in group windows
-              let updatedGroupsEnv = context.groupsEnv;
+              // Update paneGroupsEnv if new panes were discovered in group windows
+              let updatedPaneGroupsEnv = context.paneGroupsEnv;
               if (addedPanes.length > 0) {
                 // Check if any added panes are in UUID-based group windows
                 for (const paneId of addedPanes) {
@@ -374,15 +350,15 @@ export const appMachine = setup({
                   const match = window.name.match(/^__group_([a-z0-9_]+)_(\d+)$/);
                   if (match) {
                     const groupId = match[1];
-                    const existingGroup = updatedGroupsEnv.groups[groupId];
+                    const existingGroup = updatedPaneGroupsEnv.groups[groupId];
 
                     if (existingGroup) {
                       // Add new pane to existing group
                       if (!existingGroup.paneIds.includes(paneId)) {
-                        updatedGroupsEnv = {
-                          ...updatedGroupsEnv,
+                        updatedPaneGroupsEnv = {
+                          ...updatedPaneGroupsEnv,
                           groups: {
-                            ...updatedGroupsEnv.groups,
+                            ...updatedPaneGroupsEnv.groups,
                             [groupId]: {
                               ...existingGroup,
                               paneIds: [...existingGroup.paneIds, paneId],
@@ -395,14 +371,13 @@ export const appMachine = setup({
                       // The active pane should be the one that triggered PANE_GROUP_ADD
                       const activePaneId = context.activePaneId;
                       if (activePaneId && activePaneId !== paneId) {
-                        updatedGroupsEnv = {
-                          ...updatedGroupsEnv,
+                        updatedPaneGroupsEnv = {
+                          ...updatedPaneGroupsEnv,
                           groups: {
-                            ...updatedGroupsEnv.groups,
+                            ...updatedPaneGroupsEnv.groups,
                             [groupId]: {
                               id: groupId,
                               paneIds: [activePaneId, paneId],
-                              activeIndex: 0,
                             },
                           },
                         };
@@ -411,12 +386,12 @@ export const appMachine = setup({
                   }
                 }
 
-                // Save updated groupsEnv to tmux environment if changed
-                if (updatedGroupsEnv !== context.groupsEnv) {
+                // Save updated paneGroupsEnv to tmux environment if changed
+                if (updatedPaneGroupsEnv !== context.paneGroupsEnv) {
                   enqueue(
                     sendTo('tmux', {
                       type: 'SEND_COMMAND' as const,
-                      command: buildSaveGroupsCommand(updatedGroupsEnv),
+                      command: buildSaveGroupsCommand(updatedPaneGroupsEnv),
                     })
                   );
                 }
@@ -425,10 +400,9 @@ export const appMachine = setup({
               enqueue(
                 assign({
                   ...transformed,
-                  groups,
-                  groupsEnv: updatedGroupsEnv,
+                  paneGroups,
+                  paneGroupsEnv: updatedPaneGroupsEnv,
                   floatPanes,
-                  pendingGroupTransitions,
                   lastUpdateTime: Date.now(),
                 })
               );
@@ -606,7 +580,7 @@ export const appMachine = setup({
             const activePaneId = event.paneId;
 
             // Check if the active pane is already in a group
-            const existingGroup = findGroupForPane(context.groupsEnv, activePaneId);
+            const existingGroup = findGroupForPane(context.paneGroupsEnv, activePaneId);
 
             let groupId: string;
             let nextIndex: number;
@@ -617,9 +591,9 @@ export const appMachine = setup({
               nextIndex = existingGroup.paneIds.length;
             } else {
               // Create a new group - generate UUID for the window name
-              // The actual groupsEnv will be updated when we receive the TMUX_STATE_UPDATE
+              // The actual paneGroupsEnv will be updated when we receive the TMUX_STATE_UPDATE
               // with the new pane ID from the window we just created
-              const result = createNewGroup(context.groupsEnv, activePaneId, '');
+              const result = createNewGroup(context.paneGroupsEnv, activePaneId, '');
               groupId = result.groupId;
               nextIndex = 1;
             }
@@ -657,14 +631,18 @@ export const appMachine = setup({
         },
         PANE_GROUP_SWITCH: {
           actions: enqueueActions(({ context, event, enqueue }) => {
-            const group = context.groups[event.groupId];
+            const group = context.paneGroups[event.groupId];
             if (!group) return;
 
-            const targetIndex = group.paneIds.indexOf(event.paneId);
-            if (targetIndex === -1 || targetIndex === group.activeIndex) return;
+            // Find the currently visible pane (the one in the active window)
+            const currentVisiblePaneId = group.paneIds.find((paneId) => {
+              const pane = context.panes.find((p) => p.tmuxId === paneId);
+              return pane?.windowId === context.activeWindowId;
+            });
 
-            // Get the currently visible pane (the one in the main layout)
-            const currentVisiblePaneId = group.paneIds[group.activeIndex];
+            // Don't switch if target is already visible or not in group
+            if (!currentVisiblePaneId || currentVisiblePaneId === event.paneId) return;
+            if (!group.paneIds.includes(event.paneId)) return;
 
             // Get the visible pane's current dimensions
             const visiblePane = context.panes.find((p) => p.tmuxId === currentVisiblePaneId);
@@ -673,25 +651,16 @@ export const appMachine = setup({
             // Find the window containing the target pane (hidden window)
             const targetWindow = context.windows.find((w) => w.id === targetPane?.windowId);
 
-            // Update the groupsEnv with the new active pane
-            const { env: updatedGroupsEnv, saveCommand } = updateGroupActivePane(
-              context.groupsEnv,
-              event.groupId,
-              event.paneId
-            );
-
             // Resize the hidden window and swap in a single chained command
             // This ensures proper sequencing: resize happens before swap
             // Also chain list-panes to refresh pane-window mappings after swap
-            // And save the group state to tmux environment
             const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
-            const saveEnvCmd = saveCommand ? ` \\; ${saveCommand}` : '';
 
             if (visiblePane && targetWindow) {
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
-                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId}${saveEnvCmd} \\; ${listPanesCmd}`,
+                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; ${listPanesCmd}`,
                 })
               );
             } else {
@@ -699,46 +668,23 @@ export const appMachine = setup({
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
-                  command: `swap-pane -s ${event.paneId} -t ${currentVisiblePaneId}${saveEnvCmd} \\; ${listPanesCmd}`,
+                  command: `swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; ${listPanesCmd}`,
                 })
               );
             }
-
-            // Add pending transition for optimistic update tracking
-            // This prevents server state from clobbering our activeIndex during the swap
-            const newTransition = {
-              groupId: event.groupId,
-              targetPaneId: event.paneId,
-              initiatedAt: Date.now(),
-            };
-
-            // Remove any existing transition for this group and add the new one
-            const updatedTransitions = context.pendingGroupTransitions
-              .filter((t) => t.groupId !== event.groupId)
-              .concat(newTransition);
-
-            // Update activeIndex optimistically, update groupsEnv, and track the pending transition
-            enqueue(
-              assign({
-                groups: {
-                  ...context.groups,
-                  [event.groupId]: {
-                    ...group,
-                    activeIndex: targetIndex,
-                  },
-                },
-                groupsEnv: updatedGroupsEnv,
-                pendingGroupTransitions: updatedTransitions,
-              })
-            );
+            // No optimistic update - UI will update when tmux state arrives
           }),
         },
         PANE_GROUP_CLOSE: {
           actions: enqueueActions(({ context, event, enqueue }) => {
-            const group = context.groups[event.groupId];
+            const group = context.paneGroups[event.groupId];
             if (!group) return;
 
-            const visiblePaneId = group.paneIds[group.activeIndex];
+            // Find the currently visible pane (the one in the active window)
+            const visiblePaneId = group.paneIds.find((paneId) => {
+              const pane = context.panes.find((p) => p.tmuxId === paneId);
+              return pane?.windowId === context.activeWindowId;
+            });
             const isClosingVisible = visiblePaneId === event.paneId;
 
             // Find which window the pane to close is in
@@ -1006,23 +952,16 @@ export const appMachine = setup({
           actions: enqueueActions(({ event, context, enqueue }) => {
             const transformed = transformServerState(event.state);
 
-            // Reconcile groupsEnv with current panes
-            const { env: reconciledGroupsEnv } =
-              reconcileGroupsWithPanes(context.groupsEnv, transformed.panes.map(p => p.tmuxId));
+            // Reconcile paneGroupsEnv with current panes
+            const { env: reconciledPaneGroupsEnv } =
+              reconcileGroupsWithPanes(context.paneGroupsEnv, transformed.panes.map(p => p.tmuxId));
 
-            const groups = buildGroupsFromWindows(
+            const paneGroups = buildGroupsFromWindows(
               transformed.windows,
               transformed.panes,
               transformed.activeWindowId,
-              context.groups,
-              context.pendingGroupTransitions,
-              reconciledGroupsEnv
-            );
-            const pendingGroupTransitions = reconcilePendingTransitions(
-              context.pendingGroupTransitions,
-              groups,
-              transformed.panes,
-              transformed.activeWindowId
+              context.paneGroups,
+              reconciledPaneGroupsEnv
             );
             const floatPanes = buildFloatPanesFromWindows(
               transformed.windows,
@@ -1038,11 +977,10 @@ export const appMachine = setup({
               assign({
                 pendingUpdate: {
                   ...transformed,
-                  groups,
+                  paneGroups,
                   floatPanes,
                 },
-                groupsEnv: reconciledGroupsEnv,
-                pendingGroupTransitions,
+                paneGroupsEnv: reconciledPaneGroupsEnv,
                 lastUpdateTime: Date.now(),
               })
             );

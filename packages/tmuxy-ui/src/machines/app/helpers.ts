@@ -2,9 +2,8 @@
  * Helper functions for the app machine
  */
 
-import type { ServerState, ServerPopup } from '../../tmux/types';
-import type { TmuxPane, TmuxWindow, TmuxPopup, PaneGroupTransition } from '../types';
-import { PANE_GROUP_TRANSITION_TIMEOUT } from '../types';
+import type { ServerState } from '../../tmux/types';
+import type { TmuxPane, TmuxWindow } from '../types';
 import {
   type TmuxyGroupsEnv,
   type PaneGroupData,
@@ -36,25 +35,6 @@ export function camelize<T>(obj: Record<string, unknown>): T {
 }
 
 /**
- * Transform server popup to client format
- */
-export function transformServerPopup(popup: ServerPopup | null | undefined): TmuxPopup | null {
-  if (!popup) return null;
-  return {
-    id: popup.id,
-    content: popup.content,
-    cursorX: popup.cursor_x,
-    cursorY: popup.cursor_y,
-    width: popup.width,
-    height: popup.height,
-    x: popup.x,
-    y: popup.y,
-    active: popup.active,
-    command: popup.command,
-  };
-}
-
-/**
  * Transform server state to client format
  */
 export function transformServerState(payload: ServerState): {
@@ -66,7 +46,6 @@ export function transformServerState(payload: ServerState): {
   totalWidth: number;
   totalHeight: number;
   statusLine: string;
-  popup: TmuxPopup | null;
 } {
   return {
     sessionName: payload.session_name,
@@ -77,7 +56,6 @@ export function transformServerState(payload: ServerState): {
     totalWidth: payload.total_width,
     totalHeight: payload.total_height,
     statusLine: payload.status_line,
-    popup: transformServerPopup(payload.popup),
   };
 }
 
@@ -87,19 +65,19 @@ export function transformServerState(payload: ServerState): {
  * Window naming pattern: __group_{uuid}_{n}
  * Example: __group_g_abc12345_1
  *
+ * Active pane is derived from which pane is in the active window - no need to store activeIndex.
+ *
  * @param existingGroups - Previous groups to preserve paneIds from (handles swap case)
- * @param pendingTransitions - In-flight optimistic tab switches to respect
- * @param groupsEnv - Stored group state from tmux environment
+ * @param paneGroupsEnv - Stored group state from tmux environment
  */
 export function buildGroupsFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
-  activeWindowId: string | null,
-  existingGroups: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {},
-  pendingTransitions: PaneGroupTransition[] = [],
-  groupsEnv?: TmuxyGroupsEnv
-): Record<string, { id: string; paneIds: string[]; activeIndex: number }> {
-  const groups: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {};
+  _activeWindowId: string | null,
+  existingGroups: Record<string, { id: string; paneIds: string[] }> = {},
+  paneGroupsEnv?: TmuxyGroupsEnv
+): Record<string, { id: string; paneIds: string[] }> {
+  const groups: Record<string, { id: string; paneIds: string[] }> = {};
 
   // Map from window to group info
   interface GroupWindowInfo {
@@ -136,8 +114,8 @@ export function buildGroupsFromWindows(
     // Sort by index to maintain consistent ordering
     groupWindows.sort((a, b) => a.info.index - b.info.index);
 
-    // Get stored group data from groupsEnv
-    const storedGroup = groupsEnv?.groups[groupId] ?? null;
+    // Get stored group data from paneGroupsEnv
+    const storedGroup = paneGroupsEnv?.groups[groupId] ?? null;
 
     // Get existing UI group to preserve membership across swaps
     const existingGroup = existingGroups[groupId];
@@ -201,47 +179,9 @@ export function buildGroupsFromWindows(
 
     // Only create a group if there are multiple panes
     if (paneIds.length > 1) {
-      // Check if there's a pending transition for this group
-      const now = Date.now();
-      const pendingTransition = pendingTransitions.find(
-        (t) => t.groupId === groupId && (now - t.initiatedAt) < PANE_GROUP_TRANSITION_TIMEOUT
-      );
-
-      // Find which pane is currently visible in tmux (server state)
-      let serverActiveIndex = 0;
-      for (let i = 0; i < paneIds.length; i++) {
-        const pane = panes.find((p) => p.tmuxId === paneIds[i]);
-        if (pane && pane.windowId === activeWindowId) {
-          serverActiveIndex = i;
-          break;
-        }
-      }
-
-      // Determine final activeIndex
-      let activeIndex = serverActiveIndex;
-
-      // Prefer stored activeIndex if server hasn't confirmed a change
-      if (storedGroup && !pendingTransition) {
-        if (storedGroup.activeIndex < paneIds.length) {
-          activeIndex = storedGroup.activeIndex;
-        }
-      }
-
-      if (pendingTransition) {
-        const pendingTargetIndex = paneIds.indexOf(pendingTransition.targetPaneId);
-        if (pendingTargetIndex !== -1) {
-          if (serverActiveIndex === pendingTargetIndex) {
-            activeIndex = serverActiveIndex;
-          } else {
-            activeIndex = pendingTargetIndex;
-          }
-        }
-      }
-
       groups[groupId] = {
         id: groupId,
         paneIds,
-        activeIndex,
       };
     }
   }
@@ -249,52 +189,6 @@ export function buildGroupsFromWindows(
   return groups;
 }
 
-/**
- * Reconcile pending group transitions after a state update.
- * Removes transitions that are:
- * - Confirmed: server state matches the target
- * - Timed out: transition took too long
- * - Orphaned: group no longer exists
- *
- * @returns Updated pending transitions array
- */
-export function reconcilePendingTransitions(
-  pendingTransitions: PaneGroupTransition[],
-  groups: Record<string, { id: string; paneIds: string[]; activeIndex: number }>,
-  panes: TmuxPane[],
-  activeWindowId: string | null
-): PaneGroupTransition[] {
-  const now = Date.now();
-
-  return pendingTransitions.filter((transition) => {
-    // Remove timed out transitions
-    if (now - transition.initiatedAt >= PANE_GROUP_TRANSITION_TIMEOUT) {
-      return false;
-    }
-
-    // Remove if group no longer exists
-    const group = groups[transition.groupId];
-    if (!group) {
-      return false;
-    }
-
-    // Remove if target pane no longer in group
-    if (!group.paneIds.includes(transition.targetPaneId)) {
-      return false;
-    }
-
-    // Check if server has confirmed this transition
-    // (target pane is now in the active window)
-    const targetPane = panes.find((p) => p.tmuxId === transition.targetPaneId);
-    if (targetPane && targetPane.windowId === activeWindowId) {
-      // Server confirmed - remove the pending transition
-      return false;
-    }
-
-    // Transition still pending
-    return true;
-  });
-}
 
 /**
  * Build float pane states from windows.
@@ -379,7 +273,6 @@ export function createNewGroup(
       [groupId]: {
         id: groupId,
         paneIds: [paneId1, paneId2],
-        activeIndex: 0,
       },
     },
   };
@@ -421,40 +314,6 @@ export function addPaneToExistingGroup(
   };
 }
 
-/**
- * Update the active pane in a group.
- */
-export function updateGroupActivePane(
-  existingEnv: TmuxyGroupsEnv,
-  groupId: string,
-  activePaneId: string
-): { env: TmuxyGroupsEnv; saveCommand: string } {
-  const group = existingEnv.groups[groupId];
-  if (!group) {
-    return { env: existingEnv, saveCommand: '' };
-  }
-
-  const newIndex = group.paneIds.indexOf(activePaneId);
-  if (newIndex === -1) {
-    return { env: existingEnv, saveCommand: '' };
-  }
-
-  const newEnv: TmuxyGroupsEnv = {
-    ...existingEnv,
-    groups: {
-      ...existingEnv.groups,
-      [groupId]: {
-        ...group,
-        activeIndex: newIndex,
-      },
-    },
-  };
-
-  return {
-    env: newEnv,
-    saveCommand: buildSaveGroupsCommand(newEnv),
-  };
-}
 
 /**
  * Remove a pane from its group.
@@ -490,16 +349,6 @@ export function removePaneFromGroup(
     };
   }
 
-  // Adjust activeIndex if needed
-  let newActiveIndex = group.activeIndex;
-  const removedIndex = group.paneIds.indexOf(paneId);
-  if (removedIndex <= newActiveIndex && newActiveIndex > 0) {
-    newActiveIndex--;
-  }
-  if (newActiveIndex >= newPaneIds.length) {
-    newActiveIndex = newPaneIds.length - 1;
-  }
-
   const newEnv: TmuxyGroupsEnv = {
     ...existingEnv,
     groups: {
@@ -507,7 +356,6 @@ export function removePaneFromGroup(
       [groupId]: {
         ...group,
         paneIds: newPaneIds,
-        activeIndex: newActiveIndex,
       },
     },
   };
