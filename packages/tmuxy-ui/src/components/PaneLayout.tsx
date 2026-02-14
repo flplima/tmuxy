@@ -148,21 +148,45 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // Compute base position for each pane with centering
   // Each pane has a header (1 char height) above its content.
   // The header occupies the row above pane.y (for non-top panes, this is the tmux divider row).
+  // Vertical dividers (between side-by-side panes) are absorbed by extending panes to overlap.
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
       // Position pane so header is at (y-1) and content starts at y
       // For y=0, header would be at -1 which we clamp to 0
       const headerY = Math.max(0, pane.y - 1);
+
+      // Check for vertical dividers (side-by-side panes)
+      const hasLeftNeighbor = visiblePanes.some(
+        (other) => other.x + other.width + 1 === pane.x
+      );
+      const hasRightNeighbor = visiblePanes.some(
+        (other) => pane.x + pane.width + 1 === other.x
+      );
+
+      // Absorb vertical divider space by extending panes
+      // Left pane extends right by half char, right pane extends left by half char
+      const halfChar = charWidth / 2;
+      let left = centeringOffset.x + pane.x * charWidth;
+      let width = pane.width * charWidth;
+
+      if (hasLeftNeighbor) {
+        left -= halfChar;
+        width += halfChar;
+      }
+      if (hasRightNeighbor) {
+        width += halfChar;
+      }
+
       return {
         position: 'absolute',
-        left: centeringOffset.x + pane.x * charWidth,
+        left,
         top: centeringOffset.y + headerY * charHeight,
-        width: pane.width * charWidth,
+        width,
         // +1 row for header (header is exactly 1 char height)
         height: (pane.height + 1) * charHeight,
       };
     },
-    [charWidth, charHeight, centeringOffset]
+    [charWidth, charHeight, centeringOffset, visiblePanes]
   );
 
   // Get CSS class for pane
@@ -222,20 +246,35 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       })}
 
       {/* Drop target indicator for swap - hide when committing */}
-      {dropTarget && !isCommitting && (
+      {dropTarget && !isCommitting && (() => {
+        // Same vertical divider logic as getPaneStyle
+        const hasLeftNeighbor = visiblePanes.some(
+          (other) => other.x + other.width + 1 === dropTarget.x
+        );
+        const hasRightNeighbor = visiblePanes.some(
+          (other) => dropTarget.x + dropTarget.width + 1 === other.x
+        );
+        const halfChar = charWidth / 2;
+        let left = centeringOffset.x + dropTarget.x * charWidth;
+        let width = dropTarget.width * charWidth;
+        if (hasLeftNeighbor) { left -= halfChar; width += halfChar; }
+        if (hasRightNeighbor) { width += halfChar; }
+
+        return (
         <div
           className="drop-target-indicator"
           style={{
             position: 'absolute',
-            left: centeringOffset.x + dropTarget.x * charWidth,
+            left,
             // Position so header occupies row above content
             top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
-            width: dropTarget.width * charWidth,
+            width,
             // +1 row for header
             height: (dropTarget.height + 1) * charHeight,
           }}
         />
-      )}
+        );
+      })()}
 
       {/* Resize dividers between adjacent panes */}
       <ResizeDividers panes={visiblePanes} charWidth={charWidth} charHeight={charHeight} centeringOffset={centeringOffset} />
