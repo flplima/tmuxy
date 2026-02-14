@@ -4,10 +4,10 @@
  * All type definitions for state machines and their events.
  */
 
-import type { TmuxPane, TmuxWindow, ServerState } from '../tmux/types';
+import type { TmuxPane, TmuxWindow, ServerState, KeyBindings } from '../tmux/types';
 
 // Re-export domain types
-export type { TmuxPane, TmuxWindow, ServerState };
+export type { TmuxPane, TmuxWindow, ServerState, KeyBindings };
 
 // ============================================
 // Shared State Types
@@ -202,6 +202,7 @@ export type TmuxStateUpdateEvent = { type: 'TMUX_STATE_UPDATE'; state: ServerSta
 export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
 export type ConnectionInfoEvent = { type: 'CONNECTION_INFO'; connectionId: number };
+export type KeybindingsReceivedEvent = { type: 'KEYBINDINGS_RECEIVED'; keybindings: KeyBindings };
 
 // Drag events
 export type DragStartEvent = { type: 'DRAG_START'; paneId: string; startX: number; startY: number };
@@ -265,6 +266,7 @@ export type AppMachineEvent =
   | TmuxErrorEvent
   | TmuxDisconnectedEvent
   | ConnectionInfoEvent
+  | KeybindingsReceivedEvent
   | DragStartEvent
   | DragMoveEvent
   | DragEndEvent

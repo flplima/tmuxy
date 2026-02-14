@@ -4,6 +4,7 @@ import {
   ErrorListener,
   ConnectionInfoListener,
   ReconnectionListener,
+  KeyBindingsListener,
   ServerState,
 } from './types';
 import { HttpAdapter } from './HttpAdapter';
@@ -78,6 +79,11 @@ export class TauriAdapter implements TmuxAdapter {
   onReconnection(listener: ReconnectionListener): () => void {
     this.reconnectionListeners.add(listener);
     return () => this.reconnectionListeners.delete(listener);
+  }
+
+  onKeyBindings(_listener: KeyBindingsListener): () => void {
+    // Tauri doesn't support keybindings yet - no-op
+    return () => {};
   }
 
   private notifyStateChange(state: ServerState) {

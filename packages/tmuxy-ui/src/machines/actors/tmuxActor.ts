@@ -1,5 +1,5 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
-import type { TmuxAdapter, ServerState } from '../../tmux/types';
+import type { TmuxAdapter, ServerState, KeyBindings } from '../../tmux/types';
 
 export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
@@ -30,6 +30,10 @@ export function createTmuxActor(adapter: TmuxAdapter) {
 
     const unsubscribeError = adapter.onError((error: string) => {
       parent.send({ type: 'TMUX_ERROR', error });
+    });
+
+    const unsubscribeKeyBindings = adapter.onKeyBindings((keybindings: KeyBindings) => {
+      parent.send({ type: 'KEYBINDINGS_RECEIVED', keybindings });
     });
 
     // Connect to backend
@@ -72,6 +76,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     return () => {
       unsubscribeState();
       unsubscribeError();
+      unsubscribeKeyBindings();
       adapter.disconnect();
     };
   });

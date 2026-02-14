@@ -13,9 +13,11 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
+import type { KeyBindings } from '../../tmux/types';
 
 export type KeyboardActorEvent =
-  | { type: 'UPDATE_SESSION'; sessionName: string };
+  | { type: 'UPDATE_SESSION'; sessionName: string }
+  | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings };
 
 export interface KeyboardActorInput { parent: AnyActorRef }
 
@@ -27,65 +29,6 @@ const KEY_MAP: Record<string, string> = {
   ' ': 'Space',
   F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
   F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
-};
-
-/**
- * Prefix key bindings - maps key (after prefix) to tmux command
- * These are the default bindings, matching the tmuxy config
- */
-const PREFIX_BINDINGS: Record<string, string | ((session: string) => string)> = {
-  // Window operations
-  'c': (session) => `new-window -t ${session}`,
-  'n': (session) => `next-window -t ${session}`,
-  'p': (session) => `previous-window -t ${session}`,
-  'l': (session) => `last-window -t ${session}`,
-  '0': (session) => `select-window -t ${session}:0`,
-  '1': (session) => `select-window -t ${session}:1`,
-  '2': (session) => `select-window -t ${session}:2`,
-  '3': (session) => `select-window -t ${session}:3`,
-  '4': (session) => `select-window -t ${session}:4`,
-  '5': (session) => `select-window -t ${session}:5`,
-  '6': (session) => `select-window -t ${session}:6`,
-  '7': (session) => `select-window -t ${session}:7`,
-  '8': (session) => `select-window -t ${session}:8`,
-  '9': (session) => `select-window -t ${session}:9`,
-  '&': (session) => `kill-window -t ${session}`,
-  ',': (session) => `command-prompt -I "#W" "rename-window -t ${session} '%%'"`,
-  'w': (session) => `choose-window -t ${session}`,
-
-  // Pane operations
-  '"': (session) => `split-window -t ${session} -v`,  // Horizontal split (creates pane below)
-  '%': (session) => `split-window -t ${session} -h`,  // Vertical split (creates pane right)
-  'z': (session) => `resize-pane -t ${session} -Z`,   // Zoom toggle
-  'x': (session) => `kill-pane -t ${session}`,
-  'o': (session) => `select-pane -t ${session} -t :.+`, // Next pane
-  ';': (session) => `select-pane -t ${session} -l`,    // Last pane
-  'q': (session) => `display-panes -t ${session}`,     // Display pane numbers
-  '!': (session) => `break-pane -t ${session}`,        // Break pane to window
-  '{': (session) => `swap-pane -t ${session} -U`,      // Swap with previous
-  '}': (session) => `swap-pane -t ${session} -D`,      // Swap with next
-
-  // Pane navigation with arrows
-  'ArrowUp': (session) => `select-pane -t ${session} -U`,
-  'ArrowDown': (session) => `select-pane -t ${session} -D`,
-  'ArrowLeft': (session) => `select-pane -t ${session} -L`,
-  'ArrowRight': (session) => `select-pane -t ${session} -R`,
-
-  // Layout
-  ' ': (session) => `next-layout -t ${session}`,
-
-  // Copy mode
-  '[': (session) => `copy-mode -t ${session}`,
-  ']': (session) => `paste-buffer -t ${session}`,
-
-  // Other
-  'd': () => `detach-client`,
-  't': (session) => `clock-mode -t ${session}`,
-  '?': () => `list-keys`,
-  ':': () => `command-prompt`,
-
-  // Send prefix to nested tmux (Ctrl+A Ctrl+A sends literal Ctrl+A)
-  'a': (session) => `send-keys -t ${session} C-a`,
 };
 
 function formatTmuxKey(event: KeyboardEvent): string {
@@ -119,6 +62,11 @@ export function createKeyboardActor() {
     let isComposing = false;
     let inPrefixMode = false;
     let prefixTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    // Dynamic keybindings from server
+    let prefixKey = 'C-a';  // Default, will be updated from server
+    let prefixBindings: Map<string, string> = new Map();
+    let rootBindings: Map<string, string> = new Map();
 
     // Prefix key timeout (tmux default is 500ms, we use 2000ms for web latency)
     const PREFIX_TIMEOUT_MS = 2000;
@@ -156,14 +104,17 @@ export function createKeyboardActor() {
 
       event.preventDefault();
 
-      // Check for prefix key (Ctrl+A)
-      if (event.ctrlKey && event.key.toLowerCase() === 'a' && !event.altKey && !event.metaKey) {
+      // Format the key to check against bindings
+      const formattedKey = formatTmuxKey(event);
+
+      // Check for prefix key (dynamic, from server)
+      if (formattedKey === prefixKey) {
         if (inPrefixMode) {
-          // Ctrl+A Ctrl+A sends literal Ctrl+A to the shell
+          // Double prefix sends literal prefix key to the shell
           resetPrefixMode();
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
-            command: `send-keys -t ${sessionName} C-a`,
+            command: `send-keys -t ${sessionName} ${prefixKey}`,
           });
         } else {
           // Enter prefix mode
@@ -206,9 +157,10 @@ export function createKeyboardActor() {
           }
         }
 
-        const binding = PREFIX_BINDINGS[bindingKey];
-        if (binding) {
-          const command = typeof binding === 'function' ? binding(sessionName) : binding;
+        const bindingCommand = prefixBindings.get(bindingKey);
+        if (bindingCommand) {
+          // Replace session placeholder in command
+          const command = bindingCommand.replace(/-t \S+/, `-t ${sessionName}`);
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command,
@@ -237,13 +189,33 @@ export function createKeyboardActor() {
         return;
       }
 
-      // Normal key handling - send via send-keys
-      const key = formatTmuxKey(event);
-      if (!key) return;
+      // Check for root bindings (bind -n) - these bypass send-keys
+      if (!formattedKey) return;
 
+      const rootCommand = rootBindings.get(formattedKey);
+      if (rootCommand) {
+        // Replace session placeholder in command
+        const command = rootCommand.replace(/-t \S+/, `-t ${sessionName}`);
+        input.parent.send({
+          type: 'SEND_TMUX_COMMAND',
+          command,
+        });
+
+        input.parent.send({
+          type: 'KEY_PRESS',
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+          shiftKey: event.shiftKey,
+          metaKey: event.metaKey,
+        });
+        return;
+      }
+
+      // Normal key handling - send via send-keys
       input.parent.send({
         type: 'SEND_TMUX_COMMAND',
-        command: `send-keys -t ${sessionName} ${key}`,
+        command: `send-keys -t ${sessionName} ${formattedKey}`,
       });
 
       input.parent.send({
@@ -282,6 +254,11 @@ export function createKeyboardActor() {
     receive((event) => {
       if (event.type === 'UPDATE_SESSION') {
         sessionName = event.sessionName;
+      } else if (event.type === 'UPDATE_KEYBINDINGS') {
+        const kb = event.keybindings;
+        prefixKey = kb.prefix_key;
+        prefixBindings = new Map(kb.prefix_bindings.map(b => [b.key, b.command]));
+        rootBindings = new Map(kb.root_bindings.map(b => [b.key, b.command]));
       }
     });
 

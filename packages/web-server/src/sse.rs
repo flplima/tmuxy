@@ -53,6 +53,13 @@ impl StateEmitter for SseEmitter {
 // SSE Event Types
 // ============================================
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyBindings {
+    pub prefix_key: String,
+    pub prefix_bindings: Vec<tmuxy_core::KeyBinding>,
+    pub root_bindings: Vec<tmuxy_core::KeyBinding>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "event", content = "data")]
 enum SseEvent {
@@ -65,6 +72,8 @@ enum SseEvent {
     StateUpdate(StateUpdate),
     #[serde(rename = "error")]
     Error { message: String },
+    #[serde(rename = "keybindings")]
+    KeyBindings(KeyBindings),
 }
 
 // ============================================
@@ -171,6 +180,17 @@ pub async fn sse_handler(
             .event("connection-info")
             .data(serde_json::to_string(&conn_info).unwrap()));
 
+        // Send keybindings to each new client (loaded from tmux config)
+        let keybindings = KeyBindings {
+            prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
+            prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
+            root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
+        };
+        let kb_event = SseEvent::KeyBindings(keybindings);
+        yield Ok(Event::default()
+            .event("keybindings")
+            .data(serde_json::to_string(&kb_event).unwrap()));
+
         let mut session_rx = session_rx;
 
         loop {
@@ -185,6 +205,7 @@ pub async fn sse_handler(
                                     SseEvent::StateUpdate(_) => "state-update",
                                     SseEvent::Error { .. } => "error",
                                     SseEvent::ConnectionInfo { .. } => "connection-info",
+                                    SseEvent::KeyBindings(_) => "keybindings",
                                 };
 
                                 // For state updates, use delta seq as event ID

@@ -215,4 +215,23 @@ export interface TmuxAdapter {
   onError(listener: ErrorListener): () => void;
   onConnectionInfo(listener: ConnectionInfoListener): () => void;
   onReconnection(listener: ReconnectionListener): () => void;
+  onKeyBindings(listener: KeyBindingsListener): () => void;
 }
+
+// ============================================
+// Key Bindings Types
+// ============================================
+
+export interface KeyBinding {
+  key: string;
+  command: string;
+  description: string;
+}
+
+export interface KeyBindings {
+  prefix_key: string;
+  prefix_bindings: KeyBinding[];
+  root_bindings: KeyBinding[];
+}
+
+export type KeyBindingsListener = (keybindings: KeyBindings) => void;

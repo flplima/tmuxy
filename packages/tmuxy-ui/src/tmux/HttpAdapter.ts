@@ -4,6 +4,7 @@ import {
   ErrorListener,
   ConnectionInfoListener,
   ReconnectionListener,
+  KeyBindingsListener,
   ServerState,
   ServerPane,
   ServerWindow,
@@ -11,6 +12,7 @@ import {
   ServerDelta,
   PaneDelta,
   WindowDelta,
+  KeyBindings,
 } from './types';
 
 // Batching constants
@@ -46,6 +48,7 @@ export class HttpAdapter implements TmuxAdapter {
   private errorListeners = new Set<ErrorListener>();
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
   private reconnectionListeners = new Set<ReconnectionListener>();
+  private keyBindingsListeners = new Set<KeyBindingsListener>();
 
   // Keyboard batching state
   private pendingKeys: Map<string, string[]> = new Map(); // session -> keys[]
@@ -96,6 +99,16 @@ export class HttpAdapter implements TmuxAdapter {
           this.handleStateUpdate(update);
         } catch (e) {
           console.error('Failed to parse state-update:', e);
+        }
+      });
+
+      this.eventSource.addEventListener('keybindings', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const keybindings: KeyBindings = data.data || data;
+          this.notifyKeyBindings(keybindings);
+        } catch (e) {
+          console.error('Failed to parse keybindings:', e);
         }
       });
 
@@ -306,6 +319,11 @@ export class HttpAdapter implements TmuxAdapter {
     return () => this.reconnectionListeners.delete(listener);
   }
 
+  onKeyBindings(listener: KeyBindingsListener): () => void {
+    this.keyBindingsListeners.add(listener);
+    return () => this.keyBindingsListeners.delete(listener);
+  }
+
   private attemptReconnect(): void {
     if (!this.reconnecting) {
       this.reconnecting = true;
@@ -344,6 +362,10 @@ export class HttpAdapter implements TmuxAdapter {
 
   private notifyReconnection(reconnecting: boolean, attempt: number): void {
     this.reconnectionListeners.forEach((listener) => listener(reconnecting, attempt));
+  }
+
+  private notifyKeyBindings(keybindings: KeyBindings): void {
+    this.keyBindingsListeners.forEach((listener) => listener(keybindings));
   }
 
   /**

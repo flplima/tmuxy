@@ -458,6 +458,12 @@ export const appMachine = setup({
             command: event.command,
           })),
         },
+        KEYBINDINGS_RECEIVED: {
+          actions: sendTo('keyboard', ({ event }) => ({
+            type: 'UPDATE_KEYBINDINGS' as const,
+            keybindings: event.keybindings,
+          })),
+        },
 
         // Drag Events - Forward to drag machine with full context
         DRAG_START: {
@@ -997,6 +1003,12 @@ export const appMachine = setup({
           actions: sendTo('tmux', ({ event }) => ({
             type: 'SEND_COMMAND' as const,
             command: event.command,
+          })),
+        },
+        KEYBINDINGS_RECEIVED: {
+          actions: sendTo('keyboard', ({ event }) => ({
+            type: 'UPDATE_KEYBINDINGS' as const,
+            keybindings: event.keybindings,
           })),
         },
         KEY_PRESS: {
