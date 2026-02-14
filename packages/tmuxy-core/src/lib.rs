@@ -241,10 +241,10 @@ pub struct TmuxWindow {
     pub index: u32,
     pub name: String,
     pub active: bool,
-    /// True if this is a hidden pane group window (name starts with "__%")
+    /// True if this is a hidden pane group window (name starts with "__group_")
     pub is_pane_group_window: bool,
-    /// Parent pane ID if this is a pane group window (e.g., "%5")
-    pub pane_group_parent_pane: Option<String>,
+    /// Group ID if this is a pane group window (e.g., "g_abc12345")
+    pub pane_group_id: Option<String>,
     /// Pane group index if this is a pane group window (0, 1, 2...)
     pub pane_group_index: Option<u32>,
     /// True if this is a hidden float window (name starts with "__float_")
@@ -263,9 +263,8 @@ pub struct TmuxWindow {
 
 /// Info parsed from a pane group window name
 pub struct PaneGroupWindowInfo {
-    /// Group identifier - either a pane ID (e.g., "%5") for legacy format,
-    /// or a UUID (e.g., "g_abc12345") for new format
-    pub parent_pane_id: String,
+    /// Group identifier (UUID, e.g., "g_abc12345")
+    pub group_id: String,
     pub pane_group_index: u32,
 }
 
@@ -275,58 +274,33 @@ pub fn is_float_window_name(name: &str) -> bool {
     name.starts_with("__float_")
 }
 
-/// Parse a pane group window name pattern.
-/// Supports two formats:
-/// - Legacy: "__%{pane_id}_group_{n}" (e.g., "__%5_group_1")
-/// - UUID-based: "__group_{uuid}_{n}" (e.g., "__group_g_abc12345_1")
-/// Returns None if the name doesn't match either pattern
+/// Parse a pane group window name pattern: "__group_{uuid}_{n}"
+/// Example: "__group_g_abc12345_1"
+/// Returns None if the name doesn't match the pattern
 pub fn parse_pane_group_window_name(name: &str) -> Option<PaneGroupWindowInfo> {
-    // Try UUID-based format first: __group_{uuid}_{index}
-    if name.starts_with("__group_") {
-        let rest = &name[8..]; // Skip "__group_"
-        // The UUID can contain underscores (e.g., "g_abc12345"), so we need to find the last underscore
-        // which separates the UUID from the index
-        if let Some(last_underscore) = rest.rfind('_') {
-            let uuid = &rest[..last_underscore];
-            let index_str = &rest[last_underscore + 1..];
+    if !name.starts_with("__group_") {
+        return None;
+    }
 
-            // UUID must not be empty and index must be a valid number
-            if !uuid.is_empty() {
-                if let Ok(pane_group_index) = index_str.parse::<u32>() {
-                    return Some(PaneGroupWindowInfo {
-                        parent_pane_id: uuid.to_string(),
-                        pane_group_index,
-                    });
-                }
+    let rest = &name[8..]; // Skip "__group_"
+    // The UUID can contain underscores (e.g., "g_abc12345"), so we need to find the last underscore
+    // which separates the UUID from the index
+    if let Some(last_underscore) = rest.rfind('_') {
+        let uuid = &rest[..last_underscore];
+        let index_str = &rest[last_underscore + 1..];
+
+        // UUID must not be empty and index must be a valid number
+        if !uuid.is_empty() {
+            if let Ok(pane_group_index) = index_str.parse::<u32>() {
+                return Some(PaneGroupWindowInfo {
+                    group_id: uuid.to_string(),
+                    pane_group_index,
+                });
             }
         }
-        return None;
     }
 
-    // Try legacy format: __%{pane_id}_group_{n}
-    // Example: __%5_group_1
-    if !name.starts_with("__%") {
-        return None;
-    }
-
-    let rest = &name[3..]; // Skip "__%"
-    let parts: Vec<&str> = rest.split("_group_").collect();
-    if parts.len() != 2 {
-        return None;
-    }
-
-    // Pane ID part must not be empty
-    if parts[0].is_empty() {
-        return None;
-    }
-
-    let pane_id = format!("%{}", parts[0]);
-    let pane_group_index = parts[1].parse::<u32>().ok()?;
-
-    Some(PaneGroupWindowInfo {
-        parent_pane_id: pane_id,
-        pane_group_index,
-    })
+    None
 }
 
 /// Tmux popup state
@@ -474,7 +448,7 @@ pub struct WindowDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_pane_group_window: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pane_group_parent_pane: Option<Option<String>>,
+    pub pane_group_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pane_group_index: Option<Option<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -492,7 +466,7 @@ impl WindowDelta {
         self.name.is_none()
             && self.active.is_none()
             && self.is_pane_group_window.is_none()
-            && self.pane_group_parent_pane.is_none()
+            && self.pane_group_id.is_none()
             && self.pane_group_index.is_none()
             && self.is_float_window.is_none()
             && self.float_parent.is_none()
@@ -690,7 +664,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
                 name: w.name.clone(),
                 active: w.active,
                 is_pane_group_window: pane_group_info.is_some(),
-                pane_group_parent_pane: pane_group_info.as_ref().map(|g| g.parent_pane_id.clone()),
+                pane_group_id: pane_group_info.as_ref().map(|g| g.group_id.clone()),
                 pane_group_index: pane_group_info.as_ref().map(|g| g.pane_group_index),
                 is_float_window: is_float_window_name(&w.name),
                 // Float window options are only available in control mode (via list-windows)
@@ -741,36 +715,27 @@ mod tests {
 
     #[test]
     fn test_parse_pane_group_window_name() {
-        // Valid legacy pane group window names (pane ID format)
-        let info = parse_pane_group_window_name("__%5_group_1").unwrap();
-        assert_eq!(info.parent_pane_id, "%5");
-        assert_eq!(info.pane_group_index, 1);
-
-        let info = parse_pane_group_window_name("__%123_group_42").unwrap();
-        assert_eq!(info.parent_pane_id, "%123");
-        assert_eq!(info.pane_group_index, 42);
-
         // Valid UUID-based pane group window names
         let info = parse_pane_group_window_name("__group_g_abc12345_1").unwrap();
-        assert_eq!(info.parent_pane_id, "g_abc12345");
+        assert_eq!(info.group_id, "g_abc12345");
         assert_eq!(info.pane_group_index, 1);
 
         let info = parse_pane_group_window_name("__group_g_xyz99999_5").unwrap();
-        assert_eq!(info.parent_pane_id, "g_xyz99999");
+        assert_eq!(info.group_id, "g_xyz99999");
         assert_eq!(info.pane_group_index, 5);
 
         // UUID format with only letters
         let info = parse_pane_group_window_name("__group_mygroup_3").unwrap();
-        assert_eq!(info.parent_pane_id, "mygroup");
+        assert_eq!(info.group_id, "mygroup");
         assert_eq!(info.pane_group_index, 3);
 
         // Invalid names should return None
         assert!(parse_pane_group_window_name("workspace").is_none());
         assert!(parse_pane_group_window_name("_workspace").is_none());
         assert!(parse_pane_group_window_name("__workspace").is_none());
-        assert!(parse_pane_group_window_name("__%5_notgroup_1").is_none());
-        assert!(parse_pane_group_window_name("__%5_group_").is_none());
-        assert!(parse_pane_group_window_name("__%_group_1").is_none());
+        // Legacy format no longer supported
+        assert!(parse_pane_group_window_name("__%5_group_1").is_none());
+        assert!(parse_pane_group_window_name("__%123_group_42").is_none());
         // Invalid UUID format (missing index)
         assert!(parse_pane_group_window_name("__group_abc").is_none());
         // Invalid UUID format (empty UUID)

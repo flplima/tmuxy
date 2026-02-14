@@ -84,16 +84,12 @@ export function transformServerState(payload: ServerState): {
 /**
  * Build pane groups from window names.
  *
- * Supports two window naming patterns:
- * 1. Legacy: __%{pane_id}_group_{n} - old pattern keyed by pane ID
- * 2. New: __group_{uuid}_{n} - UUID-based pattern for stable group identity
- *
- * After a swap, the "parent" pane may be in a hidden window, so we need to
- * determine which pane is actually visible (in the active window).
+ * Window naming pattern: __group_{uuid}_{n}
+ * Example: __group_g_abc12345_1
  *
  * @param existingGroups - Previous groups to preserve paneIds from (handles swap case)
  * @param pendingTransitions - In-flight optimistic tab switches to respect
- * @param groupsEnv - Stored group state from tmux environment (UUID-based groups)
+ * @param groupsEnv - Stored group state from tmux environment
  */
 export function buildGroupsFromWindows(
   windows: TmuxWindow[],
@@ -105,33 +101,20 @@ export function buildGroupsFromWindows(
 ): Record<string, { id: string; paneIds: string[]; activeIndex: number }> {
   const groups: Record<string, { id: string; paneIds: string[]; activeIndex: number }> = {};
 
-  // Map from window to group info (either legacy or UUID-based)
+  // Map from window to group info
   interface GroupWindowInfo {
     groupId: string;
     index: number;
-    isUuidBased: boolean;
   }
   const groupWindowInfoMap = new Map<string, GroupWindowInfo>();
 
-  // Parse all group windows (both legacy and UUID-based)
+  // Parse all group windows
   for (const window of windows) {
-    // Check for UUID-based naming first: __group_{uuid}_{index}
-    const uuidMatch = parseGroupWindowName(window.name);
-    if (uuidMatch) {
+    const match = parseGroupWindowName(window.name);
+    if (match) {
       groupWindowInfoMap.set(window.id, {
-        groupId: uuidMatch.groupId,
-        index: uuidMatch.index,
-        isUuidBased: true,
-      });
-      continue;
-    }
-
-    // Fall back to legacy naming: __%{pane_id}_group_{n}
-    if (window.isPaneGroupWindow && window.paneGroupParentPane) {
-      groupWindowInfoMap.set(window.id, {
-        groupId: window.paneGroupParentPane,
-        index: window.paneGroupIndex ?? 0,
-        isUuidBased: false,
+        groupId: match.groupId,
+        index: match.index,
       });
     }
   }
@@ -153,10 +136,8 @@ export function buildGroupsFromWindows(
     // Sort by index to maintain consistent ordering
     groupWindows.sort((a, b) => a.info.index - b.info.index);
 
-    const isUuidBased = groupWindows[0]?.info.isUuidBased ?? false;
-
-    // Get stored group data from groupsEnv if UUID-based
-    const storedGroup = isUuidBased && groupsEnv ? groupsEnv.groups[groupId] : null;
+    // Get stored group data from groupsEnv
+    const storedGroup = groupsEnv?.groups[groupId] ?? null;
 
     // Get existing UI group to preserve membership across swaps
     const existingGroup = existingGroups[groupId];
@@ -164,7 +145,7 @@ export function buildGroupsFromWindows(
     // Collect all panes that should be in this group
     const allPaneIds = new Set<string>();
 
-    // For UUID-based groups, start with stored panes
+    // Start with stored panes
     if (storedGroup) {
       for (const paneId of storedGroup.paneIds) {
         if (panes.some((p) => p.tmuxId === paneId)) {
@@ -187,13 +168,6 @@ export function buildGroupsFromWindows(
       const paneInWindow = panes.find((p) => p.windowId === window.id);
       if (paneInWindow) {
         allPaneIds.add(paneInWindow.tmuxId);
-      }
-    }
-
-    // For legacy groups, also add the parent pane
-    if (!isUuidBased) {
-      if (panes.some((p) => p.tmuxId === groupId)) {
-        allPaneIds.add(groupId);
       }
     }
 
@@ -220,12 +194,6 @@ export function buildGroupsFromWindows(
       }
     }
 
-    // For legacy groups, add parent pane first if not already added
-    if (!isUuidBased && allPaneIds.has(groupId)) {
-      paneIds.unshift(groupId);
-      allPaneIds.delete(groupId);
-    }
-
     // Add any remaining new panes
     for (const paneId of allPaneIds) {
       paneIds.push(paneId);
@@ -249,15 +217,11 @@ export function buildGroupsFromWindows(
         }
       }
 
-      // Determine final activeIndex:
-      // - If pending transition exists and target matches server: confirmed, use server
-      // - If pending transition exists and target differs: still transitioning, use pending target
-      // - If no pending transition: use server state (or stored state for UUID-based)
+      // Determine final activeIndex
       let activeIndex = serverActiveIndex;
 
-      // For UUID-based groups, prefer stored activeIndex if server hasn't confirmed a change
+      // Prefer stored activeIndex if server hasn't confirmed a change
       if (storedGroup && !pendingTransition) {
-        // Use stored activeIndex if it's valid
         if (storedGroup.activeIndex < paneIds.length) {
           activeIndex = storedGroup.activeIndex;
         }
@@ -267,10 +231,8 @@ export function buildGroupsFromWindows(
         const pendingTargetIndex = paneIds.indexOf(pendingTransition.targetPaneId);
         if (pendingTargetIndex !== -1) {
           if (serverActiveIndex === pendingTargetIndex) {
-            // Server confirmed our transition
             activeIndex = serverActiveIndex;
           } else {
-            // Still transitioning, keep optimistic state
             activeIndex = pendingTargetIndex;
           }
         }
@@ -399,40 +361,6 @@ export function buildFloatPanesFromWindows(
 // ============================================
 // UUID-based Group State Management
 // ============================================
-
-/**
- * Migrate legacy window-name-based groups to UUID-based groups.
- * Creates a new TmuxyGroupsEnv from the old-style groups.
- *
- * Old format: window name `__%{paneId}_group_{n}` → group keyed by paneId
- * New format: window name `__group_{uuid}_{n}` → group keyed by UUID
- */
-export function migrateGroupsToEnv(
-  legacyGroups: Record<string, { id: string; paneIds: string[]; activeIndex: number }>,
-  existingEnv: TmuxyGroupsEnv
-): TmuxyGroupsEnv {
-  const newEnv: TmuxyGroupsEnv = { ...existingEnv };
-
-  for (const [_legacyId, group] of Object.entries(legacyGroups)) {
-    // Check if this group is already in the env (by checking if panes match)
-    const existingGroup = Object.values(newEnv.groups).find(
-      (g) => g.paneIds.length === group.paneIds.length &&
-        g.paneIds.every((id) => group.paneIds.includes(id))
-    );
-
-    if (!existingGroup) {
-      // Create new UUID-based group
-      const newGroupId = generateGroupId();
-      newEnv.groups[newGroupId] = {
-        id: newGroupId,
-        paneIds: [...group.paneIds],
-        activeIndex: group.activeIndex,
-      };
-    }
-  }
-
-  return newEnv;
-}
 
 /**
  * Create a new group with a UUID and return the group ID.

@@ -39,8 +39,8 @@ export interface TmuxWindow {
   active: boolean;
   /** True if this is a hidden pane group window */
   isPaneGroupWindow: boolean;
-  /** Parent pane ID if this is a pane group window (e.g., "%5") */
-  paneGroupParentPane: string | null;
+  /** Group ID if this is a pane group window (e.g., "g_abc12345") */
+  paneGroupId: string | null;
   /** Pane group index if this is a pane group window (0, 1, 2...) */
   paneGroupIndex: number | null;
   /** True if this is a hidden float window */
