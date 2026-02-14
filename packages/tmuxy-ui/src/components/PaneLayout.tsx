@@ -170,6 +170,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   // Compute base position for each pane with gap adjustments and centering
   // Horizontal gaps are compressed from charHeight to charWidth for visual consistency
+  // Height includes +1 row for the pane header (which is exactly 1 char height)
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
       const dividersAbove = countDividersAbove(pane.y, visiblePanes);
@@ -179,8 +180,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         position: 'absolute',
         left: centeringOffset.x + pane.x * charWidth + HALF_GAP,
         top: centeringOffset.y + pane.y * charHeight - verticalCompression + HALF_GAP,
-        width: pane.width * charWidth - PANE_GAP,
-        height: pane.height * charHeight - PANE_GAP,
+        // Don't subtract PANE_GAP to ensure exact char width fitting for all columns
+        width: pane.width * charWidth,
+        // +1 row for header (header is exactly 1 char height)
+        height: (pane.height + 1) * charHeight,
       };
     },
     [charWidth, charHeight, visiblePanes, countDividersAbove, centeringOffset]
@@ -252,7 +255,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
             left: centeringOffset.x + dropTarget.x * charWidth + HALF_GAP,
             top: centeringOffset.y + dropTarget.y * charHeight + HALF_GAP,
             width: dropTarget.width * charWidth - PANE_GAP,
-            height: dropTarget.height * charHeight - PANE_GAP,
+            // +1 row for header
+            height: (dropTarget.height + 1) * charHeight,
           }}
         />
       )}

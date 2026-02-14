@@ -4,8 +4,7 @@
   justify-content: space-between;
   height: 14px;
   padding: 0 4px;
-  background-color: #252525;
-  border-bottom: 1px solid #3d3d3d;
+  background-color: transparent;
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
   font-size: 9px;
   color: #888;
@@ -19,8 +18,6 @@
 }
 
 .pane-header-active {
-  background-color: #2d3d2d;
-  border-bottom-color: #4a5a4a;
   color: #a0a0a0;
 }
 

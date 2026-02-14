@@ -120,7 +120,7 @@
 
   /* Sizes */
   --statusbar-height: 36px;
-  --pane-header-height: 18px;
+  --pane-header-height: 21px; /* Exactly 1 char height */
 
   /* Border Radius */
   --radius-sm: 3px;
@@ -219,21 +219,23 @@ body {
 }
 
 .pane-content {
-  padding: var(--spacing-md);
+  padding: 0;
   flex: 1;
-  border: 1px solid var(--border-medium);
+  outline: 1px solid var(--border-medium);
+  outline-offset: -1px;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
-/* Active pane content has green border */
+/* Active pane content has green outline */
 .pane-layout-item.pane-active .pane-content,
 .pane-active .pane-content {
-  border-color: var(--accent-green);
+  outline-color: var(--accent-green);
 }
 
-/* Copy mode has bright green border */
+/* Copy mode has bright green outline */
 .pane-layout-item.pane-active.pane-copy-mode .pane-content {
-  border-color: var(--term-green);
+  outline-color: var(--term-green);
 }
 
 .pane-single {

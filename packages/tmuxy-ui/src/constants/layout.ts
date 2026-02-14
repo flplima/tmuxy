@@ -21,15 +21,14 @@ export const CHAR_HEIGHT = 21;
 // Minimum padding around the pane container (32px on all sides)
 export const CONTAINER_PADDING = 32;
 
-// Pane header (slightly smaller than line height)
-export const PANE_HEADER_HEIGHT = 18;
+// Pane header height = exactly 1 char height so header consumes exactly 1 terminal row
+export const PANE_HEADER_HEIGHT = CHAR_HEIGHT;
 
 // Pane border: 1px solid around each pane-layout-item
 export const PANE_BORDER = 1;
 
-// Vertical inset: border + small padding so header + 2*inset = CHAR_HEIGHT
-// (CHAR_HEIGHT - PANE_HEADER_HEIGHT) / 2 = (21 - 18) / 2 = 1.5
-export const PANE_INSET_Y = (CHAR_HEIGHT - PANE_HEADER_HEIGHT) / 2;
+// Vertical inset: 0 since header = char height
+export const PANE_INSET_Y = 0;
 
 // Horizontal inset computed at runtime: charWidth / 2
 // Exported helper to derive it from measured charWidth.

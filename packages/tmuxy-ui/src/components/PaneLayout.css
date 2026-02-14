@@ -16,7 +16,7 @@
 .pane-layout-item {
   border-radius: 4px;
   overflow: hidden;
-  background: #1a1a1a;
+  background: #000000;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
