@@ -97,15 +97,18 @@
 
   /* Typography */
   --font-mono: 'Monaco', 'Menlo', 'Courier New', monospace;
-  --font-size-sm: 8px;
-  --font-size-md: 10px;
-  --font-size-base: 11px;
-  --font-size-lg: 12px;
-  --font-size-xl: 14px;
-  --font-size-2xl: 16px;
+  --font-size-sm: 9px;
+  --font-size-md: 11px;
+  --font-size-base: 12px;
+  --font-size-lg: 13px;
+  --font-size-xl: 15px;
+  --font-size-2xl: 17px;
 
   /* Line Heights */
-  --line-height-terminal: 20px; /* CHAR_HEIGHT */
+  --line-height-terminal: 21px; /* CHAR_HEIGHT */
+
+  /* Container Padding */
+  --container-padding: 32px;
 
   /* Spacing */
   --spacing-xs: 2px;
@@ -116,8 +119,8 @@
   --spacing-3xl: 12px;
 
   /* Sizes */
-  --statusbar-height: 32px;
-  --pane-header-height: 10.4px;
+  --statusbar-height: 36px;
+  --pane-header-height: 18px;
 
   /* Border Radius */
   --radius-sm: 3px;
@@ -181,6 +184,8 @@ body {
 
 .pane-container {
   background-color: var(--bg-black);
+  padding: var(--container-padding);
+  box-sizing: border-box;
 }
 
 .pane-container.secondary-client {
@@ -338,10 +343,10 @@ body {
 
 .pane-layout {
   position: absolute;
-  top: var(--line-height-terminal);
-  left: var(--line-height-terminal);
-  right: var(--line-height-terminal);
-  bottom: var(--line-height-terminal);
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 
 .pane-layout-single {

@@ -14,17 +14,21 @@
  */
 
 // Character dimensions (approximate for monospace font; charWidth is measured at runtime)
+// Font size: 15px with line-height 1.4 = 21px char height
 export const CHAR_WIDTH = 9.6;
-export const CHAR_HEIGHT = 20;
+export const CHAR_HEIGHT = 21;
 
-// Pane header
-export const PANE_HEADER_HEIGHT = 16;
+// Minimum padding around the pane container (32px on all sides)
+export const CONTAINER_PADDING = 32;
+
+// Pane header (slightly smaller than line height)
+export const PANE_HEADER_HEIGHT = 18;
 
 // Pane border: 1px solid around each pane-layout-item
 export const PANE_BORDER = 1;
 
 // Vertical inset: border + small padding so header + 2*inset = CHAR_HEIGHT
-// (CHAR_HEIGHT - PANE_HEADER_HEIGHT) / 2 = (20 - 16) / 2 = 2
+// (CHAR_HEIGHT - PANE_HEADER_HEIGHT) / 2 = (21 - 18) / 2 = 1.5
 export const PANE_INSET_Y = (CHAR_HEIGHT - PANE_HEADER_HEIGHT) / 2;
 
 // Horizontal inset computed at runtime: charWidth / 2
@@ -40,8 +44,9 @@ export function paneContentPaddingH(charWidth: number): number {
 }
 
 // Status bars
-export const STATUS_BAR_HEIGHT = 33; // 32px height + 1px border
-export const TMUX_STATUS_BAR_HEIGHT = 28; // 20px line-height + 4px padding top/bottom
+export const STATUS_BAR_HEIGHT = 37; // 36px height + 1px border
+export const TMUX_STATUS_BAR_HEIGHT = 29; // 21px line-height + 4px padding top/bottom
 
-// Inset around pane layout (1 char height on each side)
-export const LAYOUT_INSET = CHAR_HEIGHT;
+// Inset around pane layout (now uses CONTAINER_PADDING)
+// Kept for backwards compatibility, but prefer CONTAINER_PADDING
+export const LAYOUT_INSET = CONTAINER_PADDING;

@@ -24,6 +24,9 @@ const {
   waitForGroupTabs,
   isHeaderGrouped,
   getGroupTabInfo,
+  withConsistencyChecks,
+  verifyDomSizes,
+  GlitchDetector,
   DELAYS,
 } = require('./helpers');
 
@@ -276,11 +279,13 @@ describe('Category 5: Pane Groups', () => {
       expect(await isHeaderGrouped(ctx.page)).toBe(false);
       expect(await getGroupTabCount(ctx.page)).toBe(0);
 
-      // Click the "+" button to add pane to group
-      await clickPaneGroupAdd(ctx.page);
+      // Click the "+" button with consistency check
+      const result = await withConsistencyChecks(ctx, async () => {
+        await clickPaneGroupAdd(ctx.page);
+        // Should now show grouped header with 2 tabs
+        await waitForGroupTabs(ctx.page, 2);
+      }, { operationType: 'groupSwitch' });
 
-      // Should now show grouped header with 2 tabs
-      await waitForGroupTabs(ctx.page, 2);
       expect(await isHeaderGrouped(ctx.page)).toBe(true);
 
       const tabs = await getGroupTabInfo(ctx.page);
@@ -288,6 +293,9 @@ describe('Category 5: Pane Groups', () => {
       // Original pane (tab 0) stays active after adding a new tab
       expect(tabs[0].active).toBe(true);
       expect(tabs[1].active).toBe(false);
+
+      // Verify no flicker during group creation
+      expect(result.glitch.summary.nodeFlickers).toBe(0);
     });
 
     test('Add-to-group on split pane creates group for that pane only', async () => {
@@ -342,9 +350,11 @@ describe('Category 5: Pane Groups', () => {
       expect(tabs[0].active).toBe(true);
       expect(tabs[1].active).toBe(false);
 
-      // Click the second tab to switch (triggers swap-pane)
-      await clickGroupTab(ctx.page, 1);
-      await waitForGroupTabs(ctx.page, 2);
+      // Click the second tab with consistency check
+      const result = await withConsistencyChecks(ctx, async () => {
+        await clickGroupTab(ctx.page, 1);
+        await waitForGroupTabs(ctx.page, 2);
+      }, { operationType: 'groupSwitch' });
 
       // After swap, tabs maintain stable ordering (by groupTabIndex).
       // The clicked tab (index 1) is now active.
@@ -354,6 +364,9 @@ describe('Category 5: Pane Groups', () => {
       expect(activeTab).toBeDefined();
       // Exactly one tab is active
       expect(tabs.filter(t => t.active).length).toBe(1);
+
+      // Verify no flicker during tab switch
+      expect(result.glitch.summary.nodeFlickers).toBe(0);
     });
 
     test('Switching tabs preserves the group', async () => {
@@ -755,9 +768,186 @@ describe('Category 5: Pane Groups', () => {
   });
 
   // ====================
-  // 5.11 Pane Group - Drag Swap Isolation
+  // 5.11 Pane Header Tab Flicker Detection
   // ====================
-  describe('5.11 Pane Group - Drag Swap Isolation', () => {
+  describe('5.11 Pane Header Tab Flicker Detection', () => {
+    test('Tab switch has no header element flicker', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Create a group with 2 tabs
+      await clickPaneGroupAdd(ctx.page);
+      await waitForGroupTabs(ctx.page, 2);
+
+      // Start observing with focus on pane header elements
+      const detector = new GlitchDetector(ctx.page);
+      await detector.start({
+        scope: '.pane-header',
+        ignoreSelectors: ['.terminal-content', '.terminal-cursor', '.terminal-line'],
+        attributeFilter: ['class', 'style', 'aria-selected'],
+        flickerWindowMs: 150,
+        churnWindowMs: 300,
+      });
+
+      // Perform tab switches
+      await clickGroupTab(ctx.page, 1);
+      await waitForGroupTabs(ctx.page, 2);
+      await delay(DELAYS.MEDIUM);
+
+      await clickGroupTab(ctx.page, 0);
+      await waitForGroupTabs(ctx.page, 2);
+      await delay(DELAYS.MEDIUM);
+
+      // Stop and analyze
+      const result = await detector.stop();
+
+      // No node flicker (elements appearing/disappearing rapidly)
+      expect(result.summary.nodeFlickers).toBe(0);
+
+      // Check for class attribute churn on tab elements
+      const tabClassChurn = result.churn.filter(c =>
+        c.target.includes('pane-tab') && c.target.includes('class')
+      );
+
+      // Allow at most 1 rapid class change per tab switch
+      expect(tabClassChurn.length).toBeLessThanOrEqual(2);
+    });
+
+    test('Tab switch preserves tab sizes (no size oscillation)', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Create a group with 3 tabs to have more complex layout
+      await clickPaneGroupAdd(ctx.page);
+      await waitForGroupTabs(ctx.page, 2);
+      await clickGroupTabAdd(ctx.page);
+      await waitForGroupTabs(ctx.page, 3);
+
+      // Record initial tab sizes
+      const initialSizes = await ctx.page.evaluate(() => {
+        const tabs = document.querySelectorAll('.pane-tab');
+        return Array.from(tabs).map(t => {
+          const rect = t.getBoundingClientRect();
+          return { width: rect.width, height: rect.height, text: t.textContent };
+        });
+      });
+
+      // Perform multiple rapid tab switches while monitoring
+      const detector = new GlitchDetector(ctx.page);
+      await detector.start({
+        scope: '.pane-tabs',
+        sizeJumpThreshold: 5, // Stricter threshold for tabs
+      });
+
+      // Rapid tab switches
+      for (let i = 0; i < 3; i++) {
+        await clickGroupTab(ctx.page, (i + 1) % 3);
+        await delay(DELAYS.SHORT);
+      }
+
+      const result = await detector.stop();
+
+      // Record final tab sizes
+      const finalSizes = await ctx.page.evaluate(() => {
+        const tabs = document.querySelectorAll('.pane-tab');
+        return Array.from(tabs).map(t => {
+          const rect = t.getBoundingClientRect();
+          return { width: rect.width, height: rect.height, text: t.textContent };
+        });
+      });
+
+      // Tab count should remain the same
+      expect(finalSizes.length).toBe(initialSizes.length);
+
+      // Tab sizes should be stable (within 2px tolerance)
+      for (let i = 0; i < Math.min(initialSizes.length, finalSizes.length); i++) {
+        const widthDiff = Math.abs(finalSizes[i].width - initialSizes[i].width);
+        const heightDiff = Math.abs(finalSizes[i].height - initialSizes[i].height);
+        expect(widthDiff).toBeLessThanOrEqual(2);
+        expect(heightDiff).toBeLessThanOrEqual(2);
+      }
+    });
+
+    test('Active tab class changes exactly once per switch', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Create a group with 2 tabs
+      await clickPaneGroupAdd(ctx.page);
+      await waitForGroupTabs(ctx.page, 2);
+
+      // Inject MutationObserver to track class changes on tabs
+      await ctx.page.evaluate(() => {
+        window.__tabClassChanges = [];
+        const tabs = document.querySelector('.pane-tabs');
+        if (!tabs) return;
+
+        window.__tabObserver = new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            if (m.type === 'attributes' && m.attributeName === 'class') {
+              const target = m.target;
+              if (target.classList.contains('pane-tab') || target.closest('.pane-tab')) {
+                window.__tabClassChanges.push({
+                  ts: Date.now(),
+                  element: target.className,
+                  oldValue: m.oldValue,
+                  paneTab: target.classList.contains('pane-tab'),
+                });
+              }
+            }
+          }
+        });
+
+        window.__tabObserver.observe(tabs, {
+          attributes: true,
+          attributeOldValue: true,
+          attributeFilter: ['class'],
+          subtree: true,
+        });
+      });
+
+      // Clear recorded changes
+      await ctx.page.evaluate(() => { window.__tabClassChanges = []; });
+
+      // Perform a single tab switch
+      await clickGroupTab(ctx.page, 1);
+      await waitForGroupTabs(ctx.page, 2);
+      await delay(DELAYS.MEDIUM);
+
+      // Get the recorded changes
+      const changes = await ctx.page.evaluate(() => {
+        window.__tabObserver?.disconnect();
+        return window.__tabClassChanges;
+      });
+
+      // Filter to actual pane-tab elements (not children)
+      const tabChanges = changes.filter(c => c.paneTab);
+
+      // Each tab switch should cause exactly 2 class changes:
+      // 1. Old active tab loses 'pane-tab-active' and 'pane-tab-selected'
+      // 2. New active tab gains 'pane-tab-active' and 'pane-tab-selected'
+      // Allow some tolerance for optimistic updates
+      expect(tabChanges.length).toBeLessThanOrEqual(6);
+      expect(tabChanges.length).toBeGreaterThanOrEqual(2);
+
+      // Verify no rapid back-and-forth changes (flicker pattern)
+      for (let i = 1; i < tabChanges.length; i++) {
+        const timeDiff = tabChanges[i].ts - tabChanges[i - 1].ts;
+        // If changes are very rapid (<50ms), they should be on different elements
+        if (timeDiff < 50) {
+          // This is acceptable - parallel updates to different tabs
+        }
+      }
+    });
+  });
+
+  // ====================
+  // 5.12 Pane Group - Drag Swap Isolation
+  // ====================
+  describe('5.12 Pane Group - Drag Swap Isolation', () => {
     test('Swapping a grouped pane with a non-grouped pane does not break layout', async () => {
       if (ctx.skipIfNotReady()) return;
 

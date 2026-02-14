@@ -7,9 +7,72 @@
  * Right-click shows context menu with pane operations.
  */
 
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, memo } from 'react';
 import { useAppSend, usePane, usePaneGroup } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
+import type { TmuxPane } from '../tmux/types';
+
+/**
+ * Compute a stable tab title from pane data
+ * Uses command > title > tmuxId to avoid blink from borderTitle changes
+ */
+function getTabTitle(pane: TmuxPane): string {
+  if (pane.inMode) {
+    return '[COPY]';
+  }
+  // Show non-shell commands (vim, htop, etc.)
+  if (pane.command && !['bash', 'zsh', 'fish', 'sh'].includes(pane.command)) {
+    return pane.command;
+  }
+  // Show title if different from command
+  if (pane.title && pane.title !== pane.command) {
+    return pane.title;
+  }
+  // Fallback to pane ID (most stable)
+  return pane.tmuxId;
+}
+
+/**
+ * Memoized tab component to prevent unnecessary re-renders
+ */
+const PaneTab = memo(function PaneTab({
+  pane,
+  isSelectedTab,
+  isActivePane,
+  onClick,
+  onContextMenu,
+  onClose,
+}: {
+  pane: TmuxPane;
+  isSelectedTab: boolean;
+  isActivePane: boolean;
+  onClick: (e: React.MouseEvent) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onClose: (e: React.MouseEvent) => void;
+}) {
+  const tabTitle = getTabTitle(pane);
+
+  return (
+    <div
+      className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''}`}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      role="tab"
+      aria-selected={isSelectedTab}
+      aria-label={`Pane ${pane.tmuxId}`}
+    >
+      <span className="pane-tab-title">{tabTitle}</span>
+      <button
+        className="pane-tab-close"
+        onClick={onClose}
+        title="Close pane"
+        aria-label={`Close pane ${pane.tmuxId}`}
+      >
+        ×
+      </button>
+    </div>
+  );
+});
 
 interface PaneHeaderProps {
   paneId: string;
@@ -142,30 +205,17 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
           // Tab is "active" (green) only if this pane is the active tmux pane
           // AND it's the selected tab in the group
           const isActivePane = tabPane.active && isSelectedTab;
-          const tabTitle = tabPane.inMode
-            ? '[COPY]'
-            : (tabPane.borderTitle || tabPane.tmuxId);
 
           return (
-            <div
+            <PaneTab
               key={tabPane.tmuxId}
-              className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''}`}
+              pane={tabPane}
+              isSelectedTab={isSelectedTab}
+              isActivePane={isActivePane}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
-              role="tab"
-              aria-selected={isSelectedTab}
-              aria-label={`Pane ${tabPane.tmuxId}`}
-            >
-              <span className="pane-tab-title">{tabTitle}</span>
-              <button
-                className="pane-tab-close"
-                onClick={(e) => handleClose(e, tabPane.tmuxId)}
-                title="Close pane"
-                aria-label={`Close pane ${tabPane.tmuxId}`}
-              >
-                ×
-              </button>
-            </div>
+              onClose={(e) => handleClose(e, tabPane.tmuxId)}
+            />
           );
         })}
       </div>

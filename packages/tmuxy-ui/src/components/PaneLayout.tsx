@@ -12,6 +12,7 @@ import {
   selectDragOffsetX,
   selectDragOffsetY,
   selectGridDimensions,
+  selectContainerSize,
   selectDropTarget,
   selectStacks,
   selectEnableAnimations,
@@ -42,7 +43,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const stacks = useAppSelector(selectStacks);
   const draggedPaneId = useAppSelector(selectDraggedPaneId);
   const dropTarget = useAppSelector(selectDropTarget);
-  const { charWidth, charHeight } = useAppSelector(selectGridDimensions);
+  const { charWidth, charHeight, totalWidth, totalHeight } = useAppSelector(selectGridDimensions);
+  const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
   const dragOffsetX = useAppSelector(selectDragOffsetX);
   const dragOffsetY = useAppSelector(selectDragOffsetY);
   const enableAnimations = useAppSelector(selectEnableAnimations);
@@ -100,6 +102,17 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // Memoize drag offset object to prevent unnecessary re-renders
   const dragOffset = useMemo(() => ({ x: dragOffsetX, y: dragOffsetY }), [dragOffsetX, dragOffsetY]);
 
+  // Calculate centering offset to center panes in the container
+  // When container is larger than pane content, offset positions to center
+  const centeringOffset = useMemo(() => {
+    const paneContentWidth = totalWidth * charWidth;
+    const paneContentHeight = totalHeight * charHeight;
+    return {
+      x: Math.max(0, (containerWidth - paneContentWidth) / 2),
+      y: Math.max(0, (containerHeight - paneContentHeight) / 2),
+    };
+  }, [totalWidth, totalHeight, charWidth, charHeight, containerWidth, containerHeight]);
+
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Handle global mouse events during drag/resize
@@ -153,7 +166,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     []
   );
 
-  // Compute base position for each pane with gap adjustments
+  // Compute base position for each pane with gap adjustments and centering
   // Horizontal gaps are compressed from charHeight to charWidth for visual consistency
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
@@ -162,13 +175,13 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       const verticalCompression = dividersAbove * (charHeight - charWidth);
       return {
         position: 'absolute',
-        left: pane.x * charWidth + HALF_GAP,
-        top: pane.y * charHeight - verticalCompression + HALF_GAP,
+        left: centeringOffset.x + pane.x * charWidth + HALF_GAP,
+        top: centeringOffset.y + pane.y * charHeight - verticalCompression + HALF_GAP,
         width: pane.width * charWidth - PANE_GAP,
         height: pane.height * charHeight - PANE_GAP,
       };
     },
-    [charWidth, charHeight, visiblePanes, countDividersAbove]
+    [charWidth, charHeight, visiblePanes, countDividersAbove, centeringOffset]
   );
 
   // Get CSS class for pane
@@ -234,8 +247,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
           className="drop-target-indicator"
           style={{
             position: 'absolute',
-            left: dropTarget.x * charWidth + HALF_GAP,
-            top: dropTarget.y * charHeight + HALF_GAP,
+            left: centeringOffset.x + dropTarget.x * charWidth + HALF_GAP,
+            top: centeringOffset.y + dropTarget.y * charHeight + HALF_GAP,
             width: dropTarget.width * charWidth - PANE_GAP,
             height: dropTarget.height * charHeight - PANE_GAP,
           }}
@@ -243,7 +256,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       )}
 
       {/* Resize dividers between adjacent panes */}
-      <ResizeDividers panes={visiblePanes} charWidth={charWidth} charHeight={charHeight} />
+      <ResizeDividers panes={visiblePanes} charWidth={charWidth} charHeight={charHeight} centeringOffset={centeringOffset} />
     </div>
   );
 }
@@ -299,6 +312,7 @@ interface ResizeDividersProps {
   panes: TmuxPane[];
   charWidth: number;
   charHeight: number;
+  centeringOffset: { x: number; y: number };
 }
 
 interface DividerSegment {
@@ -307,7 +321,7 @@ interface DividerSegment {
   paneId: string; // pane to resize
 }
 
-function ResizeDividers({ panes, charWidth, charHeight }: ResizeDividersProps) {
+function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }: ResizeDividersProps) {
   const send = useAppSend();
 
   // Helper to count horizontal dividers above a given y position
@@ -445,9 +459,9 @@ function ResizeDividers({ panes, charWidth, charHeight }: ResizeDividersProps) {
           key={`h-${yPos}-${idx}`}
           className="resize-divider resize-divider-h"
           style={{
-            left: seg.start * charWidth + HALF_GAP,
+            left: centeringOffset.x + seg.start * charWidth + HALF_GAP,
             // Position with vertical compression, gap is now charWidth
-            top: yPos * charHeight - verticalCompression,
+            top: centeringOffset.y + yPos * charHeight - verticalCompression,
             width: (seg.end - seg.start) * charWidth - PANE_GAP,
             height: charWidth, // Use charWidth for consistent divider thickness
           }}
@@ -483,8 +497,8 @@ function ResizeDividers({ panes, charWidth, charHeight }: ResizeDividersProps) {
           key={`v-${xPos}-${idx}`}
           className="resize-divider resize-divider-v"
           style={{
-            left: xPos * charWidth + HALF_GAP,
-            top: seg.start * charHeight - startCompression + HALF_GAP,
+            left: centeringOffset.x + xPos * charWidth + HALF_GAP,
+            top: centeringOffset.y + seg.start * charHeight - startCompression + HALF_GAP,
             width: charWidth,
             height: (seg.end - seg.start) * charHeight - PANE_GAP - heightReduction,
           }}

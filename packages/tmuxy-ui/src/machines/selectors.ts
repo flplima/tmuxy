@@ -9,22 +9,30 @@ import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/
  * Select panes for display with resize preview.
  * During resize: pane sizes follow cursor position exactly (local preview)
  * After resize: pane sizes match actual tmux state
+ *
+ * Only returns panes from the active window - panes in hidden group windows
+ * are not rendered.
  */
 function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
-  const { panes, resize, charWidth, charHeight } = context;
+  const { panes, resize, charWidth, charHeight, activeWindowId } = context;
 
-  // If not resizing, return actual panes
+  // Filter to only panes in the active window
+  const activePanes = activeWindowId
+    ? panes.filter(p => p.windowId === activeWindowId)
+    : panes;
+
+  // If not resizing, return active window panes
   if (!resize) {
-    return panes;
+    return activePanes;
   }
 
   // During resize: apply local preview based on pixelDelta
   const { paneId, handle, pixelDelta, originalPane, originalNeighbors } = resize;
 
-  // Find the target pane
-  const targetPane = panes.find(p => p.tmuxId === paneId);
+  // Find the target pane in active window
+  const targetPane = activePanes.find(p => p.tmuxId === paneId);
   if (!targetPane) {
-    return panes;
+    return activePanes;
   }
 
   // Build a set of neighbor IDs for quick lookup
@@ -36,8 +44,8 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   const deltaCols = Math.round(pixelDelta.x / charWidth);
   const deltaRows = Math.round(pixelDelta.y / charHeight);
 
-  // Apply preview transformations
-  return panes.map(pane => {
+  // Apply preview transformations to active window panes only
+  return activePanes.map(pane => {
     if (pane.tmuxId === paneId) {
       // Target pane: adjust size based on handle
       const newPane = { ...pane };
@@ -76,7 +84,7 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
 
 /**
  * Memoized version of selectPreviewPanes.
- * Only recomputes when panes, resize state, or char dimensions change.
+ * Only recomputes when panes, resize state, char dimensions, or active window change.
  */
 export const selectPreviewPanes = createMemoizedSelector(
   (ctx: AppMachineContext) => ({
@@ -84,6 +92,7 @@ export const selectPreviewPanes = createMemoizedSelector(
     resize: ctx.resize,
     charWidth: ctx.charWidth,
     charHeight: ctx.charHeight,
+    activeWindowId: ctx.activeWindowId,
   }),
   selectPreviewPanesUncached
 );

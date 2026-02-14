@@ -13,6 +13,7 @@ const testSetup = require('./test-setup');
 const performance = require('./performance');
 const TmuxTestSession = require('./TmuxTestSession');
 const { GlitchDetector, OPERATION_THRESHOLDS } = require('./glitch-detector');
+const consistency = require('./consistency');
 
 // ==================== Known Limitations Registry ====================
 
@@ -131,4 +132,7 @@ module.exports = {
   // Glitch detection
   GlitchDetector,
   OPERATION_THRESHOLDS,
+
+  // Consistency verification
+  ...consistency,
 };

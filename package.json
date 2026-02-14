@@ -13,8 +13,9 @@
     "docker:attach:tmuxy": "docker exec -it tmuxy-dev tmux attach-session -t tmuxy",
     "build": "npm run build -w tmuxy-ui",
     "web:dev": "cargo run -p web-server -- --dev",
-    "web:dev:start": "pm2 start 'npm run web:dev' --name tmuxy-dev",
+    "web:dev:start": "pm2 delete tmuxy-dev 2>/dev/null; pm2 start 'cargo run -p web-server -- --dev' --name tmuxy-dev --cwd /workspace",
     "web:dev:stop": "pm2 stop tmuxy-dev",
+    "web:dev:restart": "pm2 restart tmuxy-dev",
     "web:dev:logs": "pm2 logs tmuxy-dev",
     "web:build": "npm run build && cargo build -p web-server --release",
     "web:start": "cargo run -p web-server --release",
@@ -27,6 +28,7 @@
     "@tauri-apps/cli": "^2.9.0",
     "jest": "^29.7.0",
     "playwright": "^1.58.0",
-    "pm2": "^6.0.14"
+    "pm2": "^6.0.14",
+    "sharp": "^0.34.5"
   }
 }

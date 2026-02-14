@@ -16,6 +16,9 @@ const {
   pressEnter,
   verifyLayoutChanged,
   waitForPaneCount,
+  withConsistencyChecks,
+  assertConsistencyPasses,
+  verifyDomSizes,
   DELAYS,
 } = require('./helpers');
 
@@ -37,9 +40,11 @@ describe('Category 3: Pane Operations', () => {
       await ctx.setupPage();
       expect(await ctx.session.getPaneCount()).toBe(1);
 
-      // Split using tmux command
-      await ctx.session.splitHorizontal();
-      await delay(DELAYS.SYNC);
+      // Run operation with consistency checks
+      const result = await withConsistencyChecks(ctx, async () => {
+        await ctx.session.splitHorizontal();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'split' });
 
       expect(await ctx.session.getPaneCount()).toBe(2);
 
@@ -50,7 +55,10 @@ describe('Category 3: Pane Operations', () => {
       // One pane should be above the other (different y values)
       expect(panes[0].y).not.toBe(panes[1].y);
 
-
+      // Verify no flicker (split allows some size jumps)
+      expect(result.glitch.summary.nodeFlickers).toBe(0);
+      // DOM sizes should match formula
+      expect(result.sizes.valid).toBe(true);
     });
 
     test('Vertical split - two panes side by side', async () => {
@@ -58,9 +66,11 @@ describe('Category 3: Pane Operations', () => {
 
       await ctx.setupPage();
 
-      // Split using tmux command
-      await ctx.session.splitVertical();
-      await delay(DELAYS.SYNC);
+      // Run operation with consistency checks
+      const result = await withConsistencyChecks(ctx, async () => {
+        await ctx.session.splitVertical();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'split' });
 
       expect(await ctx.session.getPaneCount()).toBe(2);
 
@@ -71,7 +81,9 @@ describe('Category 3: Pane Operations', () => {
       // One pane should be beside the other (different x values)
       expect(panes[0].x).not.toBe(panes[1].x);
 
-
+      // Verify no flicker
+      expect(result.glitch.summary.nodeFlickers).toBe(0);
+      expect(result.sizes.valid).toBe(true);
     });
 
     test('Nested splits - create 2x2 grid', async () => {
@@ -90,7 +102,9 @@ describe('Category 3: Pane Operations', () => {
       const panes = await getUIPaneInfo(ctx.page);
       expect(panes.length).toBe(4);
 
-
+      // Verify DOM sizes match expected calculations for 4-pane grid
+      const sizeResult = await verifyDomSizes(ctx.page);
+      expect(sizeResult.valid).toBe(true);
     });
 
     test('Uneven splits - split one pane of existing split', async () => {
@@ -98,20 +112,29 @@ describe('Category 3: Pane Operations', () => {
 
       await ctx.setupPage();
 
-      // First split
-      await ctx.session.splitHorizontal();
-      expect(await ctx.session.getPaneCount()).toBe(2);
+      // First split with consistency check
+      const result1 = await withConsistencyChecks(ctx, async () => {
+        await ctx.session.splitHorizontal();
+      }, { operationType: 'split' });
 
-      // Split bottom pane again
-      await ctx.session.splitHorizontal();
+      expect(await ctx.session.getPaneCount()).toBe(2);
+      expect(result1.glitch.summary.nodeFlickers).toBe(0);
+
+      // Split bottom pane again with consistency check
+      const result2 = await withConsistencyChecks(ctx, async () => {
+        await ctx.session.splitHorizontal();
+      }, { operationType: 'split' });
+
       expect(await ctx.session.getPaneCount()).toBe(3);
+      expect(result2.glitch.summary.nodeFlickers).toBe(0);
 
       await delay(DELAYS.SYNC);
       await waitForPaneCount(ctx.page, 3);
       const panes = await getUIPaneInfo(ctx.page);
       expect(panes.length).toBe(3);
 
-
+      // Verify final DOM sizes
+      expect(result2.sizes.valid).toBe(true);
     });
   });
 
@@ -235,11 +258,15 @@ describe('Category 3: Pane Operations', () => {
       await ctx.setupTwoPanes('horizontal');
       expect(await ctx.session.getPaneCount()).toBe(2);
 
-      // Kill pane using tmux command
-      await ctx.session.killPane();
-      await delay(DELAYS.SYNC);
+      // Kill pane with consistency check
+      const result = await withConsistencyChecks(ctx, async () => {
+        await ctx.session.killPane();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'kill' });
 
       expect(await ctx.session.getPaneCount()).toBe(1);
+      // Verify no flicker during kill (kill allows some size jumps)
+      expect(result.glitch.summary.nodeFlickers).toBe(0);
     });
 
     test('Last pane - closing last pane keeps session', async () => {
@@ -264,11 +291,15 @@ describe('Category 3: Pane Operations', () => {
       await ctx.setupTwoPanes('horizontal');
       expect(await ctx.session.isPaneZoomed()).toBe(false);
 
-      // Zoom using tmux command
-      await ctx.session.toggleZoom();
-      await delay(DELAYS.SYNC);
+      // Zoom with consistency check
+      const result = await withConsistencyChecks(ctx, async () => {
+        await ctx.session.toggleZoom();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'zoom' });
 
       expect(await ctx.session.isPaneZoomed()).toBe(true);
+      // Verify no flicker during zoom
+      expect(result.glitch.summary.nodeFlickers).toBe(0);
     });
 
     test('Zoom out - returns to original layout', async () => {
@@ -336,6 +367,115 @@ describe('Category 3: Pane Operations', () => {
       expect(ctx.session.exists()).toBe(true);
       const newWindowCount = ctx.session.getWindowCount();
       expect(newWindowCount).toBe(initialWindowCount + 1);
+    });
+  });
+
+  // ====================
+  // 3.7 Edge Cases
+  // ====================
+  describe('3.7 Edge Cases', () => {
+    test('Rapid operations - split close split', async () => {
+      if (ctx.skipIfNotReady()) return;
+      await ctx.setupPage();
+
+      // Run rapid operations with consistency check
+      const result = await withConsistencyChecks(ctx, async () => {
+        await ctx.session.splitHorizontal();
+        await delay(DELAYS.SHORT);
+        await ctx.session.killPane();
+        await delay(DELAYS.SHORT);
+        await ctx.session.splitVertical();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'split' });
+
+      // Should end with 2 panes
+      expect(await ctx.session.getPaneCount()).toBe(2);
+      await waitForPaneCount(ctx.page, 2);
+
+      // Verify no flicker during rapid operations
+      expect(result.glitch.summary.nodeFlickers).toBe(0);
+      expect(result.sizes.valid).toBe(true);
+    });
+
+    test('Complex layout - 6 pane grid', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      // Create 2x3 grid before navigation
+      ctx.session.splitHorizontal();
+      ctx.session.splitHorizontal();
+      ctx.session.selectPane('U');
+      ctx.session.selectPane('U');
+      ctx.session.splitVertical();
+      ctx.session.selectPane('D');
+      ctx.session.splitVertical();
+      ctx.session.selectPane('D');
+      ctx.session.splitVertical();
+
+      expect(ctx.session.getPaneCount()).toBe(6);
+
+      await ctx.setupPage();
+      await waitForPaneCount(ctx.page, 6);
+
+      // Verify DOM sizes for complex layout
+      const result = await verifyDomSizes(ctx.page);
+      expect(result.valid).toBe(true);
+      expect(result.details.paneCount).toBe(6);
+    });
+
+    test('Multiple resize operations', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupTwoPanes('horizontal');
+
+      // Multiple rapid resizes with consistency check
+      const result = await withConsistencyChecks(ctx, async () => {
+        for (let i = 0; i < 5; i++) {
+          await ctx.session.runCommand(`resize-pane -t ${ctx.session.name} -D 2`);
+          await delay(DELAYS.SHORT);
+        }
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'resize' });
+
+      // Panes should still exist
+      expect(await ctx.session.getPaneCount()).toBe(2);
+
+      // Allow up to 2 flickers during rapid resize operations
+      // Resize operations can cause legitimate brief layout reflows
+      expect(result.glitch.summary.nodeFlickers).toBeLessThanOrEqual(2);
+      expect(result.sizes.valid).toBe(true);
+    });
+
+    test('Zoom and unzoom preserves layout', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupTwoPanes('horizontal');
+
+      const panesBefore = await ctx.session.getPaneInfo();
+
+      // Zoom in with consistency check
+      const zoomInResult = await withConsistencyChecks(ctx, async () => {
+        await ctx.session.toggleZoom();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'zoom' });
+
+      expect(await ctx.session.isPaneZoomed()).toBe(true);
+      expect(zoomInResult.glitch.summary.nodeFlickers).toBe(0);
+
+      // Zoom out with consistency check
+      const zoomOutResult = await withConsistencyChecks(ctx, async () => {
+        await ctx.session.toggleZoom();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'zoom' });
+
+      expect(await ctx.session.isPaneZoomed()).toBe(false);
+      expect(zoomOutResult.glitch.summary.nodeFlickers).toBe(0);
+
+      // Layout should be preserved
+      const panesAfter = await ctx.session.getPaneInfo();
+      expect(panesAfter.length).toBe(panesBefore.length);
+
+      // Verify DOM sizes after zoom cycle
+      expect(zoomOutResult.sizes.valid).toBe(true);
     });
   });
 });

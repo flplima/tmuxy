@@ -14,6 +14,8 @@ const {
   runCommand,
   waitForPaneCount,
   noteKnownLimitation,
+  withConsistencyChecks,
+  verifyDomSizes,
   DELAYS,
 } = require('./helpers');
 
@@ -318,27 +320,33 @@ describe('Category 7: Mouse Events', () => {
         await ctx.page.waitForSelector('.resize-divider-h', { timeout: 5000 });
         divider = await ctx.page.$('.resize-divider-h');
       } catch {
-        // Fallback: use tmux resize directly
-        await ctx.session.resizePane('D', 5);
-        await delay(DELAYS.SYNC);
+        // Fallback: use tmux resize directly with consistency check
+        const result = await withConsistencyChecks(ctx, async () => {
+          await ctx.session.resizePane('D', 5);
+          await delay(DELAYS.SYNC);
+        }, { operationType: 'resize' });
+
         const panesAfter = await ctx.session.getPaneInfo();
         const heightsChanged = panesBefore.some((before, i) => {
           const after = panesAfter[i];
           return after && before.height !== after.height;
         });
         expect(heightsChanged).toBe(true);
+        expect(result.glitch.summary.nodeFlickers).toBe(0);
         return;
       }
       expect(divider).not.toBeNull();
 
       const box = await divider.boundingBox();
 
-      // Drag divider down
-      await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await ctx.page.mouse.down();
-      await ctx.page.mouse.move(box.x + box.width / 2, box.y + 50, { steps: 5 });
-      await ctx.page.mouse.up();
-      await delay(DELAYS.SYNC);
+      // Drag divider with consistency check
+      const result = await withConsistencyChecks(ctx, async () => {
+        await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await ctx.page.mouse.down();
+        await ctx.page.mouse.move(box.x + box.width / 2, box.y + 50, { steps: 5 });
+        await ctx.page.mouse.up();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'drag' });
 
       // Get pane dimensions after
       const panesAfter = await ctx.session.getPaneInfo();
@@ -350,7 +358,9 @@ describe('Category 7: Mouse Events', () => {
       });
 
       expect(heightsChanged).toBe(true);
-
+      // Drag operations may cause some flicker due to layout updates
+      // Allow reasonable amount for drag resize operations
+      expect(result.glitch.summary.nodeFlickers).toBeLessThanOrEqual(10);
     });
 
     test('Drag vertical divider resizes panes horizontally', async () => {
@@ -367,26 +377,32 @@ describe('Category 7: Mouse Events', () => {
         await ctx.page.waitForSelector('.resize-divider-v', { timeout: 5000 });
         divider = await ctx.page.$('.resize-divider-v');
       } catch {
-        // Divider may not render - use tmux resize as fallback to verify resize works
-        await ctx.session.resizePane('R', 10);
-        await delay(DELAYS.SYNC);
+        // Divider may not render - use tmux resize as fallback with consistency check
+        const result = await withConsistencyChecks(ctx, async () => {
+          await ctx.session.resizePane('R', 10);
+          await delay(DELAYS.SYNC);
+        }, { operationType: 'resize' });
+
         const panesAfter = await ctx.session.getPaneInfo();
         const widthsChanged = panesBefore.some((before, i) => {
           const after = panesAfter[i];
           return after && before.width !== after.width;
         });
         expect(widthsChanged).toBe(true);
+        expect(result.glitch.summary.nodeFlickers).toBe(0);
         return;
       }
 
       const box = await divider.boundingBox();
 
-      // Drag divider right
-      await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await ctx.page.mouse.down();
-      await ctx.page.mouse.move(box.x + 50, box.y + box.height / 2, { steps: 5 });
-      await ctx.page.mouse.up();
-      await delay(DELAYS.SYNC);
+      // Drag divider with consistency check
+      const result = await withConsistencyChecks(ctx, async () => {
+        await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await ctx.page.mouse.down();
+        await ctx.page.mouse.move(box.x + 50, box.y + box.height / 2, { steps: 5 });
+        await ctx.page.mouse.up();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'drag' });
 
       const panesAfter = await ctx.session.getPaneInfo();
 
@@ -397,7 +413,8 @@ describe('Category 7: Mouse Events', () => {
       });
 
       expect(widthsChanged).toBe(true);
-
+      // Drag operations may cause some flicker due to layout updates
+      expect(result.glitch.summary.nodeFlickers).toBeLessThanOrEqual(15);
     });
 
     test('Tmux resize command updates UI', async () => {
@@ -445,12 +462,14 @@ describe('Category 7: Mouse Events', () => {
       // Record initial pane order
       const initialPaneOrder = tmuxPanesBefore.map(p => p.id).join(',');
 
-      // Drag header downward (toward other pane)
-      await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await ctx.page.mouse.down();
-      await ctx.page.mouse.move(box.x + box.width / 2, box.y + 200, { steps: 10 });
-      await ctx.page.mouse.up();
-      await delay(DELAYS.SYNC);
+      // Drag header with consistency check
+      const result = await withConsistencyChecks(ctx, async () => {
+        await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await ctx.page.mouse.down();
+        await ctx.page.mouse.move(box.x + box.width / 2, box.y + 200, { steps: 10 });
+        await ctx.page.mouse.up();
+        await delay(DELAYS.SYNC);
+      }, { operationType: 'drag' });
 
       const panesAfter = await getUIPaneInfo(ctx.page);
       const tmuxPanesAfter = await ctx.session.getPaneInfo();
@@ -468,8 +487,9 @@ describe('Category 7: Mouse Events', () => {
         noteKnownLimitation('PANE_HEADER_DRAG_SWAP', 'Drag did not result in pane swap');
       }
 
-      // Verify UI and tmux state are consistent
-
+      // Drag operations may cause some flicker due to layout updates
+      expect(result.glitch.summary.nodeFlickers).toBeLessThanOrEqual(5);
+      expect(result.sizes.valid).toBe(true);
     });
   });
 
