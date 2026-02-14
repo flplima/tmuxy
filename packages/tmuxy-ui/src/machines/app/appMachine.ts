@@ -681,6 +681,70 @@ export const appMachine = setup({
             // No optimistic update - UI will update when tmux state arrives
           }),
         },
+        PANE_GROUP_PREV: {
+          actions: enqueueActions(({ context, enqueue, self }) => {
+            // Find the group containing the active pane
+            const activePaneId = context.activePaneId;
+            if (!activePaneId) return;
+
+            const groupEntry = Object.entries(context.paneGroups).find(([, group]) =>
+              group.paneIds.includes(activePaneId)
+            );
+            if (!groupEntry) return;
+
+            const [groupId, group] = groupEntry;
+            if (group.paneIds.length <= 1) return;
+
+            // Find the currently visible pane in the group
+            const visiblePaneId = group.paneIds.find((paneId) => {
+              const pane = context.panes.find((p) => p.tmuxId === paneId);
+              return pane?.windowId === context.activeWindowId;
+            });
+            if (!visiblePaneId) return;
+
+            // Get the previous pane (wrap around)
+            const currentIdx = group.paneIds.indexOf(visiblePaneId);
+            const prevIdx = currentIdx > 0 ? currentIdx - 1 : group.paneIds.length - 1;
+            const prevPaneId = group.paneIds[prevIdx];
+
+            if (prevPaneId !== visiblePaneId) {
+              // Reuse PANE_GROUP_SWITCH logic by sending the event to self
+              enqueue.raise({ type: 'PANE_GROUP_SWITCH', groupId, paneId: prevPaneId });
+            }
+          }),
+        },
+        PANE_GROUP_NEXT: {
+          actions: enqueueActions(({ context, enqueue, self }) => {
+            // Find the group containing the active pane
+            const activePaneId = context.activePaneId;
+            if (!activePaneId) return;
+
+            const groupEntry = Object.entries(context.paneGroups).find(([, group]) =>
+              group.paneIds.includes(activePaneId)
+            );
+            if (!groupEntry) return;
+
+            const [groupId, group] = groupEntry;
+            if (group.paneIds.length <= 1) return;
+
+            // Find the currently visible pane in the group
+            const visiblePaneId = group.paneIds.find((paneId) => {
+              const pane = context.panes.find((p) => p.tmuxId === paneId);
+              return pane?.windowId === context.activeWindowId;
+            });
+            if (!visiblePaneId) return;
+
+            // Get the next pane (wrap around)
+            const currentIdx = group.paneIds.indexOf(visiblePaneId);
+            const nextIdx = currentIdx < group.paneIds.length - 1 ? currentIdx + 1 : 0;
+            const nextPaneId = group.paneIds[nextIdx];
+
+            if (nextPaneId !== visiblePaneId) {
+              // Reuse PANE_GROUP_SWITCH logic by sending the event to self
+              enqueue.raise({ type: 'PANE_GROUP_SWITCH', groupId, paneId: nextPaneId });
+            }
+          }),
+        },
         PANE_GROUP_CLOSE: {
           actions: enqueueActions(({ context, event, enqueue }) => {
             const group = context.paneGroups[event.groupId];

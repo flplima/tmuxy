@@ -247,6 +247,8 @@ export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 export type PaneGroupAddEvent = { type: 'PANE_GROUP_ADD'; paneId: string };
 export type PaneGroupSwitchEvent = { type: 'PANE_GROUP_SWITCH'; groupId: string; paneId: string };
 export type PaneGroupCloseEvent = { type: 'PANE_GROUP_CLOSE'; groupId: string; paneId: string };
+export type PaneGroupPrevEvent = { type: 'PANE_GROUP_PREV' };
+export type PaneGroupNextEvent = { type: 'PANE_GROUP_NEXT' };
 
 // Float events
 export type ToggleFloatViewEvent = { type: 'TOGGLE_FLOAT_VIEW' };
@@ -290,6 +292,8 @@ export type AppMachineEvent =
   | PaneGroupAddEvent
   | PaneGroupSwitchEvent
   | PaneGroupCloseEvent
+  | PaneGroupPrevEvent
+  | PaneGroupNextEvent
   | ToggleFloatViewEvent
   | CreateFloatEvent
   | ConvertToFloatEvent
