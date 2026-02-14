@@ -473,14 +473,9 @@ body {
   font-size: var(--font-size-sm);
   color: var(--pane-header-text-inactive);
   user-select: none;
-  cursor: grab;
   box-sizing: border-box;
   padding: 0;
   gap: 0;
-}
-
-.pane-header:active {
-  cursor: grabbing;
 }
 
 .pane-header-active {
@@ -514,10 +509,15 @@ body {
   height: 100%;
   background-color: var(--border-medium);
   border: none;
-  cursor: pointer;
+  cursor: grab;
   transition: background-color var(--transition-fast);
   flex-shrink: 0;
   min-width: 0;
+  z-index: 60; /* Above resize dividers (z-index 50) for drag-to-swap */
+}
+
+.pane-tab:active {
+  cursor: grabbing;
 }
 
 /* Selected tab in a group (but pane not active) */
@@ -585,6 +585,7 @@ body {
   cursor: pointer;
   transition: all var(--transition-fast);
   flex-shrink: 0;
+  z-index: 60; /* Above resize dividers */
 }
 
 

@@ -42,6 +42,7 @@ const PaneTab = memo(function PaneTab({
   onClick,
   onContextMenu,
   onClose,
+  onDragStart,
 }: {
   pane: TmuxPane;
   isSelectedTab: boolean;
@@ -49,14 +50,25 @@ const PaneTab = memo(function PaneTab({
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onClose: (e: React.MouseEvent) => void;
+  onDragStart: (e: React.MouseEvent) => void;
 }) {
   const tabTitle = getTabTitle(pane);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    // Don't start drag from close button
+    if (target.classList.contains('pane-tab-close') || target.tagName === 'BUTTON') {
+      return;
+    }
+    onDragStart(e);
+  };
 
   return (
     <div
       className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''}`}
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onMouseDown={handleMouseDown}
       role="tab"
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}
@@ -158,22 +170,12 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
     send({ type: 'PANE_GROUP_ADD', paneId: tmuxId });
   };
 
-  const handleDragStart = (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    // Don't start drag from buttons
-    if (
-      target.classList.contains('pane-tab-close') ||
-      target.classList.contains('pane-tab-add') ||
-      target.tagName === 'BUTTON'
-    ) {
-      return;
-    }
-
+  const handleTabDragStart = (e: React.MouseEvent, dragPaneId: string) => {
     e.preventDefault();
     e.stopPropagation();
     send({
       type: 'DRAG_START',
-      paneId: tmuxId,
+      paneId: dragPaneId,
       startX: e.clientX,
       startY: e.clientY,
     });
@@ -194,7 +196,6 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
   return (
     <div
       className={headerClass}
-      onMouseDown={handleDragStart}
       onDoubleClick={handleDoubleClick}
       role="tablist"
       aria-label={`Pane tabs`}
@@ -215,6 +216,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
               onClose={(e) => handleClose(e, tabPane.tmuxId)}
+              onDragStart={(e) => handleTabDragStart(e, tabPane.tmuxId)}
             />
           );
         })}

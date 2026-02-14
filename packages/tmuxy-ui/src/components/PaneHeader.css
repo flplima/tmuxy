@@ -9,12 +9,7 @@
   font-size: 9px;
   color: #888;
   user-select: none;
-  cursor: grab;
   transition: opacity 0.1s ease, box-shadow 0.1s ease;
-}
-
-.pane-header:active {
-  cursor: grabbing;
 }
 
 .pane-header-active {
