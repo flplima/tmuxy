@@ -31,11 +31,31 @@ const KEY_MAP: Record<string, string> = {
   F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
 };
 
+/**
+ * macOS Option+key produces special Unicode characters instead of altKey=true
+ * This maps those characters back to their base keys for tmux M- notation
+ */
+const MACOS_OPTION_KEY_MAP: Record<string, string> = {
+  '˙': 'h',  // Option+H
+  '∆': 'j',  // Option+J
+  '˚': 'k',  // Option+K
+  '¬': 'l',  // Option+L
+  // Add more as needed for other Option+key combinations
+};
+
 function formatTmuxKey(event: KeyboardEvent): string {
   const modifiers: string[] = [];
   if (event.ctrlKey) modifiers.push('C');
   if (event.altKey || event.metaKey) modifiers.push('M');
   if (event.shiftKey && event.key.length > 1) modifiers.push('S');
+
+  // Check for macOS Option+key special characters
+  const macosKey = MACOS_OPTION_KEY_MAP[event.key];
+  if (macosKey) {
+    // This is a macOS Option+key producing a special character
+    // Treat it as M-<key>
+    return `M-${macosKey}`;
+  }
 
   const mapped = KEY_MAP[event.key];
   if (mapped) {
