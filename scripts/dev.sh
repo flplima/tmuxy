@@ -34,9 +34,11 @@ echo ""
 # -s: shell command to run
 # -c: clear screen before each run
 # --why: show which file changed
+# --poll: use polling instead of inotify (more reliable in containers)
 exec cargo watch \
     -w packages/tmuxy-core/src \
     -w packages/web-server/src \
     -c \
     --why \
+    --poll \
     -s 'tmux kill-session -t tmuxy 2>/dev/null || true; cargo run -p web-server -- --dev'
