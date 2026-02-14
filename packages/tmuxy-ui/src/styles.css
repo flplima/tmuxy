@@ -455,7 +455,6 @@ body {
     rgba(100, 150, 255, 0.2) 100%
   );
   border: 2px dashed var(--accent-blue-light);
-  border-radius: var(--radius-md);
   box-sizing: border-box;
   z-index: var(--z-elevated);
 }
@@ -556,7 +555,6 @@ body {
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: var(--radius-sm);
   color: var(--text-subtle);
   font-size: var(--font-size-base);
   cursor: pointer;
@@ -582,7 +580,6 @@ body {
   padding: 0;
   background: transparent;
   border: 1px dashed var(--border-subtle);
-  border-radius: var(--radius-sm);
   color: var(--text-subtle);
   font-size: var(--font-size-lg);
   cursor: pointer;
