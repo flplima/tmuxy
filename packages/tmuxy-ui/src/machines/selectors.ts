@@ -307,7 +307,8 @@ export function selectGroups(context: AppMachineContext): Record<string, PaneGro
 
 /**
  * Select visible panes - filters out hidden group panes
- * For groups, only the active pane is visible
+ * For groups, only the active pane is visible.
+ * During pending transitions, show whichever group pane is in the active window.
  */
 function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
   const previewPanes = selectPreviewPanes(context);
@@ -317,11 +318,32 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
 
   // Build a Set of hidden pane IDs for O(1) lookup
   const hiddenPaneIds = new Set<string>();
+
+  // Build a Set of pane IDs in groups with pending transitions
+  const pendingGroupIds = new Set(
+    context.pendingGroupTransitions.map(t => t.groupId)
+  );
+
   for (const group of groupsArray) {
-    const activePaneId = group.paneIds[group.activeIndex];
-    for (const paneId of group.paneIds) {
-      if (paneId !== activePaneId) {
-        hiddenPaneIds.add(paneId);
+    // During a pending transition, show whichever pane is currently in the active window
+    if (pendingGroupIds.has(group.id)) {
+      // Find which group pane is in the active window
+      const paneInActiveWindow = context.panes.find(
+        p => group.paneIds.includes(p.tmuxId) && p.windowId === context.activeWindowId
+      );
+      // Hide all group panes except the one in the active window
+      for (const paneId of group.paneIds) {
+        if (paneId !== paneInActiveWindow?.tmuxId) {
+          hiddenPaneIds.add(paneId);
+        }
+      }
+    } else {
+      // Normal case: hide all except the active pane
+      const activePaneId = group.paneIds[group.activeIndex];
+      for (const paneId of group.paneIds) {
+        if (paneId !== activePaneId) {
+          hiddenPaneIds.add(paneId);
+        }
       }
     }
   }
@@ -336,6 +358,8 @@ export const selectVisiblePanes = createMemoizedSelector(
     resize: ctx.resize,
     charWidth: ctx.charWidth,
     charHeight: ctx.charHeight,
+    pendingGroupTransitions: ctx.pendingGroupTransitions,
+    activeWindowId: ctx.activeWindowId,
   }),
   selectVisiblePanesUncached
 );
