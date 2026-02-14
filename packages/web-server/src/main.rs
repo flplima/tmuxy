@@ -1,11 +1,10 @@
-mod websocket;
+mod sse;
 
 use axum::{
     body::Body,
-    extract::ws::WebSocketUpgrade,
     extract::{Query, Request},
-    response::{IntoResponse, Response},
-    routing::get,
+    response::Response,
+    routing::{get, post},
     Router,
 };
 use std::collections::HashMap;
@@ -16,12 +15,11 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::signal;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tmuxy_core::control_mode::MonitorCommandSender;
-use tmuxy_core::session;
 
 
 /// Port for the web server (generated from "tmuxy" using get-port.sh)
@@ -61,12 +59,8 @@ impl ViteChild {
 
 /// Tracks connections and shared resources for a single tmux session
 pub struct SessionConnections {
-    /// ID of the primary (controlling) connection, if any
-    pub primary_id: Option<u64>,
     /// All connection IDs in order of connection time
     pub connections: Vec<u64>,
-    /// Channels to send messages to specific connections (for primary_changed notifications)
-    pub connection_channels: HashMap<u64, mpsc::Sender<String>>,
     /// Each client's reported viewport size (cols, rows) for min-size computation
     pub client_sizes: HashMap<u64, (u32, u32)>,
     /// Sender for commands to the session's monitor (resize, etc.)
@@ -81,9 +75,7 @@ impl SessionConnections {
     pub fn new() -> Self {
         let (state_tx, _) = broadcast::channel(100);
         Self {
-            primary_id: None,
             connections: Vec::new(),
-            connection_channels: HashMap::new(),
             client_sizes: HashMap::new(),
             monitor_command_tx: None,
             state_tx,
@@ -99,6 +91,8 @@ pub struct AppState {
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
     /// Counter for generating unique connection IDs
     pub next_conn_id: AtomicU64,
+    /// SSE session tokens: token -> (conn_id, session_name)
+    pub sse_tokens: RwLock<HashMap<String, (u64, String)>>,
 }
 
 #[tokio::main]
@@ -120,6 +114,7 @@ async fn main() {
         dev_mode,
         sessions: RwLock::new(HashMap::new()),
         next_conn_id: AtomicU64::new(1),
+        sse_tokens: RwLock::new(HashMap::new()),
     });
 
     // Note: Per-connection monitoring is now started in handle_socket
@@ -140,26 +135,29 @@ async fn main() {
     // Build router
     let app = if dev_mode {
         // Dev mode: proxy to Vite
-        // - /ws: our tmux websocket
+        // - /events: SSE stream for server->client push
+        // - /commands: POST endpoint for client->server commands
         // - /api/snapshot: tmux state snapshot for debugging
         // - /api/directory: directory listing for file picker
         // - everything else: proxy to Vite (HTTP and WebSocket)
         Router::new()
-            .route("/ws", get(ws_handler))
+            .route("/events", get(sse::sse_handler))
+            .route("/commands", post(sse::commands_handler))
             .route("/api/snapshot", get(snapshot_handler))
             .route("/api/directory", get(directory_handler))
             .fallback_service(tower::service_fn(|req: Request| async move {
                 Ok::<_, std::convert::Infallible>(proxy_to_vite(req).await)
             }))
-            .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any))
+            .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
             .with_state(state)
     } else {
         Router::new()
-            .route("/ws", get(ws_handler))
+            .route("/events", get(sse::sse_handler))
+            .route("/commands", post(sse::commands_handler))
             .route("/api/snapshot", get(snapshot_handler))
             .route("/api/directory", get(directory_handler))
             .fallback_service(ServeDir::new("dist"))
-            .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any))
+            .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
             .with_state(state)
     };
 
@@ -210,12 +208,6 @@ async fn shutdown_signal(vite_child: Option<ViteChild>) {
     }
 }
 
-/// Query parameters for WebSocket connection
-#[derive(Debug, serde::Deserialize)]
-struct WsQuery {
-    session: Option<String>,
-}
-
 /// Query parameters for directory listing
 #[derive(Debug, serde::Deserialize)]
 struct DirectoryQuery {
@@ -228,7 +220,7 @@ async fn directory_handler(
 ) -> Response {
     let path = query.path.unwrap_or_else(|| "/".to_string());
 
-    match websocket::list_directory(&path) {
+    match sse::list_directory(&path) {
         Ok(entries) => {
             Response::builder()
                 .status(axum::http::StatusCode::OK)
@@ -245,15 +237,6 @@ async fn directory_handler(
                 .unwrap()
         }
     }
-}
-
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    Query(query): Query<WsQuery>,
-    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let session = query.session.unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
-    ws.on_upgrade(move |socket| websocket::handle_socket(socket, state, session))
 }
 
 /// Proxy HTTP requests to Vite dev server

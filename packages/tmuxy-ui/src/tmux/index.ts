@@ -10,4 +10,5 @@ export type {
 } from './types';
 
 // Adapters (used by tmuxActor)
-export { WebSocketAdapter, TauriAdapter, createAdapter } from './adapters';
+export { HttpAdapter } from './HttpAdapter';
+export { TauriAdapter, createAdapter } from './adapters';
