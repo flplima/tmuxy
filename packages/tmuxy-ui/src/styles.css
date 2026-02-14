@@ -120,7 +120,7 @@
 
   /* Sizes */
   --statusbar-height: 36px;
-  --pane-header-height: 21px; /* Exactly 1 char height */
+  --pane-header-height: 17px; /* Header height (total row = header + margin = 21px) */
 
   /* Border Radius */
   --radius-sm: 3px;
@@ -184,8 +184,6 @@ body {
 
 .pane-container {
   background-color: var(--bg-black);
-  padding: var(--container-padding);
-  box-sizing: border-box;
 }
 
 .pane-container.secondary-client {
@@ -219,7 +217,7 @@ body {
 }
 
 .pane-content {
-  padding: 0 4px; /* Horizontal padding for visual separation between vertical splits */
+  padding: 0;
   flex: 1;
   outline: 1px solid var(--border-medium);
   outline-offset: -1px;
@@ -468,6 +466,7 @@ body {
   display: flex;
   align-items: center;
   height: var(--pane-header-height);
+  margin-top: 4px; /* Visible gap between panes */
   background-color: transparent;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);

@@ -157,9 +157,11 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
       return {
         position: 'absolute',
-        left: centeringOffset.x + pane.x * charWidth,
+        // Round left position to avoid sub-pixel text clipping
+        left: Math.round(centeringOffset.x + pane.x * charWidth),
         top: centeringOffset.y + headerY * charHeight,
-        width: pane.width * charWidth,
+        // Round up width + 1px buffer to prevent sub-pixel clipping at right edge
+        width: Math.ceil(pane.width * charWidth) + 1,
         // +1 row for header (header is exactly 1 char height)
         height: (pane.height + 1) * charHeight,
       };
