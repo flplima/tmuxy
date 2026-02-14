@@ -147,46 +147,25 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, [isDragging, isResizing, send]);
 
-  // Count horizontal divider rows above a given y position
-  // Horizontal dividers are rows where no pane occupies that y position
-  const countDividersAbove = useCallback(
-    (y: number, panes: TmuxPane[]): number => {
-      if (y === 0) return 0;
-      // Find all y positions where horizontal dividers exist
-      // A divider row is at position (pane.y + pane.height) for panes in the top section
-      const dividerRows = new Set<number>();
-      panes.forEach((p) => {
-        // Check if there's a pane below this one (indicating a horizontal divider between them)
-        const bottomEdge = p.y + p.height;
-        if (panes.some((other) => other.y === bottomEdge + 1)) {
-          dividerRows.add(bottomEdge);
-        }
-      });
-      // Count how many divider rows are above y
-      return Array.from(dividerRows).filter((row) => row < y).length;
-    },
-    []
-  );
-
   // Compute base position for each pane with gap adjustments and centering
-  // Horizontal gaps are compressed from charHeight to charWidth for visual consistency
-  // Height includes +1 row for the pane header (which is exactly 1 char height)
+  // Each pane has a header (1 char height) above its content.
+  // The header occupies the row above pane.y (for non-top panes, this is the tmux divider row).
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
-      const dividersAbove = countDividersAbove(pane.y, visiblePanes);
-      // Compress vertical gap: subtract (charHeight - charWidth) per divider
-      const verticalCompression = dividersAbove * (charHeight - charWidth);
+      // Position pane so header is at (y-1) and content starts at y
+      // For y=0, header would be at -1 which we clamp to 0
+      const headerY = Math.max(0, pane.y - 1);
       return {
         position: 'absolute',
         left: centeringOffset.x + pane.x * charWidth + HALF_GAP,
-        top: centeringOffset.y + pane.y * charHeight - verticalCompression + HALF_GAP,
+        top: centeringOffset.y + headerY * charHeight + HALF_GAP,
         // Don't subtract PANE_GAP to ensure exact char width fitting for all columns
         width: pane.width * charWidth,
         // +1 row for header (header is exactly 1 char height)
         height: (pane.height + 1) * charHeight,
       };
     },
-    [charWidth, charHeight, visiblePanes, countDividersAbove, centeringOffset]
+    [charWidth, charHeight, centeringOffset]
   );
 
   // Get CSS class for pane
@@ -253,8 +232,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
           style={{
             position: 'absolute',
             left: centeringOffset.x + dropTarget.x * charWidth + HALF_GAP,
-            top: centeringOffset.y + dropTarget.y * charHeight + HALF_GAP,
-            width: dropTarget.width * charWidth - PANE_GAP,
+            // Position so header occupies row above content
+            top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight + HALF_GAP,
+            width: dropTarget.width * charWidth,
             // +1 row for header
             height: (dropTarget.height + 1) * charHeight,
           }}
