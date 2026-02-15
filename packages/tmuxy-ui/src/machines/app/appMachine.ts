@@ -32,7 +32,7 @@ import {
   makeGroupWindowName,
   type TmuxyGroupsEnv,
 } from './helpers';
-import { buildSaveGroupsCommand } from './groupState';
+import { buildSaveGroupsCommand, parseGroupsEnv } from './groupState';
 import type { TmuxWindow } from '../types';
 
 /**
@@ -204,6 +204,9 @@ export const appMachine = setup({
           actions: enqueueActions(({ context, enqueue }) => {
             enqueue(assign({ connected: true, error: null }));
             enqueue(sendTo('size', { type: 'CONNECTED' as const }));
+
+            // Fetch pane groups from tmux environment (for persistence across reloads)
+            enqueue(sendTo('tmux', { type: 'FETCH_PANE_GROUPS' as const }));
 
             // Only fetch initial state if we already have a computed target size
             // If targetCols/targetRows are still defaults, SET_TARGET_SIZE will trigger the fetch
@@ -463,6 +466,26 @@ export const appMachine = setup({
             type: 'UPDATE_KEYBINDINGS' as const,
             keybindings: event.keybindings,
           })),
+        },
+        PANE_GROUPS_LOADED: {
+          actions: assign(({ event, context }) => {
+            const loadedEnv = parseGroupsEnv(event.groupsJson);
+            // Merge loaded groups into paneGroupsEnv
+            // Don't overwrite if we already have groups (from this session)
+            if (Object.keys(context.paneGroupsEnv.groups).length === 0 &&
+                Object.keys(loadedEnv.groups).length > 0) {
+              // Rebuild paneGroups using the loaded env
+              const paneGroups = buildGroupsFromWindows(
+                context.windows,
+                context.panes,
+                context.activeWindowId,
+                context.paneGroups,
+                loadedEnv
+              );
+              return { paneGroupsEnv: loadedEnv, paneGroups };
+            }
+            return {};
+          }),
         },
 
         // Drag Events - Forward to drag machine with full context

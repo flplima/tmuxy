@@ -203,6 +203,7 @@ export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
 export type ConnectionInfoEvent = { type: 'CONNECTION_INFO'; connectionId: number };
 export type KeybindingsReceivedEvent = { type: 'KEYBINDINGS_RECEIVED'; keybindings: KeyBindings };
+export type PaneGroupsLoadedEvent = { type: 'PANE_GROUPS_LOADED'; groupsJson: string | null };
 
 // Drag events
 export type DragStartEvent = { type: 'DRAG_START'; paneId: string; startX: number; startY: number };
@@ -269,6 +270,7 @@ export type AppMachineEvent =
   | TmuxDisconnectedEvent
   | ConnectionInfoEvent
   | KeybindingsReceivedEvent
+  | PaneGroupsLoadedEvent
   | DragStartEvent
   | DragMoveEvent
   | DragEndEvent

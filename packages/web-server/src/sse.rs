@@ -584,6 +584,27 @@ async fn handle_command(
                 "bindings": bindings
             }))
         }
+        "get_pane_groups" => {
+            // Get pane groups from tmux session environment variable TMUXY_GROUPS
+            let output = tmuxy_core::executor::execute_tmux_command(&[
+                "show-environment", "-t", session, "TMUXY_GROUPS"
+            ]);
+            match output {
+                Ok(out) => {
+                    // Output format: "TMUXY_GROUPS={...}" or "-TMUXY_GROUPS" if unset
+                    if out.starts_with('-') || out.is_empty() {
+                        Ok(serde_json::json!(null))
+                    } else if let Some(eq_idx) = out.find('=') {
+                        let json_str = out[eq_idx + 1..].trim();
+                        // Return the raw JSON string - client will parse it
+                        Ok(serde_json::json!(json_str))
+                    } else {
+                        Ok(serde_json::json!(null))
+                    }
+                }
+                Err(_) => Ok(serde_json::json!(null))
+            }
+        }
         "list_directory" => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
             let entries = list_directory(path)?;
