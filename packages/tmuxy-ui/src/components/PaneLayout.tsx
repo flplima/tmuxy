@@ -184,14 +184,25 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [draggedPaneId]
   );
 
-  // Single pane - no grid needed
+  // Single pane - use same absolute positioning with centering as multi-pane
   if (visiblePanes.length === 1) {
+    const pane = visiblePanes[0];
+    const headerY = Math.max(0, pane.y - 1);
     return (
-      <div
-        className="pane-layout-single"
-        data-pane-id={visiblePanes[0].tmuxId}
-      >
-        {children(visiblePanes[0])}
+      <div className="pane-layout">
+        <div
+          className="pane-layout-item pane-active"
+          data-pane-id={pane.tmuxId}
+          style={{
+            position: 'absolute',
+            left: Math.round(centeringOffset.x + pane.x * charWidth),
+            top: centeringOffset.y + headerY * charHeight,
+            width: Math.ceil(pane.width * charWidth) + 1,
+            height: (pane.height + 1) * charHeight,
+          }}
+        >
+          {children(pane)}
+        </div>
       </div>
     );
   }

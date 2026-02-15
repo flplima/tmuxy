@@ -349,14 +349,6 @@ body {
   bottom: 0;
 }
 
-.pane-layout-single {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  outline: none;
-}
-
 .pane-layout-item {
   overflow: hidden;
   background: var(--bg-black);

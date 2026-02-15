@@ -6,13 +6,6 @@
   bottom: 0;
 }
 
-.pane-layout-single {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
 .pane-layout-item {
   overflow: hidden;
   background: #000000;
