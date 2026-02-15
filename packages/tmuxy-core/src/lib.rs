@@ -174,6 +174,11 @@ pub fn extract_cells_with_urls(
 pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneContent {
     let mut parser = vt100::Parser::new(height as u16, width as u16, 0);
 
+    // Strip trailing newline to prevent scroll when content exactly fills terminal.
+    // capture-pane output typically ends with \n, but processing this final newline
+    // would push the cursor past the last row, causing unwanted scroll.
+    let content = content.strip_suffix('\n').unwrap_or(content);
+
     // Normalize newlines for vt100
     let normalized: Vec<u8> = content.bytes().flat_map(|b| {
         if b == b'\n' {
