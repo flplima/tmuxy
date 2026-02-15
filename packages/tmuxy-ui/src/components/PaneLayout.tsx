@@ -149,6 +149,11 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // Each pane has a header (1 char height) above its content.
   // The header occupies the row above pane.y (for non-top panes, this is the tmux divider row).
   // Vertical dividers between side-by-side panes are exactly 1 char width (like tmux).
+  // Horizontal padding: 30% of charWidth on each side
+  // Gap between pane borders: 40% of charWidth
+  // Total: 30% + 40% + 30% = 100% = 1 char (preserves tmux gap)
+  const hPadding = Math.round(charWidth * 0.3);
+
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
       // Position pane so header is at (y-1) and content starts at y
@@ -160,13 +165,13 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         // Round left position to avoid sub-pixel text clipping
         left: Math.round(centeringOffset.x + pane.x * charWidth),
         top: centeringOffset.y + headerY * charHeight,
-        // Width exactly matches terminal columns
-        width: Math.ceil(pane.width * charWidth),
+        // Width = terminal columns + horizontal padding (30% charWidth each side)
+        width: Math.ceil(pane.width * charWidth) + hPadding * 2,
         // +1 row for header (header is exactly 1 char height)
         height: (pane.height + 1) * charHeight,
       };
     },
-    [charWidth, charHeight, centeringOffset]
+    [charWidth, charHeight, centeringOffset, hPadding]
   );
 
   // Get CSS class for pane
@@ -189,7 +194,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     const pane = visiblePanes[0];
     const headerY = Math.max(0, pane.y - 1);
     return (
-      <div className="pane-layout">
+      <div className="pane-layout" style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}>
         <div
           className="pane-layout-item pane-active"
           data-pane-id={pane.tmuxId}
@@ -197,7 +202,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
             position: 'absolute',
             left: Math.round(centeringOffset.x + pane.x * charWidth),
             top: centeringOffset.y + headerY * charHeight,
-            width: Math.ceil(pane.width * charWidth),
+            width: Math.ceil(pane.width * charWidth) + hPadding * 2,
             height: (pane.height + 1) * charHeight,
           }}
         >
@@ -211,6 +216,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     <div
       ref={containerRef}
       className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing ? 'pane-layout-resizing' : ''} ${animationsDisabled ? 'pane-layout-committing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
+      style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}
     >
       {visiblePanes.map((pane) => {
         const isDraggedPane = pane.tmuxId === draggedPaneId;

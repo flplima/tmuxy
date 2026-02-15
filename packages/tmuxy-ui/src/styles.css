@@ -217,7 +217,8 @@ body {
 }
 
 .pane-content {
-  padding: 0;
+  /* Horizontal padding from CSS variable set by PaneLayout (30% of charWidth) */
+  padding: 0 var(--pane-h-padding, 0);
   flex: 1;
   outline: 1px solid var(--border-medium);
   outline-offset: -1px;
