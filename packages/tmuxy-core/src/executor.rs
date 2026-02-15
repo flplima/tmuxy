@@ -333,12 +333,13 @@ pub fn resize_window_default(cols: u32, rows: u32) -> Result<(), String> {
     resize_window(DEFAULT_SESSION_NAME, cols, rows)
 }
 
-/// Get information about all panes in the current window
+/// Get information about all panes in all windows of the session
 pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
     // Use comma delimiter (matching control mode state.rs parser)
     // Fields: pane_id, pane_index, pane_left, pane_top, pane_width, pane_height, cursor_x, cursor_y, pane_active, pane_current_command, pane_title, pane_in_mode, copy_cursor_x, copy_cursor_y, window_id, border_title, group_id, group_tab_index
     let output = execute_tmux_command(&[
         "list-panes",
+        "-s",  // List all panes in all windows of the session (not just active window)
         "-t",
         session_name,
         "-F",
