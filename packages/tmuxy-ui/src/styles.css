@@ -262,7 +262,7 @@ body {
 
 .terminal-content {
   margin: 0;
-  padding: 0;
+  padding-left: 3px; /* Left padding only for breathing room, no right padding to avoid blank space */
   font-family: var(--font-mono);
   font-size: var(--font-size-xl);
   line-height: var(--line-height-terminal);
