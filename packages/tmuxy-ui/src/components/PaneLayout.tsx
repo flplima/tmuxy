@@ -160,8 +160,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         // Round left position to avoid sub-pixel text clipping
         left: Math.round(centeringOffset.x + pane.x * charWidth),
         top: centeringOffset.y + headerY * charHeight,
-        // Round up width + 1px buffer to prevent sub-pixel clipping at right edge
-        width: Math.ceil(pane.width * charWidth) + 1,
+        // Width exactly matches terminal columns
+        width: Math.ceil(pane.width * charWidth),
         // +1 row for header (header is exactly 1 char height)
         height: (pane.height + 1) * charHeight,
       };
@@ -197,7 +197,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
             position: 'absolute',
             left: Math.round(centeringOffset.x + pane.x * charWidth),
             top: centeringOffset.y + headerY * charHeight,
-            width: Math.ceil(pane.width * charWidth) + 1,
+            width: Math.ceil(pane.width * charWidth),
             height: (pane.height + 1) * charHeight,
           }}
         >
