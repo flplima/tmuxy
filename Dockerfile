@@ -36,8 +36,8 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal
 
-# Claude Code CLI + pm2 process manager
-RUN npm install -g @anthropic-ai/claude-code pm2
+# pm2 process manager
+RUN npm install -g pm2
 
 # Agent Browser (browser automation for Claude)
 # Install Chromium dependencies first (agent-browser's --with-deps uses sudo which isn't available)
@@ -56,9 +56,9 @@ RUN npm install -g agent-browser \
 # Non-root user (matches typical host UID)
 RUN useradd -m -s /bin/bash -u 1000 claude
 
-# Add cargo and dotfiles scripts to PATH (in .bashrc for tmux shells)
-ENV PATH=/usr/local/cargo/bin:/home/claude/dotfiles/scripts:$PATH
-RUN echo 'export PATH=/usr/local/cargo/bin:/home/claude/dotfiles/scripts:$PATH' >> /home/claude/.bashrc
+# Add cargo, claude, and dotfiles scripts to PATH (in .bashrc for tmux shells)
+ENV PATH=/usr/local/cargo/bin:/home/claude/.local/bin:/home/claude/dotfiles/scripts:$PATH
+RUN echo 'export PATH=/usr/local/cargo/bin:/home/claude/.local/bin:/home/claude/dotfiles/scripts:$PATH' >> /home/claude/.bashrc
 
 # Ensure cargo directories are writable by claude user
 RUN mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
@@ -69,6 +69,9 @@ RUN touch /var/log/shell.log && chown claude:claude /var/log/shell.log
 
 USER claude
 WORKDIR /workspace
+
+# Claude Code CLI (native install - installs to ~/.local/bin)
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Default command - interactive bash with logging for docker logs
 CMD ["script", "-q", "-a", "/var/log/shell.log", "-c", "claude --dangerously-skip-permissions"]
