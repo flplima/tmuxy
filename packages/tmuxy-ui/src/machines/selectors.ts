@@ -8,20 +8,67 @@ import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/
 /**
  * Select panes for display with resize preview.
  * During resize: pane sizes follow cursor position exactly (local preview)
+ * During drag: dragged pane stays at original position (before any swaps)
  * After resize: pane sizes match actual tmux state
  *
  * Only returns panes from the active window - panes in hidden group windows
  * are not rendered.
  */
 function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
-  const { panes, resize, charWidth, charHeight, activeWindowId } = context;
+  const { panes, resize, drag, charWidth, charHeight, activeWindowId, activePaneId } = context;
 
   // Filter to only panes in the active window
-  const activePanes = activeWindowId
+  let activePanes = activeWindowId
     ? panes.filter(p => p.windowId === activeWindowId)
     : panes;
 
-  // If not resizing, return active window panes
+  // Update the `active` property based on context.activePaneId
+  // This ensures optimistic active pane changes are reflected in the UI
+  activePanes = activePanes.map(pane => {
+    const shouldBeActive = pane.tmuxId === activePaneId;
+    if (pane.active !== shouldBeActive) {
+      return { ...pane, active: shouldBeActive };
+    }
+    return pane;
+  });
+
+  // During group switch: override target pane dimensions to prevent flicker
+  // from intermediate server states that arrive before the swap fully settles
+  const dimOverride = context.groupSwitchDimOverride;
+  if (dimOverride && Date.now() - dimOverride.timestamp < 500) {
+    activePanes = activePanes.map(pane => {
+      if (pane.tmuxId === dimOverride.paneId) {
+        return {
+          ...pane,
+          x: dimOverride.x,
+          y: dimOverride.y,
+          width: dimOverride.width,
+          height: dimOverride.height,
+        };
+      }
+      return pane;
+    });
+  }
+
+  // During drag: keep dragged pane at its original position
+  // This prevents visual jumps when server state updates during real-time swaps
+  if (drag) {
+    const { draggedPaneId, originalX, originalY, originalWidth, originalHeight } = drag;
+    activePanes = activePanes.map(pane => {
+      if (pane.tmuxId === draggedPaneId) {
+        return {
+          ...pane,
+          x: originalX,
+          y: originalY,
+          width: originalWidth,
+          height: originalHeight,
+        };
+      }
+      return pane;
+    });
+  }
+
+  // If not resizing, return (potentially drag-adjusted) panes
   if (!resize) {
     return activePanes;
   }
@@ -84,15 +131,18 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
 
 /**
  * Memoized version of selectPreviewPanes.
- * Only recomputes when panes, resize state, char dimensions, or active window change.
+ * Only recomputes when panes, resize state, drag state, char dimensions, or active window change.
  */
 export const selectPreviewPanes = createMemoizedSelector(
   (ctx: AppMachineContext) => ({
     panes: ctx.panes,
     resize: ctx.resize,
+    drag: ctx.drag,
     charWidth: ctx.charWidth,
     charHeight: ctx.charHeight,
     activeWindowId: ctx.activeWindowId,
+    activePaneId: ctx.activePaneId,
+    groupSwitchDimOverride: ctx.groupSwitchDimOverride,
   }),
   selectPreviewPanesUncached
 );
@@ -359,9 +409,11 @@ export const selectVisiblePanes = createMemoizedSelector(
     panes: ctx.panes,
     paneGroups: ctx.paneGroups,
     resize: ctx.resize,
+    drag: ctx.drag,
     charWidth: ctx.charWidth,
     charHeight: ctx.charHeight,
     activeWindowId: ctx.activeWindowId,
+    activePaneId: ctx.activePaneId,
   }),
   selectVisiblePanesUncached
 );
@@ -442,8 +494,11 @@ export const selectPaneById = createMemoizedSelectorWithArg(
   (ctx: AppMachineContext, _paneId: string) => ({
     panes: ctx.panes,
     resize: ctx.resize,
+    drag: ctx.drag,
     charWidth: ctx.charWidth,
     charHeight: ctx.charHeight,
+    activeWindowId: ctx.activeWindowId,
+    activePaneId: ctx.activePaneId,
   }),
   (context: AppMachineContext, paneId: string): TmuxPane | undefined => {
     const previewPanes = selectPreviewPanes(context);
@@ -468,6 +523,21 @@ export function selectIsSinglePane(context: AppMachineContext): boolean {
 }
 
 // ============================================
+// Group Switch Selectors
+// ============================================
+
+/**
+ * Get pane IDs involved in a recent group switch.
+ * Used to disable CSS transitions on affected panes to prevent height clipping.
+ * Override is cleared by CLEAR_GROUP_SWITCH_OVERRIDE event (fired 750ms after switch).
+ */
+export function selectGroupSwitchPaneIds(context: AppMachineContext): { paneId: string; fromPaneId: string } | null {
+  const override = context.groupSwitchDimOverride;
+  if (!override) return null;
+  return { paneId: override.paneId, fromPaneId: override.fromPaneId };
+}
+
+// ============================================
 // Animation Selectors
 // ============================================
 
@@ -476,4 +546,16 @@ export function selectIsSinglePane(context: AppMachineContext): boolean {
  */
 export function selectEnableAnimations(context: AppMachineContext): boolean {
   return context.enableAnimations;
+}
+
+// ============================================
+// Optimistic Update Selectors
+// ============================================
+
+/**
+ * Check if there's a pending optimistic operation.
+ * Useful for UI indicators or debugging.
+ */
+export function selectHasOptimisticOperation(context: AppMachineContext): boolean {
+  return context.optimisticOperation !== null;
 }

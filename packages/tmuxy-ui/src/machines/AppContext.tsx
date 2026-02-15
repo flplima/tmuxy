@@ -57,6 +57,8 @@ export {
   selectStatusLine,
   selectContainerSize,
   selectEnableAnimations,
+  selectHasOptimisticOperation,
+  selectGroupSwitchPaneIds,
 } from './selectors';
 
 // ============================================

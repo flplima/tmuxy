@@ -192,7 +192,7 @@ export class HttpAdapter implements TmuxAdapter {
     // Check if this is a send-keys command that should be batched
     if (cmd === 'run_tmux_command' && args?.command) {
       const command = args.command as string;
-      const sendKeysMatch = command.match(/^send-keys -t (\S+) (.+)$/);
+      const sendKeysMatch = command.match(/^send-keys -t (\S+) (?!-l )(.+)$/);
 
       if (sendKeysMatch) {
         const [, session, keys] = sendKeysMatch;

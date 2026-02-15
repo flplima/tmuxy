@@ -35,7 +35,7 @@ services:
       - no-new-privileges:true
     shm_size: 1g
     mem_limit: 6g
-    command: bash -c "npm run web:dev:start && claude --dangerously-skip-permissions"
+    command: bash -c "npm start && claude --dangerously-skip-permissions"
 
 volumes:
   tmuxy-cargo-registry:

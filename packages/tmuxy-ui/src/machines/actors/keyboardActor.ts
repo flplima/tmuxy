@@ -139,6 +139,12 @@ export function createKeyboardActor() {
         return;
       }
 
+      // Let browser handle dead keys (diacritic composition)
+      if (event.key === 'Dead') return;
+
+      // Let browser handle Ctrl+V / Cmd+V for paste
+      if ((event.ctrlKey || event.metaKey) && event.key === 'v') return;
+
       event.preventDefault();
 
       // Format the key to check against bindings
@@ -257,9 +263,17 @@ export function createKeyboardActor() {
       }
 
       // Normal key handling - send via send-keys
+      // Use literal mode (-l) for single printable chars to avoid tmux syntax interpretation
+      let command: string;
+      if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        const escaped = escapeLiteralText(event.key);
+        command = `send-keys -t ${sessionName} -l ${escaped}`;
+      } else {
+        command = `send-keys -t ${sessionName} ${formattedKey}`;
+      }
       input.parent.send({
         type: 'SEND_TMUX_COMMAND',
-        command: `send-keys -t ${sessionName} ${formattedKey}`,
+        command,
       });
 
       input.parent.send({
@@ -291,9 +305,27 @@ export function createKeyboardActor() {
       }
     };
 
+    const PASTE_CHUNK_SIZE = 500;
+
+    const handlePaste = (event: ClipboardEvent) => {
+      event.preventDefault();
+      const text = event.clipboardData?.getData('text/plain');
+      if (!text) return;
+
+      for (let i = 0; i < text.length; i += PASTE_CHUNK_SIZE) {
+        const chunk = text.slice(i, i + PASTE_CHUNK_SIZE);
+        const escaped = escapeLiteralText(chunk);
+        input.parent.send({
+          type: 'SEND_TMUX_COMMAND',
+          command: `send-keys -t ${sessionName} -l ${escaped}`,
+        });
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('compositionstart', handleCompositionStart);
     window.addEventListener('compositionend', handleCompositionEnd);
+    window.addEventListener('paste', handlePaste);
 
     receive((event) => {
       if (event.type === 'UPDATE_SESSION') {
@@ -311,6 +343,7 @@ export function createKeyboardActor() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);
+      window.removeEventListener('paste', handlePaste);
     };
   });
 }

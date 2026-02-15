@@ -16,6 +16,14 @@
 import { setup, assign, sendTo, enqueueActions, type ActorRefFrom, fromCallback, type AnyActorRef } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents, PendingUpdate } from '../types';
 import {
+  parseCommand,
+  calculatePrediction,
+  applySplitPrediction,
+  applySwapPrediction,
+  applyNavigatePrediction,
+  reconcileOptimisticUpdate,
+} from './optimistic';
+import {
   DEFAULT_SESSION_NAME,
   DEFAULT_COLS,
   DEFAULT_ROWS,
@@ -95,6 +103,10 @@ export const appMachine = setup({
     floatPanes: {},
     // Animation settings
     enableAnimations: true,
+    // Optimistic updates (just track the operation for logging/debugging)
+    optimisticOperation: null,
+    // Dimension override during group switch (prevents intermediate state flicker)
+    groupSwitchDimOverride: null,
   },
   invoke: [
     {
@@ -304,6 +316,8 @@ export const appMachine = setup({
                   },
                   paneGroupsEnv: reconciledPaneGroupsEnv,
                   lastUpdateTime: Date.now(),
+                  // Clear optimistic tracking
+                  optimisticOperation: null,
                 })
               );
             }),
@@ -312,6 +326,48 @@ export const appMachine = setup({
             // Normal update without pane removal
             actions: enqueueActions(({ event, context, enqueue }) => {
               const transformed = transformServerState(event.state);
+
+              // During group switch: preserve both panes from current context
+              // to prevent content/dimension/windowId flicker from intermediate server states.
+              // Hidden group windows are proactively resized to match the visible pane,
+              // so frozen content is already at the correct height (no height jump on unfreeze).
+              // - Target pane: fully preserved (has correct windowId, dims, content)
+              // - From pane: windowId preserved (keeps it in hidden window)
+              // - activePaneId: preserved (prevents cursor/active state flicker)
+              const isGroupSwitching =
+                context.groupSwitchDimOverride &&
+                Date.now() - context.groupSwitchDimOverride.timestamp < 500;
+              if (isGroupSwitching) {
+                const { paneId: protectedPaneId, fromPaneId } = context.groupSwitchDimOverride!;
+                const currentPanesMap = new Map(context.panes.map(p => [p.tmuxId, p]));
+                transformed.panes = transformed.panes.map(p => {
+                  if (p.tmuxId === protectedPaneId) {
+                    // Fully preserve target pane from current context
+                    return currentPanesMap.get(p.tmuxId) ?? p;
+                  }
+                  if (p.tmuxId === fromPaneId) {
+                    // Keep "from" pane in the hidden window so it doesn't appear alongside target
+                    const currentFrom = currentPanesMap.get(p.tmuxId);
+                    return currentFrom ? { ...p, windowId: currentFrom.windowId } : p;
+                  }
+                  return p;
+                });
+                // Preserve activePaneId from optimistic update
+                transformed.activePaneId = context.activePaneId;
+              }
+
+              // Reconcile optimistic updates if pending
+              if (context.optimisticOperation) {
+                const result = reconcileOptimisticUpdate(
+                  context.optimisticOperation,
+                  transformed.panes,
+                  transformed.activePaneId
+                );
+
+                if (!result.matched && result.mismatchReason) {
+                  console.warn('[Optimistic] Rollback:', result.mismatchReason);
+                }
+              }
 
               // Build pane groups using paneGroupsEnv as source of truth for UUID-based groups
               const paneGroups = buildGroupsFromWindows(
@@ -332,6 +388,33 @@ export const appMachine = setup({
                 context.charWidth,
                 context.charHeight
               );
+
+              // Proactively resize hidden group windows to match visible pane dimensions.
+              // This ensures content (especially TUI apps like nvim) is already at the
+              // correct size when the user switches tabs, preventing content blinks.
+              for (const group of Object.values(paneGroups)) {
+                const visiblePaneId = group.paneIds.find(id => {
+                  const p = transformed.panes.find(pp => pp.tmuxId === id);
+                  return p?.windowId === transformed.activeWindowId;
+                });
+                if (!visiblePaneId) continue;
+                const visiblePane = transformed.panes.find(p => p.tmuxId === visiblePaneId);
+                if (!visiblePane) continue;
+
+                for (const paneId of group.paneIds) {
+                  if (paneId === visiblePaneId) continue;
+                  const pane = transformed.panes.find(p => p.tmuxId === paneId);
+                  if (!pane) continue;
+                  if (pane.width !== visiblePane.width || pane.height !== visiblePane.height) {
+                    enqueue(
+                      sendTo('tmux', {
+                        type: 'SEND_COMMAND' as const,
+                        command: `resize-window -t ${pane.windowId} -x ${visiblePane.width} -y ${visiblePane.height}`,
+                      })
+                    );
+                  }
+                }
+              }
 
               // Detect new panes for enter animation
               const currentPaneIds = context.panes.map(p => p.tmuxId);
@@ -407,6 +490,16 @@ export const appMachine = setup({
                   paneGroupsEnv: updatedPaneGroupsEnv,
                   floatPanes,
                   lastUpdateTime: Date.now(),
+                  // Clear optimistic tracking - server state overwrites any predictions
+                  optimisticOperation: null,
+                  // Keep group switch override alive for 750ms:
+                  // - First 500ms: windowId protection + dimOverride in selector
+                  // - 500-750ms: override stays for CSS transition disable in PaneLayout
+                  groupSwitchDimOverride:
+                    context.groupSwitchDimOverride &&
+                    Date.now() - context.groupSwitchDimOverride.timestamp < 750
+                      ? context.groupSwitchDimOverride
+                      : null,
                 })
               );
               enqueue(
@@ -456,10 +549,67 @@ export const appMachine = setup({
 
         // Keyboard actor events
         SEND_TMUX_COMMAND: {
-          actions: sendTo('tmux', ({ event }) => ({
-            type: 'SEND_COMMAND' as const,
-            command: event.command,
-          })),
+          actions: enqueueActions(({ event, context, enqueue }) => {
+            // Don't apply optimistic updates for swap commands during drag
+            // The drag machine already handles swaps optimistically
+            const isDragging = context.drag !== null;
+
+            // Try to parse and calculate optimistic prediction
+            const parsed = parseCommand(event.command);
+            const prediction = parsed
+              ? calculatePrediction(
+                  parsed,
+                  context.panes,
+                  context.activePaneId,
+                  context.activeWindowId,
+                  event.command
+                )
+              : null;
+
+            // Skip optimistic updates for swaps during drag (drag machine handles it)
+            const shouldApplyOptimistic = prediction && !(isDragging && prediction.prediction.type === 'swap');
+
+            if (shouldApplyOptimistic && prediction) {
+              // Apply optimistic update directly to panes/activePaneId
+              // Server state will overwrite when it arrives
+              let newPanes = context.panes;
+              let newActivePaneId = context.activePaneId;
+
+              switch (prediction.prediction.type) {
+                case 'split':
+                  newPanes = applySplitPrediction(
+                    context.panes,
+                    prediction.prediction,
+                    context.activeWindowId
+                  );
+                  // New pane becomes active
+                  newActivePaneId = prediction.prediction.newPane.placeholderId;
+                  break;
+                case 'navigate':
+                  newActivePaneId = applyNavigatePrediction(prediction.prediction);
+                  break;
+                case 'swap':
+                  newPanes = applySwapPrediction(context.panes, prediction.prediction);
+                  break;
+              }
+
+              enqueue(
+                assign({
+                  optimisticOperation: prediction,
+                  panes: newPanes,
+                  activePaneId: newActivePaneId,
+                })
+              );
+            }
+
+            // Always send the command to tmux
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: event.command,
+              })
+            );
+          }),
         },
         KEYBINDINGS_RECEIVED: {
           actions: sendTo('keyboard', ({ event }) => ({
@@ -701,11 +851,54 @@ export const appMachine = setup({
                 })
               );
             }
-            // No optimistic update - UI will update when tmux state arrives
+
+            // Optimistic update: swap windowIds and copy position/dimensions
+            // so the target pane renders at the correct size immediately,
+            // preventing a height flash while waiting for the server state.
+            if (visiblePane && targetPane) {
+              enqueue(
+                assign({
+                  panes: context.panes.map(p => {
+                    if (p.tmuxId === event.paneId) {
+                      return {
+                        ...p,
+                        windowId: visiblePane.windowId,
+                        x: visiblePane.x,
+                        y: visiblePane.y,
+                        width: visiblePane.width,
+                        height: visiblePane.height,
+                      };
+                    }
+                    if (p.tmuxId === currentVisiblePaneId) {
+                      return { ...p, windowId: targetPane.windowId };
+                    }
+                    return p;
+                  }),
+                  activePaneId: event.paneId,
+                  // Lock state so intermediate server states can't override dimensions or content
+                  groupSwitchDimOverride: {
+                    paneId: event.paneId,
+                    fromPaneId: currentVisiblePaneId,
+                    x: visiblePane.x,
+                    y: visiblePane.y,
+                    width: visiblePane.width,
+                    height: visiblePane.height,
+                    timestamp: Date.now(),
+                  },
+                })
+              );
+
+              // Schedule override clear after 750ms (covers 500ms content freeze + CSS transition buffer)
+              enqueue(({ self }) => {
+                setTimeout(() => {
+                  self.send({ type: 'CLEAR_GROUP_SWITCH_OVERRIDE' });
+                }, 750);
+              });
+            }
           }),
         },
         PANE_GROUP_PREV: {
-          actions: enqueueActions(({ context, enqueue, self }) => {
+          actions: enqueueActions(({ context, enqueue }) => {
             // Find the group containing the active pane
             const activePaneId = context.activePaneId;
             if (!activePaneId) return;
@@ -737,7 +930,7 @@ export const appMachine = setup({
           }),
         },
         PANE_GROUP_NEXT: {
-          actions: enqueueActions(({ context, enqueue, self }) => {
+          actions: enqueueActions(({ context, enqueue }) => {
             // Find the group containing the active pane
             const activePaneId = context.activePaneId;
             if (!activePaneId) return;
@@ -845,6 +1038,11 @@ export const appMachine = setup({
               })
             );
           }),
+        },
+
+        // Clear group switch override (fired 750ms after PANE_GROUP_SWITCH)
+        CLEAR_GROUP_SWITCH_OVERRIDE: {
+          actions: assign({ groupSwitchDimOverride: null }),
         },
 
         // Float Operations

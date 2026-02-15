@@ -17,6 +17,7 @@ import {
   selectPaneGroups,
   selectActiveWindowId,
   selectEnableAnimations,
+  selectGroupSwitchPaneIds,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
 import './PaneLayout.css';
@@ -37,7 +38,7 @@ interface PaneLayoutProps {
 export function PaneLayout({ children }: PaneLayoutProps) {
   const send = useAppSend();
 
-  // Select state from machine
+  // Select state from machine (optimistic updates are applied directly to panes)
   const previewPanes = useAppSelector(selectPreviewPanes);
   const paneGroups = useAppSelector(selectPaneGroups);
   const activeWindowId = useAppSelector(selectActiveWindowId);
@@ -48,6 +49,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const dragOffsetX = useAppSelector(selectDragOffsetX);
   const dragOffsetY = useAppSelector(selectDragOffsetY);
   const enableAnimations = useAppSelector(selectEnableAnimations);
+  const groupSwitchPanes = useAppSelector(selectGroupSwitchPaneIds);
 
   // Use state hooks for machine state
   const isDragging = useIsDragging();
@@ -222,6 +224,14 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         const isDraggedPane = pane.tmuxId === draggedPaneId;
         const baseStyle = getPaneStyle(pane);
 
+        // Disable CSS transitions on panes involved in a recent group switch
+        // to prevent height clipping during the transition from override to server state
+        const isGroupSwitchPane = groupSwitchPanes &&
+          (pane.tmuxId === groupSwitchPanes.paneId || pane.tmuxId === groupSwitchPanes.fromPaneId);
+        const style = isGroupSwitchPane
+          ? { ...baseStyle, transition: 'none' }
+          : baseStyle;
+
         // When committing, all panes animate via layout - no manual offset
         // When dragging, dragged pane follows cursor, others stay at origin
         const shouldFollowCursor = isDraggedPane && isDragging && !isCommitting;
@@ -231,7 +241,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
             key={pane.tmuxId}
             pane={pane}
             className={getPaneClassName(pane)}
-            style={baseStyle}
+            style={style}
             targetX={shouldFollowCursor ? dragOffset.x : 0}
             targetY={shouldFollowCursor ? dragOffset.y : 0}
             elevated={shouldFollowCursor}

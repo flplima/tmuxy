@@ -129,6 +129,18 @@ export interface AppMachineContext {
   floatPanes: Record<string, FloatPaneState>;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
+  /** Current optimistic operation being applied (awaiting server confirmation) */
+  optimisticOperation: OptimisticOperation | null;
+  /** Override during group switch (prevents intermediate state flicker) */
+  groupSwitchDimOverride: {
+    paneId: string;
+    fromPaneId: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    timestamp: number;
+  } | null;
 }
 
 // ============================================
@@ -250,6 +262,7 @@ export type PaneGroupSwitchEvent = { type: 'PANE_GROUP_SWITCH'; groupId: string;
 export type PaneGroupCloseEvent = { type: 'PANE_GROUP_CLOSE'; groupId: string; paneId: string };
 export type PaneGroupPrevEvent = { type: 'PANE_GROUP_PREV' };
 export type PaneGroupNextEvent = { type: 'PANE_GROUP_NEXT' };
+export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
 
 // Float events
 export type ToggleFloatViewEvent = { type: 'TOGGLE_FLOAT_VIEW' };
@@ -296,6 +309,7 @@ export type AppMachineEvent =
   | PaneGroupCloseEvent
   | PaneGroupPrevEvent
   | PaneGroupNextEvent
+  | ClearGroupSwitchOverrideEvent
   | ToggleFloatViewEvent
   | CreateFloatEvent
   | ConvertToFloatEvent
@@ -308,3 +322,73 @@ export type AppMachineEvent =
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;
+
+// ============================================
+// Optimistic Update Types
+// ============================================
+
+/** Optimistic operation tracking for instant UI feedback */
+export interface OptimisticOperation {
+  id: string;
+  type: 'split' | 'navigate' | 'swap' | 'groupAdd' | 'groupSwitch';
+  command: string;
+  timestamp: number;
+  prediction: OptimisticPrediction;
+}
+
+export type OptimisticPrediction =
+  | SplitPrediction
+  | NavigatePrediction
+  | SwapPrediction
+  | GroupAddPrediction
+  | GroupSwitchPrediction;
+
+export interface SplitPrediction {
+  type: 'split';
+  direction: 'horizontal' | 'vertical';
+  targetPaneId: string;
+  newPane: {
+    placeholderId: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    windowId: string;
+  };
+  resizedPanes: Array<{
+    paneId: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
+}
+
+export interface NavigatePrediction {
+  type: 'navigate';
+  direction: 'L' | 'R' | 'U' | 'D';
+  fromPaneId: string;
+  toPaneId: string;
+}
+
+export interface SwapPrediction {
+  type: 'swap';
+  sourcePaneId: string;
+  targetPaneId: string;
+  sourceNewPosition: { x: number; y: number; width: number; height: number };
+  targetNewPosition: { x: number; y: number; width: number; height: number };
+}
+
+export interface GroupAddPrediction {
+  type: 'groupAdd';
+  existingPaneId: string;
+  groupId: string;
+  newPanePlaceholder: { placeholderId: string };
+}
+
+export interface GroupSwitchPrediction {
+  type: 'groupSwitch';
+  groupId: string;
+  fromPaneId: string;
+  toPaneId: string;
+}

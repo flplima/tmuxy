@@ -751,6 +751,22 @@ async function getUIPaneTitles(page) {
   });
 }
 
+/**
+ * Paste text into the terminal via a synthetic ClipboardEvent
+ */
+async function pasteText(page, text) {
+  await page.evaluate((t) => {
+    const event = new ClipboardEvent('paste', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: new DataTransfer(),
+    });
+    event.clipboardData.setData('text/plain', t);
+    window.dispatchEvent(event);
+  }, text);
+  await delay(DELAYS.LONG);
+}
+
 module.exports = {
   // Keyboard
   sendKeyCombo,
@@ -759,6 +775,7 @@ module.exports = {
   typeChar,
   typeInTerminal,
   pressEnter,
+  pasteText,
   // Pane info
   getUIPaneCount,
   getUIPaneInfo,
