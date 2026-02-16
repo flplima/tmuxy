@@ -12,6 +12,7 @@ source "$(dirname "$0")/_lib.sh"
 CLOSE_PANE="$1"
 ACTIVE_WIN=$(active_window)
 GRP_JSON=$(read_groups)
+GRP_JSON=$(clean_stale_groups "$GRP_JSON")
 
 # Find the group containing this pane
 GROUP_ID=$(echo "$GRP_JSON" | jq -r --arg pid "$CLOSE_PANE" '

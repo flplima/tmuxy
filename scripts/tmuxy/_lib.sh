@@ -46,6 +46,22 @@ hash_string() {
   echo $sum
 }
 
+# Clean stale pane IDs from groups (removes dead panes, drops groups with <2 panes)
+# Args: $1=groups_json
+# Prints cleaned JSON
+clean_stale_groups() {
+  local grp_json="$1"
+  local alive
+  alive=$(tmux list-panes -s -F '#{pane_id}')
+  echo "$grp_json" | jq -c --arg alive "$alive" '
+    ($alive | split("\n")) as $live |
+    .groups |= with_entries(
+      .value.paneIds |= map(select(. as $pid | $live | index($pid)))
+      | select(.value.paneIds | length >= 2)
+    )
+  '
+}
+
 # Find the visible pane from a group in the active window
 # Args: $1=groups_json $2=group_id $3=active_window_id
 # Prints the visible pane ID or empty string
