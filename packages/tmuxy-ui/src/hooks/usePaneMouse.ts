@@ -7,7 +7,7 @@
  * - Shift+click always focuses the pane regardless of mouse mode
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 
 interface UsePaneMouseOptions {
@@ -20,6 +20,8 @@ interface UsePaneMouseOptions {
   mouseAnyFlag: boolean;
   /** Whether the application is in alternate screen mode */
   alternateOn: boolean;
+  /** Ref to the .pane-content element (used for coordinate calculation) */
+  contentRef: RefObject<HTMLDivElement | null>;
 }
 
 
@@ -27,22 +29,26 @@ export function usePaneMouse(
   send: (event: AppMachineEvent) => void,
   options: UsePaneMouseOptions
 ) {
-  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn } = options;
+  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, contentRef } = options;
 
   // Track mouse button state for drag events
   const mouseButtonRef = useRef<number | null>(null);
 
   // Convert pixel coordinates to terminal cell coordinates
+  // Uses the .pane-content element's rect so coordinates are relative to the
+  // terminal content area (below the header), not the entire pane wrapper.
   const pixelToCell = useCallback(
-    (e: React.MouseEvent, rect: DOMRect): { x: number; y: number } => {
+    (e: React.MouseEvent): { x: number; y: number } => {
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (!rect) return { x: 0, y: 0 };
       const relX = e.clientX - rect.left;
       const relY = e.clientY - rect.top;
       return {
-        x: Math.floor(relX / charWidth),
-        y: Math.floor(relY / charHeight),
+        x: Math.max(0, Math.floor(relX / charWidth)),
+        y: Math.max(0, Math.floor(relY / charHeight)),
       };
     },
-    [charWidth, charHeight]
+    [charWidth, charHeight, contentRef]
   );
 
   // Note: SGR mouse events are sent using printf + load-buffer + paste-buffer
@@ -63,8 +69,7 @@ export function usePaneMouse(
 
       // If mouse tracking is enabled, forward the event
       if (mouseAnyFlag) {
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const cell = pixelToCell(e, rect);
+        const cell = pixelToCell(e);
         mouseButtonRef.current = e.button;
 
         // Send SGR mouse press event
@@ -89,8 +94,7 @@ export function usePaneMouse(
       if (mouseButtonRef.current === null) return;
 
       if (mouseAnyFlag) {
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const cell = pixelToCell(e, rect);
+        const cell = pixelToCell(e);
 
         // Send SGR mouse release event (lowercase 'm')
         send({
@@ -110,8 +114,7 @@ export function usePaneMouse(
       if (mouseButtonRef.current === null) return;
       if (!mouseAnyFlag) return;
 
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      const cell = pixelToCell(e, rect);
+      const cell = pixelToCell(e);
 
       // Send SGR mouse drag event (button + 32)
       const dragButton = mouseButtonRef.current + 32;
@@ -151,8 +154,7 @@ export function usePaneMouse(
 
       // If mouse tracking is enabled, forward wheel events
       if (mouseAnyFlag) {
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const cell = pixelToCell(e as unknown as React.MouseEvent, rect);
+        const cell = pixelToCell(e as unknown as React.MouseEvent);
         const button = isScrollUp ? 64 : 65;
 
         // Send wheel events

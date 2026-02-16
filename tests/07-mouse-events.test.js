@@ -5,6 +5,8 @@
  * Uses real mouse movements and verifies actual state changes.
  */
 
+const fs = require('fs');
+const path = require('path');
 const {
   createTestContext,
   delay,
@@ -18,6 +20,9 @@ const {
   verifyDomSizes,
   DELAYS,
 } = require('./helpers');
+
+const MOUSE_CAPTURE_SCRIPT = path.join(__dirname, 'helpers', 'mouse-capture.py');
+const MOUSE_LOG = '/tmp/mouse-events.log';
 
 describe('Category 7: Mouse Events', () => {
   const ctx = createTestContext();
@@ -544,5 +549,321 @@ describe('Category 7: Mouse Events', () => {
       // App should still be functional
       await runCommand(ctx.page, 'echo rapid_mouse_ok', 'rapid_mouse_ok');
     });
+  });
+
+  // ====================
+  // 7.7 SGR Mouse Passthrough
+  // ====================
+  describe('7.7 SGR Mouse Passthrough', () => {
+    /**
+     * Helper: Start the mouse capture script in the pane, wait for mouseAnyFlag.
+     * Returns the .pane-content bounding box and charWidth/charHeight for coord calculation.
+     */
+    async function startMouseCapture(ctx) {
+      // Clean old log
+      try { fs.unlinkSync(MOUSE_LOG); } catch {}
+
+      // Run the mouse capture script
+      await ctx.session.sendKeys(`"python3 ${MOUSE_CAPTURE_SCRIPT}" Enter`);
+
+      // Wait for READY in terminal output (means mouse tracking is enabled)
+      const readyStart = Date.now();
+      let ready = false;
+      while (!ready && Date.now() - readyStart < 10000) {
+        const text = await ctx.page.evaluate(() => {
+          const el = document.querySelector('[role="log"]');
+          return el ? el.textContent : '';
+        });
+        if (text.includes('READY')) ready = true;
+        else await delay(DELAYS.MEDIUM);
+      }
+      expect(ready).toBe(true);
+
+      // Wait for mouseAnyFlag to propagate to the UI
+      const flagStart = Date.now();
+      let flagSet = false;
+      while (!flagSet && Date.now() - flagStart < 10000) {
+        flagSet = await ctx.page.evaluate(() => {
+          const el = document.querySelector('[data-mouse-any-flag="true"]');
+          return !!el;
+        });
+        if (!flagSet) await delay(DELAYS.MEDIUM);
+      }
+      expect(flagSet).toBe(true);
+
+      // Get the .pane-content bounding box (what the UI uses for mouse coords)
+      const contentBox = await ctx.page.evaluate(() => {
+        const el = document.querySelector('.pane-content');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      });
+      expect(contentBox).not.toBeNull();
+
+      // Get charWidth/charHeight from the XState context
+      const charSize = await ctx.page.evaluate(() => {
+        const snap = window.app.getSnapshot();
+        return { charWidth: snap.context.charWidth, charHeight: snap.context.charHeight };
+      });
+
+      return { contentBox, charSize };
+    }
+
+    /**
+     * Helper: Read mouse events from the log file, polling until we get at least
+     * `minCount` events or timeout.
+     */
+    async function readMouseEvents(minCount = 1, timeout = 5000) {
+      const start = Date.now();
+      let events = [];
+      while (Date.now() - start < timeout) {
+        try {
+          const content = fs.readFileSync(MOUSE_LOG, 'utf-8');
+          const lines = content.trim().split('\n').filter(l => l && l !== 'READY');
+          events = lines.map(line => {
+            const parts = line.split(':');
+            const type = parts[0];
+            const props = {};
+            for (let i = 1; i < parts.length; i++) {
+              const [k, v] = parts[i].split('=');
+              props[k] = parseInt(v, 10);
+            }
+            return { type, ...props };
+          });
+          if (events.length >= minCount) return events;
+        } catch {}
+        await delay(DELAYS.SHORT);
+      }
+      return events;
+    }
+
+    /**
+     * Helper: Calculate expected cell coordinate from a pixel position.
+     * Matches the logic in usePaneMouse: pixelToCell + 1 (SGR is 1-indexed).
+     */
+    function expectedSgrCoord(pixel, origin, cellSize) {
+      return Math.max(0, Math.floor((pixel - origin) / cellSize)) + 1;
+    }
+
+    /** Helper: Stop mouse capture by sending 'q' to the pane */
+    async function stopMouseCapture(ctx) {
+      await ctx.session.sendKeys('q');
+      await delay(DELAYS.LONG);
+    }
+
+    test('Mouse click sends SGR press and release events', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+      const { contentBox, charSize } = await startMouseCapture(ctx);
+
+      // Click in the middle of the terminal content area
+      const clickX = contentBox.x + contentBox.width / 2;
+      const clickY = contentBox.y + contentBox.height / 2;
+
+      await ctx.page.mouse.click(clickX, clickY);
+
+      // Wait for both press and release events
+      const events = await readMouseEvents(2);
+
+      expect(events.length).toBeGreaterThanOrEqual(2);
+
+      // Find press and release events
+      const press = events.find(e => e.type === 'press');
+      const release = events.find(e => e.type === 'release');
+
+      expect(press).toBeDefined();
+      expect(release).toBeDefined();
+
+      // Button should be 0 (left click)
+      expect(press.btn).toBe(0);
+      expect(release.btn).toBe(0);
+
+      // Coordinates should be 1-indexed and match expected cell position
+      const expectedX = expectedSgrCoord(clickX, contentBox.x, charSize.charWidth);
+      const expectedY = expectedSgrCoord(clickY, contentBox.y, charSize.charHeight);
+
+      expect(press.x).toBe(expectedX);
+      expect(press.y).toBe(expectedY);
+      expect(release.x).toBe(expectedX);
+      expect(release.y).toBe(expectedY);
+
+      await stopMouseCapture(ctx);
+    }, 30000);
+
+    test('Mouse drag sends SGR drag events with button+32 offset', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+      const { contentBox, charSize } = await startMouseCapture(ctx);
+
+      // Start drag from left side of content area
+      const startX = contentBox.x + 30;
+      const startY = contentBox.y + contentBox.height / 2;
+      // End drag further right (enough to cross several cells)
+      const endX = startX + charSize.charWidth * 5;
+      const endY = startY;
+
+      await ctx.page.mouse.move(startX, startY);
+      await ctx.page.mouse.down();
+      // Move in steps to generate drag events
+      await ctx.page.mouse.move(endX, endY, { steps: 5 });
+      await ctx.page.mouse.up();
+
+      // Wait for events to propagate through the pipeline
+      await delay(DELAYS.SYNC);
+
+      // Read events - expect press + at least 1 drag + release
+      const events = await readMouseEvents(3);
+
+      expect(events.length).toBeGreaterThanOrEqual(3);
+
+      // First event should be press
+      const press = events.find(e => e.type === 'press');
+      expect(press).toBeDefined();
+      expect(press.btn).toBe(0);
+
+      // Should have at least one drag event
+      const drags = events.filter(e => e.type === 'drag');
+      expect(drags.length).toBeGreaterThanOrEqual(1);
+
+      // Drag events should report the original button (script subtracts 32)
+      for (const drag of drags) {
+        expect(drag.btn).toBe(0);
+      }
+
+      // Check for release event
+      const release = events.find(e => e.type === 'release');
+      if (release) {
+        // Drag x coordinates should progress from start toward end
+        const endCellX = expectedSgrCoord(endX, contentBox.x, charSize.charWidth);
+        expect(release.x).toBe(endCellX);
+      }
+
+      // Press should be at the start position
+      const startCellX = expectedSgrCoord(startX, contentBox.x, charSize.charWidth);
+      expect(press.x).toBe(startCellX);
+
+      // At least one drag event should have an x between start and end (inclusive)
+      const endCellX = expectedSgrCoord(endX, contentBox.x, charSize.charWidth);
+      const dragXValues = drags.map(d => d.x);
+      const hasIntermediateX = dragXValues.some(x => x >= startCellX && x <= endCellX);
+      expect(hasIntermediateX).toBe(true);
+
+      await stopMouseCapture(ctx);
+    }, 30000);
+
+    test('Mouse wheel sends SGR scroll events (button 64/65)', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+      const { contentBox, charSize } = await startMouseCapture(ctx);
+
+      const wheelX = contentBox.x + contentBox.width / 2;
+      const wheelY = contentBox.y + contentBox.height / 2;
+
+      // Move mouse to position first
+      await ctx.page.mouse.move(wheelX, wheelY);
+
+      // Scroll up (negative deltaY) - use exact multiples of charHeight
+      await ctx.page.mouse.wheel(0, -charSize.charHeight * 3);
+      await delay(DELAYS.SYNC);
+
+      // Scroll down (positive deltaY)
+      await ctx.page.mouse.wheel(0, charSize.charHeight * 2);
+      await delay(DELAYS.SYNC);
+
+      // Wait for scroll events
+      const events = await readMouseEvents(2);
+
+      const scrollUps = events.filter(e => e.type === 'scroll_up');
+      const scrollDowns = events.filter(e => e.type === 'scroll_down');
+
+      // Should have both scroll up and scroll down events
+      expect(scrollUps.length).toBeGreaterThanOrEqual(1);
+      expect(scrollDowns.length).toBeGreaterThanOrEqual(1);
+
+      // Scroll up uses button 64, scroll down uses button 65
+      for (const evt of scrollUps) {
+        expect(evt.btn).toBe(64);
+      }
+      for (const evt of scrollDowns) {
+        expect(evt.btn).toBe(65);
+      }
+
+      // Coordinates should be at the wheel position
+      const expectedX = expectedSgrCoord(wheelX, contentBox.x, charSize.charWidth);
+      const expectedY = expectedSgrCoord(wheelY, contentBox.y, charSize.charHeight);
+
+      for (const evt of [...scrollUps, ...scrollDowns]) {
+        expect(evt.x).toBe(expectedX);
+        expect(evt.y).toBe(expectedY);
+      }
+
+      await stopMouseCapture(ctx);
+    }, 30000);
+
+    test('Right-click sends button 2 in SGR encoding', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+      const { contentBox } = await startMouseCapture(ctx);
+
+      const clickX = contentBox.x + 50;
+      const clickY = contentBox.y + 50;
+
+      await ctx.page.mouse.click(clickX, clickY, { button: 'right' });
+
+      const events = await readMouseEvents(2);
+
+      const press = events.find(e => e.type === 'press');
+      const release = events.find(e => e.type === 'release');
+
+      expect(press).toBeDefined();
+      expect(release).toBeDefined();
+
+      // Right-click is button 2 in SGR encoding
+      expect(press.btn).toBe(2);
+      expect(release.btn).toBe(2);
+
+      await stopMouseCapture(ctx);
+    }, 30000);
+
+    test('Coordinates are accurate relative to terminal content area', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+      const { contentBox, charSize } = await startMouseCapture(ctx);
+
+      // Click at two known cell positions and verify coordinates
+      // Position 1: cell (1, 1) - top-left of content area
+      const pos1X = contentBox.x + charSize.charWidth / 2;
+      const pos1Y = contentBox.y + charSize.charHeight / 2;
+      await ctx.page.mouse.click(pos1X, pos1Y);
+      await delay(DELAYS.SYNC);
+
+      // Position 2: cell (5, 3) - further into the terminal
+      const targetCellX = 5;
+      const targetCellY = 3;
+      const pos2X = contentBox.x + targetCellX * charSize.charWidth + charSize.charWidth / 2;
+      const pos2Y = contentBox.y + targetCellY * charSize.charHeight + charSize.charHeight / 2;
+      await ctx.page.mouse.click(pos2X, pos2Y);
+
+      // Read all events (2 clicks = 4 events: 2 press + 2 release)
+      const events = await readMouseEvents(4);
+      const presses = events.filter(e => e.type === 'press');
+
+      expect(presses.length).toBeGreaterThanOrEqual(2);
+
+      // First click should be at SGR (1, 1) - cell (0,0) + 1-indexed offset
+      expect(presses[0].x).toBe(1);
+      expect(presses[0].y).toBe(1);
+
+      // Second click should be at SGR (targetCellX+1, targetCellY+1)
+      expect(presses[1].x).toBe(targetCellX + 1);
+      expect(presses[1].y).toBe(targetCellY + 1);
+
+      await stopMouseCapture(ctx);
+    }, 30000);
   });
 });

@@ -5,6 +5,7 @@
  * This eliminates prop drilling and keeps the component self-contained.
  */
 
+import { useRef } from 'react';
 import { Terminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
 import {
@@ -27,6 +28,7 @@ export function Pane({ paneId }: PaneProps) {
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Mouse handling with context-aware behavior
   const {
@@ -41,6 +43,7 @@ export function Pane({ paneId }: PaneProps) {
     charHeight,
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
     alternateOn: pane?.alternateOn ?? false,
+    contentRef,
   });
 
   // Pane may not exist during transitions
@@ -65,7 +68,7 @@ export function Pane({ paneId }: PaneProps) {
       onMouseLeave={handleMouseLeave}
     >
       <PaneHeader paneId={paneId} />
-      <div className="pane-content" style={{ flex: 1 }}>
+      <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
         <Terminal
           content={pane.content}
           cursorX={pane.cursorX}
