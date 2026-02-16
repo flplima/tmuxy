@@ -2,12 +2,12 @@
  * FloatPane - Simple centered floating pane with backdrop
  *
  * - Always centered on screen
- * - Semi-transparent backdrop that closes float on click
+ * - Clicking backdrop, pressing Esc, or clicking × all close (kill) the float
  * - No dragging, resizing, or grouping
  * - Green border on all sides when active
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { Terminal } from './Terminal';
 import {
   useAppSend,
@@ -33,13 +33,13 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
+      send({ type: 'SEND_TMUX_COMMAND', command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${floatState.paneId}"` });
     },
     [send, floatState.paneId]
   );
 
   const handleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation(); // Don't close when clicking on the float itself
+    e.stopPropagation();
     send({ type: 'FOCUS_PANE', paneId: floatState.paneId });
   }, [send, floatState.paneId]);
 
@@ -48,9 +48,8 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const title = pane.borderTitle || pane.tmuxId;
   const terminalRows = Math.floor(floatState.height / charHeight);
 
-  // Center the float pane
   const floatWidth = floatState.width;
-  const floatHeight = floatState.height + 28; // Add header height
+  const floatHeight = floatState.height + 28;
   const left = Math.max(0, (containerWidth - floatWidth) / 2);
   const top = Math.max(0, (containerHeight - floatHeight) / 2);
 
@@ -66,15 +65,12 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
       }}
       onClick={handleClick}
     >
-      {/* Header - simple, no drag */}
       <div className="float-header">
         <span className="float-title">{title}</span>
         <button className="float-close" onClick={handleClose} title="Close">
           ×
         </button>
       </div>
-
-      {/* Terminal content with border */}
       <div
         className="float-content"
         style={{ width: floatWidth, height: floatState.height }}
@@ -95,38 +91,53 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
 }
 
 /**
- * FloatContainer - Container for float panes with stacked backdrops
+ * FloatContainer - Container for float panes with backdrop
  *
- * Each float gets its own backdrop for proper stacking when multiple
- * floats are open. Clicking a backdrop closes just that float.
+ * Renders whenever float panes exist. Clicking backdrop or pressing Esc
+ * kills the topmost float. The × button kills that specific float.
  */
 export function FloatContainer() {
   const send = useAppSend();
   const floatPanes = useAppSelector((ctx) => ctx.floatPanes);
-
   const visibleFloats = Object.values(floatPanes);
 
-  const handleBackdropClick = useCallback(
-    (paneId: string) => {
-      send({ type: 'CLOSE_FLOAT', paneId });
-    },
-    [send]
-  );
+  const closeTopFloat = useCallback(() => {
+    if (visibleFloats.length === 0) return;
+    const topFloat = visibleFloats[visibleFloats.length - 1];
+    send({ type: 'SEND_TMUX_COMMAND', command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${topFloat.paneId}"` });
+  }, [send, visibleFloats]);
+
+  // Esc key closes the topmost float
+  useEffect(() => {
+    if (visibleFloats.length === 0) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeTopFloat();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [visibleFloats.length, closeTopFloat]);
 
   if (visibleFloats.length === 0) return null;
 
   return (
     <div className="float-overlay">
-      {/* Stacked backdrops and float panes */}
+      <div
+        className="float-backdrop"
+        style={{ zIndex: 1000 }}
+        onClick={closeTopFloat}
+      />
       {visibleFloats.map((floatState, index) => (
-        <React.Fragment key={floatState.paneId}>
-          <div
-            className="float-backdrop"
-            style={{ zIndex: 1000 + index * 2 }}
-            onClick={() => handleBackdropClick(floatState.paneId)}
-          />
-          <FloatPane floatState={floatState} zIndex={1001 + index * 2} />
-        </React.Fragment>
+        <FloatPane
+          key={floatState.paneId}
+          floatState={floatState}
+          zIndex={1001 + index}
+        />
       ))}
     </div>
   );

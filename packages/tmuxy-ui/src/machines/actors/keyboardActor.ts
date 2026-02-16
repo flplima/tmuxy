@@ -108,23 +108,6 @@ export function createKeyboardActor() {
       }, PREFIX_TIMEOUT_MS);
     };
 
-    /**
-     * Handle tmuxy: prefixed commands (client-side only commands)
-     * These are custom commands that don't go to tmux but are handled by the UI
-     */
-    const handleTmuxyCommand = (command: string) => {
-      switch (command) {
-        case 'pane-group-prev':
-          input.parent.send({ type: 'PANE_GROUP_PREV' });
-          break;
-        case 'pane-group-next':
-          input.parent.send({ type: 'PANE_GROUP_NEXT' });
-          break;
-        default:
-          console.warn(`Unknown tmuxy command: ${command}`);
-      }
-    };
-
     const handleKeyDown = (event: KeyboardEvent) => {
       // Skip during IME composition
       // keyCode 229 is a special value indicating IME is processing
@@ -237,19 +220,12 @@ export function createKeyboardActor() {
 
       const rootCommand = rootBindings.get(formattedKey);
       if (rootCommand) {
-        // Check for tmuxy: prefixed commands (client-side only)
-        // Supports 'tmuxy:cmd' and "run-shell tmuxy:cmd" formats (with or without quotes)
-        const tmuxyMatch = rootCommand.match(/^(?:run-shell\s+['"]?)?tmuxy:([a-z-]+)['"]?$/);
-        if (tmuxyMatch) {
-          handleTmuxyCommand(tmuxyMatch[1]);
-        } else {
-          // Replace session placeholder in command
-          const command = rootCommand.replace(/-t \S+/, `-t ${sessionName}`);
-          input.parent.send({
-            type: 'SEND_TMUX_COMMAND',
-            command,
-          });
-        }
+        // Replace session placeholder in command
+        const command = rootCommand.replace(/-t \S+/, `-t ${sessionName}`);
+        input.parent.send({
+          type: 'SEND_TMUX_COMMAND',
+          command,
+        });
 
         input.parent.send({
           type: 'KEY_PRESS',

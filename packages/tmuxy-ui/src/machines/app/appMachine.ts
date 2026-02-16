@@ -34,25 +34,11 @@ import {
   transformServerState,
   buildGroupsFromWindows,
   buildFloatPanesFromWindows,
-  findGroupForPane,
-  createNewGroup,
   reconcileGroupsWithPanes,
-  makeGroupWindowName,
   type TmuxyGroupsEnv,
 } from './helpers';
-import { buildSaveGroupsCommand, parseGroupsEnv } from './groupState';
-import type { TmuxWindow } from '../types';
+import { parseGroupsEnv, parseGroupWindowName } from './groupState';
 
-/**
- * Find a float window by pane ID.
- * Float windows have the pattern: __float_{pane_num}
- * Example: __float_5 for pane %5
- */
-function findFloatWindowByPaneId(windows: TmuxWindow[], paneId: string): TmuxWindow | undefined {
-  const paneNum = paneId.replace('%', '');
-  const floatWindowName = `__float_${paneNum}`;
-  return windows.find((w) => w.isFloatWindow && w.name === floatWindowName);
-}
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
 import type { KeyboardActorEvent } from '../actors/keyboardActor';
@@ -99,7 +85,6 @@ export const appMachine = setup({
     containerHeight: 0,
     lastUpdateTime: 0,
     // Float pane state
-    floatViewVisible: false,
     floatPanes: {},
     // Animation settings
     enableAnimations: true,
@@ -271,6 +256,15 @@ export const appMachine = setup({
                 reconciledPaneGroupsEnv
               );
 
+              // Detect new group windows not yet in paneGroupsEnv and re-fetch
+              const hasNewGroupWindows = transformed.windows.some(w => {
+                const match = parseGroupWindowName(w.name);
+                return match && !reconciledPaneGroupsEnv.groups[match.groupId];
+              });
+              if (hasNewGroupWindows) {
+                enqueue(sendTo('tmux', { type: 'FETCH_PANE_GROUPS' as const }));
+              }
+
               // Find removed panes
               const currentPaneIds = context.panes.map(p => p.tmuxId);
               const newPaneIds = transformed.panes.map(p => p.tmuxId);
@@ -376,6 +370,15 @@ export const appMachine = setup({
                 context.paneGroupsEnv
               );
 
+              // Detect new group windows not yet in paneGroupsEnv and re-fetch
+              const hasNewGroupWindows = transformed.windows.some(w => {
+                const match = parseGroupWindowName(w.name);
+                return match && !context.paneGroupsEnv.groups[match.groupId];
+              });
+              if (hasNewGroupWindows) {
+                enqueue(sendTo('tmux', { type: 'FETCH_PANE_GROUPS' as const }));
+              }
+
               // Build float panes from windows with __float_ naming pattern
               const floatPanes = buildFloatPanesFromWindows(
                 transformed.windows,
@@ -419,85 +422,53 @@ export const appMachine = setup({
               const newPaneIds = transformed.panes.map(p => p.tmuxId);
               const addedPanes = newPaneIds.filter(id => !currentPaneIds.includes(id));
 
-              // Update paneGroupsEnv if new panes were discovered in group windows
-              let updatedPaneGroupsEnv = context.paneGroupsEnv;
-              if (addedPanes.length > 0) {
-                // Check if any added panes are in UUID-based group windows
-                for (const paneId of addedPanes) {
-                  const pane = transformed.panes.find(p => p.tmuxId === paneId);
-                  if (!pane) continue;
-
-                  const window = transformed.windows.find(w => w.id === pane.windowId);
-                  if (!window) continue;
-
-                  // Check for UUID-based window naming: __group_{uuid}_{index}
-                  const match = window.name.match(/^__group_([a-z0-9_]+)_(\d+)$/);
-                  if (match) {
-                    const groupId = match[1];
-                    const existingGroup = updatedPaneGroupsEnv.groups[groupId];
-
-                    if (existingGroup) {
-                      // Add new pane to existing group
-                      if (!existingGroup.paneIds.includes(paneId)) {
-                        updatedPaneGroupsEnv = {
-                          ...updatedPaneGroupsEnv,
-                          groups: {
-                            ...updatedPaneGroupsEnv.groups,
-                            [groupId]: {
-                              ...existingGroup,
-                              paneIds: [...existingGroup.paneIds, paneId],
-                            },
-                          },
-                        };
-                      }
-                    } else {
-                      // Create new group with this pane and the active pane
-                      // The active pane should be the one that triggered PANE_GROUP_ADD
-                      const activePaneId = context.activePaneId;
-                      if (activePaneId && activePaneId !== paneId) {
-                        updatedPaneGroupsEnv = {
-                          ...updatedPaneGroupsEnv,
-                          groups: {
-                            ...updatedPaneGroupsEnv.groups,
-                            [groupId]: {
-                              id: groupId,
-                              paneIds: [activePaneId, paneId],
-                            },
-                          },
-                        };
-                      }
+              // Detect group switch reactively: when a TMUX_STATE_UPDATE shows a different
+              // visible pane in a group vs the previous state, set the dim override.
+              // This preserves the 500ms content freeze without needing a client-side switch handler.
+              let groupSwitchOverride = context.groupSwitchDimOverride;
+              if (!groupSwitchOverride) {
+                for (const group of Object.values(paneGroups)) {
+                  // Find visible pane in new state (in active window)
+                  const newVisibleId = group.paneIds.find(id => {
+                    const p = transformed.panes.find(pp => pp.tmuxId === id);
+                    return p?.windowId === transformed.activeWindowId;
+                  });
+                  // Find visible pane in previous state
+                  const prevGroup = context.paneGroups[group.id];
+                  const prevVisibleId = prevGroup?.paneIds.find(id => {
+                    const p = context.panes.find(pp => pp.tmuxId === id);
+                    return p?.windowId === context.activeWindowId;
+                  });
+                  // If different and both exist, a group switch happened
+                  if (newVisibleId && prevVisibleId && newVisibleId !== prevVisibleId) {
+                    const newVisible = transformed.panes.find(p => p.tmuxId === newVisibleId);
+                    if (newVisible) {
+                      groupSwitchOverride = {
+                        paneId: newVisibleId,
+                        fromPaneId: prevVisibleId,
+                        x: newVisible.x,
+                        y: newVisible.y,
+                        width: newVisible.width,
+                        height: newVisible.height,
+                        timestamp: Date.now(),
+                      };
                     }
+                    break;
                   }
                 }
-
-                // Save updated paneGroupsEnv to tmux environment if changed
-                if (updatedPaneGroupsEnv !== context.paneGroupsEnv) {
-                  enqueue(
-                    sendTo('tmux', {
-                      type: 'SEND_COMMAND' as const,
-                      command: buildSaveGroupsCommand(updatedPaneGroupsEnv),
-                    })
-                  );
-                }
+              } else if (Date.now() - groupSwitchOverride.timestamp >= 750) {
+                groupSwitchOverride = null;
               }
 
               enqueue(
                 assign({
                   ...transformed,
                   paneGroups,
-                  paneGroupsEnv: updatedPaneGroupsEnv,
                   floatPanes,
                   lastUpdateTime: Date.now(),
                   // Clear optimistic tracking - server state overwrites any predictions
                   optimisticOperation: null,
-                  // Keep group switch override alive for 750ms:
-                  // - First 500ms: windowId protection + dimOverride in selector
-                  // - 500-750ms: override stays for CSS transition disable in PaneLayout
-                  groupSwitchDimOverride:
-                    context.groupSwitchDimOverride &&
-                    Date.now() - context.groupSwitchDimOverride.timestamp < 750
-                      ? context.groupSwitchDimOverride
-                      : null,
+                  groupSwitchDimOverride: groupSwitchOverride,
                 })
               );
               enqueue(
@@ -506,6 +477,19 @@ export const appMachine = setup({
                   sessionName: transformed.sessionName,
                 })
               );
+
+              // Schedule override clear and forced refresh after group switch detection
+              if (groupSwitchOverride && !context.groupSwitchDimOverride) {
+                const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
+                enqueue(({ self }) => {
+                  setTimeout(() => {
+                    self.send({ type: 'CLEAR_GROUP_SWITCH_OVERRIDE' });
+                  }, 750);
+                  setTimeout(() => {
+                    self.send({ type: 'SEND_COMMAND', command: listPanesCmd });
+                  }, 550);
+                });
+              }
 
               // Trigger enter animation for new panes
               if (addedPanes.length > 0 && currentPaneIds.length > 0) {
@@ -751,451 +735,11 @@ export const appMachine = setup({
           })),
         },
 
-        // Pane Group Operations
-        PANE_GROUP_ADD: {
-          actions: enqueueActions(({ context, event, enqueue }) => {
-            const activePaneId = event.paneId;
-
-            // Check if the active pane is already in a group
-            const existingGroup = findGroupForPane(context.paneGroupsEnv, activePaneId);
-
-            let groupId: string;
-            let nextIndex: number;
-
-            if (existingGroup) {
-              // Add to existing group - use existing group ID
-              groupId = existingGroup.id;
-              nextIndex = existingGroup.paneIds.length;
-            } else {
-              // Create a new group - generate UUID for the window name
-              // The actual paneGroupsEnv will be updated when we receive the TMUX_STATE_UPDATE
-              // with the new pane ID from the window we just created
-              const result = createNewGroup(context.paneGroupsEnv, activePaneId, '');
-              groupId = result.groupId;
-              nextIndex = 1;
-            }
-
-            // Use UUID-based window naming: __group_{groupId}_{index}
-            const windowName = makeGroupWindowName(groupId, nextIndex);
-
-            // Use a high window index to keep group windows out of the way
-            // Hash the groupId to get a stable window index
-            const groupHash = groupId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-            const windowIndex = 1000 + (groupHash % 1000) * 10 + nextIndex;
-
-            // Get the parent pane's dimensions to size the hidden window correctly
-            const parentPane = context.panes.find((p) => p.tmuxId === activePaneId);
-            const paneWidth = parentPane?.width ?? context.totalWidth;
-            const paneHeight = parentPane?.height ?? context.totalHeight;
-
-            // Create the hidden window and resize it to match parent pane dimensions
-            // The new pane stays in the hidden window - user clicks the tab to switch
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `new-window -d -t :${windowIndex} -n "${windowName}" \\; resize-window -t :${windowIndex} -x ${paneWidth} -y ${paneHeight}`,
-              })
-            );
-
-            // Force state sync after window creation to ensure the new pane appears
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`,
-              })
-            );
-          }),
-        },
-        PANE_GROUP_SWITCH: {
-          actions: enqueueActions(({ context, event, enqueue }) => {
-            const group = context.paneGroups[event.groupId];
-            if (!group) return;
-
-            // Find the currently visible pane (the one in the active window)
-            const currentVisiblePaneId = group.paneIds.find((paneId) => {
-              const pane = context.panes.find((p) => p.tmuxId === paneId);
-              return pane?.windowId === context.activeWindowId;
-            });
-
-            // Don't switch if target is already visible or not in group
-            if (!currentVisiblePaneId || currentVisiblePaneId === event.paneId) return;
-            if (!group.paneIds.includes(event.paneId)) return;
-
-            // Get the visible pane's current dimensions
-            const visiblePane = context.panes.find((p) => p.tmuxId === currentVisiblePaneId);
-            const targetPane = context.panes.find((p) => p.tmuxId === event.paneId);
-
-            // Find the window containing the target pane (hidden window)
-            const targetWindow = context.windows.find((w) => w.id === targetPane?.windowId);
-
-            // Resize the hidden window and swap in a single chained command
-            // This ensures proper sequencing: resize happens before swap
-            // Also chain list-panes to refresh pane-window mappings after swap
-            const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
-
-            if (visiblePane && targetWindow) {
-              // Resize hidden window to match visible pane dimensions before swap,
-              // then swap + refresh pane list. The content freeze (500ms) blocks
-              // intermediate server states from reaching the UI.
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; ${listPanesCmd}`,
-                })
-              );
-            } else {
-              // Fallback: just swap without resize
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; ${listPanesCmd}`,
-                })
-              );
-            }
-
-            // Optimistic update: swap windowIds and copy position/dimensions
-            // so the target pane renders at the correct size immediately,
-            // preventing a height flash while waiting for the server state.
-            if (visiblePane && targetPane) {
-              enqueue(
-                assign({
-                  panes: context.panes.map(p => {
-                    if (p.tmuxId === event.paneId) {
-                      return {
-                        ...p,
-                        windowId: visiblePane.windowId,
-                        x: visiblePane.x,
-                        y: visiblePane.y,
-                        width: visiblePane.width,
-                        height: visiblePane.height,
-                      };
-                    }
-                    if (p.tmuxId === currentVisiblePaneId) {
-                      return { ...p, windowId: targetPane.windowId };
-                    }
-                    return p;
-                  }),
-                  activePaneId: event.paneId,
-                  // Lock state so intermediate server states can't override dimensions or content
-                  groupSwitchDimOverride: {
-                    paneId: event.paneId,
-                    fromPaneId: currentVisiblePaneId,
-                    x: visiblePane.x,
-                    y: visiblePane.y,
-                    width: visiblePane.width,
-                    height: visiblePane.height,
-                    timestamp: Date.now(),
-                  },
-                })
-              );
-
-              // Schedule override clear after 750ms (covers 500ms content freeze + CSS transition buffer)
-              // Also schedule a forced state refresh just after the freeze expires to ensure
-              // the client gets the correct post-redraw content from the server.
-              enqueue(({ self }) => {
-                setTimeout(() => {
-                  self.send({ type: 'CLEAR_GROUP_SWITCH_OVERRIDE' });
-                }, 750);
-                setTimeout(() => {
-                  self.send({
-                    type: 'SEND_COMMAND',
-                    command: listPanesCmd,
-                  });
-                }, 550);
-              });
-            }
-          }),
-        },
-        PANE_GROUP_PREV: {
-          actions: enqueueActions(({ context, enqueue }) => {
-            // Find the group containing the active pane
-            const activePaneId = context.activePaneId;
-            if (!activePaneId) return;
-
-            const groupEntry = Object.entries(context.paneGroups).find(([, group]) =>
-              group.paneIds.includes(activePaneId)
-            );
-            if (!groupEntry) return;
-
-            const [groupId, group] = groupEntry;
-            if (group.paneIds.length <= 1) return;
-
-            // Find the currently visible pane in the group
-            const visiblePaneId = group.paneIds.find((paneId) => {
-              const pane = context.panes.find((p) => p.tmuxId === paneId);
-              return pane?.windowId === context.activeWindowId;
-            });
-            if (!visiblePaneId) return;
-
-            // Get the previous pane (wrap around)
-            const currentIdx = group.paneIds.indexOf(visiblePaneId);
-            const prevIdx = currentIdx > 0 ? currentIdx - 1 : group.paneIds.length - 1;
-            const prevPaneId = group.paneIds[prevIdx];
-
-            if (prevPaneId !== visiblePaneId) {
-              // Reuse PANE_GROUP_SWITCH logic by sending the event to self
-              enqueue.raise({ type: 'PANE_GROUP_SWITCH', groupId, paneId: prevPaneId });
-            }
-          }),
-        },
-        PANE_GROUP_NEXT: {
-          actions: enqueueActions(({ context, enqueue }) => {
-            // Find the group containing the active pane
-            const activePaneId = context.activePaneId;
-            if (!activePaneId) return;
-
-            const groupEntry = Object.entries(context.paneGroups).find(([, group]) =>
-              group.paneIds.includes(activePaneId)
-            );
-            if (!groupEntry) return;
-
-            const [groupId, group] = groupEntry;
-            if (group.paneIds.length <= 1) return;
-
-            // Find the currently visible pane in the group
-            const visiblePaneId = group.paneIds.find((paneId) => {
-              const pane = context.panes.find((p) => p.tmuxId === paneId);
-              return pane?.windowId === context.activeWindowId;
-            });
-            if (!visiblePaneId) return;
-
-            // Get the next pane (wrap around)
-            const currentIdx = group.paneIds.indexOf(visiblePaneId);
-            const nextIdx = currentIdx < group.paneIds.length - 1 ? currentIdx + 1 : 0;
-            const nextPaneId = group.paneIds[nextIdx];
-
-            if (nextPaneId !== visiblePaneId) {
-              // Reuse PANE_GROUP_SWITCH logic by sending the event to self
-              enqueue.raise({ type: 'PANE_GROUP_SWITCH', groupId, paneId: nextPaneId });
-            }
-          }),
-        },
-        PANE_GROUP_CLOSE: {
-          actions: enqueueActions(({ context, event, enqueue }) => {
-            const group = context.paneGroups[event.groupId];
-            if (!group) return;
-
-            // Find the currently visible pane (the one in the active window)
-            const visiblePaneId = group.paneIds.find((paneId) => {
-              const pane = context.panes.find((p) => p.tmuxId === paneId);
-              return pane?.windowId === context.activeWindowId;
-            });
-            const isClosingVisible = visiblePaneId === event.paneId;
-
-            // Find which window the pane to close is in
-            const paneToClose = context.panes.find((p) => p.tmuxId === event.paneId);
-            if (!paneToClose) return;
-
-            const windowWithPane = context.windows.find((w) => w.id === paneToClose.windowId);
-            const isInPaneGroupWindow = windowWithPane?.isPaneGroupWindow ?? false;
-
-            if (isClosingVisible && group.paneIds.length > 1) {
-              // Closing the visible pane - need to swap another pane into view first
-              const currentIdx = group.paneIds.indexOf(event.paneId);
-              const nextIdx = currentIdx < group.paneIds.length - 1 ? currentIdx + 1 : currentIdx - 1;
-              const nextPaneId = group.paneIds[nextIdx];
-
-              // Find where the next pane is
-              const nextPane = context.panes.find((p) => p.tmuxId === nextPaneId);
-              const nextWindow = nextPane ? context.windows.find((w) => w.id === nextPane.windowId) : null;
-              const nextIsInPaneGroupWindow = nextWindow?.isPaneGroupWindow ?? false;
-
-              if (nextIsInPaneGroupWindow && nextWindow) {
-                // Swap the visible pane with next, then kill the now-hidden window
-                enqueue(
-                  sendTo('tmux', {
-                    type: 'SEND_COMMAND' as const,
-                    command: `swap-pane -s ${event.paneId} -t ${nextPaneId} \\; kill-window -t ${nextWindow.id}`,
-                  })
-                );
-                // Force state sync after the swap/kill
-                enqueue(
-                  sendTo('tmux', {
-                    type: 'SEND_COMMAND' as const,
-                    command: `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`,
-                  })
-                );
-                return;
-              }
-            }
-
-            // Closing a non-visible pane or last pane in group
-            if (isInPaneGroupWindow && windowWithPane) {
-              // Pane is in a pane group window - kill the window
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `kill-window -t ${windowWithPane.id}`,
-                })
-              );
-              // Force state sync after a delay to ensure the window is killed
-              // The periodic sync should handle this, but we add a backup
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`,
-                })
-              );
-              return;
-            }
-
-            // Pane is in main window - just kill the pane
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `kill-pane -t ${event.paneId}`,
-              })
-            );
-          }),
-        },
-
-        // Clear group switch override (fired 750ms after PANE_GROUP_SWITCH)
+        // Clear group switch override (fired 750ms after group switch detection)
         CLEAR_GROUP_SWITCH_OVERRIDE: {
           actions: assign({ groupSwitchDimOverride: null }),
         },
 
-        // Float Operations
-        TOGGLE_FLOAT_VIEW: {
-          actions: assign({
-            floatViewVisible: ({ context }) => !context.floatViewVisible,
-          }),
-        },
-        CREATE_FLOAT: {
-          actions: enqueueActions(({ context, enqueue }) => {
-            // Get next available window index for floats (start at 2000)
-            const floatWindows = context.windows.filter((w) => w.isFloatWindow);
-            const maxIndex = floatWindows.reduce((max, w) => Math.max(max, w.index), 1999);
-            const nextIndex = maxIndex + 1;
-
-            // Create a new window for the float pane
-            // The pane number will be assigned by tmux, we use placeholder in name
-            // After creation, we'll need to rename based on actual pane ID
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `new-window -d -t :${nextIndex} -n "__float_temp"`,
-              })
-            );
-
-            // Show float view if not visible
-            if (!context.floatViewVisible) {
-              enqueue(assign({ floatViewVisible: true }));
-            }
-          }),
-        },
-        CONVERT_TO_FLOAT: {
-          actions: enqueueActions(({ context, event, enqueue }) => {
-            const pane = context.panes.find((p) => p.tmuxId === event.paneId);
-            if (!pane) return;
-
-            const paneNum = event.paneId.replace('%', '');
-            const windowName = `__float_${paneNum}`;
-
-            // Move pane to a new hidden window
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `break-pane -d -t ${event.paneId} -n "${windowName}"`,
-              })
-            );
-
-            // Rename the window properly (break-pane doesn't support -n properly)
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `rename-window -t ${event.paneId} "${windowName}"`,
-              })
-            );
-
-            // Initialize float state for this pane
-            const floatState = {
-              paneId: event.paneId,
-              x: 100, // Default position
-              y: 100,
-              width: Math.min(pane.width * context.charWidth, context.containerWidth - 200),
-              height: Math.min(pane.height * context.charHeight, context.containerHeight - 200),
-              pinned: false,
-            };
-
-            enqueue(
-              assign({
-                floatPanes: { ...context.floatPanes, [event.paneId]: floatState },
-                floatViewVisible: true,
-              })
-            );
-          }),
-        },
-        EMBED_FLOAT: {
-          actions: enqueueActions(({ context, event, enqueue }) => {
-            const floatWindow = findFloatWindowByPaneId(context.windows, event.paneId);
-            if (!floatWindow) return;
-
-            // Move float pane back to the active window
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `join-pane -s ${event.paneId} -t ${context.activeWindowId}`,
-              })
-            );
-
-            // Remove from float panes
-            const { [event.paneId]: _, ...remainingFloats } = context.floatPanes;
-            enqueue(assign({ floatPanes: remainingFloats }));
-          }),
-        },
-        PIN_FLOAT: {
-          actions: assign({
-            floatPanes: ({ context, event }) => ({
-              ...context.floatPanes,
-              [event.paneId]: { ...context.floatPanes[event.paneId], pinned: true },
-            }),
-          }),
-        },
-        UNPIN_FLOAT: {
-          actions: assign({
-            floatPanes: ({ context, event }) => ({
-              ...context.floatPanes,
-              [event.paneId]: { ...context.floatPanes[event.paneId], pinned: false },
-            }),
-          }),
-        },
-        MOVE_FLOAT: {
-          actions: assign({
-            floatPanes: ({ context, event }) => ({
-              ...context.floatPanes,
-              [event.paneId]: { ...context.floatPanes[event.paneId], x: event.x, y: event.y },
-            }),
-          }),
-        },
-        RESIZE_FLOAT: {
-          actions: assign({
-            floatPanes: ({ context, event }) => ({
-              ...context.floatPanes,
-              [event.paneId]: {
-                ...context.floatPanes[event.paneId],
-                width: event.width,
-                height: event.height,
-              },
-            }),
-          }),
-        },
-        CLOSE_FLOAT: {
-          actions: enqueueActions(({ context, event, enqueue }) => {
-            const floatWindow = findFloatWindowByPaneId(context.windows, event.paneId);
-            if (floatWindow) {
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `kill-window -t ${floatWindow.id}`,
-                })
-              );
-            }
-
-            // Remove from float panes
-            const { [event.paneId]: _, ...remainingFloats } = context.floatPanes;
-            enqueue(assign({ floatPanes: remainingFloats }));
-          }),
-        },
       },
     },
 

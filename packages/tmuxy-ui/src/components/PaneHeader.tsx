@@ -146,7 +146,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
     e.preventDefault();
     e.stopPropagation();
     if (group && group.paneIds.length > 1) {
-      send({ type: 'PANE_GROUP_CLOSE', groupId: group.id, paneId: closePaneId });
+      send({ type: 'SEND_TMUX_COMMAND', command: `run-shell "/workspace/scripts/tmuxy/pane-group-close.sh ${closePaneId}"` });
     } else {
       send({ type: 'FOCUS_PANE', paneId: closePaneId });
       send({ type: 'SEND_COMMAND', command: 'kill-pane' });
@@ -157,7 +157,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
     e.preventDefault();
     e.stopPropagation();
     if (group && clickedPaneId !== activeTabId) {
-      send({ type: 'PANE_GROUP_SWITCH', groupId: group.id, paneId: clickedPaneId });
+      send({ type: 'SEND_TMUX_COMMAND', command: `run-shell "/workspace/scripts/tmuxy/pane-group-switch.sh ${clickedPaneId}"` });
     } else {
       send({ type: 'FOCUS_PANE', paneId: clickedPaneId });
     }
@@ -167,7 +167,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
     e.preventDefault();
     e.stopPropagation();
     // Add a new pane to this group (or create a group if single pane)
-    send({ type: 'PANE_GROUP_ADD', paneId: tmuxId });
+    send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
   };
 
   const handleTabDragStart = (e: React.MouseEvent, dragPaneId: string) => {

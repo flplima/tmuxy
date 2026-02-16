@@ -3,9 +3,8 @@
 
 FROM debian:bookworm-slim
 
-# System dependencies
+# System dependencies (tmux built from source below)
 RUN apt-get update && apt-get install -y \
-    tmux \
     curl \
     git \
     build-essential \
@@ -16,7 +15,16 @@ RUN apt-get update && apt-get install -y \
     procps \
     yq \
     neovim \
+    jq \
+    libevent-dev \
+    libncurses-dev \
+    bison \
     && rm -rf /var/lib/apt/lists/*
+
+# Build tmux 3.5a from source (Debian bookworm ships 3.3a which crashes with
+# external write commands while control mode is attached)
+RUN curl -sL https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz | tar xz \
+    && cd tmux-3.5a && ./configure && make -j$(nproc) && make install && cd .. && rm -rf tmux-3.5a
 
 # GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \

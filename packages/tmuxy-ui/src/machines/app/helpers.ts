@@ -193,14 +193,6 @@ export function buildGroupsFromWindows(
 /**
  * Build float pane states from windows.
  * Float windows have the pattern: __float_{pane_num}
- * Preserves existing float positions/state for panes that are still float windows.
- *
- * @param existingFloats - Previous float states to preserve positions from
- */
-/**
- * Parse pane ID from float window name.
- * Float windows have the pattern: __float_{pane_num}
- * Example: __float_5 -> %5
  */
 function parseFloatWindowPaneId(windowName: string): string | null {
   const match = windowName.match(/^__float_(\d+)$/);
@@ -213,38 +205,30 @@ function parseFloatWindowPaneId(windowName: string): string | null {
 export function buildFloatPanesFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
-  existingFloats: Record<string, { paneId: string; x: number; y: number; width: number; height: number; pinned: boolean }> = {},
+  existingFloats: Record<string, { paneId: string; width: number; height: number }>,
   containerWidth: number,
   containerHeight: number,
   charWidth: number,
   charHeight: number
-): Record<string, { paneId: string; x: number; y: number; width: number; height: number; pinned: boolean }> {
-  const floatPanes: Record<string, { paneId: string; x: number; y: number; width: number; height: number; pinned: boolean }> = {};
+): Record<string, { paneId: string; width: number; height: number }> {
+  const floatPanes: Record<string, { paneId: string; width: number; height: number }> = {};
 
   for (const window of windows) {
     if (!window.isFloatWindow) continue;
 
-    // Parse pane ID from window name (e.g., __float_5 -> %5)
     const paneId = parseFloatWindowPaneId(window.name);
     if (!paneId) continue;
 
     const pane = panes.find((p) => p.tmuxId === paneId);
-
-    // Check if we have existing state for this float
     const existing = existingFloats[paneId];
 
     if (existing) {
-      // Preserve existing position and state
       floatPanes[paneId] = existing;
     } else if (pane) {
-      // Initialize new float with default position
       floatPanes[paneId] = {
         paneId,
-        x: 100,
-        y: 100,
         width: Math.min(pane.width * charWidth, containerWidth - 200),
         height: Math.min(pane.height * charHeight, containerHeight - 200),
-        pinned: false,
       };
     }
   }

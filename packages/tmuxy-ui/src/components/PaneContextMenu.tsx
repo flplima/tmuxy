@@ -39,7 +39,7 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
   }, [send, paneId, onClose]);
 
   const handleAddToGroup = useCallback(() => {
-    send({ type: 'PANE_GROUP_ADD', paneId });
+    send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
     onClose();
   }, [send, paneId, onClose]);
 

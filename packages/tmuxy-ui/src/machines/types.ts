@@ -19,18 +19,13 @@ export interface PaneGroup {
   paneIds: string[];  // Tab order - active pane is derived from which pane is in activeWindowId
 }
 
-/** Float pane position and state */
+/** Float pane state */
 export interface FloatPaneState {
   /** Pane ID (e.g., "%5") */
   paneId: string;
-  /** Position in pixels relative to container */
-  x: number;
-  y: number;
   /** Size in pixels */
   width: number;
   height: number;
-  /** Whether this float is pinned (visible even when float view is hidden) */
-  pinned: boolean;
 }
 
 /** Drag operation state */
@@ -123,8 +118,6 @@ export interface AppMachineContext {
   containerHeight: number;
   /** Timestamp of last tmux state update (for activity tracking) */
   lastUpdateTime: number;
-  /** Whether the float view is currently visible */
-  floatViewVisible: boolean;
   /** Float pane positions and states (keyed by pane ID) */
   floatPanes: Record<string, FloatPaneState>;
   /** Whether browser-side animations are enabled */
@@ -255,25 +248,11 @@ export type AnimationDragCompleteEvent = { type: 'ANIMATION_DRAG_COMPLETE' };
 export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
 export type SendCommandEvent = { type: 'SEND_COMMAND'; command: string };
 export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
+export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string };
 
-// Pane group events
-export type PaneGroupAddEvent = { type: 'PANE_GROUP_ADD'; paneId: string };
-export type PaneGroupSwitchEvent = { type: 'PANE_GROUP_SWITCH'; groupId: string; paneId: string };
-export type PaneGroupCloseEvent = { type: 'PANE_GROUP_CLOSE'; groupId: string; paneId: string };
-export type PaneGroupPrevEvent = { type: 'PANE_GROUP_PREV' };
-export type PaneGroupNextEvent = { type: 'PANE_GROUP_NEXT' };
+// Group switch detection event (fired internally when switch detected in state update)
 export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
 
-// Float events
-export type ToggleFloatViewEvent = { type: 'TOGGLE_FLOAT_VIEW' };
-export type CreateFloatEvent = { type: 'CREATE_FLOAT' };
-export type ConvertToFloatEvent = { type: 'CONVERT_TO_FLOAT'; paneId: string };
-export type EmbedFloatEvent = { type: 'EMBED_FLOAT'; paneId: string };
-export type PinFloatEvent = { type: 'PIN_FLOAT'; paneId: string };
-export type UnpinFloatEvent = { type: 'UNPIN_FLOAT'; paneId: string };
-export type MoveFloatEvent = { type: 'MOVE_FLOAT'; paneId: string; x: number; y: number };
-export type ResizeFloatEvent = { type: 'RESIZE_FLOAT'; paneId: string; width: number; height: number };
-export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: string };
 
 /** All events the app machine can receive from external sources */
 export type AppMachineEvent =
@@ -304,21 +283,8 @@ export type AppMachineEvent =
   | FocusPaneEvent
   | SendCommandEvent
   | SendKeysEvent
-  | PaneGroupAddEvent
-  | PaneGroupSwitchEvent
-  | PaneGroupCloseEvent
-  | PaneGroupPrevEvent
-  | PaneGroupNextEvent
-  | ClearGroupSwitchOverrideEvent
-  | ToggleFloatViewEvent
-  | CreateFloatEvent
-  | ConvertToFloatEvent
-  | EmbedFloatEvent
-  | PinFloatEvent
-  | UnpinFloatEvent
-  | MoveFloatEvent
-  | ResizeFloatEvent
-  | CloseFloatEvent;
+  | SendTmuxCommandEvent
+  | ClearGroupSwitchOverrideEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;
@@ -330,7 +296,7 @@ export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;
 /** Optimistic operation tracking for instant UI feedback */
 export interface OptimisticOperation {
   id: string;
-  type: 'split' | 'navigate' | 'swap' | 'groupAdd' | 'groupSwitch';
+  type: 'split' | 'navigate' | 'swap';
   command: string;
   timestamp: number;
   prediction: OptimisticPrediction;
@@ -339,9 +305,7 @@ export interface OptimisticOperation {
 export type OptimisticPrediction =
   | SplitPrediction
   | NavigatePrediction
-  | SwapPrediction
-  | GroupAddPrediction
-  | GroupSwitchPrediction;
+  | SwapPrediction;
 
 export interface SplitPrediction {
   type: 'split';
@@ -379,16 +343,3 @@ export interface SwapPrediction {
   targetNewPosition: { x: number; y: number; width: number; height: number };
 }
 
-export interface GroupAddPrediction {
-  type: 'groupAdd';
-  existingPaneId: string;
-  groupId: string;
-  newPanePlaceholder: { placeholderId: string };
-}
-
-export interface GroupSwitchPrediction {
-  type: 'groupSwitch';
-  groupId: string;
-  fromPaneId: string;
-  toPaneId: string;
-}

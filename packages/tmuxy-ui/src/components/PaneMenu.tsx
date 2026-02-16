@@ -132,7 +132,7 @@ export function PaneMenu({ paneId, isGrouped, position, onClose }: PaneMenuProps
       label: 'Add pane to group',
       shortcut: '',
       action: () => {
-        send({ type: 'PANE_GROUP_ADD', paneId });
+        send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
       },
     },
     {
@@ -140,8 +140,7 @@ export function PaneMenu({ paneId, isGrouped, position, onClose }: PaneMenuProps
       label: 'Break out of group',
       shortcut: '',
       action: () => {
-        // TODO: Implement PANE_GROUP_REMOVE event
-        send({ type: 'PANE_GROUP_CLOSE', groupId: '', paneId });
+        send({ type: 'SEND_TMUX_COMMAND', command: `run-shell "/workspace/scripts/tmuxy/pane-group-close.sh ${paneId}"` });
       },
       disabled: !isGrouped,
     },

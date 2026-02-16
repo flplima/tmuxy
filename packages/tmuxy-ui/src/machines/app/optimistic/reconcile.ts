@@ -43,10 +43,6 @@ export function reconcileOptimisticUpdate(
       return reconcileNavigate(prediction, serverActivePaneId);
     case 'swap':
       return reconcileSwap(prediction, serverPanes);
-    case 'groupAdd':
-    case 'groupSwitch':
-      // Group operations are harder to verify, assume match
-      return { matched: true };
     default:
       return { matched: true };
   }

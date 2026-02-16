@@ -444,9 +444,6 @@ export function selectPaneGroupPanes(
 // Float Selectors
 // ============================================
 
-export function selectFloatViewVisible(context: AppMachineContext): boolean {
-  return context.floatViewVisible;
-}
 
 export function selectFloatPanes(context: AppMachineContext): FloatPaneState[] {
   return Object.values(context.floatPanes);
@@ -457,15 +454,10 @@ export function selectFloatPaneState(context: AppMachineContext, paneId: string)
 }
 
 /**
- * Get all visible float panes (visible when float view is shown, or pinned)
+ * Get all float panes (visible whenever they exist)
  */
 export function selectVisibleFloatPanes(context: AppMachineContext): FloatPaneState[] {
-  const floats = Object.values(context.floatPanes);
-  if (context.floatViewVisible) {
-    return floats;
-  }
-  // Only pinned floats are visible when float view is hidden
-  return floats.filter((f) => f.pinned);
+  return Object.values(context.floatPanes);
 }
 
 /**
