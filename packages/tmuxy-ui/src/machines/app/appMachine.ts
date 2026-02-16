@@ -532,19 +532,31 @@ export const appMachine = setup({
         // Keyboard actor events
         SEND_TMUX_COMMAND: {
           actions: enqueueActions(({ event, context, enqueue }) => {
+            // Expand tmux format strings that won't be resolved by control mode
+            // (e.g., run-shell commands from expanded aliases in root keybindings)
+            let command = event.command;
+            if (context.activePaneId && (command.includes('#{pane_id}') || command.includes('#{pane_width}') || command.includes('#{pane_height}'))) {
+              command = command.replace(/#{pane_id}/g, context.activePaneId);
+              const activePane = context.panes.find(p => p.tmuxId === context.activePaneId);
+              if (activePane) {
+                command = command.replace(/#{pane_width}/g, String(activePane.width));
+                command = command.replace(/#{pane_height}/g, String(activePane.height));
+              }
+            }
+
             // Don't apply optimistic updates for swap commands during drag
             // The drag machine already handles swaps optimistically
             const isDragging = context.drag !== null;
 
             // Try to parse and calculate optimistic prediction
-            const parsed = parseCommand(event.command);
+            const parsed = parseCommand(command);
             const prediction = parsed
               ? calculatePrediction(
                   parsed,
                   context.panes,
                   context.activePaneId,
                   context.activeWindowId,
-                  event.command
+                  command
                 )
               : null;
 
@@ -588,7 +600,7 @@ export const appMachine = setup({
             enqueue(
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
-                command: event.command,
+                command,
               })
             );
           }),

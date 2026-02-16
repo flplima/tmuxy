@@ -64,4 +64,7 @@ fi
 
 save_groups "$GRP_JSON"
 
+# Auto-switch: swap new pane into visible position
+tmux swap-pane -s "$NEW_PANE_ID" -t "$PANE_ID"
+
 refresh_panes
