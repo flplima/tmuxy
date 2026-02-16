@@ -330,9 +330,8 @@ export const appMachine = setup({
               // During group switch: freeze both panes from current context to block
               // intermediate server states. The swap-pane causes TUI apps (nvim) to
               // do a full redraw, producing intermediate frames with inverse-mode on
-              // every cell. The freeze blocks these for 500ms. A post-swap resize cycle
-              // in PANE_GROUP_SWITCH forces apps to redraw correctly, so the content
-              // that arrives after the freeze expires is clean.
+              // every cell. The freeze blocks these for 500ms. A delayed list-panes
+              // at 550ms forces a state refresh so correct content arrives after unfreeze.
               const isGroupSwitching =
                 context.groupSwitchDimOverride &&
                 Date.now() - context.groupSwitchDimOverride.timestamp < 500;
@@ -835,18 +834,13 @@ export const appMachine = setup({
             const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
 
             if (visiblePane && targetWindow) {
-              // After the swap, do a brief resize cycle (-1 col then restore) on the
-              // active WINDOW (not pane) to force SIGWINCH on all panes. This makes TUI
-              // apps (nvim) redraw properly — without it, swap-pane can leave apps stuck
-              // in an intermediate render state (e.g. all cells with inverse mode).
-              // The freeze blocks the intermediate content from reaching the UI.
-              // Use totalWidth/totalHeight (window dimensions), not pane dimensions.
-              const totalW = context.totalWidth;
-              const totalH = context.totalHeight;
+              // Resize hidden window to match visible pane dimensions before swap,
+              // then swap + refresh pane list. The content freeze (500ms) blocks
+              // intermediate server states from reaching the UI.
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
-                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; resize-window -x ${totalW - 1} -y ${totalH} \\; resize-window -x ${totalW} -y ${totalH} \\; ${listPanesCmd}`,
+                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; ${listPanesCmd}`,
                 })
               );
             } else {
