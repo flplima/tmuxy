@@ -18,6 +18,7 @@ import {
   useAppState,
   selectPreviewPanes,
   selectError,
+  selectContainerSize,
 } from './machines/AppContext';
 import { initDebugHelpers } from './utils/debug';
 
@@ -28,6 +29,7 @@ function App() {
   // Select minimal state needed at App level
   const panes = useAppSelector(selectPreviewPanes);
   const error = useAppSelector(selectError);
+  const containerSize = useAppSelector(selectContainerSize);
   const isConnecting = useAppState('connecting');
   const send = useAppSend();
 
@@ -42,26 +44,11 @@ function App() {
     }
   }, [send]);
 
-  // Show loading while connecting OR while we have no panes yet
-  if (isConnecting || panes.length === 0) {
-    // If there's an error during connection, show it
-    if (error) {
-      return (
-        <div className="error" data-testid="error-display">
-          <h2>Error</h2>
-          <p>{error}</p>
-        </div>
-      );
-    }
-    return (
-      <div className="loading" data-testid="loading-display">
-        <p>Connecting to tmux...</p>
-      </div>
-    );
-  }
+  // Ready when connected, have panes, AND container is measured
+  const isReady = !isConnecting && panes.length > 0 && containerSize.width > 0;
 
-  // Once we have panes, show the UI (ignore transient errors)
-
+  // Always render .app-container so containerRef is attached and ResizeObserver
+  // starts measuring immediately, preventing a layout flash on first pane render.
   return (
     <div className="app-container">
       <StatusBar />
@@ -70,11 +57,24 @@ function App() {
         className="pane-container"
         style={{ position: 'relative' }}
       >
-        <PaneLayout>
-          {(pane) => <Pane paneId={pane.tmuxId} />}
-        </PaneLayout>
-        {/* Float panes overlay - renders above tiled panes */}
-        <FloatContainer />
+        {error && !isReady ? (
+          <div className="error" data-testid="error-display">
+            <h2>Error</h2>
+            <p>{error}</p>
+          </div>
+        ) : !isReady ? (
+          <div className="loading" data-testid="loading-display">
+            <p>Connecting to tmux...</p>
+          </div>
+        ) : (
+          <>
+            <PaneLayout>
+              {(pane) => <Pane paneId={pane.tmuxId} />}
+            </PaneLayout>
+            {/* Float panes overlay - renders above tiled panes */}
+            <FloatContainer />
+          </>
+        )}
       </div>
       <TmuxStatusBar />
     </div>
