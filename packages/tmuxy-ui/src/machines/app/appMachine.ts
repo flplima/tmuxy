@@ -327,13 +327,12 @@ export const appMachine = setup({
             actions: enqueueActions(({ event, context, enqueue }) => {
               const transformed = transformServerState(event.state);
 
-              // During group switch: preserve both panes from current context
-              // to prevent content/dimension/windowId flicker from intermediate server states.
-              // Hidden group windows are proactively resized to match the visible pane,
-              // so frozen content is already at the correct height (no height jump on unfreeze).
-              // - Target pane: fully preserved (has correct windowId, dims, content)
-              // - From pane: windowId preserved (keeps it in hidden window)
-              // - activePaneId: preserved (prevents cursor/active state flicker)
+              // During group switch: freeze both panes from current context to block
+              // intermediate server states. The swap-pane causes TUI apps (nvim) to
+              // do a full redraw, producing intermediate frames with inverse-mode on
+              // every cell. The freeze blocks these for 500ms. A post-swap resize cycle
+              // in PANE_GROUP_SWITCH forces apps to redraw correctly, so the content
+              // that arrives after the freeze expires is clean.
               const isGroupSwitching =
                 context.groupSwitchDimOverride &&
                 Date.now() - context.groupSwitchDimOverride.timestamp < 500;
@@ -836,10 +835,18 @@ export const appMachine = setup({
             const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
 
             if (visiblePane && targetWindow) {
+              // After the swap, do a brief resize cycle (-1 col then restore) on the
+              // active WINDOW (not pane) to force SIGWINCH on all panes. This makes TUI
+              // apps (nvim) redraw properly — without it, swap-pane can leave apps stuck
+              // in an intermediate render state (e.g. all cells with inverse mode).
+              // The freeze blocks the intermediate content from reaching the UI.
+              // Use totalWidth/totalHeight (window dimensions), not pane dimensions.
+              const totalW = context.totalWidth;
+              const totalH = context.totalHeight;
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
-                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; ${listPanesCmd}`,
+                  command: `resize-window -t ${targetWindow.id} -x ${visiblePane.width} -y ${visiblePane.height} \\; swap-pane -s ${event.paneId} -t ${currentVisiblePaneId} \\; resize-window -x ${totalW - 1} -y ${totalH} \\; resize-window -x ${totalW} -y ${totalH} \\; ${listPanesCmd}`,
                 })
               );
             } else {
@@ -889,10 +896,18 @@ export const appMachine = setup({
               );
 
               // Schedule override clear after 750ms (covers 500ms content freeze + CSS transition buffer)
+              // Also schedule a forced state refresh just after the freeze expires to ensure
+              // the client gets the correct post-redraw content from the server.
               enqueue(({ self }) => {
                 setTimeout(() => {
                   self.send({ type: 'CLEAR_GROUP_SWITCH_OVERRIDE' });
                 }, 750);
+                setTimeout(() => {
+                  self.send({
+                    type: 'SEND_COMMAND',
+                    command: listPanesCmd,
+                  });
+                }, 550);
               });
             }
           }),
