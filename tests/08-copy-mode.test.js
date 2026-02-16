@@ -64,7 +64,7 @@ describe('Category 8: Copy Mode', () => {
       expect(await ctx.session.isPaneInCopyMode()).toBe(true);
 
       // Exit via tmux send-keys q (more reliable than keyboard through UI)
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} q`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} q`);
       await delay(DELAYS.LONG);
 
       expect(await ctx.session.isPaneInCopyMode()).toBe(false);
@@ -143,15 +143,15 @@ describe('Category 8: Copy Mode', () => {
       const initialPos = await ctx.session.getCopyCursorPosition();
 
       // Navigate up using tmux send-keys -X for reliability
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X cursor-up`);
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X cursor-up`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X cursor-up`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X cursor-up`);
       await delay(DELAYS.SHORT);
 
       const afterUp = await ctx.session.getCopyCursorPosition();
       expect(afterUp.y).toBeLessThan(initialPos.y);
 
       // Navigate down
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X cursor-down`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X cursor-down`);
       await delay(DELAYS.SHORT);
 
       const afterDown = await ctx.session.getCopyCursorPosition();
@@ -202,21 +202,21 @@ describe('Category 8: Copy Mode', () => {
       expect(await ctx.session.isPaneInCopyMode()).toBe(true);
 
       // Use tmux send-keys -X commands for reliable cursor positioning
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X start-of-line`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X start-of-line`);
       await delay(DELAYS.SHORT);
 
       const startPos = await ctx.session.getCopyCursorPosition();
       expect(startPos.x).toBe(0);
 
       // Go to end of line
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X end-of-line`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X end-of-line`);
       await delay(DELAYS.SHORT);
 
       const endPos = await ctx.session.getCopyCursorPosition();
       expect(endPos.x).toBeGreaterThan(startPos.x);
 
       // Go back to beginning of line
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X start-of-line`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X start-of-line`);
       await delay(DELAYS.SHORT);
 
       const backToStart = await ctx.session.getCopyCursorPosition();
@@ -271,21 +271,21 @@ describe('Category 8: Copy Mode', () => {
 
       // Use tmux commands for reliable copy operation
       // Go to the line with test text and position at start
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} k`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} k`);
       await delay(DELAYS.SHORT);
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} 0`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} 0`);
       await delay(DELAYS.SHORT);
 
       // Start selection (begin-selection)
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X begin-selection`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X begin-selection`);
       await delay(DELAYS.SHORT);
 
       // Select to end of line
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X end-of-line`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X end-of-line`);
       await delay(DELAYS.SHORT);
 
       // Copy with y (copy-selection-and-cancel)
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X copy-selection-and-cancel`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X copy-selection-and-cancel`);
       await delay(DELAYS.LONG);
 
       // Should have exited copy mode (copy-selection-and-cancel)
@@ -306,15 +306,15 @@ describe('Category 8: Copy Mode', () => {
 
       // Use tmux commands for reliable line selection
       // Go up to the echo line
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} k`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} k`);
       await delay(DELAYS.SHORT);
 
       // Select entire line with select-line command
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X select-line`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X select-line`);
       await delay(DELAYS.SHORT);
 
       // Copy selection
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X copy-selection-and-cancel`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X copy-selection-and-cancel`);
       await delay(DELAYS.LONG);
 
       const buffer = await ctx.session.getBufferContent();
@@ -333,7 +333,7 @@ describe('Category 8: Copy Mode', () => {
 
       // Set buffer content directly via tmux (more reliable than copy-mode keyboard)
       const textToCopy = 'PASTE_ME';
-      ctx.session.runCommand(`set-buffer "${textToCopy}"`);
+      await ctx.session.runCommand(`set-buffer "${textToCopy}"`);
       await delay(DELAYS.SHORT);
 
       // Verify buffer has content before paste
@@ -345,7 +345,7 @@ describe('Category 8: Copy Mode', () => {
       await delay(DELAYS.SYNC);
 
       // The pasted content should appear in terminal (on the command line)
-      const capturedPane = ctx.session.runCommand(`capture-pane -t ${ctx.session.name} -p`);
+      const capturedPane = await ctx.session.runCommand(`capture-pane -t ${ctx.session.name} -p`);
       expect(capturedPane).toContain(textToCopy);
     });
 
@@ -356,7 +356,7 @@ describe('Category 8: Copy Mode', () => {
 
       // Set buffer content directly
       const testContent = 'DIRECT_PASTE_TEST';
-      ctx.session.runCommand(`set-buffer "${testContent}"`);
+      await ctx.session.runCommand(`set-buffer "${testContent}"`);
 
       // Paste
       await ctx.session.pasteBuffer();
@@ -384,7 +384,7 @@ describe('Category 8: Copy Mode', () => {
 
       // Use tmux search command directly for reliability
       // This is equivalent to pressing '/' and typing the search term
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-forward "SEARCH_TARGET"`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-forward "SEARCH_TARGET"`);
       await delay(DELAYS.LONG);
 
       // Verify we're on the right line
@@ -409,7 +409,7 @@ describe('Category 8: Copy Mode', () => {
       // Use tmux search-backward command directly for reliability
       // Note: Using keyboard Shift+/ for '?' is keyboard-layout dependent
       // and may not work consistently across environments
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-backward "FIND_TARGET"`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-backward "FIND_TARGET"`);
       await delay(DELAYS.LONG);
 
       // Cursor should have moved up to find the target
@@ -430,21 +430,21 @@ describe('Category 8: Copy Mode', () => {
       await ctx.session.enterCopyMode();
 
       // Search backward for UNIQUE (nearest is UNIQUE_THIRD)
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-backward "UNIQUE"`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-backward "UNIQUE"`);
       await delay(DELAYS.LONG);
 
       const lineFirst = await ctx.session.getCopyModeLine();
       expect(lineFirst).toContain('UNIQUE_THIRD');
 
       // Next match with search-again (continues backward to UNIQUE_SECOND)
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-again`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-again`);
       await delay(DELAYS.LONG);
 
       const lineSecond = await ctx.session.getCopyModeLine();
       expect(lineSecond).toContain('UNIQUE_SECOND');
 
       // Previous match with search-reverse (forward to UNIQUE_THIRD)
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-reverse`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X search-reverse`);
       await delay(DELAYS.LONG);
 
       const lineBack = await ctx.session.getCopyModeLine();
@@ -496,16 +496,16 @@ describe('Category 8: Copy Mode', () => {
 
       // Navigate extensively using tmux send-keys -X for reliability
       for (let i = 0; i < 10; i++) {
-        ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X cursor-up`);
+        await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X cursor-up`);
       }
       await delay(DELAYS.SHORT);
 
       // Go to top using tmux command
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X history-top`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X history-top`);
       await delay(DELAYS.SHORT);
 
       // Go to bottom using tmux command
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X history-bottom`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X history-bottom`);
       await delay(DELAYS.SHORT);
 
       // Should still be in copy mode
@@ -532,7 +532,7 @@ describe('Category 8: Copy Mode', () => {
       expect(await ctx.session.isPaneInCopyMode()).toBe(true);
 
       // Scroll up 10 lines
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 10 scroll-up`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 10 scroll-up`);
       await delay(DELAYS.LONG);
 
       const scrollPos = await ctx.session.getScrollPosition();
@@ -552,13 +552,13 @@ describe('Category 8: Copy Mode', () => {
       await delay(DELAYS.LONG);
 
       // Scroll up 20 lines
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 20 scroll-up`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 20 scroll-up`);
       await delay(DELAYS.LONG);
 
       const scrollAfterUp = await ctx.session.getScrollPosition();
 
       // Scroll down 10 lines
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 10 scroll-down`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 10 scroll-down`);
       await delay(DELAYS.LONG);
 
       const scrollAfterDown = await ctx.session.getScrollPosition();
@@ -580,7 +580,7 @@ describe('Category 8: Copy Mode', () => {
       await delay(DELAYS.LONG);
 
       // Scroll up significantly to see earlier numbers
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 50 scroll-up`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 50 scroll-up`);
       await delay(DELAYS.SYNC);
 
       // The terminal should now show earlier numbers (before 50)
@@ -606,7 +606,7 @@ describe('Category 8: Copy Mode', () => {
       await delay(DELAYS.LONG);
 
       // Scroll up 15 lines
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 15 scroll-up`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 15 scroll-up`);
       await delay(DELAYS.SYNC);
 
       // Verify UI snapshot matches tmux state after scroll
@@ -663,7 +663,7 @@ describe('Category 8: Copy Mode', () => {
       await delay(DELAYS.SYNC);
 
       // 9. Verify pasted text appears in terminal
-      const capturedPane = ctx.session.runCommand(`capture-pane -t ${ctx.session.name} -p`);
+      const capturedPane = await ctx.session.runCommand(`capture-pane -t ${ctx.session.name} -p`);
       // The marker should appear at least twice: original echo output + pasted on command line
       const occurrences = capturedPane.split(marker).length - 1;
       expect(occurrences).toBeGreaterThanOrEqual(2);

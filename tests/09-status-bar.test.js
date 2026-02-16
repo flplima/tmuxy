@@ -145,7 +145,7 @@ describe('Category 9: Status Bar & UI', () => {
       expect(await ctx.session.getCurrentWindowIndex()).toBe('2');
 
       // Find and click first window tab
-      const tabs = await ctx.page.$$('.window-tab');
+      const tabs = await ctx.page.$$('.window-tab:not(.window-tab-add)');
       expect(tabs.length).toBe(2);
 
       // Get the target window index from the first tab's aria-label
@@ -176,25 +176,23 @@ describe('Category 9: Status Bar & UI', () => {
     test('Multiple window tabs reflect window count', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      // Create additional windows before navigating for stability
-      ctx.session.newWindow();
-      ctx.session.newWindow();
-      // Switch back to first window so setupPage navigates to it
-      const windows = ctx.session.getWindowInfo();
-      ctx.session.selectWindow(windows[0].index);
-
       await ctx.setupPage();
+
+      // Create additional windows through WebSocket (safe with control mode)
+      await ctx.session.newWindow();
+      await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
+
+      // Switch back to first window
+      await ctx.session.selectWindow(1);
+      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 3);
 
       expect(await ctx.session.getWindowCount()).toBe(3);
 
-      // Wait for UI to reflect window changes
-      await delay(DELAYS.SYNC);
-
       // UI should show 3 tabs
-      const tabs = await ctx.page.$$('.window-tab');
+      const tabs = await ctx.page.$$('.window-tab:not(.window-tab-add)');
       expect(tabs.length).toBe(3);
-
-
     });
 
     test('Window tab updates when window is renamed', async () => {
@@ -207,7 +205,7 @@ describe('Category 9: Status Bar & UI', () => {
       await delay(DELAYS.SYNC);
 
       // Tab should show new name
-      const tabs = await ctx.page.$$('.window-tab');
+      const tabs = await ctx.page.$$('.window-tab:not(.window-tab-add)');
       let foundName = false;
       for (const tab of tabs) {
         const text = await tab.textContent();
@@ -231,10 +229,11 @@ describe('Category 9: Status Bar & UI', () => {
 
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
       expect(await ctx.session.getWindowCount()).toBe(2);
 
       // Close button only appears on hover - hover over the first tab
-      const tabs = await ctx.page.$$('.window-tab');
+      const tabs = await ctx.page.$$('.window-tab:not(.window-tab-add)');
       expect(tabs.length).toBe(2);
       await tabs[0].hover();
       await delay(DELAYS.SHORT);
@@ -257,6 +256,7 @@ describe('Category 9: Status Bar & UI', () => {
 
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
       expect(await ctx.session.getWindowCount()).toBe(2);
 
       // Close via tmux command
@@ -344,9 +344,9 @@ describe('Category 9: Status Bar & UI', () => {
 
       await newWindowBtn.click();
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, initialCount + 1);
 
       expect(await ctx.session.getWindowCount()).toBe(initialCount + 1);
-
     });
 
     test('Tmux new-window updates UI', async () => {
@@ -359,9 +359,9 @@ describe('Category 9: Status Bar & UI', () => {
       // Create via tmux command
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, initialCount + 1);
 
       expect(await ctx.session.getWindowCount()).toBe(initialCount + 1);
-
     });
   });
 
@@ -374,13 +374,14 @@ describe('Category 9: Status Bar & UI', () => {
 
       await ctx.setupPage();
 
-      const tabsBefore = await ctx.page.$$('.window-tab');
+      const tabsBefore = await ctx.page.$$('.window-tab:not(.window-tab-add)');
       const countBefore = tabsBefore.length;
 
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, countBefore + 1);
 
-      const tabsAfter = await ctx.page.$$('.window-tab');
+      const tabsAfter = await ctx.page.$$('.window-tab:not(.window-tab-add)');
       expect(tabsAfter.length).toBe(countBefore + 1);
     });
 
@@ -394,19 +395,16 @@ describe('Category 9: Status Bar & UI', () => {
       await delay(DELAYS.SYNC);
       await waitForWindowCount(ctx.page, 2);
 
-      const tabsBefore = await ctx.page.$$('.window-tab');
+      const tabsBefore = await ctx.page.$$('.window-tab:not(.window-tab-add)');
       expect(tabsBefore.length).toBe(2);
       expect(await ctx.session.getWindowCount()).toBe(2);
 
       // Kill the current window (window 2)
-      // This follows the same pattern as the passing "Tmux kill-window updates UI" test
       await ctx.session.killWindow(2);
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 1);
 
-      // Verify tmux state changed
       expect(await ctx.session.getWindowCount()).toBe(1);
-
-
     });
   });
 });

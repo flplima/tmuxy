@@ -62,7 +62,7 @@ describe('Category 15: Glitch Detection', () => {
 
       const result = await ctx.assertNoGlitches({ operation: 'split' });
       expect(await getUIPaneCount(ctx.page)).toBe(2);
-      expect(ctx.session.getPaneCount()).toBe(2);
+      expect(await ctx.session.getPaneCount()).toBe(2);
 
       if (process.env.DEBUG_TESTS) {
         console.log(`Split mutations: ${result.summary.totalNodeMutations} nodes`);
@@ -84,7 +84,7 @@ describe('Category 15: Glitch Detection', () => {
 
       const result = await ctx.assertNoGlitches({ operation: 'split' });
       expect(await getUIPaneCount(ctx.page)).toBe(2);
-      expect(ctx.session.getPaneCount()).toBe(2);
+      expect(await ctx.session.getPaneCount()).toBe(2);
     }, 90000);
   });
 
@@ -97,7 +97,7 @@ describe('Category 15: Glitch Detection', () => {
 
       // Create split via tmux before navigation (more reliable)
       ctx.session.splitHorizontal();
-      expect(ctx.session.getPaneCount()).toBe(2);
+      expect(await ctx.session.getPaneCount()).toBe(2);
 
       await ctx.setupPage();
       await waitForPaneCount(ctx.page, 2, 20000);
@@ -118,7 +118,7 @@ describe('Category 15: Glitch Detection', () => {
         sizeJumps: 20,
       });
 
-      expect(ctx.session.getPaneCount()).toBe(2);
+      expect(await ctx.session.getPaneCount()).toBe(2);
     }, 90000);
   });
 
@@ -131,7 +131,7 @@ describe('Category 15: Glitch Detection', () => {
 
       // Create split via tmux before navigation
       ctx.session.splitHorizontal();
-      expect(ctx.session.getPaneCount()).toBe(2);
+      expect(await ctx.session.getPaneCount()).toBe(2);
 
       await ctx.setupPage();
       await waitForPaneCount(ctx.page, 2, 20000);

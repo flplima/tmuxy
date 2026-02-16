@@ -10,6 +10,7 @@ const {
   getUIPaneCount,
   waitForPaneCount,
   DELAYS,
+  TMUXY_URL,
 } = require('./helpers');
 
 describe('Category 10: Session & Connection', () => {
@@ -116,7 +117,7 @@ describe('Category 10: Session & Connection', () => {
       // Open second page to same session
       const page2 = await ctx.browser.newPage();
       try {
-        await page2.goto(`http://localhost:3853?session=${ctx.session.name}`, {
+        await page2.goto(`${TMUXY_URL}?session=${ctx.session.name}`, {
           waitUntil: 'domcontentloaded',
           timeout: 30000,
         });
@@ -358,7 +359,7 @@ describe('Category 10: Session & Connection', () => {
 
       // Try to connect to a non-existent session
       const nonExistentSession = 'nonexistent_session_' + Date.now();
-      await ctx.page.goto(`http://localhost:3853?session=${nonExistentSession}`, {
+      await ctx.page.goto(`${TMUXY_URL}?session=${nonExistentSession}`, {
         waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
@@ -423,9 +424,9 @@ describe('Category 10: Session & Connection', () => {
 
       // Try various invalid parameters
       const invalidUrls = [
-        'http://localhost:3853?session=',          // Empty session
-        'http://localhost:3853?session=a/b/c',     // Invalid chars
-        'http://localhost:3853?invalid=param',     // Wrong param
+        `${TMUXY_URL}?session=`,          // Empty session
+        `${TMUXY_URL}?session=a/b/c`,     // Invalid chars
+        `${TMUXY_URL}?invalid=param`,     // Wrong param
       ];
 
       for (const url of invalidUrls) {

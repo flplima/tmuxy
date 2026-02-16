@@ -12,6 +12,7 @@ const {
   getTerminalText,
   waitForPaneCount,
   DELAYS,
+  TMUXY_URL,
 } = require('./helpers');
 
 describe('Category 14: Real-World Workflow Scenarios', () => {
@@ -152,7 +153,7 @@ describe('Category 14: Real-World Workflow Scenarios', () => {
       // Open second browser to same session
       const page2 = await ctx.browser.newPage();
       try {
-        await page2.goto(`http://localhost:3853?session=${ctx.session.name}`, {
+        await page2.goto(`${TMUXY_URL}?session=${ctx.session.name}`, {
           waitUntil: 'domcontentloaded',
           timeout: 30000,
         });

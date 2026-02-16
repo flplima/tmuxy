@@ -22,10 +22,24 @@ use tower_http::services::ServeDir;
 use tmuxy_core::control_mode::MonitorCommandSender;
 
 
-/// Port for the web server (generated from "tmuxy" using get-port.sh)
-const PORT: u16 = 3853;
 /// Port for Vite dev server
 const VITE_PORT: u16 = 1420;
+
+/// Find an available port starting from 9000, incrementing until one is free.
+/// Override with PORT env var.
+fn get_port() -> u16 {
+    if let Some(port) = std::env::var("PORT").ok().and_then(|p| p.parse().ok()) {
+        return port;
+    }
+
+    for port in 9000..9100u16 {
+        if std::net::TcpListener::bind(("0.0.0.0", port)).is_ok() {
+            return port;
+        }
+    }
+
+    9000
+}
 
 /// Handle to Vite child process for cleanup
 #[cfg(unix)]
@@ -161,8 +175,9 @@ async fn main() {
             .with_state(state)
     };
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], PORT));
-    println!("tmuxy web server running at http://localhost:{}", PORT);
+    let port = get_port();
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    println!("tmuxy web server running at http://localhost:{}", port);
     if dev_mode {
         println!("[dev] Vite HMR and static files proxied from port {}", VITE_PORT);
     }

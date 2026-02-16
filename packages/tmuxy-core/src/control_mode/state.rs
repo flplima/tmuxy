@@ -637,7 +637,8 @@ impl StateAggregator {
                 ProcessEventResult::default()
             }
 
-            ControlModeEvent::WindowClose { window_id } => {
+            ControlModeEvent::WindowClose { window_id }
+            | ControlModeEvent::UnlinkedWindowClose { window_id } => {
                 self.windows.remove(&window_id);
                 // Remove panes belonging to this window
                 self.panes

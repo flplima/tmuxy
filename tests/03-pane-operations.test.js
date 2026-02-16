@@ -95,7 +95,7 @@ describe('Category 3: Pane Operations', () => {
       ctx.session.selectPane('U');
       ctx.session.splitVertical();
 
-      expect(ctx.session.getPaneCount()).toBe(4);
+      expect(await ctx.session.getPaneCount()).toBe(4);
 
       await ctx.setupPage();
       await waitForPaneCount(ctx.page, 4);
@@ -356,8 +356,8 @@ describe('Category 3: Pane Operations', () => {
       // Create split before navigating for stability
       ctx.session.splitHorizontal();
 
-      const initialWindowCount = ctx.session.getWindowCount();
-      expect(ctx.session.getPaneCount()).toBe(2);
+      const initialWindowCount = await ctx.session.getWindowCount();
+      expect(await ctx.session.getPaneCount()).toBe(2);
 
       // Break pane to new window using tmux command
       ctx.session.breakPane();
@@ -365,7 +365,7 @@ describe('Category 3: Pane Operations', () => {
 
       // Should have new window
       expect(ctx.session.exists()).toBe(true);
-      const newWindowCount = ctx.session.getWindowCount();
+      const newWindowCount = await ctx.session.getWindowCount();
       expect(newWindowCount).toBe(initialWindowCount + 1);
     });
   });
@@ -411,7 +411,7 @@ describe('Category 3: Pane Operations', () => {
       ctx.session.selectPane('D');
       ctx.session.splitVertical();
 
-      expect(ctx.session.getPaneCount()).toBe(6);
+      expect(await ctx.session.getPaneCount()).toBe(6);
 
       await ctx.setupPage();
       await waitForPaneCount(ctx.page, 6);

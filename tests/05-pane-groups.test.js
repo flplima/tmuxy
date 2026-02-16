@@ -973,7 +973,7 @@ describe('Category 5: Pane Groups', () => {
 
       // Simulate what drag-swap does: swap the grouped pane with the non-grouped pane
       // This previously caused hidden group panes to leak into the active window
-      ctx.session.runCommand(`swap-pane -s ${activePaneId} -t ${otherPane.id}`);
+      await ctx.session.runCommand(`swap-pane -s ${activePaneId} -t ${otherPane.id}`);
       await delay(DELAYS.SYNC);
 
       // Layout should still show exactly 2 visible panes

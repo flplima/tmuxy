@@ -5,7 +5,7 @@
  */
 
 const { chromium } = require('playwright');
-const { TMUXY_URL, DELAYS } = require('./config');
+const { CDP_PORT, TMUXY_URL, DELAYS } = require('./config');
 
 /**
  * Helper to wait for a given time
@@ -17,32 +17,43 @@ function delay(ms) {
 /**
  * Launch a fresh headless browser for tests
  */
+// Shared browser instance — launched once via Playwright, reused across all test
+// suites in the same Jest run. Never closed until the process exits.
+let sharedBrowser = null;
+
 async function getBrowser() {
-  console.log('Launching headless Chromium via Playwright');
+  if (!sharedBrowser) {
+    // Try CDP connection first (external Chrome with --remote-debugging-port)
+    try {
+      console.log(`Trying CDP connection on port ${CDP_PORT}...`);
+      sharedBrowser = await chromium.connectOverCDP(`http://localhost:${CDP_PORT}`);
+      sharedBrowser.on('disconnected', () => { sharedBrowser = null; });
+      console.log('Connected to Chrome via CDP');
+    } catch {
+      // No external Chrome — launch our own headless instance
+      console.log('No CDP endpoint, launching headless Chromium');
+      sharedBrowser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      });
+      sharedBrowser.on('disconnected', () => { sharedBrowser = null; });
+    }
+  } else {
+    console.log('Reusing existing browser connection');
+  }
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-    ],
-  });
-
-  // Create a wrapper that mimics Puppeteer's browser API
   return {
-    _browser: browser,
+    _browser: sharedBrowser,
     async newPage() {
-      const context = await browser.newContext({
+      const context = await sharedBrowser.newContext({
         viewport: { width: 1280, height: 720 },
       });
       const page = await context.newPage();
-      // Add Puppeteer-compatible helpers
       page._context = context;
       return page;
     },
     async close() {
-      await browser.close();
+      // No-op — shared browser persists across suites
     },
   };
 }
@@ -164,7 +175,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 3000) {
   try {
     await page.waitForFunction(
       (count) => {
-        const tabs = document.querySelectorAll('.window-tab');
+        const tabs = document.querySelectorAll('.window-tab:not(.window-tab-add)');
         return tabs.length === count;
       },
       expectedCount,
@@ -173,7 +184,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 3000) {
   } catch {
     // Timeout - log warning but don't fail
     const actualCount = await page.evaluate(() => {
-      return document.querySelectorAll('.window-tab').length;
+      return document.querySelectorAll('.window-tab:not(.window-tab-add)').length;
     });
     console.log(`Warning: Expected ${expectedCount} windows, found ${actualCount}`);
   }

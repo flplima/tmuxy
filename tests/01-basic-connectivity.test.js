@@ -98,7 +98,7 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
       const testString = `snapshot_test_${Date.now()}`;
       const uiText = await runCommand(ctx.page, `echo ${testString}`, testString);
 
-      const tmuxText = ctx.session.runCommand(`capture-pane -t ${ctx.session.name} -p`);
+      const tmuxText = await ctx.session.runCommand(`capture-pane -t ${ctx.session.name} -p`);
 
       expect(uiText).toContain(testString);
       expect(tmuxText).toContain(testString);
@@ -111,7 +111,7 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
       await delay(DELAYS.SYNC);
 
       // Get pane titles from tmux (pane_id -> pane_title)
-      const tmuxTitles = ctx.session.getPaneBorderTitles();
+      const tmuxTitles = await ctx.session.getPaneBorderTitles();
 
       // Get pane header titles from UI DOM (pane_id -> displayed title)
       const uiTitles = await getUIPaneTitles(ctx.page);
@@ -544,8 +544,8 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
       const testText = `pasted_${Date.now()}`;
 
       // Use tmux set-buffer and paste-buffer for reliable paste testing
-      ctx.session.runCommand(`set-buffer "${testText}"`);
-      ctx.session.pasteBuffer();
+      await ctx.session.runCommand(`set-buffer "${testText}"`);
+      await ctx.session.pasteBuffer();
       await delay(DELAYS.LONG);
 
       // The pasted text should appear at the prompt

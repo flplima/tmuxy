@@ -12,4 +12,7 @@ module.exports = {
   forceExit: true,
   // Detect open handles for debugging
   detectOpenHandles: false,
+  // Run test files sequentially — all tests share the same tmux server and
+  // running in parallel causes cascading failures when one suite crashes tmux
+  maxWorkers: 1,
 };

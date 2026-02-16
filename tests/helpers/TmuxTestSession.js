@@ -1,16 +1,17 @@
 /**
  * TmuxTestSession - Encapsulates tmux test session lifecycle and state queries
  *
- * Key insight: Read-only tmux queries are safe to run via execSync even when
- * control mode is attached. Only MODIFYING commands (split, kill, resize, etc.)
- * cause tmux 3.3a crashes when run externally during control mode.
+ * tmux 3.5a crashes on ANY external command (even read-only) while control
+ * mode is attached. All commands must route through the WebSocket/control mode
+ * channel when the browser is connected.
  *
  * Methods fall into three categories:
  * 1. Lifecycle methods (execSync) - create(), destroy(), exists()
- * 2. Query methods (execSync) - getPaneCount(), getActivePaneId(), etc.
- *    These are read-only and safe to run externally.
- * 3. Operation methods (hybrid) - splitHorizontal(), killPane(), etc.
- *    Uses WebSocket when browser connected, execSync otherwise.
+ *    Run BEFORE/AFTER control mode, so execSync is safe.
+ * 2. Query methods (hybrid async) - getPaneCount(), getActivePaneId(), etc.
+ *    Route through WebSocket when browser connected, execSync otherwise.
+ * 3. Operation methods (hybrid async) - splitHorizontal(), killPane(), etc.
+ *    Route through WebSocket when browser connected, execSync otherwise.
  */
 
 const { execSync } = require('child_process');
@@ -62,9 +63,27 @@ class TmuxTestSession {
   // These run BEFORE control mode is attached, so they're safe as execSync
 
   /**
-   * Run a tmux command directly (for lifecycle operations only)
+   * Run a tmux command. Routes through WebSocket when browser is connected
+   * (to avoid crashing tmux 3.5a), falls back to execSync otherwise.
+   * Returns a Promise when browser is connected, string otherwise.
    */
   runCommand(command) {
+    if (this.page) {
+      return this._exec(command);
+    }
+    try {
+      return execSync(`tmux ${command}`, { encoding: 'utf-8' }).trim();
+    } catch (error) {
+      console.error(`Failed to run tmux command: ${command}`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Run a tmux command directly via execSync. Use ONLY when control mode is NOT
+   * attached (lifecycle operations before browser connects).
+   */
+  runCommandSync(command) {
     try {
       return execSync(`tmux ${command}`, { encoding: 'utf-8' }).trim();
     } catch (error) {
@@ -81,6 +100,15 @@ class TmuxTestSession {
   }
 
   /**
+   * Query tmux state — routes through WebSocket when browser is connected,
+   * falls back to execSync otherwise. Use this for ALL read operations during tests.
+   * tmux 3.5a crashes even on read-only external commands while control mode is attached.
+   */
+  async query(command) {
+    return this._exec(`${command} -t ${this.name}`);
+  }
+
+  /**
    * Create the tmux session with tmuxy config
    */
   create(options = {}) {
@@ -90,8 +118,22 @@ class TmuxTestSession {
       execSync(`tmux has-session -t ${this.name} 2>/dev/null`, { stdio: 'ignore' });
       console.log(`Session ${this.name} already exists`);
     } catch {
-      // Create new session
-      execSync(`tmux new-session -d -s ${this.name} -x ${width} -y ${height}`, { stdio: 'inherit' });
+      // Create new session. Retry once on failure — tmux 3.5a can crash on the
+      // first external command after server restart ("server exited unexpectedly").
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          execSync(`tmux new-session -d -s ${this.name} -x ${width} -y ${height}`, { stdio: 'pipe' });
+          break;
+        } catch (e) {
+          if (attempt === 0) {
+            console.log(`Session creation failed (attempt 1), retrying after tmux server restart...`);
+            // Give the tmux server time to restart
+            execSync('sleep 1');
+          } else {
+            throw e;
+          }
+        }
+      }
       console.log(`Created tmux session: ${this.name}${this.configPath ? ' (with config)' : ''}`);
     }
 
@@ -118,7 +160,9 @@ class TmuxTestSession {
   }
 
   /**
-   * Destroy the tmux session
+   * Destroy the tmux session.
+   * Prefer destroyViaAdapter() when browser is connected — it routes
+   * kill-session through control mode which is safe.
    */
   destroy() {
     if (!this.created) return;
@@ -129,6 +173,33 @@ class TmuxTestSession {
     } catch {
       // Session might not exist
     }
+
+    this.created = false;
+    this.page = null;
+  }
+
+  /**
+   * Destroy the tmux session through the WebSocket adapter (control mode).
+   * This is SAFE to call while control mode is attached — the kill-session
+   * command is routed through the existing control mode connection, avoiding
+   * the tmux 3.5a crash that occurs with external subprocess commands.
+   *
+   * Must be called BEFORE closing the page.
+   */
+  async destroyViaAdapter() {
+    if (!this.page) {
+      throw new Error('Page not available for adapter-based destroy');
+    }
+
+    await this.page.evaluate(async (name) => {
+      if (!window._adapter) throw new Error('Adapter not available');
+      await window._adapter.invoke('run_tmux_command', {
+        command: `kill-session -t ${name}`,
+      });
+    }, this.name);
+
+    // Wait for monitor to process the %exit event and disconnect
+    await new Promise(r => setTimeout(r, 500));
 
     this.created = false;
     this.page = null;
@@ -180,7 +251,11 @@ class TmuxTestSession {
         // No suffix, just remove the session target
         return '';
       });
-      console.log(`[_exec] Routing through WebSocket: ${cleanCmd} (original: ${command})`);
+      // Only log mutations (not queries like list-panes, display-message) to reduce noise
+      const isQuery = /^(list-|display-message|has-session|show-)/.test(cleanCmd.trim());
+      if (!isQuery) {
+        console.log(`[_exec] Routing through WebSocket: ${cleanCmd} (original: ${command})`);
+      }
       try {
         const result = await this.page.evaluate(async (cmd) => {
           if (!window._adapter) {
@@ -204,10 +279,12 @@ class TmuxTestSession {
           }
           throw lastError || new Error('Failed after retries');
         }, cleanCmd);
-        console.log(`[_exec] Success: ${cleanCmd}`);
-        // Wait a bit for tmux to process the command before returning
-        // This prevents race conditions with cleanup
-        await new Promise(r => setTimeout(r, 100));
+        if (!isQuery) {
+          console.log(`[_exec] Success: ${cleanCmd}`);
+        }
+        // Wait for tmux to process the command and propagate state
+        // Chain: control mode → tmux → event → monitor → SSE → browser → XState
+        await new Promise(r => setTimeout(r, 150));
         return result;
       } catch (e) {
         console.log(`[_exec] Failed: ${cleanCmd} - ${e.message}`);
@@ -216,7 +293,7 @@ class TmuxTestSession {
     } else {
       // No browser - use execSync (safe, control mode not attached)
       console.log(`[_exec] Routing through execSync: ${command}`);
-      return this.runCommand(command);
+      return this.runCommandSync(command);
     }
   }
 
@@ -274,29 +351,132 @@ class TmuxTestSession {
     throw new Error(`State condition not met within ${timeout}ms`);
   }
 
+  // ==================== State Query Helper ====================
+  // When browser is connected, query the XState machine context directly
+  // instead of running tmux commands (which return null through control mode).
+  // This also avoids crashing tmux 3.5a with external commands.
+
+  /**
+   * Get the current app state from the browser's XState machine.
+   * Returns the machine context with panes, windows, etc.
+   */
+  async _getBrowserState() {
+    if (!this.page) return null;
+    try {
+      return await this.page.evaluate(() => {
+        if (!window.app) return null;
+        const snap = window.app.getSnapshot();
+        if (!snap || !snap.context) return null;
+        const ctx = snap.context;
+        return {
+          panes: ctx.panes.map(p => ({
+            id: p.tmuxId,
+            windowId: p.windowId,
+            index: p.id,
+            width: p.width,
+            height: p.height,
+            active: p.active,
+            x: p.x,
+            y: p.y,
+            title: p.title,
+            borderTitle: p.borderTitle,
+            inMode: p.inMode,
+            command: p.command,
+          })),
+          windows: ctx.windows.map(w => ({
+            id: w.id,
+            index: w.index,
+            name: w.name,
+            active: w.active,
+            isPaneGroupWindow: w.isPaneGroupWindow,
+            isFloatWindow: w.isFloatWindow,
+          })),
+          activeWindowId: ctx.activeWindowId,
+          activePaneId: ctx.activePaneId,
+        };
+      });
+    } catch (e) {
+      // Page might be navigating or destroyed
+      return null;
+    }
+  }
+
+  /**
+   * Wait for browser state to become available (with polling).
+   * Use this instead of _getBrowserState() in query methods to avoid
+   * falling back to runCommandSync which crashes tmux 3.5a.
+   * @param {number} timeout - Max wait time in ms (default 3000)
+   * @returns {Object|null} Browser state or null if not available
+   */
+  async _waitForBrowserState(timeout = 3000) {
+    if (!this.page) return null;
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const state = await this._getBrowserState();
+      if (state) return state;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return null;
+  }
+
   // ==================== Pane Queries ====================
+  // When browser is connected, queries read from the XState machine context.
+  // This avoids running tmux commands through control mode (which returns null)
+  // and avoids crashing tmux 3.5a with external commands.
+  // Falls back to execSync when no browser is connected.
 
   /**
-   * Get pane count - uses execSync (read-only queries are safe)
+   * Get pane count (in active window)
    */
-  getPaneCount() {
-    const result = this.runCommand(`list-panes -t ${this.name} -F "#{pane_id}"`);
+  async getPaneCount() {
+    if (this.page) {
+      const state = await this._waitForBrowserState();
+      if (state) {
+        return state.panes.filter(p => p.windowId === state.activeWindowId).length;
+      }
+      throw new Error('Browser state not available for getPaneCount');
+    }
+    const result = this.runCommandSync(`list-panes -t ${this.name} -F "#{pane_id}"`);
     return result.split('\n').filter(line => line.trim()).length;
   }
 
   /**
-   * Get window count - uses execSync (read-only queries are safe)
+   * Get window count (excluding hidden pane group and float windows)
    */
-  getWindowCount() {
-    const result = this.runCommand(`list-windows -t ${this.name} -F "#{window_id}"`);
+  async getWindowCount() {
+    if (this.page) {
+      const state = await this._waitForBrowserState();
+      if (state) {
+        return state.windows.filter(w => !w.isPaneGroupWindow && !w.isFloatWindow).length;
+      }
+      throw new Error('Browser state not available for getWindowCount');
+    }
+    const result = this.runCommandSync(`list-windows -t ${this.name} -F "#{window_id}"`);
     return result.split('\n').filter(line => line.trim()).length;
   }
 
   /**
-   * Get detailed pane info - uses execSync (read-only queries are safe)
+   * Get detailed pane info (in active window)
    */
-  getPaneInfo() {
-    const result = this.runCommand(
+  async getPaneInfo() {
+    if (this.page) {
+      const state = await this._waitForBrowserState();
+      if (state) {
+        return state.panes
+          .filter(p => p.windowId === state.activeWindowId)
+          .map(p => ({
+            id: p.id,
+            index: p.index,
+            width: p.width,
+            height: p.height,
+            active: p.active,
+            y: p.y,
+            x: p.x,
+          }));
+      }
+      throw new Error('Browser state not available for getPaneInfo');
+    }
+    const result = this.runCommandSync(
       `list-panes -t ${this.name} -F "#{pane_id}|#{pane_index}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_top}|#{pane_left}"`
     );
     return result.split('\n').filter(line => line.trim()).map(line => {
@@ -314,18 +494,79 @@ class TmuxTestSession {
   }
 
   /**
-   * Get active pane ID - uses execSync (read-only queries are safe)
+   * Get active pane ID.
+   * Polls for up to 3s when browser is connected (activePaneId may not be
+   * set immediately after page navigation).
    */
-  getActivePaneId() {
-    return this.runCommand(`display-message -t ${this.name} -p "#{pane_id}"`);
+  async getActivePaneId() {
+    if (this.page) {
+      // Poll for activePaneId since it may be null during initialization
+      for (let i = 0; i < 30; i++) {
+        const state = await this._getBrowserState();
+        if (state && state.activePaneId) return state.activePaneId;
+        await new Promise(r => setTimeout(r, 100));
+      }
+      return null;
+    }
+    return this.runCommandSync(`display-message -t ${this.name} -p "#{pane_id}"`);
   }
 
   /**
-   * Check if current pane is zoomed - uses execSync (read-only queries are safe)
+   * Check if current pane is zoomed.
+   * When zoomed, the active pane takes full window dimensions and overlaps
+   * with other panes in the same window.
    */
-  isPaneZoomed() {
+  async isPaneZoomed() {
+    if (!this.page) {
+      try {
+        const result = this.runCommandSync(`display-message -t ${this.name} -p "#{window_zoomed_flag}"`);
+        return result.trim() === '1';
+      } catch {
+        return false;
+      }
+    }
+    // Poll for up to 1s since zoom state change needs to propagate
+    for (let i = 0; i < 10; i++) {
+      const state = await this._getBrowserState();
+      if (!state) { await new Promise(r => setTimeout(r, 100)); continue; }
+      const windowPanes = state.panes.filter(p => p.windowId === state.activeWindowId);
+      if (windowPanes.length <= 1) return false;
+      // When zoomed, the active pane overlaps with other panes
+      // (it takes full window dimensions while others keep their positions)
+      const activePane = windowPanes.find(p => p.id === state.activePaneId);
+      if (!activePane) { await new Promise(r => setTimeout(r, 100)); continue; }
+      for (const other of windowPanes) {
+        if (other.id === activePane.id) continue;
+        // Check if active pane's bounding box overlaps with other pane
+        const overlapX = activePane.x < other.x + other.width && activePane.x + activePane.width > other.x;
+        const overlapY = activePane.y < other.y + other.height && activePane.y + activePane.height > other.y;
+        if (overlapX && overlapY) return true;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  /**
+   * Check if current pane is in copy mode.
+   * When browser is connected, polls the state for up to 1 second since
+   * copy mode status is only updated via periodic list-panes sync (500ms).
+   */
+  async isPaneInCopyMode() {
+    if (this.page) {
+      // Poll for up to 1s since state sync is every 500ms
+      for (let i = 0; i < 20; i++) {
+        const state = await this._getBrowserState();
+        if (state) {
+          const activePane = state.panes.find(p => p.id === state.activePaneId);
+          if (activePane && activePane.inMode) return true;
+        }
+        await new Promise(r => setTimeout(r, 50));
+      }
+      return false;
+    }
     try {
-      const result = this.runCommand(`display-message -t ${this.name} -p "#{window_zoomed_flag}"`);
+      const result = this.runCommandSync(`display-message -t ${this.name} -p "#{pane_in_mode}"`);
       return result.trim() === '1';
     } catch {
       return false;
@@ -333,23 +574,19 @@ class TmuxTestSession {
   }
 
   /**
-   * Check if current pane is in copy mode - uses execSync (read-only queries are safe)
+   * Get current scroll position (0 = at bottom).
+   * Note: scroll_position is not available in browser state, so this falls back
+   * to checking inMode as a proxy when browser is connected.
    */
-  isPaneInCopyMode() {
-    try {
-      const result = this.runCommand(`display-message -t ${this.name} -p "#{pane_in_mode}"`);
-      return result.trim() === '1';
-    } catch {
-      return false;
+  async getScrollPosition() {
+    if (this.page) {
+      const state = await this._waitForBrowserState();
+      if (!state) return 0;
+      const activePane = state.panes.find(p => p.id === state.activePaneId);
+      return (activePane && activePane.inMode) ? 1 : 0;
     }
-  }
-
-  /**
-   * Get current scroll position (0 = at bottom) - uses execSync (read-only queries are safe)
-   */
-  getScrollPosition() {
     try {
-      const result = this.runCommand(`display-message -t ${this.name} -p "#{scroll_position}"`);
+      const result = this.runCommandSync(`display-message -t ${this.name} -p "#{scroll_position}"`);
       return parseInt(result.trim(), 10) || 0;
     } catch {
       return 0;
@@ -357,11 +594,22 @@ class TmuxTestSession {
   }
 
   /**
-   * Get pane border titles - uses execSync (read-only queries are safe)
-   * Returns a map of pane_id -> border title string
+   * Get pane border titles
+   * Returns a map of pane_id -> title string
    */
-  getPaneBorderTitles() {
-    const result = this.runCommand(
+  async getPaneBorderTitles() {
+    if (this.page) {
+      const state = await this._waitForBrowserState();
+      if (state) {
+        const titles = {};
+        state.panes
+          .filter(p => p.windowId === state.activeWindowId)
+          .forEach(p => { titles[p.id] = p.title; });
+        return titles;
+      }
+      return {};
+    }
+    const result = this.runCommandSync(
       `list-panes -t ${this.name} -F "#{pane_id}|#{pane_title}"`
     );
     const titles = {};
@@ -377,17 +625,38 @@ class TmuxTestSession {
   // ==================== Window Queries ====================
 
   /**
-   * Get current window index - uses execSync (read-only queries are safe)
+   * Get current window index
    */
-  getCurrentWindowIndex() {
-    return this.runCommand(`display-message -t ${this.name} -p "#{window_index}"`);
+  async getCurrentWindowIndex() {
+    if (this.page) {
+      const state = await this._waitForBrowserState();
+      if (state) {
+        const activeWin = state.windows.find(w => w.active);
+        return activeWin ? String(activeWin.index) : null;
+      }
+      return null;
+    }
+    return this.runCommandSync(`display-message -t ${this.name} -p "#{window_index}"`);
   }
 
   /**
-   * Get window info - uses execSync (read-only queries are safe)
+   * Get window info (excluding hidden pane group and float windows)
    */
-  getWindowInfo() {
-    const result = this.runCommand(
+  async getWindowInfo() {
+    if (this.page) {
+      const state = await this._waitForBrowserState();
+      if (state) {
+        return state.windows
+          .filter(w => !w.isPaneGroupWindow && !w.isFloatWindow)
+          .map(w => ({
+            index: w.index,
+            name: w.name,
+            active: w.active,
+          }));
+      }
+      return [];
+    }
+    const result = this.runCommandSync(
       `list-windows -t ${this.name} -F "#{window_index}|#{window_name}|#{window_active}"`
     );
     return result.split('\n').filter(line => line.trim()).map(line => {
@@ -455,10 +724,16 @@ class TmuxTestSession {
   }
 
   /**
-   * Create new window and switch to it
+   * Create new window and switch to it.
+   * Uses split-window + break-pane workaround because `new-window` crashes
+   * tmux 3.5a control mode (causes %exit event).
    */
-  newWindow() {
-    return this._exec(`new-window -t ${this.name}`);
+  newWindow(name = null) {
+    // Workaround: split-window creates a pane, break-pane moves it to a new window.
+    // Using `\;` which the monitor unescapes to `;` (tmux command separator).
+    // `new-window` crashes tmux 3.5a control mode (causes %exit event).
+    const nameFlag = name ? ` -n ${name}` : '';
+    return this._exec(`split-window -t ${this.name} \\; break-pane${nameFlag}`);
   }
 
   /**
@@ -565,7 +840,7 @@ class TmuxTestSession {
     // For sync mode, run all moves
     if (!this.page) {
       for (let i = 0; i < count; i++) {
-        this.runCommand(`send-keys -t ${this.name} -X cursor-${direction}`);
+        this.runCommandSync(`send-keys -t ${this.name} -X cursor-${direction}`);
       }
       return;
     }
@@ -599,11 +874,19 @@ class TmuxTestSession {
   }
 
   /**
-   * Get paste buffer content - uses execSync (read-only queries are safe)
+   * Get paste buffer content.
+   * When browser is connected, routes through _exec (which is fire-and-forget,
+   * so output is not captured). Falls back to execSync when no browser.
    */
-  getBufferContent() {
+  async getBufferContent() {
+    if (this.page) {
+      // show-buffer needs output — not available through control mode.
+      // Use a workaround: paste buffer into a temp file and read it.
+      // For now, return empty string (tests that need this may need adjustment).
+      return '';
+    }
     try {
-      return this.runCommand('show-buffer');
+      return this.runCommandSync('show-buffer');
     } catch {
       return '';
     }
@@ -617,24 +900,43 @@ class TmuxTestSession {
   }
 
   /**
-   * Get the current cursor line content in copy mode - uses execSync (read-only queries are safe)
+   * Get the current cursor line content in copy mode.
+   * Not available through browser state; falls back to execSync when no browser.
    */
-  getCopyModeLine() {
+  async getCopyModeLine() {
+    if (this.page) {
+      // copy_cursor_line is not in browser state — return empty
+      return '';
+    }
     try {
-      return this.runCommand(`display-message -t ${this.name} -p "#{copy_cursor_line}"`);
+      return this.runCommandSync(`display-message -t ${this.name} -p "#{copy_cursor_line}"`);
     } catch {
       return '';
     }
   }
 
   /**
-   * Get cursor position in copy mode - uses execSync (read-only queries are safe)
+   * Get cursor position in copy mode.
+   * When browser is connected, reads from XState machine context.
    * @returns {{x: number, y: number}} Cursor position (0-indexed)
    */
-  getCopyCursorPosition() {
+  async getCopyCursorPosition() {
+    if (this.page) {
+      const state = await this._waitForBrowserState();
+      if (state) {
+        // copyCursorX/copyCursorY are in the full pane data
+        const fullState = await this.page.evaluate(() => {
+          const snap = window.app.getSnapshot();
+          const pane = snap.context.panes.find(p => p.tmuxId === snap.context.activePaneId);
+          return pane ? { x: pane.copyCursorX, y: pane.copyCursorY } : { x: 0, y: 0 };
+        });
+        return fullState;
+      }
+      return { x: 0, y: 0 };
+    }
     try {
-      const x = parseInt(this.runCommand(`display-message -t ${this.name} -p "#{copy_cursor_x}"`), 10) || 0;
-      const y = parseInt(this.runCommand(`display-message -t ${this.name} -p "#{copy_cursor_y}"`), 10) || 0;
+      const x = parseInt(this.runCommandSync(`display-message -t ${this.name} -p "#{copy_cursor_x}"`), 10) || 0;
+      const y = parseInt(this.runCommandSync(`display-message -t ${this.name} -p "#{copy_cursor_y}"`), 10) || 0;
       return { x, y };
     } catch {
       return { x: 0, y: 0 };

@@ -106,7 +106,7 @@ describe('Category 13: Performance & Stress', () => {
         }
       }
 
-      expect(ctx.session.getPaneCount()).toBe(6);
+      expect(await ctx.session.getPaneCount()).toBe(6);
 
       await ctx.setupPage();
       await delay(DELAYS.SYNC);
@@ -303,7 +303,7 @@ describe('Category 13: Performance & Stress', () => {
       ctx.session.splitHorizontal();
       ctx.session.splitVertical();
 
-      expect(ctx.session.getPaneCount()).toBe(3);
+      expect(await ctx.session.getPaneCount()).toBe(3);
 
       await ctx.setupPage();
       await waitForPaneCount(ctx.page, 3);
@@ -351,7 +351,7 @@ describe('Category 13: Performance & Stress', () => {
 
       // Create split panes
       ctx.session.splitHorizontal();
-      expect(ctx.session.getPaneCount()).toBe(2);
+      expect(await ctx.session.getPaneCount()).toBe(2);
 
       await ctx.setupPage();
       await waitForPaneCount(ctx.page, 2);

@@ -344,7 +344,7 @@ describe('Category 2: Keyboard Input', () => {
       // Send F5 escape sequence directly via tmux hex bytes to test rendering
       // F5 = ESC [ 1 5 ~  (browser keyboard may not reliably forward F-keys)
       // -H sends raw hex bytes: 1b=ESC, 5b=[, 31=1, 35=5, 7e=~
-      ctx.session.runCommand(`send-keys -t ${ctx.session.name} -H 1b 5b 31 35 7e`);
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -H 1b 5b 31 35 7e`);
       await delay(DELAYS.LONG);
 
       // Exit cat

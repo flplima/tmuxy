@@ -148,20 +148,18 @@ export const appMachine = setup({
           );
         }
 
-        // Only resize if connected and target is smaller than current tmux size
-        // This prevents resize loops when multiple clients have different viewports
+        // Notify server of viewport size change so it can set the control mode
+        // client size (refresh-client -C). This works with window-size smallest.
         const shouldResize =
           context.connected &&
           context.totalWidth > 0 &&
-          context.totalHeight > 0 &&
-          (event.cols < context.totalWidth || event.rows < context.totalHeight);
+          (event.cols !== context.totalWidth || event.rows !== context.totalHeight);
         if (shouldResize) {
-          const newCols = Math.min(event.cols, context.totalWidth);
-          const newRows = Math.min(event.rows, context.totalHeight);
           enqueue(
             sendTo('tmux', {
-              type: 'SEND_COMMAND' as const,
-              command: `resize-window -x ${newCols} -y ${newRows}`,
+              type: 'INVOKE' as const,
+              cmd: 'set_client_size',
+              args: { cols: event.cols, rows: event.rows },
             })
           );
         }
@@ -390,33 +388,6 @@ export const appMachine = setup({
                 context.charHeight
               );
 
-              // Proactively resize hidden group windows to match visible pane dimensions.
-              // This ensures content (especially TUI apps like nvim) is already at the
-              // correct size when the user switches tabs, preventing content blinks.
-              for (const group of Object.values(paneGroups)) {
-                const visiblePaneId = group.paneIds.find(id => {
-                  const p = transformed.panes.find(pp => pp.tmuxId === id);
-                  return p?.windowId === transformed.activeWindowId;
-                });
-                if (!visiblePaneId) continue;
-                const visiblePane = transformed.panes.find(p => p.tmuxId === visiblePaneId);
-                if (!visiblePane) continue;
-
-                for (const paneId of group.paneIds) {
-                  if (paneId === visiblePaneId) continue;
-                  const pane = transformed.panes.find(p => p.tmuxId === paneId);
-                  if (!pane) continue;
-                  if (pane.width !== visiblePane.width || pane.height !== visiblePane.height) {
-                    enqueue(
-                      sendTo('tmux', {
-                        type: 'SEND_COMMAND' as const,
-                        command: `resize-window -t ${pane.windowId} -x ${visiblePane.width} -y ${visiblePane.height}`,
-                      })
-                    );
-                  }
-                }
-              }
-
               // Detect new panes for enter animation
               const currentPaneIds = context.panes.map(p => p.tmuxId);
               const newPaneIds = transformed.panes.map(p => p.tmuxId);
@@ -502,19 +473,18 @@ export const appMachine = setup({
                 });
               }
 
-              // If tmux is larger than our target, send a resize command to shrink it
-              // Only resize DOWN to prevent loops when multiple clients have different viewports
+              // If tmux size doesn't match our target, notify server to update
+              // client size (uses refresh-client -C for window-size smallest)
               const shouldResize =
                 context.targetCols > 0 &&
                 context.targetRows > 0 &&
-                (context.targetCols < transformed.totalWidth || context.targetRows < transformed.totalHeight);
+                (context.targetCols !== transformed.totalWidth || context.targetRows !== transformed.totalHeight);
               if (shouldResize) {
-                const newCols = Math.min(context.targetCols, transformed.totalWidth);
-                const newRows = Math.min(context.targetRows, transformed.totalHeight);
                 enqueue(
                   sendTo('tmux', {
-                    type: 'SEND_COMMAND' as const,
-                    command: `resize-window -x ${newCols} -y ${newRows}`,
+                    type: 'INVOKE' as const,
+                    cmd: 'set_client_size',
+                    args: { cols: context.targetCols, rows: context.targetRows },
                   })
                 );
               }

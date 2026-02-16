@@ -19,6 +19,7 @@ const {
   delay,
   runCommand,
   waitForPaneCount,
+  waitForWindowCount,
   noteKnownLimitation,
   DELAYS,
 } = require('./helpers');
@@ -50,7 +51,7 @@ describe('Category 12: Popup Support - Stability Tests (Feature Not Implemented)
 
       // Run popup command that exits immediately
       // This may fail/be unsupported - we're testing stability
-      const result = ctx.session.runCommand(
+      const result = await ctx.session.runCommand(
         `display-popup -t ${ctx.session.name} -E "exit 0" 2>&1 || echo "popup_unsupported"`
       );
 
@@ -67,14 +68,14 @@ describe('Category 12: Popup Support - Stability Tests (Feature Not Implemented)
       // Create panes before navigating (tmux commands are reliable)
       ctx.session.splitHorizontal();
       ctx.session.splitVertical();
-      const paneCountBefore = ctx.session.getPaneCount();
+      const paneCountBefore = await ctx.session.getPaneCount();
       expect(paneCountBefore).toBe(3);
 
       await ctx.setupPage();
       await waitForPaneCount(ctx.page, 3);
 
       // Attempt popup (may fail/be unsupported)
-      ctx.session.runCommand(
+      await ctx.session.runCommand(
         `display-popup -t ${ctx.session.name} -E "exit 0" 2>&1 || true`
       );
       await delay(DELAYS.SYNC);
@@ -95,7 +96,7 @@ describe('Category 12: Popup Support - Stability Tests (Feature Not Implemented)
       await ctx.setupPage();
 
       // Attempt popup (may fail/be unsupported)
-      ctx.session.runCommand(
+      await ctx.session.runCommand(
         `display-popup -t ${ctx.session.name} -E "exit 0" 2>&1 || true`
       );
       await delay(DELAYS.LONG);
@@ -139,9 +140,9 @@ describe('Category 12: Popup Support - Stability Tests (Feature Not Implemented)
       // Window operations should still work regardless of popup support
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
 
       expect(await ctx.session.getWindowCount()).toBe(2);
-
     });
   });
 

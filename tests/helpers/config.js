@@ -6,7 +6,7 @@ const path = require('path');
 
 // Ports and URLs
 const CDP_PORT = 9222;
-const TMUXY_PORT = 3853;
+const TMUXY_PORT = 9000;
 const TMUXY_URL = `http://localhost:${TMUXY_PORT}`;
 
 // Paths

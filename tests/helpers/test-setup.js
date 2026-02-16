@@ -95,7 +95,7 @@ async function assertSnapshotsMatch(page) {
   // Skip if page navigated away from the session
   try {
     const pageUrl = page.url();
-    if (!pageUrl.includes('localhost:3853') || pageUrl === 'about:blank') {
+    if (!pageUrl.includes(TMUXY_URL.replace('http://', '')) || pageUrl === 'about:blank') {
       return;
     }
   } catch {
@@ -204,10 +204,8 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   };
 
   ctx.afterAll = async () => {
-    if (ctx.page) await ctx.page.close();
-    if (ctx.browser) {
-      await ctx.browser.close();
-    }
+    if (ctx.page) await ctx.page.close().catch(() => {});
+    // Don't close browser — shared CDP connection must persist across suites
   };
 
   ctx.beforeEach = async () => {
@@ -223,13 +221,17 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   };
 
   ctx.afterEach = async () => {
+    // Capture assertion errors but ALWAYS run cleanup afterward.
+    // If cleanup is skipped (e.g., snapshot check throws), the control mode
+    // connection stays attached and the next test's `tmux new-session` crashes tmux 3.5a.
+    let assertionError = null;
+
     // Compare UI snapshot vs tmux snapshot before closing (rendering suites only)
     if (snapshot && ctx.page) {
       try {
         await assertSnapshotsMatch(ctx.page);
       } catch (e) {
-        // Re-throw as a test failure - afterEach errors fail the test
-        throw e;
+        assertionError = e;
       }
     }
 
@@ -238,29 +240,43 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       try {
         await ctx.glitchDetector.assertNoGlitches({ operation: 'test' });
       } catch (e) {
-        // Re-throw as a test failure
-        throw e;
+        if (!assertionError) assertionError = e;
       } finally {
         ctx.glitchDetector = null;
       }
     }
 
-    if (ctx.page) {
-      // Close the context (which also closes the page) for proper Playwright cleanup
-      if (ctx.page._context) {
-        await ctx.page._context.close();
-      } else {
-        await ctx.page.close();
+    // Always close page and destroy session, even if assertions failed above.
+    // IMPORTANT: Kill session through adapter BEFORE closing the page.
+    // This routes kill-session through control mode (safe), avoiding the
+    // tmux 3.5a crash that occurs with external commands while control mode is attached.
+    if (ctx.session?.page && ctx.session.created) {
+      try {
+        await ctx.session.destroyViaAdapter();
+      } catch {
+        // Adapter not available — will fall through to execSync below
       }
+    }
+
+    if (ctx.page) {
+      await ctx.page.close().catch(() => {});
       ctx.page = null;
     }
 
     if (ctx.session) {
-      console.log(`Killing test session: ${ctx.session.name}`);
-      ctx.session.destroy();
+      if (ctx.session.created) {
+        // Fallback: if adapter-based destroy didn't work, wait for control mode
+        // disconnect and use execSync. SSE keepalive is 1s, cleanup ~600ms.
+        await delay(2000);
+        console.log(`Killing test session: ${ctx.session.name}`);
+        ctx.session.destroy();
+      }
       ctx.session = null;
       ctx.testSession = null;
     }
+
+    // Re-throw after cleanup so the test still fails
+    if (assertionError) throw assertionError;
   };
 
   /**

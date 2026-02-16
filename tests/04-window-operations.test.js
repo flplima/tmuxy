@@ -34,6 +34,7 @@ describe('Category 4: Window Operations', () => {
       // Create window using tmux command
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, initialCount + 1);
 
       const newCount = await ctx.session.getWindowCount();
       expect(newCount).toBe(initialCount + 1);
@@ -46,6 +47,7 @@ describe('Category 4: Window Operations', () => {
 
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
 
       // Verify tmux has 2 windows
       expect(await ctx.session.getWindowCount()).toBe(2);
@@ -60,9 +62,11 @@ describe('Category 4: Window Operations', () => {
 
       await ctx.setupPage();
 
-      // Create window with name using tmux command
-      await ctx.session.runCommand(`new-window -t ${ctx.session.name} -n TestWindow`);
+      // Create window with name using newWindow helper
+      // (new-window crashes tmux 3.5a control mode, so we use split+break workaround)
+      await ctx.session.newWindow('TestWindow');
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 2);
 
       const windows = await ctx.session.getWindowInfo();
       const testWindow = windows.find(w => w.name === 'TestWindow');
@@ -176,9 +180,9 @@ describe('Category 4: Window Operations', () => {
       const afterNewIndex = await ctx.session.getCurrentWindowIndex();
       expect(afterNewIndex).not.toBe(initialIndex);
 
-      // Get tabs and find the one that's NOT active
+      // Get tabs and find the one that's NOT active (exclude "+" button)
       const activeTab = await ctx.page.$('.window-tab-active');
-      const allTabs = await ctx.page.$$('.window-tab');
+      const allTabs = await ctx.page.$$('.window-tab:not(.window-tab-add)');
       expect(allTabs.length).toBe(2);
 
       // Find inactive tab by checking which one is not the active tab
@@ -192,9 +196,11 @@ describe('Category 4: Window Operations', () => {
       }
       expect(inactiveTab).not.toBeNull();
 
-      // Click the inactive tab
-      await inactiveTab.click();
-      await delay(DELAYS.LONG);
+      // Click the button inside the inactive tab
+      const tabButton = await inactiveTab.$('.window-tab-button');
+      expect(tabButton).not.toBeNull();
+      await tabButton.click();
+      await delay(DELAYS.SYNC);
 
       // After clicking, the current window should be different
       const finalIndex = await ctx.session.getCurrentWindowIndex();
@@ -232,15 +238,16 @@ describe('Category 4: Window Operations', () => {
       await waitForWindowCount(ctx.page, 2);
       expect(await ctx.session.getWindowCount()).toBe(2);
 
-      // Kill the first window (index 1, base-index is 1)
-      // After newWindow(), we're on window 2, killing window 1 leaves just window 2
-      await ctx.session.killWindow(1);
+      // Get actual window info to find a non-active window to kill
+      const windows = await ctx.session.getWindowInfo();
+      const inactiveWindow = windows.find(w => !w.active);
+      expect(inactiveWindow).toBeDefined();
+
+      await ctx.session.killWindow(inactiveWindow.index);
       await delay(DELAYS.SYNC);
       await waitForWindowCount(ctx.page, 1);
 
       expect(await ctx.session.getWindowCount()).toBe(1);
-
-
     });
 
     test('Close multiple windows - handles correctly', async () => {
@@ -249,13 +256,26 @@ describe('Category 4: Window Operations', () => {
       await ctx.setupPage();
 
       await ctx.session.newWindow();
+      await delay(DELAYS.SHORT);
       await ctx.session.newWindow();
+      await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 3);
       expect(await ctx.session.getWindowCount()).toBe(3);
 
-      // Kill last two windows
-      await ctx.session.runCommand(`kill-window -t ${ctx.session.name}:2`);
-      await ctx.session.runCommand(`kill-window -t ${ctx.session.name}:1`);
+      // Kill windows (leaving only the last one)
+      // After newWindow() x2 from window 1, we're on window 3.
+      // Get current windows to find the right indices to kill.
+      const windows = await ctx.session.getWindowInfo();
+      const currentIdx = await ctx.session.getCurrentWindowIndex();
+      // Kill all windows except the current one
+      for (const w of windows) {
+        if (String(w.index) !== String(currentIdx)) {
+          await ctx.session.killWindow(w.index);
+          await delay(DELAYS.SHORT);
+        }
+      }
       await delay(DELAYS.SYNC);
+      await waitForWindowCount(ctx.page, 1);
 
       expect(await ctx.session.getWindowCount()).toBe(1);
     });

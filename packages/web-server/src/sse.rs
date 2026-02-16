@@ -166,11 +166,36 @@ pub async fn sse_handler(
     }
 
     // Create the SSE stream
-    let state_clone = state.clone();
-    let session_clone = session.clone();
-    let token_clone = session_token.clone();
+    //
+    // IMPORTANT: When the SSE client disconnects, Axum detects the broken connection
+    // on the next keepalive write and DROPS the stream generator. The generator is
+    // suspended at `session_rx.recv().await`, so any cleanup code after the loop
+    // never executes. We use a oneshot channel: the sender lives inside the generator,
+    // and when the generator is dropped, the sender is dropped, signaling the cleanup task.
+    let (drop_tx, drop_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // Spawn cleanup task that fires when the stream is dropped (client disconnect)
+    {
+        let cleanup_state = state.clone();
+        let cleanup_session = session.clone();
+        let cleanup_token = session_token.clone();
+        tokio::spawn(async move {
+            // Wait for the stream to be dropped (sender dropped = Err)
+            let _ = drop_rx.await;
+            eprintln!(
+                "[sse] Client {} disconnected from session '{}', running cleanup",
+                conn_id, cleanup_session
+            );
+            cleanup_connection(&cleanup_state, &cleanup_session, conn_id, &cleanup_token).await;
+        });
+    }
 
     let stream = async_stream::stream! {
+        // Keep the drop sender alive for the lifetime of the stream.
+        // When this generator is dropped (client disconnect), _drop_guard is dropped,
+        // which drops drop_tx, signaling the cleanup task.
+        let _drop_guard = drop_tx;
+
         // Send connection info as first event
         let conn_info = SseEvent::ConnectionInfo {
             connection_id: conn_id,
@@ -236,12 +261,9 @@ pub async fn sse_handler(
                 }
             }
         }
-
-        // Cleanup on disconnect
-        cleanup_connection(&state_clone, &session_clone, conn_id, &token_clone).await;
     };
 
-    Sse::new(stream).keep_alive(KeepAlive::default().interval(Duration::from_secs(15)))
+    Sse::new(stream).keep_alive(KeepAlive::default().interval(Duration::from_secs(1)))
 }
 
 // ============================================
@@ -518,6 +540,13 @@ async fn handle_command(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
+            // Block raw resize-window commands from clients — resize must go through
+            // set_client_size to prevent stale SSE connections from overriding sizes.
+            if command.starts_with("resize-window") || command.starts_with("resizew") {
+                eprintln!("[sse] Client {} blocked resize command (use set_client_size): {}", conn_id, command);
+                return Ok(serde_json::json!(null));
+            }
+
             let command_tx = {
                 let sessions = state.sessions.read().await;
                 sessions
@@ -531,7 +560,7 @@ async fn handle_command(
                 })
                 .await
                 .map_err(|e| format!("Monitor channel error: {}", e))?;
-                eprintln!("[sse] Sent command via control mode: {}", command);
+                eprintln!("[sse] Client {} sent command via control mode: {}", conn_id, command);
                 Ok(serde_json::json!(null))
             } else {
                 Err("No monitor connection available".to_string())
@@ -864,7 +893,7 @@ async fn start_monitoring_control_mode(
     let config = MonitorConfig {
         session: session.clone(),
         sync_interval: Duration::from_millis(500),
-        create_session: true,
+        create_session: false,
         throttle_interval: Duration::from_millis(16),
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),
@@ -874,14 +903,33 @@ async fn start_monitoring_control_mode(
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
 
     loop {
+        // Stop reconnecting if session was cleaned up (no more clients)
+        {
+            let sessions = state.sessions.read().await;
+            if !sessions.contains_key(&session) {
+                eprintln!("[monitor] Session '{}' removed, stopping monitor loop", session);
+                break;
+            }
+        }
+
         match TmuxMonitor::connect(config.clone()).await {
             Ok((mut monitor, command_tx)) => {
-                {
+                // Store command_tx so cleanup_connection can send Shutdown
+                let stored = {
                     let mut sessions = state.sessions.write().await;
                     if let Some(session_conns) = sessions.get_mut(&session) {
                         eprintln!("[monitor] Storing command_tx for session '{}'", session);
                         session_conns.monitor_command_tx = Some(command_tx);
+                        true
+                    } else {
+                        // Session was cleaned up between connect and now
+                        eprintln!("[monitor] Session '{}' gone before storing command_tx, stopping", session);
+                        false
                     }
+                };
+
+                if !stored {
+                    break;
                 }
 
                 backoff = Duration::from_millis(100);

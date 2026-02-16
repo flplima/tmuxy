@@ -128,7 +128,7 @@ impl TmuxMonitor {
 
     /// Synchronize initial state by querying tmux.
     pub async fn sync_initial_state(&mut self) -> Result<(), String> {
-        // Resize the window to the initial PTY size to ensure panes aren't tiny.
+        // Resize the window to the initial size to ensure panes aren't tiny.
         // When running in a background process (pm2), the PTY may start small.
         // The browser will send a proper resize once it connects.
         self.connection
@@ -400,18 +400,8 @@ impl TmuxMonitor {
                     match cmd {
                         Some(MonitorCommand::ResizeWindow { cols, rows }) => {
                             eprintln!("[monitor] Processing ResizeWindow: {}x{}", cols, rows);
-                            // Get all window IDs in the session
-                            // Don't use -t flag since we're already in control mode for this session
-                            let list_cmd = "list-windows -F '#{window_id}'";
-                            if let Err(e) = self.connection.send_command(&list_cmd).await {
-                                emitter.emit_error(format!("Failed to list windows for resize: {}", e));
-                                continue;
-                            }
-
-                            // Send resize commands for all windows
-                            // We'll need to wait for the list-windows response and then send resize commands
-                            // For now, just send a single resize command for the session's current window
-                            // Don't use -t flag since we're already in control mode for this session
+                            // Resize the active window (window-size manual means only
+                            // resize-window changes size, no client size interference)
                             let resize_cmd = format!("resizew -x {} -y {}", cols, rows);
                             if let Err(e) = self.connection.send_command(&resize_cmd).await {
                                 emitter.emit_error(format!("Failed to resize window: {}", e));
