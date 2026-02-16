@@ -166,6 +166,7 @@ impl TmuxMonitor {
                 "#{cursor_x},#{cursor_y},",
                 "#{pane_active},#{pane_current_command},#{pane_title},",
                 "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+                "#{scroll_position},",
                 "#{window_id},#{T:pane-border-format},",
                 "#{alternate_on},#{mouse_any_flag},",
                 "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index}'"
@@ -345,7 +346,8 @@ impl TmuxMonitor {
                     // In copy mode, only query pane info (for cursor position)
                     // to minimize latency. Full sync (with list-windows) runs at normal interval.
                     let sync_commands = if in_copy_mode && last_sync.elapsed() < self.config.sync_interval {
-                        let copy_pane_ids = self.aggregator.get_panes_in_copy_mode();
+                        let copy_pane_info = self.aggregator.get_copy_mode_pane_info();
+                        let copy_pane_ids: Vec<String> = copy_pane_info.iter().map(|(id, _, _)| id.clone()).collect();
                         let mut cmds = vec![
                             concat!(
                                 "list-panes -s -F '",
@@ -355,14 +357,23 @@ impl TmuxMonitor {
                                 "#{cursor_x},#{cursor_y},",
                                 "#{pane_active},#{pane_current_command},#{pane_title},",
                                 "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+                                "#{scroll_position},",
                                 "#{window_id},#{T:pane-border-format},",
                                 "#{alternate_on},#{mouse_any_flag},",
                 "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index}'"
                             ).to_string(),
                         ];
-                        // Capture content for each pane in copy mode so scrolling is visible
-                        for pane_id in &copy_pane_ids {
-                            cmds.push(format!("capture-pane -t {} -p -e", pane_id));
+                        // Capture content for each pane in copy mode with scroll offset
+                        for (pane_id, scroll_pos, height) in &copy_pane_info {
+                            if *scroll_pos > 0 {
+                                // Capture the scrolled-back region: -S is start line (negative = from end of history)
+                                // -E is end line. We want `height` lines starting from scroll_pos lines back.
+                                let start = -(*scroll_pos as i64) - (*height as i64) + 1;
+                                let end = -(*scroll_pos as i64);
+                                cmds.push(format!("capture-pane -t {} -p -e -S {} -E {}", pane_id, start, end));
+                            } else {
+                                cmds.push(format!("capture-pane -t {} -p -e", pane_id));
+                            }
                         }
                         self.aggregator.queue_captures(&copy_pane_ids);
                         cmds
@@ -378,6 +389,7 @@ impl TmuxMonitor {
                                 "#{cursor_x},#{cursor_y},",
                                 "#{pane_active},#{pane_current_command},#{pane_title},",
                                 "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+                                "#{scroll_position},",
                                 "#{window_id},#{T:pane-border-format},",
                                 "#{alternate_on},#{mouse_any_flag},",
                 "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index}'"

@@ -93,6 +93,9 @@ pub struct PaneState {
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
 
+    /// Copy mode scroll position (number of lines scrolled from bottom)
+    pub scroll_position: u32,
+
     /// Tmux-reported cursor position (authoritative)
     pub tmux_cursor_x: u32,
     pub tmux_cursor_y: u32,
@@ -136,6 +139,7 @@ impl PaneState {
             in_mode: false,
             copy_cursor_x: 0,
             copy_cursor_y: 0,
+            scroll_position: 0,
             tmux_cursor_x: 0,
             tmux_cursor_y: 0,
             alternate_on: false,
@@ -580,6 +584,14 @@ impl StateAggregator {
         self.panes.values()
             .filter(|p| p.in_mode && !p.window_id.is_empty())
             .map(|p| p.id.clone())
+            .collect()
+    }
+
+    /// Get copy mode pane info: (pane_id, scroll_position, height) for building capture-pane commands
+    pub fn get_copy_mode_pane_info(&self) -> Vec<(String, u32, u32)> {
+        self.panes.values()
+            .filter(|p| p.in_mode && !p.window_id.is_empty())
+            .map(|p| (p.id.clone(), p.scroll_position, p.height))
             .collect()
     }
 
@@ -1035,7 +1047,7 @@ impl StateAggregator {
     }
 
     /// Parse a line from list-panes output.
-    /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,title,in_mode,copy_x,copy_y,window_id,border_title,alternate_on,mouse_any_flag`
+    /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,title,in_mode,copy_x,copy_y,scroll_position,window_id,border_title,alternate_on,mouse_any_flag,group_id,group_tab_index`
     /// Returns (pane_id, needs_capture) if successfully parsed.
     /// needs_capture is true if pane is new OR was resized.
     fn parse_list_panes_line(&mut self, line: &str) -> Option<(String, bool)> {
@@ -1062,12 +1074,13 @@ impl StateAggregator {
         let in_mode = parts.get(11).map(|s| *s == "1").unwrap_or(false);
         let copy_cursor_x: u32 = parts.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
         let copy_cursor_y: u32 = parts.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let window_id = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
+        let scroll_position: u32 = parts.get(14).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let window_id = parts.get(15).map(|s| s.to_string()).unwrap_or_default();
 
         // Parse remaining fields, handling border_title which may contain commas
         // Fields after window_id: border_title (may have commas), alternate_on, mouse_any_flag
         // We parse from the end to find the known fixed fields
-        let remaining_parts = if parts.len() > 15 { &parts[15..] } else { &[] };
+        let remaining_parts = if parts.len() > 16 { &parts[16..] } else { &[] };
 
         // The last four fields should be alternate_on, mouse_any_flag, group_id, group_tab_index
         // Parse from the end to find the known fixed fields
@@ -1128,6 +1141,7 @@ impl StateAggregator {
         }
         pane.copy_cursor_x = copy_cursor_x;
         pane.copy_cursor_y = copy_cursor_y;
+        pane.scroll_position = scroll_position;
         pane.window_id = window_id;
         pane.alternate_on = alternate_on;
         pane.mouse_any_flag = mouse_any_flag;

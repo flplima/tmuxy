@@ -118,17 +118,18 @@ class TmuxTestSession {
       execSync(`tmux has-session -t ${this.name} 2>/dev/null`, { stdio: 'ignore' });
       console.log(`Session ${this.name} already exists`);
     } catch {
-      // Create new session. Retry once on failure — tmux 3.5a can crash on the
+      // Create new session. Retry on failure — tmux 3.5a can crash on the
       // first external command after server restart ("server exited unexpectedly").
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         try {
           execSync(`tmux new-session -d -s ${this.name} -x ${width} -y ${height}`, { stdio: 'pipe' });
           break;
         } catch (e) {
-          if (attempt === 0) {
-            console.log(`Session creation failed (attempt 1), retrying after tmux server restart...`);
-            // Give the tmux server time to restart
-            execSync('sleep 1');
+          if (attempt < 2) {
+            console.log(`Session creation failed (attempt ${attempt + 1}), retrying after tmux server restart...`);
+            // Give the tmux server time to restart — 2s is needed for
+            // stale server state to clear after a crash
+            execSync('sleep 2');
           } else {
             throw e;
           }
@@ -136,6 +137,11 @@ class TmuxTestSession {
       }
       console.log(`Created tmux session: ${this.name}${this.configPath ? ' (with config)' : ''}`);
     }
+
+    // Prevent tmux server from exiting when all sessions are destroyed
+    try {
+      execSync('tmux set-option -g exit-empty off', { stdio: 'ignore' });
+    } catch { /* ignore if server not ready yet */ }
 
     // Always source config after session creation/check
     if (this.configPath) {

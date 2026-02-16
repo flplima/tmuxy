@@ -519,56 +519,108 @@ describe('Category 8: Copy Mode', () => {
   // 8.7 Copy Mode Scrolling
   // ====================
   describe('8.7 Copy Mode Scrolling', () => {
-    test('Scrolling up in copy mode changes scroll position', async () => {
+    // Helper: read pane content numbers from XState
+    async function getPaneNumbers(page) {
+      const result = await page.evaluate(() => {
+        const snap = window.app?.getSnapshot();
+        const pane = snap?.context.panes[0];
+        if (!pane?.content) return null;
+        const lines = [];
+        for (const row of pane.content) {
+          if (row && Array.isArray(row)) {
+            lines.push(row.map(c => c.c).join('').trim());
+          }
+        }
+        return { inMode: pane.inMode, lines };
+      });
+      if (!result) return null;
+      const numbers = result.lines.map(l => parseInt(l)).filter(n => !isNaN(n));
+      return { inMode: result.inMode, numbers, lines: result.lines };
+    }
+
+    // Helper: poll until content contains numbers below threshold
+    async function waitForScrolledContent(page, maxNumber, timeout = 8000) {
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const data = await getPaneNumbers(page);
+        if (data && data.inMode && data.numbers.length > 0 && Math.max(...data.numbers) < maxNumber) {
+          return data;
+        }
+        await delay(200);
+      }
+      // Return last state for error reporting
+      return await getPaneNumbers(page);
+    }
+
+    test('Scrolling up in copy mode shows earlier content', async () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.setupPage();
 
-      // Generate content that overflows the terminal
-      await runCommand(ctx.page, 'seq 1 100', '100');
+      // Generate numbered content that overflows the terminal
+      await runCommand(ctx.page, 'seq 1 200', '200');
 
       await ctx.session.enterCopyMode();
       await delay(DELAYS.LONG);
       expect(await ctx.session.isPaneInCopyMode()).toBe(true);
 
-      // Scroll up 10 lines
-      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 10 scroll-up`);
-      await delay(DELAYS.LONG);
+      // Scroll up significantly
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 60 scroll-up`);
 
-      const scrollPos = await ctx.session.getScrollPosition();
-      expect(scrollPos).toBeGreaterThan(0);
+      // Poll until content shows numbers below 175 (scrolled away from bottom)
+      const data = await waitForScrolledContent(ctx.page, 175);
+
+      expect(data).not.toBeNull();
+      expect(data.inMode).toBe(true);
+      expect(data.numbers.length).toBeGreaterThan(0);
+      expect(Math.max(...data.numbers)).toBeLessThan(175);
 
       await ctx.session.exitCopyMode();
-    });
+    }, 20000);
 
-    test('Scrolling down after scrolling up returns toward bottom', async () => {
+    test('Scrolling down after scrolling up shows later content', async () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.setupPage();
 
-      await runCommand(ctx.page, 'seq 1 100', '100');
+      await runCommand(ctx.page, 'seq 1 200', '200');
 
       await ctx.session.enterCopyMode();
       await delay(DELAYS.LONG);
 
-      // Scroll up 20 lines
-      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 20 scroll-up`);
-      await delay(DELAYS.LONG);
+      // Scroll up 60 lines
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 60 scroll-up`);
 
-      const scrollAfterUp = await ctx.session.getScrollPosition();
+      // Wait for scrolled content to arrive
+      const afterUp = await waitForScrolledContent(ctx.page, 175);
+      expect(afterUp).not.toBeNull();
+      expect(afterUp.numbers.length).toBeGreaterThan(0);
+      const maxUp = Math.max(...afterUp.numbers);
 
-      // Scroll down 10 lines
-      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 10 scroll-down`);
-      await delay(DELAYS.LONG);
+      // Scroll down 30 lines
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 30 scroll-down`);
 
-      const scrollAfterDown = await ctx.session.getScrollPosition();
-      expect(scrollAfterDown).toBeLessThan(scrollAfterUp);
+      // Poll until max visible number increases (content shifted down)
+      const start = Date.now();
+      let afterDown = null;
+      while (Date.now() - start < 8000) {
+        const data = await getPaneNumbers(ctx.page);
+        if (data && data.numbers.length > 0 && Math.max(...data.numbers) > maxUp) {
+          afterDown = data;
+          break;
+        }
+        await delay(200);
+      }
+      if (!afterDown) afterDown = await getPaneNumbers(ctx.page);
+
+      expect(afterDown).not.toBeNull();
+      expect(afterDown.numbers.length).toBeGreaterThan(0);
+      expect(Math.max(...afterDown.numbers)).toBeGreaterThan(maxUp);
 
       await ctx.session.exitCopyMode();
-    });
+    }, 20000);
 
-    // Skipped: UI/tmux sync in copy mode scroll has timing issues
-    test.skip('UI content updates after scrolling in copy mode', async () => {
+    test('UI content updates after scrolling in copy mode', async () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.setupPage();
@@ -579,41 +631,67 @@ describe('Category 8: Copy Mode', () => {
       await ctx.session.enterCopyMode();
       await delay(DELAYS.LONG);
 
-      // Scroll up significantly to see earlier numbers
+      // Scroll up significantly
       await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 50 scroll-up`);
+
+      // Wait for copy mode content to propagate (capture-pane runs every 50ms in copy mode)
+      await delay(DELAYS.SYNC);
+      await delay(DELAYS.SYNC);
       await delay(DELAYS.SYNC);
 
-      // The terminal should now show earlier numbers (before 50)
-      const text = await getTerminalText(ctx.page);
-      // After scrolling up 50 lines from the bottom, we should see
-      // numbers in the range visible on screen (roughly 50 lines earlier)
-      // Check that we can see some number less than 50
-      const hasEarlierNumbers = /\b([1-3]?\d)\b/.test(text);
-      expect(hasEarlierNumbers).toBe(true);
+      // Read pane content directly from XState to verify scroll is reflected
+      const result = await ctx.page.evaluate(() => {
+        const snap = window.app?.getSnapshot();
+        if (!snap) return { error: 'no snapshot' };
+        const pane = snap.context.panes[0];
+        if (!pane) return { error: 'no pane' };
+        const content = pane.content;
+        if (!content) return { error: 'no content' };
+        // Read first few lines
+        const lines = [];
+        for (let i = 0; i < 5; i++) {
+          const row = content[i];
+          if (row && Array.isArray(row)) {
+            lines.push(row.map(c => c.c).join('').trim());
+          }
+        }
+        return { inMode: pane.inMode, lines };
+      });
+
+      expect(result.inMode).toBe(true);
+      expect(result.lines.length).toBeGreaterThan(0);
+
+      // After scrolling up 50 lines, we should see numbers significantly lower
+      // than the original ~75-100 range
+      const firstNum = parseInt(result.lines[0]);
+      if (!isNaN(firstNum)) {
+        expect(firstNum).toBeLessThan(60);
+      }
 
       await ctx.session.exitCopyMode();
-    });
+    }, 20000);
 
-    // Skipped: UI/tmux sync in copy mode scroll has timing issues
-    test.skip('Snapshot matches tmux after scrolling in copy mode', async () => {
+    test('Snapshot matches tmux after scrolling in copy mode', async () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.setupPage();
 
-      await runCommand(ctx.page, 'seq 1 100', '100');
+      await runCommand(ctx.page, 'seq 1 200', '200');
 
       await ctx.session.enterCopyMode();
       await delay(DELAYS.LONG);
 
-      // Scroll up 15 lines
-      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 15 scroll-up`);
+      // Scroll up 30 lines
+      await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X -N 30 scroll-up`);
+      await delay(DELAYS.SYNC);
+      // Wait extra for content to propagate
       await delay(DELAYS.SYNC);
 
       // Verify UI snapshot matches tmux state after scroll
       await assertSnapshotsMatch(ctx.page);
 
       await ctx.session.exitCopyMode();
-    });
+    }, 20000);
   });
 
   // ====================
