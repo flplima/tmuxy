@@ -77,6 +77,8 @@ pub struct SessionConnections {
     pub connections: Vec<u64>,
     /// Each client's reported viewport size (cols, rows) for min-size computation
     pub client_sizes: HashMap<u64, (u32, u32)>,
+    /// Last resize dimensions sent to tmux (to avoid redundant resize commands)
+    pub last_resize: Option<(u32, u32)>,
     /// Sender for commands to the session's monitor (resize, etc.)
     pub monitor_command_tx: Option<MonitorCommandSender>,
     /// Broadcast channel for state updates (shared by all clients in this session)
@@ -91,6 +93,7 @@ impl SessionConnections {
         Self {
             connections: Vec::new(),
             client_sizes: HashMap::new(),
+            last_resize: None,
             monitor_command_tx: None,
             state_tx,
             monitor_handle: None,

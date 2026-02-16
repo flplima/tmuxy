@@ -682,7 +682,9 @@ fn compute_min_client_size(sizes: &HashMap<u64, (u32, u32)>) -> (u32, u32) {
     (min_cols, min_rows)
 }
 
-/// Store a client's viewport size and resize the tmux session
+/// Store a client's viewport size and resize the tmux session.
+/// Skips the resize command if the computed minimum is the same as the last resize
+/// to prevent feedback loops when multiple clients have different viewport sizes.
 async fn set_client_size(state: &Arc<AppState>, session: &str, conn_id: u64, cols: u32, rows: u32) {
     eprintln!("[size] Client {} set size: {}x{}", conn_id, cols, rows);
     let (min_size, command_tx) = {
@@ -690,9 +692,15 @@ async fn set_client_size(state: &Arc<AppState>, session: &str, conn_id: u64, col
         if let Some(session_conns) = sessions.get_mut(session) {
             session_conns.client_sizes.insert(conn_id, (cols, rows));
             let sizes = &session_conns.client_sizes;
+            let min = compute_min_client_size(sizes);
+            // Skip if the minimum size hasn't changed since the last resize
+            if session_conns.last_resize == Some(min) {
+                return;
+            }
+            session_conns.last_resize = Some(min);
             eprintln!("[size] All clients: {:?}", sizes);
             (
-                Some(compute_min_client_size(sizes)),
+                Some(min),
                 session_conns.monitor_command_tx.clone(),
             )
         } else {
@@ -761,7 +769,10 @@ async fn cleanup_connection(
                 sessions.remove(session);
             } else if had_size && !session_conns.client_sizes.is_empty() {
                 // Recompute minimum size for remaining clients
-                resize = Some(compute_min_client_size(&session_conns.client_sizes));
+                let new_min = compute_min_client_size(&session_conns.client_sizes);
+                // Reset last_resize so the new min will be applied
+                session_conns.last_resize = Some(new_min);
+                resize = Some(new_min);
                 cmd_tx = session_conns.monitor_command_tx.clone();
             }
         }
