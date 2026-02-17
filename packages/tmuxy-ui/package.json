@@ -10,6 +10,7 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@szhsin/react-menu": "^4.5.1",
     "@tauri-apps/api": "^2.9.0",
     "@xstate/react": "^6.0.0",
     "anser": "^2.3.5",

@@ -10,6 +10,7 @@ import {
   selectSessionName,
 } from '../machines/AppContext';
 import { WindowTabs } from './WindowTabs';
+import { AppMenu } from './menus/AppMenu';
 import './StatusBar.css';
 
 export function StatusBar() {
@@ -24,13 +25,7 @@ export function StatusBar() {
         className="statusbar-inner"
         style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
       >
-        <button className="statusbar-hamburger" aria-label="Menu">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <rect x="2" y="3" width="12" height="1.5" rx="0.5" />
-            <rect x="2" y="7.25" width="12" height="1.5" rx="0.5" />
-            <rect x="2" y="11.5" width="12" height="1.5" rx="0.5" />
-          </svg>
-        </button>
+        <AppMenu />
         <WindowTabs />
         <button className="statusbar-session" aria-label="Session">
           <span className="statusbar-session-name">{sessionName}</span>

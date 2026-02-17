@@ -89,6 +89,8 @@ export const appMachine = setup({
     // Animation settings — start disabled to prevent flash on initial load.
     // Enabled after first TMUX_STATE_UPDATE settles (see idle state handler).
     enableAnimations: false,
+    // Keybindings from server
+    keybindings: null,
     // Optimistic updates (just track the operation for logging/debugging)
     optimisticOperation: null,
     // Dimension override during group switch (prevents intermediate state flicker)
@@ -593,10 +595,13 @@ export const appMachine = setup({
           }),
         },
         KEYBINDINGS_RECEIVED: {
-          actions: sendTo('keyboard', ({ event }) => ({
-            type: 'UPDATE_KEYBINDINGS' as const,
-            keybindings: event.keybindings,
-          })),
+          actions: [
+            assign({ keybindings: ({ event }) => event.keybindings }),
+            sendTo('keyboard', ({ event }) => ({
+              type: 'UPDATE_KEYBINDINGS' as const,
+              keybindings: event.keybindings,
+            })),
+          ],
         },
         PANE_GROUPS_LOADED: {
           actions: assign(({ event, context }) => {
@@ -843,10 +848,13 @@ export const appMachine = setup({
           })),
         },
         KEYBINDINGS_RECEIVED: {
-          actions: sendTo('keyboard', ({ event }) => ({
-            type: 'UPDATE_KEYBINDINGS' as const,
-            keybindings: event.keybindings,
-          })),
+          actions: [
+            assign({ keybindings: ({ event }) => event.keybindings }),
+            sendTo('keyboard', ({ event }) => ({
+              type: 'UPDATE_KEYBINDINGS' as const,
+              keybindings: event.keybindings,
+            })),
+          ],
         },
         KEY_PRESS: {
           actions: [

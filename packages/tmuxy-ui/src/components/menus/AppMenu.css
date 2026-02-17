@@ -1,0 +1,104 @@
+/* ============================================
+   AppMenu - Dark theme overrides for @szhsin/react-menu
+   ============================================ */
+
+/* Menu container */
+.szh-menu {
+  background-color: var(--bg-medium);
+  border: 1px solid var(--border-medium);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+  min-width: 200px;
+  z-index: 10000;
+}
+
+/* Menu items */
+.szh-menu__item {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.szh-menu__item:hover,
+.szh-menu__item--hover {
+  background-color: var(--bg-elevated-alt);
+  color: var(--text-primary);
+}
+
+.szh-menu__item--disabled {
+  color: var(--text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.szh-menu__item--disabled:hover,
+.szh-menu__item--disabled.szh-menu__item--hover {
+  background-color: transparent;
+}
+
+/* Submenu arrow */
+.szh-menu__submenu > .szh-menu__item::after {
+  content: '\25B6';
+  font-size: 8px;
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--text-muted);
+}
+
+/* Divider */
+.szh-menu__divider {
+  height: 1px;
+  background-color: var(--border-medium);
+  margin: 4px 0;
+}
+
+/* Keybinding label (right-aligned muted text) */
+.menu-keybinding {
+  margin-left: auto;
+  padding-left: 24px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Menu button (hamburger) */
+.app-menu-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.app-menu-button:hover {
+  background-color: var(--bg-elevated-alt);
+  color: var(--text-primary);
+}
+
+/* External link indicator */
+.menu-external {
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Disable transitions/animations on menu */
+.szh-menu,
+.szh-menu__item {
+  transition: none !important;
+  animation: none !important;
+}

@@ -1,19 +1,16 @@
 /**
- * PaneContextMenu - Minimalist TUI-style context menu for pane operations
+ * PaneContextMenu - Right-click context menu for pane operations
  *
- * Shows on right-click with operations and their tmux keymaps.
+ * Uses @szhsin/react-menu ControlledMenu with anchor point positioning.
  */
 
-import { useEffect, useRef, useCallback } from 'react';
-import { useAppSend } from '../machines/AppContext';
-import './PaneContextMenu.css';
-
-interface MenuItem {
-  label: string;
-  keymap: string;
-  action: () => void;
-  separator?: boolean;
-}
+import { ControlledMenu, MenuItem, MenuDivider } from '@szhsin/react-menu';
+import '@szhsin/react-menu/dist/index.css';
+import { useAppSend, useAppSelector, selectKeyBindings, selectVisiblePanes } from '../machines/AppContext';
+import { getKeybindingLabel } from './menus/keybindingLabel';
+import { executeMenuAction } from './menus/menuActions';
+import type { KeyBindings } from '../machines/types';
+import './menus/AppMenu.css';
 
 interface PaneContextMenuProps {
   paneId: string;
@@ -22,108 +19,97 @@ interface PaneContextMenuProps {
   onClose: () => void;
 }
 
+function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
+  const label = getKeybindingLabel(keybindings, command);
+  if (!label) return null;
+  return <span className="menu-keybinding">{label}</span>;
+}
+
 export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps) {
   const send = useAppSend();
-  const menuRef = useRef<HTMLDivElement>(null);
+  const keybindings = useAppSelector(selectKeyBindings);
+  const visiblePanes = useAppSelector(selectVisiblePanes);
+  const isSinglePane = visiblePanes.length <= 1;
 
-  const handleSplitHorizontal = useCallback(() => {
+  const handleAction = (actionId: string) => {
     send({ type: 'FOCUS_PANE', paneId });
-    send({ type: 'SEND_COMMAND', command: 'split-window -v' });
+    executeMenuAction(send, actionId);
     onClose();
-  }, [send, paneId, onClose]);
-
-  const handleSplitVertical = useCallback(() => {
-    send({ type: 'FOCUS_PANE', paneId });
-    send({ type: 'SEND_COMMAND', command: 'split-window -h' });
-    onClose();
-  }, [send, paneId, onClose]);
-
-  const handleAddToGroup = useCallback(() => {
-    send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
-    onClose();
-  }, [send, paneId, onClose]);
-
-  const handleToggleZoom = useCallback(() => {
-    send({ type: 'FOCUS_PANE', paneId });
-    send({ type: 'SEND_COMMAND', command: 'resize-pane -Z' });
-    onClose();
-  }, [send, paneId, onClose]);
-
-  const handleClosePane = useCallback(() => {
-    send({ type: 'FOCUS_PANE', paneId });
-    send({ type: 'SEND_COMMAND', command: 'kill-pane' });
-    onClose();
-  }, [send, paneId, onClose]);
-
-  const menuItems: MenuItem[] = [
-    { label: 'Split Horizontal', keymap: 'prefix "', action: handleSplitHorizontal },
-    { label: 'Split Vertical', keymap: 'prefix %', action: handleSplitVertical },
-    { label: 'Add to Group', keymap: '+', action: handleAddToGroup, separator: true },
-    { label: 'Toggle Zoom', keymap: 'prefix z', action: handleToggleZoom },
-    { label: 'Close Pane', keymap: 'prefix x', action: handleClosePane },
-  ];
-
-  // Close on click outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [onClose]);
-
-  // Adjust position to stay within viewport
-  useEffect(() => {
-    if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    if (rect.right > viewportWidth) {
-      menuRef.current.style.left = `${x - rect.width}px`;
-    }
-    if (rect.bottom > viewportHeight) {
-      menuRef.current.style.top = `${y - rect.height}px`;
-    }
-  }, [x, y]);
+  };
 
   return (
-    <div
-      ref={menuRef}
-      className="pane-context-menu"
-      style={{ left: x, top: y }}
+    <ControlledMenu
+      state="open"
+      anchorPoint={{ x, y }}
+      onClose={onClose}
+      transition={false}
     >
-      <div className="pane-context-menu-border-top">┌────────────────────────────┐</div>
-      {menuItems.map((item, index) => (
-        <div key={item.label}>
-          {item.separator && index > 0 && (
-            <div className="pane-context-menu-separator">├────────────────────────────┤</div>
-          )}
-          <div
-            className="pane-context-menu-item"
-            onClick={item.action}
-          >
-            <span className="pane-context-menu-border">│</span>
-            <span className="pane-context-menu-label">{item.label}</span>
-            <span className="pane-context-menu-keymap">{item.keymap}</span>
-            <span className="pane-context-menu-border">│</span>
-          </div>
-        </div>
-      ))}
-      <div className="pane-context-menu-border-bottom">└────────────────────────────┘</div>
-    </div>
+      <MenuItem onClick={() => handleAction('pane-split-below')}>
+        New Pane Below
+        <KeyLabel keybindings={keybindings} command="split-window -v" />
+      </MenuItem>
+      <MenuItem onClick={() => handleAction('pane-split-right')}>
+        New Pane Right
+        <KeyLabel keybindings={keybindings} command="split-window -h" />
+      </MenuItem>
+      <MenuDivider />
+      <MenuItem onClick={() => handleAction('pane-navigate-up')} disabled={isSinglePane}>
+        Navigate Up
+        <KeyLabel keybindings={keybindings} command="select-pane -U" />
+      </MenuItem>
+      <MenuItem onClick={() => handleAction('pane-navigate-down')} disabled={isSinglePane}>
+        Navigate Down
+        <KeyLabel keybindings={keybindings} command="select-pane -D" />
+      </MenuItem>
+      <MenuItem onClick={() => handleAction('pane-navigate-left')} disabled={isSinglePane}>
+        Navigate Left
+        <KeyLabel keybindings={keybindings} command="select-pane -L" />
+      </MenuItem>
+      <MenuItem onClick={() => handleAction('pane-navigate-right')} disabled={isSinglePane}>
+        Navigate Right
+        <KeyLabel keybindings={keybindings} command="select-pane -R" />
+      </MenuItem>
+      <MenuDivider />
+      <MenuItem onClick={() => handleAction('pane-swap-prev')} disabled={isSinglePane}>
+        Swap with Previous
+        <KeyLabel keybindings={keybindings} command="swap-pane -U" />
+      </MenuItem>
+      <MenuItem onClick={() => handleAction('pane-swap-next')} disabled={isSinglePane}>
+        Swap with Next
+        <KeyLabel keybindings={keybindings} command="swap-pane -D" />
+      </MenuItem>
+      <MenuItem onClick={() => handleAction('pane-move-new-tab')}>
+        Move to New Tab
+        <KeyLabel keybindings={keybindings} command="break-pane" />
+      </MenuItem>
+      <MenuItem onClick={() => {
+        send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
+        onClose();
+      }}>
+        Add Pane to Group
+      </MenuItem>
+      <MenuDivider />
+      <MenuItem onClick={() => handleAction('pane-copy-mode')}>
+        Copy Mode
+        <KeyLabel keybindings={keybindings} command="copy-mode" />
+      </MenuItem>
+      <MenuItem onClick={() => handleAction('pane-paste')}>
+        Paste
+        <KeyLabel keybindings={keybindings} command="paste-buffer" />
+      </MenuItem>
+      <MenuItem onClick={() => handleAction('pane-clear')}>
+        Clear Screen
+      </MenuItem>
+      <MenuDivider />
+      <MenuItem onClick={() => handleAction('view-zoom')}>
+        Zoom Pane
+        <KeyLabel keybindings={keybindings} command="resize-pane -Z" />
+      </MenuItem>
+      <MenuDivider />
+      <MenuItem onClick={() => handleAction('pane-close')}>
+        Close Pane
+        <KeyLabel keybindings={keybindings} command="kill-pane" />
+      </MenuItem>
+    </ControlledMenu>
   );
 }

@@ -60,6 +60,7 @@ export {
   selectHasOptimisticOperation,
   selectGroupSwitchPaneIds,
   selectSessionName,
+  selectKeyBindings,
 } from './selectors';
 
 // ============================================

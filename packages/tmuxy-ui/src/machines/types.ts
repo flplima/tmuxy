@@ -4,10 +4,10 @@
  * All type definitions for state machines and their events.
  */
 
-import type { TmuxPane, TmuxWindow, ServerState, KeyBindings } from '../tmux/types';
+import type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding } from '../tmux/types';
 
 // Re-export domain types
-export type { TmuxPane, TmuxWindow, ServerState, KeyBindings };
+export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding };
 
 // ============================================
 // Shared State Types
@@ -122,6 +122,8 @@ export interface AppMachineContext {
   floatPanes: Record<string, FloatPaneState>;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
+  /** Keybindings received from the server */
+  keybindings: KeyBindings | null;
   /** Current optimistic operation being applied (awaiting server confirmation) */
   optimisticOperation: OptimisticOperation | null;
   /** Override during group switch (prevents intermediate state flicker) */

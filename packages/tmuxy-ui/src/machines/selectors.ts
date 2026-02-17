@@ -1,4 +1,4 @@
-import type { AppMachineContext, TmuxPane, PaneGroup, ResizeState, FloatPaneState } from './types';
+import type { AppMachineContext, TmuxPane, PaneGroup, ResizeState, FloatPaneState, KeyBindings } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 
 // ============================================
@@ -535,6 +535,14 @@ export function selectGroupSwitchPaneIds(context: AppMachineContext): { paneId: 
 
 export function selectSessionName(context: AppMachineContext): string {
   return context.sessionName;
+}
+
+// ============================================
+// Keybindings Selector
+// ============================================
+
+export function selectKeyBindings(context: AppMachineContext): KeyBindings | null {
+  return context.keybindings;
 }
 
 // ============================================

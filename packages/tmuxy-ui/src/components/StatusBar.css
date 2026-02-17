@@ -21,27 +21,6 @@
   width: 100%;
 }
 
-/* Hamburger menu button */
-.statusbar-hamburger {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.statusbar-hamburger:hover {
-  background-color: var(--bg-elevated-alt);
-  color: var(--text-primary);
-}
-
 /* Tab list */
 .tab-list {
   display: flex;
