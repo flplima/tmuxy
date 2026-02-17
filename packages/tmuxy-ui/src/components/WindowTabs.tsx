@@ -68,7 +68,7 @@ export function WindowTabs() {
         </div>
       ))}
       <button
-        className="tab tab-add"
+        className="tab-add"
         onClick={handleNewWindow}
         title="New window"
         aria-label="Create new window"
