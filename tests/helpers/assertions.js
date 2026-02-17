@@ -86,9 +86,9 @@ async function getUISnapshot(page) {
     }
 
     // Get window tabs
-    const windowTabs = document.querySelectorAll('.window-tab');
+    const windowTabs = document.querySelectorAll('.tab');
     windowTabs.forEach((tab, index) => {
-      const isActive = tab.classList.contains('window-tab-active');
+      const isActive = tab.classList.contains('tab-active');
       result.windows.push({
         index,
         name: tab.textContent?.trim() || '',

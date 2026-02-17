@@ -1,78 +1,94 @@
+/* ============================================
+   StatusBar - Top tab bar
+   ============================================ */
+
 .statusbar {
   display: flex;
   align-items: center;
-  height: 32px;
-  background-color: #1e1e1e;
-  border-bottom: 1px solid #3d3d3d;
-  padding: 0 8px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-  font-size: 12px;
+  height: var(--statusbar-height);
+  background-color: var(--bg-dark);
+  border-bottom: 1px solid var(--border-medium);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
   user-select: none;
 }
 
-.statusbar-command {
-  background-color: #2d2d2d;
-}
-
-.statusbar-prefix {
-  background-color: #1a3d1a;
-  border-bottom-color: #2d5a2d;
-}
-
-.window-tabs {
+.statusbar-inner {
   display: flex;
   align-items: center;
-  gap: 4px;
+  height: 100%;
+  gap: var(--spacing-xl);
+  width: 100%;
+}
+
+/* Hamburger menu button */
+.statusbar-hamburger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.statusbar-hamburger:hover {
+  background-color: var(--bg-elevated-alt);
+  color: var(--text-primary);
+}
+
+/* Tab list */
+.tab-list {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
   flex: 1;
   overflow-x: auto;
+  scrollbar-width: none;
 }
 
-.window-tab {
+.tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+/* Individual tab */
+.tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  background-color: #2d2d2d;
-  border-radius: 4px;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-3xl);
+  background-color: var(--bg-medium);
+  border: none;
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  color: #a0a0a0;
-  transition: all 0.15s ease;
-  position: relative;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  white-space: nowrap;
   min-width: 60px;
 }
 
-.window-tab:hover {
-  background-color: #3d3d3d;
-  color: #d4d4d4;
+.tab:hover {
+  background-color: var(--bg-elevated-alt);
+  color: var(--text-secondary);
 }
 
-.window-tab-active {
-  background-color: #4a4a4a;
-  color: #ffffff;
+.tab-active {
+  background-color: var(--bg-highlight);
+  color: var(--text-primary);
 }
 
-.window-tab-active:hover {
-  background-color: #5a5a5a;
+.tab-active:hover {
+  background-color: var(--bg-highlight-alt);
 }
 
-.window-index {
-  color: #6a9955;
-  font-weight: bold;
-  font-size: 11px;
-}
-
-.window-tab-active .window-index {
-  color: #7cb342;
-}
-
-.window-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 120px;
-}
-
-.window-tab-button {
+/* Tab button (clickable name area) */
+.tab-button {
   display: flex;
   align-items: center;
   padding: 0;
@@ -84,51 +100,93 @@
   font-size: inherit;
 }
 
-.window-close {
+/* Tab name */
+.tab-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+/* Tab close button - hidden by default, visible on hover */
+.tab-close {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 16px;
   height: 16px;
   padding: 0;
-  margin-left: 4px;
   background: transparent;
   border: none;
-  border-radius: 3px;
-  color: #a0a0a0;
-  font-size: 14px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
   cursor: pointer;
   line-height: 1;
+  opacity: 0;
+  flex-shrink: 0;
 }
 
-.window-close:hover {
-  background-color: #e53935;
+.tab:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background-color: var(--error-color);
   color: white;
 }
 
-.window-new {
+/* Add tab button */
+.tab-add {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
   padding: 0;
-  background-color: transparent;
-  border: 1px dashed #4a4a4a;
-  border-radius: 4px;
-  color: #6a6a6a;
-  font-size: 16px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-subtle);
   cursor: pointer;
-  transition: all 0.15s ease;
 }
 
-.window-new:hover {
-  background-color: #3d3d3d;
-  border-color: #6a6a6a;
-  color: #a0a0a0;
+.tab-add:hover {
+  background-color: var(--bg-elevated-alt);
+  color: var(--text-muted);
 }
 
-.window-tab-placeholder {
+/* Session dropdown button */
+.statusbar-session {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-xl);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.statusbar-session:hover {
+  background-color: var(--bg-elevated-alt);
+  color: var(--text-primary);
+}
+
+.statusbar-session-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+/* Tab placeholder (drag target) */
+.tab-placeholder {
   border: 2px dashed rgba(100, 150, 255, 0.8);
   background-color: rgba(100, 150, 255, 0.15);
   color: rgba(100, 150, 255, 0.9);
@@ -143,149 +201,4 @@
   50% {
     background-color: rgba(100, 150, 255, 0.25);
   }
-}
-
-/* Command mode styles */
-.command-prefix {
-  color: #6a9955;
-  font-weight: bold;
-  margin-right: 4px;
-}
-
-.command-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: #d4d4d4;
-  font-family: inherit;
-  font-size: inherit;
-  padding: 4px;
-}
-
-.command-input::placeholder {
-  color: #5a5a5a;
-}
-
-/* Tmux button and dropdown */
-.tmux-button-container {
-  position: relative;
-  margin-left: 8px;
-}
-
-.tmux-button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  background-color: #2d2d2d;
-  border: 1px solid #4a4a4a;
-  border-radius: 4px;
-  color: #a0a0a0;
-  font-family: inherit;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.tmux-button:hover {
-  background-color: #3d3d3d;
-  border-color: #5a5a5a;
-  color: #d4d4d4;
-}
-
-.tmux-button-active {
-  background-color: #1a3d1a;
-  border-color: #2d5a2d;
-  color: #7cb342;
-}
-
-.tmux-button-active:hover {
-  background-color: #254d25;
-  border-color: #3d6a3d;
-}
-
-.tmux-button i {
-  font-size: 12px;
-}
-
-.tmux-button-label {
-  font-weight: 500;
-}
-
-.tmux-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  min-width: 220px;
-  background-color: #252526;
-  border: 1px solid #3d3d3d;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  overflow: hidden;
-  z-index: 1000;
-}
-
-.tmux-dropdown-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  background-color: #1e1e1e;
-  border-bottom: 1px solid #3d3d3d;
-  font-size: 11px;
-  color: #808080;
-}
-
-.tmux-dropdown-hint {
-  font-style: italic;
-  color: #606060;
-}
-
-.tmux-dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 12px;
-  background: transparent;
-  border: none;
-  color: #cccccc;
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  text-align: left;
-  transition: background-color 0.1s ease;
-}
-
-.tmux-dropdown-item:hover {
-  background-color: #2a2d2e;
-}
-
-.tmux-dropdown-item:active {
-  background-color: #094771;
-}
-
-.tmux-dropdown-item i {
-  width: 16px;
-  text-align: center;
-  color: #808080;
-  font-size: 12px;
-}
-
-.tmux-dropdown-item:hover i {
-  color: #cccccc;
-}
-
-.tmux-dropdown-item-label {
-  flex: 1;
-}
-
-.tmux-dropdown-item-key {
-  padding: 2px 6px;
-  background-color: #3d3d3d;
-  border-radius: 3px;
-  font-size: 10px;
-  font-family: 'Monaco', 'Menlo', monospace;
-  color: #a0a0a0;
 }

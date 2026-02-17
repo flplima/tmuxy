@@ -1,7 +1,7 @@
 /**
  * WindowTabs - Displays tmux window tabs in the status bar
  *
- * Minimalist flat buttons for each tmux window.
+ * Dark gray rounded buttons with hover-only close buttons.
  * Filters out special windows (pane groups, floats).
  */
 
@@ -41,37 +41,41 @@ export function WindowTabs() {
   );
 
   return (
-    <div className="window-tabs">
+    <div className="tab-list">
       {visibleWindows.map((window) => (
         <div
           key={window.index}
-          className={`window-tab ${window.active ? 'window-tab-active' : ''}`}
+          className={`tab ${window.active ? 'tab-active' : ''}`}
         >
           <button
-            className="window-tab-button"
+            className="tab-button"
             onClick={() => handleWindowClick(window.index)}
             aria-label={`Window ${window.index}: ${window.name}${window.active ? ' (active)' : ''}`}
             aria-pressed={window.active}
           >
-            <span className="window-name">{window.name || `Window ${window.index}`}</span>
+            <span className="tab-name">{window.name || `Window ${window.index}`}</span>
           </button>
           <button
-            className="window-close"
+            className="tab-close"
             onClick={(e) => handleCloseWindow(window.index, e)}
             title="Close window"
             aria-label={`Close window ${window.index}`}
           >
-            ×
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+              <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+            </svg>
           </button>
         </div>
       ))}
       <button
-        className="window-tab window-tab-add"
+        className="tab tab-add"
         onClick={handleNewWindow}
         title="New window"
         aria-label="Create new window"
       >
-        +
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+          <path d="M7 2V12M2 7H12" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+        </svg>
       </button>
     </div>
   );

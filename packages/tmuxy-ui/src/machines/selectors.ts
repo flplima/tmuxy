@@ -530,6 +530,14 @@ export function selectGroupSwitchPaneIds(context: AppMachineContext): { paneId: 
 }
 
 // ============================================
+// Session Selectors
+// ============================================
+
+export function selectSessionName(context: AppMachineContext): string {
+  return context.sessionName;
+}
+
+// ============================================
 // Animation Selectors
 // ============================================
 

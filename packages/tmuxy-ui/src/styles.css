@@ -582,72 +582,8 @@ body {
 
 
 /* ============================================
-   Status Bar - Minimalist flat design
+   Status Bar - styles are in StatusBar.css
    ============================================ */
-
-.statusbar {
-  display: flex;
-  align-items: center;
-  height: var(--statusbar-height);
-  padding: 0 var(--spacing-sm);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  user-select: none;
-  background: transparent;
-}
-
-/* Window Tabs - Flat buttons */
-.window-tabs {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  flex: 1;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.window-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.window-tab {
-  display: flex;
-  align-items: center;
-  padding: var(--spacing-sm) var(--spacing-xl);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  transition: color var(--transition-fast);
-  white-space: nowrap;
-}
-
-.window-tab:hover {
-  color: var(--text-primary);
-}
-
-.window-tab-active {
-  color: var(--text-primary);
-}
-
-.window-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 150px;
-}
-
-.window-tab-add {
-  color: var(--text-subtle);
-  font-size: var(--font-size-lg);
-  padding: var(--spacing-sm) var(--spacing-lg);
-}
-
-.window-tab-add:hover {
-  color: var(--text-muted);
-}
 
 
 /* ============================================

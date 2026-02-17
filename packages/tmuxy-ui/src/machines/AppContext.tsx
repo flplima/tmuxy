@@ -59,6 +59,7 @@ export {
   selectEnableAnimations,
   selectHasOptimisticOperation,
   selectGroupSwitchPaneIds,
+  selectSessionName,
 } from './selectors';
 
 // ============================================
