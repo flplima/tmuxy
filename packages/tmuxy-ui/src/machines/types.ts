@@ -252,6 +252,7 @@ export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string 
 
 // Group switch detection event (fired internally when switch detected in state update)
 export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
+export type EnableAnimationsEvent = { type: 'ENABLE_ANIMATIONS' };
 
 
 /** All events the app machine can receive from external sources */
@@ -284,7 +285,8 @@ export type AppMachineEvent =
   | SendCommandEvent
   | SendKeysEvent
   | SendTmuxCommandEvent
-  | ClearGroupSwitchOverrideEvent;
+  | ClearGroupSwitchOverrideEvent
+  | EnableAnimationsEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

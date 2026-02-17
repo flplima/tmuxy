@@ -86,8 +86,9 @@ export const appMachine = setup({
     lastUpdateTime: 0,
     // Float pane state
     floatPanes: {},
-    // Animation settings
-    enableAnimations: true,
+    // Animation settings — start disabled to prevent flash on initial load.
+    // Enabled after first TMUX_STATE_UPDATE settles (see idle state handler).
+    enableAnimations: false,
     // Optimistic updates (just track the operation for logging/debugging)
     optimisticOperation: null,
     // Dimension override during group switch (prevents intermediate state flicker)
@@ -182,6 +183,9 @@ export const appMachine = setup({
     },
     SET_ANIMATION_ROOT: {
       actions: assign(() => ({})), // Handled by AppContext spawning
+    },
+    ENABLE_ANIMATIONS: {
+      actions: assign({ enableAnimations: true }),
     },
 
     // Connection info events
@@ -488,6 +492,19 @@ export const appMachine = setup({
                   })
                 );
               }
+
+              // Enable animations after initial state settles.
+              // On first load, animations are disabled to prevent flash from stale
+              // server dimensions and container height corrections (StatusBar mount).
+              // If a resize is pending, use a longer delay for the round-trip.
+              if (!context.enableAnimations) {
+                const delay = shouldResize ? 500 : 100;
+                enqueue(({ self }) => {
+                  setTimeout(() => {
+                    self.send({ type: 'ENABLE_ANIMATIONS' });
+                  }, delay);
+                });
+              }
             }),
           },
         ],
@@ -496,7 +513,7 @@ export const appMachine = setup({
         },
         TMUX_DISCONNECTED: {
           target: 'connecting',
-          actions: assign({ connected: false }),
+          actions: assign({ connected: false, enableAnimations: false }),
         },
 
         // Keyboard actor events
@@ -843,7 +860,7 @@ export const appMachine = setup({
         },
         TMUX_DISCONNECTED: {
           target: 'connecting',
-          actions: assign({ connected: false, pendingUpdate: null }),
+          actions: assign({ connected: false, pendingUpdate: null, enableAnimations: false }),
         },
       },
     },

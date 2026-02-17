@@ -196,7 +196,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     const pane = visiblePanes[0];
     const headerY = Math.max(0, pane.y - 1);
     return (
-      <div className="pane-layout" style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}>
+      <div className={`pane-layout${!enableAnimations ? ' pane-layout-no-animations' : ''}`} style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}>
         <div
           className="pane-layout-item pane-active"
           data-pane-id={pane.tmuxId}
