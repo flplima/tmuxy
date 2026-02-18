@@ -28,6 +28,10 @@ interface UsePaneMouseOptions {
   copyModeActive: boolean;
   /** Pane height in rows (for scroll calculations) */
   paneHeight: number;
+  /** Current scroll position in copy mode (absolute row) */
+  copyModeScrollTop: number;
+  /** Total lines in copy mode scrollback */
+  copyModeTotalLines: number;
   /** Ref to the .pane-content element (used for coordinate calculation) */
   contentRef: RefObject<HTMLDivElement | null>;
 }
@@ -39,7 +43,7 @@ export function usePaneMouse(
   send: (event: AppMachineEvent) => void,
   options: UsePaneMouseOptions
 ) {
-  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, copyModeActive, contentRef } = options;
+  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, copyModeActive, copyModeScrollTop, copyModeTotalLines, contentRef } = options;
 
   // Track mouse button state for drag events
   const mouseButtonRef = useRef<number | null>(null);
@@ -276,26 +280,12 @@ export function usePaneMouse(
         return;
       }
 
-      // If already in client-side copy mode, scroll the scrollback view
+      // If already in client-side copy mode, scroll viewport only (no cursor/selection change)
       if (copyModeActive) {
-        // COPY_MODE_SCROLL expects absolute scrollTop, but we just pass delta
-        // The appMachine will compute the real scrollTop. We use a special event
-        // to scroll relatively by sending a scroll offset.
-        send({
-          type: 'COPY_MODE_KEY',
-          key: isScrollUp ? 'k' : 'j',
-          ctrlKey: false,
-          shiftKey: false,
-        });
-        // Send multiple times for multi-line scroll
-        for (let i = 1; i < absLines; i++) {
-          send({
-            type: 'COPY_MODE_KEY',
-            key: isScrollUp ? 'k' : 'j',
-            ctrlKey: false,
-            shiftKey: false,
-          });
-        }
+        const paneH = options.paneHeight;
+        const delta = isScrollUp ? -absLines : absLines;
+        const newScrollTop = Math.max(0, Math.min(copyModeTotalLines - paneH, copyModeScrollTop + delta));
+        send({ type: 'COPY_MODE_SCROLL', paneId, scrollTop: newScrollTop });
         return;
       }
 
@@ -311,7 +301,7 @@ export function usePaneMouse(
         });
       }
     },
-    [send, paneId, charHeight, alternateOn, mouseAnyFlag, copyModeActive, pixelToCell]
+    [send, paneId, charHeight, alternateOn, mouseAnyFlag, copyModeActive, copyModeScrollTop, copyModeTotalLines, options.paneHeight, pixelToCell]
   );
 
   // Handle double-click for word selection
