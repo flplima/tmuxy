@@ -13,7 +13,8 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import type { KeyBindings } from '../../tmux/types';
+import type { KeyBindings, CopyModeState } from '../../tmux/types';
+import { extractSelectedText } from '../../utils/copyMode';
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
@@ -134,6 +135,21 @@ export function createKeyboardActor() {
       // or send SIGINT (if not in copy mode / no selection)
       if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
         event.preventDefault();
+        // Write to clipboard directly in keydown handler (preserves user activation)
+        if (copyModeActive) {
+          try {
+            const snapshot = input.parent.getSnapshot() as { context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> } };
+            const ctx = snapshot?.context;
+            const paneId = ctx?.activePaneId;
+            const copyState = paneId ? ctx?.copyModeStates?.[paneId] : undefined;
+            if (copyState?.selectionMode && copyState?.selectionAnchor) {
+              const text = extractSelectedText(copyState);
+              if (text) {
+                navigator.clipboard?.writeText(text).catch(() => {});
+              }
+            }
+          } catch (_) { /* ignore snapshot access errors */ }
+        }
         input.parent.send({ type: 'COPY_SELECTION' });
         return;
       }
@@ -141,6 +157,21 @@ export function createKeyboardActor() {
       // Client-side copy mode: intercept all keys
       if (copyModeActive) {
         event.preventDefault();
+        // For yank key (y), write to clipboard directly (preserves user activation)
+        if (event.key === 'y') {
+          try {
+            const snapshot = input.parent.getSnapshot() as { context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> } };
+            const ctx = snapshot?.context;
+            const paneId = ctx?.activePaneId;
+            const copyState = paneId ? ctx?.copyModeStates?.[paneId] : undefined;
+            if (copyState?.selectionMode && copyState?.selectionAnchor) {
+              const text = extractSelectedText(copyState);
+              if (text) {
+                navigator.clipboard?.writeText(text).catch(() => {});
+              }
+            }
+          } catch (_) { /* ignore */ }
+        }
         input.parent.send({
           type: 'COPY_MODE_KEY',
           key: event.key,

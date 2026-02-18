@@ -814,16 +814,22 @@ export const appMachine = setup({
                     console.error('[copyMode] Clipboard write failed:', err);
                   });
                 }
-                // Exit copy mode
-                const newStates = { ...context.copyModeStates };
-                delete newStates[paneId];
-                enqueue(assign({ copyModeStates: newStates }));
-                enqueue(sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `send-keys -t ${paneId} -X cancel`,
-                }));
-                return;
               }
+              // Exit copy mode (whether or not there was a selection to copy)
+              copyModeExitTimes.set(paneId, Date.now());
+              const newStates = { ...context.copyModeStates };
+              delete newStates[paneId];
+              enqueue(assign({ copyModeStates: newStates }));
+              enqueue(sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `send-keys -t ${paneId} -X cancel`,
+              }));
+              enqueue(sendTo('keyboard', {
+                type: 'UPDATE_COPY_MODE' as const,
+                active: false,
+                paneId: null,
+              }));
+              return;
             }
 
             // Not in client-side copy mode: send SIGINT (C-c)
