@@ -193,6 +193,7 @@ export function usePaneMouse(
         if (start.x > 0) {
           parts.push(`send-keys -t ${paneId} -X -N ${start.x} cursor-right`);
         }
+        parts.push(`set -p -t ${paneId} @tmuxy_sel_mode char`);
         parts.push(`send-keys -t ${paneId} -X begin-selection`);
 
         send({ type: 'SEND_COMMAND', command: parts.join(' \\; ') });

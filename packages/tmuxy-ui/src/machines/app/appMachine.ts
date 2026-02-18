@@ -304,6 +304,17 @@ export const appMachine = setup({
                 );
               }
 
+              // Detect yank during pane removal
+              for (const prevPane of context.panes) {
+                if (prevPane.inMode && prevPane.selectionPresent) {
+                  const newPane = transformed.panes.find(p => p.tmuxId === prevPane.tmuxId);
+                  if (newPane && !newPane.inMode) {
+                    enqueue(sendTo('tmux', { type: 'AUTO_COPY_BUFFER' as const }));
+                    break;
+                  }
+                }
+              }
+
               // Store the pending update to apply after animation
               enqueue(
                 assign({
@@ -435,6 +446,19 @@ export const appMachine = setup({
                 }
               } else if (Date.now() - groupSwitchOverride.timestamp >= 750) {
                 groupSwitchOverride = null;
+              }
+
+              // Detect yank: pane was in copy mode with selection, now exited copy mode.
+              // This means the user yanked (y) or copy-selection completed, so copy the
+              // tmux paste buffer to the system clipboard.
+              for (const prevPane of context.panes) {
+                if (prevPane.inMode && prevPane.selectionPresent) {
+                  const newPane = transformed.panes.find(p => p.tmuxId === prevPane.tmuxId);
+                  if (newPane && !newPane.inMode) {
+                    enqueue(sendTo('tmux', { type: 'AUTO_COPY_BUFFER' as const }));
+                    break;
+                  }
+                }
               }
 
               enqueue(
@@ -839,6 +863,17 @@ export const appMachine = setup({
               context.charWidth,
               context.charHeight
             );
+
+            // Detect yank during removingPane state
+            for (const prevPane of context.panes) {
+              if (prevPane.inMode && prevPane.selectionPresent) {
+                const newPane = transformed.panes.find(p => p.tmuxId === prevPane.tmuxId);
+                if (newPane && !newPane.inMode) {
+                  enqueue(sendTo('tmux', { type: 'AUTO_COPY_BUFFER' as const }));
+                  break;
+                }
+              }
+            }
 
             enqueue(
               assign({

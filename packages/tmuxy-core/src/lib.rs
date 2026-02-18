@@ -245,6 +245,9 @@ pub struct TmuxPane {
     /// Selection start Y (visible-area-relative row, can be negative if off-screen)
     #[serde(default)]
     pub selection_start_y: i32,
+    /// Selection mode: "char", "line", or "" (from @tmuxy_sel_mode pane user option)
+    #[serde(default)]
+    pub sel_mode: String,
 }
 
 /// A single tmux window (tab)
@@ -434,6 +437,9 @@ pub struct PaneDelta {
     /// Selection start Y (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection_start_y: Option<i32>,
+    /// Selection mode (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sel_mode: Option<String>,
 }
 
 impl PaneDelta {
@@ -461,6 +467,7 @@ impl PaneDelta {
             && self.selection_present.is_none()
             && self.selection_start_x.is_none()
             && self.selection_start_y.is_none()
+            && self.sel_mode.is_none()
     }
 }
 
@@ -678,6 +685,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             selection_present: false,
             selection_start_x: 0,
             selection_start_y: 0,
+            sel_mode: String::new(),
         });
     }
 

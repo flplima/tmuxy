@@ -6,7 +6,8 @@ export type TmuxActorEvent =
   | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
   | { type: 'FETCH_PANE_GROUPS' }
-  | { type: 'COPY_TO_CLIPBOARD' };
+  | { type: 'COPY_TO_CLIPBOARD' }
+  | { type: 'AUTO_COPY_BUFFER' };
 
 export interface TmuxActorInput {
   parent: AnyActorRef;
@@ -97,6 +98,19 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           })
           .catch((error) => {
             console.error('[tmuxActor] Copy to clipboard failed:', error);
+          });
+      } else if (event.type === 'AUTO_COPY_BUFFER') {
+        // Read the tmux paste buffer and copy to system clipboard.
+        // Used after yank (y) which already copies to buffer and exits copy mode.
+        adapter
+          .invoke<string>('get_buffer', {})
+          .then((text) => {
+            if (text && navigator.clipboard) {
+              return navigator.clipboard.writeText(text);
+            }
+          })
+          .catch((error) => {
+            console.error('[tmuxActor] Auto-copy buffer failed:', error);
           });
       }
     });

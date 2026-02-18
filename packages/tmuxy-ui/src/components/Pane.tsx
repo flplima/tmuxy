@@ -85,6 +85,7 @@ export function Pane({ paneId }: PaneProps) {
           selectionStart={selectionStart}
           selectionStartX={pane.selectionStartX}
           selectionStartY={pane.selectionStartY}
+          selMode={pane.selMode}
         />
       </div>
     </div>
