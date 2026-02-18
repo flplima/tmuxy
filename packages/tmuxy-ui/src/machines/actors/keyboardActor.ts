@@ -341,12 +341,33 @@ export function createKeyboardActor() {
       const text = event.clipboardData?.getData('text/plain');
       if (!text) return;
 
-      for (let i = 0; i < text.length; i += PASTE_CHUNK_SIZE) {
-        const chunk = text.slice(i, i + PASTE_CHUNK_SIZE);
-        const escaped = escapeLiteralText(chunk);
+      // Build multiple send-keys commands joined by \n. Control mode processes
+      // each line as a separate command, so this keeps them atomic and ordered.
+      // For each text line: send-keys -l 'text', then send-keys Enter.
+      const lines = text.split('\n');
+      const commands: string[] = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.length > 0) {
+          // Chunk long lines
+          for (let j = 0; j < line.length; j += PASTE_CHUNK_SIZE) {
+            const chunk = line.slice(j, j + PASTE_CHUNK_SIZE);
+            commands.push(`send-keys -t ${sessionName} -l ${escapeLiteralText(chunk)}`);
+          }
+        }
+        if (i < lines.length - 1) {
+          commands.push(`send-keys -t ${sessionName} Enter`);
+        }
+      }
+
+      if (commands.length > 0) {
+        // Send all commands as \n-separated string in a single call.
+        // The backend writes this to control mode stdin, which processes
+        // each line as a separate command in order.
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
-          command: `send-keys -t ${sessionName} -l ${escaped}`,
+          command: commands.join('\n'),
         });
       }
     };

@@ -108,9 +108,13 @@ let lastKeyWasG = false;
 export function handleCopyModeKey(
   key: string,
   ctrlKey: boolean,
-  _shiftKey: boolean,
+  shiftKey: boolean,
   state: CopyModeState,
 ): CopyModeKeyResult {
+  // Browsers may send lowercase key with shiftKey=true (e.g. key='v', shiftKey=true for 'V')
+  // Normalize to uppercase for single-letter keys when shift is held
+  const effectiveKey = (shiftKey && key.length === 1 && /[a-z]/.test(key)) ? key.toUpperCase() : key;
+
   const { cursorRow, cursorCol, width, totalLines, scrollTop, height, selectionMode, selectionAnchor, lines } = state;
   let newRow = cursorRow;
   let newCol = cursorCol;
@@ -125,7 +129,7 @@ export function handleCopyModeKey(
 
   // Ctrl key combos
   if (ctrlKey) {
-    switch (key) {
+    switch (effectiveKey) {
       case 'u': // Half page up
         newRow = Math.max(0, cursorRow - Math.floor(height / 2));
         break;
@@ -142,7 +146,7 @@ export function handleCopyModeKey(
         return { state: {}, action: null };
     }
   } else {
-    switch (key) {
+    switch (effectiveKey) {
       // Cursor movement
       case 'h':
       case 'ArrowLeft':
