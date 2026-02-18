@@ -356,6 +356,8 @@ export function applySplitPrediction(
     mouseAnyFlag: false,
     paused: false,
     selectionPresent: false,
+    selectionStartX: 0,
+    selectionStartY: 0,
   };
 
   return [...result, newPane];

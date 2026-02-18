@@ -21,7 +21,12 @@ interface TerminalProps {
   copyCursorX?: number;
   copyCursorY?: number;
   selectionPresent?: boolean;
+  /** Mouse drag selection start (optimistic, immediate feedback) */
   selectionStart?: { x: number; y: number } | null;
+  /** Backend-provided selection start X (authoritative, from tmux) */
+  selectionStartX?: number;
+  /** Backend-provided selection start Y (authoritative, from tmux, visible-relative) */
+  selectionStartY?: number;
 }
 
 // Empty line constant for padding
@@ -80,16 +85,25 @@ export const Terminal: React.FC<TerminalProps> = ({
   copyCursorY = 0,
   selectionPresent = false,
   selectionStart,
+  selectionStartX = 0,
+  selectionStartY = 0,
 }) => {
   // Use copy mode cursor position when in copy mode
   const effectiveCursorX = inMode ? copyCursorX : cursorX;
   const effectiveCursorY = inMode ? copyCursorY : cursorY;
   const showCursor = isActive || inMode;
 
+  // Resolve selection start: mouse drag (optimistic) takes priority, then backend (authoritative)
+  const effectiveSelectionStart = useMemo(() => {
+    if (selectionStart) return selectionStart;
+    if (selectionPresent) return { x: selectionStartX, y: selectionStartY };
+    return null;
+  }, [selectionStart, selectionPresent, selectionStartX, selectionStartY]);
+
   // Compute selection ranges for each line
   const getSelectionRange = useMemo(
-    () => computeSelectionRanges(selectionPresent, selectionStart, copyCursorX, copyCursorY, width),
-    [selectionPresent, selectionStart, copyCursorX, copyCursorY, width]
+    () => computeSelectionRanges(selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width),
+    [selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width]
   );
 
   // Pad content to fill height

@@ -118,6 +118,15 @@ pub struct PaneState {
     /// Whether a selection is active in copy mode
     pub selection_present: bool,
 
+    /// Selection start X (column) - absolute, from tmux
+    pub selection_start_x: u32,
+
+    /// Selection start Y (row) - absolute history coordinate
+    pub selection_start_y: u64,
+
+    /// History size (number of lines scrolled off the top)
+    pub history_size: u64,
+
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
     pub copy_mode_content: Option<PaneContent>,
 }
@@ -151,6 +160,9 @@ impl PaneState {
             group_id: None,
             group_tab_index: None,
             selection_present: false,
+            selection_start_x: 0,
+            selection_start_y: 0,
+            history_size: 0,
             copy_mode_content: None,
         }
     }
@@ -265,6 +277,18 @@ impl PaneState {
         let vt100_cursor_x = screen.cursor_position().1 as u32;
         let vt100_cursor_y = screen.cursor_position().0 as u32;
 
+        // Convert absolute selection start Y to visible-area-relative coordinate
+        // history_size = lines above the visible area
+        // scroll_position = lines scrolled back from the bottom
+        // view_start = history_size - scroll_position (absolute line at top of visible area)
+        let (sel_start_x, sel_start_y) = if self.selection_present {
+            let view_start = self.history_size as i64 - self.scroll_position as i64;
+            let visible_y = self.selection_start_y as i64 - view_start;
+            (self.selection_start_x, visible_y as i32)
+        } else {
+            (0, 0)
+        };
+
         TmuxPane {
             id: self.index,
             tmux_id: self.id.clone(),
@@ -293,6 +317,8 @@ impl PaneState {
             group_id: self.group_id.clone(),
             group_tab_index: self.group_tab_index,
             selection_present: self.selection_present,
+            selection_start_x: sel_start_x,
+            selection_start_y: sel_start_y,
         }
     }
 }
@@ -1087,16 +1113,38 @@ impl StateAggregator {
         // We parse from the end to find the known fixed fields
         let remaining_parts = if parts.len() > 16 { &parts[16..] } else { &[] };
 
-        // The last five fields should be alternate_on, mouse_any_flag, group_id, group_tab_index, selection_present
+        // The last 8 fields should be: alternate_on, mouse_any_flag, group_id, group_tab_index,
+        // selection_present, selection_start_x, selection_start_y, history_size
         // Parse from the end to find the known fixed fields
-        let (border_title, alternate_on, mouse_any_flag, group_id, group_tab_index, selection_present) = if remaining_parts.len() >= 5 {
+        let num_tail_fields = 8;
+        let (border_title, alternate_on, mouse_any_flag, group_id, group_tab_index,
+             selection_present, selection_start_x, selection_start_y, history_size) = if remaining_parts.len() >= num_tail_fields {
+            let last_idx = remaining_parts.len() - 1;
+            let hist_size: u64 = remaining_parts[last_idx].parse().unwrap_or(0);
+            let sel_start_y: u64 = remaining_parts[last_idx - 1].parse().unwrap_or(0);
+            let sel_start_x: u32 = remaining_parts[last_idx - 2].parse().unwrap_or(0);
+            let sel_present = remaining_parts[last_idx - 3] == "1";
+            let group_tab_idx_str = remaining_parts[last_idx - 4];
+            let group_id_str = remaining_parts[last_idx - 5];
+            let mouse_flag = remaining_parts[last_idx - 6] == "1";
+            let alt_on = remaining_parts[last_idx - 7] == "1";
+            // Everything before the last 8 fields is border_title
+            let title_parts = if remaining_parts.len() > num_tail_fields {
+                remaining_parts[..remaining_parts.len() - num_tail_fields].join(",")
+            } else {
+                String::new()
+            };
+            let gid = if group_id_str.is_empty() { None } else { Some(group_id_str.to_string()) };
+            let gtab = group_tab_idx_str.parse::<u32>().ok();
+            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present, sel_start_x, sel_start_y, hist_size)
+        } else if remaining_parts.len() >= 5 {
+            // Fallback: format without selection_start_x/y/history_size
             let last_idx = remaining_parts.len() - 1;
             let sel_present = remaining_parts[last_idx] == "1";
             let group_tab_idx_str = remaining_parts[last_idx - 1];
             let group_id_str = remaining_parts[last_idx - 2];
             let mouse_flag = remaining_parts[last_idx - 3] == "1";
             let alt_on = remaining_parts[last_idx - 4] == "1";
-            // Everything before the last five fields is border_title
             let title_parts = if remaining_parts.len() > 5 {
                 remaining_parts[..remaining_parts.len() - 5].join(",")
             } else {
@@ -1104,9 +1152,8 @@ impl StateAggregator {
             };
             let gid = if group_id_str.is_empty() { None } else { Some(group_id_str.to_string()) };
             let gtab = group_tab_idx_str.parse::<u32>().ok();
-            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present)
+            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present, 0, 0, 0)
         } else if remaining_parts.len() >= 2 {
-            // Fallback: old format without selection_present
             let last_idx = remaining_parts.len() - 1;
             let mouse_flag = remaining_parts[last_idx] == "1";
             let alt_on = remaining_parts[last_idx - 1] == "1";
@@ -1115,11 +1162,11 @@ impl StateAggregator {
             } else {
                 String::new()
             };
-            (title_parts, alt_on, mouse_flag, None, None, false)
+            (title_parts, alt_on, mouse_flag, None, None, false, 0, 0, 0)
         } else if remaining_parts.len() == 1 {
-            (remaining_parts[0].to_string(), false, false, None, None, false)
+            (remaining_parts[0].to_string(), false, false, None, None, false, 0, 0, 0)
         } else {
-            (String::new(), false, false, None, None, false)
+            (String::new(), false, false, None, None, false, 0, 0, 0)
         };
 
         let pane_id_string = pane_id.to_string();
@@ -1154,6 +1201,9 @@ impl StateAggregator {
         pane.group_id = group_id;
         pane.group_tab_index = group_tab_index;
         pane.selection_present = selection_present;
+        pane.selection_start_x = selection_start_x;
+        pane.selection_start_y = selection_start_y;
+        pane.history_size = history_size;
 
         // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = cursor_x;
@@ -1450,6 +1500,12 @@ impl StateAggregator {
         }
         if prev.selection_present != curr.selection_present {
             delta.selection_present = Some(curr.selection_present);
+        }
+        if prev.selection_start_x != curr.selection_start_x {
+            delta.selection_start_x = Some(curr.selection_start_x);
+        }
+        if prev.selection_start_y != curr.selection_start_y {
+            delta.selection_start_y = Some(curr.selection_start_y);
         }
 
         delta

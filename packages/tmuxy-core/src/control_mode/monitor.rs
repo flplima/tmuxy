@@ -169,7 +169,8 @@ impl TmuxMonitor {
                 "#{scroll_position},",
                 "#{window_id},#{T:pane-border-format},",
                 "#{alternate_on},#{mouse_any_flag},",
-                "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index},#{selection_present}'"
+                "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index},#{selection_present},",
+                "#{selection_start_x},#{selection_start_y},#{history_size}'"
             ))
             .await?;
 
@@ -360,7 +361,8 @@ impl TmuxMonitor {
                                 "#{scroll_position},",
                                 "#{window_id},#{T:pane-border-format},",
                                 "#{alternate_on},#{mouse_any_flag},",
-                "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index},#{selection_present}'"
+                "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index},#{selection_present},",
+                "#{selection_start_x},#{selection_start_y},#{history_size}'"
                             ).to_string(),
                         ];
                         // Capture content for each pane in copy mode with scroll offset
@@ -392,7 +394,8 @@ impl TmuxMonitor {
                                 "#{scroll_position},",
                                 "#{window_id},#{T:pane-border-format},",
                                 "#{alternate_on},#{mouse_any_flag},",
-                "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index},#{selection_present}'"
+                "#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index},#{selection_present},",
+                "#{selection_start_x},#{selection_start_y},#{history_size}'"
                             ).to_string(),
                         ]
                     };

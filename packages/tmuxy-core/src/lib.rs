@@ -239,6 +239,12 @@ pub struct TmuxPane {
     /// Whether a selection is active in copy mode
     #[serde(default)]
     pub selection_present: bool,
+    /// Selection start X (visible-area-relative column), only meaningful when selection_present
+    #[serde(default)]
+    pub selection_start_x: u32,
+    /// Selection start Y (visible-area-relative row, can be negative if off-screen)
+    #[serde(default)]
+    pub selection_start_y: i32,
 }
 
 /// A single tmux window (tab)
@@ -422,6 +428,12 @@ pub struct PaneDelta {
     /// Selection present (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection_present: Option<bool>,
+    /// Selection start X (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection_start_x: Option<u32>,
+    /// Selection start Y (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection_start_y: Option<i32>,
 }
 
 impl PaneDelta {
@@ -447,6 +459,8 @@ impl PaneDelta {
             && self.group_id.is_none()
             && self.group_tab_index.is_none()
             && self.selection_present.is_none()
+            && self.selection_start_x.is_none()
+            && self.selection_start_y.is_none()
     }
 }
 
@@ -662,6 +676,8 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             group_id: info.group_id,
             group_tab_index: info.group_tab_index,
             selection_present: false,
+            selection_start_x: 0,
+            selection_start_y: 0,
         });
     }
 

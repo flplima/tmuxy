@@ -83,6 +83,8 @@ export function Pane({ paneId }: PaneProps) {
           copyCursorY={pane.copyCursorY}
           selectionPresent={pane.selectionPresent}
           selectionStart={selectionStart}
+          selectionStartX={pane.selectionStartX}
+          selectionStartY={pane.selectionStartY}
         />
       </div>
     </div>

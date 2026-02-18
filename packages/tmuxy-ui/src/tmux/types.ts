@@ -31,6 +31,10 @@ export interface TmuxPane {
   paused: boolean;
   /** True if a selection is active in copy mode */
   selectionPresent: boolean;
+  /** Selection start X (visible-area-relative column), only meaningful when selectionPresent */
+  selectionStartX: number;
+  /** Selection start Y (visible-area-relative row, can be negative), only meaningful when selectionPresent */
+  selectionStartY: number;
 }
 
 export interface TmuxWindow {
@@ -123,6 +127,8 @@ export interface ServerPane {
   mouse_any_flag?: boolean;
   paused?: boolean;
   selection_present?: boolean;
+  selection_start_x?: number;
+  selection_start_y?: number;
 }
 
 export interface ServerWindow {
@@ -171,6 +177,8 @@ export interface PaneDelta {
   mouse_any_flag?: boolean;
   paused?: boolean;
   selection_present?: boolean;
+  selection_start_x?: number;
+  selection_start_y?: number;
 }
 
 export interface WindowDelta {
