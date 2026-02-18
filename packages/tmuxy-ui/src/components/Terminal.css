@@ -23,15 +23,6 @@
   min-height: var(--line-height-terminal, 21px);
 }
 
-.hide-scrollbar {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE/Edge */
-}
-
-.hide-scrollbar::-webkit-scrollbar {
-  display: none; /* Chrome/Safari */
-}
-
 .terminal-cursor {
   background-color: #ffffff;
   color: #1e1e1e;

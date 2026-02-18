@@ -278,6 +278,15 @@ body {
   min-height: var(--line-height-terminal);
 }
 
+.hide-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
 /* Terminal hyperlinks (OSC 8) */
 .terminal-hyperlink {
   text-decoration: underline;
