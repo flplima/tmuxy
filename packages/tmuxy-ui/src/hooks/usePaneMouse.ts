@@ -134,13 +134,23 @@ export function usePaneMouse(
         setSelectionStart({ ...dragStartRef.current });
       }
 
+      // Single click (no drag) in copy mode: clear selection and move cursor
+      if (!isDraggingForSelectionRef.current && copyModeActive && e.button === 0) {
+        const target = e.target as HTMLElement;
+        if (!target.closest('.pane-header')) {
+          const cell = pixelToCell(e);
+          send({ type: 'COPY_MODE_SELECTION_CLEAR', paneId });
+          send({ type: 'COPY_MODE_CURSOR_MOVE', paneId, row: cell.y, col: cell.x });
+        }
+      }
+
       // Clear drag state
       dragStartRef.current = null;
       lastCellRef.current = null;
       isDraggingForSelectionRef.current = false;
       mouseButtonRef.current = null;
     },
-    [send, paneId, mouseAnyFlag, pixelToCell]
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell]
   );
 
   // Handle mouse move (for drag)

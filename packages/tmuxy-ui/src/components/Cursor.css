@@ -37,7 +37,21 @@
 }
 
 .terminal-selected {
-  box-shadow: inset 0 0 0 9999px rgba(80, 80, 80, 0.3);
+  position: relative;
+  z-index: 0;
+}
+
+.terminal-selected::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1.2em;
+  transform: translateY(-50%);
+  background-color: rgba(80, 80, 80, 0.3);
+  pointer-events: none;
+  z-index: 1;
 }
 
 @keyframes cursor-blink {
