@@ -71,10 +71,10 @@ export function mergeScrollbackChunk(
   // Convert tmux line offsets to absolute line indices
   // tmux uses: negative = history (from visible top), 0 = first visible line
   // Our absolute: 0 = first history line, historySize = first visible line
+  // tmux clamps -S to the start of history, so actual start may differ from requested
+  const actualTmuxStart = Math.max(tmuxStart, -(historySize as number));
   for (let i = 0; i < cells.length; i++) {
-    const tmuxOffset = tmuxStart + i;
-    // tmux offset: negative values are history lines before visible area
-    // -historySize = first history line, -1 = last history line, 0 = first visible line
+    const tmuxOffset = actualTmuxStart + i;
     const absoluteRow = historySize + tmuxOffset;
     if (absoluteRow >= 0) {
       newLines.set(absoluteRow, cells[i]);
@@ -82,8 +82,8 @@ export function mergeScrollbackChunk(
   }
 
   // Compute the absolute range we just loaded
-  const absStart = Math.max(0, historySize + tmuxStart);
-  const absEnd = historySize + tmuxEnd;
+  const absStart = Math.max(0, historySize + actualTmuxStart);
+  const absEnd = Math.min(historySize + tmuxEnd, absStart + cells.length - 1);
 
   // Merge into loadedRanges
   const newRanges = mergeRanges([...existingRanges, [absStart, absEnd]]);

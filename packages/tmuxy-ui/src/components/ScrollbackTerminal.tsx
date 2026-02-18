@@ -54,7 +54,8 @@ function computeScrollbackSelection(
 export function ScrollbackTerminal({ paneId, copyState }: ScrollbackTerminalProps) {
   const send = useAppSend();
   const { charHeight } = useAppSelector(selectCharSize);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const initialScrollDone = useRef(false);
 
   const {
     totalLines,
@@ -94,6 +95,15 @@ export function ScrollbackTerminal({ paneId, copyState }: ScrollbackTerminalProp
     lastScrollTop.current = scrollTop;
   }
 
+  // Callback ref to set initial scroll position on mount
+  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node;
+    if (node && !initialScrollDone.current) {
+      node.scrollTop = scrollTop * charHeight;
+      initialScrollDone.current = true;
+    }
+  }, [scrollTop, charHeight]);
+
   // Build visible lines
   const visibleLines: Array<{ absoluteRow: number; line: CellLine }> = [];
   for (let row = visibleStart; row <= visibleEnd; row++) {
@@ -109,7 +119,7 @@ export function ScrollbackTerminal({ paneId, copyState }: ScrollbackTerminalProp
       className="terminal-container scrollback-terminal"
       data-testid="scrollback-terminal"
       data-copy-mode="true"
-      ref={containerRef}
+      ref={setContainerRef}
       onScroll={handleScroll}
       style={{
         overflowY: 'auto',
