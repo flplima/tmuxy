@@ -37,12 +37,14 @@ export function Pane({ paneId }: PaneProps) {
     handleMouseMove,
     handleMouseLeave,
     handleWheel,
+    selectionStart,
   } = usePaneMouse(send, {
     paneId,
     charWidth,
     charHeight,
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
     alternateOn: pane?.alternateOn ?? false,
+    inMode: pane?.inMode ?? false,
     contentRef,
   });
 
@@ -74,10 +76,13 @@ export function Pane({ paneId }: PaneProps) {
           cursorX={pane.cursorX}
           cursorY={pane.cursorY}
           isActive={pane.active && isInActiveWindow}
+          width={pane.width}
           height={pane.height}
           inMode={pane.inMode}
           copyCursorX={pane.copyCursorX}
           copyCursorY={pane.copyCursorY}
+          selectionPresent={pane.selectionPresent}
+          selectionStart={selectionStart}
         />
       </div>
     </div>

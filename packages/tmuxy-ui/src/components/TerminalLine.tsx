@@ -92,6 +92,7 @@ export interface TerminalLineProps {
   showCursor: boolean;
   inMode: boolean;
   isActive: boolean;
+  selectionRange?: { startCol: number; endCol: number } | null;
 }
 
 export const TerminalLine = memo(
@@ -103,6 +104,7 @@ export const TerminalLine = memo(
     showCursor,
     inMode,
     isActive,
+    selectionRange,
   }: TerminalLineProps) {
     const isCursorLine = showCursor && lineIndex === cursorY;
     const lineLength = line.length;
@@ -121,18 +123,35 @@ export const TerminalLine = memo(
       return null;
     };
 
+    // Check if a cell index falls within the selection range
+    const isCellSelected = (idx: number): boolean => {
+      if (!selectionRange) return false;
+      return idx >= selectionRange.startCol && idx <= selectionRange.endCol;
+    };
+
     // Group consecutive cells with same style for efficiency
     const renderCells = (): React.ReactNode[] => {
       const spans: React.ReactNode[] = [];
-      let currentGroup: { cells: TerminalCell[]; style: CellStyle | undefined; startIdx: number } | null = null;
+      let currentGroup: { cells: TerminalCell[]; style: CellStyle | undefined; startIdx: number; selected: boolean } | null = null;
 
       const flushGroup = () => {
         if (!currentGroup || currentGroup.cells.length === 0) return;
 
         const text = currentGroup.cells.map((c) => c.c).join('');
-        const style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
+        let style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
         const startIdx = currentGroup.startIdx;
         const url = currentGroup.style?.url;
+
+        // Apply selection highlight (swap fg/bg like tmux's mode-style: reverse)
+        if (currentGroup.selected) {
+          const fg = style?.color;
+          const bg = style?.backgroundColor;
+          style = {
+            ...style,
+            color: (bg as string) || 'var(--terminal-bg, #000)',
+            backgroundColor: (fg as string) || 'var(--terminal-fg, #fff)',
+          };
+        }
 
         // Check if cursor is in this group
         if (isCursorLine) {
@@ -204,16 +223,17 @@ export const TerminalLine = memo(
       for (let i = 0; i < line.length; i++) {
         const cell = line[i];
         const cellStyleKey = cell.s ? JSON.stringify(cell.s) : '';
+        const selected = isCellSelected(i);
 
         if (!currentGroup) {
-          currentGroup = { cells: [cell], style: cell.s, startIdx: i };
+          currentGroup = { cells: [cell], style: cell.s, startIdx: i, selected };
         } else {
           const currentStyleKey = currentGroup.style ? JSON.stringify(currentGroup.style) : '';
-          if (cellStyleKey === currentStyleKey) {
+          if (cellStyleKey === currentStyleKey && selected === currentGroup.selected) {
             currentGroup.cells.push(cell);
           } else {
             flushGroup();
-            currentGroup = { cells: [cell], style: cell.s, startIdx: i };
+            currentGroup = { cells: [cell], style: cell.s, startIdx: i, selected };
           }
         }
       }
@@ -233,6 +253,14 @@ export const TerminalLine = memo(
   (prevProps, nextProps) => {
     // Always re-render if line content changed
     if (prevProps.line !== nextProps.line) return false;
+
+    // Re-render if selection range changed
+    const prevSel = prevProps.selectionRange;
+    const nextSel = nextProps.selectionRange;
+    if (prevSel !== nextSel) {
+      if (!prevSel || !nextSel) return false;
+      if (prevSel.startCol !== nextSel.startCol || prevSel.endCol !== nextSel.endCol) return false;
+    }
 
     // Check if cursor was or is on this line
     const prevHasCursor = prevProps.showCursor && prevProps.lineIndex === prevProps.cursorY;

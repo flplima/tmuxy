@@ -3,11 +3,12 @@
  *
  * Handles mouse clicks, drags, and wheel events based on pane state:
  * - When mouse_any_flag is true: forward mouse events as SGR sequences to tmux
+ * - When mouse_any_flag is false: mouse drag enters copy mode and creates selection
  * - When alternate_on is true: wheel events send arrow keys
  * - Shift+click always focuses the pane regardless of mouse mode
  */
 
-import { useCallback, useRef, type RefObject } from 'react';
+import { useCallback, useRef, useState, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 
 interface UsePaneMouseOptions {
@@ -20,19 +21,38 @@ interface UsePaneMouseOptions {
   mouseAnyFlag: boolean;
   /** Whether the application is in alternate screen mode */
   alternateOn: boolean;
+  /** Whether the pane is in copy mode */
+  inMode: boolean;
   /** Ref to the .pane-content element (used for coordinate calculation) */
   contentRef: RefObject<HTMLDivElement | null>;
 }
 
+/** Minimum time between drag updates (ms) */
+const DRAG_THROTTLE_MS = 30;
 
 export function usePaneMouse(
   send: (event: AppMachineEvent) => void,
   options: UsePaneMouseOptions
 ) {
-  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, contentRef } = options;
+  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, contentRef } = options;
 
   // Track mouse button state for drag events
   const mouseButtonRef = useRef<number | null>(null);
+
+  // Track mouse drag state for copy-mode selection
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lastCellRef = useRef<{ x: number; y: number } | null>(null);
+  const isDraggingForSelectionRef = useRef(false);
+  const lastDragTimeRef = useRef(0);
+  // Snapshot inMode at mousedown so we don't lose state mid-drag
+  const wasModeAtDragStartRef = useRef(false);
+  // Committed selection start (reactive state for rendering, persists until copy mode exits)
+  const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
+
+  // Clear selection start when copy mode exits
+  if (!inMode && selectionStart) {
+    setSelectionStart(null);
+  }
 
   // Convert pixel coordinates to terminal cell coordinates
   // Uses the .pane-content element's rect so coordinates are relative to the
@@ -73,7 +93,6 @@ export function usePaneMouse(
         mouseButtonRef.current = e.button;
 
         // Send SGR mouse press event
-        // Use invoke for the mouse event handler
         send({
           type: 'SEND_COMMAND',
           command: `run-shell -b 'printf "\\033[<${e.button};${cell.x + 1};${cell.y + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
@@ -81,11 +100,19 @@ export function usePaneMouse(
         return;
       }
 
-      // Default: focus the pane
+      // Default: focus the pane and prepare for potential drag selection
       send({ type: 'FOCUS_PANE', paneId });
       mouseButtonRef.current = e.button;
+
+      if (e.button === 0) {
+        const cell = pixelToCell(e);
+        dragStartRef.current = cell;
+        lastCellRef.current = null;
+        isDraggingForSelectionRef.current = false;
+        wasModeAtDragStartRef.current = inMode;
+      }
     },
-    [send, paneId, mouseAnyFlag, pixelToCell]
+    [send, paneId, mouseAnyFlag, inMode, pixelToCell]
   );
 
   // Handle mouse up
@@ -103,6 +130,15 @@ export function usePaneMouse(
         });
       }
 
+      // Commit the selection start if a drag selection was made
+      if (isDraggingForSelectionRef.current && dragStartRef.current) {
+        setSelectionStart({ ...dragStartRef.current });
+      }
+
+      // Clear drag state
+      dragStartRef.current = null;
+      lastCellRef.current = null;
+      isDraggingForSelectionRef.current = false;
       mouseButtonRef.current = null;
     },
     [send, paneId, mouseAnyFlag, pixelToCell]
@@ -112,33 +148,101 @@ export function usePaneMouse(
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (mouseButtonRef.current === null) return;
-      if (!mouseAnyFlag) return;
+
+      // Mouse tracking mode: forward SGR drag events
+      if (mouseAnyFlag) {
+        const cell = pixelToCell(e);
+        const dragButton = mouseButtonRef.current + 32;
+        send({
+          type: 'SEND_COMMAND',
+          command: `run-shell -b 'printf "\\033[<${dragButton};${cell.x + 1};${cell.y + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+        });
+        return;
+      }
+
+      // Non-mouse-tracking: handle drag for copy-mode selection
+      if (!dragStartRef.current || mouseButtonRef.current !== 0) return;
 
       const cell = pixelToCell(e);
 
-      // Send SGR mouse drag event (button + 32)
-      const dragButton = mouseButtonRef.current + 32;
-      send({
-        type: 'SEND_COMMAND',
-        command: `run-shell -b 'printf "\\033[<${dragButton};${cell.x + 1};${cell.y + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
-      });
+      // Throttle drag updates
+      const now = Date.now();
+      if (now - lastDragTimeRef.current < DRAG_THROTTLE_MS) return;
+      lastDragTimeRef.current = now;
+
+      if (!isDraggingForSelectionRef.current) {
+        // Check if we've moved at least one cell to start dragging
+        const dx = Math.abs(cell.x - dragStartRef.current.x);
+        const dy = Math.abs(cell.y - dragStartRef.current.y);
+        if (dx === 0 && dy === 0) return;
+
+        isDraggingForSelectionRef.current = true;
+        const start = dragStartRef.current;
+
+        // Chain commands with \; so tmux processes them atomically.
+        // This is critical: copy-mode must complete before send-keys -X works.
+        const parts: string[] = [];
+        if (!wasModeAtDragStartRef.current) {
+          parts.push(`copy-mode -t ${paneId}`);
+        }
+        parts.push(`send-keys -t ${paneId} -X top-line`);
+        parts.push(`send-keys -t ${paneId} -X start-of-line`);
+        if (start.y > 0) {
+          parts.push(`send-keys -t ${paneId} -X -N ${start.y} cursor-down`);
+        }
+        if (start.x > 0) {
+          parts.push(`send-keys -t ${paneId} -X -N ${start.x} cursor-right`);
+        }
+        parts.push(`send-keys -t ${paneId} -X begin-selection`);
+
+        send({ type: 'SEND_COMMAND', command: parts.join(' \\; ') });
+        lastCellRef.current = { ...start };
+      }
+
+      // Move cursor to current position (relative from last known position)
+      if (lastCellRef.current) {
+        const dx = cell.x - lastCellRef.current.x;
+        const dy = cell.y - lastCellRef.current.y;
+
+        if (dy > 0) {
+          send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -X -N ${dy} cursor-down` });
+        } else if (dy < 0) {
+          send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -X -N ${-dy} cursor-up` });
+        }
+
+        if (dx > 0) {
+          send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -X -N ${dx} cursor-right` });
+        } else if (dx < 0) {
+          send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -X -N ${-dx} cursor-left` });
+        }
+
+        lastCellRef.current = cell;
+      }
     },
     [send, paneId, mouseAnyFlag, pixelToCell]
   );
 
   // Handle mouse leave
   const handleMouseLeave = useCallback(() => {
+    dragStartRef.current = null;
+    lastCellRef.current = null;
+    isDraggingForSelectionRef.current = false;
     mouseButtonRef.current = null;
   }, []);
+
+  // Accumulate sub-line pixel deltas across wheel events (trackpad support)
+  const wheelRemainder = useRef(0);
 
   // Handle wheel events
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault();
 
-      // Calculate number of lines to scroll
-      const lines = Math.round(e.deltaY / charHeight);
+      // Accumulate pixel delta and convert to lines
+      wheelRemainder.current += e.deltaY;
+      const lines = Math.trunc(wheelRemainder.current / charHeight);
       if (lines === 0) return;
+      wheelRemainder.current -= lines * charHeight;
 
       const isScrollUp = lines < 0;
       const absLines = Math.abs(lines);
@@ -184,5 +288,7 @@ export function usePaneMouse(
     handleMouseMove,
     handleMouseLeave,
     handleWheel,
+    /** Selection start cell position for rendering selection overlay */
+    selectionStart,
   };
 }
