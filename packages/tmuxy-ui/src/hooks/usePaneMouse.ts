@@ -28,10 +28,6 @@ interface UsePaneMouseOptions {
   copyModeActive: boolean;
   /** Pane height in rows (for scroll calculations) */
   paneHeight: number;
-  /** Current scroll position in copy mode (absolute row) */
-  copyModeScrollTop: number;
-  /** Total lines in copy mode scrollback */
-  copyModeTotalLines: number;
   /** Ref to the .pane-content element (used for coordinate calculation) */
   contentRef: RefObject<HTMLDivElement | null>;
 }
@@ -43,7 +39,7 @@ export function usePaneMouse(
   send: (event: AppMachineEvent) => void,
   options: UsePaneMouseOptions
 ) {
-  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, copyModeActive, copyModeScrollTop, copyModeTotalLines, contentRef } = options;
+  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, copyModeActive, contentRef } = options;
 
   // Track mouse button state for drag events
   const mouseButtonRef = useRef<number | null>(null);
@@ -245,6 +241,9 @@ export function usePaneMouse(
   // Handle wheel events
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
+      // In copy mode, let native scroll handle it (ScrollbackTerminal has overflow-y:auto)
+      if (copyModeActive) return;
+
       e.preventDefault();
 
       // Accumulate pixel delta and convert to lines
@@ -280,15 +279,6 @@ export function usePaneMouse(
         return;
       }
 
-      // If already in client-side copy mode, scroll viewport only (no cursor/selection change)
-      if (copyModeActive) {
-        const paneH = options.paneHeight;
-        const delta = isScrollUp ? -absLines : absLines;
-        const newScrollTop = Math.max(0, Math.min(copyModeTotalLines - paneH, copyModeScrollTop + delta));
-        send({ type: 'COPY_MODE_SCROLL', paneId, scrollTop: newScrollTop });
-        return;
-      }
-
       // Default: enter client-side copy mode on scroll up
       if (isScrollUp) {
         send({ type: 'ENTER_COPY_MODE', paneId });
@@ -301,7 +291,7 @@ export function usePaneMouse(
         });
       }
     },
-    [send, paneId, charHeight, alternateOn, mouseAnyFlag, copyModeActive, copyModeScrollTop, copyModeTotalLines, options.paneHeight, pixelToCell]
+    [send, paneId, charHeight, alternateOn, mouseAnyFlag, copyModeActive, pixelToCell]
   );
 
   // Handle double-click for word selection

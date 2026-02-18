@@ -51,8 +51,6 @@ export function Pane({ paneId }: PaneProps) {
     inMode: pane?.inMode ?? false,
     copyModeActive: !!copyState,
     paneHeight: pane?.height ?? 24,
-    copyModeScrollTop: copyState?.scrollTop ?? 0,
-    copyModeTotalLines: copyState?.totalLines ?? 0,
     contentRef,
   });
 
