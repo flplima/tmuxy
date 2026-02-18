@@ -60,6 +60,11 @@ pub fn capture_pane(session_name: &str) -> Result<String, String> {
     ])
 }
 
+/// Get the contents of the most recent tmux paste buffer
+pub fn show_buffer() -> Result<String, String> {
+    execute_tmux_command(&["show-buffer"])
+}
+
 pub fn capture_pane_with_history(session_name: &str) -> Result<String, String> {
     execute_tmux_command(&[
         "capture-pane",

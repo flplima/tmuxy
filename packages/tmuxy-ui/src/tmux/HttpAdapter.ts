@@ -496,6 +496,7 @@ export class HttpAdapter implements TmuxAdapter {
       ...(delta.alternate_on !== undefined && { alternate_on: delta.alternate_on }),
       ...(delta.mouse_any_flag !== undefined && { mouse_any_flag: delta.mouse_any_flag }),
       ...(delta.paused !== undefined && { paused: delta.paused }),
+      ...(delta.selection_present !== undefined && { selection_present: delta.selection_present }),
     };
   }
 

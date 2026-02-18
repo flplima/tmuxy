@@ -739,6 +739,25 @@ export const appMachine = setup({
           })),
         },
 
+        // Cmd+C / Ctrl+C: copy selection to clipboard or send SIGINT
+        COPY_SELECTION: {
+          actions: enqueueActions(({ context, enqueue }) => {
+            const activePane = context.panes.find(p => p.tmuxId === context.activePaneId);
+            if (activePane?.inMode && activePane?.selectionPresent) {
+              // In copy mode with selection: copy to clipboard
+              enqueue(sendTo('tmux', { type: 'COPY_TO_CLIPBOARD' as const }));
+            } else {
+              // Not in copy mode or no selection: send SIGINT (C-c)
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `send-keys -t ${context.sessionName} C-c`,
+                })
+              );
+            }
+          }),
+        },
+
         // Clear group switch override (fired 750ms after group switch detection)
         CLEAR_GROUP_SWITCH_OVERRIDE: {
           actions: assign({ groupSwitchDimOverride: null }),
@@ -846,6 +865,21 @@ export const appMachine = setup({
             type: 'SEND_COMMAND' as const,
             command: event.command,
           })),
+        },
+        COPY_SELECTION: {
+          actions: enqueueActions(({ context, enqueue }) => {
+            const activePane = context.panes.find(p => p.tmuxId === context.activePaneId);
+            if (activePane?.inMode && activePane?.selectionPresent) {
+              enqueue(sendTo('tmux', { type: 'COPY_TO_CLIPBOARD' as const }));
+            } else {
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `send-keys -t ${context.sessionName} C-c`,
+                })
+              );
+            }
+          }),
         },
         KEYBINDINGS_RECEIVED: {
           actions: [

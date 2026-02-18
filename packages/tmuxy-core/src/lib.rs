@@ -236,6 +236,9 @@ pub struct TmuxPane {
     /// Determines tab ordering within the group (0, 1, 2...)
     #[serde(default)]
     pub group_tab_index: Option<u32>,
+    /// Whether a selection is active in copy mode
+    #[serde(default)]
+    pub selection_present: bool,
 }
 
 /// A single tmux window (tab)
@@ -416,6 +419,9 @@ pub struct PaneDelta {
     /// Pane group tab index (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_tab_index: Option<Option<u32>>,
+    /// Selection present (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection_present: Option<bool>,
 }
 
 impl PaneDelta {
@@ -440,6 +446,7 @@ impl PaneDelta {
             && self.paused.is_none()
             && self.group_id.is_none()
             && self.group_tab_index.is_none()
+            && self.selection_present.is_none()
     }
 }
 
@@ -654,6 +661,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             paused: false,
             group_id: info.group_id,
             group_tab_index: info.group_tab_index,
+            selection_present: false,
         });
     }
 

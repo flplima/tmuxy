@@ -128,6 +128,14 @@ export function createKeyboardActor() {
       // Let browser handle Ctrl+V / Cmd+V for paste
       if ((event.ctrlKey || event.metaKey) && event.key === 'v') return;
 
+      // Cmd+C / Ctrl+C: copy selection to clipboard (if in copy mode with selection)
+      // or send SIGINT (if not in copy mode / no selection)
+      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+        event.preventDefault();
+        input.parent.send({ type: 'COPY_SELECTION' });
+        return;
+      }
+
       event.preventDefault();
 
       // Format the key to check against bindings

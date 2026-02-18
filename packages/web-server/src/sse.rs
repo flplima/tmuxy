@@ -382,6 +382,10 @@ async fn handle_command(
             let history = executor::capture_pane_with_history(session).map_err(|e| e)?;
             Ok(serde_json::json!(history))
         }
+        "get_buffer" => {
+            let buffer = executor::show_buffer().map_err(|e| e)?;
+            Ok(serde_json::json!(buffer))
+        }
         "split_pane_horizontal" => {
             let cmd = format!("splitw -t {} -h", session);
             send_via_control_mode(state, session, &cmd).await?;
@@ -904,7 +908,7 @@ async fn start_monitoring_control_mode(
     let config = MonitorConfig {
         session: session.clone(),
         sync_interval: Duration::from_millis(500),
-        create_session: false,
+        create_session: true,
         throttle_interval: Duration::from_millis(16),
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),

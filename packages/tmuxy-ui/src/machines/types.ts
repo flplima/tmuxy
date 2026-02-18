@@ -251,6 +251,7 @@ export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
 export type SendCommandEvent = { type: 'SEND_COMMAND'; command: string };
 export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string };
+export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 
 // Group switch detection event (fired internally when switch detected in state update)
 export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
@@ -287,6 +288,7 @@ export type AppMachineEvent =
   | SendCommandEvent
   | SendKeysEvent
   | SendTmuxCommandEvent
+  | CopySelectionEvent
   | ClearGroupSwitchOverrideEvent
   | EnableAnimationsEvent;
 

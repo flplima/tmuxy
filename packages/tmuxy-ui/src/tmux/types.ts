@@ -29,6 +29,8 @@ export interface TmuxPane {
   mouseAnyFlag: boolean;
   /** True if output is paused due to flow control (backpressure) */
   paused: boolean;
+  /** True if a selection is active in copy mode */
+  selectionPresent: boolean;
 }
 
 export interface TmuxWindow {
@@ -120,6 +122,7 @@ export interface ServerPane {
   alternate_on?: boolean;
   mouse_any_flag?: boolean;
   paused?: boolean;
+  selection_present?: boolean;
 }
 
 export interface ServerWindow {
@@ -167,6 +170,7 @@ export interface PaneDelta {
   alternate_on?: boolean;
   mouse_any_flag?: boolean;
   paused?: boolean;
+  selection_present?: boolean;
 }
 
 export interface WindowDelta {

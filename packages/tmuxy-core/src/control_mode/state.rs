@@ -115,6 +115,9 @@ pub struct PaneState {
     /// Pane group tab index (from @tmuxy_pane_group_index user option)
     pub group_tab_index: Option<u32>,
 
+    /// Whether a selection is active in copy mode
+    pub selection_present: bool,
+
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
     pub copy_mode_content: Option<PaneContent>,
 }
@@ -147,6 +150,7 @@ impl PaneState {
             paused: false,
             group_id: None,
             group_tab_index: None,
+            selection_present: false,
             copy_mode_content: None,
         }
     }
@@ -288,6 +292,7 @@ impl PaneState {
             paused: self.paused,
             group_id: self.group_id.clone(),
             group_tab_index: self.group_tab_index,
+            selection_present: self.selection_present,
         }
     }
 }
@@ -1082,25 +1087,26 @@ impl StateAggregator {
         // We parse from the end to find the known fixed fields
         let remaining_parts = if parts.len() > 16 { &parts[16..] } else { &[] };
 
-        // The last four fields should be alternate_on, mouse_any_flag, group_id, group_tab_index
+        // The last five fields should be alternate_on, mouse_any_flag, group_id, group_tab_index, selection_present
         // Parse from the end to find the known fixed fields
-        let (border_title, alternate_on, mouse_any_flag, group_id, group_tab_index) = if remaining_parts.len() >= 4 {
+        let (border_title, alternate_on, mouse_any_flag, group_id, group_tab_index, selection_present) = if remaining_parts.len() >= 5 {
             let last_idx = remaining_parts.len() - 1;
-            let group_tab_idx_str = remaining_parts[last_idx];
-            let group_id_str = remaining_parts[last_idx - 1];
-            let mouse_flag = remaining_parts[last_idx - 2] == "1";
-            let alt_on = remaining_parts[last_idx - 3] == "1";
-            // Everything before the last four fields is border_title
-            let title_parts = if remaining_parts.len() > 4 {
-                remaining_parts[..remaining_parts.len() - 4].join(",")
+            let sel_present = remaining_parts[last_idx] == "1";
+            let group_tab_idx_str = remaining_parts[last_idx - 1];
+            let group_id_str = remaining_parts[last_idx - 2];
+            let mouse_flag = remaining_parts[last_idx - 3] == "1";
+            let alt_on = remaining_parts[last_idx - 4] == "1";
+            // Everything before the last five fields is border_title
+            let title_parts = if remaining_parts.len() > 5 {
+                remaining_parts[..remaining_parts.len() - 5].join(",")
             } else {
                 String::new()
             };
             let gid = if group_id_str.is_empty() { None } else { Some(group_id_str.to_string()) };
             let gtab = group_tab_idx_str.parse::<u32>().ok();
-            (title_parts, alt_on, mouse_flag, gid, gtab)
+            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present)
         } else if remaining_parts.len() >= 2 {
-            // Fallback: old format with just alternate_on and mouse_any_flag
+            // Fallback: old format without selection_present
             let last_idx = remaining_parts.len() - 1;
             let mouse_flag = remaining_parts[last_idx] == "1";
             let alt_on = remaining_parts[last_idx - 1] == "1";
@@ -1109,11 +1115,11 @@ impl StateAggregator {
             } else {
                 String::new()
             };
-            (title_parts, alt_on, mouse_flag, None, None)
+            (title_parts, alt_on, mouse_flag, None, None, false)
         } else if remaining_parts.len() == 1 {
-            (remaining_parts[0].to_string(), false, false, None, None)
+            (remaining_parts[0].to_string(), false, false, None, None, false)
         } else {
-            (String::new(), false, false, None, None)
+            (String::new(), false, false, None, None, false)
         };
 
         let pane_id_string = pane_id.to_string();
@@ -1147,13 +1153,17 @@ impl StateAggregator {
         pane.mouse_any_flag = mouse_any_flag;
         pane.group_id = group_id;
         pane.group_tab_index = group_tab_index;
+        pane.selection_present = selection_present;
 
         // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = cursor_x;
         pane.tmux_cursor_y = cursor_y;
 
-        // Need to capture if pane is new or was resized
-        let needs_capture = is_new_pane || was_resized;
+        // Need to capture if pane is new, was resized, or just exited copy mode
+        // (exiting copy mode requires re-syncing the vt100 terminal with tmux's actual content,
+        // since %output events during copy mode may have desynchronized it)
+        let exited_copy_mode = was_in_mode && !in_mode;
+        let needs_capture = is_new_pane || was_resized || exited_copy_mode;
         Some((pane_id_string, needs_capture))
     }
 
@@ -1437,6 +1447,9 @@ impl StateAggregator {
         }
         if prev.group_tab_index != curr.group_tab_index {
             delta.group_tab_index = Some(curr.group_tab_index);
+        }
+        if prev.selection_present != curr.selection_present {
+            delta.selection_present = Some(curr.selection_present);
         }
 
         delta

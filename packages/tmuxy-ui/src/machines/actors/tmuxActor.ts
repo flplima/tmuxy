@@ -5,7 +5,8 @@ export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
   | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
-  | { type: 'FETCH_PANE_GROUPS' };
+  | { type: 'FETCH_PANE_GROUPS' }
+  | { type: 'COPY_TO_CLIPBOARD' };
 
 export interface TmuxActorInput {
   parent: AnyActorRef;
@@ -79,6 +80,23 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           .catch(() => {
             // Silently ignore errors - just use empty groups
             parent.send({ type: 'PANE_GROUPS_LOADED', groupsJson: null });
+          });
+      } else if (event.type === 'COPY_TO_CLIPBOARD') {
+        // 1. Tell tmux to copy the selection into the paste buffer
+        adapter
+          .invoke<void>('run_tmux_command', { command: 'send-keys -X copy-selection-and-cancel' })
+          .then(() => {
+            // 2. Fetch the paste buffer content
+            return adapter.invoke<string>('get_buffer', {});
+          })
+          .then((text) => {
+            // 3. Write to system clipboard
+            if (text && navigator.clipboard) {
+              return navigator.clipboard.writeText(text);
+            }
+          })
+          .catch((error) => {
+            console.error('[tmuxActor] Copy to clipboard failed:', error);
           });
       }
     });
