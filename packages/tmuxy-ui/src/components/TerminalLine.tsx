@@ -119,7 +119,7 @@ export const TerminalLine = memo(
         return (
           <>
             {padding}
-            <Cursor x={cursorX} y={cursorY} char=" " copyMode={inMode} active={isActive} mode={inMode && !selectionRange ? 'bar' : 'block'} />
+            <Cursor x={cursorX} y={cursorY} char=" " copyMode={inMode} active={isActive} mode="block" />
           </>
         );
       }
@@ -160,7 +160,7 @@ export const TerminalLine = memo(
             const content = (
               <>
                 {before}
-                <Cursor x={cursorX} y={cursorY} char={cursorChar} copyMode={inMode} active={isActive} mode={inMode && !selectionRange ? 'bar' : 'block'} />
+                <Cursor x={cursorX} y={cursorY} char={cursorChar} copyMode={inMode} active={isActive} mode="block" />
                 {after}
               </>
             );

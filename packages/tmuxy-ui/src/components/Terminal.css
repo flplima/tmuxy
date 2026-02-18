@@ -11,7 +11,7 @@
   padding: 4px;
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
   font-size: 14px;
-  line-height: 1.2;
+  line-height: var(--line-height-terminal, 21px);
   color: #d4d4d4;
   white-space: pre;
   overflow: hidden;
@@ -19,8 +19,8 @@
 }
 
 .terminal-line {
-  height: 1.2em;
-  min-height: 1.2em;
+  height: var(--line-height-terminal, 21px);
+  min-height: var(--line-height-terminal, 21px);
 }
 
 .terminal-cursor {
