@@ -7,7 +7,7 @@
 
 import { useCallback, useRef, useMemo } from 'react';
 import { TerminalLine } from './TerminalLine';
-import { useAppSelector, selectCharSize } from '../machines/AppContext';
+import { useAppSend, useAppSelector, selectCharSize } from '../machines/AppContext';
 import type { CopyModeState, CellLine } from '../tmux/types';
 
 interface ScrollbackTerminalProps {
@@ -51,9 +51,11 @@ function computeScrollbackSelection(
   };
 }
 
-export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
+export function ScrollbackTerminal({ paneId, copyState }: ScrollbackTerminalProps) {
+  const send = useAppSend();
   const { charHeight } = useAppSelector(selectCharSize);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const initialScrollDone = useRef(false);
 
   const {
     totalLines,
@@ -75,10 +77,32 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
   const visibleStart = scrollTop;
   const visibleEnd = Math.min(totalLines - 1, scrollTop + height - 1);
 
-  // Callback ref for container
+  // Handle native scroll (viewport only - does not move cursor or selection)
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const newScrollTop = Math.floor(target.scrollTop / charHeight);
+    send({
+      type: 'COPY_MODE_SCROLL',
+      paneId,
+      scrollTop: newScrollTop,
+    });
+  }, [send, paneId, charHeight]);
+
+  // Sync container scroll position when scrollTop changes from keyboard/wheel
+  const lastScrollTop = useRef(scrollTop);
+  if (containerRef.current && scrollTop !== lastScrollTop.current) {
+    containerRef.current.scrollTop = scrollTop * charHeight;
+    lastScrollTop.current = scrollTop;
+  }
+
+  // Callback ref to set initial scroll position on mount
   const setContainerRef = useCallback((node: HTMLDivElement | null) => {
     containerRef.current = node;
-  }, []);
+    if (node && !initialScrollDone.current) {
+      node.scrollTop = scrollTop * charHeight;
+      initialScrollDone.current = true;
+    }
+  }, [scrollTop, charHeight]);
 
   // Build visible lines
   const visibleLines: Array<{ absoluteRow: number; line: CellLine }> = [];
@@ -92,12 +116,13 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
 
   return (
     <div
-      className="terminal-container scrollback-terminal"
+      className="terminal-container scrollback-terminal hide-scrollbar"
       data-testid="scrollback-terminal"
       data-copy-mode="true"
       ref={setContainerRef}
+      onScroll={handleScroll}
       style={{
-        overflow: 'hidden',
+        overflowY: 'auto',
         position: 'relative',
         height: '100%',
       }}
