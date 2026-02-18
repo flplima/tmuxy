@@ -39,7 +39,7 @@ import {
 } from './helpers';
 import { parseGroupsEnv, parseGroupWindowName } from './groupState';
 import { handleCopyModeKey } from '../../utils/copyModeKeys';
-import { extractSelectedText, mergeScrollbackChunk, getNeededChunk } from '../../utils/copyMode';
+import { mergeScrollbackChunk, getNeededChunk } from '../../utils/copyMode';
 import type { CopyModeState } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -805,16 +805,8 @@ export const appMachine = setup({
           actions: enqueueActions(({ context, enqueue }) => {
             const paneId = context.activePaneId;
             // Check client-side copy mode first
+            // (clipboard write is handled by keyboard actor's native copy event)
             if (paneId && context.copyModeStates[paneId]) {
-              const copyState = context.copyModeStates[paneId];
-              if (copyState.selectionMode && copyState.selectionAnchor) {
-                const text = extractSelectedText(copyState);
-                if (text && navigator.clipboard) {
-                  navigator.clipboard.writeText(text).catch(err => {
-                    console.error('[copyMode] Clipboard write failed:', err);
-                  });
-                }
-              }
               // Exit copy mode (whether or not there was a selection to copy)
               copyModeExitTimes.set(paneId, Date.now());
               const newStates = { ...context.copyModeStates };
@@ -1049,14 +1041,7 @@ export const appMachine = setup({
             const copyState = context.copyModeStates[event.paneId];
             if (!copyState || !copyState.selectionMode) return;
 
-            // Extract selected text
-            const text = extractSelectedText(copyState);
-            if (text && navigator.clipboard) {
-              navigator.clipboard.writeText(text).catch(err => {
-                console.error('[copyMode] Clipboard write failed:', err);
-              });
-            }
-
+            // Clipboard write handled by keyboard actor's native copy event
             // Exit copy mode
             copyModeExitTimes.set(event.paneId, Date.now());
             const newStates = { ...context.copyModeStates };
@@ -1085,12 +1070,7 @@ export const appMachine = setup({
             const result = handleCopyModeKey(event.key, event.ctrlKey, event.shiftKey, copyState);
 
             if (result.action === 'yank') {
-              const text = extractSelectedText({ ...copyState, ...result.state } as CopyModeState);
-              if (text && navigator.clipboard) {
-                navigator.clipboard.writeText(text).catch(err => {
-                  console.error('[copyMode] Clipboard write failed:', err);
-                });
-              }
+              // Clipboard write handled by keyboard actor's native copy event
               copyModeExitTimes.set(paneId, Date.now());
               const newStates = { ...context.copyModeStates };
               delete newStates[paneId];

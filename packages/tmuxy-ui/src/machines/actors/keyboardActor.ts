@@ -85,6 +85,8 @@ export function createKeyboardActor() {
     let inPrefixMode = false;
     let prefixTimeout: ReturnType<typeof setTimeout> | null = null;
     let copyModeActive = false;
+    // Text pending copy via native clipboard event
+    let pendingCopyText: string | null = null;
 
     // Dynamic keybindings from server
     let prefixKey = 'C-a';  // Default, will be updated from server
@@ -134,21 +136,20 @@ export function createKeyboardActor() {
       // Cmd+C / Ctrl+C: copy selection to clipboard (if in copy mode with selection)
       // or send SIGINT (if not in copy mode / no selection)
       if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
-        event.preventDefault();
-        // Write to clipboard directly in keydown handler (preserves user activation)
         if (copyModeActive) {
+          // Extract text for the native copy event handler
           try {
             const snapshot = input.parent.getSnapshot() as { context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> } };
             const ctx = snapshot?.context;
             const paneId = ctx?.activePaneId;
             const copyState = paneId ? ctx?.copyModeStates?.[paneId] : undefined;
             if (copyState?.selectionMode && copyState?.selectionAnchor) {
-              const text = extractSelectedText(copyState);
-              if (text) {
-                navigator.clipboard?.writeText(text).catch(() => {});
-              }
+              pendingCopyText = extractSelectedText(copyState);
             }
-          } catch (_) { /* ignore snapshot access errors */ }
+          } catch (_) { /* ignore */ }
+          // Don't preventDefault — let browser fire native copy event
+        } else {
+          event.preventDefault();
         }
         input.parent.send({ type: 'COPY_SELECTION' });
         return;
@@ -157,7 +158,7 @@ export function createKeyboardActor() {
       // Client-side copy mode: intercept all keys
       if (copyModeActive) {
         event.preventDefault();
-        // For yank key (y), write to clipboard directly (preserves user activation)
+        // For yank key (y), copy to clipboard via native copy event
         if (event.key === 'y') {
           try {
             const snapshot = input.parent.getSnapshot() as { context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> } };
@@ -165,10 +166,9 @@ export function createKeyboardActor() {
             const paneId = ctx?.activePaneId;
             const copyState = paneId ? ctx?.copyModeStates?.[paneId] : undefined;
             if (copyState?.selectionMode && copyState?.selectionAnchor) {
-              const text = extractSelectedText(copyState);
-              if (text) {
-                navigator.clipboard?.writeText(text).catch(() => {});
-              }
+              pendingCopyText = extractSelectedText(copyState);
+              // Trigger native copy event (our copy handler will set clipboardData)
+              document.execCommand('copy');
             }
           } catch (_) { /* ignore */ }
         }
@@ -351,10 +351,20 @@ export function createKeyboardActor() {
       }
     };
 
+    // Native copy event handler — uses pendingCopyText set by keydown handler
+    const handleCopy = (event: ClipboardEvent) => {
+      if (pendingCopyText) {
+        event.preventDefault();
+        event.clipboardData?.setData('text/plain', pendingCopyText);
+        pendingCopyText = null;
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('compositionstart', handleCompositionStart);
     window.addEventListener('compositionend', handleCompositionEnd);
     window.addEventListener('paste', handlePaste);
+    window.addEventListener('copy', handleCopy);
 
     receive((event) => {
       if (event.type === 'UPDATE_SESSION') {
@@ -375,6 +385,7 @@ export function createKeyboardActor() {
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);
       window.removeEventListener('paste', handlePaste);
+      window.removeEventListener('copy', handleCopy);
     };
   });
 }
