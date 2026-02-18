@@ -48,6 +48,11 @@ import type { KeyboardActorEvent } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 
+// Cooldown to prevent stale TMUX_STATE_UPDATE from re-entering copy mode
+// after client-side exit (tmux takes time to process -X cancel)
+const copyModeExitTimes = new Map<string, number>();
+const COPY_MODE_REENTRY_COOLDOWN = 2000;
+
 export const appMachine = setup({
   types: {
     context: {} as AppMachineContext,
@@ -447,6 +452,11 @@ export const appMachine = setup({
               for (const newPane of transformed.panes) {
                 const prevPane = context.panes.find(p => p.tmuxId === newPane.tmuxId);
                 if (newPane.inMode && (!prevPane || !prevPane.inMode) && !context.copyModeStates[newPane.tmuxId]) {
+                  // Skip if we recently exited copy mode for this pane (stale inMode flag)
+                  const exitTime = copyModeExitTimes.get(newPane.tmuxId);
+                  if (exitTime && Date.now() - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
+                    continue;
+                  }
                   // Pane just entered copy mode — initialize client-side copy mode
                   const copyState: CopyModeState = {
                     lines: new Map(),
@@ -876,6 +886,7 @@ export const appMachine = setup({
         },
         EXIT_COPY_MODE: {
           actions: enqueueActions(({ event, context, enqueue }) => {
+            copyModeExitTimes.set(event.paneId, Date.now());
             const newStates = { ...context.copyModeStates };
             delete newStates[event.paneId];
             enqueue(assign({ copyModeStates: newStates }));
@@ -1041,6 +1052,7 @@ export const appMachine = setup({
             }
 
             // Exit copy mode
+            copyModeExitTimes.set(event.paneId, Date.now());
             const newStates = { ...context.copyModeStates };
             delete newStates[event.paneId];
             enqueue(assign({ copyModeStates: newStates }));
@@ -1073,6 +1085,7 @@ export const appMachine = setup({
                   console.error('[copyMode] Clipboard write failed:', err);
                 });
               }
+              copyModeExitTimes.set(paneId, Date.now());
               const newStates = { ...context.copyModeStates };
               delete newStates[paneId];
               enqueue(assign({ copyModeStates: newStates }));
@@ -1089,6 +1102,7 @@ export const appMachine = setup({
             }
 
             if (result.action === 'exit') {
+              copyModeExitTimes.set(paneId, Date.now());
               const newStates = { ...context.copyModeStates };
               delete newStates[paneId];
               enqueue(assign({ copyModeStates: newStates }));
