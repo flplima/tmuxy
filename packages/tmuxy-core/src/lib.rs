@@ -170,6 +170,13 @@ pub fn extract_cells_with_urls(
     lines
 }
 
+/// Parse scrollback content into structured cells.
+/// Uses the line count from the content itself as the height.
+pub fn parse_scrollback_to_cells(content: &str, width: u32) -> PaneContent {
+    let line_count = content.lines().count().max(1) as u32;
+    parse_ansi_to_cells(content, width, line_count)
+}
+
 /// Parse ANSI content into structured cells using vt100 terminal emulation
 pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneContent {
     let mut parser = vt100::Parser::new(height as u16, width as u16, 0);
@@ -245,9 +252,6 @@ pub struct TmuxPane {
     /// Selection start Y (visible-area-relative row, can be negative if off-screen)
     #[serde(default)]
     pub selection_start_y: i32,
-    /// Selection mode: "char", "line", or "" (from @tmuxy_sel_mode pane user option)
-    #[serde(default)]
-    pub sel_mode: String,
 }
 
 /// A single tmux window (tab)
@@ -437,9 +441,6 @@ pub struct PaneDelta {
     /// Selection start Y (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection_start_y: Option<i32>,
-    /// Selection mode (only if changed)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sel_mode: Option<String>,
 }
 
 impl PaneDelta {
@@ -467,7 +468,6 @@ impl PaneDelta {
             && self.selection_present.is_none()
             && self.selection_start_x.is_none()
             && self.selection_start_y.is_none()
-            && self.sel_mode.is_none()
     }
 }
 
@@ -685,7 +685,6 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             selection_present: false,
             selection_start_x: 0,
             selection_start_y: 0,
-            sel_mode: String::new(),
         });
     }
 

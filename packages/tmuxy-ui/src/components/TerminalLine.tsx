@@ -107,7 +107,7 @@ export const TerminalLine = memo(
     inMode,
     isActive,
     selectionRange,
-    width,
+    width: _width,
   }: TerminalLineProps) {
     const isCursorLine = showCursor && lineIndex === cursorY;
     const lineLength = line.length;

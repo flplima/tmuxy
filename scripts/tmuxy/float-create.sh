@@ -9,6 +9,9 @@ source "$(dirname "$0")/_lib.sh"
 MAX_INDEX=$(tmux list-windows -F '#{window_index}' | awk '$1 >= 2000' | sort -rn | head -1)
 NEXT_INDEX=$(( ${MAX_INDEX:-1999} + 1 ))
 
-tmux new-window -d -t ":${NEXT_INDEX}" -n "__float_temp"
+# Use split-window + break-pane instead of new-window
+# (tmux new-window crashes the server when called from run-shell with control mode attached)
+NEW_PANE_ID=$(tmux split-window -dP -F '#{pane_id}')
+tmux break-pane -d -s "$NEW_PANE_ID" -n "__float_temp"
 
 refresh_panes

@@ -4,10 +4,10 @@
  * All type definitions for state machines and their events.
  */
 
-import type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding } from '../tmux/types';
+import type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState } from '../tmux/types';
 
 // Re-export domain types
-export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding };
+export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState };
 
 // ============================================
 // Shared State Types
@@ -124,6 +124,8 @@ export interface AppMachineContext {
   enableAnimations: boolean;
   /** Keybindings received from the server */
   keybindings: KeyBindings | null;
+  /** Client-side copy mode state per pane */
+  copyModeStates: Record<string, CopyModeState>;
   /** Current optimistic operation being applied (awaiting server confirmation) */
   optimisticOperation: OptimisticOperation | null;
   /** Override during group switch (prevents intermediate state flicker) */
@@ -253,6 +255,17 @@ export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string };
 export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 
+// Copy mode events
+export type EnterCopyModeEvent = { type: 'ENTER_COPY_MODE'; paneId: string };
+export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: string };
+export type CopyModeChunkLoadedEvent = { type: 'COPY_MODE_CHUNK_LOADED'; paneId: string; cells: import('../tmux/types').PaneContent; start: number; end: number; historySize: number; width: number };
+export type CopyModeCursorMoveEvent = { type: 'COPY_MODE_CURSOR_MOVE'; paneId: string; row: number; col: number };
+export type CopyModeSelectionStartEvent = { type: 'COPY_MODE_SELECTION_START'; paneId: string; mode: 'char' | 'line'; row: number; col: number };
+export type CopyModeSelectionClearEvent = { type: 'COPY_MODE_SELECTION_CLEAR'; paneId: string };
+export type CopyModeScrollEvent = { type: 'COPY_MODE_SCROLL'; paneId: string; scrollTop: number };
+export type CopyModeYankEvent = { type: 'COPY_MODE_YANK'; paneId: string };
+export type CopyModeKeyEvent = { type: 'COPY_MODE_KEY'; key: string; ctrlKey: boolean; shiftKey: boolean };
+
 // Group switch detection event (fired internally when switch detected in state update)
 export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
 export type EnableAnimationsEvent = { type: 'ENABLE_ANIMATIONS' };
@@ -289,6 +302,15 @@ export type AppMachineEvent =
   | SendKeysEvent
   | SendTmuxCommandEvent
   | CopySelectionEvent
+  | EnterCopyModeEvent
+  | ExitCopyModeEvent
+  | CopyModeChunkLoadedEvent
+  | CopyModeCursorMoveEvent
+  | CopyModeSelectionStartEvent
+  | CopyModeSelectionClearEvent
+  | CopyModeScrollEvent
+  | CopyModeYankEvent
+  | CopyModeKeyEvent
   | ClearGroupSwitchOverrideEvent
   | EnableAnimationsEvent;
 

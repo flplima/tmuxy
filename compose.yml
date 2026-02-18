@@ -2,29 +2,27 @@ services:
   tmuxy-dev:
     build: .
     image: tmuxy-dev
-    container_name: tmuxy-dev
     network_mode: host
     init: true          # Proper init process to reap zombie processes
     pids_limit: 50000   # Safety buffer for process count
     stdin_open: true
     tty: true
-    user: claude
+    user: user
     working_dir: /workspace
     volumes:
       # Project workspace
       - .:/workspace
       # Container config files
-      - ./docker:/home/claude/docker:ro
+      - ./docker:/home/user/docker:ro
       # Dotfiles scripts (tmux-run, etc.)
-      - ~/dotfiles/scripts:/home/claude/dotfiles/scripts:ro
-      # pptr-cli (mounted at same path as host for script compatibility)
-      - ~/projects/workbench/pptr-cli:/home/felipe/projects/workbench/pptr-cli:ro
-      # Claude config (auth and settings)
-      - ~/.claude:/home/claude/.claude
+      - ~/dotfiles/scripts:/home/user/dotfiles/scripts:ro
+      # Claude config (auth and settings - .claude.json has onboarding state)
+      - ~/.claude:/home/user/.claude
+      - ~/.claude.json:/home/user/.claude.json
       # SSH keys for git
-      - ~/.ssh:/home/claude/.ssh:ro
+      - ~/.ssh:/home/user/.ssh:ro
       # GitHub CLI auth
-      - ~/.config/gh:/home/claude/.config/gh:ro
+      - ~/.config/gh:/home/user/.config/gh:ro
       # Cargo cache for faster builds
       - tmuxy-cargo-registry:/usr/local/cargo/registry
       - tmuxy-cargo-git:/usr/local/cargo/git

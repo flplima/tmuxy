@@ -62,20 +62,20 @@ RUN npm install -g agent-browser \
     && agent-browser install
 
 # Non-root user (matches typical host UID)
-RUN useradd -m -s /bin/bash -u 1000 claude
+RUN useradd -m -s /bin/bash -u 1000 user
 
 # Add cargo, claude, and dotfiles scripts to PATH (in .bashrc for tmux shells)
-ENV PATH=/usr/local/cargo/bin:/home/claude/.local/bin:/home/claude/dotfiles/scripts:$PATH
-RUN echo 'export PATH=/usr/local/cargo/bin:/home/claude/.local/bin:/home/claude/dotfiles/scripts:$PATH' >> /home/claude/.bashrc
+ENV PATH=/usr/local/cargo/bin:/home/user/.local/bin:/home/user/dotfiles/scripts:$PATH
+RUN echo 'export PATH=/usr/local/cargo/bin:/home/user/.local/bin:/home/user/dotfiles/scripts:$PATH' >> /home/user/.bashrc
 
-# Ensure cargo directories are writable by claude user
+# Ensure cargo directories are writable by user
 RUN mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
-    && chown -R claude:claude /usr/local/cargo
+    && chown -R user:user /usr/local/cargo
 
-# Create log file writable by claude user
-RUN touch /var/log/shell.log && chown claude:claude /var/log/shell.log
+# Create log file writable by user
+RUN touch /var/log/shell.log && chown user:user /var/log/shell.log
 
-USER claude
+USER user
 WORKDIR /workspace
 
 # Claude Code CLI (native install - installs to ~/.local/bin)

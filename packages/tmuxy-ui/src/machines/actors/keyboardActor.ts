@@ -17,7 +17,8 @@ import type { KeyBindings } from '../../tmux/types';
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
-  | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings };
+  | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
+  | { type: 'UPDATE_COPY_MODE'; active: boolean; paneId: string | null };
 
 export interface KeyboardActorInput { parent: AnyActorRef }
 
@@ -82,6 +83,7 @@ export function createKeyboardActor() {
     let isComposing = false;
     let inPrefixMode = false;
     let prefixTimeout: ReturnType<typeof setTimeout> | null = null;
+    let copyModeActive = false;
 
     // Dynamic keybindings from server
     let prefixKey = 'C-a';  // Default, will be updated from server
@@ -133,6 +135,18 @@ export function createKeyboardActor() {
       if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
         event.preventDefault();
         input.parent.send({ type: 'COPY_SELECTION' });
+        return;
+      }
+
+      // Client-side copy mode: intercept all keys
+      if (copyModeActive) {
+        event.preventDefault();
+        input.parent.send({
+          type: 'COPY_MODE_KEY',
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+        });
         return;
       }
 
@@ -319,6 +333,8 @@ export function createKeyboardActor() {
         prefixKey = kb.prefix_key;
         prefixBindings = new Map(kb.prefix_bindings.map(b => [b.key, b.command]));
         rootBindings = new Map(kb.root_bindings.map(b => [b.key, b.command]));
+      } else if (event.type === 'UPDATE_COPY_MODE') {
+        copyModeActive = event.active;
       }
     });
 

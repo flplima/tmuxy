@@ -1,0 +1,11 @@
+{
+  "name": "tmuxy-dev",
+  "dockerComposeFile": "compose.yml",
+  "service": "tmuxy-dev",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose",
+  "remoteUser": "user",
+  "remoteEnv": {
+    "CHROME_CDP_URL": "http://localhost:9222"
+  }
+}

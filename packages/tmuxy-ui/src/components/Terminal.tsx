@@ -27,8 +27,6 @@ interface TerminalProps {
   selectionStartX?: number;
   /** Backend-provided selection start Y (authoritative, from tmux, visible-relative) */
   selectionStartY?: number;
-  /** Selection mode: "char", "line", or "" */
-  selMode?: string;
 }
 
 // Empty line constant for padding
@@ -44,11 +42,8 @@ function computeSelectionRanges(
   copyCursorX: number,
   copyCursorY: number,
   width: number,
-  selMode: string,
 ): (lineIndex: number) => { startCol: number; endCol: number } | null {
   if (!selectionPresent || !selectionStart) return () => null;
-
-  const isLineMode = selMode === 'line';
 
   // Normalize: ensure start is before end
   let sy = selectionStart.y, sx = selectionStart.x;
@@ -59,11 +54,6 @@ function computeSelectionRanges(
 
   return (lineIndex: number) => {
     if (lineIndex < sy || lineIndex > ey) return null;
-
-    // Line mode: all selected lines are fully highlighted
-    if (isLineMode) {
-      return { startCol: 0, endCol: width - 1 };
-    }
 
     if (sy === ey) {
       // Single line selection
@@ -97,7 +87,6 @@ export const Terminal: React.FC<TerminalProps> = ({
   selectionStart,
   selectionStartX = 0,
   selectionStartY = 0,
-  selMode = '',
 }) => {
   // Use copy mode cursor position when in copy mode
   const effectiveCursorX = inMode ? copyCursorX : cursorX;
@@ -113,8 +102,8 @@ export const Terminal: React.FC<TerminalProps> = ({
 
   // Compute selection ranges for each line
   const getSelectionRange = useMemo(
-    () => computeSelectionRanges(selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width, selMode),
-    [selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width, selMode]
+    () => computeSelectionRanges(selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width),
+    [selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width]
   );
 
   // Pad content to fill height

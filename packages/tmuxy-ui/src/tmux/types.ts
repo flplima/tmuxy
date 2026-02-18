@@ -35,8 +35,6 @@ export interface TmuxPane {
   selectionStartX: number;
   /** Selection start Y (visible-area-relative row, can be negative), only meaningful when selectionPresent */
   selectionStartY: number;
-  /** Selection mode: "char", "line", or "" (from @tmuxy_sel_mode pane user option) */
-  selMode: string;
 }
 
 export interface TmuxWindow {
@@ -104,6 +102,32 @@ export type CellLine = TerminalCell[];
 export type PaneContent = CellLine[];
 
 // ============================================
+// Client-Side Copy Mode Types
+// ============================================
+
+export interface CopyModeState {
+  /** Loaded lines of scrollback content, keyed by absolute line index */
+  lines: Map<number, CellLine>;
+  /** Total lines available (historySize + height) */
+  totalLines: number;
+  /** Number of history lines above the visible area */
+  historySize: number;
+  /** Loaded ranges: [startLine, endLine] pairs (inclusive) */
+  loadedRanges: Array<[number, number]>;
+  /** Whether a chunk is currently being fetched */
+  loading: boolean;
+  width: number;
+  height: number;
+  /** Absolute row (0 = first history line) */
+  cursorRow: number;
+  cursorCol: number;
+  selectionMode: 'char' | 'line' | null;
+  selectionAnchor: { row: number; col: number } | null;
+  /** Absolute row at top of viewport */
+  scrollTop: number;
+}
+
+// ============================================
 // Server Types (snake_case from backend)
 // ============================================
 
@@ -131,7 +155,6 @@ export interface ServerPane {
   selection_present?: boolean;
   selection_start_x?: number;
   selection_start_y?: number;
-  sel_mode?: string;
 }
 
 export interface ServerWindow {
@@ -182,7 +205,6 @@ export interface PaneDelta {
   selection_present?: boolean;
   selection_start_x?: number;
   selection_start_y?: number;
-  sel_mode?: string;
 }
 
 export interface WindowDelta {

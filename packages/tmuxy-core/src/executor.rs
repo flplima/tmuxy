@@ -394,6 +394,16 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
     Ok(panes)
 }
 
+/// Capture a range of scrollback lines from a pane.
+/// start/end are line offsets using tmux capture-pane -S/-E convention:
+/// negative = from history, 0 = first visible line, -S - means start of history.
+pub fn capture_pane_range(pane_id: &str, start: i64, end: i64) -> Result<String, String> {
+    execute_tmux_command(&[
+        "capture-pane", "-t", pane_id, "-p", "-e",
+        "-S", &start.to_string(), "-E", &end.to_string(),
+    ])
+}
+
 /// Capture content of a specific pane by its ID (e.g., "%0")
 pub fn capture_pane_by_id(pane_id: &str) -> Result<String, String> {
     execute_tmux_command(&[

@@ -8,7 +8,7 @@
  */
 
 import { useRef, useEffect, useState, useCallback, memo } from 'react';
-import { useAppSend, usePane, usePaneGroup } from '../machines/AppContext';
+import { useAppSend, usePane, usePaneGroup, useCopyModeState } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import type { TmuxPane } from '../tmux/types';
 
@@ -101,6 +101,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
   const { group, groupPanes, activePaneId } = usePaneGroup(paneId);
+  const copyState = useCopyModeState(paneId);
   const tabsRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
@@ -191,7 +192,8 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
     send({ type: 'SEND_COMMAND', command: 'resize-pane -Z' });
   };
 
-  const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${inMode ? 'pane-header-copy-mode' : ''}`;
+  const isInCopyMode = inMode || !!copyState;
+  const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${isInCopyMode ? 'pane-header-copy-mode' : ''}`;
 
   return (
     <div

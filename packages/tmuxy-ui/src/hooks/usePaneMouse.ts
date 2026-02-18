@@ -3,8 +3,9 @@
  *
  * Handles mouse clicks, drags, and wheel events based on pane state:
  * - When mouse_any_flag is true: forward mouse events as SGR sequences to tmux
- * - When mouse_any_flag is false: mouse drag enters copy mode and creates selection
+ * - When mouse_any_flag is false: mouse drag enters client-side copy mode with selection
  * - When alternate_on is true: wheel events send arrow keys
+ * - When not in alternate mode: wheel scroll enters client-side copy mode
  * - Shift+click always focuses the pane regardless of mouse mode
  */
 
@@ -23,6 +24,10 @@ interface UsePaneMouseOptions {
   alternateOn: boolean;
   /** Whether the pane is in copy mode */
   inMode: boolean;
+  /** Whether client-side copy mode is active */
+  copyModeActive: boolean;
+  /** Pane height in rows (for scroll calculations) */
+  paneHeight: number;
   /** Ref to the .pane-content element (used for coordinate calculation) */
   contentRef: RefObject<HTMLDivElement | null>;
 }
@@ -34,7 +39,7 @@ export function usePaneMouse(
   send: (event: AppMachineEvent) => void,
   options: UsePaneMouseOptions
 ) {
-  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, contentRef } = options;
+  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, copyModeActive, contentRef } = options;
 
   // Track mouse button state for drag events
   const mouseButtonRef = useRef<number | null>(null);
@@ -44,13 +49,11 @@ export function usePaneMouse(
   const lastCellRef = useRef<{ x: number; y: number } | null>(null);
   const isDraggingForSelectionRef = useRef(false);
   const lastDragTimeRef = useRef(0);
-  // Snapshot inMode at mousedown so we don't lose state mid-drag
-  const wasModeAtDragStartRef = useRef(false);
   // Committed selection start (reactive state for rendering, persists until copy mode exits)
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
 
   // Clear selection start when copy mode exits
-  if (!inMode && selectionStart) {
+  if (!inMode && !copyModeActive && selectionStart) {
     setSelectionStart(null);
   }
 
@@ -70,9 +73,6 @@ export function usePaneMouse(
     },
     [charWidth, charHeight, contentRef]
   );
-
-  // Note: SGR mouse events are sent using printf + load-buffer + paste-buffer
-  // because tmux's send-keys -M format is different from SGR encoding
 
   // Handle mouse down
   const handleMouseDown = useCallback(
@@ -109,10 +109,9 @@ export function usePaneMouse(
         dragStartRef.current = cell;
         lastCellRef.current = null;
         isDraggingForSelectionRef.current = false;
-        wasModeAtDragStartRef.current = inMode;
       }
     },
-    [send, paneId, mouseAnyFlag, inMode, pixelToCell]
+    [send, paneId, mouseAnyFlag, pixelToCell]
   );
 
   // Handle mouse up
@@ -160,7 +159,7 @@ export function usePaneMouse(
         return;
       }
 
-      // Non-mouse-tracking: handle drag for copy-mode selection
+      // Non-mouse-tracking: handle drag for client-side copy mode selection
       if (!dragStartRef.current || mouseButtonRef.current !== 0) return;
 
       const cell = pixelToCell(e);
@@ -179,48 +178,43 @@ export function usePaneMouse(
         isDraggingForSelectionRef.current = true;
         const start = dragStartRef.current;
 
-        // Chain commands with \; so tmux processes them atomically.
-        // This is critical: copy-mode must complete before send-keys -X works.
-        const parts: string[] = [];
-        if (!wasModeAtDragStartRef.current) {
-          parts.push(`copy-mode -t ${paneId}`);
+        // Enter client-side copy mode if not already active
+        if (!copyModeActive) {
+          send({ type: 'ENTER_COPY_MODE', paneId });
         }
-        parts.push(`send-keys -t ${paneId} -X top-line`);
-        parts.push(`send-keys -t ${paneId} -X start-of-line`);
-        if (start.y > 0) {
-          parts.push(`send-keys -t ${paneId} -X -N ${start.y} cursor-down`);
-        }
-        if (start.x > 0) {
-          parts.push(`send-keys -t ${paneId} -X -N ${start.x} cursor-right`);
-        }
-        parts.push(`set -p -t ${paneId} @tmuxy_sel_mode char`);
-        parts.push(`send-keys -t ${paneId} -X begin-selection`);
 
-        send({ type: 'SEND_COMMAND', command: parts.join(' \\; ') });
+        // We'll set selection after copy mode state is initialized
+        // For now, use a small delay for state to propagate
+        setTimeout(() => {
+          // Start char selection at drag start position
+          // The anchor row needs to be in "absolute" coordinates.
+          // Since we're starting from visible area, we need to add historySize
+          // (which we don't have here). The appMachine will handle this via
+          // COPY_MODE_SELECTION_START using the visible-area-relative coordinates.
+          // The ScrollbackTerminal/appMachine will adjust.
+          send({
+            type: 'COPY_MODE_SELECTION_START',
+            paneId,
+            mode: 'char',
+            row: start.y, // visible-relative, will be adjusted by appMachine
+            col: start.x,
+          });
+        }, 50);
         lastCellRef.current = { ...start };
       }
 
-      // Move cursor to current position (relative from last known position)
+      // Update cursor position for selection extension
       if (lastCellRef.current) {
-        const dx = cell.x - lastCellRef.current.x;
-        const dy = cell.y - lastCellRef.current.y;
-
-        if (dy > 0) {
-          send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -X -N ${dy} cursor-down` });
-        } else if (dy < 0) {
-          send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -X -N ${-dy} cursor-up` });
-        }
-
-        if (dx > 0) {
-          send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -X -N ${dx} cursor-right` });
-        } else if (dx < 0) {
-          send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -X -N ${-dx} cursor-left` });
-        }
-
+        send({
+          type: 'COPY_MODE_CURSOR_MOVE',
+          paneId,
+          row: cell.y, // visible-relative
+          col: cell.x,
+        });
         lastCellRef.current = cell;
       }
     },
-    [send, paneId, mouseAnyFlag, pixelToCell]
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell]
   );
 
   // Handle mouse leave
@@ -272,15 +266,42 @@ export function usePaneMouse(
         return;
       }
 
-      // Default: enter copy mode and scroll
-      const direction = isScrollUp ? 'scroll-up' : 'scroll-down';
-      send({ type: 'SEND_COMMAND', command: `copy-mode -e -t ${paneId}` });
-      send({
-        type: 'SEND_COMMAND',
-        command: `send-keys -t ${paneId} -X -N ${absLines} ${direction}`,
-      });
+      // If already in client-side copy mode, scroll the scrollback view
+      if (copyModeActive) {
+        // COPY_MODE_SCROLL expects absolute scrollTop, but we just pass delta
+        // The appMachine will compute the real scrollTop. We use a special event
+        // to scroll relatively by sending a scroll offset.
+        send({
+          type: 'COPY_MODE_KEY',
+          key: isScrollUp ? 'k' : 'j',
+          ctrlKey: false,
+          shiftKey: false,
+        });
+        // Send multiple times for multi-line scroll
+        for (let i = 1; i < absLines; i++) {
+          send({
+            type: 'COPY_MODE_KEY',
+            key: isScrollUp ? 'k' : 'j',
+            ctrlKey: false,
+            shiftKey: false,
+          });
+        }
+        return;
+      }
+
+      // Default: enter client-side copy mode on scroll up
+      if (isScrollUp) {
+        send({ type: 'ENTER_COPY_MODE', paneId });
+      } else {
+        // Scroll down without copy mode - just send to tmux
+        send({ type: 'SEND_COMMAND', command: `copy-mode -e -t ${paneId}` });
+        send({
+          type: 'SEND_COMMAND',
+          command: `send-keys -t ${paneId} -X -N ${absLines} scroll-down`,
+        });
+      }
     },
-    [send, paneId, charHeight, alternateOn, mouseAnyFlag, pixelToCell]
+    [send, paneId, charHeight, alternateOn, mouseAnyFlag, copyModeActive, pixelToCell]
   );
 
   return {

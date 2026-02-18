@@ -6,8 +6,7 @@ export type TmuxActorEvent =
   | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
   | { type: 'FETCH_PANE_GROUPS' }
-  | { type: 'COPY_TO_CLIPBOARD' }
-  | { type: 'AUTO_COPY_BUFFER' };
+  | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: string; start: number; end: number };
 
 export interface TmuxActorInput {
   parent: AnyActorRef;
@@ -82,35 +81,26 @@ export function createTmuxActor(adapter: TmuxAdapter) {
             // Silently ignore errors - just use empty groups
             parent.send({ type: 'PANE_GROUPS_LOADED', groupsJson: null });
           });
-      } else if (event.type === 'COPY_TO_CLIPBOARD') {
-        // 1. Tell tmux to copy the selection into the paste buffer
+      } else if (event.type === 'FETCH_SCROLLBACK_CELLS') {
         adapter
-          .invoke<void>('run_tmux_command', { command: 'send-keys -X copy-selection-and-cancel' })
-          .then(() => {
-            // 2. Fetch the paste buffer content
-            return adapter.invoke<string>('get_buffer', {});
+          .invoke<{ cells: import('../../tmux/types').PaneContent; historySize: number; start: number; end: number; width: number }>('get_scrollback_cells', {
+            paneId: event.paneId,
+            start: event.start,
+            end: event.end,
           })
-          .then((text) => {
-            // 3. Write to system clipboard
-            if (text && navigator.clipboard) {
-              return navigator.clipboard.writeText(text);
-            }
+          .then((result) => {
+            parent.send({
+              type: 'COPY_MODE_CHUNK_LOADED',
+              paneId: event.paneId,
+              cells: result.cells,
+              start: result.start,
+              end: result.end,
+              historySize: result.historySize,
+              width: result.width,
+            });
           })
           .catch((error) => {
-            console.error('[tmuxActor] Copy to clipboard failed:', error);
-          });
-      } else if (event.type === 'AUTO_COPY_BUFFER') {
-        // Read the tmux paste buffer and copy to system clipboard.
-        // Used after yank (y) which already copies to buffer and exits copy mode.
-        adapter
-          .invoke<string>('get_buffer', {})
-          .then((text) => {
-            if (text && navigator.clipboard) {
-              return navigator.clipboard.writeText(text);
-            }
-          })
-          .catch((error) => {
-            console.error('[tmuxActor] Auto-copy buffer failed:', error);
+            console.error('[tmuxActor] Fetch scrollback cells failed:', error);
           });
       }
     });

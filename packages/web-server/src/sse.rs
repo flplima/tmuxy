@@ -638,6 +638,41 @@ async fn handle_command(
                 Err(_) => Ok(serde_json::json!(null))
             }
         }
+        "get_scrollback_cells" => {
+            let pane_id = args
+                .get("paneId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("%0");
+            let start = args.get("start").and_then(|v| v.as_i64()).unwrap_or(-200);
+            let end = args.get("end").and_then(|v| v.as_i64()).unwrap_or(-1);
+
+            // Get pane width from display-message
+            let width_output = executor::execute_tmux_command(&[
+                "display-message", "-t", pane_id, "-p", "#{pane_width}"
+            ]).map_err(|e| format!("Failed to get pane width: {}", e))?;
+            let width: u32 = width_output.trim().parse().unwrap_or(80);
+
+            // Get history size
+            let history_output = executor::execute_tmux_command(&[
+                "display-message", "-t", pane_id, "-p", "#{history_size}"
+            ]).map_err(|e| format!("Failed to get history size: {}", e))?;
+            let history_size: u32 = history_output.trim().parse().unwrap_or(0);
+
+            // Capture the range
+            let raw = executor::capture_pane_range(pane_id, start, end)
+                .map_err(|e| format!("Failed to capture pane range: {}", e))?;
+
+            // Parse into cells
+            let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
+
+            Ok(serde_json::json!({
+                "cells": cells,
+                "historySize": history_size,
+                "start": start,
+                "end": end,
+                "width": width
+            }))
+        }
         "list_directory" => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
             let entries = list_directory(path)?;

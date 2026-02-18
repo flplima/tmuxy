@@ -127,9 +127,6 @@ pub struct PaneState {
     /// History size (number of lines scrolled off the top)
     pub history_size: u64,
 
-    /// Selection mode: "char", "line", or empty (from @tmuxy_sel_mode pane user option)
-    pub sel_mode: String,
-
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
     pub copy_mode_content: Option<PaneContent>,
 }
@@ -166,7 +163,6 @@ impl PaneState {
             selection_start_x: 0,
             selection_start_y: 0,
             history_size: 0,
-            sel_mode: String::new(),
             copy_mode_content: None,
         }
     }
@@ -323,7 +319,6 @@ impl PaneState {
             selection_present: self.selection_present,
             selection_start_x: sel_start_x,
             selection_start_y: sel_start_y,
-            sel_mode: self.sel_mode.clone(),
         }
     }
 }
@@ -1118,23 +1113,22 @@ impl StateAggregator {
         // We parse from the end to find the known fixed fields
         let remaining_parts = if parts.len() > 16 { &parts[16..] } else { &[] };
 
-        // The last 9 fields should be: alternate_on, mouse_any_flag, group_id, group_tab_index,
-        // selection_present, selection_start_x, selection_start_y, history_size, sel_mode
+        // The last 8 fields should be: alternate_on, mouse_any_flag, group_id, group_tab_index,
+        // selection_present, selection_start_x, selection_start_y, history_size
         // Parse from the end to find the known fixed fields
-        let num_tail_fields = 9;
+        let num_tail_fields = 8;
         let (border_title, alternate_on, mouse_any_flag, group_id, group_tab_index,
-             selection_present, selection_start_x, selection_start_y, history_size, sel_mode) = if remaining_parts.len() >= num_tail_fields {
+             selection_present, selection_start_x, selection_start_y, history_size) = if remaining_parts.len() >= num_tail_fields {
             let last_idx = remaining_parts.len() - 1;
-            let s_mode = remaining_parts[last_idx].to_string();
-            let hist_size: u64 = remaining_parts[last_idx - 1].parse().unwrap_or(0);
-            let sel_start_y: u64 = remaining_parts[last_idx - 2].parse().unwrap_or(0);
-            let sel_start_x: u32 = remaining_parts[last_idx - 3].parse().unwrap_or(0);
-            let sel_present = remaining_parts[last_idx - 4] == "1";
-            let group_tab_idx_str = remaining_parts[last_idx - 5];
-            let group_id_str = remaining_parts[last_idx - 6];
-            let mouse_flag = remaining_parts[last_idx - 7] == "1";
-            let alt_on = remaining_parts[last_idx - 8] == "1";
-            // Everything before the last 9 fields is border_title
+            let hist_size: u64 = remaining_parts[last_idx].parse().unwrap_or(0);
+            let sel_start_y: u64 = remaining_parts[last_idx - 1].parse().unwrap_or(0);
+            let sel_start_x: u32 = remaining_parts[last_idx - 2].parse().unwrap_or(0);
+            let sel_present = remaining_parts[last_idx - 3] == "1";
+            let group_tab_idx_str = remaining_parts[last_idx - 4];
+            let group_id_str = remaining_parts[last_idx - 5];
+            let mouse_flag = remaining_parts[last_idx - 6] == "1";
+            let alt_on = remaining_parts[last_idx - 7] == "1";
+            // Everything before the last 8 fields is border_title
             let title_parts = if remaining_parts.len() > num_tail_fields {
                 remaining_parts[..remaining_parts.len() - num_tail_fields].join(",")
             } else {
@@ -1142,7 +1136,7 @@ impl StateAggregator {
             };
             let gid = if group_id_str.is_empty() { None } else { Some(group_id_str.to_string()) };
             let gtab = group_tab_idx_str.parse::<u32>().ok();
-            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present, sel_start_x, sel_start_y, hist_size, s_mode)
+            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present, sel_start_x, sel_start_y, hist_size)
         } else if remaining_parts.len() >= 5 {
             // Fallback: older format without selection fields
             let last_idx = remaining_parts.len() - 1;
@@ -1158,7 +1152,7 @@ impl StateAggregator {
             };
             let gid = if group_id_str.is_empty() { None } else { Some(group_id_str.to_string()) };
             let gtab = group_tab_idx_str.parse::<u32>().ok();
-            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present, 0, 0, 0, String::new())
+            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present, 0, 0, 0)
         } else if remaining_parts.len() >= 2 {
             let last_idx = remaining_parts.len() - 1;
             let mouse_flag = remaining_parts[last_idx] == "1";
@@ -1168,11 +1162,11 @@ impl StateAggregator {
             } else {
                 String::new()
             };
-            (title_parts, alt_on, mouse_flag, None, None, false, 0, 0, 0, String::new())
+            (title_parts, alt_on, mouse_flag, None, None, false, 0, 0, 0)
         } else if remaining_parts.len() == 1 {
-            (remaining_parts[0].to_string(), false, false, None, None, false, 0, 0, 0, String::new())
+            (remaining_parts[0].to_string(), false, false, None, None, false, 0, 0, 0)
         } else {
-            (String::new(), false, false, None, None, false, 0, 0, 0, String::new())
+            (String::new(), false, false, None, None, false, 0, 0, 0)
         };
 
         let pane_id_string = pane_id.to_string();
@@ -1210,7 +1204,6 @@ impl StateAggregator {
         pane.selection_start_x = selection_start_x;
         pane.selection_start_y = selection_start_y;
         pane.history_size = history_size;
-        pane.sel_mode = sel_mode;
 
         // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = cursor_x;
@@ -1514,10 +1507,6 @@ impl StateAggregator {
         if prev.selection_start_y != curr.selection_start_y {
             delta.selection_start_y = Some(curr.selection_start_y);
         }
-        if prev.sel_mode != curr.sel_mode {
-            delta.sel_mode = Some(curr.sel_mode.clone());
-        }
-
         delta
     }
 

@@ -7,10 +7,8 @@
     "packages/tmuxy-ui"
   ],
   "scripts": {
-    "claude": "./scripts/dev.sh",
-    "docker:attach": "docker exec -it tmuxy-dev bash",
-    "docker:attach:dev": "docker exec -it tmuxy-dev tmux attach-session -t dev",
-    "docker:attach:tmuxy": "docker exec -it tmuxy-dev tmux attach-session -t tmuxy",
+    "devcontainer": "docker compose -f .devcontainer/compose.yml up -d && docker compose -f .devcontainer/compose.yml exec tmuxy-dev bash",
+    "yolo-mode": "docker compose -f .devcontainer/compose.yml up -d && docker compose -f .devcontainer/compose.yml exec tmuxy-dev bash -c 'npm start && claude --dangerously-skip-permissions'",
     "build": "npm run build -w tmuxy-ui",
     "start": "pm2 delete tmuxy-dev 2>/dev/null; pm2 start ./scripts/dev.sh --name tmuxy-dev --cwd /workspace",
     "stop": "pm2 stop tmuxy-dev",

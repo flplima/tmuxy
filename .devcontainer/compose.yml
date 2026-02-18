@@ -1,0 +1,41 @@
+services:
+  tmuxy-dev:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    network_mode: host
+    init: true
+    pids_limit: 50000
+    stdin_open: true
+    tty: true
+    user: user
+    working_dir: /workspace
+    volumes:
+      # Project workspace
+      - ..:/workspace
+      # Container config files
+      - ../docker:/home/user/docker:ro
+      # Dotfiles scripts (tmux-run, etc.)
+      - ~/dotfiles/scripts:/home/user/dotfiles/scripts:ro
+      # Claude credentials and config (shared from host - no re-login needed)
+      - ~/.claude:/home/user/.claude
+      - ~/.claude.json:/home/user/.claude.json
+      # SSH keys for git
+      - ~/.ssh:/home/user/.ssh:ro
+      # GitHub CLI auth
+      - ~/.config/gh:/home/user/.config/gh:ro
+      # Cargo cache for faster builds
+      - tmuxy-cargo-registry:/usr/local/cargo/registry
+      - tmuxy-cargo-git:/usr/local/cargo/git
+    environment:
+      - CHROME_CDP_URL=http://localhost:9222
+      - TMUX_SESSION=dev
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 1g
+    mem_limit: 6g
+    command: sleep infinity
+
+volumes:
+  tmuxy-cargo-registry:
+  tmuxy-cargo-git:

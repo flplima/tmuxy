@@ -7,6 +7,7 @@
 
 import { useRef } from 'react';
 import { Terminal } from './Terminal';
+import { ScrollbackTerminal } from './ScrollbackTerminal';
 import { PaneHeader } from './PaneHeader';
 import {
   useAppSend,
@@ -14,6 +15,7 @@ import {
   usePane,
   useIsPaneInActiveWindow,
   useIsSinglePane,
+  useCopyModeState,
   selectCharSize,
 } from '../machines/AppContext';
 import { usePaneMouse } from '../hooks';
@@ -29,6 +31,7 @@ export function Pane({ paneId }: PaneProps) {
   const isSinglePane = useIsSinglePane();
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const contentRef = useRef<HTMLDivElement>(null);
+  const copyState = useCopyModeState(paneId);
 
   // Mouse handling with context-aware behavior
   const {
@@ -45,6 +48,8 @@ export function Pane({ paneId }: PaneProps) {
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
     alternateOn: pane?.alternateOn ?? false,
     inMode: pane?.inMode ?? false,
+    copyModeActive: !!copyState,
+    paneHeight: pane?.height ?? 24,
     contentRef,
   });
 
@@ -71,22 +76,25 @@ export function Pane({ paneId }: PaneProps) {
     >
       <PaneHeader paneId={paneId} />
       <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
-        <Terminal
-          content={pane.content}
-          cursorX={pane.cursorX}
-          cursorY={pane.cursorY}
-          isActive={pane.active && isInActiveWindow}
-          width={pane.width}
-          height={pane.height}
-          inMode={pane.inMode}
-          copyCursorX={pane.copyCursorX}
-          copyCursorY={pane.copyCursorY}
-          selectionPresent={pane.selectionPresent}
-          selectionStart={selectionStart}
-          selectionStartX={pane.selectionStartX}
-          selectionStartY={pane.selectionStartY}
-          selMode={pane.selMode}
-        />
+        {copyState && copyState.totalLines > 0 ? (
+          <ScrollbackTerminal paneId={paneId} copyState={copyState} />
+        ) : (
+          <Terminal
+            content={pane.content}
+            cursorX={pane.cursorX}
+            cursorY={pane.cursorY}
+            isActive={pane.active && isInActiveWindow}
+            width={pane.width}
+            height={pane.height}
+            inMode={pane.inMode}
+            copyCursorX={pane.copyCursorX}
+            copyCursorY={pane.copyCursorY}
+            selectionPresent={pane.selectionPresent}
+            selectionStart={selectionStart}
+            selectionStartX={pane.selectionStartX}
+            selectionStartY={pane.selectionStartY}
+          />
+        )}
       </div>
     </div>
   );

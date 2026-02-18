@@ -29,16 +29,6 @@ echo "[dev] Watching: packages/tmuxy-core/src, packages/web-server/src"
 echo "[dev] Vite HMR is automatic via proxy to port 1420"
 echo ""
 
-# Use cargo-watch to watch Rust files and restart the server
-# -w: directories to watch
-# -s: shell command to run
-# -c: clear screen before each run
-# --why: show which file changed
-# --poll: use polling instead of inotify (more reliable in containers)
-exec cargo watch \
-    -w packages/tmuxy-core/src \
-    -w packages/web-server/src \
-    -c \
-    --why \
-    --poll \
-    -s 'tmux kill-session -t tmuxy 2>/dev/null || true; cargo run -p web-server -- --dev'
+# Kill any existing tmuxy session, then start the server
+tmux kill-session -t tmuxy 2>/dev/null || true
+exec cargo run -p web-server -- --dev

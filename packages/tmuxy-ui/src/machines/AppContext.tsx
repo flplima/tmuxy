@@ -12,7 +12,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
 import { appMachine, type AppMachineActor } from './app';
-import type { AppMachineContext, AppMachineEvent, TmuxPane, PaneGroup } from './types';
+import type { AppMachineContext, AppMachineEvent, TmuxPane, PaneGroup, CopyModeState } from './types';
 import {
   selectPaneById,
   selectIsPaneInActiveWindow as selectIsPaneInActiveWindowFn,
@@ -210,4 +210,10 @@ export function usePaneGroup(paneId: string): { group: PaneGroup | undefined; gr
     const activePaneId = group ? getActivePaneInGroup(snapshot.context, group) : null;
     return { group, groupPanes, activePaneId };
   });
+}
+
+/** Get the copy mode state for a pane (undefined if not in copy mode) */
+export function useCopyModeState(paneId: string): CopyModeState | undefined {
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => snapshot.context.copyModeStates[paneId]);
 }
