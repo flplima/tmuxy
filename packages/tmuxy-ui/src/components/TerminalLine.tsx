@@ -93,6 +93,8 @@ export interface TerminalLineProps {
   inMode: boolean;
   isActive: boolean;
   selectionRange?: { startCol: number; endCol: number } | null;
+  /** Terminal width in columns (needed to pad selection highlight beyond line content) */
+  width: number;
 }
 
 export const TerminalLine = memo(
@@ -105,6 +107,7 @@ export const TerminalLine = memo(
     inMode,
     isActive,
     selectionRange,
+    width,
   }: TerminalLineProps) {
     const isCursorLine = showCursor && lineIndex === cursorY;
     const lineLength = line.length;
@@ -239,6 +242,26 @@ export const TerminalLine = memo(
       }
 
       flushGroup();
+
+      // Pad selection highlight beyond line content (e.g., line mode full-width selection)
+      if (selectionRange && selectionRange.endCol >= line.length) {
+        const padStart = Math.max(selectionRange.startCol, line.length);
+        const padLen = selectionRange.endCol - padStart + 1;
+        if (padLen > 0) {
+          spans.push(
+            <span
+              key="sel-pad"
+              style={{
+                color: 'var(--terminal-bg, #000)',
+                backgroundColor: 'var(--terminal-fg, #fff)',
+              }}
+            >
+              {' '.repeat(padLen)}
+            </span>
+          );
+        }
+      }
+
       return spans;
     };
 

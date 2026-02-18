@@ -154,6 +154,7 @@ export const Terminal: React.FC<TerminalProps> = ({
             inMode={inMode}
             isActive={isActive}
             selectionRange={getSelectionRange(lineIndex)}
+            width={width}
           />
         ))}
       </pre>
