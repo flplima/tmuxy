@@ -265,6 +265,7 @@ export type CopyModeSelectionClearEvent = { type: 'COPY_MODE_SELECTION_CLEAR'; p
 export type CopyModeScrollEvent = { type: 'COPY_MODE_SCROLL'; paneId: string; scrollTop: number };
 export type CopyModeYankEvent = { type: 'COPY_MODE_YANK'; paneId: string };
 export type CopyModeKeyEvent = { type: 'COPY_MODE_KEY'; key: string; ctrlKey: boolean; shiftKey: boolean };
+export type CopyModeWordSelectEvent = { type: 'COPY_MODE_WORD_SELECT'; paneId: string; row: number; col: number };
 
 // Group switch detection event (fired internally when switch detected in state update)
 export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
@@ -311,6 +312,7 @@ export type AppMachineEvent =
   | CopyModeScrollEvent
   | CopyModeYankEvent
   | CopyModeKeyEvent
+  | CopyModeWordSelectEvent
   | ClearGroupSwitchOverrideEvent
   | EnableAnimationsEvent;
 

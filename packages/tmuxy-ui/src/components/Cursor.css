@@ -32,6 +32,22 @@
   border-left: 2px solid #d4d4d4;
 }
 
+.terminal-cursor-copy.terminal-cursor-bar {
+  border-left-color: #264f78;
+}
+
+.terminal-selected {
+  position: relative;
+}
+
+.terminal-selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: rgba(80, 80, 80, 0.5);
+  pointer-events: none;
+}
+
 @keyframes cursor-blink {
   0%, 100% {
     opacity: 1;

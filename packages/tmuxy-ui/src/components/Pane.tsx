@@ -40,6 +40,7 @@ export function Pane({ paneId }: PaneProps) {
     handleMouseMove,
     handleMouseLeave,
     handleWheel,
+    handleDoubleClick,
     selectionStart,
   } = usePaneMouse(send, {
     paneId,
@@ -73,6 +74,7 @@ export function Pane({ paneId }: PaneProps) {
       onMouseUp={handleMouseUp}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onDoubleClick={handleDoubleClick}
     >
       <PaneHeader paneId={paneId} />
       <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>

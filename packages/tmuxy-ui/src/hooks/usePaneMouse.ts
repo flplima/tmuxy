@@ -304,12 +304,35 @@ export function usePaneMouse(
     [send, paneId, charHeight, alternateOn, mouseAnyFlag, copyModeActive, pixelToCell]
   );
 
+  // Handle double-click for word selection
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.pane-header')) return;
+      if (mouseAnyFlag) return;
+
+      const cell = pixelToCell(e);
+
+      if (!copyModeActive) {
+        send({ type: 'ENTER_COPY_MODE', paneId });
+        // Delay word select until copy mode state is initialized
+        setTimeout(() => {
+          send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
+        }, 100);
+      } else {
+        send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
+      }
+    },
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell]
+  );
+
   return {
     handleMouseDown,
     handleMouseUp,
     handleMouseMove,
     handleMouseLeave,
     handleWheel,
+    handleDoubleClick,
     /** Selection start cell position for rendering selection overlay */
     selectionStart,
   };

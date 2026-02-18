@@ -840,7 +840,7 @@ export const appMachine = setup({
             const pane = context.panes.find(p => p.tmuxId === event.paneId);
             if (!pane) return;
 
-            // Initialize copy mode state
+            // Initialize copy mode state with terminal cursor position
             const copyState: CopyModeState = {
               lines: new Map(),
               totalLines: 0,
@@ -850,10 +850,11 @@ export const appMachine = setup({
               width: pane.width,
               height: pane.height,
               cursorRow: 0,
-              cursorCol: 0,
+              cursorCol: pane.cursorX,
               selectionMode: null,
               selectionAnchor: null,
               scrollTop: 0,
+              initialCursorY: pane.cursorY,
             };
 
             enqueue(assign({
@@ -920,6 +921,14 @@ export const appMachine = setup({
             const totalLines = event.historySize + existing.height;
             const isFirstLoad = existing.totalLines === 0;
 
+            // On first load, position cursor at terminal's cursor position
+            let firstLoadRow = event.historySize;
+            let firstLoadCol = 0;
+            if (isFirstLoad && existing.initialCursorY !== undefined) {
+              firstLoadRow = event.historySize + existing.initialCursorY;
+              firstLoadCol = existing.cursorCol;
+            }
+
             const updated: CopyModeState = {
               ...existing,
               lines,
@@ -928,9 +937,8 @@ export const appMachine = setup({
               historySize: event.historySize,
               width: event.width,
               loading: false,
-              // On first load, position cursor at bottom of scrollback (start of visible area)
-              cursorRow: isFirstLoad ? event.historySize : existing.cursorRow,
-              cursorCol: isFirstLoad ? 0 : existing.cursorCol,
+              cursorRow: isFirstLoad ? firstLoadRow : existing.cursorRow,
+              cursorCol: isFirstLoad ? firstLoadCol : existing.cursorCol,
               scrollTop: isFirstLoad ? Math.max(0, totalLines - existing.height) : existing.scrollTop,
             };
 
@@ -997,6 +1005,44 @@ export const appMachine = setup({
             };
 
             return { copyModeStates: { ...context.copyModeStates, [event.paneId]: updated } };
+          }),
+        },
+        COPY_MODE_WORD_SELECT: {
+          actions: assign(({ event, context }) => {
+            const existing = context.copyModeStates[event.paneId];
+            if (!existing) return {};
+
+            // Convert visible-relative row to absolute
+            const absoluteRow = event.row < existing.height
+              ? existing.scrollTop + event.row
+              : event.row;
+
+            const line = existing.lines.get(absoluteRow);
+            if (!line) return {};
+
+            const text = line.map(c => c.c).join('');
+            let wordStart = event.col;
+            let wordEnd = event.col;
+
+            // Expand to word boundaries
+            const isWord = (i: number) => i >= 0 && i < text.length && /\w/.test(text[i]);
+            if (isWord(event.col)) {
+              while (wordStart > 0 && isWord(wordStart - 1)) wordStart--;
+              while (wordEnd < text.length - 1 && isWord(wordEnd + 1)) wordEnd++;
+            }
+
+            return {
+              copyModeStates: {
+                ...context.copyModeStates,
+                [event.paneId]: {
+                  ...existing,
+                  selectionMode: 'char' as const,
+                  selectionAnchor: { row: absoluteRow, col: wordStart },
+                  cursorRow: absoluteRow,
+                  cursorCol: wordEnd,
+                },
+              },
+            };
           }),
         },
         COPY_MODE_SCROLL: {

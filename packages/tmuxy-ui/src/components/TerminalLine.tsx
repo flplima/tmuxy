@@ -119,7 +119,7 @@ export const TerminalLine = memo(
         return (
           <>
             {padding}
-            <Cursor x={cursorX} y={cursorY} char=" " copyMode={inMode} active={isActive} />
+            <Cursor x={cursorX} y={cursorY} char=" " copyMode={inMode} active={isActive} mode={inMode ? 'bar' : 'block'} />
           </>
         );
       }
@@ -145,16 +145,8 @@ export const TerminalLine = memo(
         const startIdx = currentGroup.startIdx;
         const url = currentGroup.style?.url;
 
-        // Apply selection highlight (swap fg/bg like tmux's mode-style: reverse)
-        if (currentGroup.selected) {
-          const fg = style?.color;
-          const bg = style?.backgroundColor;
-          style = {
-            ...style,
-            color: (bg as string) || 'var(--terminal-bg, #000)',
-            backgroundColor: (fg as string) || 'var(--terminal-fg, #fff)',
-          };
-        }
+        // Apply selection highlight via CSS overlay
+        const selectedClass = currentGroup.selected ? 'terminal-selected' : undefined;
 
         // Check if cursor is in this group
         if (isCursorLine) {
@@ -168,7 +160,7 @@ export const TerminalLine = memo(
             const content = (
               <>
                 {before}
-                <Cursor x={cursorX} y={cursorY} char={cursorChar} copyMode={inMode} active={isActive} />
+                <Cursor x={cursorX} y={cursorY} char={cursorChar} copyMode={inMode} active={isActive} mode={inMode ? 'bar' : 'block'} />
                 {after}
               </>
             );
@@ -182,14 +174,14 @@ export const TerminalLine = memo(
                   target="_blank"
                   rel="noopener noreferrer"
                   style={style}
-                  className="terminal-hyperlink"
+                  className={selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'}
                 >
                   {content}
                 </a>
               );
             } else {
               spans.push(
-                <span key={spans.length} style={style}>
+                <span key={spans.length} style={style} className={selectedClass}>
                   {content}
                 </span>
               );
@@ -208,14 +200,14 @@ export const TerminalLine = memo(
               target="_blank"
               rel="noopener noreferrer"
               style={style}
-              className="terminal-hyperlink"
+              className={selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'}
             >
               {text}
             </a>
           );
         } else {
           spans.push(
-            <span key={spans.length} style={style}>
+            <span key={spans.length} style={style} className={selectedClass}>
               {text}
             </span>
           );
@@ -249,13 +241,7 @@ export const TerminalLine = memo(
         const padLen = selectionRange.endCol - padStart + 1;
         if (padLen > 0) {
           spans.push(
-            <span
-              key="sel-pad"
-              style={{
-                color: 'var(--terminal-bg, #000)',
-                backgroundColor: 'var(--terminal-fg, #fff)',
-              }}
-            >
+            <span key="sel-pad" className="terminal-selected">
               {' '.repeat(padLen)}
             </span>
           );

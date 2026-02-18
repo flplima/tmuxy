@@ -125,6 +125,8 @@ export interface CopyModeState {
   selectionAnchor: { row: number; col: number } | null;
   /** Absolute row at top of viewport */
   scrollTop: number;
+  /** Terminal cursorY at time of entering copy mode (used for first chunk load positioning) */
+  initialCursorY?: number;
 }
 
 // ============================================
