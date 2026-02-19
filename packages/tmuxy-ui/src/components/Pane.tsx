@@ -78,7 +78,7 @@ export function Pane({ paneId }: PaneProps) {
     >
       <PaneHeader paneId={paneId} />
       <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
-        {copyState && copyState.totalLines > 0 ? (
+        {copyState ? (
           <ScrollbackTerminal paneId={paneId} copyState={copyState} />
         ) : (
           <Terminal

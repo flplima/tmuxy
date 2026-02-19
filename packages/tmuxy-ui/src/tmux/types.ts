@@ -29,6 +29,8 @@ export interface TmuxPane {
   mouseAnyFlag: boolean;
   /** True if output is paused due to flow control (backpressure) */
   paused: boolean;
+  /** Number of history lines (scrollback above the visible area) */
+  historySize: number;
   /** True if a selection is active in copy mode */
   selectionPresent: boolean;
   /** Selection start X (visible-area-relative column), only meaningful when selectionPresent */
@@ -125,10 +127,6 @@ export interface CopyModeState {
   selectionAnchor: { row: number; col: number } | null;
   /** Absolute row at top of viewport */
   scrollTop: number;
-  /** Terminal cursorY at time of entering copy mode (used for first chunk load positioning) */
-  initialCursorY?: number;
-  /** Pending scroll lines to apply on first chunk load (negative = scroll up) */
-  pendingScrollLines?: number;
   /** Pending selection to apply on first chunk load (visible-relative row) */
   pendingSelection?: { mode: 'char' | 'line'; row: number; col: number };
 }
@@ -158,6 +156,7 @@ export interface ServerPane {
   alternate_on?: boolean;
   mouse_any_flag?: boolean;
   paused?: boolean;
+  history_size?: number;
   selection_present?: boolean;
   selection_start_x?: number;
   selection_start_y?: number;
@@ -208,6 +207,7 @@ export interface PaneDelta {
   alternate_on?: boolean;
   mouse_any_flag?: boolean;
   paused?: boolean;
+  history_size?: number;
   selection_present?: boolean;
   selection_start_x?: number;
   selection_start_y?: number;

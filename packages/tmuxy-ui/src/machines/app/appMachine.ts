@@ -40,7 +40,7 @@ import {
 import { parseGroupsEnv, parseGroupWindowName } from './groupState';
 import { handleCopyModeKey } from '../../utils/copyModeKeys';
 import { mergeScrollbackChunk, getNeededChunk } from '../../utils/copyMode';
-import type { CopyModeState } from '../../tmux/types';
+import type { CopyModeState, CellLine } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
@@ -457,20 +457,30 @@ export const appMachine = setup({
                   if (exitTime && Date.now() - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
                     continue;
                   }
-                  // Pane just entered copy mode — initialize client-side copy mode
+                  // Pane just entered copy mode — initialize with pre-populated content
+                  const hs = newPane.historySize ?? 0;
+                  const tl = hs + newPane.height;
+                  const preLines = new Map<number, CellLine>();
+                  for (let i = 0; i < newPane.content.length; i++) {
+                    preLines.set(hs + i, newPane.content[i]);
+                  }
+                  const preRanges: Array<[number, number]> =
+                    newPane.content.length > 0
+                      ? [[hs, hs + newPane.content.length - 1]]
+                      : [];
                   const copyState: CopyModeState = {
-                    lines: new Map(),
-                    totalLines: 0,
-                    historySize: 0,
-                    loadedRanges: [],
+                    lines: preLines,
+                    totalLines: tl,
+                    historySize: hs,
+                    loadedRanges: preRanges,
                     loading: true,
                     width: newPane.width,
                     height: newPane.height,
-                    cursorRow: 0,
-                    cursorCol: 0,
+                    cursorRow: hs + newPane.cursorY,
+                    cursorCol: newPane.cursorX,
                     selectionMode: null,
                     selectionAnchor: null,
-                    scrollTop: 0,
+                    scrollTop: Math.max(0, tl - newPane.height),
                   };
                   updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: copyState };
                   enqueue(sendTo('tmux', {
@@ -840,22 +850,41 @@ export const appMachine = setup({
             const pane = context.panes.find(p => p.tmuxId === event.paneId);
             if (!pane) return;
 
-            // Initialize copy mode state with terminal cursor position
+            const historySize = pane.historySize ?? 0;
+            const totalLines = historySize + pane.height;
+            const scrollTop = Math.max(0, totalLines - pane.height);
+
+            // Pre-populate lines Map with current terminal content
+            const lines = new Map<number, CellLine>();
+            for (let i = 0; i < pane.content.length; i++) {
+              lines.set(historySize + i, pane.content[i]);
+            }
+
+            // Mark the visible area as a loaded range
+            const loadedRanges: Array<[number, number]> =
+              pane.content.length > 0
+                ? [[historySize, historySize + pane.content.length - 1]]
+                : [];
+
+            // Apply initial scroll offset if entering via wheel-up
+            let initialScrollTop = scrollTop;
+            if (event.scrollLines) {
+              initialScrollTop = Math.max(0, scrollTop + event.scrollLines);
+            }
+
             const copyState: CopyModeState = {
-              lines: new Map(),
-              totalLines: 0,
-              historySize: 0,
-              loadedRanges: [],
+              lines,
+              totalLines,
+              historySize,
+              loadedRanges,
               loading: true,
               width: pane.width,
               height: pane.height,
-              cursorRow: 0,
+              cursorRow: historySize + pane.cursorY,
               cursorCol: pane.cursorX,
               selectionMode: null,
               selectionAnchor: null,
-              scrollTop: 0,
-              initialCursorY: pane.cursorY,
-              pendingScrollLines: event.scrollLines,
+              scrollTop: initialScrollTop,
             };
 
             enqueue(assign({
@@ -919,26 +948,8 @@ export const appMachine = setup({
               event.end,
             );
 
+            // historySize from server is authoritative — update if it changed
             const totalLines = event.historySize + existing.height;
-            const isFirstLoad = existing.totalLines === 0;
-
-            // On first load, position cursor at terminal's cursor position
-            let firstLoadRow = event.historySize;
-            let firstLoadCol = 0;
-            if (isFirstLoad && existing.initialCursorY !== undefined) {
-              firstLoadRow = event.historySize + existing.initialCursorY;
-              firstLoadCol = existing.cursorCol;
-            }
-
-            // Compute initial scrollTop
-            let initialScrollTop = isFirstLoad
-              ? Math.max(0, totalLines - existing.height)
-              : existing.scrollTop;
-
-            // Apply pending scroll lines (from scroll-up entering copy mode)
-            if (isFirstLoad && existing.pendingScrollLines) {
-              initialScrollTop = Math.max(0, initialScrollTop + existing.pendingScrollLines);
-            }
 
             const updated: CopyModeState = {
               ...existing,
@@ -948,14 +959,10 @@ export const appMachine = setup({
               historySize: event.historySize,
               width: event.width,
               loading: false,
-              cursorRow: isFirstLoad ? firstLoadRow : existing.cursorRow,
-              cursorCol: isFirstLoad ? firstLoadCol : existing.cursorCol,
-              scrollTop: initialScrollTop,
-              pendingScrollLines: isFirstLoad ? undefined : existing.pendingScrollLines,
             };
 
             // Apply pending selection (from drag that started before chunk loaded)
-            if (isFirstLoad && existing.pendingSelection) {
+            if (existing.pendingSelection) {
               const ps = existing.pendingSelection;
               const absoluteRow = event.historySize + ps.row;
               updated.selectionMode = ps.mode;
@@ -1092,7 +1099,15 @@ export const appMachine = setup({
             const existing = context.copyModeStates[event.paneId];
             if (!existing) return;
 
-            const scrollTop = Math.max(0, Math.min(existing.totalLines - existing.height, event.scrollTop));
+            const maxScrollTop = existing.totalLines - existing.height;
+            const scrollTop = Math.max(0, Math.min(maxScrollTop, event.scrollTop));
+
+            // Exit copy mode when scrolled to the bottom (only if content is loaded
+            // and we actually scrolled down from a higher position)
+            if (maxScrollTop > 0 && scrollTop >= maxScrollTop && existing.scrollTop < maxScrollTop && !existing.selectionMode) {
+              enqueue.raise({ type: 'EXIT_COPY_MODE', paneId: event.paneId });
+              return;
+            }
 
             const updated: CopyModeState = {
               ...existing,

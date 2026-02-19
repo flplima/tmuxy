@@ -243,6 +243,9 @@ pub struct TmuxPane {
     /// Determines tab ordering within the group (0, 1, 2...)
     #[serde(default)]
     pub group_tab_index: Option<u32>,
+    /// Number of history lines (scrollback above the visible area)
+    #[serde(default)]
+    pub history_size: u64,
     /// Whether a selection is active in copy mode
     #[serde(default)]
     pub selection_present: bool,
@@ -682,6 +685,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             paused: false,
             group_id: info.group_id,
             group_tab_index: info.group_tab_index,
+            history_size: 0, // not available in polling mode
             selection_present: false,
             selection_start_x: 0,
             selection_start_y: 0,

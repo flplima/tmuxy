@@ -316,6 +316,7 @@ impl PaneState {
             paused: self.paused,
             group_id: self.group_id.clone(),
             group_tab_index: self.group_tab_index,
+            history_size: self.history_size,
             selection_present: self.selection_present,
             selection_start_x: sel_start_x,
             selection_start_y: sel_start_y,

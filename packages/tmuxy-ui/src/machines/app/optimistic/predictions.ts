@@ -355,6 +355,7 @@ export function applySplitPrediction(
     alternateOn: false,
     mouseAnyFlag: false,
     paused: false,
+    historySize: 0,
     selectionPresent: false,
     selectionStartX: 0,
     selectionStartY: 0,
