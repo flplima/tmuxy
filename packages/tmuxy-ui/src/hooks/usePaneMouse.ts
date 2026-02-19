@@ -326,39 +326,36 @@ export function usePaneMouse(
     (e: React.WheelEvent) => {
       e.preventDefault();
 
-      // Accumulate pixel delta and convert to lines
-      wheelRemainder.current += e.deltaY;
-      const lines = Math.trunc(wheelRemainder.current / charHeight);
-      if (lines === 0) return;
-      wheelRemainder.current -= lines * charHeight;
+      // Alternate screen (vim, less) and mouse tracking need line-quantized input.
+      // Everything else proxies raw pixel deltas for native-feel scroll.
+      if (alternateOn || mouseAnyFlag) {
+        wheelRemainder.current += e.deltaY;
+        const lines = Math.trunc(wheelRemainder.current / charHeight);
+        if (lines === 0) return;
+        wheelRemainder.current -= lines * charHeight;
 
-      const isScrollUp = lines < 0;
-      const absLines = Math.abs(lines);
+        const isScrollUp = lines < 0;
+        const absLines = Math.abs(lines);
 
-      // If in alternate screen (vim, less), send arrow keys
-      if (alternateOn) {
-        const key = isScrollUp ? 'Up' : 'Down';
-        for (let i = 0; i < absLines; i++) {
-          send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} ${key}` });
+        if (alternateOn) {
+          const key = isScrollUp ? 'Up' : 'Down';
+          for (let i = 0; i < absLines; i++) {
+            send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} ${key}` });
+          }
+        } else {
+          const cell = pixelToCell(e as unknown as React.MouseEvent);
+          const button = isScrollUp ? 64 : 65;
+          for (let i = 0; i < absLines; i++) {
+            send({
+              type: 'SEND_COMMAND',
+              command: `run-shell -b 'printf "\\033[<${button};${cell.x + 1};${cell.y + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+            });
+          }
         }
         return;
       }
 
-      // If mouse tracking is enabled, forward wheel events as SGR
-      if (mouseAnyFlag) {
-        const cell = pixelToCell(e as unknown as React.MouseEvent);
-        const button = isScrollUp ? 64 : 65;
-
-        for (let i = 0; i < absLines; i++) {
-          send({
-            type: 'SEND_COMMAND',
-            command: `run-shell -b 'printf "\\033[<${button};${cell.x + 1};${cell.y + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
-          });
-        }
-        return;
-      }
-
-      // Default: proxy scroll to the scroll container.
+      // Default: proxy raw pixel delta to the scroll container.
       // The container's onScroll handler detects scroll-away-from-bottom
       // and enters copy mode. In copy mode, onScroll forwards to state machine.
       if (scrollRef.current) {
