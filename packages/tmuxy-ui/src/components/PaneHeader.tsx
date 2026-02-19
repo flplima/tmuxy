@@ -100,7 +100,7 @@ interface ContextMenuState {
 export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
-  const { group, groupPanes, activePaneId } = usePaneGroup(paneId);
+  const { groupPanes, activePaneId } = usePaneGroup(paneId);
   const copyState = useCopyModeState(paneId);
   const tabsRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -146,22 +146,13 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
   const handleClose = (e: React.MouseEvent, closePaneId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (group && group.paneIds.length > 1) {
-      send({ type: 'SEND_TMUX_COMMAND', command: `run-shell "/workspace/scripts/tmuxy/pane-group-close.sh ${closePaneId}"` });
-    } else {
-      send({ type: 'FOCUS_PANE', paneId: closePaneId });
-      send({ type: 'SEND_COMMAND', command: 'kill-pane' });
-    }
+    send({ type: 'CLOSE_PANE', paneId: closePaneId });
   };
 
   const handleTabClick = (e: React.MouseEvent, clickedPaneId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (group && clickedPaneId !== activeTabId) {
-      send({ type: 'SEND_TMUX_COMMAND', command: `run-shell "/workspace/scripts/tmuxy/pane-group-switch.sh ${clickedPaneId}"` });
-    } else {
-      send({ type: 'FOCUS_PANE', paneId: clickedPaneId });
-    }
+    send({ type: 'TAB_CLICK', paneId: clickedPaneId });
   };
 
   const handleAddPane = (e: React.MouseEvent) => {
@@ -188,8 +179,7 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
 
     e.preventDefault();
     e.stopPropagation();
-    send({ type: 'FOCUS_PANE', paneId: tmuxId });
-    send({ type: 'SEND_COMMAND', command: 'resize-pane -Z' });
+    send({ type: 'ZOOM_PANE', paneId: tmuxId });
   };
 
   const isInCopyMode = inMode || !!copyState;

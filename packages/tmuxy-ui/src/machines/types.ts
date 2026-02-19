@@ -257,6 +257,14 @@ export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string };
 export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 
+// Semantic pane events (components send intent, machine constructs commands)
+export type ClosePaneEvent = { type: 'CLOSE_PANE'; paneId: string };
+export type TabClickEvent = { type: 'TAB_CLICK'; paneId: string };
+export type ZoomPaneEvent = { type: 'ZOOM_PANE'; paneId: string };
+export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: string };
+export type CloseTopFloatEvent = { type: 'CLOSE_TOP_FLOAT' };
+export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: string };
+
 // Copy mode events
 export type EnterCopyModeEvent = { type: 'ENTER_COPY_MODE'; paneId: string; scrollLines?: number; nativeScrollTop?: number };
 export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: string };
@@ -316,7 +324,13 @@ export type AppMachineEvent =
   | CopyModeKeyEvent
   | CopyModeWordSelectEvent
   | ClearGroupSwitchOverrideEvent
-  | EnableAnimationsEvent;
+  | EnableAnimationsEvent
+  | ClosePaneEvent
+  | TabClickEvent
+  | ZoomPaneEvent
+  | CloseFloatEvent
+  | CloseTopFloatEvent
+  | WriteToPaneEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

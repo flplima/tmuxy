@@ -33,7 +33,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      send({ type: 'SEND_TMUX_COMMAND', command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${floatState.paneId}"` });
+      send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
     },
     [send, floatState.paneId]
   );
@@ -102,12 +102,10 @@ export function FloatContainer() {
   const visibleFloats = Object.values(floatPanes);
 
   const closeTopFloat = useCallback(() => {
-    if (visibleFloats.length === 0) return;
-    const topFloat = visibleFloats[visibleFloats.length - 1];
-    send({ type: 'SEND_TMUX_COMMAND', command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${topFloat.paneId}"` });
-  }, [send, visibleFloats]);
+    send({ type: 'CLOSE_TOP_FLOAT' });
+  }, [send]);
 
-  // Esc key closes the topmost float
+  // Esc key closes the topmost float (capture phase to prevent reaching keyboard actor)
   useEffect(() => {
     if (visibleFloats.length === 0) return;
 
@@ -115,13 +113,13 @@ export function FloatContainer() {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        closeTopFloat();
+        send({ type: 'CLOSE_TOP_FLOAT' });
       }
     };
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [visibleFloats.length, closeTopFloat]);
+  }, [visibleFloats.length, send]);
 
   if (visibleFloats.length === 0) return null;
 

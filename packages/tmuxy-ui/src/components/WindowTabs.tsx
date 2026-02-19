@@ -9,17 +9,12 @@ import { useCallback } from 'react';
 import {
   useAppSend,
   useAppSelector,
-  selectWindows,
+  selectVisibleWindows,
 } from '../machines/AppContext';
 
 export function WindowTabs() {
   const send = useAppSend();
-  const windows = useAppSelector(selectWindows);
-
-  // Filter out special windows (pane groups and floats)
-  const visibleWindows = windows.filter(
-    (w) => !w.isPaneGroupWindow && !w.isFloatWindow
-  );
+  const visibleWindows = useAppSelector(selectVisibleWindows);
 
   const handleWindowClick = useCallback(
     (windowIndex: number) => {

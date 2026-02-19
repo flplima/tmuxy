@@ -39,6 +39,7 @@ export {
   selectResize,
   selectResizePixelDelta,
   selectWindows,
+  selectVisibleWindows,
   selectActiveWindowId,
   selectIsConnected,
   selectError,

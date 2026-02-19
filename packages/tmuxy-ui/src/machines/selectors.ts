@@ -258,6 +258,11 @@ export function selectWindows(context: AppMachineContext) {
   return context.windows;
 }
 
+/** Windows visible in status bar (excludes pane group and float windows) */
+export function selectVisibleWindows(context: AppMachineContext) {
+  return context.windows.filter(w => !w.isPaneGroupWindow && !w.isFloatWindow);
+}
+
 export function selectActiveWindowId(context: AppMachineContext): string | null {
   return context.activeWindowId;
 }

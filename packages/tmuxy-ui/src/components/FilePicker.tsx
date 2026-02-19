@@ -133,17 +133,9 @@ export function FilePicker({ isOpen, onClose, rootPath }: FilePickerProps) {
   };
 
   const selectFile = (path: string) => {
-    // Escape the path for shell use
-    const escapedPath = escapeShellPath(path);
-
-    // Send the path to the active pane
     if (activePaneId) {
-      send({
-        type: 'SEND_COMMAND',
-        command: `send-keys -t ${activePaneId} -l ${escapedPath}`,
-      });
+      send({ type: 'WRITE_TO_PANE', paneId: activePaneId, data: path });
     }
-
     onClose();
   };
 
@@ -198,14 +190,6 @@ export function FilePicker({ isOpen, onClose, rootPath }: FilePickerProps) {
       </div>
     </div>
   );
-}
-
-/**
- * Escape a path for safe use in shell commands
- */
-function escapeShellPath(path: string): string {
-  // Use single quotes and escape any single quotes in the path
-  return "'" + path.replace(/'/g, "'\\''") + "'";
 }
 
 /**

@@ -812,6 +812,97 @@ export const appMachine = setup({
             command: event.command,
           })),
         },
+        SEND_KEYS: {
+          actions: sendTo('tmux', ({ event }) => ({
+            type: 'SEND_COMMAND' as const,
+            command: `send-keys -t ${event.paneId} ${event.keys}`,
+          })),
+        },
+
+        // Semantic pane events — components send intent, machine constructs commands
+        CLOSE_PANE: {
+          actions: enqueueActions(({ event, context, enqueue }) => {
+            const group = Object.values(context.paneGroups).find(g =>
+              g.paneIds.includes(event.paneId)
+            );
+            if (group && group.paneIds.length > 1) {
+              enqueue(sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `run-shell "/workspace/scripts/tmuxy/pane-group-close.sh ${event.paneId}"`,
+              }));
+            } else {
+              enqueue(sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `select-pane -t ${event.paneId}`,
+              }));
+              enqueue(sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: 'kill-pane',
+              }));
+            }
+          }),
+        },
+        TAB_CLICK: {
+          actions: enqueueActions(({ event, context, enqueue }) => {
+            const group = Object.values(context.paneGroups).find(g =>
+              g.paneIds.includes(event.paneId)
+            );
+            if (group) {
+              // Find active pane in group (the one in the active window)
+              const activePaneInGroup = group.paneIds.find(id => {
+                const pane = context.panes.find(p => p.tmuxId === id);
+                return pane?.windowId === context.activeWindowId;
+              }) ?? null;
+
+              if (event.paneId !== activePaneInGroup) {
+                enqueue(sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `run-shell "/workspace/scripts/tmuxy/pane-group-switch.sh ${event.paneId}"`,
+                }));
+                return;
+              }
+            }
+            enqueue(sendTo('tmux', {
+              type: 'SEND_COMMAND' as const,
+              command: `select-pane -t ${event.paneId}`,
+            }));
+          }),
+        },
+        ZOOM_PANE: {
+          actions: [
+            sendTo('tmux', ({ event }) => ({
+              type: 'SEND_COMMAND' as const,
+              command: `select-pane -t ${event.paneId}`,
+            })),
+            sendTo('tmux', () => ({
+              type: 'SEND_COMMAND' as const,
+              command: 'resize-pane -Z',
+            })),
+          ],
+        },
+        CLOSE_FLOAT: {
+          actions: sendTo('tmux', ({ event }) => ({
+            type: 'SEND_COMMAND' as const,
+            command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${event.paneId}"`,
+          })),
+        },
+        CLOSE_TOP_FLOAT: {
+          actions: enqueueActions(({ context, enqueue }) => {
+            const floats = Object.values(context.floatPanes);
+            if (floats.length === 0) return;
+            const topFloat = floats[floats.length - 1];
+            enqueue(sendTo('tmux', {
+              type: 'SEND_COMMAND' as const,
+              command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${topFloat.paneId}"`,
+            }));
+          }),
+        },
+        WRITE_TO_PANE: {
+          actions: sendTo('tmux', ({ event }) => ({
+            type: 'SEND_COMMAND' as const,
+            command: `send-keys -t ${event.paneId} -l '${event.data.replace(/'/g, "'\\''")}'`,
+          })),
+        },
 
         // Cmd+C / Ctrl+C: copy selection to clipboard or send SIGINT
         COPY_SELECTION: {
