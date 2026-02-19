@@ -31,6 +31,12 @@ import { usePaneMouse } from '../hooks';
 
 /** Extract a display title from widget content lines */
 function getWidgetTitle(contentLines: string[]): string | undefined {
+  // Check for __TITLE__:name protocol in any content line
+  for (const line of contentLines) {
+    const titleMatch = line.trim().match(/^__TITLE__:(.+)/);
+    if (titleMatch) return titleMatch[1].trim();
+  }
+
   const joined = contentLines.join('').trim();
 
   // Try HTTP URL — extract filename
@@ -187,19 +193,23 @@ export function Pane({ paneId }: PaneProps) {
   const handleWheelRef = useRef(handleWheel);
   handleWheelRef.current = handleWheel;
 
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const handler = (e: WheelEvent) => handleWheelRef.current(e as unknown as React.WheelEvent);
-    el.addEventListener('wheel', handler, { passive: false });
-    return () => el.removeEventListener('wheel', handler);
-  }, []);
-
   // Pane may not exist during transitions
   if (!pane) return null;
 
   // Widget detection — check if pane declares itself as a widget
   const widgetInfo = detectWidget(pane.content);
+
+  // Attach native wheel listener with { passive: false } so preventDefault() works.
+  // React's onWheel is passive and silently ignores preventDefault().
+  // Skip for widget panes — they handle their own scrolling.
+  useEffect(() => {
+    if (widgetInfo) return;
+    const el = wrapperRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => handleWheelRef.current(e as unknown as React.WheelEvent);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, [!!widgetInfo]);
 
   if (widgetInfo) {
     const WidgetComponent = getWidget(widgetInfo.widgetName)!;
@@ -210,12 +220,97 @@ export function Pane({ paneId }: PaneProps) {
       const escaped = data.replace(/'/g, "'\\''");
       send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -l '${escaped}'` });
     };
+
+    // Widget vi-key navigation: capture-phase window listener that fires BEFORE
+    // the keyboard actor's bubble-phase window listener. Only intercepts keys
+    // when this widget pane's wrapper is focused.
+    const isActiveWidget = pane.active && isInActiveWindow;
+    const widgetKeyRef = useRef({ send, paneId, isActiveWidget });
+    widgetKeyRef.current = { send, paneId, isActiveWidget };
+
+    useEffect(() => {
+      const el = wrapperRef.current;
+      if (!el) return;
+      const LINE_HEIGHT = 24;
+
+      const handler = (e: KeyboardEvent) => {
+        // Only handle when this widget pane is the active pane
+        if (!widgetKeyRef.current.isActiveWidget) return;
+
+        const { send: s, paneId: pid } = widgetKeyRef.current;
+
+        // Ctrl+C: send SIGINT to tmux pane (kills widget, restores shell)
+        if (e.ctrlKey && e.key === 'c') {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          s({ type: 'SEND_COMMAND', command: `send-keys -t ${pid} C-c` });
+          return;
+        }
+
+        const scrollEl = el.querySelector('.widget-markdown, .widget-scrollable') as HTMLElement | null;
+        if (!scrollEl) return;
+
+        const pageSize = scrollEl.clientHeight;
+        let handled = true;
+
+        switch (e.key) {
+          case 'j': case 'ArrowDown':
+            scrollEl.scrollTop += LINE_HEIGHT;
+            break;
+          case 'k': case 'ArrowUp':
+            scrollEl.scrollTop -= LINE_HEIGHT;
+            break;
+          case 'd':
+            if (e.ctrlKey) scrollEl.scrollTop += pageSize / 2;
+            else handled = false;
+            break;
+          case 'u':
+            if (e.ctrlKey) scrollEl.scrollTop -= pageSize / 2;
+            else handled = false;
+            break;
+          case 'g':
+            scrollEl.scrollTop = 0;
+            break;
+          case 'G':
+            scrollEl.scrollTop = scrollEl.scrollHeight;
+            break;
+          case ' ': case 'PageDown':
+            scrollEl.scrollTop += pageSize;
+            break;
+          case 'b': case 'PageUp':
+            scrollEl.scrollTop -= pageSize;
+            break;
+          case 'Home':
+            scrollEl.scrollTop = 0;
+            break;
+          case 'End':
+            scrollEl.scrollTop = scrollEl.scrollHeight;
+            break;
+          default:
+            handled = false;
+        }
+
+        if (handled) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      };
+
+      // Capture phase fires before the keyboard actor's bubble-phase listener
+      window.addEventListener('keydown', handler, true);
+      return () => window.removeEventListener('keydown', handler, true);
+    }, []);
+
     return (
       <div
         ref={wrapperRef}
         className={`pane-wrapper ${isSinglePane ? 'pane-single' : ''}`}
         style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
         data-pane-id={pane.tmuxId}
+        tabIndex={0}
+        onMouseDown={() => {
+          send({ type: 'FOCUS_PANE', paneId });
+        }}
       >
         <PaneHeader paneId={paneId} titleOverride={widgetTitle} />
         <div className="pane-content" style={{ flex: 1, overflow: 'hidden' }}>

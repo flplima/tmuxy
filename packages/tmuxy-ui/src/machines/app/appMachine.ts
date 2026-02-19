@@ -87,6 +87,7 @@ export const appMachine = setup({
     charWidth: DEFAULT_CHAR_WIDTH,
     charHeight: DEFAULT_CHAR_HEIGHT,
     connectionId: null,
+    defaultShell: 'bash',
     statusLine: '',
     pendingUpdate: null as PendingUpdate | null,
     containerWidth: 0,
@@ -204,6 +205,7 @@ export const appMachine = setup({
     CONNECTION_INFO: {
       actions: assign(({ event }) => ({
         connectionId: event.connectionId,
+        defaultShell: event.defaultShell,
       })),
     },
   },
@@ -634,7 +636,8 @@ export const appMachine = setup({
                   newPanes = applySplitPrediction(
                     context.panes,
                     prediction.prediction,
-                    context.activeWindowId
+                    context.activeWindowId,
+                    context.defaultShell
                   );
                   // New pane becomes active
                   newActivePaneId = prediction.prediction.newPane.placeholderId;

@@ -1,0 +1,41 @@
+#!/bin/bash
+# Usage: tmuxy-widget-markdown <file.md>
+#
+# Watches a markdown file for changes and outputs the file path through
+# tmuxy-widget. The React component fetches content via /api/file endpoint.
+# Uses stat polling (1s interval) to detect modifications.
+FILE="${1:?Usage: tmuxy-widget-markdown <file.md>}"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Resolve to absolute path
+FILE=$(cd "$(dirname "$FILE")" && pwd)/$(basename "$FILE")
+
+if [ ! -f "$FILE" ]; then
+  echo "Error: File not found: $FILE" >&2
+  exit 1
+fi
+
+BASENAME=$(basename "$FILE")
+LAST_MTIME=""
+SEQ=0
+
+output_frame() {
+  echo "__TITLE__:${BASENAME}"
+  echo "__FILE__:${FILE}"
+  echo "__SEQ__:${SEQ}"
+  SEQ=$((SEQ + 1))
+}
+
+{
+  output_frame
+  LAST_MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null)
+
+  while true; do
+    sleep 1
+    CURRENT_MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null)
+    if [ "$CURRENT_MTIME" != "$LAST_MTIME" ]; then
+      LAST_MTIME="$CURRENT_MTIME"
+      output_frame
+    fi
+  done
+} | "${SCRIPTS_DIR}/tmuxy-widget" markdown

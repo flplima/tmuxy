@@ -3,10 +3,11 @@
 #
 # Prints the widget marker, then passes stdin through to stdout.
 # On exit (Ctrl+C, pipe close, SIGTERM), clears the terminal so the
-# widget marker disappears and the shell prompt restores cleanly.
+# widget marker disappears and starts an interactive shell so the
+# pane remains alive.
 COMPONENT="${1:?Usage: tmuxy-widget <component-name>}"
 
-trap 'clear' EXIT
+trap 'clear; exec bash </dev/tty' EXIT
 
 echo "__TMUXY_WIDGET__:${COMPONENT}"
 cat

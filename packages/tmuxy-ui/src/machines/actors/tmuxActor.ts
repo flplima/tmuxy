@@ -38,6 +38,10 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       parent.send({ type: 'KEYBINDINGS_RECEIVED', keybindings });
     });
 
+    const unsubscribeConnectionInfo = adapter.onConnectionInfo((connectionId: number, defaultShell: string) => {
+      parent.send({ type: 'CONNECTION_INFO', connectionId, defaultShell });
+    });
+
     // Connect to backend
     adapter
       .connect()
@@ -110,6 +114,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       unsubscribeState();
       unsubscribeError();
       unsubscribeKeyBindings();
+      unsubscribeConnectionInfo();
       adapter.disconnect();
     };
   });

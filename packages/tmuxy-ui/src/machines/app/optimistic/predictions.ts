@@ -313,7 +313,8 @@ function calculateSelectPanePrediction(
 export function applySplitPrediction(
   panes: TmuxPane[],
   prediction: SplitPrediction,
-  activeWindowId: string | null
+  activeWindowId: string | null,
+  defaultShell: string = 'bash'
 ): TmuxPane[] {
   // Only apply to panes in the active window
   const result = panes.map(pane => {
@@ -346,7 +347,7 @@ export function applySplitPrediction(
     x: prediction.newPane.x,
     y: prediction.newPane.y,
     active: true, // New pane becomes active
-    command: 'zsh', // Placeholder
+    command: defaultShell,
     title: '',
     borderTitle: '',
     inMode: false,

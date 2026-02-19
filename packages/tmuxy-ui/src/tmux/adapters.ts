@@ -33,7 +33,7 @@ export class TauriAdapter implements TmuxAdapter {
       this.connected = true;
 
       // Tauri is always primary
-      this.notifyConnectionInfo(0);
+      this.notifyConnectionInfo(0, 'bash');
     } catch (e) {
       this.notifyError('Failed to connect to Tauri');
       throw e;
@@ -94,8 +94,8 @@ export class TauriAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(connectionId: number) {
-    this.connectionInfoListeners.forEach((listener) => listener(connectionId));
+  private notifyConnectionInfo(connectionId: number, defaultShell: string) {
+    this.connectionInfoListeners.forEach((listener) => listener(connectionId, defaultShell));
   }
 }
 

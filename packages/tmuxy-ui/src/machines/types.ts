@@ -109,6 +109,8 @@ export interface AppMachineContext {
   charHeight: number;
   /** Connection ID assigned by the server */
   connectionId: number | null;
+  /** Default shell name (e.g., "bash", "zsh") from server */
+  defaultShell: string;
   /** Tmux status line with ANSI escape codes */
   statusLine: string;
   /** Pending state update during pane exit animation */
@@ -210,7 +212,7 @@ export type TmuxConnectedEvent = { type: 'TMUX_CONNECTED' };
 export type TmuxStateUpdateEvent = { type: 'TMUX_STATE_UPDATE'; state: ServerState };
 export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
-export type ConnectionInfoEvent = { type: 'CONNECTION_INFO'; connectionId: number };
+export type ConnectionInfoEvent = { type: 'CONNECTION_INFO'; connectionId: number; defaultShell: string };
 export type KeybindingsReceivedEvent = { type: 'KEYBINDINGS_RECEIVED'; keybindings: KeyBindings };
 export type PaneGroupsLoadedEvent = { type: 'PANE_GROUPS_LOADED'; groupsJson: string | null };
 

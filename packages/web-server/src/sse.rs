@@ -67,6 +67,7 @@ enum SseEvent {
     ConnectionInfo {
         connection_id: u64,
         session_token: String,
+        default_shell: String,
     },
     #[serde(rename = "state-update")]
     StateUpdate(StateUpdate),
@@ -197,9 +198,14 @@ pub async fn sse_handler(
         let _drop_guard = drop_tx;
 
         // Send connection info as first event
+        let default_shell = std::env::var("SHELL")
+            .ok()
+            .and_then(|s| s.rsplit('/').next().map(String::from))
+            .unwrap_or_else(|| "bash".to_string());
         let conn_info = SseEvent::ConnectionInfo {
             connection_id: conn_id,
             session_token: session_token.clone(),
+            default_shell,
         };
         yield Ok(Event::default()
             .event("connection-info")

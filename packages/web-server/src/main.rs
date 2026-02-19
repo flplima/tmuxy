@@ -162,6 +162,7 @@ async fn main() {
             .route("/commands", post(sse::commands_handler))
             .route("/api/snapshot", get(snapshot_handler))
             .route("/api/directory", get(directory_handler))
+            .route("/api/file", get(file_handler))
             .fallback_service(tower::service_fn(|req: Request| async move {
                 Ok::<_, std::convert::Infallible>(proxy_to_vite(req).await)
             }))
@@ -173,6 +174,7 @@ async fn main() {
             .route("/commands", post(sse::commands_handler))
             .route("/api/snapshot", get(snapshot_handler))
             .route("/api/directory", get(directory_handler))
+            .route("/api/file", get(file_handler))
             .fallback_service(ServeDir::new("dist"))
             .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
             .with_state(state)
@@ -223,6 +225,37 @@ async fn shutdown_signal(vite_child: Option<ViteChild>) {
     // Kill Vite process group
     if let Some(child) = vite_child {
         child.kill();
+    }
+}
+
+/// Query parameters for file reading
+#[derive(Debug, serde::Deserialize)]
+struct FileQuery {
+    path: String,
+}
+
+/// Handler to read file contents (for widget components)
+async fn file_handler(
+    Query(query): Query<FileQuery>,
+) -> Response {
+    let path = std::path::Path::new(&query.path);
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            Response::builder()
+                .status(axum::http::StatusCode::OK)
+                .header("Content-Type", "text/plain; charset=utf-8")
+                .body(Body::from(content))
+                .unwrap()
+        }
+        Err(e) => {
+            Response::builder()
+                .status(axum::http::StatusCode::NOT_FOUND)
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({ "error": format!("{}", e) }).to_string(),
+                ))
+                .unwrap()
+        }
     }
 }
 

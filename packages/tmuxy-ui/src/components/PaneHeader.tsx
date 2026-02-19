@@ -20,15 +20,11 @@ function getTabTitle(pane: TmuxPane): string {
   if (pane.inMode) {
     return '[COPY]';
   }
-  // Show non-shell commands (vim, htop, etc.)
-  if (pane.command && !['bash', 'zsh', 'fish', 'sh'].includes(pane.command)) {
+  // Show the current command (pane_current_command from tmux)
+  if (pane.command) {
     return pane.command;
   }
-  // Show title if different from command
-  if (pane.title && pane.title !== pane.command) {
-    return pane.title;
-  }
-  // Fallback to pane ID (most stable)
+  // Fallback to pane ID
   return pane.tmuxId;
 }
 

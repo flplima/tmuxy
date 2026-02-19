@@ -15,8 +15,11 @@
     "@xstate/react": "^6.0.0",
     "anser": "^2.3.5",
     "ansi-to-html": "^0.7.2",
+    "mermaid": "^11.12.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "xstate": "^5.25.0"
   },
   "devDependencies": {

@@ -246,7 +246,7 @@ export type StateUpdate =
 
 export type StateListener = (state: ServerState) => void;
 export type ErrorListener = (error: string) => void;
-export type ConnectionInfoListener = (connectionId: number) => void;
+export type ConnectionInfoListener = (connectionId: number, defaultShell: string) => void;
 export type ReconnectionListener = (reconnecting: boolean, attempt: number) => void;
 
 export interface TmuxAdapter {

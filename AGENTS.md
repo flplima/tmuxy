@@ -160,6 +160,11 @@ agent-browser click @e1
 
 **IMPORTANT:**
 - **Prefer snapshots over screenshots** - Screenshots consume many tokens. Use `snapshot -i` to get interactive element refs.
+- **Always compress screenshots** - When screenshots are needed, pipe through `compress-image.js` to reduce tokens:
+  ```bash
+  agent-browser screenshot 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -oP '/[^\s]+\.png' | xargs node /workspace/scripts/compress-image.js
+  ```
+  Then read the `.compressed.jpg` file from the output. This resizes to 800px wide and compresses to JPEG quality 70.
 - If agent-browser fails or errors occur, report the error to the user. DO NOT use Playwright scripts, Puppeteer, or any other alternative to test the browser manually. The user will handle browser testing issues.
 
 ## Debugging with agent-browser
