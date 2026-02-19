@@ -1499,6 +1499,9 @@ impl StateAggregator {
         if prev.group_tab_index != curr.group_tab_index {
             delta.group_tab_index = Some(curr.group_tab_index);
         }
+        if prev.history_size != curr.history_size {
+            delta.history_size = Some(curr.history_size);
+        }
         if prev.selection_present != curr.selection_present {
             delta.selection_present = Some(curr.selection_present);
         }

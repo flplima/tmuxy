@@ -435,6 +435,9 @@ pub struct PaneDelta {
     /// Pane group tab index (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_tab_index: Option<Option<u32>>,
+    /// History size (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_size: Option<u64>,
     /// Selection present (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection_present: Option<bool>,
@@ -468,6 +471,7 @@ impl PaneDelta {
             && self.paused.is_none()
             && self.group_id.is_none()
             && self.group_tab_index.is_none()
+            && self.history_size.is_none()
             && self.selection_present.is_none()
             && self.selection_start_x.is_none()
             && self.selection_start_y.is_none()
