@@ -220,21 +220,30 @@ body {
   /* Horizontal padding from CSS variable set by PaneLayout (30% of charWidth) */
   padding: 0 var(--pane-h-padding, 0);
   flex: 1;
-  outline: 1px solid var(--border-medium);
-  outline-offset: -1px;
+  position: relative;
   box-sizing: border-box;
   overflow: hidden;
 }
 
-/* Active pane content has green outline */
-.pane-layout-item.pane-active .pane-content,
-.pane-active .pane-content {
-  outline-color: var(--accent-green);
+/* Border via ::after so it always paints above selection overlays */
+.pane-content::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--border-medium);
+  pointer-events: none;
+  z-index: 10;
 }
 
-/* Copy mode has bright green outline */
-.pane-layout-item.pane-active.pane-copy-mode .pane-content {
-  outline-color: var(--term-green);
+/* Active pane content has green border */
+.pane-layout-item.pane-active .pane-content::after,
+.pane-active .pane-content::after {
+  border-color: var(--accent-green);
+}
+
+/* Copy mode has bright green border */
+.pane-layout-item.pane-active.pane-copy-mode .pane-content::after {
+  border-color: var(--term-green);
 }
 
 .pane-single {

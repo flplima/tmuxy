@@ -61,6 +61,8 @@ export function usePaneMouse(
   // Auto-scroll state
   const autoScrollTimerRef = useRef<number | null>(null);
   const autoScrollColRef = useRef(0);
+  // Document-level mouseup listener ref (for cleanup when mouse released outside pane)
+  const documentMouseUpRef = useRef<(() => void) | null>(null);
 
   // Clear selection start when copy mode exits
   if (!inMode && !copyModeActive && selectionStart) {
@@ -74,6 +76,38 @@ export function usePaneMouse(
       autoScrollTimerRef.current = null;
     }
   }, []);
+
+  // Start auto-scroll in a direction (-1 = up, 1 = down)
+  const startAutoScroll = useCallback((direction: -1 | 1, col: number) => {
+    autoScrollColRef.current = col;
+    if (autoScrollTimerRef.current !== null) return; // already running
+    autoScrollTimerRef.current = window.setInterval(() => {
+      const targetRow = direction < 0 ? -AUTO_SCROLL_LINES : options.paneHeight + AUTO_SCROLL_LINES - 1;
+      send({
+        type: 'COPY_MODE_CURSOR_MOVE',
+        paneId,
+        row: targetRow,
+        col: autoScrollColRef.current,
+        relative: true,
+      });
+    }, AUTO_SCROLL_INTERVAL_MS);
+  }, [send, paneId, options.paneHeight]);
+
+  // Clean up drag state (shared between handleMouseUp and document mouseup)
+  const cleanupDrag = useCallback(() => {
+    stopAutoScroll();
+    if (isDraggingForSelectionRef.current && dragStartRef.current) {
+      setSelectionStart({ ...dragStartRef.current });
+    }
+    dragStartRef.current = null;
+    lastCellRef.current = null;
+    isDraggingForSelectionRef.current = false;
+    mouseButtonRef.current = null;
+    if (documentMouseUpRef.current) {
+      document.removeEventListener('mouseup', documentMouseUpRef.current);
+      documentMouseUpRef.current = null;
+    }
+  }, [stopAutoScroll]);
 
   // Convert pixel coordinates to terminal cell coordinates
   // Uses the .pane-content element's rect so coordinates are relative to the
@@ -128,16 +162,21 @@ export function usePaneMouse(
         dragStartRef.current = { x: cell.x, y: Math.max(0, cell.y) };
         lastCellRef.current = null;
         isDraggingForSelectionRef.current = false;
+
+        // Register document-level mouseup so we clean up even if mouse released outside pane
+        if (documentMouseUpRef.current) {
+          document.removeEventListener('mouseup', documentMouseUpRef.current);
+        }
+        documentMouseUpRef.current = cleanupDrag;
+        document.addEventListener('mouseup', cleanupDrag);
       }
     },
-    [send, paneId, mouseAnyFlag, pixelToCell]
+    [send, paneId, mouseAnyFlag, pixelToCell, cleanupDrag]
   );
 
   // Handle mouse up
   const handleMouseUp = useCallback(
     (e: React.MouseEvent) => {
-      stopAutoScroll();
-
       if (mouseButtonRef.current === null) return;
 
       if (mouseAnyFlag) {
@@ -148,11 +187,8 @@ export function usePaneMouse(
           type: 'SEND_COMMAND',
           command: `run-shell -b 'printf "\\033[<${mouseButtonRef.current};${cell.x + 1};${Math.max(1, cell.y + 1)}m" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
         });
-      }
-
-      // Commit the selection start if a drag selection was made
-      if (isDraggingForSelectionRef.current && dragStartRef.current) {
-        setSelectionStart({ ...dragStartRef.current });
+        mouseButtonRef.current = null;
+        return;
       }
 
       // Single click (no drag) in copy mode: clear selection and move cursor
@@ -165,13 +201,10 @@ export function usePaneMouse(
         }
       }
 
-      // Clear drag state
-      dragStartRef.current = null;
-      lastCellRef.current = null;
-      isDraggingForSelectionRef.current = false;
-      mouseButtonRef.current = null;
+      // Clean up drag state (also removes document mouseup listener)
+      cleanupDrag();
     },
-    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, stopAutoScroll]
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, cleanupDrag]
   );
 
   // Handle mouse move (for drag)
@@ -236,22 +269,7 @@ export function usePaneMouse(
         const isBelow = relY >= rect.height;
 
         if (isAbove || isBelow) {
-          autoScrollColRef.current = cell.x;
-          if (autoScrollTimerRef.current === null) {
-            const direction = isAbove ? -1 : 1;
-            autoScrollTimerRef.current = window.setInterval(() => {
-              // Send cursor move to row above/below visible area
-              // The machine auto-adjusts scrollTop when cursor goes out of viewport
-              const targetRow = direction < 0 ? -AUTO_SCROLL_LINES : options.paneHeight + AUTO_SCROLL_LINES - 1;
-              send({
-                type: 'COPY_MODE_CURSOR_MOVE',
-                paneId,
-                row: targetRow,
-                col: autoScrollColRef.current,
-                relative: true,
-              });
-            }, AUTO_SCROLL_INTERVAL_MS);
-          }
+          startAutoScroll(isAbove ? -1 : 1, cell.x);
           return; // Don't send another cursor move below
         } else {
           stopAutoScroll();
@@ -274,14 +292,27 @@ export function usePaneMouse(
     [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, contentRef, options.paneHeight, stopAutoScroll]
   );
 
-  // Handle mouse leave - only clear state if not actively dragging for selection
-  const handleMouseLeave = useCallback(() => {
-    if (isDraggingForSelectionRef.current) return;
-    dragStartRef.current = null;
-    lastCellRef.current = null;
-    isDraggingForSelectionRef.current = false;
-    mouseButtonRef.current = null;
-  }, []);
+  // Handle mouse leave - start auto-scroll if actively dragging, otherwise clean up
+  const handleMouseLeave = useCallback((e: React.MouseEvent) => {
+    if (!isDraggingForSelectionRef.current) {
+      dragStartRef.current = null;
+      lastCellRef.current = null;
+      mouseButtonRef.current = null;
+      return;
+    }
+
+    // Start auto-scroll based on which edge the mouse left from
+    const rect = contentRef.current?.getBoundingClientRect();
+    if (rect) {
+      const relY = e.clientY - rect.top;
+      const col = Math.max(0, Math.floor((e.clientX - rect.left) / charWidth));
+      if (relY >= rect.height) {
+        startAutoScroll(1, col);
+      } else if (relY < 0) {
+        startAutoScroll(-1, col);
+      }
+    }
+  }, [contentRef, charWidth, startAutoScroll]);
 
   // Accumulate sub-line pixel deltas across wheel events (trackpad support)
   const wheelRemainder = useRef(0);
