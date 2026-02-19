@@ -6,12 +6,15 @@
  *
  * Contains a shared scroll container that wraps both Terminal and
  * ScrollbackTerminal. In normal mode the terminal is pinned to the bottom
- * of a spacer div whose height equals the full scrollback. Native browser
- * scroll is used for scroll-into-copy-mode transitions, preserving
- * momentum and inertia.
+ * of a spacer div whose height equals the full scrollback height.
+ *
+ * Wheel events use the proxy pattern: the pane-wrapper (non-scrollable)
+ * intercepts wheel via a native { passive: false } listener, calls
+ * preventDefault(), and manually adjusts scrollTop on the scroll container.
+ * This preserves native scroll physics while keeping full control.
  */
 
-import { useRef, useCallback, useLayoutEffect } from 'react';
+import { useRef, useCallback, useLayoutEffect, useEffect } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
 import { PaneHeader } from './PaneHeader';
@@ -38,6 +41,7 @@ export function Pane({ paneId }: PaneProps) {
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const copyState = useCopyModeState(paneId);
 
   const historySize = pane?.historySize ?? 0;
@@ -107,13 +111,28 @@ export function Pane({ paneId }: PaneProps) {
     copyModeActive: !!copyState,
     paneHeight,
     contentRef,
+    scrollRef,
   });
+
+  // Attach native wheel listener with { passive: false } so preventDefault() works.
+  // React's onWheel is passive and silently ignores preventDefault().
+  const handleWheelRef = useRef(handleWheel);
+  handleWheelRef.current = handleWheel;
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => handleWheelRef.current(e as unknown as React.WheelEvent);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
 
   // Pane may not exist during transitions
   if (!pane) return null;
 
   return (
     <div
+      ref={wrapperRef}
       className={`pane-wrapper ${isSinglePane ? 'pane-single' : ''}`}
       style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
       role="group"
@@ -124,7 +143,6 @@ export function Pane({ paneId }: PaneProps) {
       data-alternate-on={pane.alternateOn}
       data-mouse-any-flag={pane.mouseAnyFlag}
       tabIndex={0}
-      onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
       onMouseMove={handleMouseMove}

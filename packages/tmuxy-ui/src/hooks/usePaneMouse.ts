@@ -30,6 +30,8 @@ interface UsePaneMouseOptions {
   paneHeight: number;
   /** Ref to the .pane-content element (used for coordinate calculation) */
   contentRef: RefObject<HTMLDivElement | null>;
+  /** Ref to the scroll container (proxy target for wheel events) */
+  scrollRef: RefObject<HTMLDivElement | null>;
 }
 
 /** Minimum time between drag updates (ms) */
@@ -45,7 +47,7 @@ export function usePaneMouse(
   send: (event: AppMachineEvent) => void,
   options: UsePaneMouseOptions
 ) {
-  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, copyModeActive, contentRef } = options;
+  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, copyModeActive, contentRef, scrollRef } = options;
 
   // Track mouse button state for drag events
   const mouseButtonRef = useRef<number | null>(null);
@@ -318,23 +320,23 @@ export function usePaneMouse(
   const wheelRemainder = useRef(0);
 
   // Handle wheel events
+  // Uses the proxy pattern: pane-wrapper is non-scrollable (overflow: hidden),
+  // wheel events are intercepted and manually forwarded to the scroll container.
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
-      // In copy mode, let native scroll handle it
-      if (copyModeActive) return;
+      e.preventDefault();
 
       // Accumulate pixel delta and convert to lines
       wheelRemainder.current += e.deltaY;
       const lines = Math.trunc(wheelRemainder.current / charHeight);
-      if (lines === 0) return; // Sub-line scroll — let accumulate
+      if (lines === 0) return;
       wheelRemainder.current -= lines * charHeight;
 
       const isScrollUp = lines < 0;
       const absLines = Math.abs(lines);
 
-      // If in alternate screen (vim, less), intercept and send arrow keys
+      // If in alternate screen (vim, less), send arrow keys
       if (alternateOn) {
-        e.preventDefault();
         const key = isScrollUp ? 'Up' : 'Down';
         for (let i = 0; i < absLines; i++) {
           send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} ${key}` });
@@ -342,9 +344,8 @@ export function usePaneMouse(
         return;
       }
 
-      // If mouse tracking is enabled, intercept and forward wheel events
+      // If mouse tracking is enabled, forward wheel events as SGR
       if (mouseAnyFlag) {
-        e.preventDefault();
         const cell = pixelToCell(e as unknown as React.MouseEvent);
         const button = isScrollUp ? 64 : 65;
 
@@ -357,10 +358,14 @@ export function usePaneMouse(
         return;
       }
 
-      // Default: let the scroll event pass through to the container
-      // The container's onScroll handler will detect scroll-away-from-bottom and enter copy mode
+      // Default: proxy scroll to the scroll container.
+      // The container's onScroll handler detects scroll-away-from-bottom
+      // and enters copy mode. In copy mode, onScroll forwards to state machine.
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop += e.deltaY;
+      }
     },
-    [send, paneId, charHeight, alternateOn, mouseAnyFlag, copyModeActive, pixelToCell]
+    [send, paneId, charHeight, alternateOn, mouseAnyFlag, pixelToCell, scrollRef]
   );
 
   // Handle double-click for word selection
