@@ -114,19 +114,26 @@ export function usePaneMouse(
   // Convert pixel coordinates to terminal cell coordinates
   // Uses the .pane-content element's rect so coordinates are relative to the
   // terminal content area (below the header), not the entire pane wrapper.
+  // Accounts for sub-line scroll offset when the scroll container is not
+  // line-aligned (smooth scroll leaves fractional pixel offsets).
   // Does NOT clamp Y so we can detect above/below for auto-scroll.
   const pixelToCell = useCallback(
     (e: React.MouseEvent): { x: number; y: number } => {
       const rect = contentRef.current?.getBoundingClientRect();
       if (!rect) return { x: 0, y: 0 };
       const relX = e.clientX - rect.left;
-      const relY = e.clientY - rect.top;
+      let relY = e.clientY - rect.top;
+      // When the scroll container has a sub-line offset (scrollTop not aligned
+      // to charHeight), the rendered content is shifted up. Adjust relY so the
+      // row calculation matches what the user visually clicks on.
+      const subLineOffset = scrollRef.current ? scrollRef.current.scrollTop % charHeight : 0;
+      relY += subLineOffset;
       return {
         x: Math.max(0, Math.floor(relX / charWidth)),
         y: Math.floor(relY / charHeight),
       };
     },
-    [charWidth, charHeight, contentRef]
+    [charWidth, charHeight, contentRef, scrollRef]
   );
 
   // Handle mouse down

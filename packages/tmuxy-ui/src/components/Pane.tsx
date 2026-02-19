@@ -55,6 +55,24 @@ export function Pane({ paneId }: PaneProps) {
   // DOM ← state to avoid fighting the native scroll with line-boundary snaps.
   const lastDomScrollTopRef = useRef<number | null>(null);
 
+  // Track previous copy mode scrollTop to skip sync when it hasn't changed
+  // (e.g. re-renders from chunk loads that don't alter scrollTop).
+  const prevCopyScrollTopRef = useRef<number | null>(null);
+
+  // Scroll indicator (direct DOM manipulation to avoid re-renders)
+  const scrollIndicatorRef = useRef<HTMLDivElement | null>(null);
+  const scrollIndicatorTimer = useRef<number | null>(null);
+
+  const flashScrollIndicator = useCallback(() => {
+    const el = scrollIndicatorRef.current;
+    if (!el) return;
+    el.style.opacity = '0.5';
+    if (scrollIndicatorTimer.current) clearTimeout(scrollIndicatorTimer.current);
+    scrollIndicatorTimer.current = window.setTimeout(() => {
+      if (scrollIndicatorRef.current) scrollIndicatorRef.current.style.opacity = '0';
+    }, 800);
+  }, []);
+
   // onScroll: detect scroll away from bottom → enter copy mode
   const handleContainerScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (suppressScrollRef.current) return;
@@ -69,13 +87,15 @@ export function Pane({ paneId }: PaneProps) {
       const newScrollTop = Math.floor(scrollTop / charHeight);
       lastDomScrollTopRef.current = newScrollTop;
       send({ type: 'COPY_MODE_SCROLL', paneId, scrollTop: newScrollTop });
+      flashScrollIndicator();
     } else if (!atBottom && historySize > 0) {
       // Scrolled away from bottom in normal mode — enter copy mode
       const scrollTopLines = Math.floor(scrollTop / charHeight);
       lastDomScrollTopRef.current = scrollTopLines;
       send({ type: 'ENTER_COPY_MODE', paneId, nativeScrollTop: scrollTopLines });
+      flashScrollIndicator();
     }
-  }, [send, paneId, charHeight, copyState, historySize]);
+  }, [send, paneId, charHeight, copyState, historySize, flashScrollIndicator]);
 
   // Keep scroll pinned to bottom in normal mode
   useLayoutEffect(() => {
@@ -87,24 +107,34 @@ export function Pane({ paneId }: PaneProps) {
   });
 
   // Sync scroll position from state → DOM only for keyboard-initiated changes.
-  // When the state machine's scrollTop matches lastDomScrollTopRef, the change
-  // came from the user's wheel/scroll — don't snap back to line boundaries.
+  // Skip when: (a) scrollTop hasn't changed (re-render from chunk load, etc.)
+  //            (b) scrollTop matches lastDomScrollTopRef (change came from wheel)
   useLayoutEffect(() => {
     if (copyState && scrollRef.current) {
-      if (lastDomScrollTopRef.current !== null && copyState.scrollTop === lastDomScrollTopRef.current) {
-        // This state change originated from onScroll — don't fight native scroll
+      const newScrollTop = copyState.scrollTop;
+      const prevScrollTop = prevCopyScrollTopRef.current;
+      prevCopyScrollTopRef.current = newScrollTop;
+
+      // scrollTop didn't change — skip (chunk load, selection update, etc.)
+      if (newScrollTop === prevScrollTop) return;
+
+      // scrollTop changed but matches DOM-originated value — skip
+      if (lastDomScrollTopRef.current !== null && newScrollTop === lastDomScrollTopRef.current) {
         lastDomScrollTopRef.current = null;
         return;
       }
       lastDomScrollTopRef.current = null;
 
       // Keyboard-initiated change — sync DOM to state
-      const targetScroll = copyState.scrollTop * charHeight;
+      const targetScroll = newScrollTop * charHeight;
       if (Math.abs(scrollRef.current.scrollTop - targetScroll) > 1) {
         suppressScrollRef.current = true;
         scrollRef.current.scrollTop = targetScroll;
         suppressScrollRef.current = false;
+        flashScrollIndicator();
       }
+    } else {
+      prevCopyScrollTopRef.current = null;
     }
   });
 
@@ -145,6 +175,13 @@ export function Pane({ paneId }: PaneProps) {
 
   // Pane may not exist during transitions
   if (!pane) return null;
+
+  // Scroll indicator geometry (only meaningful in copy mode)
+  const totalLines = copyState?.totalLines ?? 0;
+  const scrollTop = copyState?.scrollTop ?? 0;
+  const thumbPct = totalLines > 0 ? Math.max(5, (paneHeight / totalLines) * 100) : 100;
+  const maxScroll = totalLines - paneHeight;
+  const thumbTopPct = maxScroll > 0 ? (scrollTop / maxScroll) * (100 - thumbPct) : 0;
 
   return (
     <div
@@ -197,6 +234,24 @@ export function Pane({ paneId }: PaneProps) {
             )}
           </div>
         </div>
+        {/* Scroll position indicator — flashes on scroll in copy mode */}
+        {copyState && (
+          <div
+            ref={scrollIndicatorRef}
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: `calc(3px + (100% - 6px) * ${thumbTopPct / 100})`,
+              width: 3,
+              height: `calc((100% - 6px) * ${thumbPct / 100})`,
+              backgroundColor: 'var(--term-bright-black)',
+              opacity: 0,
+              transition: 'opacity 150ms ease-out',
+              pointerEvents: 'none',
+              zIndex: 5,
+            }}
+          />
+        )}
       </div>
     </div>
   );
