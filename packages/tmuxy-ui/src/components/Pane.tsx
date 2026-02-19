@@ -11,7 +11,6 @@
  * Wheel events use the proxy pattern: the pane-wrapper (non-scrollable)
  * intercepts wheel via a native { passive: false } listener, calls
  * preventDefault(), and manually adjusts scrollTop on the scroll container.
- * This preserves native scroll physics while keeping full control.
  */
 
 import { useRef, useCallback, useLayoutEffect, useEffect } from 'react';
@@ -51,6 +50,11 @@ export function Pane({ paneId }: PaneProps) {
   // Track whether we're programmatically setting scroll to suppress onScroll feedback
   const suppressScrollRef = useRef(false);
 
+  // Track the last scrollTop that came from the DOM (user wheel/scroll).
+  // When the state machine's scrollTop matches this value, we skip syncing
+  // DOM ← state to avoid fighting the native scroll with line-boundary snaps.
+  const lastDomScrollTopRef = useRef<number | null>(null);
+
   // onScroll: detect scroll away from bottom → enter copy mode
   const handleContainerScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (suppressScrollRef.current) return;
@@ -63,10 +67,12 @@ export function Pane({ paneId }: PaneProps) {
     if (copyState) {
       // Already in copy mode — forward scroll to state machine
       const newScrollTop = Math.floor(scrollTop / charHeight);
+      lastDomScrollTopRef.current = newScrollTop;
       send({ type: 'COPY_MODE_SCROLL', paneId, scrollTop: newScrollTop });
     } else if (!atBottom && historySize > 0) {
       // Scrolled away from bottom in normal mode — enter copy mode
       const scrollTopLines = Math.floor(scrollTop / charHeight);
+      lastDomScrollTopRef.current = scrollTopLines;
       send({ type: 'ENTER_COPY_MODE', paneId, nativeScrollTop: scrollTopLines });
     }
   }, [send, paneId, charHeight, copyState, historySize]);
@@ -80,9 +86,19 @@ export function Pane({ paneId }: PaneProps) {
     }
   });
 
-  // Sync scroll position when copy mode state changes scrollTop (keyboard nav, etc.)
+  // Sync scroll position from state → DOM only for keyboard-initiated changes.
+  // When the state machine's scrollTop matches lastDomScrollTopRef, the change
+  // came from the user's wheel/scroll — don't snap back to line boundaries.
   useLayoutEffect(() => {
     if (copyState && scrollRef.current) {
+      if (lastDomScrollTopRef.current !== null && copyState.scrollTop === lastDomScrollTopRef.current) {
+        // This state change originated from onScroll — don't fight native scroll
+        lastDomScrollTopRef.current = null;
+        return;
+      }
+      lastDomScrollTopRef.current = null;
+
+      // Keyboard-initiated change — sync DOM to state
       const targetScroll = copyState.scrollTop * charHeight;
       if (Math.abs(scrollRef.current.scrollTop - targetScroll) > 1) {
         suppressScrollRef.current = true;

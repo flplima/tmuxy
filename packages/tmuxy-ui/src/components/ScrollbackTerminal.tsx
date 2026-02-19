@@ -62,7 +62,6 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
     cursorRow,
     cursorCol,
     lines,
-    loading,
   } = copyState;
 
   const getSelectionRange = useMemo(
@@ -112,18 +111,6 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
           />
         ))}
       </pre>
-      {loading && (
-        <div className="scrollback-loading" style={{
-          position: 'fixed',
-          top: 4,
-          right: 8,
-          fontSize: '0.75rem',
-          opacity: 0.6,
-          color: 'var(--fg, #cdd6f4)',
-        }}>
-          Loading...
-        </div>
-      )}
     </>
   );
 }
