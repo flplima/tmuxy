@@ -5,7 +5,7 @@
  * lines are rendered. Selection is computed client-side from cursor/anchor positions.
  */
 
-import { useCallback, useRef, useMemo } from 'react';
+import { useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { TerminalLine } from './TerminalLine';
 import { useAppSend, useAppSelector, selectCharSize } from '../machines/AppContext';
 import type { CopyModeState, CellLine } from '../tmux/types';
@@ -104,12 +104,15 @@ export function ScrollbackTerminal({ paneId, copyState }: ScrollbackTerminalProp
   }, [send, paneId, charHeight, flashScrollIndicator]);
 
   // Sync container scroll position when scrollTop changes from keyboard/wheel
+  // Must use useLayoutEffect (not render body) so the DOM spacer height is updated first
   const lastScrollTop = useRef(scrollTop);
-  if (containerRef.current && scrollTop !== lastScrollTop.current) {
-    containerRef.current.scrollTop = scrollTop * charHeight;
-    lastScrollTop.current = scrollTop;
-    flashScrollIndicator();
-  }
+  useLayoutEffect(() => {
+    if (containerRef.current && scrollTop !== lastScrollTop.current) {
+      containerRef.current.scrollTop = scrollTop * charHeight;
+      lastScrollTop.current = scrollTop;
+      flashScrollIndicator();
+    }
+  });
 
   // Callback ref to set initial scroll position on mount
   const setContainerRef = useCallback((node: HTMLDivElement | null) => {
