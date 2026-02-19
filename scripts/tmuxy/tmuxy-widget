@@ -1,0 +1,5 @@
+#!/bin/bash
+# Usage: some-command | tmuxy-widget <component-name>
+COMPONENT="${1:?Usage: tmuxy-widget <component-name>}"
+echo "__TMUXY_WIDGET__:${COMPONENT}"
+cat

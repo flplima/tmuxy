@@ -17,6 +17,7 @@ import { useRef, useCallback, useLayoutEffect, useEffect } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
 import { PaneHeader } from './PaneHeader';
+import { detectWidget, getWidget } from './widgets';
 import {
   useAppSend,
   useAppSelector,
@@ -175,6 +176,41 @@ export function Pane({ paneId }: PaneProps) {
 
   // Pane may not exist during transitions
   if (!pane) return null;
+
+  // Widget detection — check if pane declares itself as a widget
+  const widgetInfo = detectWidget(pane.content);
+
+  if (widgetInfo) {
+    const WidgetComponent = getWidget(widgetInfo.widgetName)!;
+    const lastLine = widgetInfo.contentLines.filter(l => l.trim()).pop() || '';
+    const writeStdin = (data: string) => {
+      // Use single quotes with escaping for safe literal send-keys
+      const escaped = data.replace(/'/g, "'\\''");
+      send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} -l '${escaped}'` });
+    };
+    return (
+      <div
+        ref={wrapperRef}
+        className={`pane-wrapper ${isSinglePane ? 'pane-single' : ''}`}
+        style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+        data-pane-id={pane.tmuxId}
+      >
+        <PaneHeader paneId={paneId} />
+        <div className="pane-content" style={{ flex: 1, overflow: 'hidden' }}>
+          <WidgetComponent
+            paneId={paneId}
+            widgetName={widgetInfo.widgetName}
+            lines={widgetInfo.contentLines}
+            lastLine={lastLine}
+            rawContent={pane.content}
+            writeStdin={writeStdin}
+            width={pane.width}
+            height={pane.height}
+          />
+        </div>
+      </div>
+    );
+  }
 
   // Scroll indicator geometry (only meaningful in copy mode)
   const totalLines = copyState?.totalLines ?? 0;
