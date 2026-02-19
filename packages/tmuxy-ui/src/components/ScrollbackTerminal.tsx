@@ -184,10 +184,10 @@ export function ScrollbackTerminal({ paneId, copyState }: ScrollbackTerminalProp
         style={{
           position: 'absolute',
           right: 0,
-          top: `${thumbTopPct}%`,
+          top: `calc(3px + (100% - 6px) * ${thumbTopPct / 100})`,
           width: 3,
-          height: `${thumbPct}%`,
-          backgroundColor: 'var(--term-green)',
+          height: `calc((100% - 6px) * ${thumbPct / 100})`,
+          backgroundColor: 'var(--term-gray)',
           opacity: 0,
           transition: 'opacity 150ms ease-out',
           pointerEvents: 'none',
