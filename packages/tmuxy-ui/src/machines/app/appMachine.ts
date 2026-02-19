@@ -855,6 +855,7 @@ export const appMachine = setup({
               selectionAnchor: null,
               scrollTop: 0,
               initialCursorY: pane.cursorY,
+              pendingScrollLines: event.scrollLines,
             };
 
             enqueue(assign({
@@ -929,6 +930,16 @@ export const appMachine = setup({
               firstLoadCol = existing.cursorCol;
             }
 
+            // Compute initial scrollTop
+            let initialScrollTop = isFirstLoad
+              ? Math.max(0, totalLines - existing.height)
+              : existing.scrollTop;
+
+            // Apply pending scroll lines (from scroll-up entering copy mode)
+            if (isFirstLoad && existing.pendingScrollLines) {
+              initialScrollTop = Math.max(0, initialScrollTop + existing.pendingScrollLines);
+            }
+
             const updated: CopyModeState = {
               ...existing,
               lines,
@@ -939,8 +950,20 @@ export const appMachine = setup({
               loading: false,
               cursorRow: isFirstLoad ? firstLoadRow : existing.cursorRow,
               cursorCol: isFirstLoad ? firstLoadCol : existing.cursorCol,
-              scrollTop: isFirstLoad ? Math.max(0, totalLines - existing.height) : existing.scrollTop,
+              scrollTop: initialScrollTop,
+              pendingScrollLines: isFirstLoad ? undefined : existing.pendingScrollLines,
             };
+
+            // Apply pending selection (from drag that started before chunk loaded)
+            if (isFirstLoad && existing.pendingSelection) {
+              const ps = existing.pendingSelection;
+              const absoluteRow = event.historySize + ps.row;
+              updated.selectionMode = ps.mode;
+              updated.selectionAnchor = { row: absoluteRow, col: ps.col };
+              updated.cursorRow = absoluteRow;
+              updated.cursorCol = ps.col;
+              updated.pendingSelection = undefined;
+            }
 
             return { copyModeStates: { ...context.copyModeStates, [event.paneId]: updated } };
           }),
@@ -950,10 +973,15 @@ export const appMachine = setup({
             const existing = context.copyModeStates[event.paneId];
             if (!existing) return {};
 
-            // If row is small (visible-area-relative from mouse), convert to absolute
-            const absoluteRow = event.row < existing.height
+            // Convert row to absolute: when `relative` is true (mouse-originated),
+            // always treat as visible-relative. Otherwise use heuristic.
+            const isRelative = event.relative === true
+              ? true
+              : event.row < existing.height;
+            const rawRow = isRelative
               ? existing.scrollTop + event.row
               : event.row;
+            const absoluteRow = Math.max(0, Math.min(rawRow, existing.totalLines - 1));
 
             let scrollTop = existing.scrollTop;
             if (absoluteRow < scrollTop) {
@@ -961,6 +989,7 @@ export const appMachine = setup({
             } else if (absoluteRow >= scrollTop + existing.height) {
               scrollTop = absoluteRow - existing.height + 1;
             }
+            scrollTop = Math.max(0, Math.min(scrollTop, existing.totalLines - existing.height));
 
             const updated: CopyModeState = {
               ...existing,
@@ -976,6 +1005,19 @@ export const appMachine = setup({
           actions: assign(({ event, context }) => {
             const existing = context.copyModeStates[event.paneId];
             if (!existing) return {};
+
+            // If copy mode hasn't loaded yet, store as pending
+            if (existing.totalLines === 0) {
+              return {
+                copyModeStates: {
+                  ...context.copyModeStates,
+                  [event.paneId]: {
+                    ...existing,
+                    pendingSelection: { mode: event.mode, row: event.row, col: event.col },
+                  },
+                },
+              };
+            }
 
             // If row is small (visible-area-relative from mouse), convert to absolute
             const absoluteRow = event.row < existing.height

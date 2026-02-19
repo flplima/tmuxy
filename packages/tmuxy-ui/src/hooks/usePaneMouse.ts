@@ -35,6 +35,12 @@ interface UsePaneMouseOptions {
 /** Minimum time between drag updates (ms) */
 const DRAG_THROTTLE_MS = 30;
 
+/** Auto-scroll interval (ms) */
+const AUTO_SCROLL_INTERVAL_MS = 50;
+
+/** Auto-scroll speed (lines per tick) */
+const AUTO_SCROLL_LINES = 2;
+
 export function usePaneMouse(
   send: (event: AppMachineEvent) => void,
   options: UsePaneMouseOptions
@@ -52,14 +58,27 @@ export function usePaneMouse(
   // Committed selection start (reactive state for rendering, persists until copy mode exits)
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
 
+  // Auto-scroll state
+  const autoScrollTimerRef = useRef<number | null>(null);
+  const autoScrollColRef = useRef(0);
+
   // Clear selection start when copy mode exits
   if (!inMode && !copyModeActive && selectionStart) {
     setSelectionStart(null);
   }
 
+  // Stop auto-scroll timer
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollTimerRef.current !== null) {
+      clearInterval(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    }
+  }, []);
+
   // Convert pixel coordinates to terminal cell coordinates
   // Uses the .pane-content element's rect so coordinates are relative to the
   // terminal content area (below the header), not the entire pane wrapper.
+  // Does NOT clamp Y so we can detect above/below for auto-scroll.
   const pixelToCell = useCallback(
     (e: React.MouseEvent): { x: number; y: number } => {
       const rect = contentRef.current?.getBoundingClientRect();
@@ -68,7 +87,7 @@ export function usePaneMouse(
       const relY = e.clientY - rect.top;
       return {
         x: Math.max(0, Math.floor(relX / charWidth)),
-        y: Math.max(0, Math.floor(relY / charHeight)),
+        y: Math.floor(relY / charHeight),
       };
     },
     [charWidth, charHeight, contentRef]
@@ -95,7 +114,7 @@ export function usePaneMouse(
         // Send SGR mouse press event
         send({
           type: 'SEND_COMMAND',
-          command: `run-shell -b 'printf "\\033[<${e.button};${cell.x + 1};${cell.y + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+          command: `run-shell -b 'printf "\\033[<${e.button};${cell.x + 1};${Math.max(1, cell.y + 1)}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
         });
         return;
       }
@@ -106,7 +125,7 @@ export function usePaneMouse(
 
       if (e.button === 0) {
         const cell = pixelToCell(e);
-        dragStartRef.current = cell;
+        dragStartRef.current = { x: cell.x, y: Math.max(0, cell.y) };
         lastCellRef.current = null;
         isDraggingForSelectionRef.current = false;
       }
@@ -117,6 +136,8 @@ export function usePaneMouse(
   // Handle mouse up
   const handleMouseUp = useCallback(
     (e: React.MouseEvent) => {
+      stopAutoScroll();
+
       if (mouseButtonRef.current === null) return;
 
       if (mouseAnyFlag) {
@@ -125,7 +146,7 @@ export function usePaneMouse(
         // Send SGR mouse release event (lowercase 'm')
         send({
           type: 'SEND_COMMAND',
-          command: `run-shell -b 'printf "\\033[<${mouseButtonRef.current};${cell.x + 1};${cell.y + 1}m" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+          command: `run-shell -b 'printf "\\033[<${mouseButtonRef.current};${cell.x + 1};${Math.max(1, cell.y + 1)}m" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
         });
       }
 
@@ -140,7 +161,7 @@ export function usePaneMouse(
         if (!target.closest('.pane-header')) {
           const cell = pixelToCell(e);
           send({ type: 'COPY_MODE_SELECTION_CLEAR', paneId });
-          send({ type: 'COPY_MODE_CURSOR_MOVE', paneId, row: cell.y, col: cell.x });
+          send({ type: 'COPY_MODE_CURSOR_MOVE', paneId, row: Math.max(0, cell.y), col: cell.x, relative: true });
         }
       }
 
@@ -150,7 +171,7 @@ export function usePaneMouse(
       isDraggingForSelectionRef.current = false;
       mouseButtonRef.current = null;
     },
-    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell]
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, stopAutoScroll]
   );
 
   // Handle mouse move (for drag)
@@ -164,7 +185,7 @@ export function usePaneMouse(
         const dragButton = mouseButtonRef.current + 32;
         send({
           type: 'SEND_COMMAND',
-          command: `run-shell -b 'printf "\\033[<${dragButton};${cell.x + 1};${cell.y + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+          command: `run-shell -b 'printf "\\033[<${dragButton};${cell.x + 1};${Math.max(1, cell.y + 1)}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
         });
         return;
       }
@@ -196,39 +217,66 @@ export function usePaneMouse(
         // We'll set selection after copy mode state is initialized
         // For now, use a small delay for state to propagate
         setTimeout(() => {
-          // Start char selection at drag start position
-          // The anchor row needs to be in "absolute" coordinates.
-          // Since we're starting from visible area, we need to add historySize
-          // (which we don't have here). The appMachine will handle this via
-          // COPY_MODE_SELECTION_START using the visible-area-relative coordinates.
-          // The ScrollbackTerminal/appMachine will adjust.
           send({
             type: 'COPY_MODE_SELECTION_START',
             paneId,
             mode: 'char',
-            row: start.y, // visible-relative, will be adjusted by appMachine
+            row: start.y,
             col: start.x,
           });
         }, 50);
         lastCellRef.current = { ...start };
       }
 
+      // Check if mouse is above or below content area for auto-scroll
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (rect && isDraggingForSelectionRef.current) {
+        const relY = e.clientY - rect.top;
+        const isAbove = relY < 0;
+        const isBelow = relY >= rect.height;
+
+        if (isAbove || isBelow) {
+          autoScrollColRef.current = cell.x;
+          if (autoScrollTimerRef.current === null) {
+            const direction = isAbove ? -1 : 1;
+            autoScrollTimerRef.current = window.setInterval(() => {
+              // Send cursor move to row above/below visible area
+              // The machine auto-adjusts scrollTop when cursor goes out of viewport
+              const targetRow = direction < 0 ? -AUTO_SCROLL_LINES : options.paneHeight + AUTO_SCROLL_LINES - 1;
+              send({
+                type: 'COPY_MODE_CURSOR_MOVE',
+                paneId,
+                row: targetRow,
+                col: autoScrollColRef.current,
+                relative: true,
+              });
+            }, AUTO_SCROLL_INTERVAL_MS);
+          }
+          return; // Don't send another cursor move below
+        } else {
+          stopAutoScroll();
+        }
+      }
+
       // Update cursor position for selection extension
       if (lastCellRef.current) {
+        const clampedRow = Math.max(0, Math.min(cell.y, options.paneHeight - 1));
         send({
           type: 'COPY_MODE_CURSOR_MOVE',
           paneId,
-          row: cell.y, // visible-relative
+          row: clampedRow,
           col: cell.x,
+          relative: true,
         });
         lastCellRef.current = cell;
       }
     },
-    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell]
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, contentRef, options.paneHeight, stopAutoScroll]
   );
 
-  // Handle mouse leave
+  // Handle mouse leave - only clear state if not actively dragging for selection
   const handleMouseLeave = useCallback(() => {
+    if (isDraggingForSelectionRef.current) return;
     dragStartRef.current = null;
     lastCellRef.current = null;
     isDraggingForSelectionRef.current = false;
@@ -279,9 +327,9 @@ export function usePaneMouse(
         return;
       }
 
-      // Default: enter client-side copy mode on scroll up
+      // Default: enter client-side copy mode on scroll up (with scroll delta preserved)
       if (isScrollUp) {
-        send({ type: 'ENTER_COPY_MODE', paneId });
+        send({ type: 'ENTER_COPY_MODE', paneId, scrollLines: lines });
       } else {
         // Scroll down without copy mode - just send to tmux
         send({ type: 'SEND_COMMAND', command: `copy-mode -e -t ${paneId}` });

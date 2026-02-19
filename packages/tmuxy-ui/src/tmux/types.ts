@@ -127,6 +127,10 @@ export interface CopyModeState {
   scrollTop: number;
   /** Terminal cursorY at time of entering copy mode (used for first chunk load positioning) */
   initialCursorY?: number;
+  /** Pending scroll lines to apply on first chunk load (negative = scroll up) */
+  pendingScrollLines?: number;
+  /** Pending selection to apply on first chunk load (visible-relative row) */
+  pendingSelection?: { mode: 'char' | 'line'; row: number; col: number };
 }
 
 // ============================================

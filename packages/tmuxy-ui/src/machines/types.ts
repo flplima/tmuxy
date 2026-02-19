@@ -256,10 +256,10 @@ export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string 
 export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 
 // Copy mode events
-export type EnterCopyModeEvent = { type: 'ENTER_COPY_MODE'; paneId: string };
+export type EnterCopyModeEvent = { type: 'ENTER_COPY_MODE'; paneId: string; scrollLines?: number };
 export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: string };
 export type CopyModeChunkLoadedEvent = { type: 'COPY_MODE_CHUNK_LOADED'; paneId: string; cells: import('../tmux/types').PaneContent; start: number; end: number; historySize: number; width: number };
-export type CopyModeCursorMoveEvent = { type: 'COPY_MODE_CURSOR_MOVE'; paneId: string; row: number; col: number };
+export type CopyModeCursorMoveEvent = { type: 'COPY_MODE_CURSOR_MOVE'; paneId: string; row: number; col: number; relative?: boolean };
 export type CopyModeSelectionStartEvent = { type: 'COPY_MODE_SELECTION_START'; paneId: string; mode: 'char' | 'line'; row: number; col: number };
 export type CopyModeSelectionClearEvent = { type: 'COPY_MODE_SELECTION_CLEAR'; paneId: string };
 export type CopyModeScrollEvent = { type: 'COPY_MODE_SCROLL'; paneId: string; scrollTop: number };
