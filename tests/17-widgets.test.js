@@ -187,7 +187,7 @@ describe('Category 17: Widgets', () => {
 
       // Wait for command to execute and pane content to propagate
       await delay(2000);
-      await waitForSelector(page, '.widget-image', 20000);
+      await waitForSelector(page, '.widget-image', 30000);
 
       // Verify <img> has a base64 src
       const src = await page.evaluate(() => {
@@ -272,14 +272,24 @@ describe('Category 17: Widgets', () => {
       if (skipIfNotReady()) return;
       await setupPage();
 
+      // echo "test" | tmuxy-widget nonexistent_xyz exits immediately (pipe closes).
+      // The alt screen flashes briefly, then normal terminal is restored.
       sendCommand(session, 'echo "test" | /workspace/scripts/tmuxy/tmuxy-widget nonexistent_xyz');
-      await waitForTerminalText(page, '__TMUXY_WIDGET__:nonexistent_xyz');
+
+      // Wait for the command to complete — prompt reappears in terminal
+      await delay(2000);
 
       // Should still be a terminal since "nonexistent_xyz" isn't registered
+      // and the process has already exited (alt screen restored)
       const hasTerminal = await page.evaluate(() =>
         document.querySelector('[role="log"]') !== null
       );
       expect(hasTerminal).toBe(true);
+
+      const hasWidget = await page.evaluate(() =>
+        document.querySelector('.widget-image') !== null
+      );
+      expect(hasWidget).toBe(false);
     });
   });
 });

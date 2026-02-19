@@ -29,6 +29,27 @@ import {
 } from '../machines/AppContext';
 import { usePaneMouse } from '../hooks';
 
+/** Extract a display title from widget content lines */
+function getWidgetTitle(contentLines: string[]): string | undefined {
+  const joined = contentLines.join('').trim();
+
+  // Try HTTP URL — extract filename
+  const urlMatch = joined.match(/https?:\/\/[^\s]+/);
+  if (urlMatch) {
+    try {
+      const pathname = new URL(urlMatch[0]).pathname;
+      const filename = pathname.split('/').pop();
+      if (filename) return decodeURIComponent(filename);
+    } catch { /* ignore */ }
+  }
+
+  // Try data URI — show truncated prefix
+  const dataMatch = joined.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/]{0,10}/);
+  if (dataMatch) return dataMatch[0] + '...';
+
+  return undefined;
+}
+
 interface PaneProps {
   paneId: string;
 }
@@ -183,6 +204,7 @@ export function Pane({ paneId }: PaneProps) {
   if (widgetInfo) {
     const WidgetComponent = getWidget(widgetInfo.widgetName)!;
     const lastLine = widgetInfo.contentLines.filter(l => l.trim()).pop() || '';
+    const widgetTitle = getWidgetTitle(widgetInfo.contentLines);
     const writeStdin = (data: string) => {
       // Use single quotes with escaping for safe literal send-keys
       const escaped = data.replace(/'/g, "'\\''");
@@ -195,7 +217,7 @@ export function Pane({ paneId }: PaneProps) {
         style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
         data-pane-id={pane.tmuxId}
       >
-        <PaneHeader paneId={paneId} />
+        <PaneHeader paneId={paneId} titleOverride={widgetTitle} />
         <div className="pane-content" style={{ flex: 1, overflow: 'hidden' }}>
           <WidgetComponent
             paneId={paneId}

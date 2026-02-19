@@ -1,5 +1,12 @@
 #!/bin/bash
 # Usage: some-command | tmuxy-widget <component-name>
+#
+# Prints the widget marker, then passes stdin through to stdout.
+# On exit (Ctrl+C, pipe close, SIGTERM), clears the terminal so the
+# widget marker disappears and the shell prompt restores cleanly.
 COMPONENT="${1:?Usage: tmuxy-widget <component-name>}"
+
+trap 'clear' EXIT
+
 echo "__TMUXY_WIDGET__:${COMPONENT}"
 cat

@@ -39,6 +39,7 @@ const PaneTab = memo(function PaneTab({
   pane,
   isSelectedTab,
   isActivePane,
+  titleOverride,
   onClick,
   onContextMenu,
   onClose,
@@ -47,12 +48,13 @@ const PaneTab = memo(function PaneTab({
   pane: TmuxPane;
   isSelectedTab: boolean;
   isActivePane: boolean;
+  titleOverride?: string;
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onClose: (e: React.MouseEvent) => void;
   onDragStart: (e: React.MouseEvent) => void;
 }) {
-  const tabTitle = getTabTitle(pane);
+  const tabTitle = titleOverride ?? getTabTitle(pane);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -88,6 +90,8 @@ const PaneTab = memo(function PaneTab({
 
 interface PaneHeaderProps {
   paneId: string;
+  /** Override the tab title for this pane (used by widgets) */
+  titleOverride?: string;
 }
 
 interface ContextMenuState {
@@ -97,7 +101,7 @@ interface ContextMenuState {
   targetPaneId: string;
 }
 
-export function PaneHeader({ paneId }: PaneHeaderProps) {
+export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
   const { group, groupPanes, activePaneId } = usePaneGroup(paneId);
@@ -215,6 +219,7 @@ export function PaneHeader({ paneId }: PaneHeaderProps) {
               pane={tabPane}
               isSelectedTab={isSelectedTab}
               isActivePane={isActivePane}
+              titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
               onClose={(e) => handleClose(e, tabPane.tmuxId)}
