@@ -57,6 +57,20 @@ export function ScrollbackTerminal({ paneId, copyState }: ScrollbackTerminalProp
   const containerRef = useRef<HTMLDivElement | null>(null);
   const initialScrollDone = useRef(false);
 
+  // Scroll indicator (direct DOM manipulation to avoid re-renders)
+  const scrollIndicatorRef = useRef<HTMLDivElement | null>(null);
+  const scrollIndicatorTimer = useRef<number | null>(null);
+
+  const flashScrollIndicator = useCallback(() => {
+    const el = scrollIndicatorRef.current;
+    if (!el) return;
+    el.style.opacity = '0.5';
+    if (scrollIndicatorTimer.current) clearTimeout(scrollIndicatorTimer.current);
+    scrollIndicatorTimer.current = window.setTimeout(() => {
+      if (scrollIndicatorRef.current) scrollIndicatorRef.current.style.opacity = '0';
+    }, 800);
+  }, []);
+
   const {
     totalLines,
     scrollTop,
@@ -86,13 +100,15 @@ export function ScrollbackTerminal({ paneId, copyState }: ScrollbackTerminalProp
       paneId,
       scrollTop: newScrollTop,
     });
-  }, [send, paneId, charHeight]);
+    flashScrollIndicator();
+  }, [send, paneId, charHeight, flashScrollIndicator]);
 
   // Sync container scroll position when scrollTop changes from keyboard/wheel
   const lastScrollTop = useRef(scrollTop);
   if (containerRef.current && scrollTop !== lastScrollTop.current) {
     containerRef.current.scrollTop = scrollTop * charHeight;
     lastScrollTop.current = scrollTop;
+    flashScrollIndicator();
   }
 
   // Callback ref to set initial scroll position on mount
@@ -114,47 +130,71 @@ export function ScrollbackTerminal({ paneId, copyState }: ScrollbackTerminalProp
   const totalHeight = totalLines * charHeight;
   const isCursorVisible = cursorRow >= visibleStart && cursorRow <= visibleEnd;
 
+  // Scroll indicator geometry
+  const thumbPct = totalLines > 0 ? Math.max(5, (height / totalLines) * 100) : 100;
+  const maxScroll = totalLines - height;
+  const thumbTopPct = maxScroll > 0 ? (scrollTop / maxScroll) * (100 - thumbPct) : 0;
+
   return (
-    <div
-      className="terminal-container scrollback-terminal hide-scrollbar"
-      data-testid="scrollback-terminal"
-      data-copy-mode="true"
-      ref={setContainerRef}
-      onScroll={handleScroll}
-      style={{
-        overflowY: 'auto',
-        position: 'relative',
-        height: '100%',
-      }}
-    >
-      {/* Full-height spacer for scrollbar */}
-      <div style={{ height: totalHeight, position: 'relative' }}>
-        <pre
-          className="terminal-content"
-          aria-hidden="true"
-          style={{
-            position: 'absolute',
-            top: visibleStart * charHeight,
-            left: 0,
-            right: 0,
-          }}
-        >
-          {visibleLines.map(({ absoluteRow, line }) => (
-            <TerminalLine
-              key={absoluteRow}
-              line={line}
-              lineIndex={absoluteRow}
-              cursorX={cursorCol}
-              cursorY={cursorRow}
-              showCursor={isCursorVisible}
-              inMode={true}
-              isActive={true}
-              selectionRange={getSelectionRange(absoluteRow)}
-              width={width}
-            />
-          ))}
-        </pre>
+    <div style={{ position: 'relative', height: '100%' }}>
+      <div
+        className="terminal-container scrollback-terminal hide-scrollbar"
+        data-testid="scrollback-terminal"
+        data-copy-mode="true"
+        ref={setContainerRef}
+        onScroll={handleScroll}
+        style={{
+          overflowY: 'auto',
+          position: 'relative',
+          height: '100%',
+        }}
+      >
+        {/* Full-height spacer for scrollbar */}
+        <div style={{ height: totalHeight, position: 'relative' }}>
+          <pre
+            className="terminal-content"
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              top: visibleStart * charHeight,
+              left: 0,
+              right: 0,
+            }}
+          >
+            {visibleLines.map(({ absoluteRow, line }) => (
+              <TerminalLine
+                key={absoluteRow}
+                line={line}
+                lineIndex={absoluteRow}
+                cursorX={cursorCol}
+                cursorY={cursorRow}
+                showCursor={isCursorVisible}
+                inMode={true}
+                isActive={true}
+                selectionRange={getSelectionRange(absoluteRow)}
+                width={width}
+              />
+            ))}
+          </pre>
+        </div>
       </div>
+      {/* Scroll position indicator */}
+      <div
+        ref={scrollIndicatorRef}
+        style={{
+          position: 'absolute',
+          right: 2,
+          top: `${thumbTopPct}%`,
+          width: 3,
+          height: `${thumbPct}%`,
+          borderRadius: 1.5,
+          backgroundColor: '#fff',
+          opacity: 0,
+          transition: 'opacity 150ms ease-out',
+          pointerEvents: 'none',
+          zIndex: 5,
+        }}
+      />
       {loading && (
         <div className="scrollback-loading" style={{
           position: 'absolute',
