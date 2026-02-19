@@ -306,6 +306,8 @@ export function Pane({ paneId }: PaneProps) {
         ref={wrapperRef}
         className={`pane-wrapper ${isSinglePane ? 'pane-single' : ''}`}
         style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+        role="group"
+        aria-label={`Widget pane ${pane.tmuxId}`}
         data-pane-id={pane.tmuxId}
         tabIndex={0}
         onMouseDown={() => {

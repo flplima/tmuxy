@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { WidgetProps } from './index';
@@ -32,14 +32,16 @@ const components: Components = {
   },
 };
 
-export function TmuxyMarkdown({ lines }: WidgetProps) {
-  const meta = extractMeta(lines);
+/** Fetch file content, triggered during render when meta changes (no useEffect) */
+function useFetchFile(filePath: string | undefined, seq: string | undefined) {
   const [content, setContent] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const lastFetchRef = useRef('');
 
-  useEffect(() => {
-    if (!meta?.filePath) return;
-    const url = `/api/file?path=${encodeURIComponent(meta.filePath)}`;
+  const fetchKey = `${filePath}:${seq}`;
+  if (filePath && fetchKey !== lastFetchRef.current) {
+    lastFetchRef.current = fetchKey;
+    const url = `/api/file?path=${encodeURIComponent(filePath)}`;
     fetch(url)
       .then((res) => {
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -47,7 +49,14 @@ export function TmuxyMarkdown({ lines }: WidgetProps) {
       })
       .then((text) => { setContent(text); setError(null); })
       .catch((err) => setError(String(err)));
-  }, [meta?.filePath, meta?.seq]);
+  }
+
+  return { content, error };
+}
+
+export function TmuxyMarkdown({ lines }: WidgetProps) {
+  const meta = extractMeta(lines);
+  const { content, error } = useFetchFile(meta?.filePath, meta?.seq);
 
   if (error) {
     return <div className="widget-markdown-empty">{error}</div>;
