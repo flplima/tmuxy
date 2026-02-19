@@ -207,7 +207,6 @@ export interface PaneDelta {
   alternate_on?: boolean;
   mouse_any_flag?: boolean;
   paused?: boolean;
-  history_size?: number;
   selection_present?: boolean;
   selection_start_x?: number;
   selection_start_y?: number;

@@ -948,8 +948,9 @@ export const appMachine = setup({
               event.end,
             );
 
-            // historySize from server is authoritative — update if it changed
+            // historySize from server is authoritative — adjust positions if it changed
             const totalLines = event.historySize + existing.height;
+            const histDiff = event.historySize - existing.historySize;
 
             const updated: CopyModeState = {
               ...existing,
@@ -959,6 +960,13 @@ export const appMachine = setup({
               historySize: event.historySize,
               width: event.width,
               loading: false,
+              // Shift scrollTop and cursorRow when historySize changed (stale pre-populated value)
+              scrollTop: histDiff !== 0
+                ? Math.max(0, Math.min(existing.scrollTop + histDiff, totalLines - existing.height))
+                : existing.scrollTop,
+              cursorRow: histDiff !== 0
+                ? Math.max(0, Math.min(existing.cursorRow + histDiff, totalLines - 1))
+                : existing.cursorRow,
             };
 
             // Apply pending selection (from drag that started before chunk loaded)
