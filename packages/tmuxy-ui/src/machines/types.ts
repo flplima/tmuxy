@@ -256,7 +256,7 @@ export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string 
 export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 
 // Copy mode events
-export type EnterCopyModeEvent = { type: 'ENTER_COPY_MODE'; paneId: string; scrollLines?: number };
+export type EnterCopyModeEvent = { type: 'ENTER_COPY_MODE'; paneId: string; scrollLines?: number; nativeScrollTop?: number };
 export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: string };
 export type CopyModeChunkLoadedEvent = { type: 'COPY_MODE_CHUNK_LOADED'; paneId: string; cells: import('../tmux/types').PaneContent; start: number; end: number; historySize: number; width: number };
 export type CopyModeCursorMoveEvent = { type: 'COPY_MODE_CURSOR_MOVE'; paneId: string; row: number; col: number; relative?: boolean };

@@ -866,9 +866,11 @@ export const appMachine = setup({
                 ? [[historySize, historySize + pane.content.length - 1]]
                 : [];
 
-            // Apply initial scroll offset if entering via wheel-up
+            // Apply initial scroll offset
             let initialScrollTop = scrollTop;
-            if (event.scrollLines) {
+            if (event.nativeScrollTop !== undefined) {
+              initialScrollTop = Math.max(0, Math.min(event.nativeScrollTop, scrollTop));
+            } else if (event.scrollLines) {
               initialScrollTop = Math.max(0, scrollTop + event.scrollLines);
             }
 

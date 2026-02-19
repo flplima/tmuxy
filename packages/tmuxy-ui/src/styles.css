@@ -287,6 +287,10 @@ body {
   min-height: var(--line-height-terminal);
 }
 
+.pane-scroll-container {
+  background-color: var(--bg-black);
+}
+
 .hide-scrollbar {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE/Edge */

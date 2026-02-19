@@ -320,22 +320,21 @@ export function usePaneMouse(
   // Handle wheel events
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
-      // In copy mode, let native scroll handle it (ScrollbackTerminal has overflow-y:auto)
+      // In copy mode, let native scroll handle it
       if (copyModeActive) return;
-
-      e.preventDefault();
 
       // Accumulate pixel delta and convert to lines
       wheelRemainder.current += e.deltaY;
       const lines = Math.trunc(wheelRemainder.current / charHeight);
-      if (lines === 0) return;
+      if (lines === 0) return; // Sub-line scroll — let accumulate
       wheelRemainder.current -= lines * charHeight;
 
       const isScrollUp = lines < 0;
       const absLines = Math.abs(lines);
 
-      // If in alternate screen (vim, less), send arrow keys
+      // If in alternate screen (vim, less), intercept and send arrow keys
       if (alternateOn) {
+        e.preventDefault();
         const key = isScrollUp ? 'Up' : 'Down';
         for (let i = 0; i < absLines; i++) {
           send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} ${key}` });
@@ -343,12 +342,12 @@ export function usePaneMouse(
         return;
       }
 
-      // If mouse tracking is enabled, forward wheel events
+      // If mouse tracking is enabled, intercept and forward wheel events
       if (mouseAnyFlag) {
+        e.preventDefault();
         const cell = pixelToCell(e as unknown as React.MouseEvent);
         const button = isScrollUp ? 64 : 65;
 
-        // Send wheel events
         for (let i = 0; i < absLines; i++) {
           send({
             type: 'SEND_COMMAND',
@@ -358,17 +357,8 @@ export function usePaneMouse(
         return;
       }
 
-      // Default: enter client-side copy mode on scroll up (with scroll delta preserved)
-      if (isScrollUp) {
-        send({ type: 'ENTER_COPY_MODE', paneId, scrollLines: lines });
-      } else {
-        // Scroll down without copy mode - just send to tmux
-        send({ type: 'SEND_COMMAND', command: `copy-mode -e -t ${paneId}` });
-        send({
-          type: 'SEND_COMMAND',
-          command: `send-keys -t ${paneId} -X -N ${absLines} scroll-down`,
-        });
-      }
+      // Default: let the scroll event pass through to the container
+      // The container's onScroll handler will detect scroll-away-from-bottom and enter copy mode
     },
     [send, paneId, charHeight, alternateOn, mouseAnyFlag, copyModeActive, pixelToCell]
   );
