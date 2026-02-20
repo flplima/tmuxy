@@ -133,6 +133,14 @@ export interface AppMachineContext {
     height: number;
     timestamp: number;
   } | null;
+  /** Command mode state (tmux command prompt) */
+  commandMode: {
+    prompt: string;
+    input: string;
+    template: string | null;
+  } | null;
+  /** Temporary status message (from display-message) */
+  statusMessage: { text: string; timestamp: number } | null;
 }
 
 // ============================================
@@ -274,6 +282,13 @@ export type CopyModeWordSelectEvent = { type: 'COPY_MODE_WORD_SELECT'; paneId: s
 export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
 export type EnableAnimationsEvent = { type: 'ENABLE_ANIMATIONS' };
 
+// Command mode events
+export type EnterCommandModeEvent = { type: 'ENTER_COMMAND_MODE'; prompt?: string; initialValue?: string; template?: string | null };
+export type CommandModeSubmitEvent = { type: 'COMMAND_MODE_SUBMIT'; value: string };
+export type CommandModeCancelEvent = { type: 'COMMAND_MODE_CANCEL' };
+export type ShowStatusMessageEvent = { type: 'SHOW_STATUS_MESSAGE'; text: string };
+export type ClearStatusMessageEvent = { type: 'CLEAR_STATUS_MESSAGE' };
+
 
 /** All events the app machine can receive from external sources */
 export type AppMachineEvent =
@@ -322,7 +337,12 @@ export type AppMachineEvent =
   | ZoomPaneEvent
   | CloseFloatEvent
   | CloseTopFloatEvent
-  | WriteToPaneEvent;
+  | WriteToPaneEvent
+  | EnterCommandModeEvent
+  | CommandModeSubmitEvent
+  | CommandModeCancelEvent
+  | ShowStatusMessageEvent
+  | ClearStatusMessageEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

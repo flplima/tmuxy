@@ -56,6 +56,99 @@ function updateActivationOrder(order: string[], paneId: string | null): string[]
   return [paneId, ...order.filter(id => id !== paneId)];
 }
 
+/**
+ * Parse a `command-prompt` command and extract -I (initial value), -p (prompt), and template.
+ * Expands tmux format strings (#W, #S) from context.
+ */
+function parseCommandPrompt(
+  command: string,
+  context: { windows: { id: string; name: string }[]; activeWindowId: string | null; sessionName: string }
+): { prompt: string; initialValue: string; template: string | null } {
+  let prompt = ':';
+  let initialValue = '';
+  let template: string | null = null;
+
+  // Tokenize respecting quoted strings
+  const tokens: string[] = [];
+  const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
+  let m;
+  while ((m = re.exec(command)) !== null) {
+    tokens.push(m[1] ?? m[2] ?? m[3]);
+  }
+
+  // Skip the "command-prompt" token
+  let i = tokens[0] === 'command-prompt' ? 1 : 0;
+  while (i < tokens.length) {
+    if (tokens[i] === '-I' && i + 1 < tokens.length) {
+      initialValue = tokens[++i];
+      i++;
+    } else if (tokens[i] === '-p' && i + 1 < tokens.length) {
+      prompt = tokens[++i];
+      i++;
+    } else if (tokens[i].startsWith('-')) {
+      // Skip other flags (e.g., -1, -t, etc.) — consume flag + possible arg
+      const flag = tokens[i];
+      i++;
+      // Flags that take an argument
+      if (/^-[tTFN]$/.test(flag) && i < tokens.length) {
+        i++;
+      }
+    } else {
+      // First non-flag token is the template
+      template = tokens[i];
+      i++;
+    }
+  }
+
+  // Expand tmux format strings
+  const activeWindow = context.windows.find(w => w.id === context.activeWindowId);
+  const windowName = activeWindow?.name ?? '';
+  const expand = (s: string) => s.replace(/#W/g, windowName).replace(/#S/g, context.sessionName);
+
+  initialValue = expand(initialValue);
+  prompt = expand(prompt);
+
+  return { prompt, initialValue, template };
+}
+
+/**
+ * Parse a `display-message` command and extract the message text.
+ * Returns null if -p flag is present (output mode — should go to tmux).
+ */
+function parseDisplayMessage(command: string): string | null {
+  const tokens: string[] = [];
+  const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
+  let m;
+  while ((m = re.exec(command)) !== null) {
+    tokens.push(m[1] ?? m[2] ?? m[3]);
+  }
+
+  let i = tokens[0] === 'display-message' ? 1 : 0;
+  let hasOutputFlag = false;
+
+  while (i < tokens.length) {
+    if (tokens[i] === '-p') {
+      hasOutputFlag = true;
+      i++;
+    } else if (tokens[i].startsWith('-')) {
+      const flag = tokens[i];
+      i++;
+      if (/^-[tFc]$/.test(flag) && i < tokens.length) {
+        i++;
+      }
+    } else {
+      // First non-flag token is the message
+      if (hasOutputFlag) return null;
+      return tokens[i];
+    }
+  }
+
+  return null;
+}
+
+/** Status message auto-clear delay in milliseconds */
+const STATUS_MESSAGE_DURATION = 5000;
+
 export const appMachine = setup({
   types: {
     context: {} as AppMachineContext,
@@ -110,6 +203,10 @@ export const appMachine = setup({
     paneActivationOrder: [] as string[],
     // Dimension override during group switch (prevents intermediate state flicker)
     groupSwitchDimOverride: null,
+    // Command mode (client-side command prompt)
+    commandMode: null,
+    // Temporary status message (from display-message)
+    statusMessage: null,
   },
   invoke: [
     {
@@ -211,6 +308,90 @@ export const appMachine = setup({
         connectionId: event.connectionId,
         defaultShell: event.defaultShell,
       })),
+    },
+
+    // Command mode events (global — work in any state)
+    ENTER_COMMAND_MODE: {
+      actions: assign(({ event }) => ({
+        commandMode: {
+          prompt: event.prompt ?? ':',
+          input: event.initialValue ?? '',
+          template: event.template ?? null,
+        },
+      })),
+    },
+    COMMAND_MODE_SUBMIT: {
+      actions: enqueueActions(({ event, context, enqueue }) => {
+        const mode = context.commandMode;
+        if (!mode) return;
+
+        // Build final command: replace %% in template with input, or use input directly
+        let finalCommand = mode.template
+          ? mode.template.replace(/%%/g, event.value)
+          : event.value;
+
+        // Clear command mode
+        enqueue(assign({ commandMode: null }));
+
+        if (!finalCommand.trim()) return;
+
+        // Check if the resulting command is display-message (without -p)
+        if (finalCommand.match(/^display-message\b/)) {
+          const msg = parseDisplayMessage(finalCommand);
+          if (msg !== null) {
+            enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
+            enqueue(({ self }) => {
+              setTimeout(() => {
+                self.send({ type: 'CLEAR_STATUS_MESSAGE' });
+              }, STATUS_MESSAGE_DURATION);
+            });
+            return;
+          }
+        }
+
+        // Check if the resulting command is command-prompt (recursive)
+        if (finalCommand.match(/^command-prompt\b/)) {
+          const parsed = parseCommandPrompt(finalCommand, context);
+          enqueue(assign({
+            commandMode: {
+              prompt: parsed.prompt,
+              input: parsed.initialValue,
+              template: parsed.template,
+            },
+          }));
+          return;
+        }
+
+        // Send to tmux
+        enqueue(sendTo('tmux', {
+          type: 'SEND_COMMAND' as const,
+          command: finalCommand,
+        }));
+      }),
+    },
+    COMMAND_MODE_CANCEL: {
+      actions: assign({ commandMode: null }),
+    },
+    SHOW_STATUS_MESSAGE: {
+      actions: [
+        assign(({ event }) => ({
+          statusMessage: { text: event.text, timestamp: Date.now() },
+        })),
+        ({ self }) => {
+          setTimeout(() => {
+            self.send({ type: 'CLEAR_STATUS_MESSAGE' });
+          }, STATUS_MESSAGE_DURATION);
+        },
+      ],
+    },
+    CLEAR_STATUS_MESSAGE: {
+      actions: assign(({ context }) => {
+        // Only clear if the message is old enough (prevents clearing a newer message)
+        if (context.statusMessage && Date.now() - context.statusMessage.timestamp >= STATUS_MESSAGE_DURATION - 100) {
+          return { statusMessage: null };
+        }
+        return {};
+      }),
     },
   },
   states: {
@@ -589,6 +770,33 @@ export const appMachine = setup({
               }
             }
 
+            // Intercept command-prompt — enter client-side command mode
+            if (command.match(/^command-prompt\b/)) {
+              const parsed = parseCommandPrompt(command, context);
+              enqueue(assign({
+                commandMode: {
+                  prompt: parsed.prompt,
+                  input: parsed.initialValue,
+                  template: parsed.template,
+                },
+              }));
+              return;
+            }
+
+            // Intercept display-message (without -p) — show in status bar
+            if (command.match(/^display-message\b/)) {
+              const msg = parseDisplayMessage(command);
+              if (msg !== null) {
+                enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
+                enqueue(({ self }) => {
+                  setTimeout(() => {
+                    self.send({ type: 'CLEAR_STATUS_MESSAGE' });
+                  }, STATUS_MESSAGE_DURATION);
+                });
+                return;
+              }
+            }
+
             // Don't apply optimistic updates for swap commands during drag
             // The drag machine already handles swaps optimistically
             const isDragging = context.drag !== null;
@@ -772,10 +980,41 @@ export const appMachine = setup({
           })),
         },
         SEND_COMMAND: {
-          actions: sendTo('tmux', ({ event }) => ({
-            type: 'SEND_COMMAND' as const,
-            command: event.command,
-          })),
+          actions: enqueueActions(({ event, context, enqueue }) => {
+            const command = event.command;
+
+            // Intercept command-prompt — enter client-side command mode
+            if (command.match(/^command-prompt\b/)) {
+              const parsed = parseCommandPrompt(command, context);
+              enqueue(assign({
+                commandMode: {
+                  prompt: parsed.prompt,
+                  input: parsed.initialValue,
+                  template: parsed.template,
+                },
+              }));
+              return;
+            }
+
+            // Intercept display-message (without -p) — show in status bar
+            if (command.match(/^display-message\b/)) {
+              const msg = parseDisplayMessage(command);
+              if (msg !== null) {
+                enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
+                enqueue(({ self }) => {
+                  setTimeout(() => {
+                    self.send({ type: 'CLEAR_STATUS_MESSAGE' });
+                  }, STATUS_MESSAGE_DURATION);
+                });
+                return;
+              }
+            }
+
+            enqueue(sendTo('tmux', {
+              type: 'SEND_COMMAND' as const,
+              command,
+            }));
+          }),
         },
         SEND_KEYS: {
           actions: sendTo('tmux', ({ event }) => ({

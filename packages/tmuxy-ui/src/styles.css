@@ -630,6 +630,46 @@ body {
   color: var(--text-dark);
 }
 
+/* Command mode input (prefix+:) */
+.tmux-command-mode {
+  background-color: var(--tmux-status-bg);
+}
+
+.tmux-command-input-wrapper {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: var(--spacing-md) 0;
+}
+
+.tmux-command-prompt {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-terminal);
+  color: var(--text-dark);
+  white-space: pre;
+  flex-shrink: 0;
+}
+
+.tmux-command-input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-terminal);
+  color: var(--text-dark);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  caret-color: var(--text-dark);
+}
+
+/* Status message */
+.tmux-status-message {
+  background-color: var(--tmux-status-bg);
+}
+
 /* ============================================
    Float Panes - Simple centered design
    - Always centered on screen

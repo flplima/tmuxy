@@ -61,6 +61,8 @@ export {
   selectGroupSwitchPaneIds,
   selectSessionName,
   selectKeyBindings,
+  selectCommandMode,
+  selectStatusMessage,
 } from './selectors';
 
 // ============================================

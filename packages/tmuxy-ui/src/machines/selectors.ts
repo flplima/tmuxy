@@ -545,3 +545,15 @@ export function selectEnableAnimations(context: AppMachineContext): boolean {
 export function selectHasOptimisticOperation(context: AppMachineContext): boolean {
   return context.optimisticOperation !== null;
 }
+
+// ============================================
+// Command Mode Selectors
+// ============================================
+
+export function selectCommandMode(context: AppMachineContext) {
+  return context.commandMode;
+}
+
+export function selectStatusMessage(context: AppMachineContext) {
+  return context.statusMessage;
+}
