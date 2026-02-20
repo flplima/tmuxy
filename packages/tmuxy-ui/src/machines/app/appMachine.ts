@@ -659,9 +659,14 @@ export const appMachine = setup({
                 }
               }
 
+              // Preserve activePaneId during transient states (e.g., pane-group-add
+              // sends null activePaneId between break-pane and swap-pane)
+              const effectiveActivePaneId = transformed.activePaneId ?? context.activePaneId;
+
               enqueue(
                 assign(({ context: ctx }) => ({
                   ...transformed,
+                  activePaneId: effectiveActivePaneId,
                   paneGroups,
                   floatPanes,
                   copyModeStates: updatedCopyModeStates,
@@ -670,8 +675,8 @@ export const appMachine = setup({
                   optimisticOperation: null,
                   groupSwitchDimOverride: groupSwitchOverride,
                   // Track pane activation order (MRU) for navigation prediction
-                  paneActivationOrder: transformed.activePaneId !== ctx.activePaneId
-                    ? updateActivationOrder(ctx.paneActivationOrder, transformed.activePaneId)
+                  paneActivationOrder: effectiveActivePaneId !== ctx.activePaneId
+                    ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
                     : ctx.paneActivationOrder,
                 }))
               );
