@@ -4,14 +4,14 @@
 
 /* Menu container */
 .szh-menu {
-  background-color: var(--bg-medium);
-  border: 1px solid var(--border-medium);
-  border-radius: 6px;
-  padding: 4px 0;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  background-color: var(--term-black);
+  border: 1px solid var(--term-white);
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
-  color: var(--text-primary);
+  color: var(--term-white);
   min-width: 200px;
   z-index: 10000;
 }
@@ -21,19 +21,19 @@
   display: flex;
   align-items: center;
   padding: 4px 12px;
-  color: var(--text-primary);
+  color: var(--term-white);
   cursor: pointer;
   border-radius: 0;
 }
 
 .szh-menu__item:hover,
 .szh-menu__item--hover {
-  background-color: var(--bg-elevated-alt);
-  color: var(--text-primary);
+  background-color: var(--term-white);
+  color: var(--term-black);
 }
 
 .szh-menu__item--disabled {
-  color: var(--text-muted);
+  color: var(--term-bright-black);
   opacity: 0.5;
   cursor: default;
 }
@@ -41,6 +41,7 @@
 .szh-menu__item--disabled:hover,
 .szh-menu__item--disabled.szh-menu__item--hover {
   background-color: transparent;
+  color: var(--term-bright-black);
 }
 
 /* Submenu arrow */
@@ -49,23 +50,28 @@
   font-size: 8px;
   margin-left: auto;
   padding-left: 12px;
-  color: var(--text-muted);
+  color: inherit;
 }
 
 /* Divider */
 .szh-menu__divider {
   height: 1px;
-  background-color: var(--border-medium);
-  margin: 4px 0;
+  background-color: var(--term-bright-black);
+  margin: 0;
 }
 
 /* Keybinding label (right-aligned muted text) */
 .menu-keybinding {
   margin-left: auto;
   padding-left: 24px;
-  color: var(--text-muted);
+  color: var(--term-bright-black);
   font-size: 11px;
   white-space: nowrap;
+}
+
+.szh-menu__item:hover .menu-keybinding,
+.szh-menu__item--hover .menu-keybinding {
+  color: var(--term-black);
 }
 
 /* Menu button (hamburger) */
@@ -93,7 +99,7 @@
 .menu-external {
   margin-left: 4px;
   font-size: 10px;
-  color: var(--text-muted);
+  color: inherit;
 }
 
 /* Disable transitions/animations on menu */
