@@ -133,11 +133,14 @@ pub struct PaneState {
 
 impl PaneState {
     pub fn new(id: &str, width: u32, height: u32) -> Self {
+        // Guard: vt100 panics on zero dimensions
+        let w = (width as u16).max(1);
+        let h = (height as u16).max(1);
         Self {
             id: id.to_string(),
             index: 0,
             window_id: String::new(),
-            terminal: vt100::Parser::new(height as u16, width as u16, 0),
+            terminal: vt100::Parser::new(h, w, 0),
             osc_parser: super::osc::OscParser::new(),
             raw_buffer: Vec::new(),
             x: 0,
@@ -191,7 +194,9 @@ impl PaneState {
     /// so we need to reset to top-left before processing.
     pub fn reset_and_process_capture(&mut self, content: &[u8]) {
         // Create fresh terminal to clear all state
-        self.terminal = vt100::Parser::new(self.height as u16, self.width as u16, 0);
+        let w = (self.width as u16).max(1);
+        let h = (self.height as u16).max(1);
+        self.terminal = vt100::Parser::new(h, w, 0);
         self.raw_buffer.clear();
 
         // Strip trailing newline to prevent scroll when content exactly fills terminal.
@@ -228,7 +233,10 @@ impl PaneState {
             // This clears the old content which is necessary because after a resize
             // (e.g., after split-pane), the old content is no longer valid.
             // The monitor should issue capture-pane commands to refresh content.
-            self.terminal = vt100::Parser::new(height as u16, width as u16, 0);
+            // Guard: vt100 panics on zero dimensions (subtract overflow in grid.rs)
+            let w = (width as u16).max(1);
+            let h = (height as u16).max(1);
+            self.terminal = vt100::Parser::new(h, w, 0);
             self.raw_buffer.clear();
             true
         } else {
@@ -245,7 +253,9 @@ impl PaneState {
     /// Uses a temporary terminal to avoid corrupting the main terminal state,
     /// since %output events from background processes continue arriving during copy mode.
     pub fn process_copy_mode_capture(&mut self, content: &[u8]) {
-        let mut temp_terminal = vt100::Parser::new(self.height as u16, self.width as u16, 0);
+        let w = (self.width as u16).max(1);
+        let h = (self.height as u16).max(1);
+        let mut temp_terminal = vt100::Parser::new(h, w, 0);
 
         // Strip trailing newline to prevent scroll when content exactly fills terminal.
         let content = if content.ends_with(b"\n") {
@@ -412,9 +422,11 @@ pub struct PopupState {
 
 impl PopupState {
     pub fn new(id: &str, width: u32, height: u32, x: u32, y: u32, command: Option<String>) -> Self {
+        let w = (width as u16).max(1);
+        let h = (height as u16).max(1);
         Self {
             id: id.to_string(),
-            terminal: vt100::Parser::new(height as u16, width as u16, 0),
+            terminal: vt100::Parser::new(h, w, 0),
             width,
             height,
             x,
