@@ -687,15 +687,10 @@ export const appMachine = setup({
                 })
               );
 
-              // Sync pane positions to drag machine during drag for accurate hit testing
-              if (context.drag) {
-                enqueue(
-                  sendTo('dragLogic', {
-                    type: 'SYNC_PANES' as const,
-                    panes: transformed.panes,
-                  })
-                );
-              }
+              // NOTE: Do NOT sync panes to drag machine during drag.
+              // The drag machine maintains its own optimistic pane positions after
+              // each swap. Server state updates arrive asynchronously and would
+              // overwrite the optimistic positions, causing target detection to break.
 
               // Schedule override clear and forced refresh after group switch detection
               if (groupSwitchOverride && !context.groupSwitchDimOverride) {
