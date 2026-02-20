@@ -13,7 +13,6 @@
 import { setup, assign, sendParent, enqueueActions, fromCallback } from 'xstate';
 import type { DragMachineContext, DragMachineEvent, DragState, KeyPressEvent, TmuxPane } from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
-import { STATUS_BAR_HEIGHT } from '../../constants';
 import { findSwapTarget } from './helpers';
 
 export const dragMachine = setup({
@@ -118,21 +117,25 @@ export const dragMachine = setup({
           actions: enqueueActions(({ context, event, enqueue }) => {
             if (!context.drag) return;
 
-            // Convert viewport coords to pane-layout-relative coords
-            const mouseX = event.clientX;
-            const mouseY = event.clientY - STATUS_BAR_HEIGHT;
-
             // Compute centering offset (panes are centered in the container)
             const totalW = Math.max(...context.panes.map(p => p.x + p.width));
             const totalH = Math.max(...context.panes.map(p => p.y + p.height));
             const centerOffsetX = Math.max(0, (context.containerWidth - totalW * context.charWidth) / 2);
             const centerOffsetY = Math.max(0, (context.containerHeight - totalH * context.charHeight) / 2);
 
+            // Use the CENTER of the dragged pane as the hit-test point.
+            // The pane's visual position = ghost grid position + cursor drag offset.
+            const dragOffsetX = event.clientX - context.drag.startX;
+            const dragOffsetY = event.clientY - context.drag.startY;
+            const ghostHeaderY = Math.max(0, context.drag.ghostY - 1);
+            const paneCenterX = centerOffsetX + context.drag.ghostX * context.charWidth + (context.drag.ghostWidth * context.charWidth) / 2 + dragOffsetX;
+            const paneCenterY = centerOffsetY + ghostHeaderY * context.charHeight + ((context.drag.ghostHeight + 1) * context.charHeight) / 2 + dragOffsetY;
+
             const targetPaneId = findSwapTarget(
               context.panes,
               context.drag.draggedPaneId,
-              mouseX,
-              mouseY,
+              paneCenterX,
+              paneCenterY,
               context.charWidth,
               context.charHeight,
               centerOffsetX,
