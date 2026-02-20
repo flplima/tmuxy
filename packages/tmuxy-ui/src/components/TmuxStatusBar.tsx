@@ -15,16 +15,19 @@ import {
   selectStatusLine,
   selectCommandMode,
   selectStatusMessage,
+  selectGridDimensions,
 } from '../machines/AppContext';
 import { buildAnsiStyle } from '../utils/ansiStyles';
 
 function CommandModeInput({
   prompt,
   input,
+  gridWidth,
   send,
 }: {
   prompt: string;
   input: string;
+  gridWidth: number;
   send: ReturnType<typeof useAppSend>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,7 +52,7 @@ function CommandModeInput({
 
   return (
     <div className="tmux-status-bar tmux-command-mode" data-testid="tmux-command-mode">
-      <div className="tmux-command-input-wrapper">
+      <div className="tmux-command-input-wrapper" style={{ width: gridWidth }}>
         <span className="tmux-command-prompt">{prompt}</span>
         <input
           ref={inputRef}
@@ -69,7 +72,10 @@ export function TmuxStatusBar() {
   const content = useAppSelector(selectStatusLine);
   const commandMode = useAppSelector(selectCommandMode);
   const statusMessage = useAppSelector(selectStatusMessage);
+  const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
   const send = useAppSend();
+
+  const gridPixelWidth = totalWidth * charWidth;
 
   const renderedContent = useMemo(() => {
     if (!content) return null;
@@ -91,6 +97,7 @@ export function TmuxStatusBar() {
       <CommandModeInput
         prompt={commandMode.prompt}
         input={commandMode.input}
+        gridWidth={gridPixelWidth}
         send={send}
       />
     );
