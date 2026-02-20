@@ -16,137 +16,7 @@ const {
 const TmuxTestSession = require('./TmuxTestSession');
 const { TMUXY_URL, DELAYS } = require('./config');
 const { GlitchDetector } = require('./glitch-detector');
-
-/**
- * Compute Levenshtein edit distance between two strings.
- * Uses O(min(m,n)) space optimization.
- */
-function editDistance(a, b) {
-  if (a === b) return 0;
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-
-  // Ensure a is the shorter string for O(min(m,n)) space
-  if (a.length > b.length) { const t = a; a = b; b = t; }
-
-  const m = a.length;
-  const n = b.length;
-  let prev = Array.from({ length: m + 1 }, (_, i) => i);
-  let curr = new Array(m + 1);
-
-  for (let j = 1; j <= n; j++) {
-    curr[0] = j;
-    for (let i = 1; i <= m; i++) {
-      if (a[i - 1] === b[j - 1]) {
-        curr[i] = prev[i - 1];
-      } else {
-        curr[i] = 1 + Math.min(prev[i - 1], prev[i], curr[i - 1]);
-      }
-    }
-    [prev, curr] = [curr, prev];
-  }
-  return prev[m];
-}
-
-/**
- * Compare rows from UI and tmux snapshots.
- * Returns an array of diff descriptions for rows that exceed the threshold.
- */
-function compareSnapshotRows(uiLines, tmuxLines) {
-  // Maximum edit distance per row before considering it a real mismatch.
-  // Small diffs (1-8 chars) are typically terminal emulation edge cases
-  // (alternate screen restore, cursor positioning, escape sequence handling).
-  // Observed: UI drops 5-6 chars from long escape-heavy command lines.
-  const CHAR_DIFF_THRESHOLD = 8;
-
-  const maxLen = Math.max(uiLines.length, tmuxLines.length);
-  const diffs = [];
-
-  for (let i = 0; i < maxLen; i++) {
-    const uiLine = (uiLines[i] || '').replace(/\s+$/, '');
-    const tmuxLine = (tmuxLines[i] || '').replace(/\s+$/, '');
-    if (uiLine === tmuxLine) continue;
-
-    // Skip rows where UI is empty but tmux has content — the terminal
-    // emulator may be a few frames behind tmux's native rendering.
-    if (uiLine === '' && tmuxLine !== '') continue;
-
-    const charDiffs = editDistance(uiLine, tmuxLine);
-    if (charDiffs > CHAR_DIFF_THRESHOLD) {
-      diffs.push(
-        `  Row ${i} (${charDiffs} chars differ):\n` +
-        `    UI:   ${JSON.stringify(uiLine)}\n` +
-        `    tmux: ${JSON.stringify(tmuxLine)}`
-      );
-    }
-  }
-
-  return diffs;
-}
-
-/**
- * Compare UI snapshot against tmux snapshot.
- * Both are arrays of strings (one per row). Trims trailing whitespace per line.
- * Checks immediately, then polls on mismatch. Tolerates small per-row
- * differences (≤ 5 edit distance) caused by terminal emulation edge cases.
- * Throws on mismatch with a line-by-line diff.
- */
-async function assertSnapshotsMatch(page) {
-  // Skip if page navigated away from the session
-  try {
-    const pageUrl = page.url();
-    if (!pageUrl.includes(TMUXY_URL.replace('http://', '')) || pageUrl === 'about:blank') {
-      return;
-    }
-  } catch {
-    return; // Page closed or crashed
-  }
-
-  // Check immediately (0ms), then poll with increasing delays on mismatch.
-  const POLL_INTERVALS = [0, 500, 1000, 1500]; // Total: 3s max
-  let lastDiffs = null;
-
-  for (let attempt = 0; attempt < POLL_INTERVALS.length; attempt++) {
-    if (POLL_INTERVALS[attempt] > 0) {
-      await delay(POLL_INTERVALS[attempt]);
-    }
-
-    const { uiLines, tmuxLines } = await page.evaluate(async () => {
-      const ui = typeof window.getSnapshot === 'function' ? window.getSnapshot() : null;
-      const tmux = typeof window.getTmuxSnapshot === 'function' ? await window.getTmuxSnapshot() : null;
-      return { uiLines: ui, tmuxLines: tmux };
-    });
-
-    if (!uiLines || !tmuxLines) return;
-
-    // Skip if either snapshot returned an error
-    if (uiLines.length > 0 && uiLines[0].startsWith('Error:')) return;
-    if (tmuxLines.length > 0 && tmuxLines[0].startsWith('Error:')) return;
-
-    const diffs = compareSnapshotRows(uiLines, tmuxLines);
-    if (diffs.length === 0) return; // Match — success
-
-    lastDiffs = diffs;
-    // Continue polling — UI may still be catching up
-  }
-
-  // If all diffs are very large (>50 edit distance), the test likely already
-  // failed and left the terminal in a bad state. Log instead of throwing.
-  const allLargeDiffs = lastDiffs.every(d => {
-    const match = d.match(/\((\d+) chars differ\)/);
-    return match && parseInt(match[1], 10) > 50;
-  });
-  if (allLargeDiffs) {
-    console.warn(
-      `Snapshot warning (${lastDiffs.length} row(s) differ, likely stale state):\n${lastDiffs.join('\n')}`
-    );
-    return;
-  }
-
-  throw new Error(
-    `Snapshot mismatch (${lastDiffs.length} row(s) differ beyond threshold):\n${lastDiffs.join('\n')}`
-  );
-}
+const { assertStateMatches } = require('./consistency');
 
 /**
  * Create test context with beforeAll/afterAll/beforeEach/afterEach
@@ -226,10 +96,10 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
     // connection stays attached and the next test's `tmux new-session` crashes tmux 3.5a.
     let assertionError = null;
 
-    // Compare UI snapshot vs tmux snapshot before closing (rendering suites only)
+    // Compare structural state: tmux windows/panes/content vs UI (rendering suites only)
     if (snapshot && ctx.page) {
       try {
-        await assertSnapshotsMatch(ctx.page);
+        await assertStateMatches(ctx.page);
       } catch (e) {
         assertionError = e;
       }
@@ -412,5 +282,5 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
 
 module.exports = {
   createTestContext,
-  assertSnapshotsMatch,
+  assertSnapshotsMatch: assertStateMatches,
 };

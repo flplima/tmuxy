@@ -2,8 +2,8 @@
  * Consistency Verification Helpers
  *
  * Provides tools for verifying UI consistency during operations:
+ * - Structural state comparison (tmux windows/panes vs UI state + DOM content)
  * - Flicker detection (rapid DOM changes that cause visual glitches)
- * - ASCII snapshot comparison (UI vs tmux state)
  * - DOM size verification (element sizes match expected calculations)
  *
  * Built on top of the GlitchDetector for mutation observation.
@@ -13,113 +13,258 @@ const { GlitchDetector, OPERATION_THRESHOLDS } = require('./glitch-detector');
 const { delay } = require('./browser');
 const { DELAYS } = require('./config');
 
-// ==================== ASCII Snapshot Helpers ====================
+// ==================== Structural State Comparison ====================
 
 /**
- * Get UI ASCII snapshot from browser.
- * Uses window.getSnapshot() which renders pane content to ASCII grid.
+ * Get tmux state snapshot from the server via WebSocket.
+ * Queries tmux for windows, panes, and capture-pane content.
  *
  * @param {Page} page - Playwright page
- * @returns {Promise<string[]>} Array of strings (one per row)
+ * @returns {Promise<{windows: Array, panes: Array, content: Object}|null>}
  */
-async function getUIAsciiSnapshot(page) {
-  return page.evaluate(() => {
-    if (typeof window.getSnapshot === 'function') {
-      return window.getSnapshot();
-    }
-    return ['Error: window.getSnapshot not available'];
-  });
-}
-
-/**
- * Get tmux ASCII snapshot from server API.
- * Uses the tmux-capture binary for VT100 rendering.
- *
- * @param {Page} page - Playwright page
- * @returns {Promise<string[]>} Array of strings (one per row)
- */
-async function getTmuxAsciiSnapshot(page) {
+async function getTmuxState(page) {
   return page.evaluate(async () => {
-    if (typeof window.getTmuxSnapshot === 'function') {
-      return window.getTmuxSnapshot();
+    if (!window._adapter) return null;
+
+    const invoke = (cmd) => window._adapter.invoke('run_tmux_command', { command: cmd });
+
+    // Get windows: id, index, name, active, filtering out group/float windows
+    const winRaw = await invoke(
+      'list-windows -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}"'
+    );
+    if (!winRaw) return null;
+    const windows = winRaw.split('\n').filter(Boolean).map(line => {
+      const [id, index, name, active] = line.split('|');
+      return { id, index: parseInt(index, 10), name, active: active === '1' };
+    }).filter(w => !w.name.startsWith('__group_') && !w.name.startsWith('__float_'));
+
+    // Get panes for active window: id, active, cols, rows
+    const paneRaw = await invoke(
+      'list-panes -F "#{pane_id}|#{pane_active}|#{pane_width}|#{pane_height}"'
+    );
+    if (!paneRaw) return null;
+    const panes = paneRaw.split('\n').filter(Boolean).map(line => {
+      const [id, active, width, height] = line.split('|');
+      return {
+        id,
+        active: active === '1',
+        width: parseInt(width, 10),
+        height: parseInt(height, 10),
+      };
+    });
+
+    // Capture content for each pane
+    const content = {};
+    for (const pane of panes) {
+      try {
+        const raw = await invoke(`capture-pane -p -t ${pane.id}`);
+        content[pane.id] = (raw || '').split('\n');
+      } catch {
+        content[pane.id] = [];
+      }
     }
-    return ['Error: window.getTmuxSnapshot not available'];
+
+    return { windows, panes, content };
   });
 }
 
 /**
- * Find character-level differences between two lines.
+ * Get UI state from XState context + DOM pane content.
  *
- * @param {string} a - First line
- * @param {string} b - Second line
- * @returns {Array<{index: number, charA: string, charB: string}>} Differences
+ * @param {Page} page - Playwright page
+ * @returns {Promise<{windows: Array, panes: Array, content: Object}|null>}
  */
-function findCharDiff(a, b) {
-  const diffs = [];
-  const maxLen = Math.max(a.length, b.length);
+async function getUIState(page) {
+  return page.evaluate(() => {
+    const snap = window.app?.getSnapshot();
+    if (!snap?.context) return null;
+    const ctx = snap.context;
 
-  for (let i = 0; i < maxLen; i++) {
-    const charA = i < a.length ? a[i] : '';
-    const charB = i < b.length ? b[i] : '';
-    if (charA !== charB) {
-      diffs.push({ index: i, charA, charB });
+    // Windows (excluding group/float)
+    const windows = (ctx.windows || [])
+      .filter(w => !w.isPaneGroupWindow && !w.isFloatWindow)
+      .map(w => ({ id: w.id, index: w.index, name: w.name, active: w.active }));
+
+    // Panes in active window
+    const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
+    const panes = visiblePanes.map(p => ({
+      id: p.tmuxId,
+      active: p.active,
+      width: p.width,
+      height: p.height,
+    }));
+
+    // Extract text content from DOM per pane
+    const content = {};
+    for (const pane of visiblePanes) {
+      const el = document.querySelector(`[data-pane-id="${pane.tmuxId}"] .terminal-content`);
+      if (!el) { content[pane.tmuxId] = []; continue; }
+      const lines = [];
+      el.querySelectorAll('.terminal-line').forEach(lineEl => {
+        let text = '';
+        const spans = lineEl.querySelectorAll('span');
+        if (spans.length > 0) {
+          spans.forEach(s => { text += s.textContent || ''; });
+        } else {
+          text = lineEl.textContent || '';
+        }
+        lines.push(text);
+      });
+      content[pane.tmuxId] = lines;
     }
-  }
 
-  return diffs;
+    return { windows, panes, content };
+  });
 }
 
 /**
- * Compare two ASCII snapshots.
- * Returns { match, diff } where diff shows mismatched lines.
+ * Compare tmux state against UI state structurally.
  *
- * @param {string[]} uiSnapshot - UI snapshot lines
- * @param {string[]} tmuxSnapshot - Tmux snapshot lines
- * @param {Object} options - Comparison options
- * @param {number} options.charDiffThreshold - Max char diffs per line to tolerate (default: 8)
- * @returns {{match: boolean, diff: Array, summary: Object}}
+ * Checks:
+ * - Window count and names match
+ * - Pane count, IDs, active status, and dimensions match
+ * - Pane content matches line-by-line (trimmed, with tolerance)
+ *
+ * @param {Object} tmux - Result from getTmuxState()
+ * @param {Object} ui - Result from getUIState()
+ * @param {Object} options
+ * @param {number} options.contentDiffThreshold - Max differing chars per line to tolerate (default: 8)
+ * @returns {{match: boolean, errors: string[]}}
  */
-function compareAsciiSnapshots(uiSnapshot, tmuxSnapshot, options = {}) {
-  const { charDiffThreshold = 8 } = options;
-  const maxLen = Math.max(uiSnapshot.length, tmuxSnapshot.length);
-  const diff = [];
-  let totalCharDiffs = 0;
+function compareState(tmux, ui, options = {}) {
+  const { contentDiffThreshold = 8 } = options;
+  const errors = [];
 
-  for (let i = 0; i < maxLen; i++) {
-    // Trim trailing whitespace for comparison (common terminal variation)
-    const uiLine = (uiSnapshot[i] || '').replace(/\s+$/, '');
-    const tmuxLine = (tmuxSnapshot[i] || '').replace(/\s+$/, '');
-
-    if (uiLine === tmuxLine) continue;
-
-    // Skip rows where UI is empty but tmux has content (UI lag)
-    if (uiLine === '' && tmuxLine !== '') continue;
-
-    const charDiff = findCharDiff(uiLine, tmuxLine);
-    const charDiffCount = charDiff.length;
-    totalCharDiffs += charDiffCount;
-
-    // Only report if difference exceeds threshold
-    if (charDiffCount > charDiffThreshold) {
-      diff.push({
-        line: i,
-        ui: uiLine,
-        tmux: tmuxLine,
-        charDiff: charDiff.slice(0, 10), // Limit for readability
-        charDiffCount,
-      });
+  // --- Windows ---
+  if (tmux.windows.length !== ui.windows.length) {
+    errors.push(
+      `Window count: tmux=${tmux.windows.length}, ui=${ui.windows.length}`
+    );
+  } else {
+    for (let i = 0; i < tmux.windows.length; i++) {
+      const tw = tmux.windows[i];
+      const uw = ui.windows[i];
+      if (tw.name !== uw.name) {
+        errors.push(`Window ${i} name: tmux="${tw.name}", ui="${uw.name}"`);
+      }
+      if (tw.active !== uw.active) {
+        errors.push(`Window ${i} active: tmux=${tw.active}, ui=${uw.active}`);
+      }
     }
   }
 
-  return {
-    match: diff.length === 0,
-    diff,
-    summary: {
-      linesCompared: maxLen,
-      linesDifferent: diff.length,
-      totalCharDiffs,
-    },
-  };
+  // --- Panes ---
+  const tmuxPaneIds = tmux.panes.map(p => p.id).sort();
+  const uiPaneIds = ui.panes.map(p => p.id).sort();
+
+  if (tmuxPaneIds.join(',') !== uiPaneIds.join(',')) {
+    errors.push(
+      `Pane IDs differ: tmux=[${tmuxPaneIds}], ui=[${uiPaneIds}]`
+    );
+  } else {
+    // Pane IDs match — compare properties per pane
+    for (const tmuxPane of tmux.panes) {
+      const uiPane = ui.panes.find(p => p.id === tmuxPane.id);
+      if (!uiPane) continue; // shouldn't happen since IDs match
+
+      if (tmuxPane.active !== uiPane.active) {
+        errors.push(`Pane ${tmuxPane.id} active: tmux=${tmuxPane.active}, ui=${uiPane.active}`);
+      }
+      if (tmuxPane.width !== uiPane.width) {
+        errors.push(`Pane ${tmuxPane.id} width: tmux=${tmuxPane.width}, ui=${uiPane.width}`);
+      }
+      if (tmuxPane.height !== uiPane.height) {
+        errors.push(`Pane ${tmuxPane.id} height: tmux=${tmuxPane.height}, ui=${uiPane.height}`);
+      }
+    }
+  }
+
+  // --- Pane content ---
+  for (const tmuxPane of tmux.panes) {
+    const tmuxLines = tmux.content[tmuxPane.id] || [];
+    const uiLines = ui.content[tmuxPane.id] || [];
+    const maxLines = Math.max(tmuxLines.length, uiLines.length);
+
+    let diffLineCount = 0;
+    for (let i = 0; i < maxLines; i++) {
+      const tLine = (tmuxLines[i] || '').replace(/\s+$/, '');
+      const uLine = (uiLines[i] || '').replace(/\s+$/, '');
+      if (tLine === uLine) continue;
+      // Skip if UI is empty but tmux has content (UI lag)
+      if (uLine === '' && tLine !== '') continue;
+
+      // Count character-level differences
+      let charDiffs = 0;
+      const len = Math.max(tLine.length, uLine.length);
+      for (let j = 0; j < len; j++) {
+        if ((tLine[j] || ' ') !== (uLine[j] || ' ')) charDiffs++;
+      }
+
+      if (charDiffs > contentDiffThreshold) {
+        diffLineCount++;
+        if (diffLineCount <= 3) {
+          errors.push(
+            `Pane ${tmuxPane.id} line ${i} (${charDiffs} chars differ):\n` +
+            `    tmux: ${JSON.stringify(tLine.slice(0, 80))}\n` +
+            `    ui:   ${JSON.stringify(uLine.slice(0, 80))}`
+          );
+        }
+      }
+    }
+    if (diffLineCount > 3) {
+      errors.push(`Pane ${tmuxPane.id}: ${diffLineCount - 3} more differing lines`);
+    }
+  }
+
+  return { match: errors.length === 0, errors };
+}
+
+/**
+ * Assert that tmux state matches UI state.
+ * Polls with retries to allow for propagation delay.
+ *
+ * @param {Page} page - Playwright page
+ * @param {Object} options
+ * @param {number} options.retries - Number of retry attempts (default: 4)
+ * @param {number} options.retryDelay - Delay between retries in ms (default: 500)
+ * @throws {Error} If state doesn't match after all retries
+ */
+async function assertStateMatches(page, options = {}) {
+  const { retries = 4, retryDelay = 500 } = options;
+
+  // Skip if page navigated away
+  try {
+    const url = page.url();
+    if (url === 'about:blank') return;
+  } catch { return; }
+
+  let lastErrors = null;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    if (attempt > 0) await delay(retryDelay);
+
+    try {
+      const [tmux, ui] = await Promise.all([
+        getTmuxState(page),
+        getUIState(page),
+      ]);
+
+      if (!tmux || !ui) return; // can't compare, skip silently
+
+      const result = compareState(tmux, ui);
+      if (result.match) return; // success
+
+      lastErrors = result.errors;
+    } catch (e) {
+      // Page may be closing — skip
+      return;
+    }
+  }
+
+  throw new Error(
+    `State mismatch (${lastErrors.length} difference(s) after ${retries} attempts):\n` +
+    lastErrors.map(e => `  - ${e}`).join('\n')
+  );
 }
 
 // ==================== DOM Size Verification ====================
@@ -327,18 +472,22 @@ async function withConsistencyChecks(ctx, operation, options = {}) {
   // Wait for UI to settle before comparing snapshots
   await delay(DELAYS.MEDIUM);
 
-  // Compare ASCII snapshots
+  // Compare structural state (tmux vs UI)
   if (!skipSnapshot && ctx.page) {
     try {
-      const uiSnapshot = await getUIAsciiSnapshot(ctx.page);
-      const tmuxSnapshot = await getTmuxAsciiSnapshot(ctx.page);
-
-      // Skip if either returned an error
-      if (!uiSnapshot[0]?.startsWith('Error:') && !tmuxSnapshot[0]?.startsWith('Error:')) {
-        snapshotResult = compareAsciiSnapshots(uiSnapshot, tmuxSnapshot);
+      const [tmux, ui] = await Promise.all([
+        getTmuxState(ctx.page),
+        getUIState(ctx.page),
+      ]);
+      if (tmux && ui) {
+        const result = compareState(tmux, ui);
+        snapshotResult = {
+          match: result.match,
+          diff: result.errors.map((e, i) => ({ line: i, description: e })),
+        };
       }
     } catch (e) {
-      console.warn('Failed to compare snapshots:', e.message);
+      console.warn('Failed to compare state:', e.message);
     }
   }
 
@@ -416,12 +565,12 @@ function assertConsistencyPasses(result, options = {}) {
     }
   }
 
-  // Check snapshot match
+  // Check state match
   if (!allowSnapshotDiff && !result.snapshot.match) {
     failures.push(
-      `Snapshot mismatch (${result.snapshot.diff.length} rows differ):\n` +
-      result.snapshot.diff.slice(0, 3).map(d =>
-        `  Row ${d.line}:\n    UI:   "${d.ui.slice(0, 60)}..."\n    tmux: "${d.tmux.slice(0, 60)}..."`
+      `State mismatch (${result.snapshot.diff.length} difference(s)):\n` +
+      result.snapshot.diff.slice(0, 5).map(d =>
+        `  - ${d.description || `Row ${d.line}`}`
       ).join('\n')
     );
   }
@@ -443,11 +592,11 @@ function assertConsistencyPasses(result, options = {}) {
 }
 
 module.exports = {
-  // Snapshot helpers
-  getUIAsciiSnapshot,
-  getTmuxAsciiSnapshot,
-  findCharDiff,
-  compareAsciiSnapshots,
+  // Structural state comparison
+  getTmuxState,
+  getUIState,
+  compareState,
+  assertStateMatches,
 
   // DOM size verification
   verifyDomSizes,
