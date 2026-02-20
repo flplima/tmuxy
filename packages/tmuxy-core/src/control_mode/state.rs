@@ -6,6 +6,22 @@ use super::parser::ControlModeEvent;
 use crate::{extract_cells_from_screen, extract_cells_with_urls, is_float_window_name, parse_pane_group_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow};
 use std::collections::HashMap;
 
+/// Safe wrapper around vt100::Parser::process that catches panics from
+/// internal vt100 bugs (e.g., subtract overflow in grid.rs col_wrap).
+fn safe_process(terminal: &mut vt100::Parser, data: &[u8]) {
+    let terminal_ptr = terminal as *mut vt100::Parser;
+    // SAFETY: We have exclusive access to the parser (&mut self in callers).
+    // catch_unwind requires FnOnce: UnwindSafe, which &mut vt100::Parser isn't.
+    // We use AssertUnwindSafe because after a panic the parser state may be
+    // inconsistent, but the caller will recreate it on next capture-pane refresh.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        unsafe { &mut *terminal_ptr }.process(data);
+    }));
+    if result.is_err() {
+        eprintln!("[vt100] caught panic during process(), terminal state may be stale");
+    }
+}
+
 /// Type of change that occurred
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChangeType {
@@ -186,7 +202,7 @@ impl PaneState {
         let processed = self.osc_parser.process(content);
 
         // Process through terminal emulator
-        self.terminal.process(&processed);
+        safe_process(&mut self.terminal, &processed);
     }
 
     /// Reset terminal and process capture-pane output.
@@ -219,7 +235,7 @@ impl PaneState {
         }).collect();
 
         // Process the normalized content
-        self.terminal.process(&normalized);
+        safe_process(&mut self.terminal, &normalized);
         self.raw_buffer.extend(content);
     }
 
@@ -274,7 +290,7 @@ impl PaneState {
             }
         }).collect();
 
-        temp_terminal.process(&normalized);
+        safe_process(&mut temp_terminal, &normalized);
         self.copy_mode_content = Some(extract_cells_from_screen(temp_terminal.screen()));
     }
 
@@ -438,7 +454,7 @@ impl PopupState {
 
     /// Process output for the popup
     pub fn process_output(&mut self, content: &[u8]) {
-        self.terminal.process(content);
+        safe_process(&mut self.terminal, content);
     }
 
     /// Get popup content as structured cells
@@ -795,7 +811,7 @@ impl StateAggregator {
                                         pane.tmux_cursor_y + 1,
                                         pane.tmux_cursor_x + 1
                                     );
-                                    pane.terminal.process(cursor_seq.as_bytes());
+                                    safe_process(&mut pane.terminal, cursor_seq.as_bytes());
                                 }
                             }
                             return ProcessEventResult {
