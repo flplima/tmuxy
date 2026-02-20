@@ -123,13 +123,11 @@ export const dragMachine = setup({
             const centerOffsetX = Math.max(0, (context.containerWidth - totalW * context.charWidth) / 2);
             const centerOffsetY = Math.max(0, (context.containerHeight - totalH * context.charHeight) / 2);
 
-            // Use the CENTER of the dragged pane as the hit-test point.
-            // The pane's visual position = ghost grid position + cursor drag offset.
-            const dragOffsetX = event.clientX - context.drag.startX;
-            const dragOffsetY = event.clientY - context.drag.startY;
-            const ghostHeaderY = Math.max(0, context.drag.ghostY - 1);
-            const paneCenterX = centerOffsetX + context.drag.ghostX * context.charWidth + (context.drag.ghostWidth * context.charWidth) / 2 + dragOffsetX;
-            const paneCenterY = centerOffsetY + ghostHeaderY * context.charHeight + ((context.drag.ghostHeight + 1) * context.charHeight) / 2 + dragOffsetY;
+            // Use the cursor position directly for hit-testing.
+            // The ghost center can diverge from the cursor after swaps (since the
+            // ghost snaps to each target's position), making some panes unreachable.
+            const paneCenterX = event.clientX;
+            const paneCenterY = event.clientY;
 
             const targetPaneId = findSwapTarget(
               context.panes,
