@@ -215,8 +215,8 @@ export function createKeyboardActor() {
       if (inPrefixMode) {
         resetPrefixMode();
 
-        // Determine the binding key
-        let bindingKey = event.key;
+        // Determine the binding key — map DOM key values to tmux key names
+        let bindingKey = KEY_MAP[event.key] ?? event.key;
 
         // Handle shifted characters - browsers may send the base key with shiftKey=true
         // instead of the shifted character (especially with Playwright/automation)
