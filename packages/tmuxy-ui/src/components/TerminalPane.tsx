@@ -63,11 +63,11 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const flashScrollIndicator = useCallback(() => {
     const el = scrollIndicatorRef.current;
     if (!el) return;
-    el.style.opacity = '0.5';
+    el.style.opacity = '0.6';
     if (scrollIndicatorTimer.current) clearTimeout(scrollIndicatorTimer.current);
     scrollIndicatorTimer.current = window.setTimeout(() => {
       if (scrollIndicatorRef.current) scrollIndicatorRef.current.style.opacity = '0';
-    }, 800);
+    }, 1200);
   }, []);
 
   // onScroll: detect scroll away from bottom -> enter copy mode
@@ -236,13 +236,15 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
             ref={scrollIndicatorRef}
             style={{
               position: 'absolute',
-              right: 0,
-              top: `calc(3px + (100% - 6px) * ${thumbTopPct / 100})`,
-              width: 3,
-              height: `calc((100% - 6px) * ${thumbPct / 100})`,
-              backgroundColor: 'var(--term-bright-black)',
+              right: 3,
+              top: `calc(4px + (100% - 8px) * ${thumbTopPct / 100})`,
+              width: 7,
+              minHeight: 30,
+              height: `calc((100% - 8px) * ${thumbPct / 100})`,
+              backgroundColor: 'rgba(255, 255, 255, 0.4)',
+              borderRadius: 100,
               opacity: 0,
-              transition: 'opacity 150ms ease-out',
+              transition: 'opacity 300ms ease-out',
               pointerEvents: 'none',
               zIndex: 5,
             }}
