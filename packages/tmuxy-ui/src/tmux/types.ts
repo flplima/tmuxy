@@ -193,6 +193,7 @@ export interface ServerState {
 // ============================================
 
 export interface PaneDelta {
+  window_id?: string;
   content?: PaneContent;
   cursor_x?: number;
   cursor_y?: number;

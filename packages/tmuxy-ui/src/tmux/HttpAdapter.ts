@@ -480,6 +480,7 @@ export class HttpAdapter implements TmuxAdapter {
   private applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
     return {
       ...pane,
+      ...(delta.window_id !== undefined && { window_id: delta.window_id }),
       ...(delta.content !== undefined && { content: delta.content }),
       ...(delta.cursor_x !== undefined && { cursor_x: delta.cursor_x }),
       ...(delta.cursor_y !== undefined && { cursor_y: delta.cursor_y }),
