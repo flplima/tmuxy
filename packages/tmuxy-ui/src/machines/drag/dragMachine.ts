@@ -11,9 +11,9 @@
  */
 
 import { setup, assign, sendParent, enqueueActions, fromCallback } from 'xstate';
-import type { DragMachineContext, DragMachineEvent, DragState, KeyPressEvent } from '../types';
+import type { DragMachineContext, DragMachineEvent, DragState, KeyPressEvent, TmuxPane } from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
-import { STATUS_BAR_HEIGHT, PANE_HEADER_HEIGHT } from '../../constants';
+import { STATUS_BAR_HEIGHT } from '../../constants';
 import { findSwapTarget } from './helpers';
 
 export const dragMachine = setup({
@@ -66,7 +66,7 @@ export const dragMachine = setup({
               const drag: DragState = {
                 draggedPaneId: event.paneId,
                 targetPaneId: null,
-                targetNewWindow: false,
+
                 startX: event.startX,
                 startY: event.startY,
                 currentX: event.startX,
@@ -75,10 +75,10 @@ export const dragMachine = setup({
                 originalY: pane?.y ?? 0,
                 originalWidth: pane?.width ?? 0,
                 originalHeight: pane?.height ?? 0,
-                targetOriginalX: null,
-                targetOriginalY: null,
-                targetOriginalWidth: null,
-                targetOriginalHeight: null,
+                ghostX: pane?.x ?? 0,
+                ghostY: pane?.y ?? 0,
+                ghostWidth: pane?.width ?? 0,
+                ghostHeight: pane?.height ?? 0,
               };
               return {
                 drag,
@@ -109,82 +109,60 @@ export const dragMachine = setup({
             'notifyStateUpdate',
           ],
         },
+        SYNC_PANES: {
+          actions: assign(({ event }) => ({
+            panes: (event as { type: 'SYNC_PANES'; panes: TmuxPane[] }).panes,
+          })),
+        },
         DRAG_MOVE: {
           actions: enqueueActions(({ context, event, enqueue }) => {
             if (!context.drag) return;
 
-            const isOverStatusBar = event.clientY < STATUS_BAR_HEIGHT;
+            // Convert viewport coords to pane-layout-relative coords
+            const mouseX = event.clientX;
+            const mouseY = event.clientY - STATUS_BAR_HEIGHT;
 
-            let targetPaneId: string | null = null;
+            // Compute centering offset (panes are centered in the container)
+            const totalW = Math.max(...context.panes.map(p => p.x + p.width));
+            const totalH = Math.max(...context.panes.map(p => p.y + p.height));
+            const centerOffsetX = Math.max(0, (context.containerWidth - totalW * context.charWidth) / 2);
+            const centerOffsetY = Math.max(0, (context.containerHeight - totalH * context.charHeight) / 2);
 
-            if (!isOverStatusBar) {
-              // Use dragged pane center for hit-testing (not cursor position).
-              // The pane stays visually at its original CSS position during drag,
-              // moved only by CSS transform. So the center is based on originalX/Y.
-              const dragDeltaX = event.clientX - context.drag.startX;
-              const dragDeltaY = event.clientY - context.drag.startY;
-              const { originalX, originalY, originalWidth, originalHeight } = context.drag;
+            const targetPaneId = findSwapTarget(
+              context.panes,
+              context.drag.draggedPaneId,
+              mouseX,
+              mouseY,
+              context.charWidth,
+              context.charHeight,
+              centerOffsetX,
+              centerOffsetY
+            );
 
-              const paneCenterX = (originalX + originalWidth / 2) * context.charWidth + dragDeltaX;
-              const paneCenterY = (originalY + originalHeight / 2) * context.charHeight + PANE_HEADER_HEIGHT / 2 + dragDeltaY;
-
-              targetPaneId = findSwapTarget(
-                context.panes,
-                context.drag.draggedPaneId,
-                paneCenterX,
-                paneCenterY,
-                context.charWidth,
-                context.charHeight,
-                0,
-                0
-              );
-            }
-
-            const { targetPaneId: prevTargetId, draggedPaneId } = context.drag;
+            const { targetPaneId: prevTargetId } = context.drag;
             const targetChanged = targetPaneId !== prevTargetId;
 
-            // Record target's pre-swap position for drop indicator and optimistic animation
-            let targetOriginalX = context.drag.targetOriginalX;
-            let targetOriginalY = context.drag.targetOriginalY;
-            let targetOriginalWidth = context.drag.targetOriginalWidth;
-            let targetOriginalHeight = context.drag.targetOriginalHeight;
+            let ghostX = context.drag.ghostX;
+            let ghostY = context.drag.ghostY;
+            let ghostWidth = context.drag.ghostWidth;
+            let ghostHeight = context.drag.ghostHeight;
+            let newPanes = context.panes;
 
-            if (targetChanged) {
-              if (targetPaneId !== null) {
-                const targetPane = context.panes.find(p => p.tmuxId === targetPaneId);
-                if (targetPane) {
-                  targetOriginalX = targetPane.x;
-                  targetOriginalY = targetPane.y;
-                  targetOriginalWidth = targetPane.width;
-                  targetOriginalHeight = targetPane.height;
-                }
-              } else {
-                targetOriginalX = null;
-                targetOriginalY = null;
-                targetOriginalWidth = null;
-                targetOriginalHeight = null;
-              }
-            }
-
-            // Send swap command when target changes
-            // -d prevents tmux from changing the active pane during the swap
+            // Swap on hover: when target changes, swap immediately
             if (targetChanged && targetPaneId !== null) {
-              enqueue(
-                sendParent({
-                  type: 'SEND_TMUX_COMMAND' as const,
-                  command: `swap-pane -d -s ${draggedPaneId} -t ${targetPaneId}`,
-                })
-              );
-            }
-
-            // Update local pane positions after swap for correct future hit-testing
-            let updatedPanes = context.panes;
-            if (targetChanged && targetPaneId !== null) {
-              const draggedPane = context.panes.find(p => p.tmuxId === draggedPaneId);
               const targetPane = context.panes.find(p => p.tmuxId === targetPaneId);
-              if (draggedPane && targetPane) {
-                updatedPanes = context.panes.map(p => {
-                  if (p.tmuxId === draggedPaneId) {
+              const draggedPane = context.panes.find(p => p.tmuxId === context.drag!.draggedPaneId);
+
+              if (targetPane && draggedPane) {
+                // Ghost moves to target's current position
+                ghostX = targetPane.x;
+                ghostY = targetPane.y;
+                ghostWidth = targetPane.width;
+                ghostHeight = targetPane.height;
+
+                // Optimistic swap: update local pane positions for accurate hit testing
+                newPanes = context.panes.map(p => {
+                  if (p.tmuxId === context.drag!.draggedPaneId) {
                     return { ...p, x: targetPane.x, y: targetPane.y, width: targetPane.width, height: targetPane.height };
                   }
                   if (p.tmuxId === targetPaneId) {
@@ -192,23 +170,27 @@ export const dragMachine = setup({
                   }
                   return p;
                 });
+
+                // Send swap command to tmux
+                enqueue(sendParent({
+                  type: 'SEND_TMUX_COMMAND' as const,
+                  command: `swap-pane -d -s ${context.drag!.draggedPaneId} -t ${targetPaneId}`,
+                }));
               }
             }
 
-            // Update drag state
             enqueue(
               assign({
-                panes: updatedPanes,
+                panes: newPanes,
                 drag: {
                   ...context.drag,
                   targetPaneId,
-                  targetNewWindow: isOverStatusBar,
                   currentX: event.clientX,
                   currentY: event.clientY,
-                  targetOriginalX,
-                  targetOriginalY,
-                  targetOriginalWidth,
-                  targetOriginalHeight,
+                  ghostX,
+                  ghostY,
+                  ghostWidth,
+                  ghostHeight,
                 },
               })
             );
@@ -218,20 +200,12 @@ export const dragMachine = setup({
         },
         DRAG_END: {
           target: 'idle',
-          actions: enqueueActions(({ context, enqueue }) => {
-            if (context.drag?.targetNewWindow) {
-              enqueue(
-                sendParent({
-                  type: 'SEND_TMUX_COMMAND' as const,
-                  command: `break-pane -s ${context.drag.draggedPaneId}`,
-                })
-              );
-            }
-
-            enqueue(assign({ drag: null }));
-            enqueue('notifyStateUpdate');
-            enqueue('notifyCompleted');
-          }),
+          actions: [
+            // Swaps already happened on hover — just clear state
+            assign({ drag: null }),
+            'notifyStateUpdate',
+            'notifyCompleted',
+          ],
         },
         DRAG_CANCEL: {
           target: 'idle',

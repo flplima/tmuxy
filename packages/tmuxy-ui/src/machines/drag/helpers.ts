@@ -3,12 +3,12 @@
  */
 
 import type { TmuxPane } from '../types';
-import { PANE_HEADER_HEIGHT, PANE_INSET_Y, paneInsetX } from '../../constants';
+import { PANE_INSET_Y, paneInsetX } from '../../constants';
 
 /**
- * Find swap target pane using mouse position (in pixels relative to container)
- * Accounts for PANE_HEADER_HEIGHT, insets added to each pane's rendered bounds
- * and centerOffset used to center content in the container
+ * Find swap target pane using mouse position (in pixels relative to pane container)
+ * Bounds match PaneLayout.tsx getPaneStyle: top includes header row (y-1),
+ * height is (height+1) charHeights (content + header).
  */
 export function findSwapTarget(
   panes: TmuxPane[],
@@ -25,11 +25,12 @@ export function findSwapTarget(
   for (const pane of panes) {
     if (pane.tmuxId === draggedId) continue;
 
-    // Calculate pixel bounds for this pane (matching PaneLayout.tsx getPaneStyle)
+    // Calculate pixel bounds matching PaneLayout.tsx getPaneStyle
+    const headerY = Math.max(0, pane.y - 1);
     const left = centerOffsetX + pane.x * charWidth - insetX;
-    const top = centerOffsetY + pane.y * charHeight - PANE_INSET_Y;
+    const top = centerOffsetY + headerY * charHeight - PANE_INSET_Y;
     const right = left + pane.width * charWidth + 2 * insetX;
-    const bottom = top + pane.height * charHeight + PANE_HEADER_HEIGHT + 2 * PANE_INSET_Y;
+    const bottom = top + (pane.height + 1) * charHeight + 2 * PANE_INSET_Y;
 
     if (mouseX >= left && mouseX < right && mouseY >= top && mouseY < bottom) {
       return pane.tmuxId;

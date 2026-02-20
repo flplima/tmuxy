@@ -5,7 +5,6 @@ export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
   | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
-  | { type: 'FETCH_PANE_GROUPS' }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: string; start: number; end: number };
 
 export interface TmuxActorInput {
@@ -74,16 +73,6 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           })
           .catch((error) => {
             parent.send({ type: 'TMUX_ERROR', error: error.message || 'Failed to fetch state' });
-          });
-      } else if (event.type === 'FETCH_PANE_GROUPS') {
-        adapter
-          .invoke<string | null>('get_pane_groups', {})
-          .then((groupsJson) => {
-            parent.send({ type: 'PANE_GROUPS_LOADED', groupsJson });
-          })
-          .catch(() => {
-            // Silently ignore errors - just use empty groups
-            parent.send({ type: 'PANE_GROUPS_LOADED', groupsJson: null });
           });
       } else if (event.type === 'FETCH_SCROLLBACK_CELLS') {
         adapter

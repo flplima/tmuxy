@@ -9,20 +9,18 @@ set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
 
 TARGET_PANE="$1"
-ACTIVE_WIN=$(active_window)
-GRP_JSON=$(read_groups)
 
 # Find the group containing the target pane
-GROUP_ID=$(echo "$GRP_JSON" | jq -r --arg pid "$TARGET_PANE" '
-  .groups | to_entries[] | select(.value.paneIds | index($pid)) | .key
-' 2>/dev/null | head -1)
+GROUP_NAME=$(find_group_for_pane "$TARGET_PANE")
 
-if [ -z "$GROUP_ID" ]; then
+if [ -z "$GROUP_NAME" ]; then
   exit 0
 fi
 
-# Find the visible pane in the active window
-VISIBLE_PANE=$(find_visible_pane "$GRP_JSON" "$GROUP_ID" "$ACTIVE_WIN")
+# Parse pane list and find visible pane
+PANE_IDS=$(parse_group_panes "$GROUP_NAME")
+# shellcheck disable=SC2086
+VISIBLE_PANE=$(find_visible_pane_from_list $PANE_IDS)
 
 if [ -z "$VISIBLE_PANE" ] || [ "$VISIBLE_PANE" = "$TARGET_PANE" ]; then
   exit 0

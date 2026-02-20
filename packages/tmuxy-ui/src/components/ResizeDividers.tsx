@@ -95,13 +95,16 @@ function collectDividerSegments(panes: TmuxPane[]) {
   return { horizontal, vertical };
 }
 
+/** Thickness of resize grab handles in pixels */
+const DIVIDER_THICKNESS = 8;
+
 export function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }: ResizeDividersProps) {
   const send = useAppSend();
   const { horizontal, vertical } = collectDividerSegments(panes);
   const dividerElements: React.ReactElement[] = [];
 
   // Horizontal dividers (between vertically stacked panes)
-  // Positioned at the header row (pane.y - 1) since headers use divider rows
+  // Thin strip centered at the border between panes
   horizontal.forEach((segments, yPos) => {
     const merged = mergeSegments(segments);
     merged.forEach((seg, idx) => {
@@ -111,9 +114,9 @@ export function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }
           className="resize-divider resize-divider-h"
           style={{
             left: centeringOffset.x + seg.start * charWidth,
-            top: centeringOffset.y + yPos * charHeight,
+            top: centeringOffset.y + yPos * charHeight - DIVIDER_THICKNESS / 2,
             width: (seg.end - seg.start) * charWidth,
-            height: charHeight,
+            height: DIVIDER_THICKNESS,
           }}
           onMouseDown={(e) => {
             e.preventDefault();
@@ -132,6 +135,7 @@ export function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }
   });
 
   // Vertical dividers (between horizontally adjacent panes)
+  // Thin strip centered at the border column
   vertical.forEach((segments, xPos) => {
     const merged = mergeSegments(segments);
     merged.forEach((seg, idx) => {
@@ -141,9 +145,9 @@ export function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }
           key={`v-${xPos}-${idx}`}
           className="resize-divider resize-divider-v"
           style={{
-            left: centeringOffset.x + xPos * charWidth,
+            left: centeringOffset.x + xPos * charWidth + charWidth / 2 - DIVIDER_THICKNESS / 2,
             top: centeringOffset.y + headerY * charHeight,
-            width: charWidth,
+            width: DIVIDER_THICKNESS,
             height: (seg.end - headerY) * charHeight,
           }}
           onMouseDown={(e) => {

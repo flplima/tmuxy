@@ -376,8 +376,9 @@ impl WindowState {
             name: self.name.clone(),
             active: self.active,
             is_pane_group_window: pane_group_info.is_some(),
-            pane_group_id: pane_group_info.as_ref().map(|g| g.group_id.clone()),
-            pane_group_index: pane_group_info.as_ref().map(|g| g.pane_group_index),
+            pane_group_id: pane_group_info.as_ref().and_then(|g| g.group_id.clone()),
+            pane_group_index: pane_group_info.as_ref().and_then(|g| g.pane_group_index),
+            pane_group_pane_ids: pane_group_info.as_ref().and_then(|g| g.pane_ids.clone()),
             is_float_window: is_float_window_name(&self.name),
             float_parent: self.float_parent.clone(),
             float_width: self.float_width,
@@ -1536,6 +1537,9 @@ impl StateAggregator {
         }
         if prev.pane_group_index != curr.pane_group_index {
             delta.pane_group_index = Some(curr.pane_group_index);
+        }
+        if prev.pane_group_pane_ids != curr.pane_group_pane_ids {
+            delta.pane_group_pane_ids = Some(curr.pane_group_pane_ids.clone());
         }
         if prev.is_float_window != curr.is_float_window {
             delta.is_float_window = Some(curr.is_float_window);

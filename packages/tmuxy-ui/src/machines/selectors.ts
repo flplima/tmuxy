@@ -174,9 +174,8 @@ export function selectPanes(context: AppMachineContext): TmuxPane[] {
 }
 
 /**
- * Select the drop target position for drag preview indicator.
- * Uses the ORIGINAL position when the target was first detected,
- * so the indicator stays stable during real-time swaps.
+ * Select the ghost position showing where the dragged pane currently lives in the grid.
+ * Starts at the dragged pane's original position, moves to target position on each swap.
  */
 export function selectDropTarget(context: AppMachineContext): {
   x: number;
@@ -184,34 +183,13 @@ export function selectDropTarget(context: AppMachineContext): {
   width: number;
   height: number;
 } | null {
-  if (!context.drag?.targetPaneId) return null;
-
-  // Use stored original position for stable drop indicator
-  const { targetOriginalX, targetOriginalY, targetOriginalWidth, targetOriginalHeight } = context.drag;
-
-  if (
-    targetOriginalX !== null &&
-    targetOriginalY !== null &&
-    targetOriginalWidth !== null &&
-    targetOriginalHeight !== null
-  ) {
-    return {
-      x: targetOriginalX,
-      y: targetOriginalY,
-      width: targetOriginalWidth,
-      height: targetOriginalHeight,
-    };
-  }
-
-  // Fallback to current position (shouldn't happen normally)
-  const target = context.panes.find((p) => p.tmuxId === context.drag!.targetPaneId);
-  if (!target) return null;
+  if (!context.drag) return null;
 
   return {
-    x: target.x,
-    y: target.y,
-    width: target.width,
-    height: target.height,
+    x: context.drag.ghostX,
+    y: context.drag.ghostY,
+    width: context.drag.ghostWidth,
+    height: context.drag.ghostHeight,
   };
 }
 
@@ -222,11 +200,6 @@ export function selectDropTarget(context: AppMachineContext): {
 export function selectDraggedPaneId(context: AppMachineContext): string | null {
   return context.drag?.draggedPaneId ?? null;
 }
-
-export function selectDragTargetNewWindow(context: AppMachineContext): boolean {
-  return context.drag?.targetNewWindow === true;
-}
-
 
 export function selectDragOffsetX(context: AppMachineContext): number {
   if (!context.drag) return 0;

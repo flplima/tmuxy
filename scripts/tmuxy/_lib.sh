@@ -1,29 +1,97 @@
 #!/bin/bash
 # Shared helpers for tmuxy shell scripts
-# Provides functions for reading/saving pane group state from tmux environment
+# Window name format: __group_{paneNum1}-{paneNum2}-{paneNum3}
+# Groups are derived entirely from window names — no env var needed.
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Read TMUXY_GROUPS from session environment
-# Returns JSON string or default empty structure
-read_groups() {
-  local raw
-  raw=$(tmux show-environment TMUXY_GROUPS 2>/dev/null)
-  if [ $? -ne 0 ] || [ -z "$raw" ] || [ "${raw:0:1}" = "-" ]; then
-    echo '{"version":1,"groups":{}}'
-  else
-    echo "${raw#*=}"
-  fi
+# Build a group window name from a list of pane IDs
+# Args: paneId1 paneId2 ...
+# Output: __group_4-6-7 (strips % prefix, joins with -)
+build_group_name() {
+  local parts=""
+  for pid in "$@"; do
+    local num="${pid#%}"
+    if [ -n "$parts" ]; then
+      parts="${parts}-${num}"
+    else
+      parts="$num"
+    fi
+  done
+  echo "__group_${parts}"
 }
 
-# Save TMUXY_GROUPS to session environment
-save_groups() {
-  tmux set-environment TMUXY_GROUPS "$1"
+# Find the group window name containing a pane
+# Args: $1=paneId (e.g., %4)
+# Output: window name (e.g., __group_4-6-7) or empty string
+find_group_for_pane() {
+  local pane_id="$1"
+  local pane_num="${pane_id#%}"
+
+  tmux list-windows -F '#{window_name}' | while read -r wname; do
+    if [[ "$wname" != __group_* ]]; then
+      continue
+    fi
+    local rest="${wname#__group_}"
+    # Check if pane_num appears in the dash-separated list
+    local IFS='-'
+    for num in $rest; do
+      if [ "$num" = "$pane_num" ]; then
+        echo "$wname"
+        return
+      fi
+    done
+  done
 }
 
-# Generate a random group ID (g_ + 8 hex chars)
-gen_group_id() {
-  printf "g_%s" "$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+# Parse pane IDs from a group window name
+# Args: $1=window_name (e.g., __group_4-6-7)
+# Output: space-separated pane IDs (e.g., %4 %6 %7)
+parse_group_panes() {
+  local wname="$1"
+  local rest="${wname#__group_}"
+  local IFS='-'
+  local result=""
+  for num in $rest; do
+    if [ -n "$result" ]; then
+      result="$result %${num}"
+    else
+      result="%${num}"
+    fi
+  done
+  echo "$result"
+}
+
+# Find which pane from a list is in the active window
+# Args: paneId1 paneId2 ...
+# Output: the pane ID in the active window, or empty string
+find_visible_pane_from_list() {
+  local active_win
+  active_win=$(tmux display-message -p '#{window_id}')
+  local pane_list
+  pane_list=$(tmux list-panes -s -F '#{pane_id},#{window_id}')
+
+  for pid in "$@"; do
+    local win_id
+    win_id=$(echo "$pane_list" | grep "^${pid}," | cut -d',' -f2)
+    if [ "$win_id" = "$active_win" ]; then
+      echo "$pid"
+      return
+    fi
+  done
+  echo ""
+}
+
+# Rename all windows with a given name to a new name
+# Args: $1=old_name $2=new_name
+rename_group_windows() {
+  local old_name="$1"
+  local new_name="$2"
+  tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
+    if [ "$wname" = "$old_name" ]; then
+      tmux rename-window -t "$wid" "$new_name"
+    fi
+  done
 }
 
 # Get active window ID
@@ -34,58 +102,6 @@ active_window() {
 # Get a pane's window ID
 pane_window() {
   tmux display-message -t "$1" -p '#{window_id}'
-}
-
-# Hash a string to a number (for computing window indices)
-hash_string() {
-  local sum=0
-  local i
-  for (( i=0; i<${#1}; i++ )); do
-    sum=$(( sum + $(printf '%d' "'${1:$i:1}") ))
-  done
-  echo $sum
-}
-
-# Clean stale pane IDs from groups (removes dead panes, drops groups with <2 panes)
-# Args: $1=groups_json
-# Prints cleaned JSON
-clean_stale_groups() {
-  local grp_json="$1"
-  local alive
-  alive=$(tmux list-panes -s -F '#{pane_id}')
-  echo "$grp_json" | jq -c --arg alive "$alive" '
-    ($alive | split("\n")) as $live |
-    .groups |= with_entries(
-      .value.paneIds |= map(select(. as $pid | $live | index($pid)))
-      | select(.value.paneIds | length >= 2)
-    )
-  '
-}
-
-# Find the visible pane from a group in the active window
-# Args: $1=groups_json $2=group_id $3=active_window_id
-# Prints the visible pane ID or empty string
-find_visible_pane() {
-  local grp_json="$1"
-  local group_id="$2"
-  local active_win="$3"
-
-  local pane_ids
-  pane_ids=$(echo "$grp_json" | jq -r ".groups[\"$group_id\"].paneIds[]" 2>/dev/null)
-
-  # Get all panes in the session with their window IDs
-  local pane_list
-  pane_list=$(tmux list-panes -s -F '#{pane_id},#{window_id}')
-
-  for pid in $pane_ids; do
-    local win_id
-    win_id=$(echo "$pane_list" | grep "^${pid}," | cut -d',' -f2)
-    if [ "$win_id" = "$active_win" ]; then
-      echo "$pid"
-      return
-    fi
-  done
-  echo ""
 }
 
 # Force a list-panes refresh (so server pushes new state to clients)

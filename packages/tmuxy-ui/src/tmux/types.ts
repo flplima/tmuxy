@@ -47,10 +47,12 @@ export interface TmuxWindow {
   active: boolean;
   /** True if this is a hidden pane group window */
   isPaneGroupWindow: boolean;
-  /** Group ID if this is a pane group window (e.g., "g_abc12345") */
+  /** Group ID if this is a pane group window (e.g., "g_abc12345") — old format */
   paneGroupId: string | null;
-  /** Pane group index if this is a pane group window (0, 1, 2...) */
+  /** Pane group index if this is a pane group window (0, 1, 2...) — old format */
   paneGroupIndex: number | null;
+  /** Pane IDs encoded in group window name (new format: ["%4", "%6", "%7"]) */
+  paneGroupPaneIds: string[] | null;
   /** True if this is a hidden float window */
   isFloatWindow: boolean;
   /** Pane ID if this is a float window (e.g., "%5") */
@@ -170,6 +172,7 @@ export interface ServerWindow {
   is_pane_group_window: boolean;
   pane_group_parent_pane: string | null;
   pane_group_index: number | null;
+  pane_group_pane_ids?: string[] | null;
   is_float_window?: boolean;
   float_pane_id?: string | null;
 }
@@ -219,6 +222,7 @@ export interface WindowDelta {
   is_pane_group_window?: boolean;
   pane_group_parent_pane?: string | null;
   pane_group_index?: number | null;
+  pane_group_pane_ids?: string[] | null;
   is_float_window?: boolean;
   float_pane_id?: string | null;
 }

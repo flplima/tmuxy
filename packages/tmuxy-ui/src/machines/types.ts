@@ -32,7 +32,6 @@ export interface FloatPaneState {
 export interface DragState {
   draggedPaneId: string;
   targetPaneId: string | null;
-  targetNewWindow: boolean;
   startX: number;
   startY: number;
   currentX: number;
@@ -42,11 +41,11 @@ export interface DragState {
   originalY: number;
   originalWidth: number;
   originalHeight: number;
-  /** Original position of target pane when first hovered (for stable drop indicator) */
-  targetOriginalX: number | null;
-  targetOriginalY: number | null;
-  targetOriginalWidth: number | null;
-  targetOriginalHeight: number | null;
+  /** Current grid position of dragged pane - updated after each swap (for ghost indicator) */
+  ghostX: number;
+  ghostY: number;
+  ghostWidth: number;
+  ghostHeight: number;
 }
 
 /** Resize operation state */
@@ -82,12 +81,6 @@ export interface PendingUpdate {
   statusLine: string;
 }
 
-/** Stored pane group state (persisted in tmux environment) */
-export interface TmuxyGroupsEnv {
-  version: number;
-  groups: Record<string, { id: string; paneIds: string[] }>;
-}
-
 export interface AppMachineContext {
   connected: boolean;
   error: string | null;
@@ -99,8 +92,6 @@ export interface AppMachineContext {
   totalWidth: number;
   totalHeight: number;
   paneGroups: Record<string, PaneGroup>;
-  /** Stored group state from tmux environment (source of truth for persistence) */
-  paneGroupsEnv: TmuxyGroupsEnv;
   targetCols: number;
   targetRows: number;
   drag: DragState | null;
@@ -161,6 +152,7 @@ export type DragMachineEvent =
   | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
   | { type: 'DRAG_END' }
   | { type: 'DRAG_CANCEL' }
+  | { type: 'SYNC_PANES'; panes: TmuxPane[] }
   | KeyPressEvent;
 
 // ============================================
@@ -214,7 +206,6 @@ export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
 export type ConnectionInfoEvent = { type: 'CONNECTION_INFO'; connectionId: number; defaultShell: string };
 export type KeybindingsReceivedEvent = { type: 'KEYBINDINGS_RECEIVED'; keybindings: KeyBindings };
-export type PaneGroupsLoadedEvent = { type: 'PANE_GROUPS_LOADED'; groupsJson: string | null };
 
 // Drag events
 export type DragStartEvent = { type: 'DRAG_START'; paneId: string; startX: number; startY: number };
@@ -290,7 +281,6 @@ export type AppMachineEvent =
   | TmuxDisconnectedEvent
   | ConnectionInfoEvent
   | KeybindingsReceivedEvent
-  | PaneGroupsLoadedEvent
   | DragStartEvent
   | DragMoveEvent
   | DragEndEvent

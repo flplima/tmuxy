@@ -167,15 +167,15 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         );
       })}
 
-      {/* Drop target indicator */}
-      {dropTarget && (
+      {/* Ghost indicator showing dragged pane's current grid position */}
+      {dropTarget && isDragging && (
         <div
-          className="drop-target-indicator"
+          className="pane-drag-ghost"
           style={{
             position: 'absolute',
             left: centeringOffset.x + dropTarget.x * charWidth,
             top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
-            width: dropTarget.width * charWidth,
+            width: dropTarget.width * charWidth + hPadding * 2,
             height: (dropTarget.height + 1) * charHeight,
           }}
         />

@@ -4,32 +4,33 @@
 #
 # If the pane is visible and others exist, swaps next pane in before killing.
 # If the pane is in a hidden group window, kills that window.
-# Updates TMUXY_GROUPS to remove the pane and clean up empty groups.
+# Renames remaining group windows to exclude the closed pane.
 
 set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
 
 CLOSE_PANE="$1"
 ACTIVE_WIN=$(active_window)
-GRP_JSON=$(read_groups)
-GRP_JSON=$(clean_stale_groups "$GRP_JSON")
 
 # Find the group containing this pane
-GROUP_ID=$(echo "$GRP_JSON" | jq -r --arg pid "$CLOSE_PANE" '
-  .groups | to_entries[] | select(.value.paneIds | index($pid)) | .key
-' 2>/dev/null | head -1)
+GROUP_NAME=$(find_group_for_pane "$CLOSE_PANE")
 
 # Not in a group - just kill the pane
-if [ -z "$GROUP_ID" ]; then
+if [ -z "$GROUP_NAME" ]; then
   tmux kill-pane -t "$CLOSE_PANE"
   refresh_panes
   exit 0
 fi
 
-PANE_COUNT=$(echo "$GRP_JSON" | jq -r --arg gid "$GROUP_ID" '.groups[$gid].paneIds | length')
+# Parse pane list from group name
+PANE_IDS=$(parse_group_panes "$GROUP_NAME")
+# shellcheck disable=SC2086
+set -- $PANE_IDS
+PANE_COUNT=$#
 
 # Find visible pane
-VISIBLE_PANE=$(find_visible_pane "$GRP_JSON" "$GROUP_ID" "$ACTIVE_WIN")
+# shellcheck disable=SC2086
+VISIBLE_PANE=$(find_visible_pane_from_list $PANE_IDS)
 IS_VISIBLE=false
 if [ "$VISIBLE_PANE" = "$CLOSE_PANE" ]; then
   IS_VISIBLE=true
@@ -39,10 +40,8 @@ fi
 CLOSE_WIN=$(pane_window "$CLOSE_PANE")
 
 if [ "$IS_VISIBLE" = true ] && [ "$PANE_COUNT" -gt 1 ]; then
-  # Closing the visible pane - need to swap another in first
-  PANE_IDS=$(echo "$GRP_JSON" | jq -r --arg gid "$GROUP_ID" '.groups[$gid].paneIds[]')
-
-  # Find index of closing pane
+  # Closing the visible pane - swap another in first
+  # Find index of closing pane in the list
   IDX=0
   CLOSE_IDX=0
   for pid in $PANE_IDS; do
@@ -60,7 +59,17 @@ if [ "$IS_VISIBLE" = true ] && [ "$PANE_COUNT" -gt 1 ]; then
     NEXT_IDX=$((CLOSE_IDX - 1))
   fi
 
-  NEXT_PANE=$(echo "$GRP_JSON" | jq -r --arg gid "$GROUP_ID" --argjson idx "$NEXT_IDX" '.groups[$gid].paneIds[$idx]')
+  # Get next pane ID from the list
+  IDX=0
+  NEXT_PANE=""
+  for pid in $PANE_IDS; do
+    if [ "$IDX" -eq "$NEXT_IDX" ]; then
+      NEXT_PANE="$pid"
+      break
+    fi
+    IDX=$((IDX + 1))
+  done
+
   NEXT_WIN=$(pane_window "$NEXT_PANE")
 
   # Swap the next pane into view, then kill the window that now holds the closing pane
@@ -69,19 +78,32 @@ elif [ "$CLOSE_WIN" != "$ACTIVE_WIN" ]; then
   # Pane is in a hidden group window - kill the window
   tmux kill-window -t "$CLOSE_WIN"
 else
-  # Pane is in the active window (last in group or not grouped there) - kill pane
+  # Pane is in the active window (last in group) - kill pane
   tmux kill-pane -t "$CLOSE_PANE"
 fi
 
-# Update TMUXY_GROUPS: remove pane, clean up group if < 2 panes
-GRP_JSON=$(echo "$GRP_JSON" | jq -c --arg gid "$GROUP_ID" --arg pid "$CLOSE_PANE" '
-  .groups[$gid].paneIds -= [$pid] |
-  if (.groups[$gid].paneIds | length) < 2 then
-    del(.groups[$gid])
-  else
-    .
-  end
-')
+# Build remaining pane list (excluding closed pane)
+REMAINING=""
+for pid in $PANE_IDS; do
+  if [ "$pid" != "$CLOSE_PANE" ]; then
+    if [ -n "$REMAINING" ]; then
+      REMAINING="$REMAINING $pid"
+    else
+      REMAINING="$pid"
+    fi
+  fi
+done
 
-save_groups "$GRP_JSON"
+# shellcheck disable=SC2086
+set -- $REMAINING
+REMAINING_COUNT=$#
+
+if [ "$REMAINING_COUNT" -ge 2 ]; then
+  # Rename remaining group windows to exclude the closed pane
+  # shellcheck disable=SC2086
+  NEW_GROUP_NAME=$(build_group_name $REMAINING)
+  rename_group_windows "$GROUP_NAME" "$NEW_GROUP_NAME"
+fi
+# If <2 panes remain, the group window was already killed above — no rename needed
+
 refresh_panes

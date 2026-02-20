@@ -31,7 +31,6 @@ export {
   selectPreviewPanes,
   selectPanes,
   selectDraggedPaneId,
-  selectDragTargetNewWindow,
   selectDragOffsetX,
   selectDragOffsetY,
   selectDragOriginalPosition,
