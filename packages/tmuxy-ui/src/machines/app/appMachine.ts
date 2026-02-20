@@ -50,6 +50,12 @@ import type { SizeActorEvent } from '../actors/sizeActor';
 const copyModeExitTimes = new Map<string, number>();
 const COPY_MODE_REENTRY_COOLDOWN = 2000;
 
+/** Move a pane ID to the front of the MRU list */
+function updateActivationOrder(order: string[], paneId: string | null): string[] {
+  if (!paneId) return order;
+  return [paneId, ...order.filter(id => id !== paneId)];
+}
+
 export const appMachine = setup({
   types: {
     context: {} as AppMachineContext,
@@ -100,6 +106,8 @@ export const appMachine = setup({
     copyModeStates: {},
     // Optimistic updates (just track the operation for logging/debugging)
     optimisticOperation: null,
+    // Pane activation order (MRU first) — used for navigation tie-breaking
+    paneActivationOrder: [] as string[],
     // Dimension override during group switch (prevents intermediate state flicker)
     groupSwitchDimOverride: null,
   },
@@ -471,7 +479,7 @@ export const appMachine = setup({
               }
 
               enqueue(
-                assign({
+                assign(({ context: ctx }) => ({
                   ...transformed,
                   paneGroups,
                   floatPanes,
@@ -480,7 +488,11 @@ export const appMachine = setup({
                   // Clear optimistic tracking - server state overwrites any predictions
                   optimisticOperation: null,
                   groupSwitchDimOverride: groupSwitchOverride,
-                })
+                  // Track pane activation order (MRU) for navigation prediction
+                  paneActivationOrder: transformed.activePaneId !== ctx.activePaneId
+                    ? updateActivationOrder(ctx.paneActivationOrder, transformed.activePaneId)
+                    : ctx.paneActivationOrder,
+                }))
               );
               enqueue(
                 sendTo('keyboard', {
@@ -589,7 +601,8 @@ export const appMachine = setup({
                   context.panes,
                   context.activePaneId,
                   context.activeWindowId,
-                  command
+                  command,
+                  context.paneActivationOrder
                 )
               : null;
 
@@ -622,11 +635,14 @@ export const appMachine = setup({
               }
 
               enqueue(
-                assign({
+                assign(({ context: ctx }) => ({
                   optimisticOperation: prediction,
                   panes: newPanes,
                   activePaneId: newActivePaneId,
-                })
+                  paneActivationOrder: newActivePaneId !== ctx.activePaneId
+                    ? updateActivationOrder(ctx.paneActivationOrder, newActivePaneId)
+                    : ctx.paneActivationOrder,
+                }))
               );
             }
 
@@ -1278,6 +1294,9 @@ export const appMachine = setup({
               assign({
                 ...update,
                 pendingUpdate: null,
+                paneActivationOrder: update.activePaneId !== context.activePaneId
+                  ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
+                  : context.paneActivationOrder,
               })
             );
             enqueue(
@@ -1301,6 +1320,9 @@ export const appMachine = setup({
               assign({
                 ...update,
                 pendingUpdate: null,
+                paneActivationOrder: update.activePaneId !== context.activePaneId
+                  ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
+                  : context.paneActivationOrder,
               })
             );
             enqueue(

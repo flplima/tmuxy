@@ -32,7 +32,8 @@ export function calculatePrediction(
   panes: TmuxPane[],
   activePaneId: string | null,
   activeWindowId: string | null,
-  command: string
+  command: string,
+  paneActivationOrder: string[] = []
 ): OptimisticOperation | null {
   if (!parsed || !activePaneId) return null;
 
@@ -40,7 +41,7 @@ export function calculatePrediction(
     case 'split':
       return calculateSplitPrediction(parsed, panes, activePaneId, activeWindowId, command);
     case 'navigate':
-      return calculateNavigatePrediction(parsed, panes, activePaneId, command);
+      return calculateNavigatePrediction(parsed, panes, activePaneId, command, paneActivationOrder);
     case 'swap':
       return calculateSwapPrediction(parsed, panes, command);
     case 'select-pane':
@@ -136,17 +137,19 @@ function calculateSplitPrediction(
  * Calculate navigation prediction.
  *
  * Find the nearest pane in the given direction based on adjacency.
+ * When multiple candidates overlap, pick the most recently used (MRU).
  */
 function calculateNavigatePrediction(
   parsed: NavigateCommand,
   panes: TmuxPane[],
   activePaneId: string,
-  command: string
+  command: string,
+  paneActivationOrder: string[] = []
 ): OptimisticOperation | null {
   const activePane = panes.find(p => p.tmuxId === activePaneId);
   if (!activePane) return null;
 
-  const targetPaneId = findAdjacentPane(panes, activePane, parsed.direction);
+  const targetPaneId = findAdjacentPane(panes, activePane, parsed.direction, paneActivationOrder);
   if (!targetPaneId) return null;
 
   return {
@@ -166,7 +169,11 @@ function calculateNavigatePrediction(
 /**
  * Find the pane adjacent to the given pane in the specified direction.
  *
- * Uses adjacency detection:
+ * Matches tmux's algorithm (window.c window_pane_find_*):
+ * 1. Find all panes on the adjacent edge with any overlap
+ * 2. Pick the most recently used (MRU) pane from candidates
+ *
+ * Adjacency detection:
  * - L: panes where (pane.x + pane.width + 1 === current.x) AND vertical overlap
  * - R: panes where (current.x + current.width + 1 === pane.x) AND vertical overlap
  * - U: panes where (pane.y + pane.height + 1 === current.y) AND horizontal overlap
@@ -175,69 +182,88 @@ function calculateNavigatePrediction(
 function findAdjacentPane(
   panes: TmuxPane[],
   current: TmuxPane,
-  direction: 'L' | 'R' | 'U' | 'D'
+  direction: 'L' | 'R' | 'U' | 'D',
+  paneActivationOrder: string[] = []
 ): string | null {
   // Only consider panes in the same window
-  const candidates = panes.filter(p => p.tmuxId !== current.tmuxId && p.windowId === current.windowId);
+  const samePanes = panes.filter(p => p.tmuxId !== current.tmuxId && p.windowId === current.windowId);
 
-  let bestMatch: TmuxPane | null = null;
-  let bestOverlap = 0;
+  // Collect all adjacent candidates with any overlap (matching tmux's overlap check)
+  const candidates: TmuxPane[] = [];
 
-  for (const pane of candidates) {
+  for (const pane of samePanes) {
     let isAdjacent = false;
-    let overlap = 0;
+    let hasOverlap = false;
 
     switch (direction) {
-      case 'L':
-        // Pane is to the left: its right edge touches current's left edge
+      case 'L': {
         isAdjacent = pane.x + pane.width + 1 === current.x;
         if (isAdjacent) {
-          // Calculate vertical overlap
-          const overlapStart = Math.max(pane.y, current.y);
-          const overlapEnd = Math.min(pane.y + pane.height, current.y + current.height);
-          overlap = Math.max(0, overlapEnd - overlapStart);
+          // tmux overlap check: any of (fully contains, start within, end within)
+          const top = current.y;
+          const bottom = current.y + current.height;
+          const pEnd = pane.y + pane.height - 1;
+          hasOverlap = (pane.y < top && pEnd > bottom) ||
+                       (pane.y >= top && pane.y <= bottom) ||
+                       (pEnd >= top && pEnd <= bottom);
         }
         break;
-
-      case 'R':
-        // Pane is to the right: current's right edge touches pane's left edge
+      }
+      case 'R': {
         isAdjacent = current.x + current.width + 1 === pane.x;
         if (isAdjacent) {
-          const overlapStart = Math.max(pane.y, current.y);
-          const overlapEnd = Math.min(pane.y + pane.height, current.y + current.height);
-          overlap = Math.max(0, overlapEnd - overlapStart);
+          const top = current.y;
+          const bottom = current.y + current.height;
+          const pEnd = pane.y + pane.height - 1;
+          hasOverlap = (pane.y < top && pEnd > bottom) ||
+                       (pane.y >= top && pane.y <= bottom) ||
+                       (pEnd >= top && pEnd <= bottom);
         }
         break;
-
-      case 'U':
-        // Pane is above: its bottom edge touches current's top edge
+      }
+      case 'U': {
         isAdjacent = pane.y + pane.height + 1 === current.y;
         if (isAdjacent) {
-          // Calculate horizontal overlap
-          const overlapStart = Math.max(pane.x, current.x);
-          const overlapEnd = Math.min(pane.x + pane.width, current.x + current.width);
-          overlap = Math.max(0, overlapEnd - overlapStart);
+          const left = current.x;
+          const right = current.x + current.width;
+          const pEnd = pane.x + pane.width - 1;
+          hasOverlap = (pane.x < left && pEnd > right) ||
+                       (pane.x >= left && pane.x <= right) ||
+                       (pEnd >= left && pEnd <= right);
         }
         break;
-
-      case 'D':
-        // Pane is below: current's bottom edge touches pane's top edge
+      }
+      case 'D': {
         isAdjacent = current.y + current.height + 1 === pane.y;
         if (isAdjacent) {
-          const overlapStart = Math.max(pane.x, current.x);
-          const overlapEnd = Math.min(pane.x + pane.width, current.x + current.width);
-          overlap = Math.max(0, overlapEnd - overlapStart);
+          const left = current.x;
+          const right = current.x + current.width;
+          const pEnd = pane.x + pane.width - 1;
+          hasOverlap = (pane.x < left && pEnd > right) ||
+                       (pane.x >= left && pane.x <= right) ||
+                       (pEnd >= left && pEnd <= right);
         }
         break;
+      }
     }
 
-    if (isAdjacent && overlap > bestOverlap) {
-      bestMatch = pane;
-      bestOverlap = overlap;
+    if (isAdjacent && hasOverlap) {
+      candidates.push(pane);
     }
   }
 
-  return bestMatch?.tmuxId ?? null;
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].tmuxId;
+
+  // Multiple candidates: pick the most recently used (MRU) pane,
+  // matching tmux's window_pane_choose_best (highest active_point)
+  for (const paneId of paneActivationOrder) {
+    const match = candidates.find(p => p.tmuxId === paneId);
+    if (match) return match.tmuxId;
+  }
+
+  // Fallback: first candidate (shouldn't happen if activation order is populated)
+  return candidates[0].tmuxId;
 }
 
 /**

@@ -121,6 +121,8 @@ export interface AppMachineContext {
   copyModeStates: Record<string, CopyModeState>;
   /** Current optimistic operation being applied (awaiting server confirmation) */
   optimisticOperation: OptimisticOperation | null;
+  /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
+  paneActivationOrder: string[];
   /** Override during group switch (prevents intermediate state flicker) */
   groupSwitchDimOverride: {
     paneId: string;
