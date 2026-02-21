@@ -81,7 +81,8 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   ctx.beforeEach = async () => {
     if (!ctx.browserAvailable || !ctx.browser) return;
 
-    // Create new TmuxTestSession
+    // Create TmuxTestSession (just marks it ready — actual tmux session
+    // is created by the web server when the browser navigates to the URL)
     ctx.session = new TmuxTestSession();
     ctx.testSession = ctx.session.name; // backwards compatibility
     console.log(`Creating test session: ${ctx.session.name}`);
@@ -116,31 +117,26 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       }
     }
 
-    // Always close page and destroy session, even if assertions failed above.
-    // IMPORTANT: Kill session through adapter BEFORE closing the page.
-    // This routes kill-session through control mode (safe), avoiding the
-    // tmux 3.5a crash that occurs with external commands while control mode is attached.
-    if (ctx.session?.page && ctx.session.created) {
-      try {
-        await ctx.session.destroyViaAdapter();
-      } catch {
-        // Adapter not available — will fall through to execSync below
-      }
-    }
-
+    // Close the page but DO NOT destroy the tmux session.
+    // The web server runs an async cleanup when the SSE client disconnects:
+    // 1. Sends MonitorCommand::Shutdown to the control mode monitor
+    // 2. Monitor sends detach-client (500ms timeout)
+    // 3. Cleanup task waits 600ms then aborts monitor if needed
+    // Total: ~1.1s for the control mode process to fully exit.
+    // We must wait for this to complete before the next test creates a new session,
+    // otherwise execSync('tmux new-session') races with the dying control mode process.
     if (ctx.page) {
+      // Clear the session's page ref first to prevent dangling references
+      if (ctx.session) {
+        ctx.session.setPage(null);
+      }
       await ctx.page.close().catch(() => {});
       ctx.page = null;
+      // Wait for the web server's async control mode cleanup to complete
+      await delay(1500);
     }
 
     if (ctx.session) {
-      if (ctx.session.created) {
-        // Fallback: if adapter-based destroy didn't work, wait for control mode
-        // disconnect and use execSync. SSE keepalive is 1s, cleanup ~600ms.
-        await delay(2000);
-        console.log(`Killing test session: ${ctx.session.name}`);
-        ctx.session.destroy();
-      }
       ctx.session = null;
       ctx.testSession = null;
     }
@@ -164,6 +160,8 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
     await waitForSessionReady(ctx.page, ctx.session.name);
     // Set page reference for WebSocket routing
     ctx.session.setPage(ctx.page);
+    // Source tmuxy config (routes through control mode)
+    await ctx.session.sourceConfig();
   };
 
   /**
@@ -175,6 +173,8 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
     await waitForSessionReady(ctx.page, ctx.session.name);
     // Set page reference for WebSocket routing
     ctx.session.setPage(ctx.page);
+    // Source tmuxy config (routes through control mode)
+    await ctx.session.sourceConfig();
     await focusPage(ctx.page);
 
     // Auto-start glitch detection if enabled
@@ -255,8 +255,14 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
     } else {
       await ctx.session.splitVertical();
     }
-    // Wait for UI to render both panes
-    await waitForPaneCount(ctx.page, 2);
+    // Wait for XState to reflect 2 panes (not just DOM)
+    const start = Date.now();
+    while (Date.now() - start < 10000) {
+      const count = await ctx.session.getPaneCount();
+      if (count === 2) return;
+      await delay(100);
+    }
+    throw new Error('setupTwoPanes: pane count did not reach 2 within 10s');
   };
 
   /**
@@ -266,15 +272,25 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   ctx.setupFourPanes = async () => {
     await ctx.navigateToSession();
     await focusPage(ctx.page);
+    // Helper to wait for XState pane count
+    const waitForPanes = async (n) => {
+      const start = Date.now();
+      while (Date.now() - start < 10000) {
+        const count = await ctx.session.getPaneCount();
+        if (count === n) return;
+        await delay(100);
+      }
+      throw new Error(`setupFourPanes: pane count did not reach ${n}`);
+    };
     // Create 4-pane grid via WebSocket
     await ctx.session.splitHorizontal();
-    await waitForPaneCount(ctx.page, 2);
+    await waitForPanes(2);
     await ctx.session.splitVertical();
-    await waitForPaneCount(ctx.page, 3);
+    await waitForPanes(3);
     await ctx.session.selectPane('U');
     await delay(DELAYS.SHORT);
     await ctx.session.splitVertical();
-    await waitForPaneCount(ctx.page, 4);
+    await waitForPanes(4);
   };
 
   return ctx;

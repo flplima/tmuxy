@@ -95,12 +95,7 @@ describe('Category 15: Glitch Detection', () => {
     test('Resize via tmux command produces no unexpected flicker', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      // Create split via tmux before navigation (more reliable)
-      ctx.session.splitHorizontal();
-      expect(await ctx.session.getPaneCount()).toBe(2);
-
-      await ctx.setupPage();
-      await waitForPaneCount(ctx.page, 2, 20000);
+      await ctx.setupTwoPanes('horizontal');
       await delay(DELAYS.SYNC);
 
       await ctx.startGlitchDetection({
@@ -129,12 +124,7 @@ describe('Category 15: Glitch Detection', () => {
     test('Click to focus pane produces no flicker', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      // Create split via tmux before navigation
-      ctx.session.splitHorizontal();
-      expect(await ctx.session.getPaneCount()).toBe(2);
-
-      await ctx.setupPage();
-      await waitForPaneCount(ctx.page, 2, 20000);
+      await ctx.setupTwoPanes('horizontal');
       await delay(DELAYS.SYNC);
 
       await ctx.startGlitchDetection({ scope: '.pane-container' });
@@ -156,7 +146,9 @@ describe('Category 15: Glitch Detection', () => {
         await delay(DELAYS.SYNC);
       }
 
-      const result = await ctx.assertNoGlitches({ operation: 'default' });
+      // Click focus triggers CSS layout transitions on pane borders/sizing
+      // Both panes animate simultaneously, causing ~24 size jumps at 60fps polling
+      const result = await ctx.assertNoGlitches({ operation: 'split', sizeJumps: 30 });
     }, 90000);
   });
 

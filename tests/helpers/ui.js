@@ -129,11 +129,11 @@ async function typeInTerminal(page, text) {
     await page.click('body');
   }
   await delay(DELAYS.MEDIUM);
-  // Use per-character typing with reduced delay (15ms vs original 30ms)
-  // Bulk typing can cause missed characters in terminal emulators
+  // Use per-character typing with 50ms delay to prevent character transposition
+  // in the terminal emulator (headless Chrome → WebSocket → tmux pipeline)
   for (const char of text) {
     await page.keyboard.type(char);
-    await delay(15);
+    await delay(50);
   }
 }
 
@@ -282,8 +282,8 @@ async function runCommand(page, command, expectedOutput, timeout = 10000) {
  */
 async function runCommandViaTmux(session, page, command, expectedOutput, timeout = 10000) {
   // Use tmux send-keys with literal flag for reliable input
-  session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
-  session.runCommand(`send-keys -t ${session.name} Enter`);
+  await session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
+  await session.runCommand(`send-keys -t ${session.name} Enter`);
   return await waitForTerminalText(page, expectedOutput, timeout);
 }
 

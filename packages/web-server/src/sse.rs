@@ -809,11 +809,14 @@ async fn cleanup_connection(
         if let Some(ref tx) = command_tx {
             eprintln!("[cleanup] Sending graceful shutdown to monitor");
             let _ = tx.send(MonitorCommand::Shutdown).await;
-            tokio::time::sleep(Duration::from_millis(600)).await;
+            // Wait for the monitor to finish gracefully. The monitor sends
+            // detach-client and waits up to 3s for the process to exit.
+            // Never abort the handle — that drops the ControlModeConnection
+            // which would orphan/kill the child process, crashing tmux 3.5a.
+            tokio::time::sleep(Duration::from_millis(4000)).await;
         }
         if !handle.is_finished() {
-            handle.abort();
-            eprintln!("[cleanup] Monitor task aborted (shutdown timed out)");
+            eprintln!("[cleanup] Monitor task still running after graceful shutdown (not aborting)");
         } else {
             eprintln!("[cleanup] Monitor task finished gracefully");
         }

@@ -109,77 +109,68 @@ class TmuxTestSession {
   }
 
   /**
-   * Create the tmux session with tmuxy config
+   * Mark session as ready for creation.
+   *
+   * The actual tmux session is created by the web server when the browser
+   * navigates to the session URL (the server uses `tmux -CC new-session`
+   * which is safe). External `tmux new-session` crashes tmux 3.5a when
+   * any control mode client is attached.
+   *
+   * Call sourceConfig() after navigation to load tmuxy config.
    */
   create(options = {}) {
-    const { width = 120, height = 30 } = options;
-
-    try {
-      execSync(`tmux has-session -t ${this.name} 2>/dev/null`, { stdio: 'ignore' });
-      console.log(`Session ${this.name} already exists`);
-    } catch {
-      // Create new session. Retry on failure — tmux 3.5a can crash on the
-      // first external command after server restart ("server exited unexpectedly").
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          execSync(`tmux new-session -d -s ${this.name} -x ${width} -y ${height}`, { stdio: 'pipe' });
-          break;
-        } catch (e) {
-          if (attempt < 2) {
-            console.log(`Session creation failed (attempt ${attempt + 1}), retrying after tmux server restart...`);
-            // Give the tmux server time to restart — 2s is needed for
-            // stale server state to clear after a crash
-            execSync('sleep 2');
-          } else {
-            throw e;
-          }
-        }
-      }
-      console.log(`Created tmux session: ${this.name}${this.configPath ? ' (with config)' : ''}`);
-    }
-
-    // Prevent tmux server from exiting when all sessions are destroyed
-    try {
-      execSync('tmux set-option -g exit-empty off', { stdio: 'ignore' });
-    } catch { /* ignore if server not ready yet */ }
-
-    // Always source config after session creation/check
-    if (this.configPath) {
-      execSync(`tmux source-file ${this.configPath}`, { stdio: 'ignore' });
-
-      // Ensure initial window is at base-index (1) for test consistency
-      try {
-        const currentIndex = execSync(
-          `tmux display-message -t ${this.name} -p "#{window_index}"`,
-          { encoding: 'utf-8' }
-        ).trim();
-        if (currentIndex === '0') {
-          execSync(`tmux move-window -s ${this.name}:0 -t ${this.name}:1`, { stdio: 'ignore' });
-        }
-      } catch {
-        // Ignore if we can't get/move window
-      }
-    }
-
     this.created = true;
     return this;
   }
 
   /**
-   * Destroy the tmux session.
-   * Prefer destroyViaAdapter() when browser is connected — it routes
-   * kill-session through control mode which is safe.
+   * Source the tmuxy config and set up window index.
+   * Must be called AFTER browser navigation (routes through control mode).
    */
-  destroy() {
-    if (!this.created) return;
-
-    try {
-      execSync(`tmux kill-session -t ${this.name}`, { stdio: 'ignore' });
-      console.log(`Killed tmux session: ${this.name}`);
-    } catch {
-      // Session might not exist
+  async sourceConfig() {
+    if (!this.configPath || !this.page) {
+      console.log(`[sourceConfig] Skipping: configPath=${this.configPath}, page=${!!this.page}`);
+      return;
     }
 
+    console.log(`[sourceConfig] Sourcing ${this.configPath}`);
+    try {
+      await this._exec(`source-file ${this.configPath}`);
+      console.log(`[sourceConfig] Config sourced successfully`);
+    } catch (e) {
+      console.log(`[sourceConfig] Failed to source config: ${e.message}`);
+    }
+
+    // Move window from index 0 to 1 (config sets base-index 1 but
+    // new-session creates at 0). Ignore errors if already at 1.
+    try {
+      await this._exec(`move-window -s ${this.name}:0 -t ${this.name}:1`);
+      console.log(`[sourceConfig] Moved window to index 1`);
+    } catch {
+      // Already at base-index 1 or window not found — fine
+    }
+  }
+
+  /**
+   * Destroy the tmux session.
+   * Uses destroyViaAdapter when browser is connected (routes through
+   * control mode). External `tmux kill-session` crashes tmux 3.5a when
+   * any control mode is attached, so we skip it.
+   */
+  async destroy() {
+    if (!this.created) return;
+
+    if (this.page) {
+      try {
+        await this.destroyViaAdapter();
+        return;
+      } catch {
+        // Adapter not available, fall through
+      }
+    }
+
+    // No page available — skip external tmux command (it would crash tmux 3.5a).
+    // The session will be cleaned up naturally when it becomes idle.
     this.created = false;
     this.page = null;
   }
@@ -290,7 +281,7 @@ class TmuxTestSession {
         }
         // Wait for tmux to process the command and propagate state
         // Chain: control mode → tmux → event → monitor → SSE → browser → XState
-        await new Promise(r => setTimeout(r, 150));
+        await new Promise(r => setTimeout(r, 250));
         return result;
       } catch (e) {
         console.log(`[_exec] Failed: ${cleanCmd} - ${e.message}`);
@@ -531,8 +522,9 @@ class TmuxTestSession {
         return false;
       }
     }
-    // Poll for up to 1s since zoom state change needs to propagate
-    for (let i = 0; i < 10; i++) {
+    // Poll for up to 3s since zoom state change needs full propagation chain:
+    // control mode → tmux → event → monitor → SSE → browser → XState
+    for (let i = 0; i < 30; i++) {
       const state = await this._getBrowserState();
       if (!state) { await new Promise(r => setTimeout(r, 100)); continue; }
       const windowPanes = state.panes.filter(p => p.windowId === state.activeWindowId);
@@ -647,17 +639,22 @@ class TmuxTestSession {
 
   /**
    * Get window info (excluding hidden pane group and float windows)
+   * @param {Object} options
+   * @param {boolean} options.includeFloats - Include float windows (default: false)
+   * @param {boolean} options.includeGroups - Include pane group windows (default: false)
    */
-  async getWindowInfo() {
+  async getWindowInfo({ includeFloats = false, includeGroups = false } = {}) {
     if (this.page) {
       const state = await this._waitForBrowserState();
       if (state) {
         return state.windows
-          .filter(w => !w.isPaneGroupWindow && !w.isFloatWindow)
+          .filter(w => (includeGroups || !w.isPaneGroupWindow) && (includeFloats || !w.isFloatWindow))
           .map(w => ({
             index: w.index,
             name: w.name,
             active: w.active,
+            isFloatWindow: w.isFloatWindow,
+            isPaneGroupWindow: w.isPaneGroupWindow,
           }));
       }
       return [];

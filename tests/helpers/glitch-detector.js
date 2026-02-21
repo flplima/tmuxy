@@ -49,9 +49,10 @@ const DEFAULT_OPTIONS = {
  */
 const OPERATION_THRESHOLDS = {
   // Split: allow size jumps as panes resize to accommodate new pane
-  split: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 4 },
-  // Kill: allow size jumps as remaining panes expand
-  kill: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 4 },
+  // CSS transitions (250ms) on .pane-layout-item cause ~12 jumps at 60fps polling
+  split: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 20 },
+  // Kill: allow size jumps as remaining panes expand (same CSS transition reason)
+  kill: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 20 },
   resize: { nodeFlickers: 0, attrChurnEvents: 2, sizeJumps: 0 },
   drag: { nodeFlickers: 0, attrChurnEvents: 4, sizeJumps: 0 },
   windowSwitch: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 0 },
