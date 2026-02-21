@@ -17,10 +17,9 @@
 const {
   createTestContext,
   delay,
-  runCommand,
+  runCommandViaTmux,
   waitForPaneCount,
   waitForWindowCount,
-  noteKnownLimitation,
   DELAYS,
 } = require('./helpers');
 
@@ -65,14 +64,14 @@ describe('Category 12: Popup Support - Stability Tests (Feature Not Implemented)
     test('Pane layout preserved after popup attempt', async () => {
       if (ctx.skipIfNotReady()) return;
 
-      // Create panes before navigating (tmux commands are reliable)
-      ctx.session.splitHorizontal();
-      ctx.session.splitVertical();
+      // Navigate first, then create panes through adapter
+      await ctx.setupPage();
+      await ctx.session.splitHorizontal();
+      await waitForPaneCount(ctx.page, 2);
+      await ctx.session.splitVertical();
+      await waitForPaneCount(ctx.page, 3);
       const paneCountBefore = await ctx.session.getPaneCount();
       expect(paneCountBefore).toBe(3);
-
-      await ctx.setupPage();
-      await waitForPaneCount(ctx.page, 3);
 
       // Attempt popup (may fail/be unsupported)
       await ctx.session.runCommand(
@@ -102,7 +101,7 @@ describe('Category 12: Popup Support - Stability Tests (Feature Not Implemented)
       await delay(DELAYS.LONG);
 
       // Verify terminal still accepts input regardless of popup support
-      await runCommand(ctx.page, 'echo "after_popup_test"', 'after_popup_test');
+      await runCommandViaTmux(ctx.session, ctx.page, 'echo "after_popup_test"', 'after_popup_test');
     });
 
     test('Pane split works after popup attempt', async () => {
@@ -146,37 +145,4 @@ describe('Category 12: Popup Support - Stability Tests (Feature Not Implemented)
     });
   });
 
-  // ====================
-  // 12.3 Future Feature Tests (Blocked on tmux PR #4361)
-  // ====================
-  // These tests are skipped until popup support is implemented.
-  // Unskip and implement when tmux control mode popup support is available.
-  describe('12.3 Future: Popup UI Tests (Blocked Upstream)', () => {
-    test.skip('Popup renders in overlay UI', async () => {
-      // TODO: Implement when tmux PR #4361 is merged
-      // This test should verify:
-      // - Popup appears as overlay element
-      // - Popup has correct position and size
-      // - Popup content is rendered
-      noteKnownLimitation('POPUP_SUPPORT');
-    });
-
-    test.skip('Popup accepts keyboard input', async () => {
-      // TODO: Implement when feature available
-      // This test should verify keyboard input works in popup
-      noteKnownLimitation('POPUP_SUPPORT');
-    });
-
-    test.skip('Popup closes on completion', async () => {
-      // TODO: Implement when feature available
-      // This test should verify popup closes when command completes
-      noteKnownLimitation('POPUP_SUPPORT');
-    });
-
-    test.skip('Popup can be dismissed with Escape', async () => {
-      // TODO: Implement when feature available
-      // This test should verify popup can be closed with Escape key
-      noteKnownLimitation('POPUP_SUPPORT');
-    });
-  });
 });

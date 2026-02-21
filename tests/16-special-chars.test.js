@@ -9,7 +9,7 @@ const {
   createTestContext,
   delay,
   waitForTerminalText,
-  runCommand,
+  runCommandViaTmux,
   typeInTerminal,
   pressEnter,
   pasteText,
@@ -32,42 +32,42 @@ describe('Category 16: Special Characters & Paste', () => {
       if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
 
-      await runCommand(ctx.page, 'echo "a;b"', 'a;b');
+      await runCommandViaTmux(ctx.session, ctx.page, 'echo "a;b"', 'a;b');
     });
 
     test('Hash character in echo command', async () => {
       if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
 
-      await runCommand(ctx.page, 'echo "a#b"', 'a#b');
+      await runCommandViaTmux(ctx.session, ctx.page, 'echo "a#b"', 'a#b');
     });
 
     test('Dollar sign in single-quoted echo', async () => {
       if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
 
-      await runCommand(ctx.page, "echo 'a$b'", 'a$b');
+      await runCommandViaTmux(ctx.session, ctx.page, "echo 'a$b'", 'a$b');
     });
 
     test('Curly braces in echo command', async () => {
       if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
 
-      await runCommand(ctx.page, 'echo "a{b}c"', 'a{b}c');
+      await runCommandViaTmux(ctx.session, ctx.page, 'echo "a{b}c"', 'a{b}c');
     });
 
     test('Backslash in single-quoted echo', async () => {
       if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
 
-      await runCommand(ctx.page, "echo 'a\\\\b'", 'a\\b');
+      await runCommandViaTmux(ctx.session, ctx.page, "echo 'a\\\\b'", 'a\\\\b');
     });
 
     test('Tilde character in echo command', async () => {
       if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
 
-      await runCommand(ctx.page, 'echo "a~b"', 'a~b');
+      await runCommandViaTmux(ctx.session, ctx.page, 'echo "a~b"', 'a~b');
     });
 
     test('Single and double quotes in echo', async () => {
@@ -75,14 +75,14 @@ describe('Category 16: Special Characters & Paste', () => {
       await ctx.setupPage();
 
       // Test double quote inside single-quoted string
-      await runCommand(ctx.page, "echo 'say \"hi\"'", 'say "hi"');
+      await runCommandViaTmux(ctx.session, ctx.page, "echo 'say \"hi\"'", 'say "hi"');
     });
 
     test('Multiple special chars combined', async () => {
       if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
 
-      await runCommand(ctx.page, 'echo "x;y#z~w"', 'x;y#z~w');
+      await runCommandViaTmux(ctx.session, ctx.page, 'echo "x;y#z~w"', 'x;y#z~w');
     });
   });
 
@@ -90,16 +90,12 @@ describe('Category 16: Special Characters & Paste', () => {
   // 16.2 Diacritics
   // ====================
   describe('16.2 Diacritics', () => {
-    test('Diacritic characters via keyboard.type()', async () => {
+    test('Diacritic characters via tmux send-keys', async () => {
       if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
 
-      // Use keyboard.type() which sends compositionend-style events
-      // for pre-composed characters
-      await typeInTerminal(ctx.page, 'echo "café"');
-      await pressEnter(ctx.page);
-
-      await waitForTerminalText(ctx.page, 'café');
+      // Use tmux send-keys for reliable Unicode delivery
+      await runCommandViaTmux(ctx.session, ctx.page, 'echo "café"', 'café');
     });
   });
 

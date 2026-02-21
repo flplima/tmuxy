@@ -11,12 +11,12 @@ import React, { useCallback, useEffect } from 'react';
 import { Terminal } from './Terminal';
 import {
   useAppSend,
-  usePane,
   useAppSelector,
   selectCharSize,
   selectContainerSize,
 } from '../machines/AppContext';
 import type { FloatPaneState } from '../machines/types';
+import type { TmuxPane } from '../machines/types';
 
 interface FloatPaneProps {
   floatState: FloatPaneState;
@@ -25,7 +25,11 @@ interface FloatPaneProps {
 
 export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const send = useAppSend();
-  const pane = usePane(floatState.paneId);
+  // Use raw panes list (not selectPreviewPanes) because float panes live in
+  // non-active windows and selectPreviewPanes filters to activeWindowId only
+  const pane = useAppSelector(
+    (ctx) => ctx.panes.find((p: TmuxPane) => p.tmuxId === floatState.paneId)
+  );
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
 

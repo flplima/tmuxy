@@ -105,7 +105,6 @@ impl ControlModeConnection {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
 
@@ -145,7 +144,6 @@ impl ControlModeConnection {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
 
@@ -256,30 +254,29 @@ impl ControlModeConnection {
     /// Gracefully close the control mode connection.
     ///
     /// Sends a detach-client command to cleanly disconnect from the session,
-    /// then waits for the connection to close. This is preferred over kill()
-    /// for tmux 3.3a which can crash if the control mode client is killed
-    /// while processing commands.
-    ///
-    /// Falls back to kill() if graceful shutdown times out.
+    /// then waits for the connection to close. Never sends SIGKILL — tmux 3.5a
+    /// crashes if the control mode client is killed abruptly.
     pub async fn graceful_close(&mut self) {
         // Send detach-client to cleanly disconnect
         // Ignore errors - the connection might already be closing
         let _ = self.send_command("detach-client").await;
 
-        // Wait for the process to exit (up to 500ms)
-        let timeout = tokio::time::Duration::from_millis(500);
+        // Wait for the process to exit (up to 3s).
+        // detach-client should cause an almost-immediate exit, but give plenty
+        // of time for slow systems. Never fall back to SIGKILL — that crashes
+        // tmux 3.5a.
+        let timeout = tokio::time::Duration::from_millis(3000);
         match tokio::time::timeout(timeout, self.child.wait()).await {
             Ok(Ok(_)) => {
-                // Process exited cleanly
                 eprintln!("[control_mode] Graceful detach successful");
             }
             Ok(Err(e)) => {
                 eprintln!("[control_mode] Error waiting for exit: {}", e);
             }
             Err(_) => {
-                // Timeout - fall back to kill
-                eprintln!("[control_mode] Graceful detach timed out, killing");
-                let _ = self.child.kill().await;
+                // Timeout — do NOT kill. The process will be reaped eventually
+                // or cleaned up when the server process exits.
+                eprintln!("[control_mode] Graceful detach timed out (process may linger)");
             }
         }
     }
