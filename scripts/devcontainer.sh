@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Start the devcontainer and run Claude Code in YOLO mode.
+# Start the devcontainer with an interactive shell or a custom command.
 #
 # Mounts host credentials (Claude, Git, GitHub CLI, SSH) so you don't
 # need to re-authenticate inside the container. A firewall restricts
@@ -10,8 +10,9 @@
 # each gets a unique container name and a free host port for the dev server.
 #
 # Usage:
-#   npm run devcontainer          # Build (if needed) + run
-#   npm run devcontainer:build    # Build image only
+#   npm run devcontainer              # Build (if needed) + shell
+#   npm run devcontainer:build        # Build image only
+#   npm run yolo-mode                  # Shell + Claude Code in YOLO mode
 #
 
 set -e
@@ -30,10 +31,19 @@ CONTAINER_NAME="tmuxy-${DIR_NAME//[^a-zA-Z0-9_.-]/-}"
 # ---------------------------------------------------------------------------
 # Build image
 # ---------------------------------------------------------------------------
-if [ "$1" = "--build" ] || ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+CONTAINER_CMD=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --build) BUILD_ONLY=1; shift ;;
+        --cmd)   CONTAINER_CMD="$2"; shift 2 ;;
+        *)       shift ;;
+    esac
+done
+
+if [ "$BUILD_ONLY" = 1 ] || ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
     echo "Building devcontainer image..."
     docker build -t "$IMAGE_NAME" -f "$DOCKERFILE" .
-    [ "$1" = "--build" ] && exit 0
+    [ "$BUILD_ONLY" = 1 ] && exit 0
 fi
 
 # ---------------------------------------------------------------------------
@@ -42,20 +52,11 @@ fi
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# Find a free host port for the dev server (9000-9099)
+# Deterministic host port from workspace directory path (10000-20000)
+# Each worktree gets a unique, stable port derived from its absolute path
+# via cksum. The modulo ensures the result is in the 10000-20000 range.
 # ---------------------------------------------------------------------------
-HOST_PORT=""
-for port in $(seq 9000 9099); do
-    if ! (echo >/dev/tcp/127.0.0.1/"$port") 2>/dev/null; then
-        HOST_PORT=$port
-        break
-    fi
-done
-
-if [ -z "$HOST_PORT" ]; then
-    echo "ERROR: No free port in range 9000-9099" >&2
-    exit 1
-fi
+HOST_PORT=$(echo -n "$PWD" | cksum | awk '{print 10000 + ($1 % 10001)}')
 
 # ---------------------------------------------------------------------------
 # Assemble volume mounts
@@ -83,6 +84,12 @@ echo "==> Container: $CONTAINER_NAME"
 echo "==> Dev server: http://localhost:$HOST_PORT"
 echo ""
 
+INIT_SCRIPT='
+    sudo /usr/local/bin/init-firewall.sh
+    ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf
+    ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf
+'
+
 exec docker run -it --rm \
     --name "$CONTAINER_NAME" \
     --cap-add=NET_ADMIN \
@@ -100,9 +107,4 @@ exec docker run -it --rm \
     -w /workspace \
     -u node \
     "$IMAGE_NAME" \
-    bash -lc '
-        sudo /usr/local/bin/init-firewall.sh
-        ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf
-        ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf
-        claude --dangerously-skip-permissions
-    '
+    bash -lic "${INIT_SCRIPT}${CONTAINER_CMD:-exec bash -l}"

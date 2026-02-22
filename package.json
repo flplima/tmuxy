@@ -9,6 +9,7 @@
   "scripts": {
     "devcontainer": "bash scripts/devcontainer.sh",
     "devcontainer:build": "bash scripts/devcontainer.sh --build",
+    "yolo-mode": "bash scripts/devcontainer.sh --cmd 'claude --dangerously-skip-permissions'",
     "build": "npm run build -w tmuxy-ui",
     "start": "pm2 delete tmuxy-dev 2>/dev/null; pm2 start ./scripts/dev.sh --name tmuxy-dev --cwd /workspace",
     "stop": "pm2 stop tmuxy-dev",
