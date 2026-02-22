@@ -5,6 +5,10 @@ edition.workspace = true
 authors.workspace = true
 description = "Tmuxy web server for browser access"
 
+[lib]
+name = "web_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "tmuxy-web"
 path = "src/main.rs"

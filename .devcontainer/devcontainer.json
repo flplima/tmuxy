@@ -1,11 +1,52 @@
 {
   "name": "tmuxy-dev",
-  "dockerComposeFile": "compose.yml",
-  "service": "tmuxy-dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "TZ": "${localEnv:TZ:America/Los_Angeles}",
+      "CLAUDE_CODE_VERSION": "latest",
+      "GIT_DELTA_VERSION": "0.18.2",
+      "ZSH_IN_DOCKER_VERSION": "1.2.0"
+    }
+  },
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW",
+    "--init",
+    "--memory=6g",
+    "--shm-size=1g",
+    "--pids-limit=50000"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  },
+  "remoteUser": "node",
+  "mounts": [
+    "source=tmuxy-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=tmuxy-cargo-registry,target=/usr/local/cargo/registry,type=volume",
+    "source=tmuxy-cargo-git,target=/usr/local/cargo/git,type=volume",
+    "source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/node/.gitconfig,type=bind,readonly",
+    "source=${localEnv:HOME}/.ssh,target=/home/node/.ssh,type=bind,readonly",
+    "source=${localEnv:HOME}/.config/gh,target=/home/node/.config/gh,type=bind,readonly"
+  ],
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "CLAUDE_CONFIG_DIR": "/home/node/.claude",
+    "CHROME_CDP_URL": "http://localhost:9222",
+    "TMUX_SESSION": "dev",
+    "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "shutdownAction": "stopCompose",
-  "remoteUser": "user",
-  "remoteEnv": {
-    "CHROME_CDP_URL": "http://localhost:9222"
-  }
+  "postCreateCommand": "npm install && ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf && ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf",
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+  "waitFor": "postStartCommand"
 }
