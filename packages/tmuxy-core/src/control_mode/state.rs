@@ -125,12 +125,6 @@ pub struct PaneState {
     /// Whether this pane's output is paused due to flow control
     pub paused: bool,
 
-    /// Pane group ID (from @tmuxy_pane_group_id user option)
-    pub group_id: Option<String>,
-
-    /// Pane group tab index (from @tmuxy_pane_group_index user option)
-    pub group_tab_index: Option<u32>,
-
     /// Whether a selection is active in copy mode
     pub selection_present: bool,
 
@@ -176,8 +170,6 @@ impl PaneState {
             alternate_on: false,
             mouse_any_flag: false,
             paused: false,
-            group_id: None,
-            group_tab_index: None,
             selection_present: false,
             selection_start_x: 0,
             selection_start_y: 0,
@@ -340,8 +332,6 @@ impl PaneState {
             alternate_on: self.alternate_on,
             mouse_any_flag: self.mouse_any_flag,
             paused: self.paused,
-            group_id: self.group_id.clone(),
-            group_tab_index: self.group_tab_index,
             history_size: self.history_size,
             selection_present: self.selection_present,
             selection_start_x: sel_start_x,
@@ -402,9 +392,7 @@ impl WindowState {
             name: self.name.clone(),
             active: self.active,
             is_pane_group_window: pane_group_info.is_some(),
-            pane_group_id: pane_group_info.as_ref().and_then(|g| g.group_id.clone()),
-            pane_group_index: pane_group_info.as_ref().and_then(|g| g.pane_group_index),
-            pane_group_pane_ids: pane_group_info.as_ref().and_then(|g| g.pane_ids.clone()),
+            pane_group_pane_ids: pane_group_info.map(|g| g.pane_ids),
             is_float_window: is_float_window_name(&self.name),
             float_parent: self.float_parent.clone(),
             float_width: self.float_width,
@@ -1108,7 +1096,7 @@ impl StateAggregator {
     }
 
     /// Parse a line from list-panes output.
-    /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,title,in_mode,copy_x,copy_y,scroll_position,window_id,border_title,alternate_on,mouse_any_flag,group_id,group_tab_index`
+    /// Expected format: `%pane_id,pane_index,x,y,width,height,cursor_x,cursor_y,active,command,title,in_mode,copy_x,copy_y,scroll_position,window_id,border_title,alternate_on,mouse_any_flag,selection_present,selection_start_x,selection_start_y,history_size`
     /// Returns (pane_id, needs_capture) if successfully parsed.
     /// needs_capture is true if pane is new OR was resized.
     fn parse_list_panes_line(&mut self, line: &str) -> Option<(String, bool)> {
@@ -1143,46 +1131,26 @@ impl StateAggregator {
         // We parse from the end to find the known fixed fields
         let remaining_parts = if parts.len() > 16 { &parts[16..] } else { &[] };
 
-        // The last 8 fields should be: alternate_on, mouse_any_flag, group_id, group_tab_index,
+        // The last 6 fields should be: alternate_on, mouse_any_flag,
         // selection_present, selection_start_x, selection_start_y, history_size
         // Parse from the end to find the known fixed fields
-        let num_tail_fields = 8;
-        let (border_title, alternate_on, mouse_any_flag, group_id, group_tab_index,
+        let num_tail_fields = 6;
+        let (border_title, alternate_on, mouse_any_flag,
              selection_present, selection_start_x, selection_start_y, history_size) = if remaining_parts.len() >= num_tail_fields {
             let last_idx = remaining_parts.len() - 1;
             let hist_size: u64 = remaining_parts[last_idx].parse().unwrap_or(0);
             let sel_start_y: u64 = remaining_parts[last_idx - 1].parse().unwrap_or(0);
             let sel_start_x: u32 = remaining_parts[last_idx - 2].parse().unwrap_or(0);
             let sel_present = remaining_parts[last_idx - 3] == "1";
-            let group_tab_idx_str = remaining_parts[last_idx - 4];
-            let group_id_str = remaining_parts[last_idx - 5];
-            let mouse_flag = remaining_parts[last_idx - 6] == "1";
-            let alt_on = remaining_parts[last_idx - 7] == "1";
-            // Everything before the last 8 fields is border_title
+            let mouse_flag = remaining_parts[last_idx - 4] == "1";
+            let alt_on = remaining_parts[last_idx - 5] == "1";
+            // Everything before the last 6 fields is border_title
             let title_parts = if remaining_parts.len() > num_tail_fields {
                 remaining_parts[..remaining_parts.len() - num_tail_fields].join(",")
             } else {
                 String::new()
             };
-            let gid = if group_id_str.is_empty() { None } else { Some(group_id_str.to_string()) };
-            let gtab = group_tab_idx_str.parse::<u32>().ok();
-            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present, sel_start_x, sel_start_y, hist_size)
-        } else if remaining_parts.len() >= 5 {
-            // Fallback: older format without selection fields
-            let last_idx = remaining_parts.len() - 1;
-            let sel_present = remaining_parts[last_idx] == "1";
-            let group_tab_idx_str = remaining_parts[last_idx - 1];
-            let group_id_str = remaining_parts[last_idx - 2];
-            let mouse_flag = remaining_parts[last_idx - 3] == "1";
-            let alt_on = remaining_parts[last_idx - 4] == "1";
-            let title_parts = if remaining_parts.len() > 5 {
-                remaining_parts[..remaining_parts.len() - 5].join(",")
-            } else {
-                String::new()
-            };
-            let gid = if group_id_str.is_empty() { None } else { Some(group_id_str.to_string()) };
-            let gtab = group_tab_idx_str.parse::<u32>().ok();
-            (title_parts, alt_on, mouse_flag, gid, gtab, sel_present, 0, 0, 0)
+            (title_parts, alt_on, mouse_flag, sel_present, sel_start_x, sel_start_y, hist_size)
         } else if remaining_parts.len() >= 2 {
             let last_idx = remaining_parts.len() - 1;
             let mouse_flag = remaining_parts[last_idx] == "1";
@@ -1192,11 +1160,11 @@ impl StateAggregator {
             } else {
                 String::new()
             };
-            (title_parts, alt_on, mouse_flag, None, None, false, 0, 0, 0)
+            (title_parts, alt_on, mouse_flag, false, 0, 0, 0)
         } else if remaining_parts.len() == 1 {
-            (remaining_parts[0].to_string(), false, false, None, None, false, 0, 0, 0)
+            (remaining_parts[0].to_string(), false, false, false, 0, 0, 0)
         } else {
-            (String::new(), false, false, None, None, false, 0, 0, 0)
+            (String::new(), false, false, false, 0, 0, 0)
         };
 
         let pane_id_string = pane_id.to_string();
@@ -1228,8 +1196,6 @@ impl StateAggregator {
         pane.window_id = window_id;
         pane.alternate_on = alternate_on;
         pane.mouse_any_flag = mouse_any_flag;
-        pane.group_id = group_id;
-        pane.group_tab_index = group_tab_index;
         pane.selection_present = selection_present;
         pane.selection_start_x = selection_start_x;
         pane.selection_start_y = selection_start_y;
@@ -1522,12 +1488,6 @@ impl StateAggregator {
         if prev.paused != curr.paused {
             delta.paused = Some(curr.paused);
         }
-        if prev.group_id != curr.group_id {
-            delta.group_id = Some(curr.group_id.clone());
-        }
-        if prev.group_tab_index != curr.group_tab_index {
-            delta.group_tab_index = Some(curr.group_tab_index);
-        }
         if prev.history_size != curr.history_size {
             delta.history_size = Some(curr.history_size);
         }
@@ -1559,12 +1519,6 @@ impl StateAggregator {
         }
         if prev.is_pane_group_window != curr.is_pane_group_window {
             delta.is_pane_group_window = Some(curr.is_pane_group_window);
-        }
-        if prev.pane_group_id != curr.pane_group_id {
-            delta.pane_group_id = Some(curr.pane_group_id.clone());
-        }
-        if prev.pane_group_index != curr.pane_group_index {
-            delta.pane_group_index = Some(curr.pane_group_index);
         }
         if prev.pane_group_pane_ids != curr.pane_group_pane_ids {
             delta.pane_group_pane_ids = Some(curr.pane_group_pane_ids.clone());
