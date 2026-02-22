@@ -7,8 +7,6 @@ FROM node:22
 ARG TZ
 ENV TZ="$TZ"
 
-ARG CLAUDE_CODE_VERSION=latest
-
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools
@@ -80,7 +78,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 USER node
 
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
-ENV PATH=$PATH:/usr/local/share/npm-global/bin
+ENV PATH=/home/node/.local/bin:$PATH:/usr/local/share/npm-global/bin
 ENV SHELL=/bin/zsh
 ENV EDITOR=nano
 ENV VISUAL=nano
@@ -95,11 +93,14 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -a "export PATH=/usr/local/cargo/bin:\$PATH" \
     -x
 
-# Add cargo and npm global bin to profile (login shells, including non-interactive)
-RUN echo 'export PATH=/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/node/.profile
+# Add local bin, cargo, and npm global bin to profile (login shells, including non-interactive)
+RUN echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/node/.profile
 
-# Global npm packages: Claude Code, pm2, agent-browser
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} pm2 agent-browser \
+# Claude Code (native installer)
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# Global npm packages: pm2, agent-browser
+RUN npm install -g pm2 agent-browser \
     && agent-browser install
 
 # Firewall script (runs on container start via postStartCommand)
