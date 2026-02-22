@@ -83,7 +83,7 @@ State Machine (appMachine.ts)
 
 **All tmux commands must go through the control mode stdin connection**, not via external subprocess calls. Running external `tmux` commands while control mode is attached crashes tmux 3.3a.
 
-See [tmux Control Mode documentation](https://github.com/tmux/tmux/wiki/Control-Mode) and [.agents/learnings/2026_02_09_tmux_control_mode.md](.agents/learnings/2026_02_09_tmux_control_mode.md).
+See [tmux Control Mode documentation](https://github.com/tmux/tmux/wiki/Control-Mode).
 
 ```rust
 // Commands are routed through the monitor's control mode connection

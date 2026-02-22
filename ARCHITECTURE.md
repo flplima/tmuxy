@@ -309,7 +309,7 @@ Use tmux short command aliases (preferred in control mode):
 
 **Note:** `new` is short for `new-session`, NOT `new-window`. Use `neww` for creating windows.
 
-See [.agents/learnings/2026_02_09_tmux_control_mode.md](.agents/learnings/2026_02_09_tmux_control_mode.md) for detailed documentation.
+See the [tmux Control Mode wiki](https://github.com/tmux/tmux/wiki/Control-Mode) for detailed documentation.
 
 ## Key Design Decisions
 
