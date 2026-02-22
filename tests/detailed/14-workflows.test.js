@@ -252,8 +252,8 @@ describe('Category 14: Real-World Workflow Scenarios', () => {
       await delay(DELAYS.SYNC);
 
       // Verify total windows reached 3
-      const s = Date.now();
-      while (Date.now() - s < 15000) {
+      const s2 = Date.now();
+      while (Date.now() - s2 < 15000) {
         if (await ctx.session.getWindowCount() === 3) break;
         await delay(200);
       }

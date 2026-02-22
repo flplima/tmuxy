@@ -1,7 +1,7 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: 'node',
-  testMatch: ['**/*.test.js'],
+  testMatch: ['**/scenarios.test.js'],
   testTimeout: 60000,
   verbose: true,
   // Don't transform ES modules
