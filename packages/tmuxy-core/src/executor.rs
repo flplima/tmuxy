@@ -21,8 +21,6 @@ pub struct PaneInfo {
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
     pub window_id: String,  // window this pane belongs to (e.g., "@0")
-    pub group_id: Option<String>,       // from @tmuxy_pane_group_id
-    pub group_tab_index: Option<u32>,   // from @tmuxy_pane_group_index
 }
 
 /// Information about a tmux window
@@ -341,14 +339,14 @@ pub fn resize_window_default(cols: u32, rows: u32) -> Result<(), String> {
 /// Get information about all panes in all windows of the session
 pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
     // Use comma delimiter (matching control mode state.rs parser)
-    // Fields: pane_id, pane_index, pane_left, pane_top, pane_width, pane_height, cursor_x, cursor_y, pane_active, pane_current_command, pane_title, pane_in_mode, copy_cursor_x, copy_cursor_y, window_id, border_title, group_id, group_tab_index
+    // Fields: pane_id, pane_index, pane_left, pane_top, pane_width, pane_height, cursor_x, cursor_y, pane_active, pane_current_command, pane_title, pane_in_mode, copy_cursor_x, copy_cursor_y, window_id, border_title
     let output = execute_tmux_command(&[
         "list-panes",
         "-s",  // List all panes in all windows of the session (not just active window)
         "-t",
         session_name,
         "-F",
-        "#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id},#{T:pane-border-format},#{@tmuxy_pane_group_id},#{@tmuxy_pane_group_index}",
+        "#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id},#{T:pane-border-format}",
     ])?;
 
     let mut panes = Vec::new();
@@ -362,10 +360,6 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
         // Parse optional fields from the end
         let window_id = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
         let border_title = parts.get(15).map(|s| s.to_string()).unwrap_or_default();
-        let group_id = parts.get(16).and_then(|s| {
-            if s.is_empty() { None } else { Some(s.to_string()) }
-        });
-        let group_tab_index = parts.get(17).and_then(|s| s.parse::<u32>().ok());
 
         let pane = PaneInfo {
             id: parts[0].to_string(),
@@ -384,8 +378,6 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
             copy_cursor_x: parts[12].parse().unwrap_or(0),
             copy_cursor_y: parts[13].parse().unwrap_or(0),
             window_id,
-            group_id,
-            group_tab_index,
         };
 
         panes.push(pane);

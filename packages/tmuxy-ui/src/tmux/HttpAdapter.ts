@@ -516,10 +516,6 @@ export class HttpAdapter implements TmuxAdapter {
       ...(delta.is_pane_group_window !== undefined && {
         is_pane_group_window: delta.is_pane_group_window,
       }),
-      ...(delta.pane_group_parent_pane !== undefined && {
-        pane_group_parent_pane: delta.pane_group_parent_pane,
-      }),
-      ...(delta.pane_group_index !== undefined && { pane_group_index: delta.pane_group_index }),
       ...(delta.pane_group_pane_ids !== undefined && { pane_group_pane_ids: delta.pane_group_pane_ids }),
     };
   }
