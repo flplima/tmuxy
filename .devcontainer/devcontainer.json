@@ -33,6 +33,7 @@
     "source=tmuxy-cargo-registry,target=/usr/local/cargo/registry,type=volume",
     "source=tmuxy-cargo-git,target=/usr/local/cargo/git,type=volume",
     "source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind",
+    "source=${localEnv:HOME}/.claude.json,target=/home/node/.claude.json,type=bind",
     "source=${localEnv:HOME}/.gitconfig,target=/home/node/.gitconfig,type=bind,readonly",
     "source=${localEnv:HOME}/.ssh,target=/home/node/.ssh,type=bind,readonly",
     "source=${localEnv:HOME}/.config/gh,target=/home/node/.config/gh,type=bind,readonly"

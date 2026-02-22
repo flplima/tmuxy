@@ -95,8 +95,8 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -a "export PATH=/usr/local/cargo/bin:\$PATH" \
     -x
 
-# Add cargo to bash profile too
-RUN echo 'export PATH=/usr/local/cargo/bin:$PATH' >> /home/node/.bashrc
+# Add cargo and npm global bin to profile (login shells, including non-interactive)
+RUN echo 'export PATH=/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/node/.profile
 
 # Global npm packages: Claude Code, pm2, agent-browser
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} pm2 agent-browser \

@@ -71,9 +71,10 @@ MOUNTS=(
 )
 
 # Host credentials (mounted read-only, skipped if missing)
-[ -f "$HOME/.gitconfig" ] && MOUNTS+=(-v "$HOME/.gitconfig:/home/node/.gitconfig:ro")
-[ -d "$HOME/.ssh" ]       && MOUNTS+=(-v "$HOME/.ssh:/home/node/.ssh:ro")
-[ -d "$HOME/.config/gh" ] && MOUNTS+=(-v "$HOME/.config/gh:/home/node/.config/gh:ro")
+[ -f "$HOME/.claude.json" ] && MOUNTS+=(-v "$HOME/.claude.json:/home/node/.claude.json")
+[ -f "$HOME/.gitconfig" ]   && MOUNTS+=(-v "$HOME/.gitconfig:/home/node/.gitconfig:ro")
+[ -d "$HOME/.ssh" ]         && MOUNTS+=(-v "$HOME/.ssh:/home/node/.ssh:ro")
+[ -d "$HOME/.config/gh" ]   && MOUNTS+=(-v "$HOME/.config/gh:/home/node/.config/gh:ro")
 
 # ---------------------------------------------------------------------------
 # Run
