@@ -31,6 +31,9 @@ function getTabTitle(pane: TmuxPane): string {
 /**
  * Memoized tab component to prevent unnecessary re-renders
  */
+/** Minimum pixels of movement before a mousedown becomes a drag */
+const DRAG_THRESHOLD = 5;
+
 const PaneTab = memo(function PaneTab({
   pane,
   isSelectedTab,
@@ -51,14 +54,37 @@ const PaneTab = memo(function PaneTab({
   onDragStart: (e: React.MouseEvent) => void;
 }) {
   const tabTitle = titleOverride ?? getTabTitle(pane);
+  const pendingDragRef = useRef<{ x: number; y: number; event: React.MouseEvent } | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    // Don't start drag from close button
     if (target.classList.contains('pane-tab-close') || target.tagName === 'BUTTON') {
       return;
     }
-    onDragStart(e);
+    // Record the start position — defer drag until mouse moves past threshold
+    pendingDragRef.current = { x: e.clientX, y: e.clientY, event: e };
+
+    const handleMouseMove = (moveEvt: MouseEvent) => {
+      if (!pendingDragRef.current) return;
+      const dx = Math.abs(moveEvt.clientX - pendingDragRef.current.x);
+      const dy = Math.abs(moveEvt.clientY - pendingDragRef.current.y);
+      if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+        onDragStart(pendingDragRef.current.event);
+        pendingDragRef.current = null;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      }
+    };
+
+    const handleMouseUp = () => {
+      pendingDragRef.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
   return (
