@@ -17,6 +17,7 @@ import { PaneHeader } from './PaneHeader';
 import { SelectionContextMenu } from './SelectionContextMenu';
 import {
   useAppSend,
+  useAppActor,
   usePane,
   useIsPaneInActiveWindow,
   useIsSinglePane,
@@ -33,6 +34,7 @@ interface TerminalPaneProps {
 
 export function TerminalPane({ paneId }: TerminalPaneProps) {
   const send = useAppSend();
+  const actor = useAppActor();
   const pane = usePane(paneId);
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
@@ -48,13 +50,6 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     y: number;
     text: string;
   } | null>(null);
-  const pendingContextMenuRef = useRef<{
-    x: number;
-    y: number;
-    cellRow: number;
-    cellCol: number;
-  } | null>(null);
-
   const historySize = pane?.historySize ?? 0;
   const paneHeight = pane?.height ?? 24;
   const totalHeight = (historySize + paneHeight) * charHeight;
@@ -188,17 +183,18 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     return () => el.removeEventListener('wheel', handler);
   }, []);
 
-  // When a pending context menu is set and copy mode selection becomes available, show the menu
-  useEffect(() => {
-    if (pendingContextMenuRef.current && copyState?.selectionMode) {
-      const text = extractSelectedText(copyState);
-      if (text) {
-        const { x, y } = pendingContextMenuRef.current;
-        setSelectionMenu({ x, y, text });
+  // Show context menu after word select by reading state directly from the actor
+  const showMenuFromSnapshot = useCallback(
+    (x: number, y: number) => {
+      const snap = actor.getSnapshot();
+      const cs = snap.context.copyModeStates[paneId];
+      if (cs?.selectionMode) {
+        const text = extractSelectedText(cs);
+        if (text) setSelectionMenu({ x, y, text });
       }
-      pendingContextMenuRef.current = null;
-    }
-  }, [copyState?.selectionMode, copyState]);
+    },
+    [actor, paneId],
+  );
 
   // Handle right-click context menu for text selection
   const handleContextMenu = useCallback(
@@ -218,33 +214,19 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       relY += subLineOffset;
       const cellCol = Math.max(0, Math.floor(relX / charWidth));
       const cellRow = Math.floor(relY / charHeight);
+      const menuX = e.clientX;
+      const menuY = e.clientY;
 
       if (copyState?.selectionMode) {
         // Already have a selection — show menu immediately
         const text = extractSelectedText(copyState);
         if (text) {
-          setSelectionMenu({ x: e.clientX, y: e.clientY, text });
+          setSelectionMenu({ x: menuX, y: menuY, text });
         }
-      } else {
-        // No selection — enter copy mode and select word under cursor
-        pendingContextMenuRef.current = {
-          x: e.clientX,
-          y: e.clientY,
-          cellRow,
-          cellCol,
-        };
-        if (!copyState) {
-          send({ type: 'ENTER_COPY_MODE', paneId });
-          setTimeout(() => {
-            send({
-              type: 'COPY_MODE_WORD_SELECT',
-              paneId,
-              row: cellRow,
-              col: cellCol,
-              broad: true,
-            });
-          }, 100);
-        } else {
+      } else if (!copyState) {
+        // Not in copy mode — enter copy mode, select word, then show menu
+        send({ type: 'ENTER_COPY_MODE', paneId });
+        setTimeout(() => {
           send({
             type: 'COPY_MODE_WORD_SELECT',
             paneId,
@@ -252,10 +234,31 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
             col: cellCol,
             broad: true,
           });
-        }
+          setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
+        }, 100);
+      } else {
+        // In copy mode but no selection — select word, then show menu
+        send({
+          type: 'COPY_MODE_WORD_SELECT',
+          paneId,
+          row: cellRow,
+          col: cellCol,
+          broad: true,
+        });
+        setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
       }
     },
-    [send, paneId, pane?.mouseAnyFlag, copyState, charWidth, charHeight, contentRef, scrollRef],
+    [
+      send,
+      paneId,
+      pane?.mouseAnyFlag,
+      copyState,
+      charWidth,
+      charHeight,
+      contentRef,
+      scrollRef,
+      showMenuFromSnapshot,
+    ],
   );
 
   if (!pane) return null;
