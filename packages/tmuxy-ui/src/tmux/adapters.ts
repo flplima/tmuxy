@@ -8,6 +8,7 @@ import {
   ServerState,
 } from './types';
 import { HttpAdapter } from './HttpAdapter';
+import { FakeTmuxAdapter } from './fake/fakeTmuxAdapter';
 
 // ============================================
 // Tauri Adapter
@@ -107,9 +108,16 @@ function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI__' in window;
 }
 
+function isDemo(): boolean {
+  return typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('demo');
+}
+
 export function createAdapter(): TmuxAdapter {
   if (isTauri()) {
     return new TauriAdapter();
+  }
+  if (isDemo()) {
+    return new FakeTmuxAdapter();
   }
   return new HttpAdapter();
 }
