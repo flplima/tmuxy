@@ -105,6 +105,7 @@ INIT_SCRIPT='
 exec docker run -it --rm \
     --name "$CONTAINER_NAME" \
     --init \
+    --add-host=host.docker.internal:host-gateway \
     --memory=6g \
     --shm-size=1g \
     --pids-limit=50000 \
@@ -112,7 +113,8 @@ exec docker run -it --rm \
     "${MOUNTS[@]}" \
     -e PORT=9000 \
     -e HOST_PORT="$HOST_PORT" \
-    -e CHROME_CDP_URL=http://localhost:9222 \
+    -e CONTAINER_NAME="$CONTAINER_NAME" \
+    -e CHROME_CDP_URL=http://host.docker.internal:9222 \
     -e TMUX_SESSION=dev \
     -w /workspace \
     -u node \
