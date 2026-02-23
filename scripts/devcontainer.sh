@@ -2,7 +2,7 @@
 #
 # Start the devcontainer with an interactive shell or a custom command.
 #
-# Mounts host credentials (Claude, Git, GitHub CLI, SSH) so you don't
+# Mounts host credentials (Claude, Git, GitHub CLI) so you don't
 # need to re-authenticate inside the container.
 #
 # Multiple instances can run simultaneously from different worktrees —
@@ -73,7 +73,6 @@ MOUNTS=(
 # Host credentials (mounted read-only, skipped if missing)
 [ -f "$HOME/.claude.json" ] && MOUNTS+=(-v "$HOME/.claude.json:/home/node/.claude.json")
 [ -f "$HOME/.gitconfig" ]   && MOUNTS+=(-v "$HOME/.gitconfig:/home/node/.gitconfig:ro")
-[ -d "$HOME/.ssh" ]         && MOUNTS+=(-v "$HOME/.ssh:/home/node/.ssh:ro")
 [ -d "$HOME/.config/gh" ]   && MOUNTS+=(-v "$HOME/.config/gh:/home/node/.config/gh:ro")
 
 # Git worktree support: .git is a file pointing to the host's gitdir which
@@ -100,6 +99,8 @@ echo ""
 INIT_SCRIPT='
     ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf
     ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf
+    gh auth setup-git 2>/dev/null
+    git -C /workspace remote set-url origin "$(git -C /workspace remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
 '
 
 exec docker run -it --rm \
