@@ -12,8 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools
     less git procps sudo fzf zsh man-db unzip gnupg2 \
     nano vim neovim jq yq bc \
-    # Firewall
-    iptables ipset iproute2 dnsutils aggregate \
     # Build tools (tmux, native modules)
     build-essential pkg-config libssl-dev ca-certificates \
     libevent-dev libncurses-dev bison \
@@ -91,6 +89,7 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -a "source /usr/share/doc/fzf/examples/completion.zsh" \
     -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
     -a "export PATH=/usr/local/cargo/bin:\$PATH" \
+    -a "[[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh" \
     -x
 
 # Add local bin, cargo, and npm global bin to profile (login shells, including non-interactive)
@@ -102,11 +101,3 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # Global npm packages: pm2, agent-browser
 RUN npm install -g pm2 agent-browser \
     && agent-browser install
-
-# Firewall script (runs on container start via postStartCommand)
-COPY init-firewall.sh /usr/local/bin/
-USER root
-RUN chmod +x /usr/local/bin/init-firewall.sh \
-    && echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall \
-    && chmod 0440 /etc/sudoers.d/node-firewall
-USER node

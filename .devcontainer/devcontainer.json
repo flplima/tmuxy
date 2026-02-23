@@ -9,8 +9,6 @@
     }
   },
   "runArgs": [
-    "--cap-add=NET_ADMIN",
-    "--cap-add=NET_RAW",
     "--init",
     "--memory=6g",
     "--shm-size=1g",
@@ -46,7 +44,6 @@
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postCreateCommand": "npm install && ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf && ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf",
-  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
-  "waitFor": "postStartCommand"
+  "postCreateCommand": "npm install && ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf && ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf && ln -sf /workspace/docker/.p10k.zsh ~/.p10k.zsh",
+  "postStartCommand": "npm start"
 }
