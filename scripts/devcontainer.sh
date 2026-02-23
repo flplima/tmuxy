@@ -3,8 +3,7 @@
 # Start the devcontainer with an interactive shell or a custom command.
 #
 # Mounts host credentials (Claude, Git, GitHub CLI, SSH) so you don't
-# need to re-authenticate inside the container. A firewall restricts
-# outbound traffic to whitelisted domains only.
+# need to re-authenticate inside the container.
 #
 # Multiple instances can run simultaneously from different worktrees —
 # each gets a unique container name and a free host port for the dev server.
@@ -85,15 +84,12 @@ echo "==> Dev server: http://localhost:$HOST_PORT"
 echo ""
 
 INIT_SCRIPT='
-    sudo /usr/local/bin/init-firewall.sh
     ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf
     ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf
 '
 
 exec docker run -it --rm \
     --name "$CONTAINER_NAME" \
-    --cap-add=NET_ADMIN \
-    --cap-add=NET_RAW \
     --init \
     --memory=6g \
     --shm-size=1g \
