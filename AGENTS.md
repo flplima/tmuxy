@@ -19,6 +19,33 @@ tmuxy/
 └── docker/              # Docker development environment
 ```
 
+## Devcontainer
+
+You may be running inside a Docker devcontainer. Check for the `CONTAINER_NAME` env var.
+
+| Variable | Description |
+|----------|-------------|
+| `CONTAINER_NAME` | Container name (e.g., `tmuxy-worktree-1`) |
+| `HOST_PORT` | Port exposed on the host (e.g., `14089`) |
+| `PORT` | Internal server port (`9000`) |
+
+The dev server listens on `PORT` inside the container, mapped to `HOST_PORT` on the host. The app is accessible from the host at `http://localhost:$HOST_PORT`.
+
+### agent-browser inside the container
+
+Chrome runs on the **host**, not inside the container. The container reaches it via `host.docker.internal:9222` (`--add-host=host.docker.internal:host-gateway`). The `CHROME_CDP_URL` env var is pre-configured.
+
+```bash
+# Connect using the pre-configured CDP URL
+agent-browser connect "$CHROME_CDP_URL"
+
+# Then use as normal
+agent-browser open "http://localhost:$HOST_PORT"
+agent-browser snapshot -i
+```
+
+Note: URLs passed to `agent-browser open` are resolved by Chrome on the **host**, so use `localhost:$HOST_PORT` (not `localhost:$PORT`).
+
 ## Development
 
 ```bash
