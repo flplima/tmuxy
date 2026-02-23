@@ -28,8 +28,10 @@ function computeScrollbackSelection(
 
   const isLineMode = selectionMode === 'line';
 
-  let sy = selectionAnchor.row, sx = selectionAnchor.col;
-  let ey = cursorRow, ex = cursorCol;
+  let sy = selectionAnchor.row,
+    sx = selectionAnchor.col;
+  let ey = cursorRow,
+    ex = cursorCol;
   if (sy > ey || (sy === ey && sx > ex)) {
     [sy, sx, ey, ex] = [ey, ex, sy, sx];
   }
@@ -54,19 +56,17 @@ function computeScrollbackSelection(
 export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
   const { charHeight } = useAppSelector(selectCharSize);
 
-  const {
-    totalLines,
-    scrollTop,
-    height,
-    width,
-    cursorRow,
-    cursorCol,
-    lines,
-  } = copyState;
+  const { totalLines, scrollTop, height, width, cursorRow, cursorCol, lines } = copyState;
 
   const getSelectionRange = useMemo(
     () => computeScrollbackSelection(copyState),
-    [copyState.selectionAnchor, copyState.selectionMode, copyState.cursorRow, copyState.cursorCol, copyState.width]
+    [
+      copyState.selectionAnchor,
+      copyState.selectionMode,
+      copyState.cursorRow,
+      copyState.cursorCol,
+      copyState.width,
+    ],
   );
 
   // Visible line range

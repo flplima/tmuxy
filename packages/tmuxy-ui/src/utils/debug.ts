@@ -25,7 +25,9 @@ declare global {
     app?: {
       getSnapshot: () => { context: AppState };
       send: (event: unknown) => void;
-      subscribe: (callback: (snapshot: { context: AppState }) => void) => { unsubscribe: () => void };
+      subscribe: (callback: (snapshot: { context: AppState }) => void) => {
+        unsubscribe: () => void;
+      };
     };
   }
 }
@@ -106,17 +108,18 @@ function buildSnapshot(): string[] {
   const state = window.app?.getSnapshot()?.context;
   if (!state) return ['Error: No app state available (window.app not set)'];
 
-  const { panes, paneGroups, floatPanes, activeWindowId, totalWidth, totalHeight, statusLine } = state;
+  const { panes, paneGroups, floatPanes, activeWindowId, totalWidth, totalHeight, statusLine } =
+    state;
   if (!panes || panes.length === 0) return ['Error: No panes'];
 
   // Filter to visible panes in the active window
-  const winId = activeWindowId || panes.find(p => p.active)?.windowId || panes[0]?.windowId;
-  let visiblePanes = panes.filter(p => p.windowId === winId);
+  const winId = activeWindowId || panes.find((p) => p.active)?.windowId || panes[0]?.windowId;
+  let visiblePanes = panes.filter((p) => p.windowId === winId);
 
   // Exclude float panes (they're rendered in separate modal overlay)
   if (floatPanes && Object.keys(floatPanes).length > 0) {
     const floatPaneIds = new Set(Object.keys(floatPanes));
-    visiblePanes = visiblePanes.filter(p => !floatPaneIds.has(p.tmuxId));
+    visiblePanes = visiblePanes.filter((p) => !floatPaneIds.has(p.tmuxId));
   }
 
   // Exclude non-active group members (active = in active window)
@@ -124,8 +127,8 @@ function buildSnapshot(): string[] {
     const hiddenGroupPaneIds = new Set<string>();
     for (const group of Object.values(paneGroups)) {
       // Find which group pane is in the active window
-      const activePaneId = group.paneIds.find(paneId => {
-        const pane = panes.find(p => p.tmuxId === paneId);
+      const activePaneId = group.paneIds.find((paneId) => {
+        const pane = panes.find((p) => p.tmuxId === paneId);
         return pane?.windowId === winId;
       });
       for (const paneId of group.paneIds) {
@@ -135,7 +138,7 @@ function buildSnapshot(): string[] {
       }
     }
     if (hiddenGroupPaneIds.size > 0) {
-      visiblePanes = visiblePanes.filter(p => !hiddenGroupPaneIds.has(p.tmuxId));
+      visiblePanes = visiblePanes.filter((p) => !hiddenGroupPaneIds.has(p.tmuxId));
     }
   }
 
@@ -143,33 +146,25 @@ function buildSnapshot(): string[] {
 
   // Grid: totalHeight rows for pane area + 1 row for status line
   const gridHeight = totalHeight + 1;
-  const grid: string[][] = Array.from({ length: gridHeight }, () =>
-    Array(totalWidth).fill(' ')
-  );
+  const grid: string[][] = Array.from({ length: gridHeight }, () => Array(totalWidth).fill(' '));
 
   // Check if cell (r, c) is covered by any pane
   function findPane(r: number, c: number): TmuxPane | undefined {
-    return visiblePanes.find(p =>
-      c >= p.x && c < p.x + p.width && r >= p.y && r < p.y + p.height
+    return visiblePanes.find(
+      (p) => c >= p.x && c < p.x + p.width && r >= p.y && r < p.y + p.height,
     );
   }
 
   // Check if cell (r, c) is a vertical divider (panes on both sides in the same row)
   function isVerticalDivider(r: number, c: number): boolean {
-    const hasLeft = visiblePanes.some(p =>
-      p.x + p.width === c && r >= p.y && r < p.y + p.height
-    );
-    const hasRight = visiblePanes.some(p =>
-      p.x === c + 1 && r >= p.y && r < p.y + p.height
-    );
+    const hasLeft = visiblePanes.some((p) => p.x + p.width === c && r >= p.y && r < p.y + p.height);
+    const hasRight = visiblePanes.some((p) => p.x === c + 1 && r >= p.y && r < p.y + p.height);
     return hasLeft && hasRight;
   }
 
   // Find the pane that starts just below a divider row
   function findPaneBelowDivider(r: number, c: number): TmuxPane | undefined {
-    return visiblePanes.find(p =>
-      c >= p.x && c < p.x + p.width && p.y === r + 1
-    );
+    return visiblePanes.find((p) => c >= p.x && c < p.x + p.width && p.y === r + 1);
   }
 
   // Extract pane content from DOM
@@ -215,7 +210,8 @@ function buildSnapshot(): string[] {
           // Junction character at a horizontal/vertical divider intersection
           // Check for horizontal dividers on left and right
           const hOnLeft = c > 0 && !findPane(r, c - 1) && !isVerticalDivider(r, c - 1);
-          const hOnRight = c < totalWidth - 1 && !findPane(r, c + 1) && !isVerticalDivider(r, c + 1);
+          const hOnRight =
+            c < totalWidth - 1 && !findPane(r, c + 1) && !isVerticalDivider(r, c + 1);
           if (!vAbove && vBelow) grid[r][c] = '┬';
           else if (vAbove && !vBelow) grid[r][c] = '┴';
           else if (hOnLeft && hOnRight) grid[r][c] = '┼';
@@ -244,7 +240,7 @@ function buildSnapshot(): string[] {
     grid[gridHeight - 1][c] = cleanStatus[c];
   }
 
-  return grid.map(row => row.join(''));
+  return grid.map((row) => row.join(''));
 }
 
 /**
@@ -256,7 +252,9 @@ async function fetchTmuxSnapshot(): Promise<string[]> {
     const session = new URL(window.location.href).searchParams.get('session');
     const url = session ? `/api/snapshot?session=${encodeURIComponent(session)}` : '/api/snapshot';
     const response = await fetch(url);
-    const data = await response.json() as { rows: number; cols: number; lines: string[] } | { error: string };
+    const data = (await response.json()) as
+      | { rows: number; cols: number; lines: string[] }
+      | { error: string };
     if ('error' in data) {
       return [`Error: ${data.error}`];
     }

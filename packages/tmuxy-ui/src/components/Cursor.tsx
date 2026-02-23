@@ -36,12 +36,7 @@ export function Cursor({
     .join(' ');
 
   return (
-    <span
-      className={className}
-      data-cursor-x={x}
-      data-cursor-y={y}
-      aria-hidden="true"
-    >
+    <span className={className} data-cursor-x={x} data-cursor-y={y} aria-hidden="true">
       {char}
     </span>
   );

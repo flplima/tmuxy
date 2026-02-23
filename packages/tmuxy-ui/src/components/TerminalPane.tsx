@@ -71,28 +71,31 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   }, []);
 
   // onScroll: detect scroll away from bottom -> enter copy mode
-  const handleContainerScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (suppressScrollRef.current) return;
+  const handleContainerScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      if (suppressScrollRef.current) return;
 
-    const el = e.currentTarget;
-    const scrollTop = el.scrollTop;
-    const maxScroll = el.scrollHeight - el.clientHeight;
-    const atBottom = maxScroll <= 0 || scrollTop >= maxScroll - 1;
+      const el = e.currentTarget;
+      const scrollTop = el.scrollTop;
+      const maxScroll = el.scrollHeight - el.clientHeight;
+      const atBottom = maxScroll <= 0 || scrollTop >= maxScroll - 1;
 
-    if (copyState) {
-      // Already in copy mode — forward scroll to state machine
-      const newScrollTop = Math.floor(scrollTop / charHeight);
-      lastDomScrollTopRef.current = newScrollTop;
-      send({ type: 'COPY_MODE_SCROLL', paneId, scrollTop: newScrollTop });
-      flashScrollIndicator();
-    } else if (!atBottom && historySize > 0) {
-      // Scrolled away from bottom in normal mode — enter copy mode
-      const scrollTopLines = Math.floor(scrollTop / charHeight);
-      lastDomScrollTopRef.current = scrollTopLines;
-      send({ type: 'ENTER_COPY_MODE', paneId, nativeScrollTop: scrollTopLines });
-      flashScrollIndicator();
-    }
-  }, [send, paneId, charHeight, copyState, historySize, flashScrollIndicator]);
+      if (copyState) {
+        // Already in copy mode — forward scroll to state machine
+        const newScrollTop = Math.floor(scrollTop / charHeight);
+        lastDomScrollTopRef.current = newScrollTop;
+        send({ type: 'COPY_MODE_SCROLL', paneId, scrollTop: newScrollTop });
+        flashScrollIndicator();
+      } else if (!atBottom && historySize > 0) {
+        // Scrolled away from bottom in normal mode — enter copy mode
+        const scrollTopLines = Math.floor(scrollTop / charHeight);
+        lastDomScrollTopRef.current = scrollTopLines;
+        send({ type: 'ENTER_COPY_MODE', paneId, nativeScrollTop: scrollTopLines });
+        flashScrollIndicator();
+      }
+    },
+    [send, paneId, charHeight, copyState, historySize, flashScrollIndicator],
+  );
 
   // Keep scroll pinned to bottom in normal mode
   useLayoutEffect(() => {

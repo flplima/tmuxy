@@ -356,8 +356,13 @@ body {
 }
 
 @keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 /* ============================================
@@ -462,11 +467,7 @@ body {
 
 /* Drag placeholder - shows original position during drag */
 .pane-drag-placeholder {
-  background: linear-gradient(
-    135deg,
-    rgba(100, 150, 255, 0.1) 0%,
-    rgba(100, 150, 255, 0.2) 100%
-  );
+  background: linear-gradient(135deg, rgba(100, 150, 255, 0.1) 0%, rgba(100, 150, 255, 0.2) 100%);
   border: 2px dashed var(--accent-blue-light);
   box-sizing: border-box;
   z-index: var(--z-elevated);
@@ -602,11 +603,9 @@ body {
   z-index: 60; /* Above resize dividers */
 }
 
-
 /* ============================================
    Status Bar - styles are in StatusBar.css
    ============================================ */
-
 
 /* ============================================
    Tmux Status Bar (Bottom)
@@ -756,7 +755,6 @@ body {
   border: 1px solid var(--accent-green);
   box-sizing: border-box;
 }
-
 
 /* ============================================
    File Picker
@@ -984,8 +982,12 @@ body {
   padding-bottom: 6px;
 }
 
-.widget-markdown h3 { font-size: 1.2em; }
-.widget-markdown h4 { font-size: 1.1em; }
+.widget-markdown h3 {
+  font-size: 1.2em;
+}
+.widget-markdown h4 {
+  font-size: 1.1em;
+}
 
 .widget-markdown p {
   margin: 0 0 12px;
@@ -1050,7 +1052,7 @@ body {
   margin-bottom: 4px;
 }
 
-.widget-markdown li input[type="checkbox"] {
+.widget-markdown li input[type='checkbox'] {
   margin-right: 6px;
 }
 

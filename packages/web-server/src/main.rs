@@ -57,8 +57,7 @@ impl ViteChild {
 
 #[tokio::main]
 async fn main() {
-    let dev_mode = std::env::args().any(|arg| arg == "--dev")
-        || std::env::var("TMUXY_DEV").is_ok();
+    let dev_mode = std::env::args().any(|arg| arg == "--dev") || std::env::var("TMUXY_DEV").is_ok();
 
     let state = Arc::new(AppState::new());
 
@@ -89,7 +88,10 @@ async fn main() {
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     println!("tmuxy web server running at http://localhost:{}", port);
     if dev_mode {
-        println!("[dev] Vite HMR and static files proxied from port {}", VITE_PORT);
+        println!(
+            "[dev] Vite HMR and static files proxied from port {}",
+            VITE_PORT
+        );
     }
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -134,10 +136,7 @@ async fn proxy_to_vite(req: Request) -> Response {
     let client = reqwest::Client::new();
 
     let uri = req.uri();
-    let path_and_query = uri
-        .path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
+    let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
 
     let vite_url = format!("http://localhost:{}{}", VITE_PORT, path_and_query);
 
@@ -161,7 +160,12 @@ async fn proxy_to_vite(req: Request) -> Response {
         _ => reqwest::Method::GET,
     };
 
-    match client.request(method, &vite_url).headers(headers).send().await {
+    match client
+        .request(method, &vite_url)
+        .headers(headers)
+        .send()
+        .await
+    {
         Ok(resp) => {
             let status = axum::http::StatusCode::from_u16(resp.status().as_u16())
                 .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);

@@ -61,7 +61,10 @@ fn simple_hash(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut hash: u64 = bytes.len() as u64;
     for (i, &b) in bytes.iter().enumerate() {
-        hash = hash.wrapping_mul(31).wrapping_add(b as u64).wrapping_add(i as u64);
+        hash = hash
+            .wrapping_mul(31)
+            .wrapping_add(b as u64)
+            .wrapping_add(i as u64);
     }
     format!("{:016x}", hash)
 }

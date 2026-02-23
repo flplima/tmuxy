@@ -36,7 +36,7 @@ export function useAnimatedPane(
   targetY: number,
   elevated: boolean,
   enabled: boolean = true,
-  config: Partial<SpringConfig> = {}
+  config: Partial<SpringConfig> = {},
 ) {
   const { stiffness, damping, mass, precision } = { ...DEFAULT_CONFIG, ...config };
 
@@ -54,9 +54,7 @@ export function useAnimatedPane(
     if (!element) return;
 
     const now = performance.now();
-    const dt = lastTimeRef.current
-      ? Math.min((now - lastTimeRef.current) / 1000, 0.032)
-      : 0.016;
+    const dt = lastTimeRef.current ? Math.min((now - lastTimeRef.current) / 1000, 0.032) : 0.016;
     lastTimeRef.current = now;
 
     const state = stateRef.current;
@@ -159,14 +157,17 @@ export function useAnimatedPane(
     };
   }, []);
 
-  const setRef = useCallback((el: HTMLDivElement | null) => {
-    elementRef.current = el;
-    if (el) {
-      // Initialize transform
-      el.style.transform = `translate3d(${stateRef.current.x}px, ${stateRef.current.y}px, 0)`;
-      el.style.zIndex = elevated ? '100' : '1';
-    }
-  }, [elevated]);
+  const setRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      elementRef.current = el;
+      if (el) {
+        // Initialize transform
+        el.style.transform = `translate3d(${stateRef.current.x}px, ${stateRef.current.y}px, 0)`;
+        el.style.zIndex = elevated ? '100' : '1';
+      }
+    },
+    [elevated],
+  );
 
   return setRef;
 }

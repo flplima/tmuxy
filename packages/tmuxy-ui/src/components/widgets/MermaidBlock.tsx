@@ -53,10 +53,12 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
         if (!cancelled) {
           setError(String(err));
         }
-      }
+      },
     );
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [chart]);
 
   if (error) {

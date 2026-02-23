@@ -335,7 +335,7 @@ export class HttpAdapter implements TmuxAdapter {
 
     const delay = Math.min(
       INITIAL_RECONNECT_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1),
-      MAX_RECONNECT_DELAY_MS
+      MAX_RECONNECT_DELAY_MS,
     );
 
     console.log(`[HttpAdapter] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
@@ -516,7 +516,9 @@ export class HttpAdapter implements TmuxAdapter {
       ...(delta.is_pane_group_window !== undefined && {
         is_pane_group_window: delta.is_pane_group_window,
       }),
-      ...(delta.pane_group_pane_ids !== undefined && { pane_group_pane_ids: delta.pane_group_pane_ids }),
+      ...(delta.pane_group_pane_ids !== undefined && {
+        pane_group_pane_ids: delta.pane_group_pane_ids,
+      }),
     };
   }
 }

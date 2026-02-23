@@ -52,17 +52,21 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
 
       const el = wrapperRef.current;
       if (!el) return;
-      const scrollEl = el.querySelector('.widget-markdown, .widget-scrollable') as HTMLElement | null;
+      const scrollEl = el.querySelector(
+        '.widget-markdown, .widget-scrollable',
+      ) as HTMLElement | null;
       if (!scrollEl) return;
 
       const pageSize = scrollEl.clientHeight;
       let handled = true;
 
       switch (e.key) {
-        case 'j': case 'ArrowDown':
+        case 'j':
+        case 'ArrowDown':
           scrollEl.scrollTop += LINE_HEIGHT;
           break;
-        case 'k': case 'ArrowUp':
+        case 'k':
+        case 'ArrowUp':
           scrollEl.scrollTop -= LINE_HEIGHT;
           break;
         case 'd':
@@ -79,10 +83,12 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
         case 'G':
           scrollEl.scrollTop = scrollEl.scrollHeight;
           break;
-        case ' ': case 'PageDown':
+        case ' ':
+        case 'PageDown':
           scrollEl.scrollTop += pageSize;
           break;
-        case 'b': case 'PageUp':
+        case 'b':
+        case 'PageUp':
           scrollEl.scrollTop -= pageSize;
           break;
         case 'Home':
@@ -109,7 +115,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   if (!pane) return null;
 
   const WidgetComponent = getWidget(widgetInfo.widgetName)!;
-  const lastLine = widgetInfo.contentLines.filter(l => l.trim()).pop() || '';
+  const lastLine = widgetInfo.contentLines.filter((l) => l.trim()).pop() || '';
   const widgetTitle = getWidgetTitle(widgetInfo.contentLines);
   const writeStdin = (data: string) => {
     send({ type: 'WRITE_TO_PANE', paneId, data });

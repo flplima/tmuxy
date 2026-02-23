@@ -46,8 +46,10 @@ function computeSelectionRanges(
   if (!selectionPresent || !selectionStart) return () => null;
 
   // Normalize: ensure start is before end
-  let sy = selectionStart.y, sx = selectionStart.x;
-  let ey = copyCursorY, ex = copyCursorX;
+  let sy = selectionStart.y,
+    sx = selectionStart.x;
+  let ey = copyCursorY,
+    ex = copyCursorX;
   if (sy > ey || (sy === ey && sx > ex)) {
     [sy, sx, ey, ex] = [ey, ex, sy, sx];
   }
@@ -102,8 +104,15 @@ export const Terminal: React.FC<TerminalProps> = ({
 
   // Compute selection ranges for each line
   const getSelectionRange = useMemo(
-    () => computeSelectionRanges(selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width),
-    [selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width]
+    () =>
+      computeSelectionRanges(
+        selectionPresent,
+        effectiveSelectionStart,
+        copyCursorX,
+        copyCursorY,
+        width,
+      ),
+    [selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width],
   );
 
   // Pad content to fill height
@@ -118,7 +127,10 @@ export const Terminal: React.FC<TerminalProps> = ({
   // Extract first line for accessibility (plain text)
   const firstLineText = useMemo(() => {
     if (content.length === 0) return '';
-    return content[0].map((cell) => cell.c).join('').trim();
+    return content[0]
+      .map((cell) => cell.c)
+      .join('')
+      .trim();
   }, [content]);
 
   return (

@@ -5,8 +5,8 @@ use crate::DEFAULT_SESSION_NAME;
 /// Information about a single pane
 #[derive(Debug, Clone)]
 pub struct PaneInfo {
-    pub id: String,      // e.g., "%0"
-    pub index: u32,      // pane index in window
+    pub id: String, // e.g., "%0"
+    pub index: u32, // pane index in window
     pub x: u32,
     pub y: u32,
     pub width: u32,
@@ -14,13 +14,13 @@ pub struct PaneInfo {
     pub cursor_x: u32,
     pub cursor_y: u32,
     pub active: bool,
-    pub command: String, // current running command (e.g., "bash", "vim")
-    pub title: String,   // pane title (set by shell/application)
+    pub command: String,      // current running command (e.g., "bash", "vim")
+    pub title: String,        // pane title (set by shell/application)
     pub border_title: String, // evaluated pane-border-format
-    pub in_mode: bool,   // true if pane is in copy mode
+    pub in_mode: bool,        // true if pane is in copy mode
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
-    pub window_id: String,  // window this pane belongs to (e.g., "@0")
+    pub window_id: String, // window this pane belongs to (e.g., "@0")
 }
 
 /// Information about a tmux window
@@ -68,9 +68,10 @@ pub fn capture_pane_with_history(session_name: &str) -> Result<String, String> {
         "capture-pane",
         "-t",
         session_name,
-        "-p",      // print to stdout
-        "-e",      // include escape sequences
-        "-S", "-", // Start from history beginning
+        "-p", // print to stdout
+        "-e", // include escape sequences
+        "-S",
+        "-", // Start from history beginning
     ])
 }
 
@@ -237,7 +238,13 @@ pub fn scroll_pane_default(pane_id: &str, direction: &str, amount: u32) -> Resul
 /// event_type: "press", "release", "drag"
 /// button: 0 = left, 1 = middle, 2 = right, 64 = scroll up, 65 = scroll down
 /// x, y: terminal cell coordinates (0-indexed)
-pub fn send_mouse_event(pane_id: &str, event_type: &str, button: u32, x: u32, y: u32) -> Result<(), String> {
+pub fn send_mouse_event(
+    pane_id: &str,
+    event_type: &str,
+    button: u32,
+    x: u32,
+    y: u32,
+) -> Result<(), String> {
     // tmux uses SGR mouse encoding (mode 1006)
     // Format: \e[<Cb;Cx;CyM for press/drag, \e[<Cb;Cx;Cym for release
     // Cb = button number (0=left, 1=middle, 2=right, 32+=motion, 64+=scroll)
@@ -259,7 +266,13 @@ pub fn send_mouse_event(pane_id: &str, event_type: &str, button: u32, x: u32, y:
     Ok(())
 }
 
-pub fn send_mouse_event_default(pane_id: &str, event_type: &str, button: u32, x: u32, y: u32) -> Result<(), String> {
+pub fn send_mouse_event_default(
+    pane_id: &str,
+    event_type: &str,
+    button: u32,
+    x: u32,
+    y: u32,
+) -> Result<(), String> {
     send_mouse_event(pane_id, event_type, button, x, y)
 }
 
@@ -291,18 +304,15 @@ pub fn resize_pane_default(pane_id: &str, direction: &str, adjustment: u32) -> R
 /// Resize all tmux windows in the session to specific dimensions (columns x rows).
 /// This ensures hidden windows (e.g., pane group containers) stay in sync with the viewport.
 pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<(), String> {
-    eprintln!("[resize_window] session={} cols={} rows={}", session_name, cols, rows);
+    eprintln!(
+        "[resize_window] session={} cols={} rows={}",
+        session_name, cols, rows
+    );
     let cols_str = cols.to_string();
     let rows_str = rows.to_string();
 
     // List all window IDs in the session
-    let output = execute_tmux_command(&[
-        "list-windows",
-        "-t",
-        session_name,
-        "-F",
-        "#{window_id}",
-    ])?;
+    let output = execute_tmux_command(&["list-windows", "-t", session_name, "-F", "#{window_id}"])?;
 
     let window_ids: Vec<&str> = output.trim().lines().filter(|l| !l.is_empty()).collect();
     eprintln!("[resize_window] window_ids={:?}", window_ids);
@@ -391,20 +401,21 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
 /// negative = from history, 0 = first visible line, -S - means start of history.
 pub fn capture_pane_range(pane_id: &str, start: i64, end: i64) -> Result<String, String> {
     execute_tmux_command(&[
-        "capture-pane", "-t", pane_id, "-p", "-e",
-        "-S", &start.to_string(), "-E", &end.to_string(),
-    ])
-}
-
-/// Capture content of a specific pane by its ID (e.g., "%0")
-pub fn capture_pane_by_id(pane_id: &str) -> Result<String, String> {
-    execute_tmux_command(&[
         "capture-pane",
         "-t",
         pane_id,
         "-p",
         "-e",
+        "-S",
+        &start.to_string(),
+        "-E",
+        &end.to_string(),
     ])
+}
+
+/// Capture content of a specific pane by its ID (e.g., "%0")
+pub fn capture_pane_by_id(pane_id: &str) -> Result<String, String> {
+    execute_tmux_command(&["capture-pane", "-t", pane_id, "-p", "-e"])
 }
 
 /// Get list of all windows in a session
@@ -447,7 +458,10 @@ pub fn get_windows_default() -> Result<Vec<WindowInfo>, String> {
 pub fn capture_status_line(session_name: &str, width: usize) -> Result<String, String> {
     // Get status-left-length and status-right-length from tmux options
     let meta = execute_tmux_command(&[
-        "display-message", "-t", session_name, "-p",
+        "display-message",
+        "-t",
+        session_name,
+        "-p",
         "#{status-left-length}\n#{status-right-length}",
     ])?;
     let meta_lines: Vec<&str> = meta.trim_end().lines().collect();
@@ -456,29 +470,41 @@ pub fn capture_status_line(session_name: &str, width: usize) -> Result<String, S
 
     // Get status-left (rendered) - preserve trailing spaces from format
     let left_raw = execute_tmux_command(&[
-        "display-message", "-t", session_name, "-p", "#{T:status-left}",
+        "display-message",
+        "-t",
+        session_name,
+        "-p",
+        "#{T:status-left}",
     ])?;
     let left_raw = left_raw.trim_end_matches('\n').to_string();
 
     // Get window list - add separator space after each window format, then trim
     // the trailing one (separator only goes between windows, not after the last)
     let windows_raw = execute_tmux_command(&[
-        "display-message", "-t", session_name, "-p",
+        "display-message",
+        "-t",
+        session_name,
+        "-p",
         "#{W:#{T:window-status-format} ,#{T:window-status-current-format} }",
     ])?;
-    let windows_raw = windows_raw.trim_end_matches('\n')
-        .strip_suffix(' ').unwrap_or(windows_raw.trim_end_matches('\n'))
+    let windows_raw = windows_raw
+        .trim_end_matches('\n')
+        .strip_suffix(' ')
+        .unwrap_or(windows_raw.trim_end_matches('\n'))
         .to_string();
 
     // Get status-right: first get the raw format, evaluate #(cmd) patterns,
     // then pass back through display-message for variable expansion
     let right_format = execute_tmux_command(&[
-        "display-message", "-t", session_name, "-p", "#{status-right}",
+        "display-message",
+        "-t",
+        session_name,
+        "-p",
+        "#{status-right}",
     ])?;
     let right_format = evaluate_shell_commands(right_format.trim_end_matches('\n'));
-    let right_raw = execute_tmux_command(&[
-        "display-message", "-t", session_name, "-p", &right_format,
-    ])?;
+    let right_raw =
+        execute_tmux_command(&["display-message", "-t", session_name, "-p", &right_format])?;
     let right_raw = right_raw.trim_end_matches('\n').to_string();
 
     // Convert tmux style codes to ANSI and unescape ## → #
@@ -503,7 +529,13 @@ pub fn capture_status_line(session_name: &str, width: usize) -> Result<String, S
         1 // At least one space separator
     };
 
-    Ok(format!("{}{}{}{}", left_ansi, windows_ansi, " ".repeat(padding), right_ansi))
+    Ok(format!(
+        "{}{}{}{}",
+        left_ansi,
+        windows_ansi,
+        " ".repeat(padding),
+        right_ansi
+    ))
 }
 
 /// Evaluate #(cmd) patterns in a tmux format string by running the shell commands
@@ -699,7 +731,11 @@ fn color_to_ansi(color: &str, is_fg: bool) -> Option<String> {
     let base = if is_fg { 38 } else { 48 };
 
     if color == "default" {
-        return Some(if is_fg { "39".to_string() } else { "49".to_string() });
+        return Some(if is_fg {
+            "39".to_string()
+        } else {
+            "49".to_string()
+        });
     }
 
     // Hex color: #RRGGBB
@@ -827,7 +863,11 @@ pub fn run_tmux_command_for_session(session_name: &str, cmd: &str) -> Result<Str
 }
 
 /// Process a potentially compound tmux command, adding session targeting where needed
-fn process_compound_command(session_name: &str, cmd: &str, targeted_commands: &[&str]) -> Result<String, String> {
+fn process_compound_command(
+    session_name: &str,
+    cmd: &str,
+    targeted_commands: &[&str],
+) -> Result<String, String> {
     // Split by \; for compound commands, but be careful with quoted strings
     let parts: Vec<&str> = cmd.split("\\;").collect();
 
@@ -847,7 +887,11 @@ fn process_compound_command(session_name: &str, cmd: &str, targeted_commands: &[
 }
 
 /// Add session targeting to a single tmux command if needed
-fn add_session_target_if_needed(session_name: &str, cmd: &str, targeted_commands: &[&str]) -> Result<String, String> {
+fn add_session_target_if_needed(
+    session_name: &str,
+    cmd: &str,
+    targeted_commands: &[&str],
+) -> Result<String, String> {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     if parts.is_empty() {
         return Ok(cmd.to_string());
@@ -920,7 +964,11 @@ fn find_window_arg<'a>(parts: &'a [&'a str]) -> Option<&'a str> {
 }
 
 /// Validate that targets in the command belong to our session, and fix if needed
-fn validate_and_fix_target(session_name: &str, cmd: &str, command_name: &str) -> Result<String, String> {
+fn validate_and_fix_target(
+    session_name: &str,
+    cmd: &str,
+    command_name: &str,
+) -> Result<String, String> {
     // For commands with -t, check if the target includes the session
     // If it's just a pane ID (%N) or window ID (@N), those are global and fine
     // If it's a window index without session (e.g., :1234), prepend the session
@@ -967,8 +1015,14 @@ fn fix_target_session(session_name: &str, target: &str, command_name: &str) -> S
 
     // For window-related commands, bare numbers are window indices
     let window_commands = [
-        "select-window", "new-window", "kill-window", "resize-window",
-        "swap-window", "move-window", "link-window", "unlink-window",
+        "select-window",
+        "new-window",
+        "kill-window",
+        "resize-window",
+        "swap-window",
+        "move-window",
+        "link-window",
+        "unlink-window",
     ];
 
     if window_commands.contains(&command_name) {
@@ -987,11 +1041,7 @@ pub fn execute_prefix_binding(session_name: &str, key: &str) -> Result<(), Strin
     // Query tmux for the binding in the prefix table
     // Format: bind-key [-T key-table] key command [arguments]
     // We need to look up bindings in the prefix table
-    let output = execute_tmux_command(&[
-        "list-keys",
-        "-T",
-        "prefix",
-    ])?;
+    let output = execute_tmux_command(&["list-keys", "-T", "prefix"])?;
 
     // Parse the output to find the binding for this key
     // Format: bind-key -T prefix h select-pane -L
@@ -1025,9 +1075,9 @@ pub fn execute_prefix_binding(session_name: &str, key: &str) -> Result<(), Strin
                 // Add target session for commands that need it
                 let cmd = command_parts[0];
                 match cmd {
-                    "select-pane" | "split-window" | "new-window" | "kill-pane"
-                    | "next-window" | "previous-window" | "select-window"
-                    | "resize-pane" | "break-pane" | "next-layout" | "last-pane" => {
+                    "select-pane" | "split-window" | "new-window" | "kill-pane" | "next-window"
+                    | "previous-window" | "select-window" | "resize-pane" | "break-pane"
+                    | "next-layout" | "last-pane" => {
                         // Check if -t is already specified
                         if !args.contains(&"-t") {
                             args.push("-t");
@@ -1195,8 +1245,7 @@ pub fn process_key(session_name: &str, key: &str) -> Result<(), String> {
             if binding.key == key {
                 // Execute the bound command instead of send-keys
                 // Replace any #{...} or session references with the actual session
-                let command = binding.command
-                    .replace("#{session_name}", session_name);
+                let command = binding.command.replace("#{session_name}", session_name);
 
                 return run_tmux_command_for_session(session_name, &command).map(|_| ());
             }
@@ -1254,21 +1303,36 @@ mod tests {
     #[test]
     fn test_fix_target_session_colon_prefix() {
         // :N means "window N in current session" - should prepend session
-        assert_eq!(fix_target_session("tmuxy", ":1234", "new-window"), "tmuxy:1234");
-        assert_eq!(fix_target_session("tmuxy", ":0", "select-window"), "tmuxy:0");
+        assert_eq!(
+            fix_target_session("tmuxy", ":1234", "new-window"),
+            "tmuxy:1234"
+        );
+        assert_eq!(
+            fix_target_session("tmuxy", ":0", "select-window"),
+            "tmuxy:0"
+        );
     }
 
     #[test]
     fn test_fix_target_session_explicit_session() {
         // session:window should not be modified
-        assert_eq!(fix_target_session("tmuxy", "other:0", "new-window"), "other:0");
-        assert_eq!(fix_target_session("tmuxy", "mysession:5", "kill-window"), "mysession:5");
+        assert_eq!(
+            fix_target_session("tmuxy", "other:0", "new-window"),
+            "other:0"
+        );
+        assert_eq!(
+            fix_target_session("tmuxy", "mysession:5", "kill-window"),
+            "mysession:5"
+        );
     }
 
     #[test]
     fn test_fix_target_session_bare_number() {
         // Bare numbers for window commands should get session prepended
-        assert_eq!(fix_target_session("tmuxy", "1234", "new-window"), "tmuxy:1234");
+        assert_eq!(
+            fix_target_session("tmuxy", "1234", "new-window"),
+            "tmuxy:1234"
+        );
         assert_eq!(fix_target_session("tmuxy", "0", "select-window"), "tmuxy:0");
         assert_eq!(fix_target_session("tmuxy", "5", "kill-window"), "tmuxy:5");
     }
@@ -1276,21 +1340,25 @@ mod tests {
     #[test]
     fn test_validate_and_fix_target_new_window() {
         // new-window with :N target should get session prepended
-        let result = validate_and_fix_target("tmuxy", "new-window -d -t :1234 -n \"test\"", "new-window").unwrap();
+        let result =
+            validate_and_fix_target("tmuxy", "new-window -d -t :1234 -n \"test\"", "new-window")
+                .unwrap();
         assert_eq!(result, "new-window -d -t tmuxy:1234 -n \"test\"");
     }
 
     #[test]
     fn test_validate_and_fix_target_select_window() {
         // select-window with bare number should get session prepended
-        let result = validate_and_fix_target("tmuxy", "select-window -t 5", "select-window").unwrap();
+        let result =
+            validate_and_fix_target("tmuxy", "select-window -t 5", "select-window").unwrap();
         assert_eq!(result, "select-window -t tmuxy:5");
     }
 
     #[test]
     fn test_validate_and_fix_target_pane_commands() {
         // Commands with pane IDs should not modify the target
-        let result = validate_and_fix_target("tmuxy", "swap-pane -s %0 -t %1", "swap-pane").unwrap();
+        let result =
+            validate_and_fix_target("tmuxy", "swap-pane -s %0 -t %1", "swap-pane").unwrap();
         assert_eq!(result, "swap-pane -s %0 -t %1");
     }
 }

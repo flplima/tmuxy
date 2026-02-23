@@ -9,7 +9,10 @@ mod widget;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "tmuxy", about = "Tmuxy CLI: production server, pane groups, floats, and widgets")]
+#[command(
+    name = "tmuxy",
+    about = "Tmuxy CLI: production server, pane groups, floats, and widgets"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

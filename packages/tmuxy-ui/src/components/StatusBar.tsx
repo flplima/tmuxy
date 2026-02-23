@@ -4,11 +4,7 @@
  * Content is centered to match pane/status-bar width (totalWidth * charWidth).
  */
 
-import {
-  useAppSelector,
-  selectGridDimensions,
-  selectSessionName,
-} from '../machines/AppContext';
+import { useAppSelector, selectGridDimensions, selectSessionName } from '../machines/AppContext';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
 import './StatusBar.css';
@@ -30,7 +26,14 @@ export function StatusBar() {
         <button className="statusbar-session" aria-label="Session">
           <span className="statusbar-session-name">{sessionName}</span>
           <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-            <path d="M2 3.5L5 7L8 3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M2 3.5L5 7L8 3.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
       </div>

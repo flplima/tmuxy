@@ -5,7 +5,9 @@ pub mod session;
 use serde::{Deserialize, Serialize};
 
 // Re-export key binding types and functions
-pub use executor::{get_prefix_bindings, get_prefix_key, get_root_bindings, process_key, KeyBinding};
+pub use executor::{
+    get_prefix_bindings, get_prefix_key, get_root_bindings, process_key, KeyBinding,
+};
 
 /// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";
@@ -96,7 +98,11 @@ pub type PaneContent = Vec<TerminalLine>;
 pub fn content_to_hash_string(content: &PaneContent) -> String {
     content
         .iter()
-        .map(|line| line.iter().map(|cell| cell.char.as_str()).collect::<String>())
+        .map(|line| {
+            line.iter()
+                .map(|cell| cell.char.as_str())
+                .collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join("")
 }
@@ -125,7 +131,11 @@ pub fn extract_cells_with_urls(
             // vt100 returns empty string for unwritten cells; use space to preserve
             // column alignment when characters are joined on the frontend
             let raw_content = cell.contents();
-            let char_content = if raw_content.is_empty() { " ".to_string() } else { raw_content };
+            let char_content = if raw_content.is_empty() {
+                " ".to_string()
+            } else {
+                raw_content
+            };
 
             let fg = match cell.fgcolor() {
                 vt100::Color::Default => None,
@@ -187,13 +197,16 @@ pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneConten
     let content = content.strip_suffix('\n').unwrap_or(content);
 
     // Normalize newlines for vt100
-    let normalized: Vec<u8> = content.bytes().flat_map(|b| {
-        if b == b'\n' {
-            vec![b'\r', b'\n']
-        } else {
-            vec![b]
-        }
-    }).collect();
+    let normalized: Vec<u8> = content
+        .bytes()
+        .flat_map(|b| {
+            if b == b'\n' {
+                vec![b'\r', b'\n']
+            } else {
+                vec![b]
+            }
+        })
+        .collect();
 
     parser.process(&normalized);
     extract_cells_from_screen(parser.screen())
@@ -207,7 +220,7 @@ pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneConten
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxPane {
     pub id: u32,
-    pub tmux_id: String, // actual tmux pane ID (e.g., "%0")
+    pub tmux_id: String,   // actual tmux pane ID (e.g., "%0")
     pub window_id: String, // window this pane belongs to (e.g., "@0")
     pub content: PaneContent,
     pub cursor_x: u32,
@@ -218,9 +231,9 @@ pub struct TmuxPane {
     pub y: u32,
     pub active: bool,
     pub command: String,
-    pub title: String, // pane title (set by shell/application)
+    pub title: String,        // pane title (set by shell/application)
     pub border_title: String, // evaluated pane-border-format from tmux config
-    pub in_mode: bool, // true if in copy mode
+    pub in_mode: bool,        // true if in copy mode
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
     /// True if the application is in alternate screen mode (vim, less, htop)
@@ -312,9 +325,7 @@ pub fn parse_pane_group_window_name(name: &str) -> Option<PaneGroupWindowInfo> {
             .map(|s| format!("%{}", s))
             .collect();
         if pane_ids.len() >= 2 {
-            return Some(PaneGroupWindowInfo {
-                pane_ids,
-            });
+            return Some(PaneGroupWindowInfo { pane_ids });
         }
     }
 
@@ -626,10 +637,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
     let window_infos = executor::get_windows(session_name)?;
 
     // Find active window
-    let active_window_id = window_infos
-        .iter()
-        .find(|w| w.active)
-        .map(|w| w.id.clone());
+    let active_window_id = window_infos.iter().find(|w| w.active).map(|w| w.id.clone());
 
     let mut panes = Vec::new();
     let mut total_width = 0u32;
@@ -701,13 +709,11 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
         .collect();
 
     // Find active pane
-    let active_pane_id = panes
-        .iter()
-        .find(|p| p.active)
-        .map(|p| p.tmux_id.clone());
+    let active_pane_id = panes.iter().find(|p| p.active).map(|p| p.tmux_id.clone());
 
     // Capture status line (use total_width from pane layout for proper padding)
-    let status_line = executor::capture_status_line(session_name, total_width as usize).unwrap_or_default();
+    let status_line =
+        executor::capture_status_line(session_name, total_width as usize).unwrap_or_default();
 
     Ok(TmuxState {
         session_name: session_name.to_string(),
@@ -741,7 +747,10 @@ mod tests {
     fn test_parse_pane_group_window_name() {
         // Format: "__group_{paneNum1}-{paneNum2}-..."
         let info = parse_pane_group_window_name("__group_4-6-7").unwrap();
-        assert_eq!(info.pane_ids, vec!["%4".to_string(), "%6".to_string(), "%7".to_string()]);
+        assert_eq!(
+            info.pane_ids,
+            vec!["%4".to_string(), "%6".to_string(), "%7".to_string()]
+        );
 
         let info = parse_pane_group_window_name("__group_0-1").unwrap();
         assert_eq!(info.pane_ids, vec!["%0".to_string(), "%1".to_string()]);
@@ -788,13 +797,16 @@ mod vt100_capture_test {
         let mut terminal = vt100::Parser::new(14, 128, 0);
 
         // Normalize newlines (as done in reset_and_process_capture)
-        let normalized: Vec<u8> = content.iter().flat_map(|&b| {
-            if b == b'\n' {
-                vec![b'\r', b'\n']
-            } else {
-                vec![b]
-            }
-        }).collect();
+        let normalized: Vec<u8> = content
+            .iter()
+            .flat_map(|&b| {
+                if b == b'\n' {
+                    vec![b'\r', b'\n']
+                } else {
+                    vec![b]
+                }
+            })
+            .collect();
 
         // Process the content
         terminal.process(&normalized);

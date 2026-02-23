@@ -45,7 +45,7 @@ export function calculateAnimationDuration(
   fromX: number,
   fromY: number,
   toX: number,
-  toY: number
+  toY: number,
 ): number {
   const deltaX = toX - fromX;
   const deltaY = toY - fromY;
@@ -55,4 +55,5 @@ export function calculateAnimationDuration(
 }
 
 /** list-panes format string matching the backend parser (state.rs parse_list_panes_line) */
-export const LIST_PANES_REFRESH_CMD = "list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id},#{T:pane-border-format},#{alternate_on},#{mouse_any_flag}'";
+export const LIST_PANES_REFRESH_CMD =
+  "list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id},#{T:pane-border-format},#{alternate_on},#{mouse_any_flag}'";

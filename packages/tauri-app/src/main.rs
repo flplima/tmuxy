@@ -9,7 +9,8 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             // Initialize tmux session
-            let session_name = std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string());
+            let session_name =
+                std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string());
             match session::create_or_attach(&session_name) {
                 Ok(_) => println!("tmuxy session '{}' initialized", session_name),
                 Err(e) => {

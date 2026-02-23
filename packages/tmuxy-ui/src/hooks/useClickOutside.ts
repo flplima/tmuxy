@@ -6,7 +6,7 @@ import { useEffect, RefObject } from 'react';
 export function useClickOutside(
   ref: RefObject<HTMLElement>,
   handler: () => void,
-  enabled: boolean = true
+  enabled: boolean = true,
 ) {
   useEffect(() => {
     if (!enabled) return;

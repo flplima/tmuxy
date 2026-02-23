@@ -12,7 +12,13 @@ import type {
   NavigatePrediction,
   SwapPrediction,
 } from '../../types';
-import type { ParsedCommand, SplitCommand, NavigateCommand, SwapCommand, SelectPaneCommand } from './commandParser';
+import type {
+  ParsedCommand,
+  SplitCommand,
+  NavigateCommand,
+  SwapCommand,
+  SelectPaneCommand,
+} from './commandParser';
 
 let optimisticIdCounter = 0;
 
@@ -33,7 +39,7 @@ export function calculatePrediction(
   activePaneId: string | null,
   activeWindowId: string | null,
   command: string,
-  paneActivationOrder: string[] = []
+  paneActivationOrder: string[] = [],
 ): OptimisticOperation | null {
   if (!parsed || !activePaneId) return null;
 
@@ -63,9 +69,9 @@ function calculateSplitPrediction(
   panes: TmuxPane[],
   activePaneId: string,
   activeWindowId: string | null,
-  command: string
+  command: string,
 ): OptimisticOperation | null {
-  const activePane = panes.find(p => p.tmuxId === activePaneId);
+  const activePane = panes.find((p) => p.tmuxId === activePaneId);
   if (!activePane) return null;
 
   const placeholderId = `__placeholder_${generateOptimisticId()}`;
@@ -87,13 +93,15 @@ function calculateSplitPrediction(
       windowId: activeWindowId ?? activePane.windowId,
     };
 
-    resizedPanes = [{
-      paneId: activePaneId,
-      x: activePane.x,
-      y: activePane.y,
-      width: originalNewWidth,
-      height: activePane.height,
-    }];
+    resizedPanes = [
+      {
+        paneId: activePaneId,
+        x: activePane.x,
+        y: activePane.y,
+        width: originalNewWidth,
+        height: activePane.height,
+      },
+    ];
   } else {
     // Horizontal split: new pane BELOW
     // Split height in half
@@ -109,13 +117,15 @@ function calculateSplitPrediction(
       windowId: activeWindowId ?? activePane.windowId,
     };
 
-    resizedPanes = [{
-      paneId: activePaneId,
-      x: activePane.x,
-      y: activePane.y,
-      width: activePane.width,
-      height: originalNewHeight,
-    }];
+    resizedPanes = [
+      {
+        paneId: activePaneId,
+        x: activePane.x,
+        y: activePane.y,
+        width: activePane.width,
+        height: originalNewHeight,
+      },
+    ];
   }
 
   return {
@@ -144,9 +154,9 @@ function calculateNavigatePrediction(
   panes: TmuxPane[],
   activePaneId: string,
   command: string,
-  paneActivationOrder: string[] = []
+  paneActivationOrder: string[] = [],
 ): OptimisticOperation | null {
-  const activePane = panes.find(p => p.tmuxId === activePaneId);
+  const activePane = panes.find((p) => p.tmuxId === activePaneId);
   if (!activePane) return null;
 
   const targetPaneId = findAdjacentPane(panes, activePane, parsed.direction, paneActivationOrder);
@@ -183,10 +193,12 @@ function findAdjacentPane(
   panes: TmuxPane[],
   current: TmuxPane,
   direction: 'L' | 'R' | 'U' | 'D',
-  paneActivationOrder: string[] = []
+  paneActivationOrder: string[] = [],
 ): string | null {
   // Only consider panes in the same window
-  const samePanes = panes.filter(p => p.tmuxId !== current.tmuxId && p.windowId === current.windowId);
+  const samePanes = panes.filter(
+    (p) => p.tmuxId !== current.tmuxId && p.windowId === current.windowId,
+  );
 
   // Collect all adjacent candidates with any overlap (matching tmux's overlap check)
   const candidates: TmuxPane[] = [];
@@ -203,9 +215,10 @@ function findAdjacentPane(
           const top = current.y;
           const bottom = current.y + current.height;
           const pEnd = pane.y + pane.height - 1;
-          hasOverlap = (pane.y < top && pEnd > bottom) ||
-                       (pane.y >= top && pane.y <= bottom) ||
-                       (pEnd >= top && pEnd <= bottom);
+          hasOverlap =
+            (pane.y < top && pEnd > bottom) ||
+            (pane.y >= top && pane.y <= bottom) ||
+            (pEnd >= top && pEnd <= bottom);
         }
         break;
       }
@@ -215,9 +228,10 @@ function findAdjacentPane(
           const top = current.y;
           const bottom = current.y + current.height;
           const pEnd = pane.y + pane.height - 1;
-          hasOverlap = (pane.y < top && pEnd > bottom) ||
-                       (pane.y >= top && pane.y <= bottom) ||
-                       (pEnd >= top && pEnd <= bottom);
+          hasOverlap =
+            (pane.y < top && pEnd > bottom) ||
+            (pane.y >= top && pane.y <= bottom) ||
+            (pEnd >= top && pEnd <= bottom);
         }
         break;
       }
@@ -227,9 +241,10 @@ function findAdjacentPane(
           const left = current.x;
           const right = current.x + current.width;
           const pEnd = pane.x + pane.width - 1;
-          hasOverlap = (pane.x < left && pEnd > right) ||
-                       (pane.x >= left && pane.x <= right) ||
-                       (pEnd >= left && pEnd <= right);
+          hasOverlap =
+            (pane.x < left && pEnd > right) ||
+            (pane.x >= left && pane.x <= right) ||
+            (pEnd >= left && pEnd <= right);
         }
         break;
       }
@@ -239,9 +254,10 @@ function findAdjacentPane(
           const left = current.x;
           const right = current.x + current.width;
           const pEnd = pane.x + pane.width - 1;
-          hasOverlap = (pane.x < left && pEnd > right) ||
-                       (pane.x >= left && pane.x <= right) ||
-                       (pEnd >= left && pEnd <= right);
+          hasOverlap =
+            (pane.x < left && pEnd > right) ||
+            (pane.x >= left && pane.x <= right) ||
+            (pEnd >= left && pEnd <= right);
         }
         break;
       }
@@ -258,7 +274,7 @@ function findAdjacentPane(
   // Multiple candidates: pick the most recently used (MRU) pane,
   // matching tmux's window_pane_choose_best (highest active_point)
   for (const paneId of paneActivationOrder) {
-    const match = candidates.find(p => p.tmuxId === paneId);
+    const match = candidates.find((p) => p.tmuxId === paneId);
     if (match) return match.tmuxId;
   }
 
@@ -274,10 +290,10 @@ function findAdjacentPane(
 function calculateSwapPrediction(
   parsed: SwapCommand,
   panes: TmuxPane[],
-  command: string
+  command: string,
 ): OptimisticOperation | null {
-  const sourcePane = panes.find(p => p.tmuxId === parsed.sourcePaneId);
-  const targetPane = panes.find(p => p.tmuxId === parsed.targetPaneId);
+  const sourcePane = panes.find((p) => p.tmuxId === parsed.sourcePaneId);
+  const targetPane = panes.find((p) => p.tmuxId === parsed.targetPaneId);
 
   if (!sourcePane || !targetPane) return null;
 
@@ -313,9 +329,9 @@ function calculateSelectPanePrediction(
   parsed: SelectPaneCommand,
   panes: TmuxPane[],
   activePaneId: string,
-  command: string
+  command: string,
 ): OptimisticOperation | null {
-  const targetPane = panes.find(p => p.tmuxId === parsed.paneId);
+  const targetPane = panes.find((p) => p.tmuxId === parsed.paneId);
   if (!targetPane || parsed.paneId === activePaneId) return null;
 
   return {
@@ -340,14 +356,14 @@ export function applySplitPrediction(
   panes: TmuxPane[],
   prediction: SplitPrediction,
   activeWindowId: string | null,
-  defaultShell: string = 'bash'
+  defaultShell: string = 'bash',
 ): TmuxPane[] {
   // Only apply to panes in the active window
-  const result = panes.map(pane => {
+  const result = panes.map((pane) => {
     if (pane.windowId !== activeWindowId) return pane;
 
     // Find if this pane was resized
-    const resized = prediction.resizedPanes.find(r => r.paneId === pane.tmuxId);
+    const resized = prediction.resizedPanes.find((r) => r.paneId === pane.tmuxId);
     if (resized) {
       return {
         ...pane,
@@ -395,11 +411,8 @@ export function applySplitPrediction(
  * Apply a swap prediction to panes.
  * Returns new panes array with positions swapped.
  */
-export function applySwapPrediction(
-  panes: TmuxPane[],
-  prediction: SwapPrediction
-): TmuxPane[] {
-  return panes.map(pane => {
+export function applySwapPrediction(panes: TmuxPane[], prediction: SwapPrediction): TmuxPane[] {
+  return panes.map((pane) => {
     if (pane.tmuxId === prediction.sourcePaneId) {
       return {
         ...pane,
@@ -425,8 +438,6 @@ export function applySwapPrediction(
 /**
  * Apply a navigation prediction to get the new active pane ID.
  */
-export function applyNavigatePrediction(
-  prediction: NavigatePrediction
-): string {
+export function applyNavigatePrediction(prediction: NavigatePrediction): string {
   return prediction.toPaneId;
 }

@@ -15,7 +15,9 @@ export function getWidgetTitle(contentLines: string[]): string | undefined {
       const pathname = new URL(urlMatch[0]).pathname;
       const filename = pathname.split('/').pop();
       if (filename) return decodeURIComponent(filename);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   // Try data URI — show truncated prefix

@@ -11,7 +11,12 @@
  */
 
 import { setup, assign, sendParent, enqueueActions, fromCallback } from 'xstate';
-import type { ResizeMachineContext, ResizeMachineEvent, ResizeState, KeyPressEvent } from '../types';
+import type {
+  ResizeMachineContext,
+  ResizeMachineEvent,
+  ResizeState,
+  KeyPressEvent,
+} from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 
 export const resizeMachine = setup({
@@ -31,7 +36,8 @@ export const resizeMachine = setup({
   },
   actors: {
     pointerTracker: fromCallback(({ sendBack }) => {
-      const onMove = (e: MouseEvent) => sendBack({ type: 'RESIZE_MOVE', clientX: e.clientX, clientY: e.clientY });
+      const onMove = (e: MouseEvent) =>
+        sendBack({ type: 'RESIZE_MOVE', clientX: e.clientX, clientY: e.clientY });
       const onUp = () => sendBack({ type: 'RESIZE_END' });
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
@@ -105,10 +111,7 @@ export const resizeMachine = setup({
         KEY_PRESS: {
           guard: 'isEscapeKey',
           target: 'idle',
-          actions: [
-            assign({ resize: null }),
-            'notifyStateUpdate',
-          ],
+          actions: [assign({ resize: null }), 'notifyStateUpdate'],
         },
         RESIZE_MOVE: {
           actions: enqueueActions(({ context, event, enqueue, self }) => {
@@ -138,7 +141,9 @@ export const resizeMachine = setup({
 
               if (handle === 'e' || handle === 'w') {
                 if (incrementalCols !== 0) {
-                  const dir = (handle === 'e' ? incrementalCols > 0 : incrementalCols < 0) ? 'R' : 'L';
+                  const dir = (handle === 'e' ? incrementalCols > 0 : incrementalCols < 0)
+                    ? 'R'
+                    : 'L';
                   const amount = Math.abs(incrementalCols);
                   commands.push(`resize-pane -t ${paneId} -${dir} ${amount}`);
                 }
@@ -146,7 +151,9 @@ export const resizeMachine = setup({
 
               if (handle === 's' || handle === 'n') {
                 if (incrementalRows !== 0) {
-                  const dir = (handle === 's' ? incrementalRows > 0 : incrementalRows < 0) ? 'D' : 'U';
+                  const dir = (handle === 's' ? incrementalRows > 0 : incrementalRows < 0)
+                    ? 'D'
+                    : 'U';
                   const amount = Math.abs(incrementalRows);
                   commands.push(`resize-pane -t ${paneId} -${dir} ${amount}`);
                 }
@@ -172,12 +179,17 @@ export const resizeMachine = setup({
         },
         SEND_RESIZE_COMMAND: {
           actions: enqueueActions(({ context, event, enqueue }) => {
-            const e = event as { type: 'SEND_RESIZE_COMMAND'; command: string; deltaCols: number; deltaRows: number };
+            const e = event as {
+              type: 'SEND_RESIZE_COMMAND';
+              command: string;
+              deltaCols: number;
+              deltaRows: number;
+            };
             enqueue(
               sendParent({
                 type: 'SEND_TMUX_COMMAND' as const,
                 command: e.command,
-              })
+              }),
             );
             if (context.resize) {
               enqueue(
@@ -186,7 +198,7 @@ export const resizeMachine = setup({
                     ...context.resize,
                     lastSentDelta: { cols: e.deltaCols, rows: e.deltaRows },
                   },
-                })
+                }),
               );
             }
           }),
@@ -221,10 +233,12 @@ export const resizeMachine = setup({
               }
 
               if (commands.length > 0) {
-                enqueue(sendParent({
-                  type: 'SEND_TMUX_COMMAND' as const,
-                  command: commands.join(' \\; '),
-                }));
+                enqueue(
+                  sendParent({
+                    type: 'SEND_TMUX_COMMAND' as const,
+                    command: commands.join(' \\; '),
+                  }),
+                );
               }
             }),
             assign({ resize: null }),
@@ -234,10 +248,7 @@ export const resizeMachine = setup({
         },
         RESIZE_CANCEL: {
           target: 'idle',
-          actions: [
-            assign({ resize: null }),
-            'notifyStateUpdate',
-          ],
+          actions: [assign({ resize: null }), 'notifyStateUpdate'],
         },
       },
     },

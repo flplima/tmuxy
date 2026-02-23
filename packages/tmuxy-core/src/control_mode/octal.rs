@@ -35,9 +35,8 @@ pub fn decode_octal(input: &str) -> Vec<u8> {
 
             if is_octal_digit(d1) && is_octal_digit(d2) && is_octal_digit(d3) {
                 // Parse octal value
-                let value = ((d1 - b'0') as u16 * 64)
-                    + ((d2 - b'0') as u16 * 8)
-                    + ((d3 - b'0') as u16);
+                let value =
+                    ((d1 - b'0') as u16 * 64) + ((d2 - b'0') as u16 * 8) + ((d3 - b'0') as u16);
 
                 if value <= 255 {
                     result.push(value as u8);
@@ -138,5 +137,4 @@ mod tests {
         assert_eq!(decoded[1], b']');
         assert_eq!(decoded[2], b'8');
     }
-
 }

@@ -17,7 +17,8 @@
     "tauri:dev": "cargo tauri dev --manifest-path packages/tauri-app/Cargo.toml",
     "tauri:build": "./scripts/build-tauri.sh",
     "test": "npm run test -w tmuxy-ui",
-    "test:e2e": "jest --config tests/jest.config.js --runInBand"
+    "test:e2e": "jest --config tests/jest.config.js --runInBand",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",

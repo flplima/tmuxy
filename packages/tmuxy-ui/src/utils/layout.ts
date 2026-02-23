@@ -4,7 +4,12 @@
  */
 
 import type { TmuxPane } from '../machines/types';
-import { CHAR_HEIGHT, STATUS_BAR_HEIGHT, TMUX_STATUS_BAR_HEIGHT, CONTAINER_PADDING } from '../constants';
+import {
+  CHAR_HEIGHT,
+  STATUS_BAR_HEIGHT,
+  TMUX_STATUS_BAR_HEIGHT,
+  CONTAINER_PADDING,
+} from '../constants';
 
 /**
  * Calculate target dimensions (cols/rows) based on window size
@@ -18,7 +23,8 @@ import { CHAR_HEIGHT, STATUS_BAR_HEIGHT, TMUX_STATUS_BAR_HEIGHT, CONTAINER_PADDI
  */
 export function calculateTargetSize(charWidth: number): { cols: number; rows: number } {
   const availableWidth = window.innerWidth - CONTAINER_PADDING * 2;
-  const availableHeight = window.innerHeight - STATUS_BAR_HEIGHT - TMUX_STATUS_BAR_HEIGHT - CONTAINER_PADDING * 2;
+  const availableHeight =
+    window.innerHeight - STATUS_BAR_HEIGHT - TMUX_STATUS_BAR_HEIGHT - CONTAINER_PADDING * 2;
 
   const cols = Math.floor(availableWidth / charWidth);
   const rows = Math.floor(availableHeight / CHAR_HEIGHT);
@@ -31,7 +37,7 @@ export function calculateTargetSize(charWidth: number): { cols: number; rows: nu
  */
 export interface DividerSegment {
   start: number; // left for horizontal, top for vertical
-  end: number;   // right for horizontal, bottom for vertical
+  end: number; // right for horizontal, bottom for vertical
   paneId: string; // pane to resize
 }
 

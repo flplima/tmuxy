@@ -12,10 +12,7 @@ use super::octal::decode_octal;
 #[derive(Debug, Clone)]
 pub enum ControlModeEvent {
     /// Raw pane output (octal-decoded)
-    Output {
-        pane_id: String,
-        content: Vec<u8>,
-    },
+    Output { pane_id: String, content: Vec<u8> },
 
     /// Extended output with timing info (when flow control is enabled)
     ExtendedOutput {
@@ -33,31 +30,19 @@ pub enum ControlModeEvent {
     },
 
     /// Window added
-    WindowAdd {
-        window_id: String,
-    },
+    WindowAdd { window_id: String },
 
     /// Window closed
-    WindowClose {
-        window_id: String,
-    },
+    WindowClose { window_id: String },
 
     /// Window renamed
-    WindowRenamed {
-        window_id: String,
-        name: String,
-    },
+    WindowRenamed { window_id: String, name: String },
 
     /// Active pane changed in window
-    WindowPaneChanged {
-        window_id: String,
-        pane_id: String,
-    },
+    WindowPaneChanged { window_id: String, pane_id: String },
 
     /// Pane mode changed (e.g., entered/exited copy mode)
-    PaneModeChanged {
-        pane_id: String,
-    },
+    PaneModeChanged { pane_id: String },
 
     /// Session changed
     SessionChanged {
@@ -66,9 +51,7 @@ pub enum ControlModeEvent {
     },
 
     /// Session renamed
-    SessionRenamed {
-        name: String,
-    },
+    SessionRenamed { name: String },
 
     /// Session window changed (active window in session)
     SessionWindowChanged {
@@ -88,19 +71,13 @@ pub enum ControlModeEvent {
     },
 
     /// Flow control: pane paused
-    Pause {
-        pane_id: String,
-    },
+    Pause { pane_id: String },
 
     /// Flow control: pane continued
-    Continue {
-        pane_id: String,
-    },
+    Continue { pane_id: String },
 
     /// Client detached
-    ClientDetached {
-        client: String,
-    },
+    ClientDetached { client: String },
 
     /// Client session changed
     ClientSessionChanged {
@@ -110,24 +87,17 @@ pub enum ControlModeEvent {
     },
 
     /// Control mode client exiting
-    Exit {
-        reason: Option<String>,
-    },
+    Exit { reason: Option<String> },
 
     /// Unlinked window added (window not linked to current session)
-    UnlinkedWindowAdd {
-        window_id: String,
-    },
+    UnlinkedWindowAdd { window_id: String },
 
     /// Unlinked window closed
-    UnlinkedWindowClose {
-        window_id: String,
-    },
+    UnlinkedWindowClose { window_id: String },
 
     // ============================================
     // Popup Events (requires tmux with PR #4361)
     // ============================================
-
     /// Popup opened
     /// Note: This event requires tmux with control mode popup support.
     /// Format: %popup-open popup_id width height x y [command]
@@ -142,16 +112,11 @@ pub enum ControlModeEvent {
 
     /// Popup output (content update)
     /// Format: %popup-output popup_id content
-    PopupOutput {
-        popup_id: String,
-        content: Vec<u8>,
-    },
+    PopupOutput { popup_id: String, content: Vec<u8> },
 
     /// Popup closed
     /// Format: %popup-close popup_id
-    PopupClose {
-        popup_id: String,
-    },
+    PopupClose { popup_id: String },
 }
 
 /// Parser for control mode notifications
@@ -463,7 +428,10 @@ impl Parser {
         }
 
         let pane_id = header_parts[0].to_string();
-        let age_ms = header_parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let age_ms = header_parts
+            .get(1)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         let content = decode_octal(parts[1]);
 
         Some(ControlModeEvent::ExtendedOutput {

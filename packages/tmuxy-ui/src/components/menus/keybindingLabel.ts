@@ -42,10 +42,13 @@ function formatBindingKey(key: string): string {
  * Look up a keybinding label for a tmux command.
  * Returns formatted string like "^B %" or undefined if no binding found.
  */
-export function getKeybindingLabel(keybindings: KeyBindings | null, command: string): string | undefined {
+export function getKeybindingLabel(
+  keybindings: KeyBindings | null,
+  command: string,
+): string | undefined {
   if (!keybindings) return undefined;
 
-  const binding = keybindings.prefix_bindings.find(b => b.command === command);
+  const binding = keybindings.prefix_bindings.find((b) => b.command === command);
   if (!binding) return undefined;
 
   const prefix = formatPrefixKey(keybindings.prefix_key);

@@ -43,11 +43,18 @@ const AUTO_SCROLL_INTERVAL_MS = 50;
 /** Auto-scroll speed (lines per tick) */
 const AUTO_SCROLL_LINES = 2;
 
-export function usePaneMouse(
-  send: (event: AppMachineEvent) => void,
-  options: UsePaneMouseOptions
-) {
-  const { paneId, charWidth, charHeight, mouseAnyFlag, alternateOn, inMode, copyModeActive, contentRef, scrollRef } = options;
+export function usePaneMouse(send: (event: AppMachineEvent) => void, options: UsePaneMouseOptions) {
+  const {
+    paneId,
+    charWidth,
+    charHeight,
+    mouseAnyFlag,
+    alternateOn,
+    inMode,
+    copyModeActive,
+    contentRef,
+    scrollRef,
+  } = options;
 
   // Track mouse button state for drag events
   const mouseButtonRef = useRef<number | null>(null);
@@ -80,20 +87,24 @@ export function usePaneMouse(
   }, []);
 
   // Start auto-scroll in a direction (-1 = up, 1 = down)
-  const startAutoScroll = useCallback((direction: -1 | 1, col: number) => {
-    autoScrollColRef.current = col;
-    if (autoScrollTimerRef.current !== null) return; // already running
-    autoScrollTimerRef.current = window.setInterval(() => {
-      const targetRow = direction < 0 ? -AUTO_SCROLL_LINES : options.paneHeight + AUTO_SCROLL_LINES - 1;
-      send({
-        type: 'COPY_MODE_CURSOR_MOVE',
-        paneId,
-        row: targetRow,
-        col: autoScrollColRef.current,
-        relative: true,
-      });
-    }, AUTO_SCROLL_INTERVAL_MS);
-  }, [send, paneId, options.paneHeight]);
+  const startAutoScroll = useCallback(
+    (direction: -1 | 1, col: number) => {
+      autoScrollColRef.current = col;
+      if (autoScrollTimerRef.current !== null) return; // already running
+      autoScrollTimerRef.current = window.setInterval(() => {
+        const targetRow =
+          direction < 0 ? -AUTO_SCROLL_LINES : options.paneHeight + AUTO_SCROLL_LINES - 1;
+        send({
+          type: 'COPY_MODE_CURSOR_MOVE',
+          paneId,
+          row: targetRow,
+          col: autoScrollColRef.current,
+          relative: true,
+        });
+      }, AUTO_SCROLL_INTERVAL_MS);
+    },
+    [send, paneId, options.paneHeight],
+  );
 
   // Clean up drag state (shared between handleMouseUp and document mouseup)
   const cleanupDrag = useCallback(() => {
@@ -133,7 +144,7 @@ export function usePaneMouse(
         y: Math.floor(relY / charHeight),
       };
     },
-    [charWidth, charHeight, contentRef, scrollRef]
+    [charWidth, charHeight, contentRef, scrollRef],
   );
 
   // Handle mouse down
@@ -180,7 +191,7 @@ export function usePaneMouse(
         document.addEventListener('mouseup', cleanupDrag);
       }
     },
-    [send, paneId, mouseAnyFlag, pixelToCell, cleanupDrag]
+    [send, paneId, mouseAnyFlag, pixelToCell, cleanupDrag],
   );
 
   // Handle mouse up
@@ -206,14 +217,20 @@ export function usePaneMouse(
         if (!target.closest('.pane-header')) {
           const cell = pixelToCell(e);
           send({ type: 'COPY_MODE_SELECTION_CLEAR', paneId });
-          send({ type: 'COPY_MODE_CURSOR_MOVE', paneId, row: Math.max(0, cell.y), col: cell.x, relative: true });
+          send({
+            type: 'COPY_MODE_CURSOR_MOVE',
+            paneId,
+            row: Math.max(0, cell.y),
+            col: cell.x,
+            relative: true,
+          });
         }
       }
 
       // Clean up drag state (also removes document mouseup listener)
       cleanupDrag();
     },
-    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, cleanupDrag]
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, cleanupDrag],
   );
 
   // Handle mouse move (for drag)
@@ -298,30 +315,42 @@ export function usePaneMouse(
         lastCellRef.current = cell;
       }
     },
-    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, contentRef, options.paneHeight, stopAutoScroll]
+    [
+      send,
+      paneId,
+      mouseAnyFlag,
+      copyModeActive,
+      pixelToCell,
+      contentRef,
+      options.paneHeight,
+      stopAutoScroll,
+    ],
   );
 
   // Handle mouse leave - start auto-scroll if actively dragging, otherwise clean up
-  const handleMouseLeave = useCallback((e: React.MouseEvent) => {
-    if (!isDraggingForSelectionRef.current) {
-      dragStartRef.current = null;
-      lastCellRef.current = null;
-      mouseButtonRef.current = null;
-      return;
-    }
-
-    // Start auto-scroll based on which edge the mouse left from
-    const rect = contentRef.current?.getBoundingClientRect();
-    if (rect) {
-      const relY = e.clientY - rect.top;
-      const col = Math.max(0, Math.floor((e.clientX - rect.left) / charWidth));
-      if (relY >= rect.height) {
-        startAutoScroll(1, col);
-      } else if (relY < 0) {
-        startAutoScroll(-1, col);
+  const handleMouseLeave = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isDraggingForSelectionRef.current) {
+        dragStartRef.current = null;
+        lastCellRef.current = null;
+        mouseButtonRef.current = null;
+        return;
       }
-    }
-  }, [contentRef, charWidth, startAutoScroll]);
+
+      // Start auto-scroll based on which edge the mouse left from
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (rect) {
+        const relY = e.clientY - rect.top;
+        const col = Math.max(0, Math.floor((e.clientX - rect.left) / charWidth));
+        if (relY >= rect.height) {
+          startAutoScroll(1, col);
+        } else if (relY < 0) {
+          startAutoScroll(-1, col);
+        }
+      }
+    },
+    [contentRef, charWidth, startAutoScroll],
+  );
 
   // Accumulate sub-line pixel deltas across wheel events (trackpad support)
   const wheelRemainder = useRef(0);
@@ -369,7 +398,7 @@ export function usePaneMouse(
         scrollRef.current.scrollTop += e.deltaY;
       }
     },
-    [send, paneId, charHeight, alternateOn, mouseAnyFlag, pixelToCell, scrollRef]
+    [send, paneId, charHeight, alternateOn, mouseAnyFlag, pixelToCell, scrollRef],
   );
 
   // Handle double-click for word selection
@@ -391,7 +420,7 @@ export function usePaneMouse(
         send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
       }
     },
-    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell]
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell],
   );
 
   return {

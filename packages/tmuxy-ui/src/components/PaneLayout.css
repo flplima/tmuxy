@@ -13,7 +13,12 @@
   flex-direction: column;
   box-sizing: border-box;
   /* Animate position and size with CSS transitions (no scale transforms) */
-  transition: left 200ms ease-out, top 200ms ease-out, width 200ms ease-out, height 200ms ease-out, box-shadow 150ms ease-out;
+  transition:
+    left 200ms ease-out,
+    top 200ms ease-out,
+    width 200ms ease-out,
+    height 200ms ease-out,
+    box-shadow 150ms ease-out;
 }
 
 /* Disable transitions during resize for immediate feedback */
@@ -31,7 +36,6 @@
   transition: none;
 }
 
-
 /* During drag - the pane being dragged */
 .pane-layout-item.pane-dragging {
   z-index: 100;
@@ -48,9 +52,12 @@
   z-index: 1;
   pointer-events: none;
   box-sizing: border-box;
-  transition: left 200ms ease-out, top 200ms ease-out, width 200ms ease-out, height 200ms ease-out;
+  transition:
+    left 200ms ease-out,
+    top 200ms ease-out,
+    width 200ms ease-out,
+    height 200ms ease-out;
 }
-
 
 /* Resize dividers */
 .resize-divider {

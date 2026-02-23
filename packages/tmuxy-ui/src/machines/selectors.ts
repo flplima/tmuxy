@@ -1,4 +1,11 @@
-import type { AppMachineContext, TmuxPane, PaneGroup, ResizeState, FloatPaneState, KeyBindings } from './types';
+import type {
+  AppMachineContext,
+  TmuxPane,
+  PaneGroup,
+  ResizeState,
+  FloatPaneState,
+  KeyBindings,
+} from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 
 // ============================================
@@ -18,13 +25,11 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   const { panes, resize, drag, charWidth, charHeight, activeWindowId, activePaneId } = context;
 
   // Filter to only panes in the active window
-  let activePanes = activeWindowId
-    ? panes.filter(p => p.windowId === activeWindowId)
-    : panes;
+  let activePanes = activeWindowId ? panes.filter((p) => p.windowId === activeWindowId) : panes;
 
   // Update the `active` property based on context.activePaneId
   // This ensures optimistic active pane changes are reflected in the UI
-  activePanes = activePanes.map(pane => {
+  activePanes = activePanes.map((pane) => {
     const shouldBeActive = pane.tmuxId === activePaneId;
     if (pane.active !== shouldBeActive) {
       return { ...pane, active: shouldBeActive };
@@ -36,7 +41,7 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   // from intermediate server states that arrive before the swap fully settles
   const dimOverride = context.groupSwitchDimOverride;
   if (dimOverride && Date.now() - dimOverride.timestamp < 500) {
-    activePanes = activePanes.map(pane => {
+    activePanes = activePanes.map((pane) => {
       if (pane.tmuxId === dimOverride.paneId) {
         return {
           ...pane,
@@ -54,7 +59,7 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   // This prevents visual jumps when server state updates during real-time swaps
   if (drag) {
     const { draggedPaneId, originalX, originalY, originalWidth, originalHeight } = drag;
-    activePanes = activePanes.map(pane => {
+    activePanes = activePanes.map((pane) => {
       if (pane.tmuxId === draggedPaneId) {
         return {
           ...pane,
@@ -77,22 +82,22 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   const { paneId, handle, pixelDelta, originalPane, originalNeighbors } = resize;
 
   // Find the target pane in active window
-  const targetPane = activePanes.find(p => p.tmuxId === paneId);
+  const targetPane = activePanes.find((p) => p.tmuxId === paneId);
   if (!targetPane) {
     return activePanes;
   }
 
   // Build a set of neighbor IDs for quick lookup
-  const neighborIds = new Set(originalNeighbors.map(n => n.tmuxId));
+  const neighborIds = new Set(originalNeighbors.map((n) => n.tmuxId));
   // Map from neighbor ID to its original state
-  const originalNeighborMap = new Map(originalNeighbors.map(n => [n.tmuxId, n]));
+  const originalNeighborMap = new Map(originalNeighbors.map((n) => [n.tmuxId, n]));
 
   // Calculate delta in character units from pixel offset
   const deltaCols = Math.round(pixelDelta.x / charWidth);
   const deltaRows = Math.round(pixelDelta.y / charHeight);
 
   // Apply preview transformations to active window panes only
-  return activePanes.map(pane => {
+  return activePanes.map((pane) => {
     if (pane.tmuxId === paneId) {
       // Target pane: adjust size based on handle
       const newPane = { ...pane };
@@ -144,7 +149,7 @@ export const selectPreviewPanes = createMemoizedSelector(
     activePaneId: ctx.activePaneId,
     groupSwitchDimOverride: ctx.groupSwitchDimOverride,
   }),
-  selectPreviewPanesUncached
+  selectPreviewPanesUncached,
 );
 
 /**
@@ -233,7 +238,7 @@ export function selectWindows(context: AppMachineContext) {
 
 /** Windows visible in status bar (excludes pane group, float, and unnamed transient windows) */
 export function selectVisibleWindows(context: AppMachineContext) {
-  return context.windows.filter(w => !w.isPaneGroupWindow && !w.isFloatWindow && w.name !== '');
+  return context.windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow && w.name !== '');
 }
 
 export function selectActiveWindowId(context: AppMachineContext): string | null {
@@ -299,7 +304,9 @@ export interface PanePixelDimensions {
  * Get pixel dimensions for all panes (computed from char dimensions)
  * Useful for resize preview and layout calculations
  */
-function selectPanePixelDimensionsUncached(context: AppMachineContext): Map<string, PanePixelDimensions> {
+function selectPanePixelDimensionsUncached(
+  context: AppMachineContext,
+): Map<string, PanePixelDimensions> {
   const { charWidth, charHeight } = context;
   const result = new Map<string, PanePixelDimensions>();
 
@@ -322,7 +329,7 @@ export const selectPanePixelDimensions = createMemoizedSelector(
     charWidth: ctx.charWidth,
     charHeight: ctx.charHeight,
   }),
-  selectPanePixelDimensionsUncached
+  selectPanePixelDimensionsUncached,
 );
 
 // ============================================
@@ -338,7 +345,7 @@ export function selectPaneGroups(context: AppMachineContext): Record<string, Pan
  */
 export function getActivePaneInGroup(context: AppMachineContext, group: PaneGroup): string | null {
   for (const paneId of group.paneIds) {
-    const pane = context.panes.find(p => p.tmuxId === paneId);
+    const pane = context.panes.find((p) => p.tmuxId === paneId);
     if (pane?.windowId === context.activeWindowId) {
       return paneId;
     }
@@ -393,7 +400,7 @@ export const selectVisiblePanes = createMemoizedSelector(
     activeWindowId: ctx.activeWindowId,
     activePaneId: ctx.activePaneId,
   }),
-  selectVisiblePanesUncached
+  selectVisiblePanesUncached,
 );
 
 /**
@@ -403,16 +410,13 @@ export const selectPaneGroupForPane = createMemoizedSelectorWithArg(
   (ctx: AppMachineContext, _paneId: string) => ctx.paneGroups,
   (context: AppMachineContext, paneId: string): PaneGroup | undefined => {
     return Object.values(context.paneGroups).find((group) => group.paneIds.includes(paneId));
-  }
+  },
 );
 
 /**
  * Get all panes in a group (resolved from pane IDs)
  */
-export function selectPaneGroupPanes(
-  context: AppMachineContext,
-  group: PaneGroup
-): TmuxPane[] {
+export function selectPaneGroupPanes(context: AppMachineContext, group: PaneGroup): TmuxPane[] {
   return group.paneIds
     .map((id) => context.panes.find((p) => p.tmuxId === id))
     .filter((p): p is TmuxPane => p !== undefined);
@@ -422,12 +426,14 @@ export function selectPaneGroupPanes(
 // Float Selectors
 // ============================================
 
-
 export function selectFloatPanes(context: AppMachineContext): FloatPaneState[] {
   return Object.values(context.floatPanes);
 }
 
-export function selectFloatPaneState(context: AppMachineContext, paneId: string): FloatPaneState | undefined {
+export function selectFloatPaneState(
+  context: AppMachineContext,
+  paneId: string,
+): FloatPaneState | undefined {
   return context.floatPanes[paneId];
 }
 
@@ -473,7 +479,7 @@ export const selectPaneById = createMemoizedSelectorWithArg(
   (context: AppMachineContext, paneId: string): TmuxPane | undefined => {
     const previewPanes = selectPreviewPanes(context);
     return previewPanes.find((p) => p.tmuxId === paneId);
-  }
+  },
 );
 
 /**
@@ -501,7 +507,9 @@ export function selectIsSinglePane(context: AppMachineContext): boolean {
  * Used to disable CSS transitions on affected panes to prevent height clipping.
  * Override is cleared by CLEAR_GROUP_SWITCH_OVERRIDE event (fired 750ms after switch).
  */
-export function selectGroupSwitchPaneIds(context: AppMachineContext): { paneId: string; fromPaneId: string } | null {
+export function selectGroupSwitchPaneIds(
+  context: AppMachineContext,
+): { paneId: string; fromPaneId: string } | null {
   const override = context.groupSwitchDimOverride;
   if (!override) return null;
   return { paneId: override.paneId, fromPaneId: override.fromPaneId };

@@ -15,10 +15,10 @@ use std::convert::Infallible;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::broadcast;
-use tokio::task::JoinHandle;
 use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
 use tmuxy_core::{executor, session, StateUpdate};
+use tokio::sync::broadcast;
+use tokio::task::JoinHandle;
 
 use crate::{AppState, SessionConnections};
 
@@ -423,10 +423,7 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         "select_window" => {
-            let window = args
-                .get("window")
-                .and_then(|v| v.as_str())
-                .unwrap_or("1");
+            let window = args.get("window").and_then(|v| v.as_str()).unwrap_or("1");
             let cmd = format!("selectw -t {}:{}", session, window);
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
@@ -447,19 +444,13 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         "select_pane_by_id" => {
-            let pane_id = args
-                .get("paneId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("%0");
+            let pane_id = args.get("paneId").and_then(|v| v.as_str()).unwrap_or("%0");
             let cmd = format!("selectp -t {}", pane_id);
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
         }
         "scroll_pane" => {
-            let pane_id = args
-                .get("paneId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("%0");
+            let pane_id = args.get("paneId").and_then(|v| v.as_str()).unwrap_or("%0");
             let direction = args
                 .get("direction")
                 .and_then(|v| v.as_str())
@@ -478,10 +469,7 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         "send_mouse_event" => {
-            let pane_id = args
-                .get("paneId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("%0");
+            let pane_id = args.get("paneId").and_then(|v| v.as_str()).unwrap_or("%0");
             let event_type = args
                 .get("eventType")
                 .and_then(|v| v.as_str())
@@ -545,15 +533,15 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         "run_tmux_command" => {
-            let command = args
-                .get("command")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
 
             // Block raw resize-window commands from clients — resize must go through
             // set_client_size to prevent stale SSE connections from overriding sizes.
             if command.starts_with("resize-window") || command.starts_with("resizew") {
-                eprintln!("[sse] Client {} blocked resize command (use set_client_size): {}", conn_id, command);
+                eprintln!(
+                    "[sse] Client {} blocked resize command (use set_client_size): {}",
+                    conn_id, command
+                );
                 return Ok(serde_json::json!(null));
             }
 
@@ -570,25 +558,22 @@ async fn handle_command(
                 })
                 .await
                 .map_err(|e| format!("Monitor channel error: {}", e))?;
-                eprintln!("[sse] Client {} sent command via control mode: {}", conn_id, command);
+                eprintln!(
+                    "[sse] Client {} sent command via control mode: {}",
+                    conn_id, command
+                );
                 Ok(serde_json::json!(null))
             } else {
                 Err("No monitor connection available".to_string())
             }
         }
         "resize_pane" => {
-            let pane_id = args
-                .get("paneId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("%0");
+            let pane_id = args.get("paneId").and_then(|v| v.as_str()).unwrap_or("%0");
             let direction = args
                 .get("direction")
                 .and_then(|v| v.as_str())
                 .unwrap_or("R");
-            let adjustment = args
-                .get("adjustment")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(1) as u32;
+            let adjustment = args.get("adjustment").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
             let cmd = format!("resizep -t {} -{} {}", pane_id, direction, adjustment);
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
@@ -616,31 +601,37 @@ async fn handle_command(
         }
         "get_key_bindings" => {
             let bindings = tmuxy_core::get_prefix_bindings().map_err(|e| e)?;
-            let prefix =
-                tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".to_string());
+            let prefix = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".to_string());
             Ok(serde_json::json!({
                 "prefix": prefix,
                 "bindings": bindings
             }))
         }
         "get_scrollback_cells" => {
-            let pane_id = args
-                .get("paneId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("%0");
+            let pane_id = args.get("paneId").and_then(|v| v.as_str()).unwrap_or("%0");
             let start = args.get("start").and_then(|v| v.as_i64()).unwrap_or(-200);
             let end = args.get("end").and_then(|v| v.as_i64()).unwrap_or(-1);
 
             // Get pane width from display-message
             let width_output = executor::execute_tmux_command(&[
-                "display-message", "-t", pane_id, "-p", "#{pane_width}"
-            ]).map_err(|e| format!("Failed to get pane width: {}", e))?;
+                "display-message",
+                "-t",
+                pane_id,
+                "-p",
+                "#{pane_width}",
+            ])
+            .map_err(|e| format!("Failed to get pane width: {}", e))?;
             let width: u32 = width_output.trim().parse().unwrap_or(80);
 
             // Get history size
             let history_output = executor::execute_tmux_command(&[
-                "display-message", "-t", pane_id, "-p", "#{history_size}"
-            ]).map_err(|e| format!("Failed to get history size: {}", e))?;
+                "display-message",
+                "-t",
+                pane_id,
+                "-p",
+                "#{history_size}",
+            ])
+            .map_err(|e| format!("Failed to get history size: {}", e))?;
             let history_size: u32 = history_output.trim().parse().unwrap_or(0);
 
             // Capture the range
@@ -723,10 +714,7 @@ async fn set_client_size(state: &Arc<AppState>, session: &str, conn_id: u64, col
             }
             session_conns.last_resize = Some(min);
             eprintln!("[size] All clients: {:?}", sizes);
-            (
-                Some(min),
-                session_conns.monitor_command_tx.clone(),
-            )
+            (Some(min), session_conns.monitor_command_tx.clone())
         } else {
             (None, None)
         }
@@ -816,7 +804,9 @@ async fn cleanup_connection(
             tokio::time::sleep(Duration::from_millis(4000)).await;
         }
         if !handle.is_finished() {
-            eprintln!("[cleanup] Monitor task still running after graceful shutdown (not aborting)");
+            eprintln!(
+                "[cleanup] Monitor task still running after graceful shutdown (not aborting)"
+            );
         } else {
             eprintln!("[cleanup] Monitor task finished gracefully");
         }
@@ -867,7 +857,8 @@ pub fn list_directory(path: &str) -> Result<Vec<DirectoryEntry>, String> {
 
     let mut entries = Vec::new();
 
-    let dir = std::fs::read_dir(&canonical).map_err(|e| format!("Failed to read directory: {}", e))?;
+    let dir =
+        std::fs::read_dir(&canonical).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     for entry in dir {
         let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
@@ -945,7 +936,10 @@ async fn start_monitoring_control_mode(
         {
             let sessions = state.sessions.read().await;
             if !sessions.contains_key(&session) {
-                eprintln!("[monitor] Session '{}' removed, stopping monitor loop", session);
+                eprintln!(
+                    "[monitor] Session '{}' removed, stopping monitor loop",
+                    session
+                );
                 break;
             }
         }
@@ -961,7 +955,10 @@ async fn start_monitoring_control_mode(
                         true
                     } else {
                         // Session was cleaned up between connect and now
-                        eprintln!("[monitor] Session '{}' gone before storing command_tx, stopping", session);
+                        eprintln!(
+                            "[monitor] Session '{}' gone before storing command_tx, stopping",
+                            session
+                        );
                         false
                     }
                 };
