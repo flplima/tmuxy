@@ -31,8 +31,8 @@ pub struct SessionConnections {
     pub monitor_handle: Option<JoinHandle<()>>,
 }
 
-impl SessionConnections {
-    pub fn new() -> Self {
+impl Default for SessionConnections {
+    fn default() -> Self {
         let (state_tx, _) = broadcast::channel(100);
         Self {
             connections: Vec::new(),
@@ -45,6 +45,12 @@ impl SessionConnections {
     }
 }
 
+impl SessionConnections {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 pub struct AppState {
     /// Per-session connection tracking
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
@@ -54,13 +60,19 @@ pub struct AppState {
     pub sse_tokens: RwLock<HashMap<String, (u64, String)>>,
 }
 
-impl AppState {
-    pub fn new() -> Self {
+impl Default for AppState {
+    fn default() -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
             next_conn_id: AtomicU64::new(1),
             sse_tokens: RwLock::new(HashMap::new()),
         }
+    }
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
