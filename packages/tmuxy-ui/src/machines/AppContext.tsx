@@ -101,8 +101,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Create adapter and actors once
   const actors = useMemo(() => {
     const adapter = createAdapter();
-    // Expose adapter for E2E testing (dev mode only)
-    if (typeof window !== 'undefined' && import.meta.env.DEV) {
+    // Expose adapter for E2E testing (dev mode or CI)
+    if (
+      typeof window !== 'undefined' &&
+      (import.meta.env.DEV || import.meta.env.VITE_E2E === 'true')
+    ) {
       (window as unknown as { _adapter: typeof adapter })._adapter = adapter;
     }
     return {

@@ -81,7 +81,7 @@ jobs:
         run: cargo build -p web-server
 
       - name: Build frontend
-        run: npm run build -w tmuxy-ui
+        run: VITE_E2E=true npm run build -w tmuxy-ui
 
       - name: Copy dist to CWD
         run: cp -r packages/tmuxy-ui/dist ./dist
