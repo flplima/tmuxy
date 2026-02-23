@@ -167,7 +167,7 @@ export const TerminalLine = memo(
         if (!currentGroup || currentGroup.cells.length === 0) return;
 
         const text = currentGroup.cells.map((c) => c.c).join('');
-        const style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
+        let style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
         const startIdx = currentGroup.startIdx;
         const url = currentGroup.style?.url;
 
