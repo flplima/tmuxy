@@ -156,14 +156,31 @@ expect(ctx.session.getPaneCount()).toBe(2);
 
 Test files are grouped by operation: `pane-split.test.js`, `pane-navigate.test.js`, etc.
 
-## Debugging
+## Git
 
-In dev mode, the following globals are available in the browser console:
+### Commit Messages
 
-| Global | Purpose |
-|--------|---------|
-| `window.app` | XState actor - `send()`, `getSnapshot()`, `subscribe()` |
-| `window.getSnapshot()` | Build UI snapshot (pane content rendered to text grid) |
-| `window.getTmuxSnapshot()` | Fetch tmux snapshot from server API |
+Use [gitmoji](https://gitmoji.dev/) standards for commit messages. The first line should be a short summary with a gitmoji prefix. If the commit is related to an issue, add the issue number at the end of the first line.
 
-Events are also stored in IndexedDB (`tmuxy-events` database) for persistence across page reloads.
+```
+🐛 Fix pane resize crash on split (#1234)
+
+Additional details about the change go here.
+Multi-line descriptions are welcome for context.
+```
+
+Common gitmojis:
+
+| Emoji | Code | Description |
+|-------|------|-------------|
+| ✨ | `:sparkles:` | New feature |
+| 🐛 | `:bug:` | Bug fix |
+| ♻️ | `:recycle:` | Refactor |
+| 🎨 | `:art:` | Improve structure/format |
+| ⚡ | `:zap:` | Performance improvement |
+| 🔥 | `:fire:` | Remove code or files |
+| 🩹 | `:adhesive_bandage:` | Simple fix for a non-critical issue |
+| ✅ | `:white_check_mark:` | Add or update tests |
+| 📝 | `:memo:` | Documentation |
+| 🔧 | `:wrench:` | Configuration files |
+| 🏗️ | `:building_construction:` | Architectural changes |
