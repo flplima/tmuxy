@@ -10,7 +10,7 @@ ENV TZ="$TZ"
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools
-    less git procps sudo fzf zsh man-db unzip gnupg2 \
+    less git procps sudo fzf zsh man-db unzip gnupg2 openssh-server \
     nano vim neovim jq yq bc \
     # Build tools (tmux, native modules)
     build-essential pkg-config libssl-dev ca-certificates \
@@ -23,6 +23,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 libfreetype6 libfontconfig1 libdbus-1-3 libnss3 \
     libnspr4 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libatspi2.0-0 \
     libcups2 libxshmfence1 libgbm1 \
+    && mkdir /run/sshd \
+    && ssh-keygen -A \
+    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config \
+    && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
+    && echo "node ALL=(root) NOPASSWD: /usr/sbin/sshd" > /etc/sudoers.d/sshd \
+    && chmod 440 /etc/sudoers.d/sshd \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI
