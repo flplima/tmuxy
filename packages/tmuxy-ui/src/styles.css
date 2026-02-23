@@ -96,7 +96,7 @@
   --tmux-status-bg: var(--term-green);
 
   /* Typography */
-  --font-mono: 'Monaco', 'Menlo', 'Courier New', monospace;
+  --font-mono: 'FiraCode Nerd Font', 'Monaco', 'Menlo', 'Courier New', monospace;
   --font-size-sm: 9px;
   --font-size-md: 11px;
   --font-size-base: 12px;
@@ -252,6 +252,10 @@ body {
 
 .pane-single .pane-content {
   background-color: transparent;
+}
+
+.pane-wrapper {
+  touch-action: none;
 }
 
 .pane-wrapper:focus {

@@ -9,7 +9,9 @@
 .terminal-content {
   margin: 0;
   padding: 4px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: 'FiraCode Nerd Font', 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-variant-ligatures: contextual;
+  font-feature-settings: 'calt' 1;
   font-size: 14px;
   line-height: var(--line-height-terminal, 21px);
   color: #d4d4d4;
