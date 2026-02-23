@@ -174,7 +174,8 @@
 }
 
 @keyframes pulse-placeholder {
-  0%, 100% {
+  0%,
+  100% {
     background-color: rgba(100, 150, 255, 0.15);
   }
   50% {

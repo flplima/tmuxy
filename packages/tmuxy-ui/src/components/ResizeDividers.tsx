@@ -18,7 +18,7 @@ interface ResizeDividersProps {
 
 interface DividerSegment {
   start: number; // left for horizontal, top for vertical
-  end: number;   // right for horizontal, bottom for vertical
+  end: number; // right for horizontal, bottom for vertical
   paneId: string; // pane to resize
 }
 
@@ -98,7 +98,12 @@ function collectDividerSegments(panes: TmuxPane[]) {
 /** Thickness of resize grab handles in pixels */
 const DIVIDER_THICKNESS = 8;
 
-export function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }: ResizeDividersProps) {
+export function ResizeDividers({
+  panes,
+  charWidth,
+  charHeight,
+  centeringOffset,
+}: ResizeDividersProps) {
   const send = useAppSend();
   const { horizontal, vertical } = collectDividerSegments(panes);
   const dividerElements: React.ReactElement[] = [];
@@ -129,7 +134,7 @@ export function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }
               startY: e.clientY,
             });
           }}
-        />
+        />,
       );
     });
   });
@@ -161,7 +166,7 @@ export function ResizeDividers({ panes, charWidth, charHeight, centeringOffset }
               startY: e.clientY,
             });
           }}
-        />
+        />,
       );
     });
   });

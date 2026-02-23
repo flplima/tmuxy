@@ -12,7 +12,13 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
 import { appMachine, type AppMachineActor } from './app';
-import type { AppMachineContext, AppMachineEvent, TmuxPane, PaneGroup, CopyModeState } from './types';
+import type {
+  AppMachineContext,
+  AppMachineEvent,
+  TmuxPane,
+  PaneGroup,
+  CopyModeState,
+} from './types';
 import {
   selectPaneById,
   selectIsPaneInActiveWindow as selectIsPaneInActiveWindowFn,
@@ -109,7 +115,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const actorRef = useActorRef(
     appMachine.provide({
       actors,
-    })
+    }),
   );
 
   // Expose XState actor for debugging (dev mode only)
@@ -204,7 +210,11 @@ export function useIsSinglePane(): boolean {
 }
 
 /** Get the group containing a pane, with resolved pane data and active pane ID */
-export function usePaneGroup(paneId: string): { group: PaneGroup | undefined; groupPanes: TmuxPane[]; activePaneId: string | null } {
+export function usePaneGroup(paneId: string): {
+  group: PaneGroup | undefined;
+  groupPanes: TmuxPane[];
+  activePaneId: string | null;
+} {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => {
     const group = selectPaneGroupForPane(snapshot.context, paneId);

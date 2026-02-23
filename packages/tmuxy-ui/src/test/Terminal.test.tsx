@@ -79,7 +79,7 @@ describe('Terminal', () => {
         inMode={true}
         copyCursorX={10}
         copyCursorY={5}
-      />
+      />,
     );
 
     const terminal = screen.getByTestId('terminal');

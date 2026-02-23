@@ -10,10 +10,10 @@ use axum::{
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use tmuxy_core::control_mode::MonitorCommandSender;
 use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
-use tmuxy_core::control_mode::MonitorCommandSender;
 
 /// Tracks connections and shared resources for a single tmux session
 pub struct SessionConnections {

@@ -3,7 +3,10 @@
 //! Aggregates control mode events into coherent state using vt100 terminal emulation.
 
 use super::parser::ControlModeEvent;
-use crate::{extract_cells_from_screen, extract_cells_with_urls, is_float_window_name, parse_pane_group_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow};
+use crate::{
+    extract_cells_from_screen, extract_cells_with_urls, is_float_window_name,
+    parse_pane_group_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow,
+};
 use std::collections::HashMap;
 
 /// Safe wrapper around vt100::Parser::process that catches panics from
@@ -218,13 +221,16 @@ impl PaneState {
 
         // Normalize newlines: capture-pane outputs \n only, but vt100 treats \n as
         // "move down" without returning to column 0. We need \r\n for proper line handling.
-        let normalized: Vec<u8> = content.iter().flat_map(|&b| {
-            if b == b'\n' {
-                vec![b'\r', b'\n']
-            } else {
-                vec![b]
-            }
-        }).collect();
+        let normalized: Vec<u8> = content
+            .iter()
+            .flat_map(|&b| {
+                if b == b'\n' {
+                    vec![b'\r', b'\n']
+                } else {
+                    vec![b]
+                }
+            })
+            .collect();
 
         // Process the normalized content
         safe_process(&mut self.terminal, &normalized);
@@ -274,13 +280,16 @@ impl PaneState {
 
         // Normalize newlines: capture-pane outputs \n only, but vt100 treats \n as
         // "move down" without returning to column 0. We need \r\n for proper line handling.
-        let normalized: Vec<u8> = content.iter().flat_map(|&b| {
-            if b == b'\n' {
-                vec![b'\r', b'\n']
-            } else {
-                vec![b]
-            }
-        }).collect();
+        let normalized: Vec<u8> = content
+            .iter()
+            .flat_map(|&b| {
+                if b == b'\n' {
+                    vec![b'\r', b'\n']
+                } else {
+                    vec![b]
+                }
+            })
+            .collect();
 
         safe_process(&mut temp_terminal, &normalized);
         self.copy_mode_content = Some(extract_cells_from_screen(temp_terminal.screen()));
@@ -312,7 +321,10 @@ impl PaneState {
             tmux_id: self.id.clone(),
             window_id: self.window_id.clone(),
             content: if self.in_mode {
-                self.copy_mode_content.as_ref().cloned().unwrap_or_else(|| self.get_content())
+                self.copy_mode_content
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| self.get_content())
             } else {
                 self.get_content()
             },
@@ -371,10 +383,7 @@ impl WindowState {
     pub fn new(id: &str) -> Self {
         Self {
             id: id.to_string(),
-            index: id
-                .trim_start_matches('@')
-                .parse()
-                .unwrap_or(0),
+            index: id.trim_start_matches('@').parse().unwrap_or(0),
             name: String::new(),
             active: false,
             layout: String::new(),
@@ -557,8 +566,8 @@ impl StateAggregator {
     /// Width is the total terminal width from pane layout, used for padding.
     fn get_status_line(&mut self, width: usize) -> String {
         if self.status_line_dirty {
-            self.cached_status_line = crate::executor::capture_status_line(&self.session_name, width)
-                .unwrap_or_default();
+            self.cached_status_line =
+                crate::executor::capture_status_line(&self.session_name, width).unwrap_or_default();
             self.status_line_dirty = false;
         }
         self.cached_status_line.clone()
@@ -589,9 +598,9 @@ impl StateAggregator {
         // If it looks like list-panes format
         if first_line.starts_with('%') && first_line.contains(',') {
             // Check if all lines follow the pattern
-            let all_list_panes = lines.iter().all(|line| {
-                line.starts_with('%') && line.contains(',')
-            });
+            let all_list_panes = lines
+                .iter()
+                .all(|line| line.starts_with('%') && line.contains(','));
             if all_list_panes {
                 return false; // This is list-panes output
             }
@@ -600,9 +609,9 @@ impl StateAggregator {
         // If it looks like list-windows format
         if first_line.starts_with('@') && first_line.contains(',') {
             // Check if all lines follow the pattern
-            let all_list_windows = lines.iter().all(|line| {
-                line.starts_with('@') && line.contains(',')
-            });
+            let all_list_windows = lines
+                .iter()
+                .all(|line| line.starts_with('@') && line.contains(','));
             if all_list_windows {
                 return false; // This is list-windows output
             }
@@ -630,7 +639,8 @@ impl StateAggregator {
 
     /// Get IDs of panes currently in copy mode (only those with a valid window)
     pub fn get_panes_in_copy_mode(&self) -> Vec<String> {
-        self.panes.values()
+        self.panes
+            .values()
             .filter(|p| p.in_mode && !p.window_id.is_empty())
             .map(|p| p.id.clone())
             .collect()
@@ -638,7 +648,8 @@ impl StateAggregator {
 
     /// Get copy mode pane info: (pane_id, scroll_position, height) for building capture-pane commands
     pub fn get_copy_mode_pane_info(&self) -> Vec<(String, u32, u32)> {
-        self.panes.values()
+        self.panes
+            .values()
             .filter(|p| p.in_mode && !p.window_id.is_empty())
             .map(|p| (p.id.clone(), p.scroll_position, p.height))
             .collect()
@@ -654,7 +665,9 @@ impl StateAggregator {
                     state_changed: changed,
                     panes_needing_refresh: Vec::new(),
                     change_type: if changed {
-                        ChangeType::PaneOutput { pane_id: pane_id.clone() }
+                        ChangeType::PaneOutput {
+                            pane_id: pane_id.clone(),
+                        }
                     } else {
                         ChangeType::None
                     },
@@ -669,7 +682,9 @@ impl StateAggregator {
                     state_changed: changed,
                     panes_needing_refresh: Vec::new(),
                     change_type: if changed {
-                        ChangeType::PaneOutput { pane_id: pane_id.clone() }
+                        ChangeType::PaneOutput {
+                            pane_id: pane_id.clone(),
+                        }
                     } else {
                         ChangeType::None
                     },
@@ -692,9 +707,9 @@ impl StateAggregator {
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
                 self.status_line_dirty = true; // Window added - refresh status line
-                // Don't emit state yet - wait for WindowRenamed or list-windows
-                // to populate the window name. This prevents brief flashes of
-                // windows appearing with empty names (which breaks stack detection).
+                                               // Don't emit state yet - wait for WindowRenamed or list-windows
+                                               // to populate the window name. This prevents brief flashes of
+                                               // windows appearing with empty names (which breaks stack detection).
                 ProcessEventResult::default()
             }
 
@@ -702,8 +717,7 @@ impl StateAggregator {
             | ControlModeEvent::UnlinkedWindowClose { window_id } => {
                 self.windows.remove(&window_id);
                 // Remove panes belonging to this window
-                self.panes
-                    .retain(|_, p| p.window_id != window_id);
+                self.panes.retain(|_, p| p.window_id != window_id);
                 self.status_line_dirty = true; // Window closed - refresh status line
                 ProcessEventResult {
                     state_changed: true,
@@ -724,10 +738,7 @@ impl StateAggregator {
                 }
             }
 
-            ControlModeEvent::WindowPaneChanged {
-                window_id,
-                pane_id,
-            } => {
+            ControlModeEvent::WindowPaneChanged { window_id, pane_id } => {
                 // Update active pane in window
                 for (_, pane) in self.panes.iter_mut() {
                     if pane.window_id == window_id {
@@ -767,7 +778,9 @@ impl StateAggregator {
                 }
             }
 
-            ControlModeEvent::CommandResponse { output, success, .. } => {
+            ControlModeEvent::CommandResponse {
+                output, success, ..
+            } => {
                 // First, try to match pending capture-pane responses using heuristics.
                 // capture-pane output characteristics:
                 // - Doesn't look like list-panes output (no leading %pane_id,pane_index,...)
@@ -848,18 +861,15 @@ impl StateAggregator {
                     ..Default::default()
                 }
             }
-            ControlModeEvent::Exit { .. } => {
-                ProcessEventResult {
-                    state_changed: true,
-                    change_type: ChangeType::Session,
-                    ..Default::default()
-                }
-            }
+            ControlModeEvent::Exit { .. } => ProcessEventResult {
+                state_changed: true,
+                change_type: ChangeType::Session,
+                ..Default::default()
+            },
 
             // ============================================
             // Popup Events (requires tmux with PR #4361)
             // ============================================
-
             ControlModeEvent::PopupOpen {
                 popup_id,
                 width,
@@ -907,7 +917,6 @@ impl StateAggregator {
             // ============================================
             // Flow Control Events (tmux 3.2+ pause-after)
             // ============================================
-
             ControlModeEvent::Pause { pane_id } => {
                 if let Some(pane) = self.panes.get_mut(&pane_id) {
                     pane.paused = true;
@@ -1013,7 +1022,10 @@ impl StateAggregator {
             let rest = parts[3];
 
             // Check for pane ID (just a number)
-            if let Ok(pane_idx) = rest.trim_end_matches(|c| c == ']' || c == '}').parse::<u32>() {
+            if let Ok(pane_idx) = rest
+                .trim_end_matches(|c| c == ']' || c == '}')
+                .parse::<u32>()
+            {
                 // Find pane by index and update position
                 // Note: We construct pane_id from layout index, but this may not match actual
                 // pane IDs after panes are created/deleted. Only update position, not window_id.
@@ -1135,8 +1147,15 @@ impl StateAggregator {
         // selection_present, selection_start_x, selection_start_y, history_size
         // Parse from the end to find the known fixed fields
         let num_tail_fields = 6;
-        let (border_title, alternate_on, mouse_any_flag,
-             selection_present, selection_start_x, selection_start_y, history_size) = if remaining_parts.len() >= num_tail_fields {
+        let (
+            border_title,
+            alternate_on,
+            mouse_any_flag,
+            selection_present,
+            selection_start_x,
+            selection_start_y,
+            history_size,
+        ) = if remaining_parts.len() >= num_tail_fields {
             let last_idx = remaining_parts.len() - 1;
             let hist_size: u64 = remaining_parts[last_idx].parse().unwrap_or(0);
             let sel_start_y: u64 = remaining_parts[last_idx - 1].parse().unwrap_or(0);
@@ -1150,7 +1169,15 @@ impl StateAggregator {
             } else {
                 String::new()
             };
-            (title_parts, alt_on, mouse_flag, sel_present, sel_start_x, sel_start_y, hist_size)
+            (
+                title_parts,
+                alt_on,
+                mouse_flag,
+                sel_present,
+                sel_start_x,
+                sel_start_y,
+                hist_size,
+            )
         } else if remaining_parts.len() >= 2 {
             let last_idx = remaining_parts.len() - 1;
             let mouse_flag = remaining_parts[last_idx] == "1";
@@ -1231,13 +1258,12 @@ impl StateAggregator {
         let active = parts[3] == "1";
 
         // Parse float window options (may be empty)
-        let float_parent = parts.get(4)
+        let float_parent = parts
+            .get(4)
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
-        let float_width = parts.get(5)
-            .and_then(|s| s.parse::<u32>().ok());
-        let float_height = parts.get(6)
-            .and_then(|s| s.parse::<u32>().ok());
+        let float_width = parts.get(5).and_then(|s| s.parse::<u32>().ok());
+        let float_height = parts.get(6).and_then(|s| s.parse::<u32>().ok());
 
         let window = self
             .windows
@@ -1300,8 +1326,11 @@ impl StateAggregator {
         // Build maps for efficient lookup
         let prev_panes: std::collections::HashMap<&str, &crate::TmuxPane> =
             prev.panes.iter().map(|p| (p.tmux_id.as_str(), p)).collect();
-        let curr_panes: std::collections::HashMap<&str, &crate::TmuxPane> =
-            current.panes.iter().map(|p| (p.tmux_id.as_str(), p)).collect();
+        let curr_panes: std::collections::HashMap<&str, &crate::TmuxPane> = current
+            .panes
+            .iter()
+            .map(|p| (p.tmux_id.as_str(), p))
+            .collect();
 
         let prev_windows: std::collections::HashMap<&str, &crate::TmuxWindow> =
             prev.windows.iter().map(|w| (w.id.as_str(), w)).collect();
@@ -1434,7 +1463,11 @@ impl StateAggregator {
     }
 
     /// Compute delta between two panes
-    fn compute_pane_delta(&self, prev: &crate::TmuxPane, curr: &crate::TmuxPane) -> crate::PaneDelta {
+    fn compute_pane_delta(
+        &self,
+        prev: &crate::TmuxPane,
+        curr: &crate::TmuxPane,
+    ) -> crate::PaneDelta {
         let mut delta = crate::PaneDelta::default();
 
         if prev.window_id != curr.window_id {
@@ -1588,9 +1621,7 @@ impl StateAggregator {
                     return false;
                 }
                 // Include panes from active window, valid pane group windows, OR float windows
-                let is_active_window = active_window
-                    .map(|w| p.window_id == *w)
-                    .unwrap_or(false);
+                let is_active_window = active_window.map(|w| p.window_id == *w).unwrap_or(false);
                 let is_valid_pane_group_window = valid_pane_group_windows.contains(&p.window_id);
                 let is_float_window = float_windows.contains(&p.window_id);
                 is_active_window || is_valid_pane_group_window || is_float_window
@@ -1598,23 +1629,11 @@ impl StateAggregator {
             .map(|p| p.to_tmux_pane())
             .collect();
 
-        let windows: Vec<TmuxWindow> = self
-            .windows
-            .values()
-            .map(|w| w.to_tmux_window())
-            .collect();
+        let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
 
         // Calculate total dimensions
-        let total_width = panes
-            .iter()
-            .map(|p| p.x + p.width)
-            .max()
-            .unwrap_or(80);
-        let total_height = panes
-            .iter()
-            .map(|p| p.y + p.height)
-            .max()
-            .unwrap_or(24);
+        let total_width = panes.iter().map(|p| p.x + p.width).max().unwrap_or(80);
+        let total_height = panes.iter().map(|p| p.y + p.height).max().unwrap_or(24);
 
         // Find the active pane ID from the active window
         // (each window has its own active pane, we want the one in the active window)

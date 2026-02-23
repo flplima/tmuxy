@@ -38,10 +38,12 @@
 }
 
 @keyframes terminal-blink {
-  0%, 50% {
+  0%,
+  50% {
     opacity: 1;
   }
-  50.01%, 100% {
+  50.01%,
+  100% {
     opacity: 0;
   }
 }

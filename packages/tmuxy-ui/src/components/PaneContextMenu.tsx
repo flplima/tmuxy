@@ -6,7 +6,12 @@
 
 import { ControlledMenu, MenuItem, MenuDivider } from '@szhsin/react-menu';
 import '@szhsin/react-menu/dist/index.css';
-import { useAppSend, useAppSelector, selectKeyBindings, selectVisiblePanes } from '../machines/AppContext';
+import {
+  useAppSend,
+  useAppSelector,
+  selectKeyBindings,
+  selectVisiblePanes,
+} from '../machines/AppContext';
 import { getKeybindingLabel } from './menus/keybindingLabel';
 import { executeMenuAction } from './menus/menuActions';
 import type { KeyBindings } from '../machines/types';
@@ -38,12 +43,7 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
   };
 
   return (
-    <ControlledMenu
-      state="open"
-      anchorPoint={{ x, y }}
-      onClose={onClose}
-      transition={false}
-    >
+    <ControlledMenu state="open" anchorPoint={{ x, y }} onClose={onClose} transition={false}>
       <MenuItem onClick={() => handleAction('pane-split-below')}>
         New Pane Below
         <KeyLabel keybindings={keybindings} command="split-window -v" />
@@ -82,10 +82,12 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
         Move to New Tab
         <KeyLabel keybindings={keybindings} command="break-pane" />
       </MenuItem>
-      <MenuItem onClick={() => {
-        send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
-        onClose();
-      }}>
+      <MenuItem
+        onClick={() => {
+          send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
+          onClose();
+        }}
+      >
         Add Pane to Group
       </MenuItem>
       <MenuDivider />
@@ -97,9 +99,7 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
         Paste
         <KeyLabel keybindings={keybindings} command="paste-buffer" />
       </MenuItem>
-      <MenuItem onClick={() => handleAction('pane-clear')}>
-        Clear Screen
-      </MenuItem>
+      <MenuItem onClick={() => handleAction('pane-clear')}>Clear Screen</MenuItem>
       <MenuDivider />
       <MenuItem onClick={() => handleAction('view-zoom')}>
         Zoom Pane

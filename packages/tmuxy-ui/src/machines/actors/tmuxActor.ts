@@ -37,9 +37,11 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       parent.send({ type: 'KEYBINDINGS_RECEIVED', keybindings });
     });
 
-    const unsubscribeConnectionInfo = adapter.onConnectionInfo((connectionId: number, defaultShell: string) => {
-      parent.send({ type: 'CONNECTION_INFO', connectionId, defaultShell });
-    });
+    const unsubscribeConnectionInfo = adapter.onConnectionInfo(
+      (connectionId: number, defaultShell: string) => {
+        parent.send({ type: 'CONNECTION_INFO', connectionId, defaultShell });
+      },
+    );
 
     // Connect to backend
     adapter
@@ -54,17 +56,13 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     // Handle commands from parent machine
     receive((event) => {
       if (event.type === 'SEND_COMMAND') {
-        adapter
-          .invoke<void>('run_tmux_command', { command: event.command })
-          .catch((error) => {
-            parent.send({ type: 'TMUX_ERROR', error: error.message || 'Command failed' });
-          });
+        adapter.invoke<void>('run_tmux_command', { command: event.command }).catch((error) => {
+          parent.send({ type: 'TMUX_ERROR', error: error.message || 'Command failed' });
+        });
       } else if (event.type === 'INVOKE') {
-        adapter
-          .invoke(event.cmd, event.args || {})
-          .catch((error) => {
-            parent.send({ type: 'TMUX_ERROR', error: error.message || 'Invoke failed' });
-          });
+        adapter.invoke(event.cmd, event.args || {}).catch((error) => {
+          parent.send({ type: 'TMUX_ERROR', error: error.message || 'Invoke failed' });
+        });
       } else if (event.type === 'FETCH_INITIAL_STATE') {
         adapter
           .invoke<ServerState>('get_initial_state', { cols: event.cols, rows: event.rows })
@@ -76,7 +74,13 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           });
       } else if (event.type === 'FETCH_SCROLLBACK_CELLS') {
         adapter
-          .invoke<{ cells: import('../../tmux/types').PaneContent; historySize: number; start: number; end: number; width: number }>('get_scrollback_cells', {
+          .invoke<{
+            cells: import('../../tmux/types').PaneContent;
+            historySize: number;
+            start: number;
+            end: number;
+            width: number;
+          }>('get_scrollback_cells', {
             paneId: event.paneId,
             start: event.start,
             end: event.end,

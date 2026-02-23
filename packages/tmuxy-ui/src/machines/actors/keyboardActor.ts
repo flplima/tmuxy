@@ -21,16 +21,38 @@ export type KeyboardActorEvent =
   | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
   | { type: 'UPDATE_COPY_MODE'; active: boolean; paneId: string | null };
 
-export interface KeyboardActorInput { parent: AnyActorRef }
+export interface KeyboardActorInput {
+  parent: AnyActorRef;
+}
 
 const KEY_MAP: Record<string, string> = {
-  Enter: 'Enter', Backspace: 'BSpace', Delete: 'DC',
-  ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
-  Tab: 'Tab', Escape: 'Escape', Home: 'Home', End: 'End',
-  PageUp: 'PPage', PageDown: 'NPage', Insert: 'IC',
+  Enter: 'Enter',
+  Backspace: 'BSpace',
+  Delete: 'DC',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+  Tab: 'Tab',
+  Escape: 'Escape',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PPage',
+  PageDown: 'NPage',
+  Insert: 'IC',
   ' ': 'Space',
-  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
-  F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+  F1: 'F1',
+  F2: 'F2',
+  F3: 'F3',
+  F4: 'F4',
+  F5: 'F5',
+  F6: 'F6',
+  F7: 'F7',
+  F8: 'F8',
+  F9: 'F9',
+  F10: 'F10',
+  F11: 'F11',
+  F12: 'F12',
 };
 
 /**
@@ -38,10 +60,10 @@ const KEY_MAP: Record<string, string> = {
  * This maps those characters back to their base keys for tmux M- notation
  */
 const MACOS_OPTION_KEY_MAP: Record<string, string> = {
-  '˙': 'h',  // Option+H
-  '∆': 'j',  // Option+J
-  '˚': 'k',  // Option+K
-  '¬': 'l',  // Option+L
+  '˙': 'h', // Option+H
+  '∆': 'j', // Option+J
+  '˚': 'k', // Option+K
+  '¬': 'l', // Option+L
   // Add more as needed for other Option+key combinations
 };
 
@@ -89,7 +111,7 @@ export function createKeyboardActor() {
     let pendingCopyText: string | null = null;
 
     // Dynamic keybindings from server
-    let prefixKey = 'C-a';  // Default, will be updated from server
+    let prefixKey = 'C-a'; // Default, will be updated from server
     let prefixBindings: Map<string, string> = new Map();
     let rootBindings: Map<string, string> = new Map();
 
@@ -139,14 +161,18 @@ export function createKeyboardActor() {
         if (copyModeActive) {
           // Extract text for the native copy event handler
           try {
-            const snapshot = input.parent.getSnapshot() as { context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> } };
+            const snapshot = input.parent.getSnapshot() as {
+              context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
+            };
             const ctx = snapshot?.context;
             const paneId = ctx?.activePaneId;
             const copyState = paneId ? ctx?.copyModeStates?.[paneId] : undefined;
             if (copyState?.selectionMode && copyState?.selectionAnchor) {
               pendingCopyText = extractSelectedText(copyState);
             }
-          } catch (_) { /* ignore */ }
+          } catch (_) {
+            /* ignore */
+          }
           // Don't preventDefault — let browser fire native copy event
         } else {
           event.preventDefault();
@@ -161,7 +187,9 @@ export function createKeyboardActor() {
         // For yank key (y), copy to clipboard via native copy event
         if (event.key === 'y') {
           try {
-            const snapshot = input.parent.getSnapshot() as { context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> } };
+            const snapshot = input.parent.getSnapshot() as {
+              context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
+            };
             const ctx = snapshot?.context;
             const paneId = ctx?.activePaneId;
             const copyState = paneId ? ctx?.copyModeStates?.[paneId] : undefined;
@@ -170,7 +198,9 @@ export function createKeyboardActor() {
               // Trigger native copy event (our copy handler will set clipboardData)
               document.execCommand('copy');
             }
-          } catch (_) { /* ignore */ }
+          } catch (_) {
+            /* ignore */
+          }
         }
         input.parent.send({
           type: 'COPY_MODE_KEY',
@@ -222,14 +252,14 @@ export function createKeyboardActor() {
         // instead of the shifted character (especially with Playwright/automation)
         if (event.shiftKey && event.key.length === 1) {
           const shiftedKeys: Record<string, string> = {
-            "'": '"',  // Shift+' = " (horizontal split)
-            '5': '%',  // Shift+5 = % (vertical split)
-            '7': '&',  // Shift+7 = & (kill window)
-            '1': '!',  // Shift+1 = ! (break pane)
-            '[': '{',  // Shift+[ = { (swap pane up)
-            ']': '}',  // Shift+] = } (swap pane down)
-            '/': '?',  // Shift+/ = ? (list keys)
-            ';': ':',  // Shift+; = : (command prompt)
+            "'": '"', // Shift+' = " (horizontal split)
+            '5': '%', // Shift+5 = % (vertical split)
+            '7': '&', // Shift+7 = & (kill window)
+            '1': '!', // Shift+1 = ! (break pane)
+            '[': '{', // Shift+[ = { (swap pane up)
+            ']': '}', // Shift+] = } (swap pane down)
+            '/': '?', // Shift+/ = ? (list keys)
+            ';': ':', // Shift+; = : (command prompt)
           };
           if (shiftedKeys[event.key]) {
             bindingKey = shiftedKeys[event.key];
@@ -393,8 +423,8 @@ export function createKeyboardActor() {
       } else if (event.type === 'UPDATE_KEYBINDINGS') {
         const kb = event.keybindings;
         prefixKey = kb.prefix_key;
-        prefixBindings = new Map(kb.prefix_bindings.map(b => [b.key, b.command]));
-        rootBindings = new Map(kb.root_bindings.map(b => [b.key, b.command]));
+        prefixBindings = new Map(kb.prefix_bindings.map((b) => [b.key, b.command]));
+        rootBindings = new Map(kb.root_bindings.map((b) => [b.key, b.command]));
       } else if (event.type === 'UPDATE_COPY_MODE') {
         copyModeActive = event.active;
       }

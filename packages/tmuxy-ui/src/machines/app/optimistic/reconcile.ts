@@ -32,7 +32,7 @@ export interface ReconciliationResult {
 export function reconcileOptimisticUpdate(
   operation: OptimisticOperation,
   serverPanes: TmuxPane[],
-  serverActivePaneId: string | null
+  serverActivePaneId: string | null,
 ): ReconciliationResult {
   const { prediction } = operation;
 
@@ -54,16 +54,17 @@ export function reconcileOptimisticUpdate(
  */
 function reconcileSplit(
   prediction: SplitPrediction,
-  serverPanes: TmuxPane[]
+  serverPanes: TmuxPane[],
 ): ReconciliationResult {
   const { newPane, resizedPanes } = prediction;
 
   // Find a pane in approximately the expected position for the new pane
-  const foundNewPane = serverPanes.find(pane =>
-    isPositionClose(pane.x, newPane.x) &&
-    isPositionClose(pane.y, newPane.y) &&
-    isPositionClose(pane.width, newPane.width) &&
-    isPositionClose(pane.height, newPane.height)
+  const foundNewPane = serverPanes.find(
+    (pane) =>
+      isPositionClose(pane.x, newPane.x) &&
+      isPositionClose(pane.y, newPane.y) &&
+      isPositionClose(pane.width, newPane.width) &&
+      isPositionClose(pane.height, newPane.height),
   );
 
   if (!foundNewPane) {
@@ -75,7 +76,7 @@ function reconcileSplit(
 
   // Check if the resized panes have approximately correct dimensions
   for (const resized of resizedPanes) {
-    const serverPane = serverPanes.find(p => p.tmuxId === resized.paneId);
+    const serverPane = serverPanes.find((p) => p.tmuxId === resized.paneId);
     if (!serverPane) continue;
 
     if (
@@ -100,7 +101,7 @@ function reconcileSplit(
  */
 function reconcileNavigate(
   prediction: NavigatePrediction,
-  serverActivePaneId: string | null
+  serverActivePaneId: string | null,
 ): ReconciliationResult {
   if (serverActivePaneId === prediction.toPaneId) {
     return { matched: true };
@@ -116,12 +117,9 @@ function reconcileNavigate(
  * Reconcile swap prediction.
  * Check if both panes are in their expected new positions.
  */
-function reconcileSwap(
-  prediction: SwapPrediction,
-  serverPanes: TmuxPane[]
-): ReconciliationResult {
-  const sourcePane = serverPanes.find(p => p.tmuxId === prediction.sourcePaneId);
-  const targetPane = serverPanes.find(p => p.tmuxId === prediction.targetPaneId);
+function reconcileSwap(prediction: SwapPrediction, serverPanes: TmuxPane[]): ReconciliationResult {
+  const sourcePane = serverPanes.find((p) => p.tmuxId === prediction.sourcePaneId);
+  const targetPane = serverPanes.find((p) => p.tmuxId === prediction.targetPaneId);
 
   if (!sourcePane || !targetPane) {
     return {
@@ -163,6 +161,9 @@ function isPositionClose(actual: number, expected: number): boolean {
  * Check if an optimistic operation has expired (stale).
  * Stale operations should be cleared to prevent UI inconsistency.
  */
-export function isOperationStale(operation: OptimisticOperation, timeoutMs: number = 2000): boolean {
+export function isOperationStale(
+  operation: OptimisticOperation,
+  timeoutMs: number = 2000,
+): boolean {
   return Date.now() - operation.timestamp > timeoutMs;
 }

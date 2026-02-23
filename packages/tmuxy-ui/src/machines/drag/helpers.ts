@@ -18,7 +18,7 @@ export function findSwapTarget(
   charWidth: number,
   charHeight: number,
   centerOffsetX: number = 0,
-  centerOffsetY: number = 0
+  centerOffsetY: number = 0,
 ): string | null {
   const insetX = paneInsetX(charWidth);
 

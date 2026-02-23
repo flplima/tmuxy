@@ -32,8 +32,28 @@ export function TmuxyImage({ lines }: WidgetProps) {
   }
 
   return (
-    <div className="widget-image" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <img src={src} alt="Widget image" style={{ maxWidth: '100%', maxHeight: '100%', minWidth: 32, minHeight: 32, objectFit: 'contain', imageRendering: 'auto' }} />
+    <div
+      className="widget-image"
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <img
+        src={src}
+        alt="Widget image"
+        style={{
+          maxWidth: '100%',
+          maxHeight: '100%',
+          minWidth: 32,
+          minHeight: 32,
+          objectFit: 'contain',
+          imageRendering: 'auto',
+        }}
+      />
     </div>
   );
 }

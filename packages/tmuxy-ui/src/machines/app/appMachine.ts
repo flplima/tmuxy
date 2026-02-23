@@ -13,7 +13,15 @@
  *   - resizeMachine: idle/resizing, spawns pointer listener
  */
 
-import { setup, assign, sendTo, enqueueActions, type ActorRefFrom, fromCallback, type AnyActorRef } from 'xstate';
+import {
+  setup,
+  assign,
+  sendTo,
+  enqueueActions,
+  type ActorRefFrom,
+  fromCallback,
+  type AnyActorRef,
+} from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents, PendingUpdate } from '../types';
 import {
   parseCommand,
@@ -53,7 +61,7 @@ const COPY_MODE_REENTRY_COOLDOWN = 2000;
 /** Move a pane ID to the front of the MRU list */
 function updateActivationOrder(order: string[], paneId: string | null): string[] {
   if (!paneId) return order;
-  return [paneId, ...order.filter(id => id !== paneId)];
+  return [paneId, ...order.filter((id) => id !== paneId)];
 }
 
 /**
@@ -62,7 +70,11 @@ function updateActivationOrder(order: string[], paneId: string | null): string[]
  */
 function parseCommandPrompt(
   command: string,
-  context: { windows: { id: string; name: string }[]; activeWindowId: string | null; sessionName: string }
+  context: {
+    windows: { id: string; name: string }[];
+    activeWindowId: string | null;
+    sessionName: string;
+  },
 ): { prompt: string; initialValue: string; template: string | null } {
   let prompt = ':';
   let initialValue = '';
@@ -101,7 +113,7 @@ function parseCommandPrompt(
   }
 
   // Expand tmux format strings
-  const activeWindow = context.windows.find(w => w.id === context.activeWindowId);
+  const activeWindow = context.windows.find((w) => w.id === context.activeWindowId);
   const windowName = activeWindow?.name ?? '';
   const expand = (s: string) => s.replace(/#W/g, windowName).replace(/#S/g, context.sessionName);
 
@@ -247,7 +259,7 @@ export const appMachine = setup({
           assign({
             targetCols: event.cols,
             targetRows: event.rows,
-          })
+          }),
         );
 
         // If connected but no panes yet, fetch initial state with correct viewport size
@@ -259,7 +271,7 @@ export const appMachine = setup({
               type: 'FETCH_INITIAL_STATE' as const,
               cols: event.cols,
               rows: event.rows,
-            })
+            }),
           );
         }
 
@@ -275,7 +287,7 @@ export const appMachine = setup({
               type: 'INVOKE' as const,
               cmd: 'set_client_size',
               args: { cols: event.cols, rows: event.rows },
-            })
+            }),
           );
         }
       }),
@@ -326,7 +338,7 @@ export const appMachine = setup({
         if (!mode) return;
 
         // Build final command: replace %% in template with input, or use input directly
-        let finalCommand = mode.template
+        const finalCommand = mode.template
           ? mode.template.replace(/%%/g, event.value)
           : event.value;
 
@@ -352,21 +364,25 @@ export const appMachine = setup({
         // Check if the resulting command is command-prompt (recursive)
         if (finalCommand.match(/^command-prompt\b/)) {
           const parsed = parseCommandPrompt(finalCommand, context);
-          enqueue(assign({
-            commandMode: {
-              prompt: parsed.prompt,
-              input: parsed.initialValue,
-              template: parsed.template,
-            },
-          }));
+          enqueue(
+            assign({
+              commandMode: {
+                prompt: parsed.prompt,
+                input: parsed.initialValue,
+                template: parsed.template,
+              },
+            }),
+          );
           return;
         }
 
         // Send to tmux
-        enqueue(sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: finalCommand,
-        }));
+        enqueue(
+          sendTo('tmux', {
+            type: 'SEND_COMMAND' as const,
+            command: finalCommand,
+          }),
+        );
       }),
     },
     COMMAND_MODE_CANCEL: {
@@ -387,7 +403,10 @@ export const appMachine = setup({
     CLEAR_STATUS_MESSAGE: {
       actions: assign(({ context }) => {
         // Only clear if the message is old enough (prevents clearing a newer message)
-        if (context.statusMessage && Date.now() - context.statusMessage.timestamp >= STATUS_MESSAGE_DURATION - 100) {
+        if (
+          context.statusMessage &&
+          Date.now() - context.statusMessage.timestamp >= STATUS_MESSAGE_DURATION - 100
+        ) {
           return { statusMessage: null };
         }
         return {};
@@ -413,7 +432,7 @@ export const appMachine = setup({
                   type: 'FETCH_INITIAL_STATE' as const,
                   cols: context.targetCols,
                   rows: context.targetRows,
-                })
+                }),
               );
             }
             // Otherwise, sizeActor will send SET_TARGET_SIZE which triggers FETCH_INITIAL_STATE
@@ -435,9 +454,9 @@ export const appMachine = setup({
             guard: ({ event, context }) => {
               const transformed = transformServerState(event.state);
               if (transformed.panes.length === 0) return false;
-              const currentPaneIds = context.panes.map(p => p.tmuxId);
-              const newPaneIds = transformed.panes.map(p => p.tmuxId);
-              const removedPanes = currentPaneIds.filter(id => !newPaneIds.includes(id));
+              const currentPaneIds = context.panes.map((p) => p.tmuxId);
+              const newPaneIds = transformed.panes.map((p) => p.tmuxId);
+              const removedPanes = currentPaneIds.filter((id) => !newPaneIds.includes(id));
               return removedPanes.length > 0;
             },
             target: 'removingPane',
@@ -451,9 +470,9 @@ export const appMachine = setup({
               );
 
               // Find removed panes
-              const currentPaneIds = context.panes.map(p => p.tmuxId);
-              const newPaneIds = transformed.panes.map(p => p.tmuxId);
-              const removedPanes = currentPaneIds.filter(id => !newPaneIds.includes(id));
+              const currentPaneIds = context.panes.map((p) => p.tmuxId);
+              const newPaneIds = transformed.panes.map((p) => p.tmuxId);
+              const removedPanes = currentPaneIds.filter((id) => !newPaneIds.includes(id));
 
               // Send leave animation event to animation actor (if spawned)
               enqueue(({ self }) => {
@@ -472,7 +491,7 @@ export const appMachine = setup({
                 context.containerWidth,
                 context.containerHeight,
                 context.charWidth,
-                context.charHeight
+                context.charHeight,
               );
 
               // Store the pending update to apply after animation
@@ -486,7 +505,7 @@ export const appMachine = setup({
                   lastUpdateTime: Date.now(),
                   // Clear optimistic tracking
                   optimisticOperation: null,
-                })
+                }),
               );
             }),
           },
@@ -508,8 +527,8 @@ export const appMachine = setup({
                 Date.now() - context.groupSwitchDimOverride.timestamp < 500;
               if (isGroupSwitching) {
                 const { paneId: protectedPaneId, fromPaneId } = context.groupSwitchDimOverride!;
-                const currentPanesMap = new Map(context.panes.map(p => [p.tmuxId, p]));
-                transformed.panes = transformed.panes.map(p => {
+                const currentPanesMap = new Map(context.panes.map((p) => [p.tmuxId, p]));
+                transformed.panes = transformed.panes.map((p) => {
                   if (p.tmuxId === protectedPaneId) {
                     // Fully preserve target pane from current context
                     return currentPanesMap.get(p.tmuxId) ?? p;
@@ -530,7 +549,7 @@ export const appMachine = setup({
                 const result = reconcileOptimisticUpdate(
                   context.optimisticOperation,
                   transformed.panes,
-                  transformed.activePaneId
+                  transformed.activePaneId,
                 );
 
                 if (!result.matched && result.mismatchReason) {
@@ -553,13 +572,13 @@ export const appMachine = setup({
                 context.containerWidth,
                 context.containerHeight,
                 context.charWidth,
-                context.charHeight
+                context.charHeight,
               );
 
               // Detect new panes for enter animation
-              const currentPaneIds = context.panes.map(p => p.tmuxId);
-              const newPaneIds = transformed.panes.map(p => p.tmuxId);
-              const addedPanes = newPaneIds.filter(id => !currentPaneIds.includes(id));
+              const currentPaneIds = context.panes.map((p) => p.tmuxId);
+              const newPaneIds = transformed.panes.map((p) => p.tmuxId);
+              const addedPanes = newPaneIds.filter((id) => !currentPaneIds.includes(id));
 
               // Detect group switch reactively: when a TMUX_STATE_UPDATE shows a different
               // visible pane in a group vs the previous state, set the dim override.
@@ -568,19 +587,19 @@ export const appMachine = setup({
               if (!groupSwitchOverride) {
                 for (const group of Object.values(paneGroups)) {
                   // Find visible pane in new state (in active window)
-                  const newVisibleId = group.paneIds.find(id => {
-                    const p = transformed.panes.find(pp => pp.tmuxId === id);
+                  const newVisibleId = group.paneIds.find((id) => {
+                    const p = transformed.panes.find((pp) => pp.tmuxId === id);
                     return p?.windowId === transformed.activeWindowId;
                   });
                   // Find visible pane in previous state
                   const prevGroup = context.paneGroups[group.id];
-                  const prevVisibleId = prevGroup?.paneIds.find(id => {
-                    const p = context.panes.find(pp => pp.tmuxId === id);
+                  const prevVisibleId = prevGroup?.paneIds.find((id) => {
+                    const p = context.panes.find((pp) => pp.tmuxId === id);
                     return p?.windowId === context.activeWindowId;
                   });
                   // If different and both exist, a group switch happened
                   if (newVisibleId && prevVisibleId && newVisibleId !== prevVisibleId) {
-                    const newVisible = transformed.panes.find(p => p.tmuxId === newVisibleId);
+                    const newVisible = transformed.panes.find((p) => p.tmuxId === newVisibleId);
                     if (newVisible) {
                       groupSwitchOverride = {
                         paneId: newVisibleId,
@@ -602,8 +621,12 @@ export const appMachine = setup({
               // Detect tmux entering copy mode (e.g. prefix+[) — init client-side copy mode
               let updatedCopyModeStates = context.copyModeStates;
               for (const newPane of transformed.panes) {
-                const prevPane = context.panes.find(p => p.tmuxId === newPane.tmuxId);
-                if (newPane.inMode && (!prevPane || !prevPane.inMode) && !context.copyModeStates[newPane.tmuxId]) {
+                const prevPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
+                if (
+                  newPane.inMode &&
+                  (!prevPane || !prevPane.inMode) &&
+                  !context.copyModeStates[newPane.tmuxId]
+                ) {
                   // Skip if we recently exited copy mode for this pane (stale inMode flag)
                   const exitTime = copyModeExitTimes.get(newPane.tmuxId);
                   if (exitTime && Date.now() - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
@@ -617,9 +640,7 @@ export const appMachine = setup({
                     preLines.set(hs + i, newPane.content[i]);
                   }
                   const preRanges: Array<[number, number]> =
-                    newPane.content.length > 0
-                      ? [[hs, hs + newPane.content.length - 1]]
-                      : [];
+                    newPane.content.length > 0 ? [[hs, hs + newPane.content.length - 1]] : [];
                   const copyState: CopyModeState = {
                     lines: preLines,
                     totalLines: tl,
@@ -635,27 +656,33 @@ export const appMachine = setup({
                     scrollTop: Math.max(0, tl - newPane.height),
                   };
                   updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: copyState };
-                  enqueue(sendTo('tmux', {
-                    type: 'FETCH_SCROLLBACK_CELLS' as const,
-                    paneId: newPane.tmuxId,
-                    start: -(newPane.height + 200),
-                    end: newPane.height - 1,
-                  }));
-                  enqueue(sendTo('keyboard', {
-                    type: 'UPDATE_COPY_MODE' as const,
-                    active: true,
-                    paneId: newPane.tmuxId,
-                  }));
+                  enqueue(
+                    sendTo('tmux', {
+                      type: 'FETCH_SCROLLBACK_CELLS' as const,
+                      paneId: newPane.tmuxId,
+                      start: -(newPane.height + 200),
+                      end: newPane.height - 1,
+                    }),
+                  );
+                  enqueue(
+                    sendTo('keyboard', {
+                      type: 'UPDATE_COPY_MODE' as const,
+                      active: true,
+                      paneId: newPane.tmuxId,
+                    }),
+                  );
                 }
                 // Detect tmux exiting copy mode — clean up client-side copy mode
                 if (!newPane.inMode && prevPane?.inMode && context.copyModeStates[newPane.tmuxId]) {
                   updatedCopyModeStates = { ...updatedCopyModeStates };
                   delete updatedCopyModeStates[newPane.tmuxId];
-                  enqueue(sendTo('keyboard', {
-                    type: 'UPDATE_COPY_MODE' as const,
-                    active: false,
-                    paneId: null,
-                  }));
+                  enqueue(
+                    sendTo('keyboard', {
+                      type: 'UPDATE_COPY_MODE' as const,
+                      active: false,
+                      paneId: null,
+                    }),
+                  );
                 }
               }
 
@@ -675,16 +702,17 @@ export const appMachine = setup({
                   optimisticOperation: null,
                   groupSwitchDimOverride: groupSwitchOverride,
                   // Track pane activation order (MRU) for navigation prediction
-                  paneActivationOrder: effectiveActivePaneId !== ctx.activePaneId
-                    ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
-                    : ctx.paneActivationOrder,
-                }))
+                  paneActivationOrder:
+                    effectiveActivePaneId !== ctx.activePaneId
+                      ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
+                      : ctx.paneActivationOrder,
+                })),
               );
               enqueue(
                 sendTo('keyboard', {
                   type: 'UPDATE_SESSION' as const,
                   sessionName: transformed.sessionName,
-                })
+                }),
               );
 
               // NOTE: Do NOT sync panes to drag machine during drag.
@@ -721,14 +749,15 @@ export const appMachine = setup({
               const shouldResize =
                 context.targetCols > 0 &&
                 context.targetRows > 0 &&
-                (context.targetCols !== transformed.totalWidth || context.targetRows !== transformed.totalHeight);
+                (context.targetCols !== transformed.totalWidth ||
+                  context.targetRows !== transformed.totalHeight);
               if (shouldResize) {
                 enqueue(
                   sendTo('tmux', {
                     type: 'INVOKE' as const,
                     cmd: 'set_client_size',
                     args: { cols: context.targetCols, rows: context.targetRows },
-                  })
+                  }),
                 );
               }
 
@@ -761,9 +790,14 @@ export const appMachine = setup({
             // Expand tmux format strings that won't be resolved by control mode
             // (e.g., run-shell commands from expanded aliases in root keybindings)
             let command = event.command;
-            if (context.activePaneId && (command.includes('#{pane_id}') || command.includes('#{pane_width}') || command.includes('#{pane_height}'))) {
+            if (
+              context.activePaneId &&
+              (command.includes('#{pane_id}') ||
+                command.includes('#{pane_width}') ||
+                command.includes('#{pane_height}'))
+            ) {
               command = command.replace(/#{pane_id}/g, context.activePaneId);
-              const activePane = context.panes.find(p => p.tmuxId === context.activePaneId);
+              const activePane = context.panes.find((p) => p.tmuxId === context.activePaneId);
               if (activePane) {
                 command = command.replace(/#{pane_width}/g, String(activePane.width));
                 command = command.replace(/#{pane_height}/g, String(activePane.height));
@@ -773,13 +807,15 @@ export const appMachine = setup({
             // Intercept command-prompt — enter client-side command mode
             if (command.match(/^command-prompt\b/)) {
               const parsed = parseCommandPrompt(command, context);
-              enqueue(assign({
-                commandMode: {
-                  prompt: parsed.prompt,
-                  input: parsed.initialValue,
-                  template: parsed.template,
-                },
-              }));
+              enqueue(
+                assign({
+                  commandMode: {
+                    prompt: parsed.prompt,
+                    input: parsed.initialValue,
+                    template: parsed.template,
+                  },
+                }),
+              );
               return;
             }
 
@@ -810,12 +846,13 @@ export const appMachine = setup({
                   context.activePaneId,
                   context.activeWindowId,
                   command,
-                  context.paneActivationOrder
+                  context.paneActivationOrder,
                 )
               : null;
 
             // Skip optimistic updates for swaps during drag (drag machine handles it)
-            const shouldApplyOptimistic = prediction && !(isDragging && prediction.prediction.type === 'swap');
+            const shouldApplyOptimistic =
+              prediction && !(isDragging && prediction.prediction.type === 'swap');
 
             if (shouldApplyOptimistic && prediction) {
               // Apply optimistic update directly to panes/activePaneId
@@ -829,7 +866,7 @@ export const appMachine = setup({
                     context.panes,
                     prediction.prediction,
                     context.activeWindowId,
-                    context.defaultShell
+                    context.defaultShell,
                   );
                   // New pane becomes active
                   newActivePaneId = prediction.prediction.newPane.placeholderId;
@@ -847,10 +884,11 @@ export const appMachine = setup({
                   optimisticOperation: prediction,
                   panes: newPanes,
                   activePaneId: newActivePaneId,
-                  paneActivationOrder: newActivePaneId !== ctx.activePaneId
-                    ? updateActivationOrder(ctx.paneActivationOrder, newActivePaneId)
-                    : ctx.paneActivationOrder,
-                }))
+                  paneActivationOrder:
+                    newActivePaneId !== ctx.activePaneId
+                      ? updateActivationOrder(ctx.paneActivationOrder, newActivePaneId)
+                      : ctx.paneActivationOrder,
+                })),
               );
             }
 
@@ -859,7 +897,7 @@ export const appMachine = setup({
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
                 command,
-              })
+              }),
             );
           }),
         },
@@ -876,7 +914,7 @@ export const appMachine = setup({
         DRAG_START: {
           actions: [
             assign(({ event, context }) => {
-              const pane = context.panes.find(p => p.tmuxId === event.paneId);
+              const pane = context.panes.find((p) => p.tmuxId === event.paneId);
               return {
                 drag: {
                   draggedPaneId: event.paneId,
@@ -986,13 +1024,15 @@ export const appMachine = setup({
             // Intercept command-prompt — enter client-side command mode
             if (command.match(/^command-prompt\b/)) {
               const parsed = parseCommandPrompt(command, context);
-              enqueue(assign({
-                commandMode: {
-                  prompt: parsed.prompt,
-                  input: parsed.initialValue,
-                  template: parsed.template,
-                },
-              }));
+              enqueue(
+                assign({
+                  commandMode: {
+                    prompt: parsed.prompt,
+                    input: parsed.initialValue,
+                    template: parsed.template,
+                  },
+                }),
+              );
               return;
             }
 
@@ -1010,10 +1050,12 @@ export const appMachine = setup({
               }
             }
 
-            enqueue(sendTo('tmux', {
-              type: 'SEND_COMMAND' as const,
-              command,
-            }));
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command,
+              }),
+            );
           }),
         },
         SEND_KEYS: {
@@ -1060,10 +1102,12 @@ export const appMachine = setup({
             const floats = Object.values(context.floatPanes);
             if (floats.length === 0) return;
             const topFloat = floats[floats.length - 1];
-            enqueue(sendTo('tmux', {
-              type: 'SEND_COMMAND' as const,
-              command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${topFloat.paneId}"`,
-            }));
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${topFloat.paneId}"`,
+              }),
+            );
           }),
         },
         WRITE_TO_PANE: {
@@ -1085,15 +1129,19 @@ export const appMachine = setup({
               const newStates = { ...context.copyModeStates };
               delete newStates[paneId];
               enqueue(assign({ copyModeStates: newStates }));
-              enqueue(sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `send-keys -t ${paneId} -X cancel`,
-              }));
-              enqueue(sendTo('keyboard', {
-                type: 'UPDATE_COPY_MODE' as const,
-                active: false,
-                paneId: null,
-              }));
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `send-keys -t ${paneId} -X cancel`,
+                }),
+              );
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_COPY_MODE' as const,
+                  active: false,
+                  paneId: null,
+                }),
+              );
               return;
             }
 
@@ -1102,7 +1150,7 @@ export const appMachine = setup({
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
                 command: `send-keys -t ${context.sessionName} C-c`,
-              })
+              }),
             );
           }),
         },
@@ -1110,7 +1158,7 @@ export const appMachine = setup({
         // Copy mode events
         ENTER_COPY_MODE: {
           actions: enqueueActions(({ event, context, enqueue }) => {
-            const pane = context.panes.find(p => p.tmuxId === event.paneId);
+            const pane = context.panes.find((p) => p.tmuxId === event.paneId);
             if (!pane) return;
 
             const historySize = pane.historySize ?? 0;
@@ -1125,9 +1173,7 @@ export const appMachine = setup({
 
             // Mark the visible area as a loaded range
             const loadedRanges: Array<[number, number]> =
-              pane.content.length > 0
-                ? [[historySize, historySize + pane.content.length - 1]]
-                : [];
+              pane.content.length > 0 ? [[historySize, historySize + pane.content.length - 1]] : [];
 
             // Apply initial scroll offset
             let initialScrollTop = scrollTop;
@@ -1152,30 +1198,38 @@ export const appMachine = setup({
               scrollTop: initialScrollTop,
             };
 
-            enqueue(assign({
-              copyModeStates: { ...context.copyModeStates, [event.paneId]: copyState },
-            }));
+            enqueue(
+              assign({
+                copyModeStates: { ...context.copyModeStates, [event.paneId]: copyState },
+              }),
+            );
 
             // Tell tmux to enter copy mode
-            enqueue(sendTo('tmux', {
-              type: 'SEND_COMMAND' as const,
-              command: `copy-mode -t ${event.paneId}`,
-            }));
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `copy-mode -t ${event.paneId}`,
+              }),
+            );
 
             // Fetch initial chunk: visible area + 200 lines above
-            enqueue(sendTo('tmux', {
-              type: 'FETCH_SCROLLBACK_CELLS' as const,
-              paneId: event.paneId,
-              start: -(pane.height + 200),
-              end: pane.height - 1,
-            }));
+            enqueue(
+              sendTo('tmux', {
+                type: 'FETCH_SCROLLBACK_CELLS' as const,
+                paneId: event.paneId,
+                start: -(pane.height + 200),
+                end: pane.height - 1,
+              }),
+            );
 
             // Notify keyboard actor
-            enqueue(sendTo('keyboard', {
-              type: 'UPDATE_COPY_MODE' as const,
-              active: true,
-              paneId: event.paneId,
-            }));
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_COPY_MODE' as const,
+                active: true,
+                paneId: event.paneId,
+              }),
+            );
           }),
         },
         EXIT_COPY_MODE: {
@@ -1186,17 +1240,21 @@ export const appMachine = setup({
             enqueue(assign({ copyModeStates: newStates }));
 
             // Tell tmux to exit copy mode
-            enqueue(sendTo('tmux', {
-              type: 'SEND_COMMAND' as const,
-              command: `send-keys -t ${event.paneId} -X cancel`,
-            }));
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `send-keys -t ${event.paneId} -X cancel`,
+              }),
+            );
 
             // Notify keyboard actor
-            enqueue(sendTo('keyboard', {
-              type: 'UPDATE_COPY_MODE' as const,
-              active: false,
-              paneId: null,
-            }));
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_COPY_MODE' as const,
+                active: false,
+                paneId: null,
+              }),
+            );
           }),
         },
         COPY_MODE_CHUNK_LOADED: {
@@ -1226,12 +1284,17 @@ export const appMachine = setup({
               width: event.width,
               loading: false,
               // Shift scrollTop and cursorRow when historySize changed (stale pre-populated value)
-              scrollTop: histDiff !== 0
-                ? Math.max(0, Math.min(existing.scrollTop + histDiff, totalLines - existing.height))
-                : existing.scrollTop,
-              cursorRow: histDiff !== 0
-                ? Math.max(0, Math.min(existing.cursorRow + histDiff, totalLines - 1))
-                : existing.cursorRow,
+              scrollTop:
+                histDiff !== 0
+                  ? Math.max(
+                      0,
+                      Math.min(existing.scrollTop + histDiff, totalLines - existing.height),
+                    )
+                  : existing.scrollTop,
+              cursorRow:
+                histDiff !== 0
+                  ? Math.max(0, Math.min(existing.cursorRow + histDiff, totalLines - 1))
+                  : existing.cursorRow,
             };
 
             // Apply pending selection (from drag that started before chunk loaded)
@@ -1255,12 +1318,8 @@ export const appMachine = setup({
 
             // Convert row to absolute: when `relative` is true (mouse-originated),
             // always treat as visible-relative. Otherwise use heuristic.
-            const isRelative = event.relative === true
-              ? true
-              : event.row < existing.height;
-            const rawRow = isRelative
-              ? existing.scrollTop + event.row
-              : event.row;
+            const isRelative = event.relative === true ? true : event.row < existing.height;
+            const rawRow = isRelative ? existing.scrollTop + event.row : event.row;
             const absoluteRow = Math.max(0, Math.min(rawRow, existing.totalLines - 1));
 
             let scrollTop = existing.scrollTop;
@@ -1300,9 +1359,8 @@ export const appMachine = setup({
             }
 
             // If row is small (visible-area-relative from mouse), convert to absolute
-            const absoluteRow = event.row < existing.height
-              ? existing.scrollTop + event.row
-              : event.row;
+            const absoluteRow =
+              event.row < existing.height ? existing.scrollTop + event.row : event.row;
 
             const updated: CopyModeState = {
               ...existing,
@@ -1335,14 +1393,13 @@ export const appMachine = setup({
             if (!existing) return {};
 
             // Convert visible-relative row to absolute
-            const absoluteRow = event.row < existing.height
-              ? existing.scrollTop + event.row
-              : event.row;
+            const absoluteRow =
+              event.row < existing.height ? existing.scrollTop + event.row : event.row;
 
             const line = existing.lines.get(absoluteRow);
             if (!line) return {};
 
-            const text = line.map(c => c.c).join('');
+            const text = line.map((c) => c.c).join('');
             let wordStart = event.col;
             let wordEnd = event.col;
 
@@ -1377,7 +1434,12 @@ export const appMachine = setup({
 
             // Exit copy mode when scrolled to the bottom (only if content is loaded
             // and we actually scrolled down from a higher position)
-            if (maxScrollTop > 0 && scrollTop >= maxScrollTop && existing.scrollTop < maxScrollTop && !existing.selectionMode) {
+            if (
+              maxScrollTop > 0 &&
+              scrollTop >= maxScrollTop &&
+              existing.scrollTop < maxScrollTop &&
+              !existing.selectionMode
+            ) {
               enqueue.raise({ type: 'EXIT_COPY_MODE', paneId: event.paneId });
               return;
             }
@@ -1387,28 +1449,37 @@ export const appMachine = setup({
               scrollTop,
             };
 
-            enqueue(assign({
-              copyModeStates: { ...context.copyModeStates, [event.paneId]: updated },
-            }));
+            enqueue(
+              assign({
+                copyModeStates: { ...context.copyModeStates, [event.paneId]: updated },
+              }),
+            );
 
             // Check if we need to load more content
             const needed = getNeededChunk(
-              scrollTop, existing.height, existing.loadedRanges,
-              existing.historySize, existing.totalLines
+              scrollTop,
+              existing.height,
+              existing.loadedRanges,
+              existing.historySize,
+              existing.totalLines,
             );
             if (needed && !existing.loading) {
-              enqueue(assign({
-                copyModeStates: {
-                  ...context.copyModeStates,
-                  [event.paneId]: { ...updated, loading: true },
-                },
-              }));
-              enqueue(sendTo('tmux', {
-                type: 'FETCH_SCROLLBACK_CELLS' as const,
-                paneId: event.paneId,
-                start: needed.start,
-                end: needed.end,
-              }));
+              enqueue(
+                assign({
+                  copyModeStates: {
+                    ...context.copyModeStates,
+                    [event.paneId]: { ...updated, loading: true },
+                  },
+                }),
+              );
+              enqueue(
+                sendTo('tmux', {
+                  type: 'FETCH_SCROLLBACK_CELLS' as const,
+                  paneId: event.paneId,
+                  start: needed.start,
+                  end: needed.end,
+                }),
+              );
             }
           }),
         },
@@ -1424,16 +1495,20 @@ export const appMachine = setup({
             delete newStates[event.paneId];
             enqueue(assign({ copyModeStates: newStates }));
 
-            enqueue(sendTo('tmux', {
-              type: 'SEND_COMMAND' as const,
-              command: `send-keys -t ${event.paneId} -X cancel`,
-            }));
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `send-keys -t ${event.paneId} -X cancel`,
+              }),
+            );
 
-            enqueue(sendTo('keyboard', {
-              type: 'UPDATE_COPY_MODE' as const,
-              active: false,
-              paneId: null,
-            }));
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_COPY_MODE' as const,
+                active: false,
+                paneId: null,
+              }),
+            );
           }),
         },
         COPY_MODE_KEY: {
@@ -1451,15 +1526,19 @@ export const appMachine = setup({
               const newStates = { ...context.copyModeStates };
               delete newStates[paneId];
               enqueue(assign({ copyModeStates: newStates }));
-              enqueue(sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `send-keys -t ${paneId} -X cancel`,
-              }));
-              enqueue(sendTo('keyboard', {
-                type: 'UPDATE_COPY_MODE' as const,
-                active: false,
-                paneId: null,
-              }));
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `send-keys -t ${paneId} -X cancel`,
+                }),
+              );
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_COPY_MODE' as const,
+                  active: false,
+                  paneId: null,
+                }),
+              );
               return;
             }
 
@@ -1468,43 +1547,56 @@ export const appMachine = setup({
               const newStates = { ...context.copyModeStates };
               delete newStates[paneId];
               enqueue(assign({ copyModeStates: newStates }));
-              enqueue(sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `send-keys -t ${paneId} -X cancel`,
-              }));
-              enqueue(sendTo('keyboard', {
-                type: 'UPDATE_COPY_MODE' as const,
-                active: false,
-                paneId: null,
-              }));
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `send-keys -t ${paneId} -X cancel`,
+                }),
+              );
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_COPY_MODE' as const,
+                  active: false,
+                  paneId: null,
+                }),
+              );
               return;
             }
 
             // Apply state updates
             if (Object.keys(result.state).length > 0) {
               const updated = { ...copyState, ...result.state } as CopyModeState;
-              enqueue(assign({
-                copyModeStates: { ...context.copyModeStates, [paneId]: updated },
-              }));
+              enqueue(
+                assign({
+                  copyModeStates: { ...context.copyModeStates, [paneId]: updated },
+                }),
+              );
 
               // Check if we need to load more content after cursor move
               const needed = getNeededChunk(
-                updated.scrollTop, updated.height, updated.loadedRanges,
-                updated.historySize, updated.totalLines
+                updated.scrollTop,
+                updated.height,
+                updated.loadedRanges,
+                updated.historySize,
+                updated.totalLines,
               );
               if (needed && !updated.loading) {
-                enqueue(assign({
-                  copyModeStates: {
-                    ...context.copyModeStates,
-                    [paneId]: { ...updated, loading: true },
-                  },
-                }));
-                enqueue(sendTo('tmux', {
-                  type: 'FETCH_SCROLLBACK_CELLS' as const,
-                  paneId,
-                  start: needed.start,
-                  end: needed.end,
-                }));
+                enqueue(
+                  assign({
+                    copyModeStates: {
+                      ...context.copyModeStates,
+                      [paneId]: { ...updated, loading: true },
+                    },
+                  }),
+                );
+                enqueue(
+                  sendTo('tmux', {
+                    type: 'FETCH_SCROLLBACK_CELLS' as const,
+                    paneId,
+                    start: needed.start,
+                    end: needed.end,
+                  }),
+                );
               }
             }
           }),
@@ -1514,7 +1606,6 @@ export const appMachine = setup({
         CLEAR_GROUP_SWITCH_OVERRIDE: {
           actions: assign({ groupSwitchDimOverride: null }),
         },
-
       },
     },
 
@@ -1533,16 +1624,17 @@ export const appMachine = setup({
               assign({
                 ...update,
                 pendingUpdate: null,
-                paneActivationOrder: update.activePaneId !== context.activePaneId
-                  ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
-                  : context.paneActivationOrder,
-              })
+                paneActivationOrder:
+                  update.activePaneId !== context.activePaneId
+                    ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
+                    : context.paneActivationOrder,
+              }),
             );
             enqueue(
               sendTo('keyboard', {
                 type: 'UPDATE_SESSION' as const,
                 sessionName: update.sessionName,
-              })
+              }),
             );
           }),
         },
@@ -1559,16 +1651,17 @@ export const appMachine = setup({
               assign({
                 ...update,
                 pendingUpdate: null,
-                paneActivationOrder: update.activePaneId !== context.activePaneId
-                  ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
-                  : context.paneActivationOrder,
-              })
+                paneActivationOrder:
+                  update.activePaneId !== context.activePaneId
+                    ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
+                    : context.paneActivationOrder,
+              }),
             );
             enqueue(
               sendTo('keyboard', {
                 type: 'UPDATE_SESSION' as const,
                 sessionName: update.sessionName,
-              })
+              }),
             );
           }),
         },
@@ -1593,7 +1686,7 @@ export const appMachine = setup({
               context.containerWidth,
               context.containerHeight,
               context.charWidth,
-              context.charHeight
+              context.charHeight,
             );
 
             enqueue(
@@ -1604,7 +1697,7 @@ export const appMachine = setup({
                   floatPanes,
                 },
                 lastUpdateTime: Date.now(),
-              })
+              }),
             );
           }),
         },
@@ -1627,7 +1720,7 @@ export const appMachine = setup({
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
                 command: `send-keys -t ${context.sessionName} C-c`,
-              })
+              }),
             );
           }),
         },

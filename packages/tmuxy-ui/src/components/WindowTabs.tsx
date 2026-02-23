@@ -6,11 +6,7 @@
  */
 
 import { useCallback } from 'react';
-import {
-  useAppSend,
-  useAppSelector,
-  selectVisibleWindows,
-} from '../machines/AppContext';
+import { useAppSend, useAppSelector, selectVisibleWindows } from '../machines/AppContext';
 
 export function WindowTabs() {
   const send = useAppSend();
@@ -20,7 +16,7 @@ export function WindowTabs() {
     (windowIndex: number) => {
       send({ type: 'SEND_COMMAND', command: `select-window -t ${windowIndex}` });
     },
-    [send]
+    [send],
   );
 
   const handleNewWindow = useCallback(() => {
@@ -32,16 +28,13 @@ export function WindowTabs() {
       e.stopPropagation();
       send({ type: 'SEND_COMMAND', command: `kill-window -t :${windowIndex}` });
     },
-    [send]
+    [send],
   );
 
   return (
     <div className="tab-list">
       {visibleWindows.map((window) => (
-        <div
-          key={window.index}
-          className={`tab ${window.active ? 'tab-active' : ''}`}
-        >
+        <div key={window.index} className={`tab ${window.active ? 'tab-active' : ''}`}>
           <button
             className="tab-button"
             onClick={() => handleWindowClick(window.index)}
@@ -57,7 +50,13 @@ export function WindowTabs() {
             aria-label={`Close window ${window.index}`}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-              <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+              <path
+                d="M3 3L9 9M9 3L3 9"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                fill="none"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
         </div>
@@ -69,7 +68,13 @@ export function WindowTabs() {
         aria-label="Create new window"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-          <path d="M7 2V12M2 7H12" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+          <path
+            d="M7 2V12M2 7H12"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            fill="none"
+            strokeLinecap="round"
+          />
         </svg>
       </button>
     </div>

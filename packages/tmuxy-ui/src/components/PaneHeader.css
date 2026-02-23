@@ -9,7 +9,9 @@
   font-size: 9px;
   color: #888;
   user-select: none;
-  transition: opacity 0.1s ease, box-shadow 0.1s ease;
+  transition:
+    opacity 0.1s ease,
+    box-shadow 0.1s ease;
 }
 
 .pane-header-active {
@@ -67,7 +69,9 @@
   font-size: 10px;
   cursor: pointer;
   line-height: 1;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .pane-close:hover {
@@ -92,7 +96,9 @@
   font-weight: bold;
   cursor: pointer;
   line-height: 1;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .pane-add:hover {
@@ -186,7 +192,10 @@
   cursor: pointer;
   line-height: 1;
   opacity: 0;
-  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .stack-tab:hover .stack-tab-close {

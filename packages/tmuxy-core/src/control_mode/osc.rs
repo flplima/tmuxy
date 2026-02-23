@@ -93,7 +93,8 @@ impl OscParser {
             } else if content[i] >= 0x20 && content[i] < 0x7F {
                 // Printable character - map URL if active hyperlink
                 if let Some((ref url, _)) = self.active_hyperlink {
-                    self.cell_urls.insert((self.cursor_row, self.cursor_col), url.clone());
+                    self.cell_urls
+                        .insert((self.cursor_row, self.cursor_col), url.clone());
                 }
                 self.cursor_col += 1;
             }
@@ -282,8 +283,14 @@ mod tests {
         assert_eq!(output, b"hello");
 
         // Should have URL mapped for "hello" characters (cols 0-4)
-        assert_eq!(parser.get_url(0, 0), Some(&"https://example.com".to_string()));
-        assert_eq!(parser.get_url(0, 4), Some(&"https://example.com".to_string()));
+        assert_eq!(
+            parser.get_url(0, 0),
+            Some(&"https://example.com".to_string())
+        );
+        assert_eq!(
+            parser.get_url(0, 4),
+            Some(&"https://example.com".to_string())
+        );
         assert_eq!(parser.get_url(0, 5), None);
     }
 

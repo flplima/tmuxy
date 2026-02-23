@@ -176,9 +176,9 @@ function getKittyMimeType(format: number): string {
  */
 function processKittySequence(
   control: Record<string, string | number>,
-  payload: string
+  payload: string,
 ): ImageContent | null {
-  const action = control.a as string || 't'; // Default action is transmit
+  const action = (control.a as string) || 't'; // Default action is transmit
   const imageId = (control.i as number) || kittyNextId++;
   const more = control.m as number; // 1 = more chunks, 0 = final
 
@@ -190,7 +190,7 @@ function processKittySequence(
       state = {
         id: imageId,
         chunks: [],
-        format: control.f as number || 32,
+        format: (control.f as number) || 32,
         width: control.s as number,
         height: control.v as number,
         displayWidth: control.c as number,
@@ -265,7 +265,8 @@ export function parseRichContent(line: string): RichContent[] {
   const matches: Match[] = [];
 
   // Find OSC 8 hyperlinks
-  const osc8Regex = /\x1b\]8;([^;]*);([^\x07\x1b]*?)(?:\x07|\x1b\\)([\s\S]*?)\x1b\]8;;(?:\x07|\x1b\\)/g;
+  const osc8Regex =
+    /\x1b\]8;([^;]*);([^\x07\x1b]*?)(?:\x07|\x1b\\)([\s\S]*?)\x1b\]8;;(?:\x07|\x1b\\)/g;
   let match;
   while ((match = osc8Regex.exec(line)) !== null) {
     matches.push({

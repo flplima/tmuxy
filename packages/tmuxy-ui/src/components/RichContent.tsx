@@ -8,7 +8,11 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { RichContent as RichContentType, ImageContent, HyperlinkContent } from '../utils/richContentParser';
+import type {
+  RichContent as RichContentType,
+  ImageContent,
+  HyperlinkContent,
+} from '../utils/richContentParser';
 import './RichContent.css';
 
 // ============================================
@@ -117,7 +121,7 @@ function RichHyperlink({ link, children }: RichHyperlinkProps) {
       e.preventDefault();
       window.open(link.url, '_blank', 'noopener,noreferrer');
     },
-    [link.url]
+    [link.url],
   );
 
   // Validate URL for security

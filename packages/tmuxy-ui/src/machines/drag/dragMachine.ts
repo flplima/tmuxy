@@ -11,7 +11,13 @@
  */
 
 import { setup, assign, sendParent, enqueueActions, fromCallback } from 'xstate';
-import type { DragMachineContext, DragMachineEvent, DragState, KeyPressEvent, TmuxPane } from '../types';
+import type {
+  DragMachineContext,
+  DragMachineEvent,
+  DragState,
+  KeyPressEvent,
+  TmuxPane,
+} from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { findSwapTarget } from './helpers';
 
@@ -32,7 +38,8 @@ export const dragMachine = setup({
   },
   actors: {
     pointerTracker: fromCallback(({ sendBack }) => {
-      const onMove = (e: MouseEvent) => sendBack({ type: 'DRAG_MOVE', clientX: e.clientX, clientY: e.clientY });
+      const onMove = (e: MouseEvent) =>
+        sendBack({ type: 'DRAG_MOVE', clientX: e.clientX, clientY: e.clientY });
       const onUp = () => sendBack({ type: 'DRAG_END' });
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
@@ -61,7 +68,7 @@ export const dragMachine = setup({
           target: 'dragging',
           actions: [
             assign(({ event }) => {
-              const pane = event.panes.find(p => p.tmuxId === event.paneId);
+              const pane = event.panes.find((p) => p.tmuxId === event.paneId);
               const drag: DragState = {
                 draggedPaneId: event.paneId,
                 targetPaneId: null,
@@ -103,10 +110,7 @@ export const dragMachine = setup({
         KEY_PRESS: {
           guard: 'isEscapeKey',
           target: 'idle',
-          actions: [
-            assign({ drag: null }),
-            'notifyStateUpdate',
-          ],
+          actions: [assign({ drag: null }), 'notifyStateUpdate'],
         },
         SYNC_PANES: {
           actions: assign(({ event }) => ({
@@ -118,10 +122,16 @@ export const dragMachine = setup({
             if (!context.drag) return;
 
             // Compute centering offset (panes are centered in the container)
-            const totalW = Math.max(...context.panes.map(p => p.x + p.width));
-            const totalH = Math.max(...context.panes.map(p => p.y + p.height));
-            const centerOffsetX = Math.max(0, (context.containerWidth - totalW * context.charWidth) / 2);
-            const centerOffsetY = Math.max(0, (context.containerHeight - totalH * context.charHeight) / 2);
+            const totalW = Math.max(...context.panes.map((p) => p.x + p.width));
+            const totalH = Math.max(...context.panes.map((p) => p.y + p.height));
+            const centerOffsetX = Math.max(
+              0,
+              (context.containerWidth - totalW * context.charWidth) / 2,
+            );
+            const centerOffsetY = Math.max(
+              0,
+              (context.containerHeight - totalH * context.charHeight) / 2,
+            );
 
             // Use the cursor position directly for hit-testing.
             // The ghost center can diverge from the cursor after swaps (since the
@@ -137,7 +147,7 @@ export const dragMachine = setup({
               context.charWidth,
               context.charHeight,
               centerOffsetX,
-              centerOffsetY
+              centerOffsetY,
             );
 
             const { targetPaneId: prevTargetId } = context.drag;
@@ -151,8 +161,10 @@ export const dragMachine = setup({
 
             // Swap on hover: when target changes, swap immediately
             if (targetChanged && targetPaneId !== null) {
-              const targetPane = context.panes.find(p => p.tmuxId === targetPaneId);
-              const draggedPane = context.panes.find(p => p.tmuxId === context.drag!.draggedPaneId);
+              const targetPane = context.panes.find((p) => p.tmuxId === targetPaneId);
+              const draggedPane = context.panes.find(
+                (p) => p.tmuxId === context.drag!.draggedPaneId,
+              );
 
               if (targetPane && draggedPane) {
                 // Ghost moves to target's current position
@@ -162,21 +174,35 @@ export const dragMachine = setup({
                 ghostHeight = targetPane.height;
 
                 // Optimistic swap: update local pane positions for accurate hit testing
-                newPanes = context.panes.map(p => {
+                newPanes = context.panes.map((p) => {
                   if (p.tmuxId === context.drag!.draggedPaneId) {
-                    return { ...p, x: targetPane.x, y: targetPane.y, width: targetPane.width, height: targetPane.height };
+                    return {
+                      ...p,
+                      x: targetPane.x,
+                      y: targetPane.y,
+                      width: targetPane.width,
+                      height: targetPane.height,
+                    };
                   }
                   if (p.tmuxId === targetPaneId) {
-                    return { ...p, x: draggedPane.x, y: draggedPane.y, width: draggedPane.width, height: draggedPane.height };
+                    return {
+                      ...p,
+                      x: draggedPane.x,
+                      y: draggedPane.y,
+                      width: draggedPane.width,
+                      height: draggedPane.height,
+                    };
                   }
                   return p;
                 });
 
                 // Send swap command to tmux
-                enqueue(sendParent({
-                  type: 'SEND_TMUX_COMMAND' as const,
-                  command: `swap-pane -d -s ${context.drag!.draggedPaneId} -t ${targetPaneId}`,
-                }));
+                enqueue(
+                  sendParent({
+                    type: 'SEND_TMUX_COMMAND' as const,
+                    command: `swap-pane -d -s ${context.drag!.draggedPaneId} -t ${targetPaneId}`,
+                  }),
+                );
               }
             }
 
@@ -193,7 +219,7 @@ export const dragMachine = setup({
                   ghostWidth,
                   ghostHeight,
                 },
-              })
+              }),
             );
 
             enqueue('notifyStateUpdate');
@@ -210,10 +236,7 @@ export const dragMachine = setup({
         },
         DRAG_CANCEL: {
           target: 'idle',
-          actions: [
-            assign({ drag: null }),
-            'notifyStateUpdate',
-          ],
+          actions: [assign({ drag: null }), 'notifyStateUpdate'],
         },
       },
     },

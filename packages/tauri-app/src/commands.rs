@@ -119,7 +119,11 @@ pub async fn run_tmux_command(command: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn resize_pane(pane_id: String, direction: String, adjustment: u32) -> Result<(), String> {
+pub async fn resize_pane(
+    pane_id: String,
+    direction: String,
+    adjustment: u32,
+) -> Result<(), String> {
     executor::resize_pane(&pane_id, &direction, adjustment)
 }
 

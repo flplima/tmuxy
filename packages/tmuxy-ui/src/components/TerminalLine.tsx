@@ -31,8 +31,22 @@ function cellColorToCss(color: CellColor): string {
 function getAnsi256Color(index: number): string {
   // Standard 16 colors
   const standard16 = [
-    '#000000', '#cd0000', '#00cd00', '#cdcd00', '#0000ee', '#cd00cd', '#00cdcd', '#e5e5e5',
-    '#7f7f7f', '#ff0000', '#00ff00', '#ffff00', '#5c5cff', '#ff00ff', '#00ffff', '#ffffff',
+    '#000000',
+    '#cd0000',
+    '#00cd00',
+    '#cdcd00',
+    '#0000ee',
+    '#cd00cd',
+    '#00cdcd',
+    '#e5e5e5',
+    '#7f7f7f',
+    '#ff0000',
+    '#00ff00',
+    '#ffff00',
+    '#5c5cff',
+    '#ff00ff',
+    '#00ffff',
+    '#ffffff',
   ];
   if (index < 16) return standard16[index];
 
@@ -119,7 +133,14 @@ export const TerminalLine = memo(
         return (
           <>
             {padding}
-            <Cursor x={cursorX} y={cursorY} char=" " copyMode={inMode} active={isActive} mode="block" />
+            <Cursor
+              x={cursorX}
+              y={cursorY}
+              char=" "
+              copyMode={inMode}
+              active={isActive}
+              mode="block"
+            />
           </>
         );
       }
@@ -135,13 +156,18 @@ export const TerminalLine = memo(
     // Group consecutive cells with same style for efficiency
     const renderCells = (): React.ReactNode[] => {
       const spans: React.ReactNode[] = [];
-      let currentGroup: { cells: TerminalCell[]; style: CellStyle | undefined; startIdx: number; selected: boolean } | null = null;
+      let currentGroup: {
+        cells: TerminalCell[];
+        style: CellStyle | undefined;
+        startIdx: number;
+        selected: boolean;
+      } | null = null;
 
       const flushGroup = () => {
         if (!currentGroup || currentGroup.cells.length === 0) return;
 
         const text = currentGroup.cells.map((c) => c.c).join('');
-        let style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
+        const style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
         const startIdx = currentGroup.startIdx;
         const url = currentGroup.style?.url;
 
@@ -160,7 +186,14 @@ export const TerminalLine = memo(
             const content = (
               <>
                 {before}
-                <Cursor x={cursorX} y={cursorY} char={cursorChar} copyMode={inMode} active={isActive} mode="block" />
+                <Cursor
+                  x={cursorX}
+                  y={cursorY}
+                  char={cursorChar}
+                  copyMode={inMode}
+                  active={isActive}
+                  mode="block"
+                />
                 {after}
               </>
             );
@@ -174,16 +207,18 @@ export const TerminalLine = memo(
                   target="_blank"
                   rel="noopener noreferrer"
                   style={style}
-                  className={selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'}
+                  className={
+                    selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'
+                  }
                 >
                   {content}
-                </a>
+                </a>,
               );
             } else {
               spans.push(
                 <span key={spans.length} style={style} className={selectedClass}>
                   {content}
-                </span>
+                </span>,
               );
             }
             currentGroup = null;
@@ -200,16 +235,18 @@ export const TerminalLine = memo(
               target="_blank"
               rel="noopener noreferrer"
               style={style}
-              className={selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'}
+              className={
+                selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'
+              }
             >
               {text}
-            </a>
+            </a>,
           );
         } else {
           spans.push(
             <span key={spans.length} style={style} className={selectedClass}>
               {text}
-            </span>
+            </span>,
           );
         }
         currentGroup = null;
@@ -243,7 +280,7 @@ export const TerminalLine = memo(
           spans.push(
             <span key="sel-pad" className="terminal-selected">
               {' '.repeat(padLen)}
-            </span>
+            </span>,
           );
         }
       }
@@ -289,5 +326,5 @@ export const TerminalLine = memo(
 
     // No relevant changes, skip re-render
     return true;
-  }
+  },
 );

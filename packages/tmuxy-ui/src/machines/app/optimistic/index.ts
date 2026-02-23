@@ -5,7 +5,13 @@
  */
 
 export { parseCommand, isOptimisticCommand } from './commandParser';
-export type { ParsedCommand, SplitCommand, NavigateCommand, SwapCommand, SelectPaneCommand } from './commandParser';
+export type {
+  ParsedCommand,
+  SplitCommand,
+  NavigateCommand,
+  SwapCommand,
+  SelectPaneCommand,
+} from './commandParser';
 
 export {
   calculatePrediction,

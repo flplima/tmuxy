@@ -37,12 +37,15 @@ function App() {
   const observingRef = useRef(false);
 
   // Use callback ref to observe container when it mounts
-  const containerRef = useCallback((element: HTMLDivElement | null) => {
-    if (element && !observingRef.current) {
-      observingRef.current = true;
-      send({ type: 'OBSERVE_CONTAINER', element });
-    }
-  }, [send]);
+  const containerRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (element && !observingRef.current) {
+        observingRef.current = true;
+        send({ type: 'OBSERVE_CONTAINER', element });
+      }
+    },
+    [send],
+  );
 
   // Ready when connected, have panes, AND container is measured
   const isReady = !isConnecting && panes.length > 0 && containerSize.width > 0;
@@ -52,11 +55,7 @@ function App() {
   return (
     <div className="app-container">
       <StatusBar />
-      <div
-        ref={containerRef}
-        className="pane-container"
-        style={{ position: 'relative' }}
-      >
+      <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
         {error && !isReady ? (
           <div className="error" data-testid="error-display">
             <h2>Error</h2>
@@ -68,9 +67,7 @@ function App() {
           </div>
         ) : (
           <>
-            <PaneLayout>
-              {(pane) => <Pane paneId={pane.tmuxId} />}
-            </PaneLayout>
+            <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
             {/* Float panes overlay - renders above tiled panes */}
             <FloatContainer />
           </>

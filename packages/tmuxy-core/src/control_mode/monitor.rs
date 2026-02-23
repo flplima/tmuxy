@@ -69,7 +69,7 @@ impl Default for MonitorConfig {
             sync_interval: Duration::from_millis(500),
             create_session: false,
             throttle_interval: Duration::from_millis(16), // ~60fps when throttling
-            throttle_threshold: 20,                        // >20 events/100ms triggers throttle
+            throttle_threshold: 20,                       // >20 events/100ms triggers throttle
             rate_window: Duration::from_millis(100),
         }
     }
@@ -197,7 +197,8 @@ impl TmuxMonitor {
         let copy_mode_sync_interval = Duration::from_millis(50);
         let mut last_sync = tokio::time::Instant::now();
         // Initial delay before first sync to let captures complete
-        let mut next_sync_at = tokio::time::Instant::now() + self.config.sync_interval + Duration::from_secs(1);
+        let mut next_sync_at =
+            tokio::time::Instant::now() + self.config.sync_interval + Duration::from_secs(1);
 
         // Adaptive throttling state for output events
         // - First event always emits immediately

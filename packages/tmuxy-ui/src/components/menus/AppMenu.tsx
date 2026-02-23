@@ -11,7 +11,13 @@
 
 import { Menu, MenuItem, SubMenu, MenuDivider } from '@szhsin/react-menu';
 import '@szhsin/react-menu/dist/index.css';
-import { useAppSend, useAppSelector, selectKeyBindings, selectVisiblePanes, selectWindows } from '../../machines/AppContext';
+import {
+  useAppSend,
+  useAppSelector,
+  selectKeyBindings,
+  selectVisiblePanes,
+  selectWindows,
+} from '../../machines/AppContext';
 import { getKeybindingLabel } from './keybindingLabel';
 import { executeMenuAction } from './menuActions';
 import type { KeyBindings } from '../../machines/types';
@@ -33,7 +39,8 @@ export function AppMenu() {
   const windows = useAppSelector(selectWindows);
 
   const isSinglePane = visiblePanes.length <= 1;
-  const isSingleWindow = windows.filter(w => !w.isPaneGroupWindow && !w.isFloatWindow).length <= 1;
+  const isSingleWindow =
+    windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow).length <= 1;
 
   const handleAction = (actionId: string) => {
     executeMenuAction(send, actionId);
@@ -99,9 +106,7 @@ export function AppMenu() {
           Move to New Tab
           <KeyLabel keybindings={keybindings} command="break-pane" />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-add-to-group')}>
-          Add Pane to Group
-        </MenuItem>
+        <MenuItem onClick={() => handleAction('pane-add-to-group')}>Add Pane to Group</MenuItem>
         <MenuDivider />
         <MenuItem onClick={() => handleAction('pane-copy-mode')}>
           Copy Mode
@@ -111,9 +116,7 @@ export function AppMenu() {
           Paste
           <KeyLabel keybindings={keybindings} command="paste-buffer" />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-clear')}>
-          Clear Screen
-        </MenuItem>
+        <MenuItem onClick={() => handleAction('pane-clear')}>Clear Screen</MenuItem>
         <MenuDivider />
         <MenuItem onClick={() => handleAction('pane-close')}>
           Close Pane
@@ -140,7 +143,10 @@ export function AppMenu() {
         </MenuItem>
         <MenuItem onClick={() => handleAction('tab-rename')}>
           Rename Tab
-          <KeyLabel keybindings={keybindings} command={'command-prompt -I "#W" "rename-window -- \'%%\'"'} />
+          <KeyLabel
+            keybindings={keybindings}
+            command={'command-prompt -I "#W" "rename-window -- \'%%\'"'}
+          />
         </MenuItem>
         <MenuDivider />
         <MenuItem onClick={() => handleAction('tab-close')}>
@@ -150,24 +156,21 @@ export function AppMenu() {
       </SubMenu>
 
       <SubMenu label="Session">
-        <MenuItem onClick={() => handleAction('session-new')}>
-          New Session
-        </MenuItem>
+        <MenuItem onClick={() => handleAction('session-new')}>New Session</MenuItem>
         <MenuItem onClick={() => handleAction('session-rename')}>
           Rename Session
-          <KeyLabel keybindings={keybindings} command={'command-prompt -I "#S" "rename-session -- \'%%\'"'} />
+          <KeyLabel
+            keybindings={keybindings}
+            command={'command-prompt -I "#S" "rename-session -- \'%%\'"'}
+          />
         </MenuItem>
         <MenuItem onClick={() => handleAction('session-detach')}>
           Detach Session
           <KeyLabel keybindings={keybindings} command="detach-client" />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('session-kill')}>
-          Kill Session
-        </MenuItem>
+        <MenuItem onClick={() => handleAction('session-kill')}>Kill Session</MenuItem>
         <MenuDivider />
-        <MenuItem onClick={() => handleAction('session-reload-config')}>
-          Reload Config
-        </MenuItem>
+        <MenuItem onClick={() => handleAction('session-reload-config')}>Reload Config</MenuItem>
       </SubMenu>
 
       <SubMenu label="View">

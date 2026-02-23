@@ -17,7 +17,7 @@
  */
 export function createMemoizedSelector<TContext, TInput, TResult>(
   inputSelector: (context: TContext) => TInput,
-  resultSelector: (context: TContext) => TResult
+  resultSelector: (context: TContext) => TResult,
 ): (context: TContext) => TResult {
   let lastInput: TInput | undefined;
   let lastResult: TResult | undefined;
@@ -48,12 +48,9 @@ export function createMemoizedSelector<TContext, TInput, TResult>(
 export function createMemoizedSelectorWithArg<TContext, TArg, TInput, TResult>(
   inputSelector: (context: TContext, arg: TArg) => TInput,
   resultSelector: (context: TContext, arg: TArg) => TResult,
-  maxCacheSize: number = 50
+  maxCacheSize: number = 50,
 ): (context: TContext, arg: TArg) => TResult {
-  const cache = new Map<
-    TArg,
-    { lastInput: TInput; lastResult: TResult }
-  >();
+  const cache = new Map<TArg, { lastInput: TInput; lastResult: TResult }>();
 
   return (context: TContext, arg: TArg): TResult => {
     const currentInput = inputSelector(context, arg);

@@ -4,7 +4,14 @@
  * All type definitions for state machines and their events.
  */
 
-import type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState } from '../tmux/types';
+import type {
+  TmuxPane,
+  TmuxWindow,
+  ServerState,
+  KeyBindings,
+  KeyBinding,
+  CopyModeState,
+} from '../tmux/types';
 
 // Re-export domain types
 export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState };
@@ -16,7 +23,7 @@ export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyMo
 /** Pane group - groups panes that share the same visual position (like tabs) */
 export interface PaneGroup {
   id: string;
-  paneIds: string[];  // Tab order - active pane is derived from which pane is in activeWindowId
+  paneIds: string[]; // Tab order - active pane is derived from which pane is in activeWindowId
 }
 
 /** Float pane state */
@@ -158,7 +165,18 @@ export interface DragMachineContext {
 }
 
 export type DragMachineEvent =
-  | { type: 'DRAG_START'; paneId: string; startX: number; startY: number; panes: TmuxPane[]; activePaneId: string | null; charWidth: number; charHeight: number; containerWidth: number; containerHeight: number }
+  | {
+      type: 'DRAG_START';
+      paneId: string;
+      startX: number;
+      startY: number;
+      panes: TmuxPane[];
+      activePaneId: string | null;
+      charWidth: number;
+      charHeight: number;
+      containerWidth: number;
+      containerHeight: number;
+    }
   | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
   | { type: 'DRAG_END' }
   | { type: 'DRAG_CANCEL' }
@@ -177,7 +195,16 @@ export interface ResizeMachineContext {
 }
 
 export type ResizeMachineEvent =
-  | { type: 'RESIZE_START'; paneId: string; handle: 'n' | 's' | 'e' | 'w'; startX: number; startY: number; panes: TmuxPane[]; charWidth: number; charHeight: number }
+  | {
+      type: 'RESIZE_START';
+      paneId: string;
+      handle: 'n' | 's' | 'e' | 'w';
+      startX: number;
+      startY: number;
+      panes: TmuxPane[];
+      charWidth: number;
+      charHeight: number;
+    }
   | { type: 'RESIZE_MOVE'; clientX: number; clientY: number }
   | { type: 'RESIZE_END' }
   | { type: 'RESIZE_CANCEL' }
@@ -214,7 +241,11 @@ export type TmuxConnectedEvent = { type: 'TMUX_CONNECTED' };
 export type TmuxStateUpdateEvent = { type: 'TMUX_STATE_UPDATE'; state: ServerState };
 export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
-export type ConnectionInfoEvent = { type: 'CONNECTION_INFO'; connectionId: number; defaultShell: string };
+export type ConnectionInfoEvent = {
+  type: 'CONNECTION_INFO';
+  connectionId: number;
+  defaultShell: string;
+};
 export type KeybindingsReceivedEvent = { type: 'KEYBINDINGS_RECEIVED'; keybindings: KeyBindings };
 
 // Drag events
@@ -224,7 +255,13 @@ export type DragEndEvent = { type: 'DRAG_END' };
 export type DragCancelEvent = { type: 'DRAG_CANCEL' };
 
 // Resize events
-export type ResizeStartEvent = { type: 'RESIZE_START'; paneId: string; handle: 'n' | 's' | 'e' | 'w'; startX: number; startY: number };
+export type ResizeStartEvent = {
+  type: 'RESIZE_START';
+  paneId: string;
+  handle: 'n' | 's' | 'e' | 'w';
+  startX: number;
+  startY: number;
+};
 export type ResizeMoveEvent = { type: 'RESIZE_MOVE'; clientX: number; clientY: number };
 export type ResizeEndEvent = { type: 'RESIZE_END' };
 export type ResizeCancelEvent = { type: 'RESIZE_CANCEL' };
@@ -267,28 +304,67 @@ export type CloseTopFloatEvent = { type: 'CLOSE_TOP_FLOAT' };
 export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: string };
 
 // Copy mode events
-export type EnterCopyModeEvent = { type: 'ENTER_COPY_MODE'; paneId: string; scrollLines?: number; nativeScrollTop?: number };
+export type EnterCopyModeEvent = {
+  type: 'ENTER_COPY_MODE';
+  paneId: string;
+  scrollLines?: number;
+  nativeScrollTop?: number;
+};
 export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: string };
-export type CopyModeChunkLoadedEvent = { type: 'COPY_MODE_CHUNK_LOADED'; paneId: string; cells: import('../tmux/types').PaneContent; start: number; end: number; historySize: number; width: number };
-export type CopyModeCursorMoveEvent = { type: 'COPY_MODE_CURSOR_MOVE'; paneId: string; row: number; col: number; relative?: boolean };
-export type CopyModeSelectionStartEvent = { type: 'COPY_MODE_SELECTION_START'; paneId: string; mode: 'char' | 'line'; row: number; col: number };
+export type CopyModeChunkLoadedEvent = {
+  type: 'COPY_MODE_CHUNK_LOADED';
+  paneId: string;
+  cells: import('../tmux/types').PaneContent;
+  start: number;
+  end: number;
+  historySize: number;
+  width: number;
+};
+export type CopyModeCursorMoveEvent = {
+  type: 'COPY_MODE_CURSOR_MOVE';
+  paneId: string;
+  row: number;
+  col: number;
+  relative?: boolean;
+};
+export type CopyModeSelectionStartEvent = {
+  type: 'COPY_MODE_SELECTION_START';
+  paneId: string;
+  mode: 'char' | 'line';
+  row: number;
+  col: number;
+};
 export type CopyModeSelectionClearEvent = { type: 'COPY_MODE_SELECTION_CLEAR'; paneId: string };
 export type CopyModeScrollEvent = { type: 'COPY_MODE_SCROLL'; paneId: string; scrollTop: number };
 export type CopyModeYankEvent = { type: 'COPY_MODE_YANK'; paneId: string };
-export type CopyModeKeyEvent = { type: 'COPY_MODE_KEY'; key: string; ctrlKey: boolean; shiftKey: boolean };
-export type CopyModeWordSelectEvent = { type: 'COPY_MODE_WORD_SELECT'; paneId: string; row: number; col: number };
+export type CopyModeKeyEvent = {
+  type: 'COPY_MODE_KEY';
+  key: string;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+};
+export type CopyModeWordSelectEvent = {
+  type: 'COPY_MODE_WORD_SELECT';
+  paneId: string;
+  row: number;
+  col: number;
+};
 
 // Group switch detection event (fired internally when switch detected in state update)
 export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
 export type EnableAnimationsEvent = { type: 'ENABLE_ANIMATIONS' };
 
 // Command mode events
-export type EnterCommandModeEvent = { type: 'ENTER_COMMAND_MODE'; prompt?: string; initialValue?: string; template?: string | null };
+export type EnterCommandModeEvent = {
+  type: 'ENTER_COMMAND_MODE';
+  prompt?: string;
+  initialValue?: string;
+  template?: string | null;
+};
 export type CommandModeSubmitEvent = { type: 'COMMAND_MODE_SUBMIT'; value: string };
 export type CommandModeCancelEvent = { type: 'COMMAND_MODE_CANCEL' };
 export type ShowStatusMessageEvent = { type: 'SHOW_STATUS_MESSAGE'; text: string };
 export type ClearStatusMessageEvent = { type: 'CLEAR_STATUS_MESSAGE' };
-
 
 /** All events the app machine can receive from external sources */
 export type AppMachineEvent =
@@ -360,10 +436,7 @@ export interface OptimisticOperation {
   prediction: OptimisticPrediction;
 }
 
-export type OptimisticPrediction =
-  | SplitPrediction
-  | NavigatePrediction
-  | SwapPrediction;
+export type OptimisticPrediction = SplitPrediction | NavigatePrediction | SwapPrediction;
 
 export interface SplitPrediction {
   type: 'split';
@@ -400,4 +473,3 @@ export interface SwapPrediction {
   sourceNewPosition: { x: number; y: number; width: number; height: number };
   targetNewPosition: { x: number; y: number; width: number; height: number };
 }
-

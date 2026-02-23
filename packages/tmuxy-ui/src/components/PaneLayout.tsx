@@ -47,7 +47,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const isDragging = useIsDragging();
   const isResizing = useIsResizing();
 
-  const dragOffset = useMemo(() => ({ x: dragOffsetX, y: dragOffsetY }), [dragOffsetX, dragOffsetY]);
+  const dragOffset = useMemo(
+    () => ({ x: dragOffsetX, y: dragOffsetY }),
+    [dragOffsetX, dragOffsetY],
+  );
 
   // Calculate centering offset to center panes in the container
   const centeringOffset = useMemo(() => {
@@ -104,7 +107,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         height: (pane.height + 1) * charHeight,
       };
     },
-    [charWidth, charHeight, centeringOffset, hPadding]
+    [charWidth, charHeight, centeringOffset, hPadding],
   );
 
   const getPaneClassName = useCallback(
@@ -114,14 +117,17 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       if (pane.tmuxId === draggedPaneId) classes.push('pane-dragging');
       return classes.join(' ');
     },
-    [draggedPaneId]
+    [draggedPaneId],
   );
 
   // Single pane shortcut
   if (visiblePanes.length === 1) {
     const pane = visiblePanes[0];
     return (
-      <div className={`pane-layout${!enableAnimations ? ' pane-layout-no-animations' : ''}`} style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}>
+      <div
+        className={`pane-layout${!enableAnimations ? ' pane-layout-no-animations' : ''}`}
+        style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}
+      >
         <div
           className="pane-layout-item pane-active"
           data-pane-id={pane.tmuxId}
@@ -143,11 +149,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         const isDraggedPane = pane.tmuxId === draggedPaneId;
         const baseStyle = getPaneStyle(pane);
 
-        const isGroupSwitchPane = groupSwitchPanes &&
+        const isGroupSwitchPane =
+          groupSwitchPanes &&
           (pane.tmuxId === groupSwitchPanes.paneId || pane.tmuxId === groupSwitchPanes.fromPaneId);
-        const style = isGroupSwitchPane
-          ? { ...baseStyle, transition: 'none' }
-          : baseStyle;
+        const style = isGroupSwitchPane ? { ...baseStyle, transition: 'none' } : baseStyle;
 
         const shouldFollowCursor = isDraggedPane && isDragging;
 
@@ -181,7 +186,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         />
       )}
 
-      <ResizeDividers panes={visiblePanes} charWidth={charWidth} charHeight={charHeight} centeringOffset={centeringOffset} />
+      <ResizeDividers
+        panes={visiblePanes}
+        charWidth={charWidth}
+        charHeight={charHeight}
+        centeringOffset={centeringOffset}
+      />
     </div>
   );
 }
@@ -214,12 +224,7 @@ function AnimatedPaneWrapper({
   const setRef = useAnimatedPane(targetX, targetY, elevated, enableAnimations);
 
   return (
-    <div
-      ref={setRef}
-      data-pane-id={pane.tmuxId}
-      className={className}
-      style={style}
-    >
+    <div ref={setRef} data-pane-id={pane.tmuxId} className={className} style={style}>
       {children}
     </div>
   );

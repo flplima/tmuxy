@@ -47,7 +47,7 @@ function CommandModeInput({
         send({ type: 'COMMAND_MODE_CANCEL' });
       }
     },
-    [send]
+    [send],
   );
 
   return (

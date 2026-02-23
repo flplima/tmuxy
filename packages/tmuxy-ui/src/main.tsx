@@ -6,5 +6,5 @@ import './components/widgets/init';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <AppProvider>
     <App />
-  </AppProvider>
+  </AppProvider>,
 );

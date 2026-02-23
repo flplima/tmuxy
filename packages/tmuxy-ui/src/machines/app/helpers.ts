@@ -4,10 +4,7 @@
 
 import type { ServerState } from '../../tmux/types';
 import type { TmuxPane, TmuxWindow } from '../types';
-import {
-  isGroupWindow,
-  parseGroupWindowName,
-} from './groupState';
+import { isGroupWindow, parseGroupWindowName } from './groupState';
 
 /**
  * Convert snake_case object keys to camelCase
@@ -44,7 +41,9 @@ export function transformServerState(payload: ServerState): {
     activeWindowId: payload.active_window_id,
     activePaneId: payload.active_pane_id,
     panes: payload.panes.map((p) => camelize<TmuxPane>(p as unknown as Record<string, unknown>)),
-    windows: payload.windows.map((w) => camelize<TmuxWindow>(w as unknown as Record<string, unknown>)),
+    windows: payload.windows.map((w) =>
+      camelize<TmuxWindow>(w as unknown as Record<string, unknown>),
+    ),
     totalWidth: payload.total_width,
     totalHeight: payload.total_height,
     statusLine: payload.status_line,
@@ -109,7 +108,6 @@ export function buildGroupsFromWindows(
   return groups;
 }
 
-
 /**
  * Build float pane states from windows.
  * Float windows have the pattern: __float_{pane_num}
@@ -129,7 +127,7 @@ export function buildFloatPanesFromWindows(
   containerWidth: number,
   containerHeight: number,
   charWidth: number,
-  charHeight: number
+  charHeight: number,
 ): Record<string, { paneId: string; width: number; height: number }> {
   const floatPanes: Record<string, { paneId: string; width: number; height: number }> = {};
 

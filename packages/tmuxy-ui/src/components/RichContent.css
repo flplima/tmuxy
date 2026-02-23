@@ -7,7 +7,9 @@
   text-decoration-style: dotted;
   text-underline-offset: 2px;
   cursor: pointer;
-  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    text-decoration-color 0.15s ease;
 }
 
 .rich-link:hover {
@@ -84,7 +86,8 @@
 
 /* Animation for loading images */
 @keyframes rich-image-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.5;
   }
   50% {

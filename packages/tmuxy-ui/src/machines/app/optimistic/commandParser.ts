@@ -5,12 +5,7 @@
  * Returns parsed command info that can be used to calculate predictions.
  */
 
-export type ParsedCommand =
-  | SplitCommand
-  | NavigateCommand
-  | SwapCommand
-  | SelectPaneCommand
-  | null;
+export type ParsedCommand = SplitCommand | NavigateCommand | SwapCommand | SelectPaneCommand | null;
 
 export interface SplitCommand {
   type: 'split';

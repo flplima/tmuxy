@@ -16,7 +16,7 @@ interface CopyModeKeyResult {
 /** Get the text content of a cell line (for word motion scanning) */
 function lineText(line: CellLine | undefined): string {
   if (!line) return '';
-  return line.map(c => c.c).join('');
+  return line.map((c) => c.c).join('');
 }
 
 /** Check if character is a word character (non-whitespace, non-punctuation) */
@@ -28,7 +28,7 @@ function isWordChar(ch: string): boolean {
 function getLineLength(lines: Map<number, CellLine>, row: number): number {
   const line = lines.get(row);
   if (!line || line.length === 0) return 0;
-  const text = line.map(c => c.c).join('');
+  const text = line.map((c) => c.c).join('');
   return text.trimEnd().length;
 }
 
@@ -41,7 +41,12 @@ function findLastContentRow(lines: Map<number, CellLine>, totalLines: number): n
 }
 
 /** Find next word start position */
-function findNextWord(lines: Map<number, CellLine>, row: number, col: number, totalLines: number): { row: number; col: number } {
+function findNextWord(
+  lines: Map<number, CellLine>,
+  row: number,
+  col: number,
+  totalLines: number,
+): { row: number; col: number } {
   let r = row;
   let c = col;
   const text = lineText(lines.get(r));
@@ -66,7 +71,11 @@ function findNextWord(lines: Map<number, CellLine>, row: number, col: number, to
 }
 
 /** Find previous word start position */
-function findPrevWord(lines: Map<number, CellLine>, row: number, col: number): { row: number; col: number } {
+function findPrevWord(
+  lines: Map<number, CellLine>,
+  row: number,
+  col: number,
+): { row: number; col: number } {
   let r = row;
   let c = col - 1;
 
@@ -90,7 +99,12 @@ function findPrevWord(lines: Map<number, CellLine>, row: number, col: number): {
 }
 
 /** Find end of current word */
-function findWordEnd(lines: Map<number, CellLine>, row: number, col: number, totalLines: number): { row: number; col: number } {
+function findWordEnd(
+  lines: Map<number, CellLine>,
+  row: number,
+  col: number,
+  totalLines: number,
+): { row: number; col: number } {
   let r = row;
   let c = col + 1;
   const text = lineText(lines.get(r));
@@ -129,9 +143,19 @@ export function handleCopyModeKey(
 ): CopyModeKeyResult {
   // Browsers may send lowercase key with shiftKey=true (e.g. key='v', shiftKey=true for 'V')
   // Normalize to uppercase for single-letter keys when shift is held
-  const effectiveKey = (shiftKey && key.length === 1 && /[a-z]/.test(key)) ? key.toUpperCase() : key;
+  const effectiveKey = shiftKey && key.length === 1 && /[a-z]/.test(key) ? key.toUpperCase() : key;
 
-  const { cursorRow, cursorCol, width, totalLines, scrollTop, height, selectionMode, selectionAnchor, lines } = state;
+  const {
+    cursorRow,
+    cursorCol,
+    width,
+    totalLines,
+    scrollTop,
+    height,
+    selectionMode,
+    selectionAnchor,
+    lines,
+  } = state;
   let newRow = cursorRow;
   let newCol = cursorCol;
   let newScrollTop = scrollTop;

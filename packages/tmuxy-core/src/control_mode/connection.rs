@@ -34,10 +34,7 @@ pub struct ControlModeConnection {
 ///
 /// Uses `read_until(b'\n')` instead of `lines()` to avoid failing on non-UTF-8
 /// bytes that the `script` PTY wrapper may introduce into the stream.
-fn spawn_parser_task(
-    stdout: tokio::process::ChildStdout,
-    tx: mpsc::Sender<ControlModeEvent>,
-) {
+fn spawn_parser_task(stdout: tokio::process::ChildStdout, tx: mpsc::Sender<ControlModeEvent>) {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout);
         let mut parser = Parser::new();
@@ -108,14 +105,8 @@ impl ControlModeConnection {
             .spawn()
             .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
 
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or("Failed to get stdin handle")?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or("Failed to get stdout handle")?;
+        let stdin = child.stdin.take().ok_or("Failed to get stdin handle")?;
+        let stdout = child.stdout.take().ok_or("Failed to get stdout handle")?;
 
         let (tx, rx) = mpsc::channel(1000);
         spawn_parser_task(stdout, tx);
@@ -147,14 +138,8 @@ impl ControlModeConnection {
             .spawn()
             .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
 
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or("Failed to get stdin handle")?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or("Failed to get stdout handle")?;
+        let stdin = child.stdin.take().ok_or("Failed to get stdin handle")?;
+        let stdout = child.stdout.take().ok_or("Failed to get stdout handle")?;
 
         let (tx, rx) = mpsc::channel(1000);
         spawn_parser_task(stdout, tx);
@@ -238,8 +223,8 @@ impl ControlModeConnection {
     /// Check if the connection is still alive.
     pub fn is_alive(&mut self) -> bool {
         match self.child.try_wait() {
-            Ok(None) => true,  // Still running
-            _ => false,        // Exited or error
+            Ok(None) => true, // Still running
+            _ => false,       // Exited or error
         }
     }
 

@@ -23,12 +23,24 @@ const components: Components = {
       return <MermaidBlock chart={String(children).trimEnd()} />;
     }
     if (!className) {
-      return <code className="widget-markdown-inline-code" {...props}>{children}</code>;
+      return (
+        <code className="widget-markdown-inline-code" {...props}>
+          {children}
+        </code>
+      );
     }
-    return <code className={className} {...props}>{children}</code>;
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
   },
   pre({ children, ...props }) {
-    return <pre className="widget-markdown-pre" {...props}>{children}</pre>;
+    return (
+      <pre className="widget-markdown-pre" {...props}>
+        {children}
+      </pre>
+    );
   },
 };
 
@@ -47,7 +59,10 @@ function useFetchFile(filePath: string | undefined, seq: string | undefined) {
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         return res.text();
       })
-      .then((text) => { setContent(text); setError(null); })
+      .then((text) => {
+        setContent(text);
+        setError(null);
+      })
       .catch((err) => setError(String(err)));
   }
 

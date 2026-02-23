@@ -33,7 +33,7 @@ export function extractSelectedText(state: CopyModeState): string {
       continue;
     }
 
-    const lineText = line.map(c => c.c).join('');
+    const lineText = line.map((c) => c.c).join('');
 
     if (selectionMode === 'line') {
       result.push(lineText.trimEnd());

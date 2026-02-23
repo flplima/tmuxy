@@ -14,7 +14,9 @@ export type SizeActorEvent =
   | { type: 'STOP_OBSERVE' }
   | { type: 'CONNECTED' };
 
-export interface SizeActorInput { parent: AnyActorRef }
+export interface SizeActorInput {
+  parent: AnyActorRef;
+}
 
 export interface MeasureFn {
   (): number; // returns charWidth

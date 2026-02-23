@@ -27,8 +27,8 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const send = useAppSend();
   // Use raw panes list (not selectPreviewPanes) because float panes live in
   // non-active windows and selectPreviewPanes filters to activeWindowId only
-  const pane = useAppSelector(
-    (ctx) => ctx.panes.find((p: TmuxPane) => p.tmuxId === floatState.paneId)
+  const pane = useAppSelector((ctx) =>
+    ctx.panes.find((p: TmuxPane) => p.tmuxId === floatState.paneId),
   );
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
@@ -39,13 +39,16 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
       e.stopPropagation();
       send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
     },
-    [send, floatState.paneId]
+    [send, floatState.paneId],
   );
 
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    send({ type: 'FOCUS_PANE', paneId: floatState.paneId });
-  }, [send, floatState.paneId]);
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      send({ type: 'FOCUS_PANE', paneId: floatState.paneId });
+    },
+    [send, floatState.paneId],
+  );
 
   if (!pane) return null;
 
@@ -75,10 +78,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
           ×
         </button>
       </div>
-      <div
-        className="float-content"
-        style={{ width: floatWidth, height: floatState.height }}
-      >
+      <div className="float-content" style={{ width: floatWidth, height: floatState.height }}>
         <Terminal
           content={pane.content}
           cursorX={pane.cursorX}
@@ -129,17 +129,9 @@ export function FloatContainer() {
 
   return (
     <div className="float-overlay">
-      <div
-        className="float-backdrop"
-        style={{ zIndex: 1000 }}
-        onClick={closeTopFloat}
-      />
+      <div className="float-backdrop" style={{ zIndex: 1000 }} onClick={closeTopFloat} />
       {visibleFloats.map((floatState, index) => (
-        <FloatPane
-          key={floatState.paneId}
-          floatState={floatState}
-          zIndex={1001 + index}
-        />
+        <FloatPane key={floatState.paneId} floatState={floatState} zIndex={1001 + index} />
       ))}
     </div>
   );

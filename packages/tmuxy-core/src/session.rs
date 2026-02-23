@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::path::PathBuf;
+use std::process::Command;
 
 use crate::DEFAULT_SESSION_NAME;
 
@@ -44,7 +44,9 @@ pub fn create_session(session_name: &str) -> Result<(), String> {
     let mut args = vec!["new-session", "-d", "-s", session_name];
 
     // Use custom config if it exists
-    let config_str = config_path.as_ref().map(|p| p.to_string_lossy().to_string());
+    let config_str = config_path
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
     if let Some(ref cs) = config_str {
         args.insert(0, "-f");
         args.insert(1, cs);
