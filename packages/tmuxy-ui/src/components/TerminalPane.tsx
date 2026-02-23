@@ -10,10 +10,11 @@
  * preventDefault(), and manually adjusts scrollTop on the scroll container.
  */
 
-import { useRef, useCallback, useLayoutEffect, useEffect } from 'react';
+import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
 import { PaneHeader } from './PaneHeader';
+import { SelectionContextMenu } from './SelectionContextMenu';
 import {
   useAppSend,
   usePane,
@@ -24,6 +25,7 @@ import {
   selectCharSize,
 } from '../machines/AppContext';
 import { usePaneMouse } from '../hooks';
+import { extractSelectedText } from '../utils/copyMode';
 
 interface TerminalPaneProps {
   paneId: string;
@@ -39,6 +41,19 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const copyState = useCopyModeState(paneId);
+
+  // Selection context menu state
+  const [selectionMenu, setSelectionMenu] = useState<{
+    x: number;
+    y: number;
+    text: string;
+  } | null>(null);
+  const pendingContextMenuRef = useRef<{
+    x: number;
+    y: number;
+    cellRow: number;
+    cellCol: number;
+  } | null>(null);
 
   const historySize = pane?.historySize ?? 0;
   const paneHeight = pane?.height ?? 24;
@@ -173,6 +188,76 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     return () => el.removeEventListener('wheel', handler);
   }, []);
 
+  // When a pending context menu is set and copy mode selection becomes available, show the menu
+  useEffect(() => {
+    if (pendingContextMenuRef.current && copyState?.selectionMode) {
+      const text = extractSelectedText(copyState);
+      if (text) {
+        const { x, y } = pendingContextMenuRef.current;
+        setSelectionMenu({ x, y, text });
+      }
+      pendingContextMenuRef.current = null;
+    }
+  }, [copyState?.selectionMode, copyState]);
+
+  // Handle right-click context menu for text selection
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.pane-header')) return;
+      if (pane?.mouseAnyFlag) return;
+
+      e.preventDefault();
+
+      // Compute cell coordinates (same logic as pixelToCell in usePaneMouse)
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const relX = e.clientX - rect.left;
+      let relY = e.clientY - rect.top;
+      const subLineOffset = scrollRef.current ? scrollRef.current.scrollTop % charHeight : 0;
+      relY += subLineOffset;
+      const cellCol = Math.max(0, Math.floor(relX / charWidth));
+      const cellRow = Math.floor(relY / charHeight);
+
+      if (copyState?.selectionMode) {
+        // Already have a selection — show menu immediately
+        const text = extractSelectedText(copyState);
+        if (text) {
+          setSelectionMenu({ x: e.clientX, y: e.clientY, text });
+        }
+      } else {
+        // No selection — enter copy mode and select word under cursor
+        pendingContextMenuRef.current = {
+          x: e.clientX,
+          y: e.clientY,
+          cellRow,
+          cellCol,
+        };
+        if (!copyState) {
+          send({ type: 'ENTER_COPY_MODE', paneId });
+          setTimeout(() => {
+            send({
+              type: 'COPY_MODE_WORD_SELECT',
+              paneId,
+              row: cellRow,
+              col: cellCol,
+              broad: true,
+            });
+          }, 100);
+        } else {
+          send({
+            type: 'COPY_MODE_WORD_SELECT',
+            paneId,
+            row: cellRow,
+            col: cellCol,
+            broad: true,
+          });
+        }
+      }
+    },
+    [send, paneId, pane?.mouseAnyFlag, copyState, charWidth, charHeight, contentRef, scrollRef],
+  );
+
   if (!pane) return null;
 
   // Scroll indicator geometry (only meaningful in copy mode)
@@ -200,8 +285,18 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
     >
       <PaneHeader paneId={paneId} />
+      {selectionMenu && (
+        <SelectionContextMenu
+          paneId={paneId}
+          x={selectionMenu.x}
+          y={selectionMenu.y}
+          selectedText={selectionMenu.text}
+          onClose={() => setSelectionMenu(null)}
+        />
+      )}
       <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
         <div
           ref={scrollRef}

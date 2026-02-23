@@ -1404,7 +1404,10 @@ export const appMachine = setup({
             let wordEnd = event.col;
 
             // Expand to word boundaries
-            const isWord = (i: number) => i >= 0 && i < text.length && /\w/.test(text[i]);
+            // Broad mode: space-delimited (selects URLs, file paths)
+            const isWord = event.broad
+              ? (i: number) => i >= 0 && i < text.length && text[i] !== ' '
+              : (i: number) => i >= 0 && i < text.length && /\w/.test(text[i]);
             if (isWord(event.col)) {
               while (wordStart > 0 && isWord(wordStart - 1)) wordStart--;
               while (wordEnd < text.length - 1 && isWord(wordEnd + 1)) wordEnd++;
