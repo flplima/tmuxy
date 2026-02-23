@@ -55,7 +55,7 @@ export function SelectionContextMenu({
       </MenuItem>
       <MenuItem
         onClick={() => {
-          window.open('https://chatgpt.com/?q=' + encodeURIComponent(selectedText), '_blank');
+          window.open('https://chatgpt.com/?prompt=' + encodeURIComponent(selectedText), '_blank');
           exitAndClose();
         }}
       >

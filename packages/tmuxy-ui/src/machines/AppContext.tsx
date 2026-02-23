@@ -132,7 +132,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 // Hooks
 // ============================================
 
-function useAppActor(): AppMachineActor {
+export function useAppActor(): AppMachineActor {
   const actor = useContext(AppContext);
   if (!actor) throw new Error('useAppActor must be used within AppProvider');
   return actor;
