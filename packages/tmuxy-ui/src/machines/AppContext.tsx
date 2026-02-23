@@ -121,9 +121,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }),
   );
 
-  // Expose XState actor for debugging (dev mode only)
+  // Expose XState actor for debugging (dev mode or CI)
   useMemo(() => {
-    if (typeof window !== 'undefined' && import.meta.env.DEV) {
+    if (
+      typeof window !== 'undefined' &&
+      (import.meta.env.DEV || import.meta.env.VITE_E2E === 'true')
+    ) {
       (window as unknown as { app: typeof actorRef }).app = actorRef;
     }
   }, [actorRef]);
