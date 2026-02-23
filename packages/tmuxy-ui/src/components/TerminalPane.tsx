@@ -25,7 +25,7 @@ import {
   useAppSelector,
   selectCharSize,
 } from '../machines/AppContext';
-import { usePaneMouse } from '../hooks';
+import { usePaneMouse, usePaneTouch } from '../hooks';
 import { extractSelectedText } from '../utils/copyMode';
 
 interface TerminalPaneProps {
@@ -170,17 +170,48 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     scrollRef,
   });
 
+  // Touch handling for mobile scroll
+  const { handleTouchStart, handleTouchMove, handleTouchEnd } = usePaneTouch({
+    paneId,
+    charHeight,
+    alternateOn: pane?.alternateOn ?? false,
+    mouseAnyFlag: pane?.mouseAnyFlag ?? false,
+    scrollRef,
+    send,
+  });
+
   // Ref to latest handleWheel for the native listener
   const handleWheelRef = useRef(handleWheel);
   handleWheelRef.current = handleWheel;
 
-  // Native wheel listener with { passive: false } so preventDefault() works.
+  // Refs to latest touch handlers for native listeners
+  const handleTouchStartRef = useRef(handleTouchStart);
+  handleTouchStartRef.current = handleTouchStart;
+  const handleTouchMoveRef = useRef(handleTouchMove);
+  handleTouchMoveRef.current = handleTouchMove;
+  const handleTouchEndRef = useRef(handleTouchEnd);
+  handleTouchEndRef.current = handleTouchEnd;
+
+  // Native wheel and touch listeners with { passive: false } so preventDefault() works.
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
-    const handler = (e: WheelEvent) => handleWheelRef.current(e as unknown as React.WheelEvent);
-    el.addEventListener('wheel', handler, { passive: false });
-    return () => el.removeEventListener('wheel', handler);
+    const wheelHandler = (e: WheelEvent) =>
+      handleWheelRef.current(e as unknown as React.WheelEvent);
+    const touchStartHandler = (e: TouchEvent) => handleTouchStartRef.current(e);
+    const touchMoveHandler = (e: TouchEvent) => handleTouchMoveRef.current(e);
+    const touchEndHandler = (e: TouchEvent) => handleTouchEndRef.current(e);
+
+    el.addEventListener('wheel', wheelHandler, { passive: false });
+    el.addEventListener('touchstart', touchStartHandler, { passive: true });
+    el.addEventListener('touchmove', touchMoveHandler, { passive: false });
+    el.addEventListener('touchend', touchEndHandler, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', wheelHandler);
+      el.removeEventListener('touchstart', touchStartHandler);
+      el.removeEventListener('touchmove', touchMoveHandler);
+      el.removeEventListener('touchend', touchEndHandler);
+    };
   }, []);
 
   // Show context menu after word select by reading state directly from the actor

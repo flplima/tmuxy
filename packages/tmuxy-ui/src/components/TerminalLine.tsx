@@ -171,8 +171,11 @@ export const TerminalLine = memo(
         const startIdx = currentGroup.startIdx;
         const url = currentGroup.style?.url;
 
-        // Apply selection highlight via CSS overlay
+        // Apply selection highlight — override fg/bg via inline style
         const selectedClass = currentGroup.selected ? 'terminal-selected' : undefined;
+        if (currentGroup.selected) {
+          style = { ...style, color: 'var(--term-black)', backgroundColor: '#c0c0c0' };
+        }
 
         // Check if cursor is in this group
         if (isCursorLine) {

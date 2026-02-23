@@ -33,7 +33,7 @@ body {
   height: 100vh;
   background-color: #1e1e1e;
   color: #d4d4d4;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: 'FiraCode Nerd Font', 'Monaco', 'Menlo', 'Courier New', monospace;
 }
 
 .error {

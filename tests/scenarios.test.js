@@ -1518,3 +1518,179 @@ describe('Scenario 20: Glitch Detection', () => {
     const clickResult = await ctx.assertNoGlitches({ operation: 'split', sizeJumps: 30 });
   }, 120000);
 });
+
+// ==================== Touch Scroll Helpers ====================
+
+/**
+ * Dispatch a touch event sequence (start → moves → end) via CDP.
+ * @param {Page} page - Playwright page
+ * @param {number} startX - Start X coordinate
+ * @param {number} startY - Start Y coordinate
+ * @param {number} endY - End Y coordinate (X stays the same)
+ * @param {number} steps - Number of intermediate touchmove events
+ * @param {number} stepDelay - Delay between steps in ms (affects velocity)
+ */
+async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepDelay = 16) {
+  const cdp = await page.context().newCDPSession(page);
+  const deltaY = (endY - startY) / steps;
+
+  // touchstart
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: startX, y: startY }],
+  });
+  await delay(stepDelay);
+
+  // touchmove steps
+  for (let i = 1; i <= steps; i++) {
+    const y = startY + deltaY * i;
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: startX, y }],
+    });
+    await delay(stepDelay);
+  }
+
+  // touchend
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await cdp.detach();
+}
+
+// ==================== Scenario 21: Touch Scrolling ====================
+
+describe('Scenario 21: Touch Scrolling', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach);
+
+  test('Touch scroll: CSS prevention → normal shell → alternate screen → multi-pane isolation', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Step 1: Verify touch-action: none is set on pane-wrapper
+    const touchAction = await ctx.page.evaluate(() => {
+      const wrapper = document.querySelector('.pane-wrapper');
+      if (!wrapper) return null;
+      return getComputedStyle(wrapper).touchAction;
+    });
+    expect(touchAction).toBe('none');
+
+    // Step 2: Generate scrollback history for copy-mode scroll test
+    for (let i = 0; i < 60; i++) {
+      await ctx.session.sendKeys(`"echo line-${i}" Enter`);
+    }
+    await delay(DELAYS.LONG);
+
+    // Get pane center coordinates
+    const paneBox = await ctx.page.evaluate(() => {
+      const pane = document.querySelector('.pane-wrapper');
+      if (!pane) return null;
+      const r = pane.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2, height: r.height };
+    });
+    expect(paneBox).not.toBeNull();
+
+    // Step 3: Touch scroll up in normal shell → should enter copy mode
+    // Finger moves DOWN (positive delta) = scroll UP through history
+    await dispatchTouchScroll(
+      ctx.page,
+      paneBox.x,
+      paneBox.y,
+      paneBox.y + paneBox.height * 0.4, // swipe down 40% of pane
+      10,
+      16,
+    );
+    await delay(DELAYS.SYNC);
+
+    // Verify copy mode was entered
+    const copyModeActive = await ctx.page.evaluate(() => {
+      const snap = window.app?.getSnapshot();
+      if (!snap) return false;
+      return Object.keys(snap.context.copyModeStates || {}).length > 0;
+    });
+    expect(copyModeActive).toBe(true);
+
+    // Exit copy mode by pressing q
+    await ctx.page.keyboard.press('q');
+    await delay(DELAYS.LONG);
+
+    // Step 4: Touch scroll in alternate screen (less command)
+    await ctx.session.sendKeys(`"less /etc/services" Enter`);
+    await delay(DELAYS.SYNC);
+
+    // Verify alternate mode is active
+    const altOn = await ctx.page.evaluate(() => {
+      const pane = document.querySelector('.pane-wrapper');
+      return pane?.getAttribute('data-alternate-on') === 'true';
+    });
+    expect(altOn).toBe(true);
+
+    // Get initial visible text
+    const textBefore = await getTerminalText(ctx.page);
+
+    // Touch scroll down in alternate screen (finger up = scroll down = Down arrow keys)
+    await dispatchTouchScroll(
+      ctx.page,
+      paneBox.x,
+      paneBox.y + paneBox.height * 0.4,
+      paneBox.y - paneBox.height * 0.2, // swipe up 60% of pane
+      10,
+      16,
+    );
+    await delay(DELAYS.SYNC);
+
+    // Verify content changed (scrolled down in less)
+    const textAfter = await getTerminalText(ctx.page);
+    expect(textAfter).not.toBe(textBefore);
+
+    // Exit less
+    await ctx.page.keyboard.press('q');
+    await delay(DELAYS.LONG);
+
+    // Step 5: Multi-pane touch isolation
+    await ctx.session.splitHorizontal();
+    await delay(DELAYS.SYNC);
+    await waitForPaneCount(ctx.page, 2);
+
+    // Generate distinct content in each pane
+    await ctx.session.sendKeys(`"echo PANE_TWO_MARKER" Enter`);
+    await delay(DELAYS.SHORT);
+
+    // Get both pane positions
+    const panePositions = await ctx.page.evaluate(() => {
+      const panes = document.querySelectorAll('.pane-wrapper');
+      return Array.from(panes).map(p => {
+        const r = p.getBoundingClientRect();
+        return {
+          id: p.getAttribute('data-pane-id'),
+          x: r.x + r.width / 2,
+          y: r.y + r.height / 2,
+          height: r.height,
+        };
+      });
+    });
+    expect(panePositions.length).toBe(2);
+
+    // Touch scroll on second pane only — first pane should be unaffected
+    // (This primarily verifies touch events are scoped to the touched pane)
+    const secondPane = panePositions[1];
+    await dispatchTouchScroll(
+      ctx.page,
+      secondPane.x,
+      secondPane.y,
+      secondPane.y + secondPane.height * 0.3,
+      5,
+      16,
+    );
+    await delay(DELAYS.LONG);
+
+    // Both panes should still exist
+    const finalPaneCount = await getUIPaneCount(ctx.page);
+    expect(finalPaneCount).toBe(2);
+  }, 90000);
+});

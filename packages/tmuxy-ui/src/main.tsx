@@ -1,6 +1,7 @@
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AppProvider } from './machines/AppContext';
+import './fonts/nerd-font.css';
 import './components/widgets/init';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
