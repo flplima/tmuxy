@@ -25,7 +25,7 @@ DOCKERFILE=".devcontainer/Dockerfile"
 # Unique container name from workspace directory
 # ---------------------------------------------------------------------------
 DIR_NAME="$(basename "$(pwd)")"
-CONTAINER_NAME="tmuxy-${DIR_NAME//[^a-zA-Z0-9_.-]/-}"
+CONTAINER_NAME="${DIR_NAME//[^a-zA-Z0-9_.-]/-}"
 
 # ---------------------------------------------------------------------------
 # Build image
@@ -75,6 +75,20 @@ MOUNTS=(
 [ -f "$HOME/.gitconfig" ]   && MOUNTS+=(-v "$HOME/.gitconfig:/home/node/.gitconfig:ro")
 [ -d "$HOME/.ssh" ]         && MOUNTS+=(-v "$HOME/.ssh:/home/node/.ssh:ro")
 [ -d "$HOME/.config/gh" ]   && MOUNTS+=(-v "$HOME/.config/gh:/home/node/.config/gh:ro")
+
+# Git worktree support: .git is a file pointing to the host's gitdir which
+# doesn't exist in the container. Mount the main .git dir and shadow the
+# .git file with a container-correct path.
+if [ -f "$(pwd)/.git" ]; then
+    MAIN_GIT_DIR="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
+    WORKTREE_NAME="$(basename "$(git rev-parse --git-dir)")"
+    DOTGIT_TMP=$(mktemp)
+    echo "gitdir: /git-main/worktrees/$WORKTREE_NAME" > "$DOTGIT_TMP"
+    MOUNTS+=(
+        -v "$MAIN_GIT_DIR:/git-main"
+        -v "$DOTGIT_TMP:/workspace/.git"
+    )
+fi
 
 # ---------------------------------------------------------------------------
 # Run
