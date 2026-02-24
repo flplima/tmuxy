@@ -565,3 +565,21 @@ export function selectCommandMode(context: AppMachineContext) {
 export function selectStatusMessage(context: AppMachineContext) {
   return context.statusMessage;
 }
+
+// ============================================
+// Theme Selectors
+// ============================================
+
+export function selectThemeName(context: AppMachineContext): string {
+  return context.themeName;
+}
+
+export function selectThemeMode(context: AppMachineContext): 'dark' | 'light' {
+  return context.themeMode;
+}
+
+export function selectAvailableThemes(
+  context: AppMachineContext,
+): Array<{ name: string; displayName: string }> {
+  return context.availableThemes;
+}

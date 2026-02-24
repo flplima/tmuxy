@@ -45,6 +45,7 @@ import {
 } from './helpers';
 import { handleCopyModeKey } from '../../utils/copyModeKeys';
 import { mergeScrollbackChunk, getNeededChunk } from '../../utils/copyMode';
+import { applyTheme, applyThemeMode } from '../../utils/themeManager';
 import type { CopyModeState, CellLine } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -219,6 +220,10 @@ export const appMachine = setup({
     commandMode: null,
     // Temporary status message (from display-message)
     statusMessage: null,
+    // Theme settings
+    themeName: 'default',
+    themeMode: 'dark' as const,
+    availableThemes: [],
   },
   invoke: [
     {
@@ -412,6 +417,51 @@ export const appMachine = setup({
         return {};
       }),
     },
+
+    // Theme events (global — work in any state)
+    SET_THEME: {
+      actions: enqueueActions(({ event, context, enqueue }) => {
+        applyTheme(event.name, context.themeMode);
+        enqueue(assign({ themeName: event.name }));
+        enqueue(
+          sendTo('tmux', {
+            type: 'INVOKE' as const,
+            cmd: 'set_theme',
+            args: { name: event.name },
+          }),
+        );
+      }),
+    },
+    SET_THEME_MODE: {
+      actions: enqueueActions(({ event, context, enqueue }) => {
+        applyThemeMode(event.mode);
+        enqueue(assign({ themeMode: event.mode }));
+        enqueue(
+          sendTo('tmux', {
+            type: 'INVOKE' as const,
+            cmd: 'set_theme_mode',
+            args: { mode: event.mode },
+          }),
+        );
+        // Also persist theme name alongside mode
+        enqueue(
+          sendTo('tmux', {
+            type: 'INVOKE' as const,
+            cmd: 'set_theme',
+            args: { name: context.themeName, mode: event.mode },
+          }),
+        );
+      }),
+    },
+    THEME_SETTINGS_RECEIVED: {
+      actions: enqueueActions(({ event, enqueue }) => {
+        applyTheme(event.theme, event.mode);
+        enqueue(assign({ themeName: event.theme, themeMode: event.mode }));
+      }),
+    },
+    THEMES_LIST_RECEIVED: {
+      actions: assign(({ event }) => ({ availableThemes: event.themes })),
+    },
   },
   states: {
     connecting: {
@@ -421,6 +471,10 @@ export const appMachine = setup({
           actions: enqueueActions(({ context, enqueue }) => {
             enqueue(assign({ connected: true, error: null }));
             enqueue(sendTo('size', { type: 'CONNECTED' as const }));
+
+            // Fetch theme settings and available themes
+            enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
+            enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
 
             // Only fetch initial state if we already have a computed target size
             // If targetCols/targetRows are still defaults, SET_TARGET_SIZE will trigger the fetch

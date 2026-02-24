@@ -1,0 +1,162 @@
+/* Default theme - matches the base styles.css exactly */
+
+:root.theme-dark {
+  /* Terminal Colors - xterm colorscheme */
+  --term-black: #000000;
+  --term-red: #cd0000;
+  --term-green: #00cd00;
+  --term-yellow: #cdcd00;
+  --term-blue: #0000ee;
+  --term-magenta: #cd00cd;
+  --term-cyan: #00cdcd;
+  --term-white: #e5e5e5;
+  --term-bright-black: #7f7f7f;
+  --term-bright-red: #ff0000;
+  --term-bright-green: #00ff00;
+  --term-bright-yellow: #ffff00;
+  --term-bright-blue: #5c5cff;
+  --term-bright-magenta: #ff00ff;
+  --term-bright-cyan: #00ffff;
+  --term-bright-white: #ffffff;
+
+  --term-foreground: var(--term-white);
+  --term-background: var(--term-black);
+
+  --bg-black: var(--term-black);
+  --bg-dark: #1e1e1e;
+  --bg-dark-alt: #252526;
+  --bg-medium: #2d2d2d;
+  --bg-elevated-alt: #3d3d3d;
+  --bg-highlight: #4a4a4a;
+  --bg-highlight-alt: #5a5a5a;
+
+  --text-primary: var(--term-white);
+  --text-secondary: #cccccc;
+  --text-muted: #a0a0a0;
+  --text-dimmed: var(--term-bright-black);
+  --text-subtle: #6a6a6a;
+  --text-faint: #5a5a5a;
+  --text-dark: #1e1e1e;
+
+  --border-medium: #3d3d3d;
+  --border-light: #4a4a4a;
+
+  --pane-header-bg-active: #444;
+  --pane-header-bg-inactive: #1a1a1a;
+  --pane-header-text-active: var(--term-bright-white);
+  --pane-header-text-inactive: var(--term-bright-black);
+
+  --accent-green: var(--term-green);
+  --accent-green-bright: var(--term-bright-green);
+  --accent-green-bg: #1a3d1a;
+  --accent-green-border: #2d5a2d;
+  --accent-green-hover: #254d25;
+
+  --accent-blue: #094771;
+  --accent-blue-light: rgba(100, 150, 255, 0.8);
+  --accent-blue-glow: rgba(100, 150, 255, 0.6);
+  --accent-blue-bg: rgba(100, 150, 255, 0.1);
+  --accent-blue-bg-hover: rgba(100, 150, 255, 0.3);
+  --accent-blue-bg-active: rgba(100, 150, 255, 0.5);
+
+  --link-color: var(--term-bright-blue);
+  --link-hover: var(--term-bright-cyan);
+  --link-active: var(--term-blue);
+
+  --error-color: var(--term-bright-red);
+  --error-light: #f48771;
+  --error-text: #e57373;
+  --error-bg: rgba(255, 0, 0, 0.2);
+  --error-border: rgba(255, 0, 0, 0.4);
+
+  --cursor-bg: var(--term-white);
+  --cursor-text: var(--term-black);
+  --cursor-copy-bg: var(--term-blue);
+  --cursor-inactive: var(--term-bright-black);
+
+  --tmux-status-bg: var(--term-green);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+:root.theme-light {
+  --term-black: #000000;
+  --term-red: #c7243a;
+  --term-green: #00853e;
+  --term-yellow: #b58900;
+  --term-blue: #0068d6;
+  --term-magenta: #a626a4;
+  --term-cyan: #0e8a7b;
+  --term-white: #383a42;
+  --term-bright-black: #8e8e93;
+  --term-bright-red: #e45649;
+  --term-bright-green: #50a14f;
+  --term-bright-yellow: #c18401;
+  --term-bright-blue: #4078f2;
+  --term-bright-magenta: #c678dd;
+  --term-bright-cyan: #0eb5a5;
+  --term-bright-white: #1e1e1e;
+
+  --term-foreground: #383a42;
+  --term-background: #fafafa;
+
+  --bg-black: #fafafa;
+  --bg-dark: #f0f0f0;
+  --bg-dark-alt: #e8e8e8;
+  --bg-medium: #e0e0e0;
+  --bg-elevated-alt: #d0d0d0;
+  --bg-highlight: #c0c0c0;
+  --bg-highlight-alt: #b0b0b0;
+
+  --text-primary: #383a42;
+  --text-secondary: #4a4a4a;
+  --text-muted: #6e6e6e;
+  --text-dimmed: #8e8e93;
+  --text-subtle: #a0a0a0;
+  --text-faint: #b0b0b0;
+  --text-dark: #fafafa;
+
+  --border-medium: #d0d0d0;
+  --border-light: #c0c0c0;
+
+  --pane-header-bg-active: #d8d8d8;
+  --pane-header-bg-inactive: #eeeeee;
+  --pane-header-text-active: #1e1e1e;
+  --pane-header-text-inactive: #8e8e93;
+
+  --accent-green: #00853e;
+  --accent-green-bright: #50a14f;
+  --accent-green-bg: #e6f5ec;
+  --accent-green-border: #a3d9b1;
+  --accent-green-hover: #d0edda;
+
+  --accent-blue: #d0e4f7;
+  --accent-blue-light: rgba(64, 120, 242, 0.8);
+  --accent-blue-glow: rgba(64, 120, 242, 0.4);
+  --accent-blue-bg: rgba(64, 120, 242, 0.08);
+  --accent-blue-bg-hover: rgba(64, 120, 242, 0.15);
+  --accent-blue-bg-active: rgba(64, 120, 242, 0.25);
+
+  --link-color: #0068d6;
+  --link-hover: #0e8a7b;
+  --link-active: #004999;
+
+  --error-color: #e45649;
+  --error-light: #c7243a;
+  --error-text: #c7243a;
+  --error-bg: rgba(199, 36, 58, 0.1);
+  --error-border: rgba(199, 36, 58, 0.3);
+
+  --cursor-bg: #383a42;
+  --cursor-text: #fafafa;
+  --cursor-copy-bg: #4078f2;
+  --cursor-inactive: #8e8e93;
+
+  --tmux-status-bg: #00853e;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+}

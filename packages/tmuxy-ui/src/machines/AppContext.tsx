@@ -69,6 +69,9 @@ export {
   selectKeyBindings,
   selectCommandMode,
   selectStatusMessage,
+  selectThemeName,
+  selectThemeMode,
+  selectAvailableThemes,
 } from './selectors';
 
 // ============================================
