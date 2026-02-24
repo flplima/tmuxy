@@ -23,14 +23,14 @@ export const PANE_BORDER = 1;
 // Vertical inset: 0 since header = char height
 export const PANE_INSET_Y = 0;
 
-// Horizontal inset: 0 for mosaic layout (no spacing between panes)
-export function paneInsetX(_charWidth: number): number {
-  return 0;
+// Horizontal inset: half charWidth to cover tmux divider column gap
+export function paneInsetX(charWidth: number): number {
+  return Math.round(charWidth / 2);
 }
 
-// Horizontal padding inside .pane-content: 0 for mosaic layout
-export function paneContentPaddingH(_charWidth: number): number {
-  return 0;
+// Horizontal padding inside .pane-content to align terminal chars
+export function paneContentPaddingH(charWidth: number): number {
+  return Math.round(charWidth / 2) - PANE_BORDER;
 }
 
 // Status bars

@@ -92,15 +92,15 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, [isDragging, isResizing, send]);
 
-  // Mosaic layout: no horizontal padding between panes
-  const hPadding = 0;
+  // Horizontal padding: half a charWidth on each side to cover tmux divider column gap
+  const hPadding = Math.round(charWidth / 2);
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
       const headerY = Math.max(0, pane.y - 1);
       return {
         position: 'absolute',
-        left: Math.round(centeringOffset.x + pane.x * charWidth),
+        left: Math.round(centeringOffset.x + pane.x * charWidth) - hPadding,
         top: centeringOffset.y + headerY * charHeight,
         width: Math.ceil(pane.width * charWidth) + hPadding * 2,
         height: (pane.height + 1) * charHeight,
@@ -177,7 +177,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
           className="pane-drag-ghost"
           style={{
             position: 'absolute',
-            left: centeringOffset.x + dropTarget.x * charWidth,
+            left: centeringOffset.x + dropTarget.x * charWidth - hPadding,
             top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
             width: dropTarget.width * charWidth + hPadding * 2,
             height: (dropTarget.height + 1) * charHeight,
