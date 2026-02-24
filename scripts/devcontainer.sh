@@ -76,11 +76,13 @@ MOUNTS=(
 [ -d "$HOME/.config/gh" ]   && MOUNTS+=(-v "$HOME/.config/gh:/home/node/.config/gh:ro")
 
 # Git worktree support: .git is a file pointing to the host's gitdir which
-# doesn't exist in the container. Mount the main .git dir and shadow the
-# .git file with a container-correct path.
+# doesn't exist in the container. Parse the .git file directly to extract
+# paths (avoids depending on git rev-parse which fails if metadata is broken).
 if [ -f "$(pwd)/.git" ]; then
-    MAIN_GIT_DIR="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
-    WORKTREE_NAME="$(basename "$(git rev-parse --git-dir)")"
+    HOST_GITDIR="$(sed 's/^gitdir: //' "$(pwd)/.git")"
+    WORKTREE_NAME="$(basename "$HOST_GITDIR")"
+    # Walk up from .git/worktrees/<name> to .git
+    MAIN_GIT_DIR="$(cd "$HOST_GITDIR/../.." && pwd)"
     DOTGIT_TMP=$(mktemp)
     echo "gitdir: /git-main/worktrees/$WORKTREE_NAME" > "$DOTGIT_TMP"
     MOUNTS+=(
