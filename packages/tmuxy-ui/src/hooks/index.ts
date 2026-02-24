@@ -3,7 +3,6 @@
  */
 
 export { usePaneMouse } from './usePaneMouse';
-export { usePaneTouch } from './usePaneTouch';
 export { useClickOutside } from './useClickOutside';
 export { useAnimatedPane } from './useAnimatedPane';
 export { usePrevious } from './usePrevious';

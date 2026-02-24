@@ -961,7 +961,9 @@ impl StateAggregator {
             window.layout = layout.to_string();
         }
 
-        // Parse layout to update pane positions and return panes that were resized
+        // Parse layout to update pane positions and collect resized pane IDs
+
+        // Return panes that were resized (they need content refresh)
         self.parse_layout(window_id, layout)
     }
 
