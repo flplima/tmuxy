@@ -34,6 +34,9 @@ jobs:
       - name: Unit tests
         run: npm test -- --run
 
+      - name: Build frontend
+        run: npm run build -w @tmuxy/ui
+
       - name: Cargo fmt
         run: cargo fmt -p tmuxy-core -p tmuxy-cli -- --check
 
