@@ -27,7 +27,7 @@ interface PaneContextMenuProps {
 function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
   const label = getKeybindingLabel(keybindings, command);
   if (!label) return null;
-  return <span className="menu-keybinding">{label}</span>;
+  return <span className="tmuxy-menu-keybinding">{label}</span>;
 }
 
 export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps) {
@@ -91,7 +91,7 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
         Add Pane to Group
       </MenuItem>
       <MenuDivider />
-      <MenuItem onClick={() => handleAction('pane-copy-mode')}>
+      <MenuItem onClick={() => handleAction('tmuxy-pane-copy-mode')}>
         Copy Mode
         <KeyLabel keybindings={keybindings} command="copy-mode" />
       </MenuItem>

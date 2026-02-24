@@ -1,5 +1,3 @@
-pub mod sse;
-
 use axum::{
     body::Body,
     extract::Query,
@@ -14,6 +12,8 @@ use tmuxy_core::control_mode::MonitorCommandSender;
 use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
+
+use crate::sse;
 
 /// Tracks connections and shared resources for a single tmux session
 pub struct SessionConnections {
@@ -31,8 +31,8 @@ pub struct SessionConnections {
     pub monitor_handle: Option<JoinHandle<()>>,
 }
 
-impl Default for SessionConnections {
-    fn default() -> Self {
+impl SessionConnections {
+    pub fn new() -> Self {
         let (state_tx, _) = broadcast::channel(100);
         Self {
             connections: Vec::new(),
@@ -45,12 +45,6 @@ impl Default for SessionConnections {
     }
 }
 
-impl SessionConnections {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 pub struct AppState {
     /// Per-session connection tracking
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
@@ -60,19 +54,13 @@ pub struct AppState {
     pub sse_tokens: RwLock<HashMap<String, (u64, String)>>,
 }
 
-impl Default for AppState {
-    fn default() -> Self {
+impl AppState {
+    pub fn new() -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
             next_conn_id: AtomicU64::new(1),
             sse_tokens: RwLock::new(HashMap::new()),
         }
-    }
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        Self::default()
     }
 }
 

@@ -27,13 +27,13 @@ tmuxy/
 │   │       ├── lib.rs               # Types & capture_state
 │   │       ├── session.rs           # Session management
 │   │       └── executor.rs          # tmux command execution
-│   ├── tauri-app/                   # Tauri desktop app
+│   ├── tmuxy-tauri-app/             # Tauri desktop app
 │   │   ├── tauri.conf.json
 │   │   └── src/
 │   │       ├── main.rs              # App entry
 │   │       ├── commands.rs          # IPC commands
 │   │       └── monitor.rs           # State monitoring
-│   └── web-server/                  # Web server
+│   └── tmuxy-cli/                   # CLI + web server
 │       └── src/
 │           ├── main.rs              # HTTP server + static files
 │           └── websocket.rs         # WebSocket handling

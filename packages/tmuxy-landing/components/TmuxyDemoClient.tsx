@@ -4,7 +4,7 @@ import { TmuxyProvider, TmuxyApp, FakeTmuxAdapter } from '@tmuxy/ui';
 import '@tmuxy/ui/styles.css';
 import { useMemo } from 'react';
 
-export default function TmuxyDemoInner() {
+export default function TmuxyDemoClient() {
   const adapter = useMemo(() => new FakeTmuxAdapter(), []);
 
   return (

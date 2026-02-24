@@ -10,7 +10,7 @@ ENV TZ="$TZ"
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools
-    less git procps sudo fzf zsh man-db unzip gnupg2 openssh-server \
+    less git procps sudo fzf zsh man-db unzip gnupg2 \
     nano vim neovim jq yq bc \
     # Build tools (tmux, native modules)
     build-essential pkg-config libssl-dev ca-certificates \
@@ -23,12 +23,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 libfreetype6 libfontconfig1 libdbus-1-3 libnss3 \
     libnspr4 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libatspi2.0-0 \
     libcups2 libxshmfence1 libgbm1 \
-    && mkdir /run/sshd \
-    && ssh-keygen -A \
-    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config \
-    && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
-    && echo "node ALL=(root) NOPASSWD: /usr/sbin/sshd" > /etc/sudoers.d/sshd \
-    && chmod 440 /etc/sudoers.d/sshd \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI
@@ -51,7 +45,6 @@ ENV CARGO_HOME=/usr/local/cargo
 ENV PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal \
-    && rustup component add rustfmt clippy \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
     && chown -R node:node /usr/local/cargo /usr/local/rustup
 
@@ -88,9 +81,16 @@ ENV SHELL=/bin/zsh
 ENV EDITOR=nano
 ENV VISUAL=nano
 
-# zsh with Pure prompt
-RUN git clone https://github.com/sindresorhus/pure.git /home/node/.zsh/pure
-COPY --chown=node:node docker/.zshrc /home/node/.zshrc
+# zsh with productivity plugins
+ARG ZSH_IN_DOCKER_VERSION=1.2.0
+RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v${ZSH_IN_DOCKER_VERSION}/zsh-in-docker.sh)" -- \
+    -p git -p fzf \
+    -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
+    -a "source /usr/share/doc/fzf/examples/completion.zsh" \
+    -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
+    -a "export PATH=/usr/local/cargo/bin:\$PATH" \
+    -a "[[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh" \
+    -x
 
 # Add local bin, cargo, and npm global bin to profile (login shells, including non-interactive)
 RUN echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/node/.profile

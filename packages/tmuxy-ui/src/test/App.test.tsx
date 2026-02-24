@@ -37,12 +37,12 @@ vi.mock('../utils/debug', () => ({
 
 // Import the mocked module to access mock functions
 import * as AppContext from '../machines/AppContext';
-import App from '../App';
+import TmuxyApp from '../App';
 
 const mockUseAppSelector = AppContext.useAppSelector as ReturnType<typeof vi.fn>;
 const mockUseAppState = AppContext.useAppState as ReturnType<typeof vi.fn>;
 
-describe('App', () => {
+describe('TmuxyApp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -57,7 +57,7 @@ describe('App', () => {
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
 
-    render(<App />);
+    render(<TmuxyApp />);
 
     expect(screen.getByTestId('loading-display')).toBeInTheDocument();
     expect(screen.getByText('Connecting to tmux...')).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe('App', () => {
     });
     mockUseAppState.mockReturnValue(false); // isConnecting = false
 
-    render(<App />);
+    render(<TmuxyApp />);
 
     // Still shows loading because panes.length === 0
     expect(screen.getByTestId('loading-display')).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe('App', () => {
     });
     mockUseAppState.mockReturnValue(false); // isConnecting = false
 
-    render(<App />);
+    render(<TmuxyApp />);
 
     // Shows loading because container width is 0
     expect(screen.getByTestId('loading-display')).toBeInTheDocument();
@@ -105,7 +105,7 @@ describe('App', () => {
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
 
-    render(<App />);
+    render(<TmuxyApp />);
 
     expect(screen.getByTestId('error-display')).toBeInTheDocument();
     expect(screen.getByText('Connection failed')).toBeInTheDocument();
@@ -121,7 +121,7 @@ describe('App', () => {
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
 
-    render(<App />);
+    render(<TmuxyApp />);
 
     expect(screen.getByTestId('status-bar')).toBeInTheDocument();
     expect(screen.getByTestId('tmux-status-bar')).toBeInTheDocument();
