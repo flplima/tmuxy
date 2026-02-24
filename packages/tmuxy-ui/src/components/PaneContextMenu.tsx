@@ -84,7 +84,11 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
       </MenuItem>
       <MenuItem
         onClick={() => {
-          send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
+          send({
+            type: 'SEND_TMUX_COMMAND',
+            command:
+              'run-shell "/workspace/scripts/tmuxy/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"',
+          });
           onClose();
         }}
       >
