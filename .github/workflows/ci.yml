@@ -7,8 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  lint-and-test:
-    name: lint and test
+  ci:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,29 +15,84 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Install dependencies
-        run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Prettier
-        run: npm run format -w @tmuxy/ui -- --check
+      # Build tmux 3.5a from source (Ubuntu apt has 3.4; control mode differs)
+      - name: Install tmux 3.5a
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-dev libncurses-dev bison
+          curl -sL https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz | tar xz
+          cd tmux-3.5a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.5a
+          tmux -V
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      # --- Formatting ---
+
+      - name: Prettier check
+        run: npx prettier --check src
+        working-directory: packages/tmuxy-ui
+
+      - name: Rust format check
+        run: cargo fmt --check -p tmuxy-core -p web-server
+
+      # --- Linting ---
 
       - name: ESLint
-        run: npm run lint -w @tmuxy/ui
+        run: npm run lint -w tmuxy-ui
 
-      - name: Unit tests
+      - name: Clippy
+        run: cargo clippy -p tmuxy-core -p web-server -- -D warnings
+
+      # --- Type Check ---
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+        working-directory: packages/tmuxy-ui
+
+      # --- Unit Tests ---
+
+      - name: Vitest
         run: npm test -- --run
 
+      # --- Build ---
+
+      - name: Build server
+        run: cargo build -p web-server
+
       - name: Build frontend
-        run: npm run build -w @tmuxy/ui
+        run: VITE_E2E=true npm run build -w tmuxy-ui
 
-      - name: Cargo fmt
-        run: cargo fmt -p tmuxy-core -p tmuxy-cli -- --check
+      - name: Copy dist to CWD
+        run: cp -r packages/tmuxy-ui/dist ./dist
 
-      - name: Cargo clippy
-        run: cargo clippy -p tmuxy-core -p tmuxy-cli -- -D warnings
+      # --- E2E Tests ---
+
+      - name: Start server
+        run: PORT=9000 ./target/debug/tmuxy-web &
+
+      - name: Wait for server
+        run: timeout 30 bash -c 'until curl -s http://localhost:9000 >/dev/null; do sleep 1; done'
+
+      - name: E2E tests
+        run: npx jest --config tests/jest.config.js --forceExit

@@ -11,8 +11,8 @@ tmuxy/
 ├── packages/
 │   ├── tmuxy-core/      # Core Rust library for tmux interaction
 │   ├── tmuxy-ui/        # React/Vite frontend
-│   ├── tmuxy-cli/       # CLI + Axum web server
-│   └── tmuxy-tauri-app/ # Tauri desktop app wrapper
+│   ├── web-server/      # Axum web server with Vite integration
+│   └── tauri-app/       # Tauri desktop app wrapper
 ├── tests/               # E2E tests (Jest + Puppeteer)
 │   ├── helpers/         # One file per helper function
 │   └── *.test.js        # Test suites grouped by operation
@@ -30,21 +30,6 @@ You may be running inside a Docker devcontainer. Check for the `CONTAINER_NAME` 
 | `PORT` | Internal server port (`9000`) |
 
 The dev server listens on `PORT` inside the container, mapped to `HOST_PORT` on the host. The app is accessible from the host at `http://localhost:$HOST_PORT`.
-
-### agent-browser inside the container
-
-Chrome runs on the **host**, not inside the container. The container reaches it via `host.docker.internal:9222` (`--add-host=host.docker.internal:host-gateway`). The `CHROME_CDP_URL` env var is pre-configured.
-
-```bash
-# Connect using the pre-configured CDP URL
-agent-browser connect "$CHROME_CDP_URL"
-
-# Then use as normal
-agent-browser open "http://localhost:$HOST_PORT"
-agent-browser snapshot -i
-```
-
-Note: URLs passed to `agent-browser open` are resolved by Chrome on the **host**, so use `localhost:$HOST_PORT` (not `localhost:$PORT`).
 
 ## Development
 
@@ -171,127 +156,31 @@ expect(ctx.session.getPaneCount()).toBe(2);
 
 Test files are grouped by operation: `pane-split.test.js`, `pane-navigate.test.js`, etc.
 
-## Browser Testing
+## Git
 
-**ALWAYS use `agent-browser` with CDP on port 9222 for manual browser testing.**
+### Commit Messages
 
-```bash
-# First, connect to existing Chrome instance (sets default CDP target)
-agent-browser connect 9222
+Use [gitmoji](https://gitmoji.dev/) standards for commit messages. The first line should be a short summary with a gitmoji prefix. If the commit is related to an issue, add the issue number at the end of the first line.
 
-# Now all commands work without --cdp flag
-agent-browser open http://localhost:3853
-agent-browser snapshot -i
-agent-browser click @e1
+```
+🐛 Fix pane resize crash on split (#1234)
+
+Additional details about the change go here.
+Multi-line descriptions are welcome for context.
 ```
 
-**IMPORTANT:**
-- **Prefer snapshots over screenshots** - Screenshots consume many tokens. Use `snapshot -i` to get interactive element refs.
-- **Always compress screenshots** - When screenshots are needed, pipe through `compress-image.js` to reduce tokens:
-  ```bash
-  agent-browser screenshot 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -oP '/[^\s]+\.png' | xargs node /workspace/scripts/compress-image.js
-  ```
-  Then read the `.compressed.jpg` file from the output. This resizes to 800px wide and compresses to JPEG quality 70.
-- If agent-browser fails or errors occur, report the error to the user. DO NOT use Playwright scripts, Puppeteer, or any other alternative to test the browser manually. The user will handle browser testing issues.
+Common gitmojis:
 
-## Debugging with agent-browser
-
-In dev mode, the following globals are available:
-
-| Global | Purpose |
-|--------|---------|
-| `window.app` | XState actor - `send()`, `getSnapshot()`, `subscribe()` |
-| `window.getSnapshot()` | Build UI snapshot (pane content rendered to text grid) |
-| `window.getTmuxSnapshot()` | Fetch tmux snapshot from server API |
-
-Use `agent-browser eval` to inject debugging scripts.
-
-### Subscribing to Machine Events
-
-Store machine events in a global array for later analysis:
-
-```bash
-# Subscribe to all machine events
-agent-browser eval "
-  window.machineEvents = [];
-  window.app.subscribe((snapshot) => {
-    window.machineEvents.push({
-      ts: Date.now(),
-      state: snapshot.value,
-      context: { activePaneId: snapshot.context.activePaneId }
-    });
-    if (window.machineEvents.length > 200) window.machineEvents.shift();
-  });
-"
-
-# Later, fetch the captured events
-agent-browser eval "JSON.stringify(window.machineEvents.slice(-20), null, 2)"
-```
-
-### Tracking DOM Changes with MutationObserver
-
-Inject a MutationObserver to track class changes (useful for debugging CSS state issues):
-
-```bash
-# Track class changes on pane headers
-agent-browser eval "
-  window.domChanges = [];
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((m) => {
-      if (m.attributeName === 'class') {
-        window.domChanges.push({
-          ts: Date.now(),
-          target: m.target.className,
-          element: m.target.tagName
-        });
-      }
-    });
-  });
-  observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
-"
-
-# Fetch DOM changes
-agent-browser eval "JSON.stringify(window.domChanges.slice(-30), null, 2)"
-```
-
-### Polling State at High Frequency
-
-For timing-sensitive bugs, poll state at short intervals:
-
-```bash
-# Poll pane header state every 5ms
-agent-browser eval "
-  window.headerStates = [];
-  const poll = setInterval(() => {
-    const headers = document.querySelectorAll('.pane-header');
-    window.headerStates.push({
-      ts: Date.now(),
-      headers: Array.from(headers).map(h => ({
-        classes: h.className,
-        text: h.textContent.slice(0, 30)
-      }))
-    });
-    if (window.headerStates.length > 500) clearInterval(poll);
-  }, 5);
-"
-
-# Stop polling and fetch results
-agent-browser eval "JSON.stringify(window.headerStates, null, 2)"
-```
-
-### Direct Machine State Access
-
-```bash
-# Get current machine state
-agent-browser eval "window.app.getSnapshot().value"
-
-# Get specific context values
-agent-browser eval "JSON.stringify(window.app.getSnapshot().context.groups)"
-
-# Send events to machine
-agent-browser eval "window.app.send({ type: 'FOCUS_PANE', paneId: '%0' })"
-```
-
-### IndexedDB Event Log
-
-Events are also stored in IndexedDB (`tmuxy-events` database) for persistence across page reloads. Access via DevTools > Application > IndexedDB.
+| Emoji | Code | Description |
+|-------|------|-------------|
+| ✨ | `:sparkles:` | New feature |
+| 🐛 | `:bug:` | Bug fix |
+| ♻️ | `:recycle:` | Refactor |
+| 🎨 | `:art:` | Improve structure/format |
+| ⚡ | `:zap:` | Performance improvement |
+| 🔥 | `:fire:` | Remove code or files |
+| 🩹 | `:adhesive_bandage:` | Simple fix for a non-critical issue |
+| ✅ | `:white_check_mark:` | Add or update tests |
+| 📝 | `:memo:` | Documentation |
+| 🔧 | `:wrench:` | Configuration files |
+| 🏗️ | `:building_construction:` | Architectural changes |

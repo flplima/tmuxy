@@ -40,7 +40,7 @@ describe('Category 6: Floating Panes', () => {
    * Wait for a float modal to appear in the DOM.
    */
   async function waitForFloatModal(page, timeout = 10000) {
-    await page.waitForSelector('.tmuxy-float-modal', { timeout });
+    await page.waitForSelector('.float-modal', { timeout });
   }
 
   /**
@@ -48,11 +48,11 @@ describe('Category 6: Floating Panes', () => {
    */
   async function getFloatModalInfo(page) {
     return await page.evaluate(() => {
-      const modals = document.querySelectorAll('.tmuxy-float-modal');
+      const modals = document.querySelectorAll('.float-modal');
       return Array.from(modals).map((modal) => ({
-        hasHeader: modal.querySelector('.tmuxy-float-header') !== null,
-        hasCloseButton: modal.querySelector('.tmuxy-float-close') !== null,
-        hasTerminal: modal.querySelector('.tmuxy-terminal') !== null,
+        hasHeader: modal.querySelector('.float-header') !== null,
+        hasCloseButton: modal.querySelector('.float-close') !== null,
+        hasTerminal: modal.querySelector('.terminal-container') !== null,
       }));
     });
   }
@@ -87,7 +87,7 @@ describe('Category 6: Floating Panes', () => {
       await waitForFloatModal(ctx.page);
 
       // Verify modal is in the DOM
-      const backdrop = await ctx.page.$('.tmuxy-float-backdrop');
+      const backdrop = await ctx.page.$('.float-backdrop');
       expect(backdrop).not.toBeNull();
     });
   });
@@ -143,11 +143,11 @@ describe('Category 6: Floating Panes', () => {
       await waitForFloatModal(ctx.page);
 
       // Click close button
-      await ctx.page.click('.tmuxy-float-close');
+      await ctx.page.click('.float-close');
       await delay(DELAYS.SYNC);
 
       // Float modal should be gone
-      const modals = await ctx.page.$$('.tmuxy-float-modal');
+      const modals = await ctx.page.$$('.float-modal');
       expect(modals.length).toBe(0);
 
       // Float window should be killed in tmux
@@ -169,13 +169,13 @@ describe('Category 6: Floating Panes', () => {
 
       // Click on backdrop corner (outside the centered modal)
       // The modal is centered, so clicking at position (10, 10) should hit the backdrop
-      const backdrop = await ctx.page.$('.tmuxy-float-backdrop');
+      const backdrop = await ctx.page.$('.float-backdrop');
       const box = await backdrop.boundingBox();
       await ctx.page.mouse.click(box.x + 10, box.y + 10);
       await delay(DELAYS.SYNC);
 
       // Float modal should be gone
-      const modals = await ctx.page.$$('.tmuxy-float-modal');
+      const modals = await ctx.page.$$('.float-modal');
       expect(modals.length).toBe(0);
 
       // Float window should be killed in tmux
@@ -212,7 +212,7 @@ describe('Category 6: Floating Panes', () => {
       // Wait for float modal to disappear
       try {
         await ctx.page.waitForFunction(
-          () => document.querySelectorAll('.tmuxy-float-modal').length === 0,
+          () => document.querySelectorAll('.float-modal').length === 0,
           { timeout: 5000 }
         );
       } catch {
@@ -220,7 +220,7 @@ describe('Category 6: Floating Panes', () => {
       }
 
       // Float modal should be gone
-      const modals = await ctx.page.$$('.tmuxy-float-modal');
+      const modals = await ctx.page.$$('.float-modal');
       expect(modals.length).toBe(0);
     });
 
@@ -250,7 +250,7 @@ describe('Category 6: Floating Panes', () => {
       // Wait for second modal to appear
       try {
         await ctx.page.waitForFunction(
-          () => document.querySelectorAll('.tmuxy-float-modal').length >= 2,
+          () => document.querySelectorAll('.float-modal').length >= 2,
           { timeout: 10000 }
         );
       } catch {
@@ -258,7 +258,7 @@ describe('Category 6: Floating Panes', () => {
       }
 
       // Should have 2 float modals
-      const modals = await ctx.page.$$('.tmuxy-float-modal');
+      const modals = await ctx.page.$$('.float-modal');
       expect(modals.length).toBe(2);
 
       // And 2 float windows in tmux

@@ -1,0 +1,51 @@
+.terminal-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #1e1e1e;
+  user-select: none;
+}
+
+.terminal-content {
+  margin: 0;
+  padding: 4px;
+  font-family: 'FiraCode Nerd Font', 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-variant-ligatures: contextual;
+  font-feature-settings: 'calt' 1;
+  font-size: 14px;
+  line-height: var(--line-height-terminal, 21px);
+  color: #d4d4d4;
+  white-space: pre;
+  overflow: hidden;
+  user-select: none;
+}
+
+.terminal-line {
+  height: var(--line-height-terminal, 21px);
+  min-height: var(--line-height-terminal, 21px);
+}
+
+.terminal-cursor {
+  background-color: #ffffff;
+  color: #1e1e1e;
+}
+
+.terminal-copy-cursor {
+  background-color: #f5c518;
+  color: #1e1e1e;
+}
+
+.terminal-selection {
+  background-color: #264f78;
+}
+
+@keyframes terminal-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}

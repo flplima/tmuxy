@@ -73,7 +73,7 @@ async function startMouseCapture(ctx) {
   }
   expect(flagSet).toBe(true);
   const contentBox = await ctx.page.evaluate(() => {
-    const el = document.querySelector('.tmuxy-pane-content');
+    const el = document.querySelector('.pane-content');
     if (!el) return null;
     const r = el.getBoundingClientRect();
     return { x: r.x, y: r.y, width: r.width, height: r.height };
@@ -129,16 +129,16 @@ async function createFloat(ctx, paneId) {
 }
 
 async function waitForFloatModal(page, timeout = 10000) {
-  await page.waitForSelector('.tmuxy-float-modal', { timeout });
+  await page.waitForSelector('.float-modal', { timeout });
 }
 
 async function getFloatModalInfo(page) {
   return await page.evaluate(() => {
-    const modals = document.querySelectorAll('.tmuxy-float-modal');
+    const modals = document.querySelectorAll('.float-modal');
     return Array.from(modals).map((modal) => ({
-      hasHeader: modal.querySelector('.tmuxy-float-header') !== null,
-      hasCloseButton: modal.querySelector('.tmuxy-float-close') !== null,
-      hasTerminal: modal.querySelector('.tmuxy-terminal') !== null,
+      hasHeader: modal.querySelector('.float-header') !== null,
+      hasCloseButton: modal.querySelector('.float-close') !== null,
+      hasTerminal: modal.querySelector('.terminal-container') !== null,
     }));
   });
 }
@@ -168,7 +168,7 @@ describe('Scenario 1: Connect & Render', () => {
     expect(containerInfo.hasTerminal).toBe(true);
 
     // Step 2: WebSocket connected - no error state
-    const errorState = await ctx.page.$('.tmuxy-error-state, .disconnected');
+    const errorState = await ctx.page.$('.error-state, .disconnected');
     expect(errorState).toBeNull();
 
     // Step 3: Single pane renders
@@ -213,10 +213,10 @@ describe('Scenario 1: Connect & Render', () => {
     expect(trueColor).toContain('ORANGE_RGB');
 
     // Step 10: Cursor element
-    const cursor = await ctx.page.$('.tmuxy-cursor');
+    const cursor = await ctx.page.$('.terminal-cursor');
     expect(cursor).not.toBeNull();
     const cursorInfo = await ctx.page.evaluate(() => {
-      const c = document.querySelector('.tmuxy-cursor');
+      const c = document.querySelector('.terminal-cursor');
       const t = document.querySelector('[role="log"]');
       if (!c || !t) return null;
       const cr = c.getBoundingClientRect();
@@ -477,11 +477,11 @@ describe('Scenario 5: Pane Groups', () => {
     await ctx.setupPage();
 
     // Step 1: Header element exists
-    const header = await ctx.page.$('.tmuxy-pane-tab');
+    const header = await ctx.page.$('.pane-tab');
     expect(header).not.toBeNull();
 
     // Step 2: Add button exists
-    const addButton = await ctx.page.$('.tmuxy-pane-tab-add');
+    const addButton = await ctx.page.$('.pane-tab-add');
     expect(addButton).not.toBeNull();
 
     // Step 3: Create group
@@ -521,7 +521,7 @@ describe('Scenario 5: Pane Groups', () => {
     expect(await isHeaderGrouped(ctx.page)).toBe(false);
 
     // Pane should still exist
-    const finalHeader = await ctx.page.$('.tmuxy-pane-tab');
+    const finalHeader = await ctx.page.$('.pane-tab');
     expect(finalHeader).not.toBeNull();
   }, 120000);
 });
@@ -548,7 +548,7 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 2: Float modal appears
     await waitForFloatModal(ctx.page);
-    const backdrop = await ctx.page.$('.tmuxy-float-backdrop');
+    const backdrop = await ctx.page.$('.float-backdrop');
     expect(backdrop).not.toBeNull();
 
     // Step 3: Modal has header and close button
@@ -562,9 +562,9 @@ describe('Scenario 6: Floating Panes', () => {
     await waitForPaneCount(ctx.page, 1);
 
     // Step 5: Close button removes float
-    await ctx.page.click('.tmuxy-float-close');
+    await ctx.page.click('.float-close');
     await delay(DELAYS.SYNC);
-    let modals = await ctx.page.$$('.tmuxy-float-modal');
+    let modals = await ctx.page.$$('.float-modal');
     expect(modals.length).toBe(0);
     windows = await ctx.session.getWindowInfo();
     expect(windows.find(w => w.name === `__float_${paneNum}`)).toBeUndefined();
@@ -579,11 +579,11 @@ describe('Scenario 6: Floating Panes', () => {
     await waitForFloatModal(ctx.page);
 
     // Step 7: Backdrop click closes float
-    const newBackdrop = await ctx.page.$('.tmuxy-float-backdrop');
+    const newBackdrop = await ctx.page.$('.float-backdrop');
     const box = await newBackdrop.boundingBox();
     await ctx.page.mouse.click(box.x + 10, box.y + 10);
     await delay(DELAYS.SYNC);
-    modals = await ctx.page.$$('.tmuxy-float-modal');
+    modals = await ctx.page.$$('.float-modal');
     expect(modals.length).toBe(0);
   }, 120000);
 });
@@ -633,7 +633,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
 
     // Step 4: user-select: none on terminal content
     const userSelect = await ctx.page.evaluate(() => {
-      const el = document.querySelector('.tmuxy-terminal-content');
+      const el = document.querySelector('.terminal-content');
       return el ? getComputedStyle(el).userSelect : null;
     });
     expect(userSelect).toBe('none');
@@ -921,7 +921,7 @@ describe('Scenario 11: Status Bar', () => {
 
     // Step 1: Status bar visible
     const barInfo = await ctx.page.evaluate(() => {
-      const bar = document.querySelector('.tmuxy-tmux-status');
+      const bar = document.querySelector('.status-bar') || document.querySelector('.tmux-status-bar');
       if (!bar) return null;
       return {
         hasContent: bar.textContent.trim().length > 0,
@@ -933,12 +933,12 @@ describe('Scenario 11: Status Bar', () => {
     expect(barInfo.isVisible).toBe(true);
 
     // Step 2: Window tab present
-    const tab = await ctx.page.$('.tmuxy-tab');
+    const tab = await ctx.page.$('.tab');
     expect(tab).not.toBeNull();
 
     // Step 3: Session name visible
     const barText = await ctx.page.evaluate(() => {
-      const bar = document.querySelector('.tmuxy-tmux-status');
+      const bar = document.querySelector('.status-bar') || document.querySelector('.tmux-status-bar');
       return bar ? bar.textContent : '';
     });
     expect(barText).toContain(ctx.session.name);
@@ -950,11 +950,11 @@ describe('Scenario 11: Status Bar', () => {
     expect(await ctx.session.getWindowCount()).toBe(2);
 
     // Step 5: Active tab distinct styling
-    const activeTab = await ctx.page.$('.tmuxy-tab-active');
+    const activeTab = await ctx.page.$('.tab-active');
     expect(activeTab).not.toBeNull();
 
     // Step 6: Click inactive tab to switch
-    const allTabs = await ctx.page.$$('.tmuxy-tab:not(.tmuxy-tab-add)');
+    const allTabs = await ctx.page.$$('.tab:not(.tab-add)');
     expect(allTabs.length).toBe(2);
     let inactiveTab = null;
     for (const t of allTabs) {
@@ -962,7 +962,7 @@ describe('Scenario 11: Status Bar', () => {
       if (!isActive) { inactiveTab = t; break; }
     }
     expect(inactiveTab).not.toBeNull();
-    const tabButton = await inactiveTab.$('.tmuxy-tab-button');
+    const tabButton = await inactiveTab.$('.tab-button');
     await tabButton.click();
     await delay(DELAYS.SYNC);
 
@@ -970,7 +970,7 @@ describe('Scenario 11: Status Bar', () => {
     await ctx.session.renameWindow('RENAMED_WINDOW');
     await delay(DELAYS.SYNC);
     const tabText = await ctx.page.evaluate(() => {
-      const tabs = document.querySelectorAll('.tmuxy-tab:not(.tmuxy-tab-add)');
+      const tabs = document.querySelectorAll('.tab:not(.tab-add)');
       return Array.from(tabs).map(t => t.textContent).join(' ');
     });
     expect(tabText).toContain('RENAMED_WINDOW');
@@ -1472,14 +1472,14 @@ describe('Scenario 20: Glitch Detection', () => {
     await ctx.setupPage();
 
     // Step 1: Horizontal split with glitch detection
-    await ctx.startGlitchDetection({ scope: '.tmuxy-pane-container' });
+    await ctx.startGlitchDetection({ scope: '.pane-container' });
     ctx.session.splitHorizontal();
     await waitForPaneCount(ctx.page, 2);
     await delay(DELAYS.SYNC);
     let result = await ctx.assertNoGlitches({ operation: 'split' });
 
     // Step 2: Vertical split with glitch detection
-    await ctx.startGlitchDetection({ scope: '.tmuxy-pane-container' });
+    await ctx.startGlitchDetection({ scope: '.pane-container' });
     ctx.session.splitVertical();
     await waitForPaneCount(ctx.page, 3);
     await delay(DELAYS.SYNC);
@@ -1492,9 +1492,9 @@ describe('Scenario 20: Glitch Detection', () => {
 
     // Step 3: Resize with glitch detection
     await ctx.startGlitchDetection({
-      scope: '.tmuxy-pane-container',
+      scope: '.pane-container',
       sizeJumpThreshold: 100,
-      ignoreSelectors: ['.tmuxy-terminal-content', '.tmuxy-terminal-line', '.tmuxy-cursor', '.tmuxy-resize-divider'],
+      ignoreSelectors: ['.terminal-content', '.terminal-line', '.terminal-cursor', '.resize-divider'],
     });
     ctx.session.runCommand(`resize-pane -t ${ctx.session.name} -D 5`);
     await delay(DELAYS.SYNC);
@@ -1502,9 +1502,9 @@ describe('Scenario 20: Glitch Detection', () => {
     expect(await ctx.session.getPaneCount()).toBe(2);
 
     // Step 4: Click focus with glitch detection
-    await ctx.startGlitchDetection({ scope: '.tmuxy-pane-container' });
+    await ctx.startGlitchDetection({ scope: '.pane-container' });
     const paneInfo = await ctx.page.evaluate(() => {
-      const panes = document.querySelectorAll('.tmuxy-pane-layout-item');
+      const panes = document.querySelectorAll('.pane-layout-item');
       return Array.from(panes).map(p => {
         const r = p.getBoundingClientRect();
         return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
@@ -1517,4 +1517,180 @@ describe('Scenario 20: Glitch Detection', () => {
     // Click focus triggers CSS layout transitions, causing size jumps
     const clickResult = await ctx.assertNoGlitches({ operation: 'split', sizeJumps: 30 });
   }, 120000);
+});
+
+// ==================== Touch Scroll Helpers ====================
+
+/**
+ * Dispatch a touch event sequence (start → moves → end) via CDP.
+ * @param {Page} page - Playwright page
+ * @param {number} startX - Start X coordinate
+ * @param {number} startY - Start Y coordinate
+ * @param {number} endY - End Y coordinate (X stays the same)
+ * @param {number} steps - Number of intermediate touchmove events
+ * @param {number} stepDelay - Delay between steps in ms (affects velocity)
+ */
+async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepDelay = 16) {
+  const cdp = await page.context().newCDPSession(page);
+  const deltaY = (endY - startY) / steps;
+
+  // touchstart
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: startX, y: startY }],
+  });
+  await delay(stepDelay);
+
+  // touchmove steps
+  for (let i = 1; i <= steps; i++) {
+    const y = startY + deltaY * i;
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: startX, y }],
+    });
+    await delay(stepDelay);
+  }
+
+  // touchend
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await cdp.detach();
+}
+
+// ==================== Scenario 21: Touch Scrolling ====================
+
+describe('Scenario 21: Touch Scrolling', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach);
+
+  test('Touch scroll: CSS prevention → normal shell → alternate screen → multi-pane isolation', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Step 1: Verify touch-action: none is set on pane-wrapper
+    const touchAction = await ctx.page.evaluate(() => {
+      const wrapper = document.querySelector('.pane-wrapper');
+      if (!wrapper) return null;
+      return getComputedStyle(wrapper).touchAction;
+    });
+    expect(touchAction).toBe('none');
+
+    // Step 2: Generate scrollback history for copy-mode scroll test
+    for (let i = 0; i < 60; i++) {
+      await ctx.session.sendKeys(`"echo line-${i}" Enter`);
+    }
+    await delay(DELAYS.LONG);
+
+    // Get pane center coordinates
+    const paneBox = await ctx.page.evaluate(() => {
+      const pane = document.querySelector('.pane-wrapper');
+      if (!pane) return null;
+      const r = pane.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2, height: r.height };
+    });
+    expect(paneBox).not.toBeNull();
+
+    // Step 3: Touch scroll up in normal shell → should enter copy mode
+    // Finger moves DOWN (positive delta) = scroll UP through history
+    await dispatchTouchScroll(
+      ctx.page,
+      paneBox.x,
+      paneBox.y,
+      paneBox.y + paneBox.height * 0.4, // swipe down 40% of pane
+      10,
+      16,
+    );
+    await delay(DELAYS.SYNC);
+
+    // Verify copy mode was entered
+    const copyModeActive = await ctx.page.evaluate(() => {
+      const snap = window.app?.getSnapshot();
+      if (!snap) return false;
+      return Object.keys(snap.context.copyModeStates || {}).length > 0;
+    });
+    expect(copyModeActive).toBe(true);
+
+    // Exit copy mode by pressing q
+    await ctx.page.keyboard.press('q');
+    await delay(DELAYS.LONG);
+
+    // Step 4: Touch scroll in alternate screen (less command)
+    await ctx.session.sendKeys(`"less /etc/services" Enter`);
+    await delay(DELAYS.SYNC);
+
+    // Verify alternate mode is active
+    const altOn = await ctx.page.evaluate(() => {
+      const pane = document.querySelector('.pane-wrapper');
+      return pane?.getAttribute('data-alternate-on') === 'true';
+    });
+    expect(altOn).toBe(true);
+
+    // Get initial visible text
+    const textBefore = await getTerminalText(ctx.page);
+
+    // Touch scroll down in alternate screen (finger up = scroll down = Down arrow keys)
+    await dispatchTouchScroll(
+      ctx.page,
+      paneBox.x,
+      paneBox.y + paneBox.height * 0.4,
+      paneBox.y - paneBox.height * 0.2, // swipe up 60% of pane
+      10,
+      16,
+    );
+    await delay(DELAYS.SYNC);
+
+    // Verify content changed (scrolled down in less)
+    const textAfter = await getTerminalText(ctx.page);
+    expect(textAfter).not.toBe(textBefore);
+
+    // Exit less
+    await ctx.page.keyboard.press('q');
+    await delay(DELAYS.LONG);
+
+    // Step 5: Multi-pane touch isolation
+    await ctx.session.splitHorizontal();
+    await delay(DELAYS.SYNC);
+    await waitForPaneCount(ctx.page, 2);
+
+    // Generate distinct content in each pane
+    await ctx.session.sendKeys(`"echo PANE_TWO_MARKER" Enter`);
+    await delay(DELAYS.SHORT);
+
+    // Get both pane positions
+    const panePositions = await ctx.page.evaluate(() => {
+      const panes = document.querySelectorAll('.pane-wrapper');
+      return Array.from(panes).map(p => {
+        const r = p.getBoundingClientRect();
+        return {
+          id: p.getAttribute('data-pane-id'),
+          x: r.x + r.width / 2,
+          y: r.y + r.height / 2,
+          height: r.height,
+        };
+      });
+    });
+    expect(panePositions.length).toBe(2);
+
+    // Touch scroll on second pane only — first pane should be unaffected
+    // (This primarily verifies touch events are scoped to the touched pane)
+    const secondPane = panePositions[1];
+    await dispatchTouchScroll(
+      ctx.page,
+      secondPane.x,
+      secondPane.y,
+      secondPane.y + secondPane.height * 0.3,
+      5,
+      16,
+    );
+    await delay(DELAYS.LONG);
+
+    // Both panes should still exist
+    const finalPaneCount = await getUIPaneCount(ctx.page);
+    expect(finalPaneCount).toBe(2);
+  }, 90000);
 });

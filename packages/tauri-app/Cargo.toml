@@ -1,5 +1,5 @@
 [package]
-name = "tmuxy-tauri-app"
+name = "tauri-app"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

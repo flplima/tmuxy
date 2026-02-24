@@ -39,9 +39,5 @@ src-tauri/target
 .agents/settings.local.json
 .agents/CLAUDE.local.md
 
-# Next.js
-.next/
-out/
-
 # Test snapshots
 snapshots/

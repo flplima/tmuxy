@@ -246,7 +246,7 @@ async function getPaneText(page, paneId) {
   return await page.evaluate((id) => {
     const pane = document.querySelector(`[data-pane-id="${id}"]`);
     if (!pane) return null;
-    const terminal = pane.querySelector('.tmuxy-terminal-content, [role="log"]');
+    const terminal = pane.querySelector('.terminal-content, [role="log"]');
     return terminal ? terminal.textContent || '' : null;
   }, paneId);
 }
@@ -548,7 +548,7 @@ async function exitCopyModeKeyboard(page) {
  */
 async function scrollPaneUp(page, paneId) {
   await page.evaluate((id) => {
-    const pane = document.querySelector(`.tmuxy-pane-wrapper[data-pane-id="${id}"]`);
+    const pane = document.querySelector(`.pane-wrapper[data-pane-id="${id}"]`);
     if (pane) {
       pane.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true }));
     }
@@ -561,7 +561,7 @@ async function scrollPaneUp(page, paneId) {
  */
 async function scrollPaneDown(page, paneId) {
   await page.evaluate((id) => {
-    const pane = document.querySelector(`.tmuxy-pane-wrapper[data-pane-id="${id}"]`);
+    const pane = document.querySelector(`.pane-wrapper[data-pane-id="${id}"]`);
     if (pane) {
       pane.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, bubbles: true }));
     }
@@ -576,7 +576,7 @@ async function isPaneCopyModeVisible(page, paneId) {
   return await page.evaluate((id) => {
     const pane = document.querySelector(`[data-pane-id="${id}"]`);
     if (!pane) return false;
-    const header = pane.querySelector('.tmuxy-pane-tab, .pane-title');
+    const header = pane.querySelector('.pane-tab, .pane-title');
     return header && header.textContent.includes('[COPY MODE]');
   }, paneId);
 }
@@ -588,8 +588,8 @@ async function hasCopyModeStyling(page, paneId) {
   return await page.evaluate((id) => {
     const pane = document.querySelector(`[data-pane-id="${id}"]`);
     if (!pane) return false;
-    const header = pane.querySelector('.tmuxy-pane-tab');
-    return header && header.classList.contains('tmuxy-pane-tab-copy-mode');
+    const header = pane.querySelector('.pane-tab');
+    return header && header.classList.contains('pane-tab-copy-mode');
   }, paneId);
 }
 
@@ -598,7 +598,7 @@ async function hasCopyModeStyling(page, paneId) {
  */
 async function getFirstPaneId(page) {
   return await page.evaluate(() => {
-    const pane = document.querySelector('.tmuxy-pane-wrapper[data-pane-id]');
+    const pane = document.querySelector('.pane-wrapper[data-pane-id]');
     return pane ? pane.getAttribute('data-pane-id') : null;
   });
 }
@@ -610,7 +610,7 @@ async function getFirstPaneId(page) {
  */
 async function clickPaneGroupAdd(page) {
   // Use Playwright's native click for better React event handling
-  const button = await page.$('.tmuxy-pane-tab-add');
+  const button = await page.$('.pane-tab-add');
   if (!button) throw new Error('Pane group add button not found');
   await button.click();
   await delay(DELAYS.SYNC);
@@ -621,7 +621,7 @@ async function clickPaneGroupAdd(page) {
  */
 async function clickGroupTabAdd(page) {
   // Use Playwright's native click for better React event handling
-  const button = await page.$('.tmuxy-pane-tab-add');
+  const button = await page.$('.pane-tab-add');
   if (!button) throw new Error('Group tab add button not found');
   await button.click();
   await delay(DELAYS.SYNC);
@@ -633,10 +633,10 @@ async function clickGroupTabAdd(page) {
  */
 async function getGroupTabCount(page) {
   return await page.evaluate(() => {
-    // Find tmuxy-pane-tabs-rows that have more than 1 tab (grouped)
-    const tabRows = document.querySelectorAll('.tmuxy-pane-tabs');
+    // Find pane-tabs-rows that have more than 1 tab (grouped)
+    const tabRows = document.querySelectorAll('.pane-tabs');
     for (const row of tabRows) {
-      const tabs = row.querySelectorAll('.tmuxy-pane-tab');
+      const tabs = row.querySelectorAll('.pane-tab');
       if (tabs.length > 1) {
         return tabs.length; // Return the first grouped pane's tab count
       }
@@ -650,7 +650,7 @@ async function getGroupTabCount(page) {
  */
 async function clickGroupTab(page, index) {
   // Use Playwright's native click for better React event handling
-  const tabs = await page.$$('.tmuxy-pane-tabs .tmuxy-pane-tab');
+  const tabs = await page.$$('.pane-tabs .pane-tab');
   if (index >= tabs.length) throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
   await tabs[index].click();
   await delay(DELAYS.SYNC);
@@ -661,7 +661,7 @@ async function clickGroupTab(page, index) {
  */
 async function clickGroupTabClose(page, index) {
   // Use Playwright's native click for better React event handling
-  const closeButtons = await page.$$('.tmuxy-pane-tabs .tmuxy-pane-tab-close');
+  const closeButtons = await page.$$('.pane-tabs .pane-tab-close');
   if (index >= closeButtons.length) throw new Error(`Group tab close at index ${index} not found (${closeButtons.length} buttons)`);
   await closeButtons[index].click();
   await delay(DELAYS.SYNC);
@@ -676,9 +676,9 @@ async function waitForGroupTabs(page, expectedCount, timeout = 15000) {
   try {
     await page.waitForFunction(
       (count) => {
-        const tabRows = document.querySelectorAll('.tmuxy-pane-tabs');
+        const tabRows = document.querySelectorAll('.pane-tabs');
         for (const row of tabRows) {
-          const tabs = row.querySelectorAll('.tmuxy-pane-tab');
+          const tabs = row.querySelectorAll('.pane-tab');
           if (tabs.length === count) {
             return true;
           }
@@ -700,10 +700,10 @@ async function waitForGroupTabs(page, expectedCount, timeout = 15000) {
  */
 async function isHeaderGrouped(page) {
   return await page.evaluate(() => {
-    // Check if any tmuxy-pane-tabs-row has more than 1 tab
-    const tabRows = document.querySelectorAll('.tmuxy-pane-tabs');
+    // Check if any pane-tabs-row has more than 1 tab
+    const tabRows = document.querySelectorAll('.pane-tabs');
     for (const row of tabRows) {
-      if (row.querySelectorAll('.tmuxy-pane-tab').length > 1) {
+      if (row.querySelectorAll('.pane-tab').length > 1) {
         return true;
       }
     }
@@ -716,11 +716,11 @@ async function isHeaderGrouped(page) {
  */
 async function getGroupTabInfo(page) {
   return await page.evaluate(() => {
-    const tabs = document.querySelectorAll('.tmuxy-pane-tabs .tmuxy-pane-tab');
+    const tabs = document.querySelectorAll('.pane-tabs .pane-tab');
     return Array.from(tabs).map((tab, index) => ({
       index,
-      title: tmuxy-tab.querySelector('.tmuxy-pane-tab-title')?.textContent?.trim() || '',
-      active: tab.classList.contains('tmuxy-pane-tab-active'),
+      title: tab.querySelector('.pane-tab-title')?.textContent?.trim() || '',
+      active: tab.classList.contains('pane-tab-active'),
     }));
   });
 }
@@ -736,13 +736,13 @@ async function getUIPaneTitles(page) {
     for (const pane of panes) {
       const paneId = pane.getAttribute('data-pane-id');
       // For grouped panes, get the active tab title
-      const groupTab = pane.querySelector('.tmuxy-pane-tab-active .tmuxy-pane-tab-title');
+      const groupTab = pane.querySelector('.pane-tab-active .pane-tab-title');
       if (groupTab) {
         titles[paneId] = groupTab.textContent?.trim() || '';
         continue;
       }
-      // For single panes, get the tmuxy-pane-tab-title span
-      const titleEl = pane.querySelector('.tmuxy-pane-tab-title');
+      // For single panes, get the pane-tab-title span
+      const titleEl = pane.querySelector('.pane-tab-title');
       if (titleEl) {
         titles[paneId] = titleEl.textContent?.trim() || '';
       }

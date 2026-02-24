@@ -175,7 +175,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 3000) {
   try {
     await page.waitForFunction(
       (count) => {
-        const tabs = document.querySelectorAll('.tmuxy-tab:not(.tmuxy-tab-add)');
+        const tabs = document.querySelectorAll('.tab:not(.tab-add)');
         return tabs.length === count;
       },
       expectedCount,
@@ -184,7 +184,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 3000) {
   } catch {
     // Timeout - log warning but don't fail
     const actualCount = await page.evaluate(() => {
-      return document.querySelectorAll('.tmuxy-tab:not(.tmuxy-tab-add)').length;
+      return document.querySelectorAll('.tab:not(.tab-add)').length;
     });
     console.log(`Warning: Expected ${expectedCount} windows, found ${actualCount}`);
   }
