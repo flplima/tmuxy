@@ -51,12 +51,12 @@ function CommandModeInput({
   );
 
   return (
-    <div className="tmux-status-bar tmux-command-mode" data-testid="tmux-command-mode">
-      <div className="tmux-command-input-wrapper" style={{ width: gridWidth }}>
-        <span className="tmux-command-prompt">{prompt}</span>
+    <div className="tmuxy-tmux-status tmuxy-command-mode" data-testid="tmuxy-command-mode">
+      <div className="tmuxy-command-input-wrapper" style={{ width: gridWidth }}>
+        <span className="tmuxy-command-prompt">{prompt}</span>
         <input
           ref={inputRef}
-          className="tmux-command-input"
+          className="tmuxy-command-input"
           type="text"
           defaultValue={input}
           onKeyDown={handleKeyDown}
@@ -106,8 +106,8 @@ export function TmuxStatusBar() {
   // Status message: show temporary message
   if (statusMessage) {
     return (
-      <div className="tmux-status-bar tmux-status-message" data-testid="tmux-status-message">
-        <pre className="tmux-status-bar-content">{statusMessage.text}</pre>
+      <div className="tmuxy-tmux-status tmuxy-status-message" data-testid="tmuxy-status-message">
+        <pre className="tmuxy-tmux-status-content">{statusMessage.text}</pre>
       </div>
     );
   }
@@ -116,8 +116,8 @@ export function TmuxStatusBar() {
   if (!content) return null;
 
   return (
-    <div className="tmux-status-bar" data-testid="tmux-status-bar">
-      <pre className="tmux-status-bar-content">{renderedContent}</pre>
+    <div className="tmuxy-tmux-status" data-testid="tmuxy-tmux-status">
+      <pre className="tmuxy-tmux-status-content">{renderedContent}</pre>
     </div>
   );
 }

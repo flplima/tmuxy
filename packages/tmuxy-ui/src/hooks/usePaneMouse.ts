@@ -11,7 +11,6 @@
 
 import { useCallback, useRef, useState, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
-import { sendScrollLines } from './scrollUtils';
 
 interface UsePaneMouseOptions {
   paneId: string;
@@ -371,16 +370,24 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         if (lines === 0) return;
         wheelRemainder.current -= lines * charHeight;
 
-        const cell = mouseAnyFlag ? pixelToCell(e as unknown as React.MouseEvent) : { x: 0, y: 0 };
-        sendScrollLines({
-          send,
-          paneId,
-          lines,
-          alternateOn,
-          mouseAnyFlag,
-          cellX: cell.x,
-          cellY: cell.y,
-        });
+        const isScrollUp = lines < 0;
+        const absLines = Math.abs(lines);
+
+        if (alternateOn) {
+          const key = isScrollUp ? 'Up' : 'Down';
+          for (let i = 0; i < absLines; i++) {
+            send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} ${key}` });
+          }
+        } else {
+          const cell = pixelToCell(e as unknown as React.MouseEvent);
+          const button = isScrollUp ? 64 : 65;
+          for (let i = 0; i < absLines; i++) {
+            send({
+              type: 'SEND_COMMAND',
+              command: `run-shell -b 'printf "\\033[<${button};${cell.x + 1};${cell.y + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+            });
+          }
+        }
         return;
       }
 

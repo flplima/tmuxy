@@ -96,7 +96,7 @@
   --tmux-status-bg: var(--term-green);
 
   /* Typography */
-  --font-mono: 'FiraCode Nerd Font', 'Monaco', 'Menlo', 'Courier New', monospace;
+  --font-mono: 'Monaco', 'Menlo', 'Courier New', monospace;
   --font-size-sm: 9px;
   --font-size-md: 11px;
   --font-size-base: 12px;
@@ -146,34 +146,16 @@
 }
 
 /* ============================================
-   Base / Reset
-   ============================================ */
-
-body {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  background-color: var(--bg-black);
-}
-
-#root {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  box-sizing: border-box;
-}
-
-/* ============================================
    App Container
    ============================================ */
 
-.app-container {
+.tmuxy-app {
   display: flex;
   flex-direction: column;
   flex: 1;
 }
 
-.app-container .pane-container {
+.tmuxy-app .tmuxy-pane-container {
   flex: 1;
   position: relative;
   overflow: hidden;
@@ -182,17 +164,17 @@ body {
   justify-content: center;
 }
 
-.pane-container {
+.tmuxy-pane-container {
   background-color: var(--bg-black);
 }
 
-.pane-container.secondary-client {
+.tmuxy-pane-container.tmuxy-secondary-client {
   overflow: auto;
 }
 
 /* Loading / Error States */
-.loading,
-.error {
+.tmuxy-loading,
+.tmuxy-error {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -202,21 +184,21 @@ body {
   font-family: var(--font-mono);
 }
 
-.error {
+.tmuxy-error {
   flex-direction: column;
 }
 
-.error h2 {
+.tmuxy-error h2 {
   color: var(--error-light);
   margin-bottom: 1rem;
 }
 
 /* Pane States */
-.pane-active {
+.tmuxy-pane-active {
   z-index: var(--z-base);
 }
 
-.pane-content {
+.tmuxy-pane-content {
   /* Horizontal padding from CSS variable set by PaneLayout (30% of charWidth) */
   padding: 0 var(--pane-h-padding, 0);
   flex: 1;
@@ -226,7 +208,7 @@ body {
 }
 
 /* Border via ::after so it always paints above selection overlays */
-.pane-content::after {
+.tmuxy-pane-content::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -236,29 +218,25 @@ body {
 }
 
 /* Active pane content has green border */
-.pane-layout-item.pane-active .pane-content::after,
-.pane-active .pane-content::after {
+.tmuxy-pane-layout-item.tmuxy-pane-active .tmuxy-pane-content::after,
+.tmuxy-pane-active .tmuxy-pane-content::after {
   border-color: var(--accent-green);
 }
 
 /* Copy mode has bright green border */
-.pane-layout-item.pane-active.pane-copy-mode .pane-content::after {
+.tmuxy-pane-layout-item.tmuxy-pane-active.tmuxy-pane-copy-mode .tmuxy-pane-content::after {
   border-color: var(--term-green);
 }
 
-.pane-single {
+.tmuxy-pane-single {
   background-color: transparent;
 }
 
-.pane-single .pane-content {
+.tmuxy-pane-single .tmuxy-pane-content {
   background-color: transparent;
 }
 
-.pane-wrapper {
-  touch-action: none;
-}
-
-.pane-wrapper:focus {
+.tmuxy-pane-wrapper:focus {
   outline: none;
 }
 
@@ -266,7 +244,7 @@ body {
    Terminal
    ============================================ */
 
-.terminal-container {
+.tmuxy-terminal {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -274,7 +252,7 @@ body {
   user-select: none;
 }
 
-.terminal-content {
+.tmuxy-terminal-content {
   margin: 0;
   padding: 0;
   font-family: var(--font-mono);
@@ -286,38 +264,38 @@ body {
   user-select: none;
 }
 
-.terminal-line {
+.tmuxy-terminal-line {
   height: var(--line-height-terminal);
   min-height: var(--line-height-terminal);
 }
 
-.pane-scroll-container {
+.tmuxy-pane-scroll {
   background-color: var(--bg-black);
 }
 
-.hide-scrollbar {
+.tmuxy-hide-scrollbar {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE/Edge */
 }
 
-.hide-scrollbar::-webkit-scrollbar {
+.tmuxy-hide-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome/Safari */
 }
 
 /* Terminal hyperlinks (OSC 8) */
-.terminal-hyperlink {
+.tmuxy-terminal-link {
   text-decoration: underline;
   text-decoration-color: var(--link-color);
   color: inherit;
   cursor: pointer;
 }
 
-.terminal-hyperlink:hover {
+.tmuxy-terminal-link:hover {
   color: var(--link-hover);
   text-decoration-color: var(--link-hover);
 }
 
-.terminal-hyperlink:active {
+.tmuxy-terminal-link:active {
   color: var(--link-active);
 }
 
@@ -325,27 +303,27 @@ body {
    Cursor
    ============================================ */
 
-.terminal-cursor {
+.tmuxy-cursor {
   background-color: var(--cursor-bg);
   color: var(--cursor-text);
 }
 
-.terminal-cursor-blink {
+.tmuxy-cursor-blink {
   animation: cursor-blink 1s step-end infinite;
 }
 
-.terminal-cursor-inactive {
+.tmuxy-cursor-inactive {
   background-color: transparent;
   outline: 1px solid var(--cursor-inactive);
   color: inherit;
 }
 
-.terminal-cursor-copy {
+.tmuxy-cursor-copy {
   background-color: var(--cursor-copy-bg);
   color: var(--text-primary);
 }
 
-.terminal-cursor-underline {
+.tmuxy-cursor-underline {
   background-color: transparent;
   color: inherit;
   text-decoration: underline;
@@ -353,10 +331,27 @@ body {
   text-decoration-thickness: 2px;
 }
 
-.terminal-cursor-bar {
+.tmuxy-cursor-bar {
   background-color: transparent;
   color: inherit;
   border-left: 2px solid var(--cursor-bg);
+}
+
+/* Selection highlight */
+.tmuxy-selected {
+  position: relative;
+}
+
+.tmuxy-selected::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: var(--line-height-terminal, 21px);
+  transform: translateY(-50%);
+  background-color: rgba(255, 255, 255, 0.5);
+  pointer-events: none;
 }
 
 @keyframes cursor-blink {
@@ -373,7 +368,7 @@ body {
    Pane Layout
    ============================================ */
 
-.pane-layout {
+.tmuxy-pane-layout {
   position: absolute;
   top: 0;
   left: 0;
@@ -381,7 +376,7 @@ body {
   bottom: 0;
 }
 
-.pane-layout-item {
+.tmuxy-pane-layout-item {
   overflow: hidden;
   background: var(--bg-black);
   display: flex;
@@ -398,15 +393,15 @@ body {
   /* No border on wrapper - border is on pane-content */
 }
 
-.pane-layout-item.pane-active {
+.tmuxy-pane-layout-item.tmuxy-pane-active {
   /* Active state handled by pane-content border */
 }
 
-.pane-layout-item.pane-inactive {
+.tmuxy-pane-layout-item.tmuxy-pane-inactive {
   /* Inactive state handled by pane-content border */
 }
 
-.pane-layout-item.pane-dragging {
+.tmuxy-pane-layout-item.tmuxy-pane-dragging {
   z-index: var(--z-dragging);
   opacity: 0.85;
   box-shadow: var(--shadow-lg);
@@ -418,7 +413,7 @@ body {
 }
 
 /* Exit animation - pane is being removed */
-.pane-layout-item.pane-leaving {
+.tmuxy-pane-layout-item.tmuxy-pane-leaving {
   opacity: 0;
   transform: translateY(50px) scale(0.85);
   transition:
@@ -428,49 +423,79 @@ body {
 }
 
 /* Copy Mode - green border when active pane is in copy mode */
-.pane-layout-item.pane-active.pane-copy-mode {
+.tmuxy-pane-layout-item.tmuxy-pane-active.tmuxy-pane-copy-mode {
   /* Copy mode border color handled by pane-content */
 }
 
 /* Resize Dividers */
-.resize-divider {
+.tmuxy-resize-divider {
   position: absolute;
   background: transparent;
-  z-index: 60;
+  z-index: var(--z-elevated);
 }
 
-.resize-divider-h {
+.tmuxy-resize-divider-h {
   cursor: ns-resize;
 }
 
-.resize-divider-v {
+.tmuxy-resize-divider-v {
   cursor: ew-resize;
 }
 
 /* Resize dividers are invisible - only cursor changes on hover */
 
-.pane-layout-dragging,
-.pane-layout-resizing {
+.tmuxy-pane-layout-dragging,
+.tmuxy-pane-layout-resizing {
   user-select: none;
 }
 
 /* Performance hints for animated panes */
-.pane-layout-item {
+.tmuxy-pane-layout-item {
   will-change: transform;
 }
 
-.pane-layout-dragging .pane-layout-item,
-.pane-layout-resizing .pane-layout-item {
+.tmuxy-pane-layout-dragging .tmuxy-pane-layout-item,
+.tmuxy-pane-layout-resizing .tmuxy-pane-layout-item {
   will-change: transform, left, top, width, height;
 }
 
 /* Disable position transitions during resize for instant feedback */
-.pane-layout-resizing .pane-layout-item {
+.tmuxy-pane-layout-resizing .tmuxy-pane-layout-item {
   transition: box-shadow var(--transition-layout);
 }
 
+/* Disable ALL transitions during commit phase for instant updates */
+.tmuxy-pane-layout-committing .tmuxy-pane-layout-item {
+  transition: none;
+}
+
+/* Disable ALL animations when enableAnimations is false */
+.tmuxy-pane-layout-no-animations .tmuxy-pane-layout-item {
+  transition: none;
+}
+
+/* Prevent mouse events on all panes during drag (drag tracked via window listeners) */
+.tmuxy-pane-layout-dragging .tmuxy-pane-layout-item {
+  pointer-events: none;
+}
+
+/* Ghost indicator - shows dragged pane's current grid position */
+.tmuxy-pane-drag-ghost {
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  z-index: 1;
+  pointer-events: none;
+  box-sizing: border-box;
+  transition:
+    left 200ms ease-out,
+    top 200ms ease-out,
+    width 200ms ease-out,
+    height 200ms ease-out;
+}
+
 /* Drag placeholder - shows original position during drag */
-.pane-drag-placeholder {
+.tmuxy-pane-drag-placeholder {
   background: linear-gradient(135deg, rgba(100, 150, 255, 0.1) 0%, rgba(100, 150, 255, 0.2) 100%);
   border: 2px dashed var(--accent-blue-light);
   box-sizing: border-box;
@@ -482,7 +507,7 @@ body {
    Pattern: | tab1 x | tab2 x | + |
    ============================================ */
 
-.pane-header {
+.tmuxy-pane-header {
   display: flex;
   align-items: center;
   height: var(--pane-header-height);
@@ -497,29 +522,29 @@ body {
   gap: 0;
 }
 
-.pane-header-active {
+.tmuxy-pane-header-active {
   /* Active state is shown via tab background colors */
 }
 
 /* Copy mode header - handled via tab styling */
-.pane-header-active.pane-header-copy-mode {
+.tmuxy-pane-header-active.tmuxy-pane-header-copy-mode {
   /* Copy mode styling */
 }
 
 /* Pane tabs container - no flex grow, just wrap content */
-.pane-tabs {
+.tmuxy-pane-tabs {
   display: flex;
   overflow-x: auto;
   scrollbar-width: none;
   height: 100%;
 }
 
-.pane-tabs::-webkit-scrollbar {
+.tmuxy-pane-tabs::-webkit-scrollbar {
   display: none;
 }
 
 /* Individual pane tab */
-.pane-tab {
+.tmuxy-pane-tab {
   position: relative;
   display: flex;
   align-items: center;
@@ -528,22 +553,28 @@ body {
   height: 100%;
   background-color: var(--border-medium);
   border: none;
+  cursor: grab;
   transition: background-color var(--transition-fast);
   flex-shrink: 0;
   min-width: 0;
+  z-index: 60; /* Above resize dividers (z-index 50) for drag-to-swap */
+}
+
+.tmuxy-pane-tab:active {
+  cursor: grabbing;
 }
 
 /* Selected tab in a group (but pane not active) */
-.pane-tab-selected {
+.tmuxy-pane-tab-selected {
   background-color: var(--border-light);
 }
 
 /* Active tab: green background, black text */
-.pane-tab-active {
+.tmuxy-pane-tab-active {
   background-color: var(--accent-green);
 }
 
-.pane-tab-title {
+.tmuxy-pane-tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -553,13 +584,13 @@ body {
 }
 
 /* Active tab title: black text */
-.pane-tab-active .pane-tab-title {
+.tmuxy-pane-tab-active .tmuxy-pane-tab-title {
   color: var(--bg-black);
   font-weight: 500;
 }
 
 /* Pane tab close button */
-.pane-tab-close {
+.tmuxy-pane-tab-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -577,13 +608,13 @@ body {
 }
 
 /* Active tab close button: dark color on green background */
-.pane-tab-active .pane-tab-close {
+.tmuxy-pane-tab-active .tmuxy-pane-tab-close {
   color: var(--bg-black);
   opacity: 0.7;
 }
 
 /* Pane tab add button */
-.pane-tab-add {
+.tmuxy-pane-tab-add {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -609,7 +640,7 @@ body {
    Tmux Status Bar (Bottom)
    ============================================ */
 
-.tmux-status-bar {
+.tmuxy-tmux-status {
   width: 100%;
   background-color: var(--tmux-status-bg);
   display: flex;
@@ -617,7 +648,7 @@ body {
   box-sizing: border-box;
 }
 
-.tmux-status-bar-content {
+.tmuxy-tmux-status-content {
   font-family: var(--font-mono);
   font-size: var(--font-size-xl);
   line-height: var(--line-height-terminal);
@@ -628,18 +659,18 @@ body {
 }
 
 /* Command mode input (prefix+:) */
-.tmux-command-mode {
+.tmuxy-command-mode {
   background-color: var(--tmux-status-bg);
 }
 
-.tmux-command-input-wrapper {
+.tmuxy-command-input-wrapper {
   display: flex;
   align-items: center;
   width: 100%;
   padding: var(--spacing-md) 0;
 }
 
-.tmux-command-prompt {
+.tmuxy-command-prompt {
   font-family: var(--font-mono);
   font-size: var(--font-size-xl);
   line-height: var(--line-height-terminal);
@@ -648,7 +679,7 @@ body {
   flex-shrink: 0;
 }
 
-.tmux-command-input {
+.tmuxy-command-input {
   flex: 1;
   font-family: var(--font-mono);
   font-size: var(--font-size-xl);
@@ -663,7 +694,7 @@ body {
 }
 
 /* Status message */
-.tmux-status-message {
+.tmuxy-status-message {
   background-color: var(--tmux-status-bg);
 }
 
@@ -676,14 +707,14 @@ body {
    ============================================ */
 
 /* Full-screen overlay container */
-.float-overlay {
+.tmuxy-float-overlay {
   position: absolute;
   inset: 0;
   z-index: 1000;
 }
 
 /* Semi-transparent backdrop */
-.float-backdrop {
+.tmuxy-float-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
@@ -691,7 +722,7 @@ body {
 }
 
 /* Float modal - centered via JS positioning */
-.float-modal {
+.tmuxy-float-modal {
   position: absolute;
   background: var(--bg-black);
   border-radius: var(--radius-md);
@@ -703,7 +734,7 @@ body {
 }
 
 /* Float header - simple, no drag */
-.float-header {
+.tmuxy-float-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -713,7 +744,7 @@ body {
   flex-shrink: 0;
 }
 
-.float-title {
+.tmuxy-float-title {
   font-family: var(--font-mono);
   font-size: var(--font-size-md);
   color: var(--text-secondary);
@@ -723,7 +754,7 @@ body {
 }
 
 /* Float close button */
-.float-close {
+.tmuxy-float-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -740,13 +771,13 @@ body {
   transition: all var(--transition-fast);
 }
 
-.float-close:hover {
+.tmuxy-float-close:hover {
   background: var(--error-color);
   color: white;
 }
 
 /* Float content - green border on all 4 sides */
-.float-content {
+.tmuxy-float-content {
   flex: 1;
   overflow: hidden;
   background: var(--bg-black);
@@ -758,7 +789,7 @@ body {
    File Picker
    ============================================ */
 
-.file-picker-button {
+.tmuxy-file-picker-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -772,19 +803,19 @@ body {
   transition: all 0.15s ease;
 }
 
-.file-picker-button:hover {
+.tmuxy-file-picker-button:hover {
   background-color: var(--bg-elevated-alt);
   border-color: var(--bg-highlight-alt);
   color: var(--text-primary);
 }
 
-.file-picker-button.active {
+.tmuxy-file-picker-button.active {
   background-color: var(--accent-green-bg);
   border-color: var(--accent-green-border);
   color: var(--accent-green-bright);
 }
 
-.file-picker-overlay {
+.tmuxy-file-picker-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -795,7 +826,7 @@ body {
   pointer-events: none;
 }
 
-.file-picker {
+.tmuxy-file-picker {
   position: absolute;
   top: var(--statusbar-height);
   right: 0;
@@ -810,7 +841,7 @@ body {
   pointer-events: auto;
 }
 
-.file-picker-header {
+.tmuxy-file-picker-header {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
@@ -819,8 +850,8 @@ body {
   border-bottom: 1px solid var(--border-medium);
 }
 
-.file-picker-up,
-.file-picker-close {
+.tmuxy-file-picker-up,
+.tmuxy-file-picker-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -833,13 +864,13 @@ body {
   cursor: pointer;
 }
 
-.file-picker-up:hover,
-.file-picker-close:hover {
+.tmuxy-file-picker-up:hover,
+.tmuxy-file-picker-close:hover {
   background-color: var(--bg-highlight);
   color: var(--text-primary);
 }
 
-.file-picker-path {
+.tmuxy-file-picker-path {
   flex: 1;
   font-family: var(--font-mono);
   font-size: var(--font-size-md);
@@ -849,15 +880,15 @@ body {
   white-space: nowrap;
 }
 
-.file-picker-content {
+.tmuxy-file-picker-content {
   flex: 1;
   overflow-y: auto;
   padding: var(--spacing-sm);
 }
 
-.file-picker-loading,
-.file-picker-error,
-.file-picker-empty {
+.tmuxy-file-picker-loading,
+.tmuxy-file-picker-error,
+.tmuxy-file-picker-empty {
   padding: var(--spacing-xl);
   text-align: center;
   color: var(--text-muted);
@@ -865,16 +896,16 @@ body {
   font-size: var(--font-size-md);
 }
 
-.file-picker-error {
+.tmuxy-file-picker-error {
   color: var(--error-text);
 }
 
-.file-tree {
+.tmuxy-file-tree {
   display: flex;
   flex-direction: column;
 }
 
-.file-tree-item {
+.tmuxy-file-tree-item {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
@@ -886,36 +917,36 @@ body {
   color: var(--text-secondary);
 }
 
-.file-tree-item:hover {
+.tmuxy-file-tree-item:hover {
   background-color: var(--bg-highlight);
 }
 
-.file-tree-item.selected {
+.tmuxy-file-tree-item.selected {
   background-color: var(--accent-blue-bg-hover);
 }
 
-.file-tree-item.is-dir {
+.tmuxy-file-tree-item.is-dir {
   color: var(--accent-green);
 }
 
-.file-tree-item.is-dir i {
+.tmuxy-file-tree-item.is-dir i {
   color: var(--accent-green);
 }
 
-.file-tree-item i {
+.tmuxy-file-tree-item i {
   width: 16px;
   text-align: center;
   color: var(--text-muted);
 }
 
-.file-tree-name {
+.tmuxy-file-tree-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-tree-symlink {
+.tmuxy-file-tree-symlink {
   color: var(--text-muted);
   font-size: var(--font-size-sm);
 }
@@ -924,7 +955,7 @@ body {
    Markdown Widget
    ============================================ */
 
-.widget-markdown {
+.tmuxy-widget-markdown {
   width: 100%;
   height: 100%;
   overflow-y: auto;
@@ -937,30 +968,30 @@ body {
   line-height: 1.6;
 }
 
-.widget-markdown strong,
-.widget-markdown b {
+.tmuxy-widget-markdown strong,
+.tmuxy-widget-markdown b {
   color: var(--term-bright-white);
 }
 
-.widget-markdown::-webkit-scrollbar {
+.tmuxy-widget-markdown::-webkit-scrollbar {
   width: 6px;
 }
 
-.widget-markdown::-webkit-scrollbar-track {
+.tmuxy-widget-markdown::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.widget-markdown::-webkit-scrollbar-thumb {
+.tmuxy-widget-markdown::-webkit-scrollbar-thumb {
   background: var(--term-bright-black);
   border-radius: 3px;
 }
 
-.widget-markdown h1,
-.widget-markdown h2,
-.widget-markdown h3,
-.widget-markdown h4,
-.widget-markdown h5,
-.widget-markdown h6 {
+.tmuxy-widget-markdown h1,
+.tmuxy-widget-markdown h2,
+.tmuxy-widget-markdown h3,
+.tmuxy-widget-markdown h4,
+.tmuxy-widget-markdown h5,
+.tmuxy-widget-markdown h6 {
   color: var(--term-bright-white);
   margin-top: 24px;
   margin-bottom: 12px;
@@ -968,40 +999,40 @@ body {
   line-height: 1.3;
 }
 
-.widget-markdown h1 {
+.tmuxy-widget-markdown h1 {
   font-size: 1.8em;
   border-bottom: 1px solid var(--border-medium);
   padding-bottom: 8px;
 }
 
-.widget-markdown h2 {
+.tmuxy-widget-markdown h2 {
   font-size: 1.4em;
   border-bottom: 1px solid var(--border-medium);
   padding-bottom: 6px;
 }
 
-.widget-markdown h3 {
+.tmuxy-widget-markdown h3 {
   font-size: 1.2em;
 }
-.widget-markdown h4 {
+.tmuxy-widget-markdown h4 {
   font-size: 1.1em;
 }
 
-.widget-markdown p {
+.tmuxy-widget-markdown p {
   margin: 0 0 12px;
 }
 
-.widget-markdown a {
+.tmuxy-widget-markdown a {
   color: var(--link-color);
   text-decoration: none;
 }
 
-.widget-markdown a:hover {
+.tmuxy-widget-markdown a:hover {
   color: var(--link-hover);
   text-decoration: underline;
 }
 
-.widget-markdown-inline-code {
+.tmuxy-widget-markdown-inline-code {
   background: var(--bg-medium);
   color: var(--term-bright-cyan);
   padding: 2px 6px;
@@ -1010,7 +1041,7 @@ body {
   font-size: 0.9em;
 }
 
-.widget-markdown-pre {
+.tmuxy-widget-markdown-pre {
   background: var(--bg-dark);
   border: 1px solid var(--border-medium);
   border-radius: 4px;
@@ -1022,13 +1053,13 @@ body {
   line-height: 1.5;
 }
 
-.widget-markdown-pre code {
+.tmuxy-widget-markdown-pre code {
   background: none;
   padding: 0;
   color: var(--text-primary);
 }
 
-.widget-markdown blockquote {
+.tmuxy-widget-markdown blockquote {
   border-left: 4px solid var(--accent-green);
   margin: 0 0 16px;
   padding: 8px 16px;
@@ -1036,59 +1067,59 @@ body {
   background: var(--bg-dark-alt);
 }
 
-.widget-markdown blockquote p:last-child {
+.tmuxy-widget-markdown blockquote p:last-child {
   margin-bottom: 0;
 }
 
-.widget-markdown ul,
-.widget-markdown ol {
+.tmuxy-widget-markdown ul,
+.tmuxy-widget-markdown ol {
   margin: 0 0 12px;
   padding-left: 24px;
 }
 
-.widget-markdown li {
+.tmuxy-widget-markdown li {
   margin-bottom: 4px;
 }
 
-.widget-markdown li input[type='checkbox'] {
+.tmuxy-widget-markdown li input[type='checkbox'] {
   margin-right: 6px;
 }
 
-.widget-markdown hr {
+.tmuxy-widget-markdown hr {
   border: none;
   border-top: 1px solid var(--border-medium);
   margin: 20px 0;
 }
 
-.widget-markdown table {
+.tmuxy-widget-markdown table {
   border-collapse: collapse;
   width: 100%;
   margin: 0 0 16px;
 }
 
-.widget-markdown th,
-.widget-markdown td {
+.tmuxy-widget-markdown th,
+.tmuxy-widget-markdown td {
   border: 1px solid var(--border-medium);
   padding: 6px 12px;
   text-align: left;
 }
 
-.widget-markdown th {
+.tmuxy-widget-markdown th {
   background: var(--bg-medium);
   color: var(--term-bright-white);
   font-weight: 600;
 }
 
-.widget-markdown tr:nth-child(even) {
+.tmuxy-widget-markdown tr:nth-child(even) {
   background: var(--bg-dark-alt);
 }
 
-.widget-markdown img {
+.tmuxy-widget-markdown img {
   max-width: 100%;
   border-radius: 4px;
 }
 
-.widget-markdown-empty {
+.tmuxy-widget-markdown-empty {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1097,7 +1128,7 @@ body {
   font-style: italic;
 }
 
-.widget-markdown-error {
+.tmuxy-widget-markdown-error {
   color: var(--term-red);
   background: var(--bg-dark-alt);
   padding: 8px 12px;
@@ -1107,13 +1138,13 @@ body {
   white-space: pre-wrap;
 }
 
-.widget-mermaid {
+.tmuxy-widget-mermaid {
   display: flex;
   justify-content: center;
   margin: 16px 0;
 }
 
-.widget-mermaid svg {
+.tmuxy-widget-mermaid svg {
   max-width: 100%;
   height: auto;
 }

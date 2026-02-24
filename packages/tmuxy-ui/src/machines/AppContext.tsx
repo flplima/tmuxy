@@ -10,6 +10,7 @@
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import type { TmuxAdapter } from '../tmux/types';
 import { useActorRef, useSelector } from '@xstate/react';
 import { appMachine, type AppMachineActor } from './app';
 import type {
@@ -82,7 +83,7 @@ const AppContext = createContext<AppMachineActor | null>(null);
  */
 function measureCharWidth(): number {
   const testEl = document.createElement('pre');
-  testEl.className = 'terminal-content';
+  testEl.className = 'tmuxy-terminal-content';
   testEl.style.position = 'absolute';
   testEl.style.visibility = 'hidden';
   testEl.style.top = '-9999px';
@@ -97,15 +98,18 @@ function measureCharWidth(): number {
 // Provider
 // ============================================
 
-export function AppProvider({ children }: { children: ReactNode }) {
+interface TmuxyProviderProps {
+  children: ReactNode;
+  adapter?: TmuxAdapter;
+}
+
+export function TmuxyAppProvider({ children, adapter: adapterProp }: TmuxyProviderProps) {
   // Create adapter and actors once
   const actors = useMemo(() => {
-    const adapter = createAdapter();
-    // Expose adapter for E2E testing (dev mode or CI)
-    if (
-      typeof window !== 'undefined' &&
-      (import.meta.env.DEV || import.meta.env.VITE_E2E === 'true')
-    ) {
+    const adapter = adapterProp ?? createAdapter();
+    // Expose adapter for E2E testing (dev mode only)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (typeof window !== 'undefined' && (import.meta as any).env?.DEV) {
       (window as unknown as { _adapter: typeof adapter })._adapter = adapter;
     }
     return {
@@ -121,12 +125,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }),
   );
 
-  // Expose XState actor for debugging (dev mode or CI)
+  // Expose XState actor for debugging (dev mode only)
   useMemo(() => {
-    if (
-      typeof window !== 'undefined' &&
-      (import.meta.env.DEV || import.meta.env.VITE_E2E === 'true')
-    ) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (typeof window !== 'undefined' && (import.meta as any).env?.DEV) {
       (window as unknown as { app: typeof actorRef }).app = actorRef;
     }
   }, [actorRef]);
@@ -138,9 +140,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 // Hooks
 // ============================================
 
-export function useAppActor(): AppMachineActor {
+function useAppActor(): AppMachineActor {
   const actor = useContext(AppContext);
-  if (!actor) throw new Error('useAppActor must be used within AppProvider');
+  if (!actor) throw new Error('useAppActor must be used within TmuxyAppProvider');
   return actor;
 }
 

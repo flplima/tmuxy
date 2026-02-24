@@ -28,12 +28,12 @@ export function TmuxyImage({ lines }: WidgetProps) {
   }
 
   if (!src) {
-    return <div className="widget-image-empty">Waiting for image...</div>;
+    return <div className="tmuxy-tmuxy-widget-image-empty">Waiting for image...</div>;
   }
 
   return (
     <div
-      className="widget-image"
+      className="tmuxy-widget-image"
       style={{
         width: '100%',
         height: '100%',
