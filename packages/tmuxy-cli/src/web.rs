@@ -13,6 +13,7 @@ use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::server::list_theme_names;
 use crate::sse;
 
 /// Tracks connections and shared resources for a single tmux session
@@ -73,6 +74,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/api/snapshot", get(snapshot_handler))
         .route("/api/directory", get(directory_handler))
         .route("/api/file", get(file_handler))
+        .route("/api/themes", get(themes_handler))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -224,6 +226,33 @@ async fn snapshot_handler(Query(query): Query<SnapshotQuery>) -> Response {
                 .unwrap()
         }
     }
+}
+
+async fn themes_handler() -> Response {
+    let themes = list_theme_names();
+    let json: Vec<serde_json::Value> = themes
+        .into_iter()
+        .map(|name| {
+            let display_name = name
+                .split('-')
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            serde_json::json!({ "name": name, "displayName": display_name })
+        })
+        .collect();
+
+    Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_string(&json).unwrap()))
+        .unwrap()
 }
 
 /// Find the workspace root (directory with package.json containing "workspaces")

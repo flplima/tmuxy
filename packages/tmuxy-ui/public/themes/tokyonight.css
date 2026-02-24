@@ -1,0 +1,161 @@
+/* Tokyo Night theme - https://github.com/enkia/tokyo-night-vscode-theme */
+
+:root.theme-dark {
+  --term-black: #1a1b26;
+  --term-red: #f7768e;
+  --term-green: #9ece6a;
+  --term-yellow: #e0af68;
+  --term-blue: #7aa2f7;
+  --term-magenta: #bb9af7;
+  --term-cyan: #7dcfff;
+  --term-white: #a9b1d6;
+  --term-bright-black: #414868;
+  --term-bright-red: #f7768e;
+  --term-bright-green: #9ece6a;
+  --term-bright-yellow: #e0af68;
+  --term-bright-blue: #7aa2f7;
+  --term-bright-magenta: #bb9af7;
+  --term-bright-cyan: #7dcfff;
+  --term-bright-white: #c0caf5;
+
+  --term-foreground: #c0caf5;
+  --term-background: #1a1b26;
+
+  --bg-black: #1a1b26;
+  --bg-dark: #16161e;
+  --bg-dark-alt: #1a1b26;
+  --bg-medium: #24283b;
+  --bg-elevated-alt: #292e42;
+  --bg-highlight: #343a52;
+  --bg-highlight-alt: #414868;
+
+  --text-primary: #c0caf5;
+  --text-secondary: #a9b1d6;
+  --text-muted: #787c99;
+  --text-dimmed: #414868;
+  --text-subtle: #545c7e;
+  --text-faint: #3b4261;
+  --text-dark: #1a1b26;
+
+  --border-medium: #292e42;
+  --border-light: #343a52;
+
+  --pane-header-bg-active: #343a52;
+  --pane-header-bg-inactive: #16161e;
+  --pane-header-text-active: #c0caf5;
+  --pane-header-text-inactive: #414868;
+
+  --accent-green: #9ece6a;
+  --accent-green-bright: #b4e88a;
+  --accent-green-bg: #1e2a1e;
+  --accent-green-border: #3a4a2a;
+  --accent-green-hover: #2a3a24;
+
+  --accent-blue: #1e2040;
+  --accent-blue-light: rgba(122, 162, 247, 0.8);
+  --accent-blue-glow: rgba(122, 162, 247, 0.6);
+  --accent-blue-bg: rgba(122, 162, 247, 0.1);
+  --accent-blue-bg-hover: rgba(122, 162, 247, 0.3);
+  --accent-blue-bg-active: rgba(122, 162, 247, 0.5);
+
+  --link-color: #7aa2f7;
+  --link-hover: #7dcfff;
+  --link-active: #5a82d7;
+
+  --error-color: #f7768e;
+  --error-light: #ff9e64;
+  --error-text: #f7768e;
+  --error-bg: rgba(247, 118, 142, 0.2);
+  --error-border: rgba(247, 118, 142, 0.4);
+
+  --cursor-bg: #c0caf5;
+  --cursor-text: #1a1b26;
+  --cursor-copy-bg: #7aa2f7;
+  --cursor-inactive: #414868;
+
+  --tmux-status-bg: #9ece6a;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+:root.theme-light {
+  --term-black: #d5d6db;
+  --term-red: #f52a65;
+  --term-green: #587539;
+  --term-yellow: #8c6c3e;
+  --term-blue: #2e7de9;
+  --term-magenta: #9854f1;
+  --term-cyan: #007197;
+  --term-white: #3760bf;
+  --term-bright-black: #8990b3;
+  --term-bright-red: #f52a65;
+  --term-bright-green: #587539;
+  --term-bright-yellow: #8c6c3e;
+  --term-bright-blue: #2e7de9;
+  --term-bright-magenta: #9854f1;
+  --term-bright-cyan: #007197;
+  --term-bright-white: #3760bf;
+
+  --term-foreground: #3760bf;
+  --term-background: #e1e2e7;
+
+  --bg-black: #e1e2e7;
+  --bg-dark: #d7d8dd;
+  --bg-dark-alt: #d0d1d6;
+  --bg-medium: #c4c5ca;
+  --bg-elevated-alt: #b8b9be;
+  --bg-highlight: #b0b1b6;
+  --bg-highlight-alt: #a0a1a6;
+
+  --text-primary: #3760bf;
+  --text-secondary: #4a5a8a;
+  --text-muted: #6172b0;
+  --text-dimmed: #8990b3;
+  --text-subtle: #a0a6c0;
+  --text-faint: #b0b4c8;
+  --text-dark: #e1e2e7;
+
+  --border-medium: #c4c5ca;
+  --border-light: #b8b9be;
+
+  --pane-header-bg-active: #c4c5ca;
+  --pane-header-bg-inactive: #d7d8dd;
+  --pane-header-text-active: #3760bf;
+  --pane-header-text-inactive: #8990b3;
+
+  --accent-green: #587539;
+  --accent-green-bright: #6a8a50;
+  --accent-green-bg: #e0ecd5;
+  --accent-green-border: #a8c090;
+  --accent-green-hover: #d0dfc0;
+
+  --accent-blue: #dce5f5;
+  --accent-blue-light: rgba(46, 125, 233, 0.8);
+  --accent-blue-glow: rgba(46, 125, 233, 0.4);
+  --accent-blue-bg: rgba(46, 125, 233, 0.08);
+  --accent-blue-bg-hover: rgba(46, 125, 233, 0.15);
+  --accent-blue-bg-active: rgba(46, 125, 233, 0.25);
+
+  --link-color: #2e7de9;
+  --link-hover: #007197;
+  --link-active: #1a5cc9;
+
+  --error-color: #f52a65;
+  --error-light: #c4305a;
+  --error-text: #c4305a;
+  --error-bg: rgba(245, 42, 101, 0.1);
+  --error-border: rgba(245, 42, 101, 0.3);
+
+  --cursor-bg: #3760bf;
+  --cursor-text: #e1e2e7;
+  --cursor-copy-bg: #2e7de9;
+  --cursor-inactive: #8990b3;
+
+  --tmux-status-bg: #587539;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.18);
+}

@@ -18,6 +18,44 @@ const VITE_PORT: u16 = 1420;
 #[folder = "../tmuxy-ui/dist/"]
 struct FrontendAssets;
 
+/// List available theme names from embedded assets or filesystem (dev mode fallback).
+pub fn list_theme_names() -> Vec<String> {
+    // Try embedded assets first (production build)
+    let mut names: Vec<String> = <FrontendAssets as Embed>::iter()
+        .filter_map(|path: std::borrow::Cow<'_, str>| {
+            let path = path.as_ref();
+            if path.starts_with("themes/") && path.ends_with(".css") {
+                let name = path
+                    .strip_prefix("themes/")
+                    .unwrap()
+                    .strip_suffix(".css")
+                    .unwrap();
+                Some(name.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Dev mode fallback: scan filesystem
+    if names.is_empty() {
+        let workspace_root = web::find_workspace_root();
+        let themes_dir = workspace_root.join("packages/tmuxy-ui/public/themes");
+        if let Ok(entries) = std::fs::read_dir(&themes_dir) {
+            for entry in entries.flatten() {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                if file_name.ends_with(".css") {
+                    let name = file_name.strip_suffix(".css").unwrap().to_string();
+                    names.push(name);
+                }
+            }
+        }
+    }
+
+    names.sort();
+    names
+}
+
 #[derive(Args)]
 pub struct ServerArgs {
     #[command(subcommand)]
