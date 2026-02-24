@@ -59,14 +59,13 @@ export class FakeTmuxAdapter implements TmuxAdapter {
   }
 
   async connect(): Promise<void> {
-    await this.tmux.init(80, 24);
-
-    // Register callback for async state changes (command execution completes)
-    this.tmux.onStateChange = () => this.emitState();
-
+    this.tmux.init(80, 24);
     this.connected = true;
 
+    // Notify connection info
     this.connectionInfoListeners.forEach((l) => l(0, 'bash'));
+
+    // Emit keybindings
     this.keyBindingsListeners.forEach((l) => l(DEFAULT_KEYBINDINGS));
   }
 
@@ -163,6 +162,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
   }
 
   private handleTmuxCommand(commandStr: string): void {
+    // Handle multi-line commands (from paste)
     const commands = commandStr.split('\n');
     for (const cmd of commands) {
       this.handleSingleCommand(cmd.trim());
@@ -172,6 +172,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
   private handleSingleCommand(command: string): void {
     if (!command) return;
 
+    // Parse tmux command
     const parts = this.parseTmuxCommand(command);
     if (parts.length === 0) return;
 
@@ -201,6 +202,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
         const tIdx = parts.indexOf('-t');
         if (tIdx !== -1 && tIdx + 1 < parts.length) {
           const target = parts[tIdx + 1];
+          // Parse ":=N" format
           const match = target.match(/:=?(\d+)$/);
           if (match) {
             this.tmux.selectWindow(match[1]);
@@ -227,6 +229,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
         if (tIdx !== -1 && tIdx + 1 < parts.length) {
           const target = parts[tIdx + 1];
           if (target === ':.+') {
+            // Next pane - select first pane that isn't active
             const state = this.tmux.getState();
             const currentIdx = state.panes.findIndex((p) => p.tmux_id === state.active_pane_id);
             if (state.panes.length > 1) {
@@ -237,6 +240,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
             this.tmux.selectPane(target);
           }
         }
+        // Direction flags
         if (parts.includes('-U')) this.tmux.selectPaneByDirection('Up');
         if (parts.includes('-D')) this.tmux.selectPaneByDirection('Down');
         if (parts.includes('-L')) this.tmux.selectPaneByDirection('Left');
@@ -271,15 +275,23 @@ export class FakeTmuxAdapter implements TmuxAdapter {
         const state = this.tmux.getState();
         const paneId = state.active_pane_id ?? '';
         const adjustment = parseInt(parts[parts.length - 1]) || 1;
-        if (parts.includes('-U')) this.tmux.resizePane(paneId, 'Up', adjustment);
-        else if (parts.includes('-D')) this.tmux.resizePane(paneId, 'Down', adjustment);
-        else if (parts.includes('-L')) this.tmux.resizePane(paneId, 'Left', adjustment);
-        else if (parts.includes('-R')) this.tmux.resizePane(paneId, 'Right', adjustment);
+        if (parts.includes('-Z')) {
+          // Zoom toggle - not supported in demo, ignore
+        } else if (parts.includes('-U')) {
+          this.tmux.resizePane(paneId, 'Up', adjustment);
+        } else if (parts.includes('-D')) {
+          this.tmux.resizePane(paneId, 'Down', adjustment);
+        } else if (parts.includes('-L')) {
+          this.tmux.resizePane(paneId, 'Left', adjustment);
+        } else if (parts.includes('-R')) {
+          this.tmux.resizePane(paneId, 'Right', adjustment);
+        }
         break;
       }
 
       case 'rename-window':
       case 'renamew': {
+        // rename-window -- 'name'
         const dashIdx = parts.indexOf('--');
         if (dashIdx !== -1 && dashIdx + 1 < parts.length) {
           const name = parts[dashIdx + 1].replace(/^'|'$/g, '');
@@ -295,6 +307,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
       case 'resize-window':
       case 'swap-pane':
       case 'run-shell':
+        // Not supported in demo mode - silently ignore
         break;
 
       default:
@@ -314,19 +327,29 @@ export class FakeTmuxAdapter implements TmuxAdapter {
       if (args[i] === '-l') {
         literal = true;
       } else if (args[i] === '-t') {
-        i++;
-        if (i < args.length && args[i].startsWith('%')) {
-          targetPaneId = args[i];
-        }
+        i++; // skip target (session name)
       } else if (args[i] === '-X') {
+        // Copy mode command - ignore in demo
         return;
       } else {
         keys.push(args[i]);
       }
     }
 
+    // Check if a pane ID was specified in target
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '-t' && i + 1 < args.length) {
+        const target = args[i + 1];
+        if (target.startsWith('%')) {
+          targetPaneId = target;
+        }
+      }
+    }
+
     if (literal) {
+      // Literal text - join all remaining args
       const text = keys.join(' ');
+      // Unescape single quotes: '\'' → '
       const unescaped = text.replace(/^'|'$/g, '').replace(/'\\'''/g, "'");
       if (targetPaneId) {
         for (const ch of unescaped) {
@@ -336,6 +359,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
         this.tmux.sendLiteral(unescaped);
       }
     } else {
+      // Key names
       for (const key of keys) {
         if (targetPaneId) {
           this.tmux.sendKeyToPane(targetPaneId, key);
@@ -347,6 +371,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
   }
 
   private parseTmuxCommand(command: string): string[] {
+    // Simple command parser that handles quoted strings
     const parts: string[] = [];
     let current = '';
     let inSingle = false;
@@ -363,6 +388,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
       }
 
       if (ch === '\\') {
+        // Check for \' escape sequence
         if (i + 1 < command.length && command[i + 1] === "'") {
           current += "'";
           i++;

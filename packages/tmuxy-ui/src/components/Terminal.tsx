@@ -135,7 +135,7 @@ export const Terminal: React.FC<TerminalProps> = ({
 
   return (
     <div
-      className="tmuxy-terminal"
+      className="terminal-container"
       data-testid="terminal"
       data-cursor-x={effectiveCursorX}
       data-cursor-y={effectiveCursorY}
@@ -143,7 +143,7 @@ export const Terminal: React.FC<TerminalProps> = ({
       aria-label={`Terminal output: ${firstLineText.slice(0, 50)}${firstLineText.length > 50 ? '...' : ''}`}
       aria-live="polite"
     >
-      <pre className="tmuxy-terminal-content" aria-hidden="true">
+      <pre className="terminal-content" aria-hidden="true">
         {lines.map((line, lineIndex) => (
           <TerminalLine
             key={lineIndex}

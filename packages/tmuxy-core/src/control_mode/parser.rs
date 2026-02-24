@@ -290,8 +290,8 @@ impl Parser {
         }
 
         // %exit [reason]
-        if let Some(stripped) = line.strip_prefix("%exit") {
-            let rest = stripped.trim();
+        if let Some(rest) = line.strip_prefix("%exit") {
+            let rest = rest.trim();
             return Some(ControlModeEvent::Exit {
                 reason: if rest.is_empty() {
                     None

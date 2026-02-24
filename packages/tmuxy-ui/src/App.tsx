@@ -25,7 +25,7 @@ import { initDebugHelpers } from './utils/debug';
 // Initialize debug helpers
 initDebugHelpers();
 
-function TmuxyApp() {
+function App() {
   // Select minimal state needed at App level
   const panes = useAppSelector(selectPreviewPanes);
   const error = useAppSelector(selectError);
@@ -50,19 +50,19 @@ function TmuxyApp() {
   // Ready when connected, have panes, AND container is measured
   const isReady = !isConnecting && panes.length > 0 && containerSize.width > 0;
 
-  // Always render .tmuxy-app so containerRef is attached and ResizeObserver
+  // Always render .app-container so containerRef is attached and ResizeObserver
   // starts measuring immediately, preventing a layout flash on first pane render.
   return (
-    <div className="tmuxy-app">
+    <div className="app-container">
       <StatusBar />
-      <div ref={containerRef} className="tmuxy-pane-container" style={{ position: 'relative' }}>
+      <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
         {error && !isReady ? (
-          <div className="tmuxy-error" data-testid="error-display">
+          <div className="error" data-testid="error-display">
             <h2>Error</h2>
             <p>{error}</p>
           </div>
         ) : !isReady ? (
-          <div className="tmuxy-loading" data-testid="loading-display">
+          <div className="loading" data-testid="loading-display">
             <p>Connecting to tmux...</p>
           </div>
         ) : (
@@ -78,4 +78,4 @@ function TmuxyApp() {
   );
 }
 
-export default TmuxyApp;
+export default App;
