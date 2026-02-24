@@ -259,9 +259,9 @@ class TmuxTestSession {
             throw new Error('Adapter not available - is dev mode enabled?');
           }
           // Retry on transient failures (monitor not ready yet)
-          // Monitor connection can take several seconds to establish after page reload
+          // Monitor connection can take a few seconds to establish after page reload
           let lastError = null;
-          for (let attempt = 0; attempt < 20; attempt++) {
+          for (let attempt = 0; attempt < 10; attempt++) {
             try {
               return await window._adapter.invoke('run_tmux_command', { command: cmd });
             } catch (e) {
@@ -284,6 +284,12 @@ class TmuxTestSession {
         await new Promise(r => setTimeout(r, 250));
         return result;
       } catch (e) {
+        // If monitor connection is permanently unavailable, fall back to execSync
+        // This can happen after page reload when the SSE monitor doesn't re-establish
+        if (e.message?.includes('No monitor connection')) {
+          console.log(`[_exec] Monitor unavailable, falling back to execSync: ${command}`);
+          return this.runCommandSync(command);
+        }
         console.log(`[_exec] Failed: ${cleanCmd} - ${e.message}`);
         throw e;
       }
