@@ -284,12 +284,6 @@ class TmuxTestSession {
         await new Promise(r => setTimeout(r, 250));
         return result;
       } catch (e) {
-        // If monitor connection is permanently unavailable, fall back to execSync
-        // This can happen after page reload when the SSE monitor doesn't re-establish
-        if (e.message?.includes('No monitor connection')) {
-          console.log(`[_exec] Monitor unavailable, falling back to execSync: ${command}`);
-          return this.runCommandSync(command);
-        }
         console.log(`[_exec] Failed: ${cleanCmd} - ${e.message}`);
         throw e;
       }
