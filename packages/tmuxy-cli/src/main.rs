@@ -4,6 +4,8 @@ mod group;
 mod image;
 mod markdown;
 mod server;
+pub mod sse;
+pub mod web;
 mod widget;
 
 use clap::{Parser, Subcommand};

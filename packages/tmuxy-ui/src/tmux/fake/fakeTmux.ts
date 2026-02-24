@@ -1,5 +1,5 @@
 import type { ServerState, ServerPane, ServerWindow, PaneContent } from '../types';
-import { VirtualFS } from './virtualFs';
+import { Sandbox } from '@lifo-sh/core';
 import { FakeShell } from './fakeShell';
 
 // ============================================
@@ -14,7 +14,7 @@ interface LayoutLeaf {
 interface LayoutSplit {
   type: 'split';
   direction: 'horizontal' | 'vertical';
-  ratio: number; // 0..1, fraction allocated to first child
+  ratio: number;
   children: [LayoutNode, LayoutNode];
 }
 
@@ -41,6 +41,23 @@ interface FakeWindow {
 }
 
 // ============================================
+// Demo seed files (pre-populated into lifo VFS)
+// ============================================
+
+const SEED_FILES: Record<string, string> = {
+  '/home/user/projects/myapp/package.json':
+    '{\n  "name": "myapp",\n  "version": "1.0.0",\n  "scripts": {\n    "start": "node src/index.js",\n    "test": "jest"\n  },\n  "dependencies": {\n    "express": "^4.18.0"\n  }\n}\n',
+  '/home/user/projects/myapp/src/index.js':
+    'const express = require("express");\nconst app = express();\n\napp.get("/", (req, res) => {\n  res.json({ message: "Hello, world!" });\n});\n\napp.listen(3000, () => {\n  console.log("Server running on port 3000");\n});\n',
+  '/home/user/projects/myapp/README.md':
+    '# MyApp\n\nA simple Express.js application.\n\n## Getting Started\n\n```bash\nnpm install\nnpm start\n```\n\nThe server will start on port 3000.\n',
+  '/home/user/documents/notes.txt':
+    'Meeting notes - 2024-01-15\n- Review Q4 metrics\n- Plan roadmap for Q1\n- Discuss hiring needs\n\nTODO:\n- Update documentation\n- Fix CI pipeline\n- Deploy v2.1\n',
+  '/home/user/documents/todo.md':
+    '# TODO List\n\n- [x] Set up project structure\n- [x] Implement core features\n- [ ] Write tests\n- [ ] Deploy to production\n- [ ] Monitor performance\n',
+};
+
+// ============================================
 // FakeTmux Engine
 // ============================================
 
@@ -53,22 +70,31 @@ export class FakeTmux {
   private nextWindowNum = 0;
   private totalWidth = 80;
   private totalHeight = 24;
-  private vfs: VirtualFS;
+  private sandbox!: Sandbox;
   private sessionName = 'demo';
 
-  constructor() {
-    this.vfs = new VirtualFS();
-  }
+  /** Called when async content changes (command execution completes) */
+  onStateChange?: () => void;
 
   /** Initialize with one window and one pane. Writes welcome banner. */
-  init(width: number, height: number): void {
+  async init(width: number, height: number): Promise<void> {
     this.totalWidth = width || 80;
     this.totalHeight = height || 24;
+
+    // Boot lifo Sandbox (headless, no persistence, no xterm.js)
+    this.sandbox = await Sandbox.create({
+      persist: false,
+      files: SEED_FILES,
+      env: {
+        USER: 'demo',
+        HOSTNAME: 'tmuxy-demo',
+      },
+    });
 
     const paneId = this.allocPaneId();
     const windowId = this.allocWindowId();
 
-    const shell = new FakeShell(this.vfs, this.totalWidth, this.totalHeight);
+    const shell = this.createShell(this.totalWidth, this.totalHeight);
     shell.writeBanner();
     shell.writePrompt();
 
@@ -97,14 +123,12 @@ export class FakeTmux {
   setSize(cols: number, rows: number): void {
     this.totalWidth = cols;
     this.totalHeight = rows;
-    // Resize all panes according to layout
     for (const win of this.windows) {
       this.applyLayout(win);
     }
   }
 
   getState(): ServerState {
-    // Compute pane positions from layout
     const window = this.getActiveWindow();
     const panePositions = window
       ? this.computePositions(window.layout, 0, 0, this.totalWidth, this.totalHeight)
@@ -114,7 +138,6 @@ export class FakeTmux {
     const panes: ServerPane[] = [];
     for (const [, pane] of this.panes) {
       const pos = posMap.get(pane.id);
-      // Only include panes from active window
       if (pane.windowId !== this.activeWindowId) continue;
       panes.push({
         id: pane.numericId,
@@ -157,23 +180,19 @@ export class FakeTmux {
     };
   }
 
-  /** Send a tmux key name to the active pane's shell */
   sendKey(key: string): void {
     const pane = this.panes.get(this.activePaneId);
     if (!pane) return;
     pane.shell.processKey(key);
-    // Update window name from shell cwd
     this.updateWindowName();
   }
 
-  /** Send literal text to the active pane's shell */
   sendLiteral(text: string): void {
     const pane = this.panes.get(this.activePaneId);
     if (!pane) return;
     pane.shell.processLiteral(text);
   }
 
-  /** Send keys to a specific pane */
   sendKeyToPane(paneId: string, key: string): void {
     const pane = this.panes.get(paneId);
     if (!pane) return;
@@ -188,7 +207,6 @@ export class FakeTmux {
     const parentWidth = this.totalWidth;
     const parentHeight = this.totalHeight;
 
-    // Compute current active pane dimensions
     const positions = this.computePositions(window.layout, 0, 0, parentWidth, parentHeight);
     const activePos = positions.find((p) => p.paneId === this.activePaneId);
     const w = activePos?.width ?? parentWidth;
@@ -197,7 +215,7 @@ export class FakeTmux {
     const newW = direction === 'vertical' ? Math.floor(w / 2) : w;
     const newH = direction === 'horizontal' ? Math.floor(h / 2) : h;
 
-    const shell = new FakeShell(this.vfs, newW, newH);
+    const shell = this.createShell(newW, newH);
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -210,10 +228,8 @@ export class FakeTmux {
     };
     this.panes.set(paneId, pane);
 
-    // Split the active pane's leaf in the layout tree
     window.layout = this.splitLeaf(window.layout, this.activePaneId, paneId, direction);
 
-    // Resize existing pane
     const existingPane = this.panes.get(this.activePaneId);
     if (existingPane) {
       const existW = direction === 'vertical' ? w - newW - 1 : w;
@@ -234,17 +250,14 @@ export class FakeTmux {
     const window = this.windows.find((w) => w.id === pane.windowId);
     if (!window) return false;
 
-    // If it's the last pane in the window, kill the window
     const windowPanes = [...this.panes.values()].filter((p) => p.windowId === window.id);
     if (windowPanes.length <= 1) {
       return this.killWindow(window.id);
     }
 
-    // Remove from layout
     window.layout = this.removeLeaf(window.layout, targetId)!;
     this.panes.delete(targetId);
 
-    // If active pane was killed, select first remaining pane in window
     if (this.activePaneId === targetId) {
       const remaining = [...this.panes.values()].find((p) => p.windowId === window.id);
       if (remaining) this.activePaneId = remaining.id;
@@ -258,7 +271,7 @@ export class FakeTmux {
     const windowId = this.allocWindowId();
     const paneId = this.allocPaneId();
 
-    const shell = new FakeShell(this.vfs, this.totalWidth, this.totalHeight);
+    const shell = this.createShell(this.totalWidth, this.totalHeight);
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -271,7 +284,6 @@ export class FakeTmux {
     };
     this.panes.set(paneId, pane);
 
-    // Find next available index
     const usedIndices = new Set(this.windows.map((w) => w.index));
     let index = 0;
     while (usedIndices.has(index)) index++;
@@ -292,7 +304,6 @@ export class FakeTmux {
   selectWindow(windowId: string): boolean {
     const window = this.windows.find((w) => w.id === windowId);
     if (!window) {
-      // Try by index
       const idx = parseInt(windowId);
       const byIndex = this.windows.find((w) => w.index === idx);
       if (!byIndex) return false;
@@ -300,7 +311,6 @@ export class FakeTmux {
     } else {
       this.activeWindowId = windowId;
     }
-    // Select first pane in window
     const firstPane = [...this.panes.values()].find((p) => p.windowId === this.activeWindowId);
     if (firstPane) this.activePaneId = firstPane.id;
     return true;
@@ -325,20 +335,17 @@ export class FakeTmux {
     const idx = this.windows.findIndex((w) => w.id === targetId);
     if (idx === -1) return false;
 
-    // Remove all panes in this window
     for (const [id, pane] of this.panes) {
       if (pane.windowId === targetId) this.panes.delete(id);
     }
 
     this.windows.splice(idx, 1);
 
-    // If no windows left, create a new one
     if (this.windows.length === 0) {
       this.newWindow();
       return true;
     }
 
-    // If active window was killed, select next
     if (this.activeWindowId === targetId) {
       const newIdx = Math.min(idx, this.windows.length - 1);
       this.selectWindow(this.windows[newIdx].id);
@@ -350,7 +357,6 @@ export class FakeTmux {
   selectPane(paneId: string): boolean {
     if (!this.panes.has(paneId)) return false;
     const pane = this.panes.get(paneId)!;
-    // Ensure we're on the right window
     if (pane.windowId !== this.activeWindowId) {
       this.activeWindowId = pane.windowId;
     }
@@ -412,8 +418,7 @@ export class FakeTmux {
     const window = this.windows.find((w) => w.id === pane.windowId);
     if (!window) return false;
 
-    // Adjust ratio in the nearest split ancestor
-    const delta = adjustment * 0.05; // Each unit = 5% adjustment
+    const delta = adjustment * 0.05;
     this.adjustRatio(window.layout, paneId, direction, delta);
     this.applyLayout(window);
     return true;
@@ -432,9 +437,24 @@ export class FakeTmux {
     return true;
   }
 
+  /** Wait for all pane shells to finish executing */
+  async waitForCompletion(): Promise<void> {
+    const promises: Promise<void>[] = [];
+    for (const [, pane] of this.panes) {
+      promises.push(pane.shell.waitForCompletion());
+    }
+    await Promise.all(promises);
+  }
+
   // ============================================
-  // Layout Helpers
+  // Private helpers
   // ============================================
+
+  private createShell(width: number, height: number): FakeShell {
+    const shell = new FakeShell(this.sandbox, width, height);
+    shell.onContentChange = () => this.onStateChange?.();
+    return shell;
+  }
 
   private allocPaneId(): string {
     return `%${this.nextPaneNum++}`;
@@ -501,14 +521,14 @@ export class FakeTmux {
 
     if (node.direction === 'vertical') {
       const leftW = Math.floor(width * node.ratio);
-      const rightW = width - leftW - 1; // -1 for separator
+      const rightW = width - leftW - 1;
       return [
         ...this.computePositions(node.children[0], x, y, leftW, height),
         ...this.computePositions(node.children[1], x + leftW + 1, y, Math.max(rightW, 1), height),
       ];
     } else {
       const topH = Math.floor(height * node.ratio);
-      const bottomH = height - topH - 1; // -1 for separator
+      const bottomH = height - topH - 1;
       return [
         ...this.computePositions(node.children[0], x, y, width, topH),
         ...this.computePositions(node.children[1], x, y + topH + 1, width, Math.max(bottomH, 1)),
@@ -529,14 +549,12 @@ export class FakeTmux {
   private adjustRatio(node: LayoutNode, paneId: string, direction: string, delta: number): boolean {
     if (node.type === 'leaf') return false;
 
-    // Check if either child contains the pane
     const leftContains = this.containsPane(node.children[0], paneId);
     const rightContains = this.containsPane(node.children[1], paneId);
 
-    if (leftContains && rightContains) return false; // shouldn't happen
+    if (leftContains && rightContains) return false;
 
     if (leftContains || rightContains) {
-      // Check if the split direction matches the resize direction
       const isVerticalResize = direction === 'Left' || direction === 'Right';
       const isHorizontalResize = direction === 'Up' || direction === 'Down';
 
@@ -551,7 +569,6 @@ export class FakeTmux {
         return true;
       }
 
-      // Recurse into the child that contains the pane
       if (leftContains) return this.adjustRatio(node.children[0], paneId, direction, delta);
       return this.adjustRatio(node.children[1], paneId, direction, delta);
     }
@@ -571,7 +588,6 @@ export class FakeTmux {
     if (!pane) return;
     const window = this.windows.find((w) => w.id === pane.windowId);
     if (!window) return;
-    // Set window name to last path component of cwd
     const cwd = pane.shell.cwd;
     const name = cwd === '/' ? '/' : (cwd.split('/').pop() ?? 'bash');
     window.name = name;

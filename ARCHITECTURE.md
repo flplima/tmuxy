@@ -7,9 +7,9 @@ This document describes the architecture of tmuxy, a web-based tmux interface.
 Tmuxy provides a browser-based UI for tmux sessions. It consists of:
 
 1. **tmuxy-core** - Rust library for tmux interaction
-2. **web-server** - Axum web server with WebSocket support
+2. **tmuxy-cli** - CLI + Axum web server with SSE support
 3. **tmuxy-ui** - React frontend with XState state machine
-4. **tauri-app** - Desktop app wrapper (optional)
+4. **tmuxy-tauri-app** - Desktop app wrapper (optional)
 
 ```mermaid
 graph TD
@@ -228,10 +228,12 @@ packages/
 │       │   └── parser.rs       # Control mode event parser
 │       ├── executor.rs         # Subprocess tmux commands
 │       └── session.rs          # Session management
-├── web-server/
+├── tmuxy-cli/
 │   └── src/
-│       ├── main.rs             # Server setup, AppState, SessionConnections
-│       └── websocket.rs        # WebSocket handling, state broadcasting
+│       ├── main.rs             # CLI entry point (clap subcommands)
+│       ├── server.rs           # Server setup (production + dev mode)
+│       ├── web.rs              # AppState, SessionConnections, API routes
+│       └── sse.rs              # SSE handling, state broadcasting
 └── tmuxy-ui/
     └── src/
         ├── machines/

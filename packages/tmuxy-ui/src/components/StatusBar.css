@@ -2,7 +2,7 @@
    StatusBar - Top tab bar
    ============================================ */
 
-.statusbar {
+.tmuxy-statusbar {
   display: flex;
   align-items: center;
   height: var(--statusbar-height);
@@ -13,7 +13,7 @@
   user-select: none;
 }
 
-.statusbar-inner {
+.tmuxy-statusbar-inner {
   display: flex;
   align-items: center;
   height: 100%;
@@ -22,7 +22,7 @@
 }
 
 /* Tab list */
-.tab-list {
+.tmuxy-tab-list {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
@@ -31,12 +31,12 @@
   scrollbar-width: none;
 }
 
-.tab-list::-webkit-scrollbar {
+.tmuxy-tab-list::-webkit-scrollbar {
   display: none;
 }
 
 /* Individual tab */
-.tab {
+.tmuxy-tab {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
@@ -52,22 +52,22 @@
   min-width: 60px;
 }
 
-.tab:hover {
+.tmuxy-tab:hover {
   background-color: var(--bg-elevated-alt);
   color: var(--text-secondary);
 }
 
-.tab-active {
+.tmuxy-tab-active {
   background-color: var(--bg-highlight);
   color: var(--text-primary);
 }
 
-.tab-active:hover {
+.tmuxy-tab-active:hover {
   background-color: var(--bg-highlight-alt);
 }
 
 /* Tab button (clickable name area) */
-.tab-button {
+.tmuxy-tab-button {
   display: flex;
   align-items: center;
   padding: 0;
@@ -80,7 +80,7 @@
 }
 
 /* Tab name */
-.tab-name {
+.tmuxy-tab-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -88,7 +88,7 @@
 }
 
 /* Tab close button - hidden by default, visible on hover */
-.tab-close {
+.tmuxy-tab-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -105,17 +105,17 @@
   flex-shrink: 0;
 }
 
-.tab:hover .tab-close {
+.tmuxy-tab:hover .tmuxy-tab-close {
   opacity: 1;
 }
 
-.tab-close:hover {
+.tmuxy-tab-close:hover {
   background-color: var(--error-color);
   color: white;
 }
 
 /* Add tab button */
-.tab-add {
+.tmuxy-tab-add {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -130,13 +130,13 @@
   cursor: pointer;
 }
 
-.tab-add:hover {
+.tmuxy-tab-add:hover {
   background-color: var(--bg-elevated-alt);
   color: var(--text-muted);
 }
 
 /* Session dropdown button */
-.statusbar-session {
+.tmuxy-statusbar-session {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
@@ -152,12 +152,12 @@
   margin-left: auto;
 }
 
-.statusbar-session:hover {
+.tmuxy-statusbar-session:hover {
   background-color: var(--bg-elevated-alt);
   color: var(--text-primary);
 }
 
-.statusbar-session-name {
+.tmuxy-statusbar-session-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -165,7 +165,7 @@
 }
 
 /* Tab placeholder (drag target) */
-.tab-placeholder {
+.tmuxy-tab-placeholder {
   border: 2px dashed rgba(100, 150, 255, 0.8);
   background-color: rgba(100, 150, 255, 0.15);
   color: rgba(100, 150, 255, 0.9);

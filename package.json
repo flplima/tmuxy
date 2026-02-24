@@ -5,7 +5,7 @@
   "description": "A tmux terminal wrapper - available as Tauri app or web server",
   "workspaces": [
     "packages/tmuxy-ui",
-    "packages/tmuxy-landing-page"
+    "packages/tmuxy-landing"
   ],
   "scripts": {
     "devcontainer": "bash scripts/devcontainer.sh",
@@ -15,17 +15,26 @@
     "start": "pm2 delete tmuxy-dev 2>/dev/null; pm2 start ./scripts/dev.sh --name tmuxy-dev --cwd /workspace",
     "stop": "pm2 stop tmuxy-dev",
     "logs": "pm2 logs tmuxy-dev",
-    "tauri:dev": "cargo tauri dev --manifest-path packages/tauri-app/Cargo.toml",
+    "tauri:dev": "cargo tauri dev --manifest-path packages/tmuxy-tauri-app/Cargo.toml",
     "tauri:build": "./scripts/build-tauri.sh",
     "test": "npm run test -w @tmuxy/ui",
+    "landing:serve": "npm run build:lib -w @tmuxy/ui && npm run dev -w tmuxy-landing",
+    "landing:build": "npm run build:lib -w @tmuxy/ui && npm run build -w tmuxy-landing",
     "test:e2e": "jest --config tests/jest.config.js --runInBand",
     "prepare": "git config core.hooksPath .githooks"
   },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",
+    "@types/react": "^19.2.6",
+    "@types/react-dom": "^19.2.3",
     "jest": "^29.7.0",
     "playwright": "^1.58.0",
     "pm2": "^6.0.14",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3"
   }
 }

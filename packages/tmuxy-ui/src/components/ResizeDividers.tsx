@@ -116,7 +116,7 @@ export function ResizeDividers({
       dividerElements.push(
         <div
           key={`h-${yPos}-${idx}`}
-          className="resize-divider resize-divider-h"
+          className="tmuxy-resize-divider tmuxy-resize-divider-h"
           style={{
             left: centeringOffset.x + seg.start * charWidth,
             top: centeringOffset.y + yPos * charHeight - DIVIDER_THICKNESS / 2,
@@ -148,7 +148,7 @@ export function ResizeDividers({
       dividerElements.push(
         <div
           key={`v-${xPos}-${idx}`}
-          className="resize-divider resize-divider-v"
+          className="tmuxy-resize-divider tmuxy-resize-divider-v"
           style={{
             left: centeringOffset.x + xPos * charWidth + charWidth / 2 - DIVIDER_THICKNESS / 2,
             top: centeringOffset.y + headerY * charHeight,

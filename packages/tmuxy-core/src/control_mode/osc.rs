@@ -133,14 +133,14 @@ impl OscParser {
         let content_str = String::from_utf8_lossy(content);
 
         // OSC 8 (Hyperlinks): 8 ; params ; url
-        if let Some(rest) = content_str.strip_prefix("8;") {
-            self.parse_osc8(rest);
+        if content_str.starts_with("8;") {
+            self.parse_osc8(&content_str[2..]);
             return;
         }
 
         // OSC 52 (Clipboard): 52 ; Pc ; Pd
-        if let Some(rest) = content_str.strip_prefix("52;") {
-            self.parse_osc52(rest);
+        if content_str.starts_with("52;") {
+            self.parse_osc52(&content_str[3..]);
         }
     }
 
@@ -161,9 +161,13 @@ impl OscParser {
         } else {
             // Start of hyperlink
             // Parse optional id from params (id=value)
-            let id = params
-                .split(':')
-                .find_map(|p| p.strip_prefix("id=").map(|v| v.to_string()));
+            let id = params.split(':').find_map(|p| {
+                if p.starts_with("id=") {
+                    Some(p[3..].to_string())
+                } else {
+                    None
+                }
+            });
 
             // Close any existing hyperlink first
             self.finalize_hyperlink();

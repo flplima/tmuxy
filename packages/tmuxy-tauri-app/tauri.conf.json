@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "identifier": "com.tmuxy.app",
   "build": {
-    "beforeDevCommand": "npm run dev -w tmuxy-ui",
-    "beforeBuildCommand": "npm run build -w tmuxy-ui",
+    "beforeDevCommand": "npm run dev -w @tmuxy/ui",
+    "beforeBuildCommand": "npm run build -w @tmuxy/ui",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../tmuxy-ui/dist"
   },

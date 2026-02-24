@@ -26,10 +26,9 @@ fn safe_process(terminal: &mut vt100::Parser, data: &[u8]) {
 }
 
 /// Type of change that occurred
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChangeType {
     /// No change
-    #[default]
     None,
     /// Pane output changed (high frequency, may be debounced)
     PaneOutput { pane_id: String },
@@ -47,6 +46,12 @@ pub enum ChangeType {
     FlowPause { pane_id: String },
     /// Flow control: pane resumed
     FlowContinue { pane_id: String },
+}
+
+impl Default for ChangeType {
+    fn default() -> Self {
+        ChangeType::None
+    }
 }
 
 /// Result of processing a control mode event
@@ -961,8 +966,11 @@ impl StateAggregator {
             window.layout = layout.to_string();
         }
 
-        // Parse layout to update pane positions and return panes that were resized
-        self.parse_layout(window_id, layout)
+        // Parse layout to update pane positions and collect resized pane IDs
+        let resized_panes = self.parse_layout(window_id, layout);
+
+        // Return panes that were resized (they need content refresh)
+        resized_panes
     }
 
     /// Parse tmux layout string to extract pane positions.
@@ -1014,7 +1022,10 @@ impl StateAggregator {
             let rest = parts[3];
 
             // Check for pane ID (just a number)
-            if let Ok(pane_idx) = rest.trim_end_matches([']', '}']).parse::<u32>() {
+            if let Ok(pane_idx) = rest
+                .trim_end_matches(|c| c == ']' || c == '}')
+                .parse::<u32>()
+            {
                 // Find pane by index and update position
                 // Note: We construct pane_id from layout index, but this may not match actual
                 // pane IDs after panes are created/deleted. Only update position, not window_id.

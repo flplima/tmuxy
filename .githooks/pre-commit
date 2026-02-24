@@ -16,10 +16,10 @@ npm test -- --run
 
 # --- Rust ---
 echo "Formatting Rust (cargo fmt)..."
-cargo fmt -p tmuxy-core -p web-server
+cargo fmt -p tmuxy-core -p tmuxy-cli
 
 # Re-stage any files formatted by cargo fmt
-git add -u packages/tmuxy-core packages/web-server
+git add -u packages/tmuxy-core packages/tmuxy-cli
 
 echo "Checking Rust (cargo clippy)..."
-cargo clippy -p tmuxy-core -p web-server
+cargo clippy -p tmuxy-core -p tmuxy-cli
