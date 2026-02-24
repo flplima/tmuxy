@@ -167,12 +167,15 @@ export const TerminalLine = memo(
         if (!currentGroup || currentGroup.cells.length === 0) return;
 
         const text = currentGroup.cells.map((c) => c.c).join('');
-        const style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
+        let style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
         const startIdx = currentGroup.startIdx;
         const url = currentGroup.style?.url;
 
-        // Apply selection highlight via CSS overlay
-        const selectedClass = currentGroup.selected ? 'tmuxy-selected' : undefined;
+        // Apply selection highlight — override fg/bg via inline style
+        const selectedClass = currentGroup.selected ? 'terminal-selected' : undefined;
+        if (currentGroup.selected) {
+          style = { ...style, color: 'var(--term-black)', backgroundColor: '#c0c0c0' };
+        }
 
         // Check if cursor is in this group
         if (isCursorLine) {
@@ -208,7 +211,7 @@ export const TerminalLine = memo(
                   rel="noopener noreferrer"
                   style={style}
                   className={
-                    selectedClass ? `tmuxy-terminal-link ${selectedClass}` : 'tmuxy-terminal-link'
+                    selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'
                   }
                 >
                   {content}
@@ -236,7 +239,7 @@ export const TerminalLine = memo(
               rel="noopener noreferrer"
               style={style}
               className={
-                selectedClass ? `tmuxy-terminal-link ${selectedClass}` : 'tmuxy-terminal-link'
+                selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'
               }
             >
               {text}
@@ -278,7 +281,7 @@ export const TerminalLine = memo(
         const padLen = selectionRange.endCol - padStart + 1;
         if (padLen > 0) {
           spans.push(
-            <span key="sel-pad" className="tmuxy-selected">
+            <span key="sel-pad" className="terminal-selected">
               {' '.repeat(padLen)}
             </span>,
           );
@@ -289,7 +292,7 @@ export const TerminalLine = memo(
     };
 
     return (
-      <div className="tmuxy-terminal-line">
+      <div className="terminal-line">
         {renderCells()}
         {renderEndOfLineCursor()}
       </div>

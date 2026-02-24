@@ -56,7 +56,7 @@ pub fn decode_octal(input: &str) -> Vec<u8> {
 
 #[inline]
 fn is_octal_digit(b: u8) -> bool {
-    b >= b'0' && b <= b'7'
+    (b'0'..=b'7').contains(&b)
 }
 
 #[cfg(test)]

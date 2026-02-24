@@ -1,3 +1,5 @@
+import './Cursor.css';
+
 export type CursorMode = 'block' | 'underline' | 'bar';
 
 interface CursorProps {
@@ -24,11 +26,11 @@ export function Cursor({
   copyMode = false,
 }: CursorProps) {
   const className = [
-    'tmuxy-cursor',
-    `tmuxy-cursor-${mode}`,
-    blink && active ? 'tmuxy-cursor-blink' : '',
-    copyMode ? 'tmuxy-cursor-copy' : '',
-    !active ? 'tmuxy-cursor-inactive' : '',
+    'terminal-cursor',
+    `terminal-cursor-${mode}`,
+    blink && active ? 'terminal-cursor-blink' : '',
+    copyMode ? 'terminal-cursor-copy' : '',
+    !active ? 'terminal-cursor-inactive' : '',
   ]
     .filter(Boolean)
     .join(' ');
