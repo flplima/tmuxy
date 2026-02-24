@@ -108,7 +108,7 @@
   --line-height-terminal: 21px; /* CHAR_HEIGHT */
 
   /* Container Padding */
-  --container-padding: 32px;
+  --container-padding: 0px;
 
   /* Spacing */
   --spacing-xs: 2px;
@@ -217,8 +217,7 @@ body {
 }
 
 .pane-content {
-  /* Horizontal padding from CSS variable set by PaneLayout (30% of charWidth) */
-  padding: 0 var(--pane-h-padding, 0);
+  padding: 0;
   flex: 1;
   position: relative;
   box-sizing: border-box;
@@ -231,14 +230,15 @@ body {
   position: absolute;
   inset: 0;
   border: 1px solid var(--border-medium);
+  border-top: none; /* Header provides top separation */
   pointer-events: none;
   z-index: 10;
 }
 
-/* Active pane content has green border */
+/* Active pane: subtle highlight on header only, no loud border */
 .pane-layout-item.pane-active .pane-content::after,
 .pane-active .pane-content::after {
-  border-color: var(--accent-green);
+  border-color: var(--border-medium);
 }
 
 /* Copy mode has bright green border */
@@ -388,6 +388,7 @@ body {
   flex-direction: column;
   box-sizing: border-box;
   outline: none;
+  border-radius: 0;
   /* Animate position/size changes for swaps and resizes */
   transition:
     left 250ms linear,
@@ -482,16 +483,16 @@ body {
 }
 
 /* ============================================
-   Pane Header - Tab-style design
-   Pattern: | tab1 x | tab2 x | + |
+   Pane Header - Minimalistic tab bar
+   Pattern: tab1  tab2  tab3   +
    ============================================ */
 
 .pane-header {
   display: flex;
   align-items: center;
   height: var(--pane-header-height);
-  margin-top: 4px; /* Visible gap between panes */
-  background-color: transparent;
+  margin-top: 0;
+  background-color: var(--bg-dark);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   color: var(--pane-header-text-inactive);
@@ -499,43 +500,57 @@ body {
   box-sizing: border-box;
   padding: 0;
   gap: 0;
+  border-bottom: 1px solid var(--border-medium);
 }
 
-/* Pane tabs container - no flex grow, just wrap content */
+/* Pane tabs container */
 .pane-tabs {
   display: flex;
   overflow-x: auto;
   scrollbar-width: none;
   height: 100%;
+  gap: 0;
 }
 
 .pane-tabs::-webkit-scrollbar {
   display: none;
 }
 
-/* Individual pane tab */
+/* Individual pane tab - minimalistic text-only */
 .pane-tab {
   position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 10px;
+  padding: 0 12px;
   height: 100%;
-  background-color: var(--border-medium);
+  background-color: transparent;
   border: none;
-  transition: background-color var(--transition-fast);
+  border-bottom: 2px solid transparent;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
   flex-shrink: 0;
   min-width: 0;
+  cursor: pointer;
 }
 
-/* Selected tab in a group (but pane not active) */
+.pane-tab:hover {
+  color: var(--text-secondary);
+}
+
+/* Selected tab in a group (but pane not active) - underline indicator */
 .pane-tab-selected {
-  background-color: var(--border-light);
+  border-bottom-color: var(--text-dimmed);
 }
 
-/* Active tab: green background, black text */
+.pane-tab-selected .pane-tab-title {
+  color: var(--text-secondary);
+}
+
+/* Active tab: accent underline, bright text */
 .pane-tab-active {
-  background-color: var(--accent-green);
+  border-bottom-color: var(--accent-green);
 }
 
 .pane-tab-title {
@@ -543,17 +558,17 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-sm);
-  color: var(--text-muted);
+  color: var(--text-dimmed);
   max-width: 150px;
 }
 
-/* Active tab title: black text */
+/* Active tab title: bright text */
 .pane-tab-active .pane-tab-title {
-  color: var(--bg-black);
+  color: var(--accent-green);
   font-weight: 500;
 }
 
-/* Pane tab close button */
+/* Pane tab close button - hidden by default, shown on hover */
 .pane-tab-close {
   display: flex;
   align-items: center;
@@ -567,14 +582,18 @@ body {
   font-size: 11px;
   cursor: pointer;
   line-height: 1;
-  opacity: 0.7;
+  opacity: 0;
   flex-shrink: 0;
+  transition: opacity var(--transition-fast);
 }
 
-/* Active tab close button: dark color on green background */
-.pane-tab-active .pane-tab-close {
-  color: var(--bg-black);
+.pane-tab:hover .pane-tab-close {
   opacity: 0.7;
+}
+
+/* Active tab close button */
+.pane-tab-active .pane-tab-close {
+  color: var(--accent-green);
 }
 
 /* Pane tab add button */
@@ -584,16 +603,20 @@ body {
   justify-content: center;
   width: 16px;
   height: 16px;
-  margin: 0 2px;
+  margin: 0 4px;
   padding: 0;
   background: transparent;
-  border: 1px dashed var(--border-subtle);
+  border: none;
   color: var(--text-subtle);
   font-size: 12px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: color var(--transition-fast);
   flex-shrink: 0;
   z-index: 60; /* Above resize dividers */
+}
+
+.pane-tab-add:hover {
+  color: var(--text-muted);
 }
 
 /* ============================================

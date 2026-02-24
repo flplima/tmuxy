@@ -92,8 +92,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, [isDragging, isResizing, send]);
 
-  // Horizontal padding: 30% of charWidth on each side
-  const hPadding = Math.round(charWidth * 0.3);
+  // Mosaic layout: no horizontal padding between panes
+  const hPadding = 0;
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
