@@ -10,7 +10,6 @@
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import type { TmuxAdapter } from '../tmux/types';
 import { useActorRef, useSelector } from '@xstate/react';
 import { appMachine, type AppMachineActor } from './app';
 import type {
@@ -83,7 +82,7 @@ const AppContext = createContext<AppMachineActor | null>(null);
  */
 function measureCharWidth(): number {
   const testEl = document.createElement('pre');
-  testEl.className = 'tmuxy-terminal-content';
+  testEl.className = 'terminal-content';
   testEl.style.position = 'absolute';
   testEl.style.visibility = 'hidden';
   testEl.style.top = '-9999px';
@@ -98,18 +97,15 @@ function measureCharWidth(): number {
 // Provider
 // ============================================
 
-interface TmuxyProviderProps {
-  children: ReactNode;
-  adapter?: TmuxAdapter;
-}
-
-export function AppProvider({ children, adapter: adapterProp }: TmuxyProviderProps) {
+export function AppProvider({ children }: { children: ReactNode }) {
   // Create adapter and actors once
   const actors = useMemo(() => {
-    const adapter = adapterProp ?? createAdapter();
-    // Expose adapter for E2E testing (dev mode only)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (typeof window !== 'undefined' && (import.meta as any).env?.DEV) {
+    const adapter = createAdapter();
+    // Expose adapter for E2E testing (dev mode or CI)
+    if (
+      typeof window !== 'undefined' &&
+      (import.meta.env.DEV || import.meta.env.VITE_E2E === 'true')
+    ) {
       (window as unknown as { _adapter: typeof adapter })._adapter = adapter;
     }
     return {
@@ -125,10 +121,12 @@ export function AppProvider({ children, adapter: adapterProp }: TmuxyProviderPro
     }),
   );
 
-  // Expose XState actor for debugging (dev mode only)
+  // Expose XState actor for debugging (dev mode or CI)
   useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (typeof window !== 'undefined' && (import.meta as any).env?.DEV) {
+    if (
+      typeof window !== 'undefined' &&
+      (import.meta.env.DEV || import.meta.env.VITE_E2E === 'true')
+    ) {
       (window as unknown as { app: typeof actorRef }).app = actorRef;
     }
   }, [actorRef]);
@@ -140,7 +138,7 @@ export function AppProvider({ children, adapter: adapterProp }: TmuxyProviderPro
 // Hooks
 // ============================================
 
-function useAppActor(): AppMachineActor {
+export function useAppActor(): AppMachineActor {
   const actor = useContext(AppContext);
   if (!actor) throw new Error('useAppActor must be used within AppProvider');
   return actor;

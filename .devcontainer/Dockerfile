@@ -88,16 +88,9 @@ ENV SHELL=/bin/zsh
 ENV EDITOR=nano
 ENV VISUAL=nano
 
-# zsh with productivity plugins
-ARG ZSH_IN_DOCKER_VERSION=1.2.0
-RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v${ZSH_IN_DOCKER_VERSION}/zsh-in-docker.sh)" -- \
-    -p git -p fzf \
-    -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
-    -a "source /usr/share/doc/fzf/examples/completion.zsh" \
-    -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
-    -a "export PATH=/usr/local/cargo/bin:\$PATH" \
-    -a "[[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh" \
-    -x
+# zsh with Pure prompt
+RUN git clone https://github.com/sindresorhus/pure.git /home/node/.zsh/pure
+COPY --chown=node:node docker/.zshrc /home/node/.zshrc
 
 # Add local bin, cargo, and npm global bin to profile (login shells, including non-interactive)
 RUN echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/node/.profile

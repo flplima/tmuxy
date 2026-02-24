@@ -39,7 +39,7 @@ impl SseEmitter {
 
 impl StateEmitter for SseEmitter {
     fn emit_state(&self, update: StateUpdate) {
-        let event = SseEvent::StateUpdate(update);
+        let event = SseEvent::StateUpdate(Box::new(update));
         let _ = self.tx.send(serde_json::to_string(&event).unwrap());
     }
 
@@ -70,7 +70,7 @@ enum SseEvent {
         default_shell: String,
     },
     #[serde(rename = "state-update")]
-    StateUpdate(StateUpdate),
+    StateUpdate(Box<StateUpdate>),
     #[serde(rename = "error")]
     Error { message: String },
     #[serde(rename = "keybindings")]
@@ -240,11 +240,17 @@ pub async fn sse_handler(
                                 };
 
                                 // For state updates, use delta seq as event ID
-                                if let SseEvent::StateUpdate(StateUpdate::Delta { delta, .. }) = &event {
-                                    yield Ok(Event::default()
-                                        .event(event_type)
-                                        .id(delta.seq.to_string())
-                                        .data(msg));
+                                if let SseEvent::StateUpdate(update) = &event {
+                                    if let StateUpdate::Delta { delta, .. } = update.as_ref() {
+                                        yield Ok(Event::default()
+                                            .event(event_type)
+                                            .id(delta.seq.to_string())
+                                            .data(msg));
+                                    } else {
+                                        yield Ok(Event::default()
+                                            .event(event_type)
+                                            .data(msg));
+                                    }
                                 } else {
                                     yield Ok(Event::default()
                                         .event(event_type)
@@ -359,7 +365,7 @@ async fn handle_command(
         }
         "process_key" => {
             let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
-            tmuxy_core::process_key(session, key).map_err(|e| e)?;
+            tmuxy_core::process_key(session, key)?;
             Ok(serde_json::json!(null))
         }
         "get_initial_state" => {
@@ -369,7 +375,7 @@ async fn handle_command(
             if cols > 0 && rows > 0 {
                 set_client_size(state, session, conn_id, cols, rows).await;
             }
-            let state = tmuxy_core::capture_window_state_for_session(session).map_err(|e| e)?;
+            let state = tmuxy_core::capture_window_state_for_session(session)?;
             Ok(serde_json::to_value(state).unwrap())
         }
         "set_client_size" => {
@@ -381,15 +387,15 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         "initialize_session" => {
-            session::create_or_attach(session).map_err(|e| e)?;
+            session::create_or_attach(session)?;
             Ok(serde_json::json!(null))
         }
         "get_scrollback_history" => {
-            let history = executor::capture_pane_with_history(session).map_err(|e| e)?;
+            let history = executor::capture_pane_with_history(session)?;
             Ok(serde_json::json!(history))
         }
         "get_buffer" => {
-            let buffer = executor::show_buffer().map_err(|e| e)?;
+            let buffer = executor::show_buffer()?;
             Ok(serde_json::json!(buffer))
         }
         "split_pane_horizontal" => {
@@ -416,7 +422,7 @@ async fn handle_command(
                 "up" => "-U",
                 "down" => "-D",
                 "left" => "-L",
-                "right" | _ => "-R",
+                _ => "-R",
             };
             let cmd = format!("selectp -t {} {}", session, dir_flag);
             send_via_control_mode(state, session, &cmd).await?;
@@ -477,7 +483,7 @@ async fn handle_command(
             let button = args.get("button").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             let x = args.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             let y = args.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-            executor::send_mouse_event(pane_id, event_type, button, x, y).map_err(|e| e)?;
+            executor::send_mouse_event(pane_id, event_type, button, x, y)?;
             Ok(serde_json::json!(null))
         }
         "execute_prefix_binding" => {
@@ -595,12 +601,12 @@ async fn handle_command(
                     .map_err(|e| format!("Monitor channel error: {}", e))?;
                 Ok(serde_json::json!({"success": true}))
             } else {
-                executor::resize_window(session, cols, rows).map_err(|e| e)?;
+                executor::resize_window(session, cols, rows)?;
                 Ok(serde_json::json!({"success": true}))
             }
         }
         "get_key_bindings" => {
-            let bindings = tmuxy_core::get_prefix_bindings().map_err(|e| e)?;
+            let bindings = tmuxy_core::get_prefix_bindings()?;
             let prefix = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".to_string());
             Ok(serde_json::json!({
                 "prefix": prefix,
@@ -1018,7 +1024,7 @@ async fn start_monitoring_polling(tx: broadcast::Sender<String>) {
                 let current_hash = format!("{}||{}", pane_hash, window_hash);
 
                 if current_hash != previous_hash {
-                    let event = SseEvent::StateUpdate(StateUpdate::Full { state });
+                    let event = SseEvent::StateUpdate(Box::new(StateUpdate::Full { state }));
                     let _ = tx.send(serde_json::to_string(&event).unwrap());
                     previous_hash = current_hash;
                 }
