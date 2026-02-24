@@ -1,31 +1,121 @@
 import type { PaneContent, CellLine, TerminalCell, CellStyle } from '../types';
-import type { Sandbox } from '@lifo-sh/core';
+import type { VirtualFS } from './virtualFs';
+import type { ShellContext, CommandResult } from './commands/types';
+import { ok } from './commands/types';
+import * as filesystem from './commands/filesystem';
+import * as text from './commands/text';
+import * as navigation from './commands/navigation';
+import * as environment from './commands/environment';
+import * as shell from './commands/shell';
+
+const COMMANDS: Record<string, (args: string[], ctx: ShellContext) => CommandResult> = {
+  ls: filesystem.ls,
+  cat: filesystem.cat,
+  mkdir: filesystem.mkdir,
+  touch: filesystem.touch,
+  rm: filesystem.rm,
+  cp: filesystem.cp,
+  mv: filesystem.mv,
+  head: text.head,
+  tail: text.tail,
+  wc: text.wc,
+  grep: text.grep,
+  echo: text.echo,
+  cd: navigation.cd,
+  pwd: navigation.pwd,
+  which: navigation.which,
+  env: environment.env,
+  export: environment.exportCmd,
+  unset: environment.unset,
+  whoami: environment.whoami,
+  hostname: environment.hostname,
+  uname: environment.uname,
+  date: environment.date,
+  printenv: environment.printenv,
+  help: shell.help,
+  history: shell.history,
+  clear: shell.clear,
+  exit: shell.exit,
+  true: shell.trueCmd,
+  false: shell.falseCmd,
+};
+
+const KNOWN_COMMANDS = new Set([
+  'vim',
+  'vi',
+  'nano',
+  'emacs',
+  'git',
+  'docker',
+  'npm',
+  'node',
+  'python',
+  'python3',
+  'pip',
+  'cargo',
+  'rustc',
+  'go',
+  'make',
+  'gcc',
+  'ssh',
+  'scp',
+  'curl',
+  'wget',
+  'tar',
+  'zip',
+  'unzip',
+  'man',
+  'less',
+  'more',
+  'sort',
+  'uniq',
+  'awk',
+  'sed',
+  'find',
+  'xargs',
+  'tee',
+  'diff',
+  'patch',
+  'htop',
+  'top',
+  'ps',
+  'kill',
+  'bg',
+  'fg',
+  'jobs',
+]);
 
 export class FakeShell {
   cwd: string;
+  env: Map<string, string>;
   history: string[] = [];
   inputBuffer = '';
   cursorPos = 0;
   historyIndex = -1;
   lastExitCode = 0;
 
-  /** Called when async command execution completes and grid has new content */
-  onContentChange?: () => void;
-
-  private sandbox: Sandbox;
+  private vfs: VirtualFS;
   private grid: PaneContent = [];
   private cursorRow = 0;
   private cursorCol = 0;
   private width: number;
   private height: number;
+  /** Saved input when browsing history */
   private savedInput = '';
-  private pendingExecution: Promise<void> | null = null;
 
-  constructor(sandbox: Sandbox, width: number, height: number) {
-    this.sandbox = sandbox;
+  constructor(vfs: VirtualFS, width: number, height: number) {
+    this.vfs = vfs;
     this.width = width;
     this.height = height;
-    this.cwd = sandbox.cwd;
+    this.cwd = '/home/demo';
+    this.env = new Map([
+      ['HOME', '/home/demo'],
+      ['USER', 'demo'],
+      ['SHELL', '/bin/bash'],
+      ['PATH', '/usr/bin:/bin'],
+      ['TERM', 'xterm-256color'],
+      ['PWD', '/home/demo'],
+    ]);
     this.initGrid();
   }
 
@@ -57,6 +147,7 @@ export class FakeShell {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
+    // Rebuild grid preserving content
     const newGrid: PaneContent = [];
     for (let r = 0; r < height; r++) {
       if (r < this.grid.length) {
@@ -75,20 +166,19 @@ export class FakeShell {
     if (this.cursorCol >= width) this.cursorCol = width - 1;
   }
 
+  /** Write a welcome banner to the grid */
   writeBanner(): void {
     const lines = [
       '\x1b[1;36m Welcome to tmuxy demo! \x1b[0m',
       '',
       ' Try these commands:',
-      '   ls, cd, cat, echo, grep, sed, awk, find',
-      '   Pipes: ls | grep src | wc -l',
-      '   Logic: test -f README.md && echo exists',
+      '   ls, cd, cat, echo, help',
       '',
       ' Tmux shortcuts:',
-      '   Ctrl+A " \u2014 split horizontally',
-      '   Ctrl+A % \u2014 split vertically',
-      '   Ctrl+A c \u2014 new window',
-      '   Ctrl+A arrow \u2014 navigate panes',
+      '   Ctrl+A " — split horizontally',
+      '   Ctrl+A % — split vertically',
+      '   Ctrl+A c — new window',
+      '   Ctrl+A arrow — navigate panes',
       '',
     ];
     for (const line of lines) {
@@ -97,8 +187,9 @@ export class FakeShell {
     }
   }
 
+  /** Write the shell prompt to the grid */
   writePrompt(): void {
-    const home = '/home/user';
+    const home = this.env.get('HOME') ?? '/home/demo';
     let displayCwd = this.cwd;
     if (this.cwd === home) {
       displayCwd = '~';
@@ -106,8 +197,10 @@ export class FakeShell {
       displayCwd = '~' + this.cwd.slice(home.length);
     }
 
+    // demo@tmuxy in green bold
     this.writeStyled('demo@tmuxy', { fg: 2, bold: true });
     this.writeCell({ c: ':', s: undefined });
+    // cwd in blue bold
     this.writeStyled(displayCwd, { fg: 4, bold: true });
     this.writeCell({ c: '$', s: undefined });
     this.writeCell({ c: ' ', s: undefined });
@@ -142,26 +235,21 @@ export class FakeShell {
     } else if (key === 'C-c') {
       this.handleCtrlC();
     } else if (key === 'C-l') {
-      this.handleClearScreen();
-      this.writePrompt();
-      this.writeText(this.inputBuffer);
-      this.cursorCol = this.promptLength() + this.cursorPos;
+      this.handleClear();
     } else if (key === 'C-u') {
-      this.inputBuffer = this.inputBuffer.slice(this.cursorPos);
-      this.cursorPos = 0;
-      this.redrawInput();
+      this.handleCtrlU();
     } else if (key === 'C-k') {
-      this.inputBuffer = this.inputBuffer.slice(0, this.cursorPos);
-      this.redrawInput();
+      this.handleCtrlK();
     } else if (key === 'C-w') {
       this.handleCtrlW();
     } else if (key === 'Tab') {
-      // Tab completion not implemented with lifo (would need completer access)
+      this.handleTab();
     } else if (key === 'Space') {
       this.insertChar(' ');
     } else if (key.length === 1 && key >= ' ') {
       this.insertChar(key);
     }
+    // Ignore other keys (function keys, etc.)
   }
 
   /** Process a literal string (from send-keys -l) */
@@ -171,18 +259,13 @@ export class FakeShell {
     }
   }
 
-  /** Wait for any pending async command execution to finish */
-  async waitForCompletion(): Promise<void> {
-    if (this.pendingExecution) {
-      await this.pendingExecution;
-    }
-  }
-
   private insertChar(ch: string): void {
     this.inputBuffer =
       this.inputBuffer.slice(0, this.cursorPos) + ch + this.inputBuffer.slice(this.cursorPos);
     this.cursorPos++;
     this.historyIndex = -1;
+
+    // Redraw input line from cursor
     this.redrawInput();
   }
 
@@ -202,6 +285,7 @@ export class FakeShell {
   }
 
   private handleEnter(): void {
+    // Move cursor to end of input
     this.cursorCol = this.promptLength() + this.inputBuffer.length;
     this.newline();
 
@@ -213,59 +297,19 @@ export class FakeShell {
 
     if (line.length > 0) {
       this.history.push(line);
-
-      // Intercept 'clear' — lifo's clear builtin writes to terminal (no-op in headless)
-      if (line === 'clear') {
-        this.handleClearScreen();
-        this.writePrompt();
-        this.onContentChange?.();
-        return;
+      const result = this.executeLine(line);
+      if (result.output) {
+        // Check for clear screen escape
+        if (result.output === '\x1b[2J\x1b[H') {
+          this.handleClearScreen();
+        } else {
+          this.writeOutput(result.output);
+        }
       }
-
-      // Async execution via lifo Sandbox
-      this.pendingExecution = this.executeViaLifo(line);
-    } else {
-      this.writePrompt();
-    }
-  }
-
-  private async executeViaLifo(line: string): Promise<void> {
-    try {
-      // Sync sandbox cwd to this pane's cwd before executing.
-      // Don't pass cwd as an option — lifo restores the original cwd after
-      // execution when options.cwd is set, which prevents cd from persisting.
-      this.sandbox.cwd = this.cwd;
-
-      const result = await this.sandbox.commands.run(line, {
-        timeout: 5000,
-      });
-
-      // Write stdout
-      if (result.stdout) {
-        // lifo uses \n line endings; strip trailing newline to avoid extra blank line
-        const output = result.stdout.endsWith('\n') ? result.stdout.slice(0, -1) : result.stdout;
-        if (output) this.writeOutput(output);
-      }
-
-      // Write stderr
-      if (result.stderr) {
-        const errOutput = result.stderr.endsWith('\n') ? result.stderr.slice(0, -1) : result.stderr;
-        if (errOutput) this.writeOutput(errOutput);
-      }
-
       this.lastExitCode = result.exitCode;
-
-      // Sync cwd back (in case cd was used)
-      this.cwd = this.sandbox.cwd;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.writeOutput(msg);
-      this.lastExitCode = 1;
     }
 
     this.writePrompt();
-    this.pendingExecution = null;
-    this.onContentChange?.();
   }
 
   private handleCtrlC(): void {
@@ -277,11 +321,30 @@ export class FakeShell {
     this.writePrompt();
   }
 
+  private handleClear(): void {
+    this.handleClearScreen();
+    this.writePrompt();
+    this.writeText(this.inputBuffer);
+    this.cursorCol = this.promptLength() + this.cursorPos;
+  }
+
   private handleClearScreen(): void {
     this.initGrid();
   }
 
+  private handleCtrlU(): void {
+    this.inputBuffer = this.inputBuffer.slice(this.cursorPos);
+    this.cursorPos = 0;
+    this.redrawInput();
+  }
+
+  private handleCtrlK(): void {
+    this.inputBuffer = this.inputBuffer.slice(0, this.cursorPos);
+    this.redrawInput();
+  }
+
   private handleCtrlW(): void {
+    // Delete previous word
     let i = this.cursorPos - 1;
     while (i >= 0 && this.inputBuffer[i] === ' ') i--;
     while (i >= 0 && this.inputBuffer[i] !== ' ') i--;
@@ -289,6 +352,37 @@ export class FakeShell {
     this.inputBuffer = this.inputBuffer.slice(0, newPos) + this.inputBuffer.slice(this.cursorPos);
     this.cursorPos = newPos;
     this.redrawInput();
+  }
+
+  private handleTab(): void {
+    // Simple tab completion: complete file/directory names
+    const parts = this.inputBuffer.slice(0, this.cursorPos).split(/\s+/);
+    const partial = parts[parts.length - 1] || '';
+    if (!partial) return;
+
+    const dir = partial.includes('/')
+      ? this.vfs.resolvePath(this.cwd, partial.substring(0, partial.lastIndexOf('/') + 1))
+      : this.cwd;
+    const prefix = partial.includes('/')
+      ? partial.substring(partial.lastIndexOf('/') + 1)
+      : partial;
+
+    const entries = this.vfs.readdir(dir);
+    if (!entries) return;
+
+    const matches = entries.filter((e) => e.startsWith(prefix));
+    if (matches.length === 1) {
+      const completion = matches[0].slice(prefix.length);
+      const node = this.vfs.stat(dir === '/' ? `/${matches[0]}` : `${dir}/${matches[0]}`);
+      const suffix = node?.type === 'directory' ? '/' : ' ';
+      this.inputBuffer =
+        this.inputBuffer.slice(0, this.cursorPos) +
+        completion +
+        suffix +
+        this.inputBuffer.slice(this.cursorPos);
+      this.cursorPos += completion.length + 1;
+      this.redrawInput();
+    }
   }
 
   private historyUp(): void {
@@ -330,7 +424,8 @@ export class FakeShell {
   }
 
   private promptLength(): number {
-    const home = '/home/user';
+    // "demo@tmuxy:" + cwd + "$ "
+    const home = this.env.get('HOME') ?? '/home/demo';
     let displayCwd = this.cwd;
     if (this.cwd === home) displayCwd = '~';
     else if (this.cwd.startsWith(home + '/')) displayCwd = '~' + this.cwd.slice(home.length);
@@ -338,11 +433,14 @@ export class FakeShell {
   }
 
   private redrawInput(): void {
+    // Clear from prompt start to end of line and rewrite
     const promptLen = this.promptLength();
     const row = this.cursorRow;
+    // Clear the input area on current line
     for (let c = promptLen; c < this.width; c++) {
       if (this.grid[row]) this.grid[row][c] = { c: ' ' };
     }
+    // Write input buffer
     for (let i = 0; i < this.inputBuffer.length; i++) {
       const col = promptLen + i;
       if (col < this.width && this.grid[row]) {
@@ -350,6 +448,120 @@ export class FakeShell {
       }
     }
     this.cursorCol = promptLen + this.cursorPos;
+  }
+
+  private executeLine(line: string): CommandResult {
+    // Support simple pipes
+    if (line.includes(' | ')) {
+      return this.executePipe(line);
+    }
+    return this.executeCommand(line);
+  }
+
+  private executePipe(line: string): CommandResult {
+    const parts = line.split(' | ').map((s) => s.trim());
+    let input = '';
+    let result: CommandResult = ok();
+
+    for (const part of parts) {
+      // For piped commands, prepend previous output as a virtual file
+      if (input) {
+        // Create temp context with stdin
+        const tmpPath = '/tmp/.pipe_stdin';
+        this.vfs.writeFile(tmpPath, input);
+        const parsed = this.parseCommand(part);
+        if (parsed) {
+          // Append stdin file as last arg for commands that read files
+          const cmdArgs = [...parsed.args, tmpPath];
+          const cmdFn = COMMANDS[parsed.cmd];
+          if (cmdFn) {
+            result = cmdFn(cmdArgs, this.makeContext());
+          } else {
+            result = { output: `${parsed.cmd}: command not found`, exitCode: 127 };
+          }
+        }
+        this.vfs.rm('/tmp/.pipe_stdin');
+      } else {
+        result = this.executeCommand(part);
+      }
+      input = result.output;
+    }
+    return result;
+  }
+
+  private executeCommand(line: string): CommandResult {
+    const parsed = this.parseCommand(line);
+    if (!parsed) return ok();
+
+    const { cmd, args } = parsed;
+    const cmdFn = COMMANDS[cmd];
+
+    if (cmdFn) {
+      const ctx = this.makeContext();
+      const result = cmdFn(args, ctx);
+      // Handle cd: update cwd from result
+      if (cmd === 'cd' && result.exitCode === 0 && result.output) {
+        this.cwd = result.output;
+        this.env.set('PWD', this.cwd);
+        return ok();
+      }
+      return result;
+    }
+
+    if (KNOWN_COMMANDS.has(cmd)) {
+      return {
+        output: `'${cmd}' is not available in this demo shell. Try 'help' for available commands.`,
+        exitCode: 127,
+      };
+    }
+
+    return { output: `${cmd}: command not found`, exitCode: 127 };
+  }
+
+  private parseCommand(line: string): { cmd: string; args: string[] } | null {
+    const tokens = this.tokenize(line);
+    if (tokens.length === 0) return null;
+    return { cmd: tokens[0], args: tokens.slice(1) };
+  }
+
+  private tokenize(line: string): string[] {
+    const tokens: string[] = [];
+    let current = '';
+    let inSingle = false;
+    let inDouble = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inSingle) {
+        if (ch === "'") inSingle = false;
+        else current += ch;
+      } else if (inDouble) {
+        if (ch === '"') inDouble = false;
+        else current += ch;
+      } else if (ch === "'") {
+        inSingle = true;
+      } else if (ch === '"') {
+        inDouble = true;
+      } else if (ch === ' ' || ch === '\t') {
+        if (current) {
+          tokens.push(current);
+          current = '';
+        }
+      } else {
+        current += ch;
+      }
+    }
+    if (current) tokens.push(current);
+    return tokens;
+  }
+
+  private makeContext(): ShellContext {
+    return {
+      cwd: this.cwd,
+      env: this.env,
+      vfs: this.vfs,
+      history: this.history,
+    };
   }
 
   private writeOutput(text: string): void {
@@ -360,11 +572,13 @@ export class FakeShell {
   }
 
   private writeText(text: string): void {
+    // Parse basic ANSI escape sequences
     let i = 0;
     let currentStyle: CellStyle | undefined;
 
     while (i < text.length) {
       if (text[i] === '\x1b' && text[i + 1] === '[') {
+        // Parse SGR sequence
         let j = i + 2;
         while (j < text.length && text[j] !== 'm' && text[j] !== 'J' && text[j] !== 'H') j++;
         if (j < text.length) {
@@ -417,6 +631,7 @@ export class FakeShell {
     this.cursorCol = 0;
     this.cursorRow++;
     if (this.cursorRow >= this.height) {
+      // Scroll up
       this.grid.shift();
       this.grid.push(this.emptyLine());
       this.cursorRow = this.height - 1;

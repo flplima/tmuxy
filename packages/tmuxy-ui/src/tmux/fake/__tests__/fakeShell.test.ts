@@ -1,20 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Sandbox } from '@lifo-sh/core';
 import { FakeShell } from '../fakeShell';
+import { VirtualFS } from '../virtualFs';
 
 describe('FakeShell', () => {
-  let sandbox: Sandbox;
+  let vfs: VirtualFS;
   let shell: FakeShell;
 
-  beforeEach(async () => {
-    sandbox = await Sandbox.create({
-      persist: false,
-      files: {
-        '/home/user/projects/myapp/package.json': '{"name":"myapp"}',
-        '/home/user/documents/notes.txt': 'Meeting notes\n- Item 1\n- Item 2\n',
-      },
-    });
-    shell = new FakeShell(sandbox, 80, 24);
+  beforeEach(() => {
+    vfs = new VirtualFS();
+    shell = new FakeShell(vfs, 80, 24);
     shell.writePrompt();
   });
 
@@ -24,9 +18,8 @@ describe('FakeShell', () => {
     }
   }
 
-  async function enter(): Promise<void> {
+  function enter(): void {
     shell.processKey('Enter');
-    await shell.waitForCompletion();
   }
 
   function getVisibleText(): string {
@@ -42,74 +35,58 @@ describe('FakeShell', () => {
       .join('\n');
   }
 
-  describe('command execution via lifo', () => {
-    it('runs pwd', async () => {
+  describe('command execution', () => {
+    it('runs pwd', () => {
       type('pwd');
-      await enter();
+      enter();
       const text = getVisibleText();
-      expect(text).toContain('/home/user');
+      expect(text).toContain('/home/demo');
     });
 
-    it('runs echo', async () => {
+    it('runs echo', () => {
       type('echo hello world');
-      await enter();
+      enter();
       const text = getVisibleText();
       expect(text).toContain('hello world');
     });
 
-    it('runs ls', async () => {
+    it('runs ls', () => {
       type('ls');
-      await enter();
+      enter();
       const text = getVisibleText();
       expect(text).toContain('projects');
       expect(text).toContain('documents');
     });
 
-    it('runs cat on a file', async () => {
+    it('runs cat on a file', () => {
       type('cat documents/notes.txt');
-      await enter();
+      enter();
       const text = getVisibleText();
       expect(text).toContain('Meeting notes');
     });
 
-    it('handles command not found', async () => {
-      type('nonexistent_command');
-      await enter();
+    it('handles command not found', () => {
+      type('nonexistent');
+      enter();
       const text = getVisibleText();
-      expect(text).toContain('not found');
+      expect(text).toContain('command not found');
     });
 
-    it('supports pipes', async () => {
-      type('echo hello | wc -l');
-      await enter();
+    it('handles known but unavailable commands', () => {
+      type('git status');
+      enter();
       const text = getVisibleText();
-      expect(text).toContain('1');
-    });
-
-    it('supports && operator', async () => {
-      type('echo first && echo second');
-      await enter();
-      const text = getVisibleText();
-      expect(text).toContain('first');
-      expect(text).toContain('second');
-    });
-
-    it('runs grep', async () => {
-      type('grep Item documents/notes.txt');
-      await enter();
-      const text = getVisibleText();
-      expect(text).toContain('Item 1');
-      expect(text).toContain('Item 2');
+      expect(text).toContain('not available in this demo');
     });
   });
 
   describe('input handling', () => {
-    it('handles backspace', async () => {
+    it('handles backspace', () => {
       type('helo');
       shell.processKey('BSpace');
       shell.processKey('BSpace');
       type('lp');
-      await enter();
+      enter();
       const text = getVisibleText();
       expect(text).toContain('help');
     });
@@ -117,24 +94,25 @@ describe('FakeShell', () => {
     it('handles Ctrl+C', () => {
       type('some input');
       shell.processKey('C-c');
+      // Should show ^C and new prompt
       const text = getVisibleText();
       expect(text).toContain('^C');
     });
 
-    it('handles literal text', async () => {
+    it('handles literal text', () => {
       shell.processLiteral('echo test');
-      await enter();
+      enter();
       const text = getVisibleText();
       expect(text).toContain('test');
     });
   });
 
   describe('history', () => {
-    it('navigates history with Up/Down', async () => {
+    it('navigates history with Up/Down', () => {
       type('echo first');
-      await enter();
+      enter();
       type('echo second');
-      await enter();
+      enter();
 
       shell.processKey('Up');
       expect(shell.inputBuffer).toBe('echo second');
@@ -150,48 +128,43 @@ describe('FakeShell', () => {
     });
   });
 
-  describe('cd', () => {
-    it('changes directory', async () => {
-      type('cd projects');
-      await enter();
-      type('pwd');
-      await enter();
+  describe('pipes', () => {
+    it('supports simple pipe', () => {
+      type('echo hello | wc');
+      enter();
       const text = getVisibleText();
-      expect(text).toContain('/home/user/projects');
-    });
-
-    it('cd ~ goes home', async () => {
-      type('cd /tmp');
-      await enter();
-      type('cd ~');
-      await enter();
-      type('pwd');
-      await enter();
-      const text = getVisibleText();
-      expect(text).toContain('/home/user');
-    });
-
-    it('cd with no args goes home', async () => {
-      type('cd /tmp');
-      await enter();
-      type('cd');
-      await enter();
-      expect(shell.cwd).toBe('/home/user');
+      // wc should show line/word/byte count
+      expect(text).toContain('1');
     });
   });
 
-  describe('clear', () => {
-    it('clears the screen', () => {
-      type('clear');
-      shell.processKey('Enter');
-      // clear is intercepted synchronously — no need to await
-      const content = shell.getContent();
-      // After clear, first non-empty line should be the prompt
-      const firstLine = content[0]
-        .map((c) => c.c)
-        .join('')
-        .trimEnd();
-      expect(firstLine).toContain('demo@tmuxy');
+  describe('cd', () => {
+    it('changes directory', () => {
+      type('cd projects');
+      enter();
+      type('pwd');
+      enter();
+      const text = getVisibleText();
+      expect(text).toContain('/home/demo/projects');
+    });
+
+    it('cd ~ goes home', () => {
+      type('cd /tmp');
+      enter();
+      type('cd ~');
+      enter();
+      type('pwd');
+      enter();
+      const text = getVisibleText();
+      expect(text).toContain('/home/demo');
+    });
+
+    it('cd with no args goes home', () => {
+      type('cd /tmp');
+      enter();
+      type('cd');
+      enter();
+      expect(shell.cwd).toBe('/home/demo');
     });
   });
 

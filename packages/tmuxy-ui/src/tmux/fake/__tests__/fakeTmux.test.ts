@@ -4,9 +4,9 @@ import { FakeTmux } from '../fakeTmux';
 describe('FakeTmux', () => {
   let tmux: FakeTmux;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     tmux = new FakeTmux();
-    await tmux.init(80, 24);
+    tmux.init(80, 24);
   });
 
   describe('initialization', () => {
@@ -28,6 +28,7 @@ describe('FakeTmux', () => {
       const state = tmux.getState();
       const content = state.panes[0].content;
       expect(content.length).toBeGreaterThan(0);
+      // First line should have welcome text
       const firstLineText = content[0].map((c) => c.c).join('');
       expect(firstLineText).toContain('Welcome to tmuxy demo');
     });
@@ -99,6 +100,7 @@ describe('FakeTmux', () => {
       expect(state0.windows).toHaveLength(1);
       tmux.killPane();
       const state1 = tmux.getState();
+      // Should still have one window (a new one was created)
       expect(state1.windows).toHaveLength(1);
       expect(state1.panes).toHaveLength(1);
     });
@@ -149,7 +151,9 @@ describe('FakeTmux', () => {
       tmux.splitPane('vertical');
       expect(tmux.getState().panes).toHaveLength(2);
       tmux.newWindow();
+      // New window only has 1 pane
       expect(tmux.getState().panes).toHaveLength(1);
+      // Switch back
       tmux.selectWindow('@0');
       expect(tmux.getState().panes).toHaveLength(2);
     });
@@ -187,12 +191,12 @@ describe('FakeTmux', () => {
   });
 
   describe('key input', () => {
-    it('sends keys to active pane', async () => {
+    it('sends keys to active pane', () => {
       tmux.sendKey('l');
       tmux.sendKey('s');
       tmux.sendKey('Enter');
-      await tmux.waitForCompletion();
       const state = tmux.getState();
+      // Pane should have updated content
       const text = state.panes[0].content
         .map((line) =>
           line
@@ -204,10 +208,9 @@ describe('FakeTmux', () => {
       expect(text).toContain('projects');
     });
 
-    it('sends literal text', async () => {
+    it('sends literal text', () => {
       tmux.sendLiteral('echo hi');
       tmux.sendKey('Enter');
-      await tmux.waitForCompletion();
       const state = tmux.getState();
       const text = state.panes[0].content
         .map((line) =>

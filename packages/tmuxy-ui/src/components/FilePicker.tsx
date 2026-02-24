@@ -49,7 +49,7 @@ export function FilePicker({ isOpen, onClose, rootPath }: FilePickerProps) {
       setCurrentPath(path);
       setSelectedIndex(0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown tmuxy-error');
+      setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
@@ -147,29 +147,29 @@ export function FilePicker({ isOpen, onClose, rootPath }: FilePickerProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="tmuxy-file-picker-overlay">
-      <div className="tmuxy-file-picker" ref={drawerRef}>
-        <div className="tmuxy-file-picker-header">
-          <button className="tmuxy-file-picker-up" onClick={goUp} title="Go up">
+    <div className="file-picker-overlay">
+      <div className="file-picker" ref={drawerRef}>
+        <div className="file-picker-header">
+          <button className="file-picker-up" onClick={goUp} title="Go up">
             <i className="fa fa-level-up" />
           </button>
-          <span className="tmuxy-file-picker-path" title={currentPath}>
+          <span className="file-picker-path" title={currentPath}>
             {currentPath}
           </span>
-          <button className="tmuxy-file-picker-close" onClick={onClose} title="Close">
+          <button className="file-picker-close" onClick={onClose} title="Close">
             <i className="fa fa-times" />
           </button>
         </div>
 
-        <div className="tmuxy-file-picker-content">
-          {loading && <div className="tmuxy-file-picker-loading">Loading...</div>}
-          {error && <div className="tmuxy-file-picker-error">{error}</div>}
+        <div className="file-picker-content">
+          {loading && <div className="file-picker-loading">Loading...</div>}
+          {error && <div className="file-picker-error">{error}</div>}
           {!loading && !error && (
-            <div className="tmuxy-file-tree">
+            <div className="file-tree">
               {entries.map((entry, index) => (
                 <div
                   key={entry.path}
-                  className={`tmuxy-file-tree-item ${index === selectedIndex ? 'selected' : ''} ${entry.is_dir ? 'is-dir' : 'is-file'}`}
+                  className={`file-tree-item ${index === selectedIndex ? 'selected' : ''} ${entry.is_dir ? 'is-dir' : 'is-file'}`}
                   onClick={() => {
                     setSelectedIndex(index);
                     handleEntryClick(entry);
@@ -177,12 +177,12 @@ export function FilePicker({ isOpen, onClose, rootPath }: FilePickerProps) {
                   onDoubleClick={() => handleEntryDoubleClick(entry)}
                 >
                   <i className={`fa ${entry.is_dir ? 'fa-folder' : 'fa-file'}`} />
-                  <span className="tmuxy-file-tree-name">{entry.name}</span>
-                  {entry.is_symlink && <span className="tmuxy-file-tree-symlink">→</span>}
+                  <span className="file-tree-name">{entry.name}</span>
+                  {entry.is_symlink && <span className="file-tree-symlink">→</span>}
                 </div>
               ))}
               {entries.length === 0 && !loading && (
-                <div className="tmuxy-file-picker-empty">Directory is empty</div>
+                <div className="file-picker-empty">Directory is empty</div>
               )}
             </div>
           )}
@@ -203,7 +203,7 @@ interface FilePickerButtonProps {
 export function FilePickerButton({ onClick, isOpen }: FilePickerButtonProps) {
   return (
     <button
-      className={`tmuxy-file-picker-button ${isOpen ? 'active' : ''}`}
+      className={`file-picker-button ${isOpen ? 'active' : ''}`}
       onClick={onClick}
       title="File picker"
     >

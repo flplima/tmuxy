@@ -62,8 +62,8 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
   }, [chart]);
 
   if (error) {
-    return <pre className="tmuxy-widget-markdown-error">{error}</pre>;
+    return <pre className="widget-markdown-error">{error}</pre>;
   }
 
-  return <div ref={containerRef} className="tmuxy-widget-mermaid" />;
+  return <div ref={containerRef} className="widget-mermaid" />;
 }

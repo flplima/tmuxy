@@ -61,7 +61,7 @@
 }
 
 /* Keybinding label (right-aligned muted text) */
-.tmuxy-menu-keybinding {
+.menu-keybinding {
   margin-left: auto;
   padding-left: 24px;
   color: var(--term-bright-black);
@@ -69,13 +69,13 @@
   white-space: nowrap;
 }
 
-.szh-menu__item:hover .tmuxy-menu-keybinding,
-.szh-menu__item--hover .tmuxy-menu-keybinding {
+.szh-menu__item:hover .menu-keybinding,
+.szh-menu__item--hover .menu-keybinding {
   color: var(--term-black);
 }
 
 /* Menu button (hamburger) */
-.tmuxy-menu-button {
+.app-menu-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -90,13 +90,13 @@
   flex-shrink: 0;
 }
 
-.tmuxy-menu-button:hover {
+.app-menu-button:hover {
   background-color: var(--bg-elevated-alt);
   color: var(--text-primary);
 }
 
 /* External link indicator */
-.tmuxy-menu-external {
+.menu-external {
   margin-left: 4px;
   font-size: 10px;
   color: inherit;
