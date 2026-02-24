@@ -25,7 +25,6 @@ import {
   selectGroupSwitchPaneIds,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
-import './PaneLayout.css';
 
 interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;

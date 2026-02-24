@@ -151,63 +151,10 @@ pub fn kill_pane(session_name: &str) -> Result<(), String> {
     Ok(())
 }
 
-// Convenience functions using default session name
-pub fn capture_pane_default() -> Result<String, String> {
-    capture_pane(DEFAULT_SESSION_NAME)
-}
-
-pub fn capture_pane_with_history_default() -> Result<String, String> {
-    capture_pane_with_history(DEFAULT_SESSION_NAME)
-}
-
-pub fn send_keys_default(keys: &str) -> Result<(), String> {
-    send_keys(DEFAULT_SESSION_NAME, keys)
-}
-
-pub fn get_pane_info_default() -> Result<(u32, u32, u32, u32), String> {
-    get_pane_info(DEFAULT_SESSION_NAME)
-}
-
-pub fn split_pane_horizontal_default() -> Result<(), String> {
-    split_pane_horizontal(DEFAULT_SESSION_NAME)
-}
-
-pub fn split_pane_vertical_default() -> Result<(), String> {
-    split_pane_vertical(DEFAULT_SESSION_NAME)
-}
-
-pub fn new_window_default() -> Result<(), String> {
-    new_window(DEFAULT_SESSION_NAME)
-}
-
-pub fn select_pane_default(direction: &str) -> Result<(), String> {
-    select_pane(DEFAULT_SESSION_NAME, direction)
-}
-
-pub fn select_window_default(window: &str) -> Result<(), String> {
-    select_window(DEFAULT_SESSION_NAME, window)
-}
-
-pub fn next_window_default() -> Result<(), String> {
-    next_window(DEFAULT_SESSION_NAME)
-}
-
-pub fn previous_window_default() -> Result<(), String> {
-    previous_window(DEFAULT_SESSION_NAME)
-}
-
-pub fn kill_pane_default() -> Result<(), String> {
-    kill_pane(DEFAULT_SESSION_NAME)
-}
-
 /// Select a specific pane by its ID (e.g., "%0", "%1")
 pub fn select_pane_by_id(pane_id: &str) -> Result<(), String> {
     execute_tmux_command(&["select-pane", "-t", pane_id])?;
     Ok(())
-}
-
-pub fn select_pane_by_id_default(pane_id: &str) -> Result<(), String> {
-    select_pane_by_id(pane_id)
 }
 
 /// Scroll a pane up or down
@@ -228,10 +175,6 @@ pub fn scroll_pane(pane_id: &str, direction: &str, amount: u32) -> Result<(), St
     }
 
     Ok(())
-}
-
-pub fn scroll_pane_default(pane_id: &str, direction: &str, amount: u32) -> Result<(), String> {
-    scroll_pane(pane_id, direction, amount)
 }
 
 /// Send mouse event to tmux pane
@@ -266,16 +209,6 @@ pub fn send_mouse_event(
     Ok(())
 }
 
-pub fn send_mouse_event_default(
-    pane_id: &str,
-    event_type: &str,
-    button: u32,
-    x: u32,
-    y: u32,
-) -> Result<(), String> {
-    send_mouse_event(pane_id, event_type, button, x, y)
-}
-
 /// Resize a pane by a relative amount
 /// direction: "L" (left/shrink width), "R" (right/grow width), "U" (up/shrink height), "D" (down/grow height)
 /// adjustment: number of cells to adjust
@@ -295,10 +228,6 @@ pub fn resize_pane(pane_id: &str, direction: &str, adjustment: u32) -> Result<()
         &adjustment.to_string(),
     ])?;
     Ok(())
-}
-
-pub fn resize_pane_default(pane_id: &str, direction: &str, adjustment: u32) -> Result<(), String> {
-    resize_pane(pane_id, direction, adjustment)
 }
 
 /// Resize all tmux windows in the session to specific dimensions (columns x rows).
@@ -340,10 +269,6 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<(), Str
     eprintln!("[resize_window] result={:?}", result);
     result?;
     Ok(())
-}
-
-pub fn resize_window_default(cols: u32, rows: u32) -> Result<(), String> {
-    resize_window(DEFAULT_SESSION_NAME, cols, rows)
 }
 
 /// Get information about all panes in all windows of the session
@@ -446,10 +371,6 @@ pub fn get_windows(session_name: &str) -> Result<Vec<WindowInfo>, String> {
     }
 
     Ok(windows)
-}
-
-pub fn get_windows_default() -> Result<Vec<WindowInfo>, String> {
-    get_windows(DEFAULT_SESSION_NAME)
 }
 
 /// Capture the rendered tmux status line with ANSI escape sequences.
@@ -781,18 +702,10 @@ fn color_to_ansi(color: &str, is_fg: bool) -> Option<String> {
     color_code.map(|idx| format!("{};5;{}", base, idx))
 }
 
-pub fn capture_status_line_default(width: usize) -> Result<String, String> {
-    capture_status_line(DEFAULT_SESSION_NAME, width)
-}
-
 /// Close/kill the current window
 pub fn kill_window(session_name: &str) -> Result<(), String> {
     execute_tmux_command(&["kill-window", "-t", session_name])?;
     Ok(())
-}
-
-pub fn kill_window_default() -> Result<(), String> {
-    kill_window(DEFAULT_SESSION_NAME)
 }
 
 /// Execute a raw tmux command string
@@ -1114,10 +1027,6 @@ pub fn execute_prefix_binding(session_name: &str, key: &str) -> Result<(), Strin
     Err(format!("No prefix binding found for key: {}", key))
 }
 
-pub fn execute_prefix_binding_default(key: &str) -> Result<(), String> {
-    execute_prefix_binding(crate::DEFAULT_SESSION_NAME, key)
-}
-
 /// Key binding info returned by get_prefix_bindings
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyBinding {
@@ -1255,10 +1164,6 @@ pub fn process_key(session_name: &str, key: &str) -> Result<(), String> {
 
     // No root binding found - send the key normally
     send_keys(session_name, key)
-}
-
-pub fn process_key_default(key: &str) -> Result<(), String> {
-    process_key(crate::DEFAULT_SESSION_NAME, key)
 }
 
 #[cfg(test)]

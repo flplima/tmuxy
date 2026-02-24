@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::DEFAULT_SESSION_NAME;
-
 /// Get the path to the tmuxy config file.
 /// Checks: ~/.tmuxy.conf, then docker/.tmuxy.conf relative to working directory.
 pub fn get_config_path() -> Option<PathBuf> {
@@ -92,21 +90,4 @@ pub fn kill_session(session_name: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to kill session: {}", e))?;
 
     Ok(())
-}
-
-// Convenience functions using default session name
-pub fn session_exists_default() -> Result<bool, String> {
-    session_exists(DEFAULT_SESSION_NAME)
-}
-
-pub fn create_session_default() -> Result<(), String> {
-    create_session(DEFAULT_SESSION_NAME)
-}
-
-pub fn create_or_attach_default() -> Result<(), String> {
-    create_or_attach(DEFAULT_SESSION_NAME)
-}
-
-pub fn kill_session_default() -> Result<(), String> {
-    kill_session(DEFAULT_SESSION_NAME)
 }

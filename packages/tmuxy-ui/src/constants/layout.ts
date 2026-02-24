@@ -13,9 +13,6 @@
  *   equally by both sides. Terminal content padding = paneInsetX - PANE_BORDER.
  */
 
-// Character dimensions (approximate for monospace font; charWidth is measured at runtime)
-// Font size: 15px with line-height 1.4 = 21px char height
-export const CHAR_WIDTH = 9.6;
 export const CHAR_HEIGHT = 21;
 
 // Minimum padding around the pane container (32px on all sides)
