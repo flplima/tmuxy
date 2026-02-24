@@ -224,27 +224,7 @@ body {
   overflow: hidden;
 }
 
-/* Border via ::after so it always paints above selection overlays */
-.pane-content::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--border-medium);
-  border-top: none; /* Header provides top separation */
-  pointer-events: none;
-  z-index: 10;
-}
-
-/* Active pane: subtle highlight on header only, no loud border */
-.pane-layout-item.pane-active .pane-content::after,
-.pane-active .pane-content::after {
-  border-color: var(--border-medium);
-}
-
-/* Copy mode has bright green border */
-.pane-layout-item.pane-active.pane-copy-mode .pane-content::after {
-  border-color: var(--term-green);
-}
+/* No border on pane-content — border is on the outer pane-layout-item */
 
 .pane-single {
   background-color: transparent;
@@ -389,6 +369,7 @@ body {
   box-sizing: border-box;
   outline: none;
   border-radius: 0;
+  border: 1px solid var(--border-medium);
   /* Animate position/size changes for swaps and resizes */
   transition:
     left 250ms linear,
@@ -396,6 +377,17 @@ body {
     width 250ms linear,
     height 250ms linear,
     box-shadow var(--transition-layout);
+}
+
+/* Active pane: green border + green-tinted background */
+.pane-layout-item.pane-active {
+  border-color: var(--term-green);
+  background: rgba(0, 255, 0, 0.05);
+}
+
+/* Copy mode: bright green border */
+.pane-layout-item.pane-active.pane-copy-mode {
+  border-color: var(--term-bright-green);
 }
 
 .pane-layout-item.pane-dragging {
