@@ -26,9 +26,6 @@ import { executeMenuAction } from './menuActions';
 import type { KeyBindings } from '../../machines/types';
 import './AppMenu.css';
 
-/** Whether to use native Tauri menu (always false for now) */
-export const useNativeMenu = false;
-
 function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
   const label = getKeybindingLabel(keybindings, command);
   if (!label) return null;

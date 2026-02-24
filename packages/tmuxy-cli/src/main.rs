@@ -4,8 +4,6 @@ mod group;
 mod image;
 mod markdown;
 mod server;
-mod widget;
-
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]

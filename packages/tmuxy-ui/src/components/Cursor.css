@@ -32,9 +32,6 @@
   border-left: 2px solid #d4d4d4;
 }
 
-.terminal-selected {
-}
-
 @keyframes cursor-blink {
   0%,
   100% {

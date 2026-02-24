@@ -395,15 +395,6 @@ body {
     width 250ms linear,
     height 250ms linear,
     box-shadow var(--transition-layout);
-  /* No border on wrapper - border is on pane-content */
-}
-
-.pane-layout-item.pane-active {
-  /* Active state handled by pane-content border */
-}
-
-.pane-layout-item.pane-inactive {
-  /* Inactive state handled by pane-content border */
 }
 
 .pane-layout-item.pane-dragging {
@@ -427,11 +418,6 @@ body {
   pointer-events: none;
 }
 
-/* Copy Mode - green border when active pane is in copy mode */
-.pane-layout-item.pane-active.pane-copy-mode {
-  /* Copy mode border color handled by pane-content */
-}
-
 /* Resize Dividers */
 .resize-divider {
   position: absolute;
@@ -446,8 +432,6 @@ body {
 .resize-divider-v {
   cursor: ew-resize;
 }
-
-/* Resize dividers are invisible - only cursor changes on hover */
 
 .pane-layout-dragging,
 .pane-layout-resizing {
@@ -464,6 +448,11 @@ body {
   will-change: transform, left, top, width, height;
 }
 
+/* Disable ALL transitions when enableAnimations is false */
+.pane-layout-no-animations .pane-layout-item {
+  transition: none;
+}
+
 /* Disable position transitions during resize for instant feedback */
 .pane-layout-resizing .pane-layout-item {
   transition: box-shadow var(--transition-layout);
@@ -475,6 +464,21 @@ body {
   border: 2px dashed var(--accent-blue-light);
   box-sizing: border-box;
   z-index: var(--z-elevated);
+}
+
+/* Ghost indicator - shows dragged pane's current grid position */
+.pane-drag-ghost {
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  z-index: 1;
+  pointer-events: none;
+  box-sizing: border-box;
+  transition:
+    left 200ms ease-out,
+    top 200ms ease-out,
+    width 200ms ease-out,
+    height 200ms ease-out;
 }
 
 /* ============================================
@@ -495,15 +499,6 @@ body {
   box-sizing: border-box;
   padding: 0;
   gap: 0;
-}
-
-.pane-header-active {
-  /* Active state is shown via tab background colors */
-}
-
-/* Copy mode header - handled via tab styling */
-.pane-header-active.pane-header-copy-mode {
-  /* Copy mode styling */
 }
 
 /* Pane tabs container - no flex grow, just wrap content */
