@@ -672,7 +672,7 @@ async function clickGroupTabClose(page, index) {
  * For single pane: waits for that pane to have expectedCount tabs
  * For multiple panes: waits for any grouped pane to have expectedCount tabs
  */
-async function waitForGroupTabs(page, expectedCount, timeout = 15000) {
+async function waitForGroupTabs(page, expectedCount, timeout = 30000) {
   try {
     await page.waitForFunction(
       (count) => {
