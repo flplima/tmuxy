@@ -5,19 +5,17 @@
  * ScrollbackTerminal. In normal mode the terminal is pinned to the bottom
  * of a spacer div whose height equals the full scrollback height.
  *
- * Wheel events use the proxy pattern: the pane-wrapper (non-scrollable)
+ * Wheel events use the proxy pattern: the tmuxy-pane-wrapper (non-scrollable)
  * intercepts wheel via a native { passive: false } listener, calls
  * preventDefault(), and manually adjusts scrollTop on the scroll container.
  */
 
-import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
+import { useRef, useCallback, useLayoutEffect, useEffect } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
 import { PaneHeader } from './PaneHeader';
-import { SelectionContextMenu } from './SelectionContextMenu';
 import {
   useAppSend,
-  useAppActor,
   usePane,
   useIsPaneInActiveWindow,
   useIsSinglePane,
@@ -25,8 +23,7 @@ import {
   useAppSelector,
   selectCharSize,
 } from '../machines/AppContext';
-import { usePaneMouse, usePaneTouch } from '../hooks';
-import { extractSelectedText } from '../utils/copyMode';
+import { usePaneMouse } from '../hooks';
 
 interface TerminalPaneProps {
   paneId: string;
@@ -34,7 +31,6 @@ interface TerminalPaneProps {
 
 export function TerminalPane({ paneId }: TerminalPaneProps) {
   const send = useAppSend();
-  const actor = useAppActor();
   const pane = usePane(paneId);
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
@@ -44,12 +40,6 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const copyState = useCopyModeState(paneId);
 
-  // Selection context menu state
-  const [selectionMenu, setSelectionMenu] = useState<{
-    x: number;
-    y: number;
-    text: string;
-  } | null>(null);
   const historySize = pane?.historySize ?? 0;
   const paneHeight = pane?.height ?? 24;
   const totalHeight = (historySize + paneHeight) * charHeight;
@@ -170,127 +160,18 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     scrollRef,
   });
 
-  // Touch handling for mobile scroll
-  const { handleTouchStart, handleTouchMove, handleTouchEnd } = usePaneTouch({
-    paneId,
-    charHeight,
-    alternateOn: pane?.alternateOn ?? false,
-    mouseAnyFlag: pane?.mouseAnyFlag ?? false,
-    scrollRef,
-    send,
-  });
-
   // Ref to latest handleWheel for the native listener
   const handleWheelRef = useRef(handleWheel);
   handleWheelRef.current = handleWheel;
 
-  // Refs to latest touch handlers for native listeners
-  const handleTouchStartRef = useRef(handleTouchStart);
-  handleTouchStartRef.current = handleTouchStart;
-  const handleTouchMoveRef = useRef(handleTouchMove);
-  handleTouchMoveRef.current = handleTouchMove;
-  const handleTouchEndRef = useRef(handleTouchEnd);
-  handleTouchEndRef.current = handleTouchEnd;
-
-  // Native wheel and touch listeners with { passive: false } so preventDefault() works.
+  // Native wheel listener with { passive: false } so preventDefault() works.
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
-    const wheelHandler = (e: WheelEvent) =>
-      handleWheelRef.current(e as unknown as React.WheelEvent);
-    const touchStartHandler = (e: TouchEvent) => handleTouchStartRef.current(e);
-    const touchMoveHandler = (e: TouchEvent) => handleTouchMoveRef.current(e);
-    const touchEndHandler = (e: TouchEvent) => handleTouchEndRef.current(e);
-
-    el.addEventListener('wheel', wheelHandler, { passive: false });
-    el.addEventListener('touchstart', touchStartHandler, { passive: true });
-    el.addEventListener('touchmove', touchMoveHandler, { passive: false });
-    el.addEventListener('touchend', touchEndHandler, { passive: true });
-    return () => {
-      el.removeEventListener('wheel', wheelHandler);
-      el.removeEventListener('touchstart', touchStartHandler);
-      el.removeEventListener('touchmove', touchMoveHandler);
-      el.removeEventListener('touchend', touchEndHandler);
-    };
+    const handler = (e: WheelEvent) => handleWheelRef.current(e as unknown as React.WheelEvent);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
   }, []);
-
-  // Show context menu after word select by reading state directly from the actor
-  const showMenuFromSnapshot = useCallback(
-    (x: number, y: number) => {
-      const snap = actor.getSnapshot();
-      const cs = snap.context.copyModeStates[paneId];
-      if (cs?.selectionMode) {
-        const text = extractSelectedText(cs);
-        if (text) setSelectionMenu({ x, y, text });
-      }
-    },
-    [actor, paneId],
-  );
-
-  // Handle right-click context menu for text selection
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.closest('.pane-header')) return;
-      if (pane?.mouseAnyFlag) return;
-
-      e.preventDefault();
-
-      // Compute cell coordinates (same logic as pixelToCell in usePaneMouse)
-      const rect = contentRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const relX = e.clientX - rect.left;
-      let relY = e.clientY - rect.top;
-      const subLineOffset = scrollRef.current ? scrollRef.current.scrollTop % charHeight : 0;
-      relY += subLineOffset;
-      const cellCol = Math.max(0, Math.floor(relX / charWidth));
-      const cellRow = Math.floor(relY / charHeight);
-      const menuX = e.clientX;
-      const menuY = e.clientY;
-
-      if (copyState?.selectionMode) {
-        // Already have a selection — show menu immediately
-        const text = extractSelectedText(copyState);
-        if (text) {
-          setSelectionMenu({ x: menuX, y: menuY, text });
-        }
-      } else if (!copyState) {
-        // Not in copy mode — enter copy mode, select word, then show menu
-        send({ type: 'ENTER_COPY_MODE', paneId });
-        setTimeout(() => {
-          send({
-            type: 'COPY_MODE_WORD_SELECT',
-            paneId,
-            row: cellRow,
-            col: cellCol,
-            broad: true,
-          });
-          setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
-        }, 100);
-      } else {
-        // In copy mode but no selection — select word, then show menu
-        send({
-          type: 'COPY_MODE_WORD_SELECT',
-          paneId,
-          row: cellRow,
-          col: cellCol,
-          broad: true,
-        });
-        setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
-      }
-    },
-    [
-      send,
-      paneId,
-      pane?.mouseAnyFlag,
-      copyState,
-      charWidth,
-      charHeight,
-      contentRef,
-      scrollRef,
-      showMenuFromSnapshot,
-    ],
-  );
 
   if (!pane) return null;
 
@@ -304,7 +185,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   return (
     <div
       ref={wrapperRef}
-      className={`pane-wrapper ${isSinglePane ? 'pane-single' : ''}`}
+      className={`tmuxy-pane-wrapper ${isSinglePane ? 'tmuxy-pane-single' : ''}`}
       style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
       role="group"
       aria-label={`Pane ${pane.tmuxId}: ${pane.command}`}
@@ -319,22 +200,12 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       onDoubleClick={handleDoubleClick}
-      onContextMenu={handleContextMenu}
     >
       <PaneHeader paneId={paneId} />
-      {selectionMenu && (
-        <SelectionContextMenu
-          paneId={paneId}
-          x={selectionMenu.x}
-          y={selectionMenu.y}
-          selectedText={selectionMenu.text}
-          onClose={() => setSelectionMenu(null)}
-        />
-      )}
-      <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
+      <div className="tmuxy-pane-content" ref={contentRef} style={{ flex: 1 }}>
         <div
           ref={scrollRef}
-          className="pane-scroll-container hide-scrollbar"
+          className="tmuxy-pane-scroll tmuxy-hide-scrollbar"
           onScroll={handleContainerScroll}
           style={{ overflowY: 'auto', height: '100%', position: 'relative' }}
         >

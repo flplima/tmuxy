@@ -1,5 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { resolve } from 'path'
+
+const isLibBuild = process.env.VITE_LIB === '1'
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -21,9 +24,30 @@ export default defineConfig({
     },
   },
   envPrefix: ['VITE_', 'TAURI_'],
+  ...(isLibBuild
+    ? {
+        build: {
+          lib: {
+            entry: resolve(__dirname, 'src/index.ts'),
+            formats: ['es'],
+            fileName: 'index',
+          },
+          rollupOptions: {
+            external: ['react', 'react-dom', 'react/jsx-runtime'],
+          },
+          outDir: 'dist/lib',
+          cssFileName: 'styles',
+        },
+      }
+    : {}),
   test: {
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    server: {
+      deps: {
+        inline: ['@lifo-sh/core', '@xterm/xterm'],
+      },
+    },
   },
 })

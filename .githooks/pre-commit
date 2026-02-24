@@ -3,10 +3,10 @@ set -e
 
 # --- JS/TS ---
 echo "Formatting (Prettier)..."
-npm run format -w tmuxy-ui
+npm run format -w @tmuxy/ui
 
 echo "Linting (ESLint --fix)..."
-npm run lint:fix -w tmuxy-ui
+npm run lint:fix -w @tmuxy/ui
 
 # Re-stage any files auto-fixed by lint/format
 git add -u packages/tmuxy-ui/src

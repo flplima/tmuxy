@@ -6,7 +6,7 @@
  *
  * Usage:
  *   const detector = new GlitchDetector(page);
- *   await detector.start({ scope: '.pane-layout' });
+ *   await detector.start({ scope: '.tmuxy-pane-layout' });
  *   // ... perform operation ...
  *   const result = await detector.stop();
  *   expect(result.summary.nodeFlickers).toBe(0);
@@ -17,10 +17,10 @@
  */
 const DEFAULT_OPTIONS = {
   // CSS selector for the observation scope (must exist on page load)
-  scope: '.pane-container',
+  scope: '.tmuxy-pane-container',
 
   // Selectors to ignore (high-frequency expected mutations)
-  ignoreSelectors: ['.terminal-content', '.terminal-cursor', '.terminal-line'],
+  ignoreSelectors: ['.tmuxy-terminal-content', '.tmuxy-cursor', '.tmuxy-terminal-line'],
 
   // Attributes to track for churn detection
   attributeFilter: ['class', 'style', 'data-active', 'data-pane-id'],
@@ -49,7 +49,7 @@ const DEFAULT_OPTIONS = {
  */
 const OPERATION_THRESHOLDS = {
   // Split: allow size jumps as panes resize to accommodate new pane
-  // CSS transitions (250ms) on .pane-layout-item cause ~12 jumps at 60fps polling
+  // CSS transitions (250ms) on .tmuxy-pane-layout-item cause ~12 jumps at 60fps polling
   split: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 20 },
   // Kill: allow size jumps as remaining panes expand (same CSS transition reason)
   kill: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 20 },
@@ -184,7 +184,7 @@ class GlitchDetector {
       // Start size polling
       data.sizeInterval = setInterval(() => {
         const ts = performance.now() - data.startTime;
-        const panes = document.querySelectorAll('.pane-layout-item, .pane-wrapper');
+        const panes = document.querySelectorAll('.tmuxy-pane-layout-item, .tmuxy-pane-wrapper');
 
         const snapshot = {
           ts,

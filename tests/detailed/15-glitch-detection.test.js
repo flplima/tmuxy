@@ -53,7 +53,7 @@ describe('Category 15: Glitch Detection', () => {
       await ctx.setupPage();
       await delay(DELAYS.SYNC);
 
-      await ctx.startGlitchDetection({ scope: '.pane-container' });
+      await ctx.startGlitchDetection({ scope: '.tmuxy-pane-container' });
 
       // Use tmux split for reliability - the split itself triggers UI update we're testing
       ctx.session.splitHorizontal();
@@ -75,7 +75,7 @@ describe('Category 15: Glitch Detection', () => {
       await ctx.setupPage();
       await delay(DELAYS.SYNC);
 
-      await ctx.startGlitchDetection({ scope: '.pane-container' });
+      await ctx.startGlitchDetection({ scope: '.tmuxy-pane-container' });
 
       // Use tmux split for reliability
       ctx.session.splitVertical();
@@ -99,10 +99,10 @@ describe('Category 15: Glitch Detection', () => {
       await delay(DELAYS.SYNC);
 
       await ctx.startGlitchDetection({
-        scope: '.pane-container',
+        scope: '.tmuxy-pane-container',
         sizeJumpThreshold: 100,
         // Resize dividers are recreated during resize
-        ignoreSelectors: ['.terminal-content', '.terminal-line', '.terminal-cursor', '.resize-divider'],
+        ignoreSelectors: ['.tmuxy-terminal-content', '.tmuxy-terminal-line', '.tmuxy-cursor', '.tmuxy-resize-divider'],
       });
 
       ctx.session.runCommand(`resize-pane -t ${ctx.session.name} -D 5`);
@@ -127,11 +127,11 @@ describe('Category 15: Glitch Detection', () => {
       await ctx.setupTwoPanes('horizontal');
       await delay(DELAYS.SYNC);
 
-      await ctx.startGlitchDetection({ scope: '.pane-container' });
+      await ctx.startGlitchDetection({ scope: '.tmuxy-pane-container' });
 
       // Get pane positions and click
       const paneInfo = await ctx.page.evaluate(() => {
-        const panes = document.querySelectorAll('.pane-layout-item');
+        const panes = document.querySelectorAll('.tmuxy-pane-layout-item');
         return Array.from(panes).map(p => {
           const rect = p.getBoundingClientRect();
           return {
@@ -163,7 +163,7 @@ describe('Category 15: Glitch Detection', () => {
       await delay(DELAYS.SYNC);
 
       const detector = new GlitchDetector(ctx.page);
-      await detector.start({ scope: '.pane-container' });
+      await detector.start({ scope: '.tmuxy-pane-container' });
 
       await splitPaneKeyboard(ctx.page, 'horizontal');
       await waitForPaneCount(ctx.page, 2, 20000);
@@ -193,7 +193,7 @@ describe('Category 15: Glitch Detection', () => {
       await delay(DELAYS.SYNC);
 
       const detector = new GlitchDetector(ctx.page);
-      await detector.start({ scope: '.pane-container' });
+      await detector.start({ scope: '.tmuxy-pane-container' });
 
       // Trigger terminal content mutations (not ignored by default)
       await ctx.session.sendKeys('"echo formatTimeline test" Enter');
@@ -219,7 +219,7 @@ describe('Category 15: Glitch Detection', () => {
       await delay(DELAYS.SYNC);
 
       const detector = new GlitchDetector(ctx.page);
-      await detector.start({ scope: '.pane-container' });
+      await detector.start({ scope: '.tmuxy-pane-container' });
 
       // Just stop without doing anything
       const result = await detector.stop();
@@ -236,8 +236,8 @@ describe('Category 15: Glitch Detection', () => {
 
       const detector = new GlitchDetector(ctx.page);
       await detector.start({
-        scope: '.pane-container',
-        ignoreSelectors: ['.terminal-content', '.terminal-line', '.terminal-cursor'],
+        scope: '.tmuxy-pane-container',
+        ignoreSelectors: ['.tmuxy-terminal-content', '.tmuxy-terminal-line', '.tmuxy-cursor'],
       });
 
       // Type some content to trigger terminal mutations

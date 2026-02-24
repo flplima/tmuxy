@@ -192,7 +192,7 @@ describe('Category 7: Mouse Events', () => {
 
       // Verify user-select: none is applied to terminal content
       const userSelect = await ctx.page.evaluate(() => {
-        const el = document.querySelector('.terminal-content');
+        const el = document.querySelector('.tmuxy-terminal-content');
         return el ? getComputedStyle(el).userSelect : null;
       });
       expect(userSelect).toBe('none');
@@ -324,8 +324,8 @@ describe('Category 7: Mouse Events', () => {
       // Wait for the horizontal divider to appear in the DOM
       let divider;
       try {
-        await ctx.page.waitForSelector('.resize-divider-h', { timeout: 5000 });
-        divider = await ctx.page.$('.resize-divider-h');
+        await ctx.page.waitForSelector('.tmuxy-resize-divider-h', { timeout: 5000 });
+        divider = await ctx.page.$('.tmuxy-resize-divider-h');
       } catch {
         // Fallback: use tmux resize directly with consistency check
         const result = await withConsistencyChecks(ctx, async () => {
@@ -381,8 +381,8 @@ describe('Category 7: Mouse Events', () => {
       // Wait for the vertical divider to appear in the DOM
       let divider;
       try {
-        await ctx.page.waitForSelector('.resize-divider-v', { timeout: 5000 });
-        divider = await ctx.page.$('.resize-divider-v');
+        await ctx.page.waitForSelector('.tmuxy-resize-divider-v', { timeout: 5000 });
+        divider = await ctx.page.$('.tmuxy-resize-divider-v');
       } catch {
         // Divider may not render - use tmux resize as fallback with consistency check
         const result = await withConsistencyChecks(ctx, async () => {
@@ -456,7 +456,7 @@ describe('Category 7: Mouse Events', () => {
       await waitForPaneCount(ctx.page, 2);
       await delay(DELAYS.MEDIUM); // Extra wait for layout to stabilize
 
-      const header = await ctx.page.$('.pane-tab');
+      const header = await ctx.page.$('.tmuxy-pane-tab');
       if (!header) {
         noteKnownLimitation('FLOATING_PANE_UI', 'Pane tab element not found');
         return;
@@ -559,7 +559,7 @@ describe('Category 7: Mouse Events', () => {
   describe('7.7 SGR Mouse Passthrough', () => {
     /**
      * Helper: Start the mouse capture script in the pane, wait for mouseAnyFlag.
-     * Returns the .pane-content bounding box and charWidth/charHeight for coord calculation.
+     * Returns the .tmuxy-pane-content bounding box and charWidth/charHeight for coord calculation.
      */
     async function startMouseCapture(ctx) {
       // Clean old log
@@ -593,9 +593,9 @@ describe('Category 7: Mouse Events', () => {
       }
       expect(flagSet).toBe(true);
 
-      // Get the .pane-content bounding box (what the UI uses for mouse coords)
+      // Get the .tmuxy-pane-content bounding box (what the UI uses for mouse coords)
       const contentBox = await ctx.page.evaluate(() => {
-        const el = document.querySelector('.pane-content');
+        const el = document.querySelector('.tmuxy-pane-content');
         if (!el) return null;
         const r = el.getBoundingClientRect();
         return { x: r.x, y: r.y, width: r.width, height: r.height };

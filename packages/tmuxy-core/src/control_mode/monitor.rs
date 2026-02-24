@@ -235,7 +235,7 @@ impl TmuxMonitor {
             tokio::select! {
                 // Process control mode events
                 event = self.connection.recv() => {
-                    eprintln!("[monitor] recv() returned: {:?}", event.as_ref().map(std::mem::discriminant));
+                    eprintln!("[monitor] recv() returned: {:?}", event.as_ref().map(|e| std::mem::discriminant(e)));
                     match event {
                         Some(ControlModeEvent::Exit { reason }) => {
                             let msg = reason.unwrap_or_else(|| "disconnected".to_string());
