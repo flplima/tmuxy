@@ -42,8 +42,8 @@ async function getUISnapshot(page) {
       seenPaneIds.add(paneId);
 
       const rect = el.getBoundingClientRect();
-      const isActive = el.classList.contains('pane-active') ||
-                       el.querySelector('.pane-tab-active') !== null;
+      const isActive = el.classList.contains('tmuxy-pane-active') ||
+                       el.querySelector('.tmuxy-pane-tab-active') !== null;
 
       // Get terminal content for this pane
       const terminal = el.querySelector('[role="log"]');
@@ -86,12 +86,12 @@ async function getUISnapshot(page) {
     }
 
     // Get window tabs
-    const windowTabs = document.querySelectorAll('.tab');
-    windowTabs.forEach((tab, index) => {
-      const isActive = tab.classList.contains('tab-active');
+    const windowTabs = document.querySelectorAll('.tmuxy-tab');
+    windowTabs.forEach((tmuxy-tab, index) => {
+      const isActive = tmuxy-tab.classList.contains('tab-active');
       result.windows.push({
         index,
-        name: tab.textContent?.trim() || '',
+        name: tmuxy-tab.textContent?.trim() || '',
         active: isActive,
       });
       if (isActive) {

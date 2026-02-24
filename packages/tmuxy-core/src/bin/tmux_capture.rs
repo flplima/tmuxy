@@ -34,7 +34,7 @@ fn get_session_dimensions(session: &str) -> Result<(u16, u16), String> {
     }
 
     let dims = String::from_utf8_lossy(&output.stdout);
-    let parts: Vec<&str> = dims.split_whitespace().collect();
+    let parts: Vec<&str> = dims.trim().split_whitespace().collect();
     if parts.len() != 2 {
         return Err(format!("Unexpected dimensions format: {}", dims));
     }

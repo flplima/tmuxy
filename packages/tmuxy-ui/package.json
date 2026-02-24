@@ -1,11 +1,21 @@
 {
-  "name": "tmuxy-ui",
+  "name": "@tmuxy/ui",
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/lib/index.js"
+    },
+    "./styles.css": "./dist/lib/index.css"
+  },
+  "main": "./dist/lib/index.js",
+  "types": "./src/index.ts",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:lib": "VITE_LIB=1 vite build",
     "preview": "vite preview",
     "test": "vitest",
     "lint": "eslint src",
@@ -13,6 +23,7 @@
     "format": "prettier --write src"
   },
   "dependencies": {
+    "@lifo-sh/core": "^0.1.0",
     "@szhsin/react-menu": "^4.5.1",
     "@tauri-apps/api": "^2.9.0",
     "@xstate/react": "^6.0.0",

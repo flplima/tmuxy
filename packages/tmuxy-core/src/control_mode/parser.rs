@@ -211,14 +211,16 @@ impl Parser {
         }
 
         // %window-add @window
-        if let Some(rest) = line.strip_prefix("%window-add ") {
+        if line.starts_with("%window-add ") {
+            let rest = &line["%window-add ".len()..];
             return Some(ControlModeEvent::WindowAdd {
                 window_id: rest.trim().to_string(),
             });
         }
 
         // %window-close @window
-        if let Some(rest) = line.strip_prefix("%window-close ") {
+        if line.starts_with("%window-close ") {
+            let rest = &line["%window-close ".len()..];
             return Some(ControlModeEvent::WindowClose {
                 window_id: rest.trim().to_string(),
             });
@@ -235,7 +237,8 @@ impl Parser {
         }
 
         // %pane-mode-changed %pane
-        if let Some(rest) = line.strip_prefix("%pane-mode-changed ") {
+        if line.starts_with("%pane-mode-changed ") {
+            let rest = &line["%pane-mode-changed ".len()..];
             return Some(ControlModeEvent::PaneModeChanged {
                 pane_id: rest.trim().to_string(),
             });
@@ -247,7 +250,8 @@ impl Parser {
         }
 
         // %session-renamed name
-        if let Some(rest) = line.strip_prefix("%session-renamed ") {
+        if line.starts_with("%session-renamed ") {
+            let rest = &line["%session-renamed ".len()..];
             return Some(ControlModeEvent::SessionRenamed {
                 name: rest.trim().to_string(),
             });
@@ -264,21 +268,24 @@ impl Parser {
         }
 
         // %pause %pane
-        if let Some(rest) = line.strip_prefix("%pause ") {
+        if line.starts_with("%pause ") {
+            let rest = &line["%pause ".len()..];
             return Some(ControlModeEvent::Pause {
                 pane_id: rest.trim().to_string(),
             });
         }
 
         // %continue %pane
-        if let Some(rest) = line.strip_prefix("%continue ") {
+        if line.starts_with("%continue ") {
+            let rest = &line["%continue ".len()..];
             return Some(ControlModeEvent::Continue {
                 pane_id: rest.trim().to_string(),
             });
         }
 
         // %client-detached client
-        if let Some(rest) = line.strip_prefix("%client-detached ") {
+        if line.starts_with("%client-detached ") {
+            let rest = &line["%client-detached ".len()..];
             return Some(ControlModeEvent::ClientDetached {
                 client: rest.trim().to_string(),
             });
@@ -290,8 +297,8 @@ impl Parser {
         }
 
         // %exit [reason]
-        if let Some(rest) = line.strip_prefix("%exit") {
-            let rest = rest.trim();
+        if line.starts_with("%exit") {
+            let rest = line["%exit".len()..].trim();
             return Some(ControlModeEvent::Exit {
                 reason: if rest.is_empty() {
                     None
@@ -302,14 +309,16 @@ impl Parser {
         }
 
         // %unlinked-window-add @window
-        if let Some(rest) = line.strip_prefix("%unlinked-window-add ") {
+        if line.starts_with("%unlinked-window-add ") {
+            let rest = &line["%unlinked-window-add ".len()..];
             return Some(ControlModeEvent::UnlinkedWindowAdd {
                 window_id: rest.trim().to_string(),
             });
         }
 
         // %unlinked-window-close @window
-        if let Some(rest) = line.strip_prefix("%unlinked-window-close ") {
+        if line.starts_with("%unlinked-window-close ") {
+            let rest = &line["%unlinked-window-close ".len()..];
             return Some(ControlModeEvent::UnlinkedWindowClose {
                 window_id: rest.trim().to_string(),
             });
@@ -330,7 +339,8 @@ impl Parser {
         }
 
         // %popup-close popup_id
-        if let Some(rest) = line.strip_prefix("%popup-close ") {
+        if line.starts_with("%popup-close ") {
+            let rest = &line["%popup-close ".len()..];
             return Some(ControlModeEvent::PopupClose {
                 popup_id: rest.trim().to_string(),
             });
@@ -451,11 +461,14 @@ impl Parser {
     fn parse_window_renamed(&self, line: &str) -> Option<ControlModeEvent> {
         // %window-renamed @window name
         let rest = &line["%window-renamed ".len()..];
-        rest.find(' ')
-            .map(|space_idx| ControlModeEvent::WindowRenamed {
+        if let Some(space_idx) = rest.find(' ') {
+            Some(ControlModeEvent::WindowRenamed {
                 window_id: rest[..space_idx].to_string(),
                 name: rest[space_idx + 1..].to_string(),
             })
+        } else {
+            None
+        }
     }
 
     fn parse_window_pane_changed(&self, line: &str) -> Option<ControlModeEvent> {
@@ -476,11 +489,14 @@ impl Parser {
     fn parse_session_changed(&self, line: &str) -> Option<ControlModeEvent> {
         // %session-changed $session name
         let rest = &line["%session-changed ".len()..];
-        rest.find(' ')
-            .map(|space_idx| ControlModeEvent::SessionChanged {
+        if let Some(space_idx) = rest.find(' ') {
+            Some(ControlModeEvent::SessionChanged {
                 session_id: rest[..space_idx].to_string(),
                 session_name: rest[space_idx + 1..].to_string(),
             })
+        } else {
+            None
+        }
     }
 
     fn parse_session_window_changed(&self, line: &str) -> Option<ControlModeEvent> {

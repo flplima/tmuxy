@@ -37,7 +37,7 @@ function RichImage({ image }: RichImageProps) {
 
   if (error) {
     return (
-      <span className="rich-image-error" title="Failed to load image">
+      <span className="tmuxy-rich-image-error" title="Failed to load image">
         [IMG]
       </span>
     );
@@ -91,14 +91,14 @@ function RichImage({ image }: RichImageProps) {
   }
 
   return (
-    <span className={`rich-image-container ${loaded ? 'rich-image-loaded' : ''}`}>
+    <span className={`tmuxy-rich-image-container ${loaded ? 'tmuxy-rich-image-loaded' : ''}`}>
       <img
         src={image.data}
         alt={image.alt || 'Terminal image'}
         style={style}
         onError={handleError}
         onLoad={handleLoad}
-        className="rich-image"
+        className="tmuxy-rich-image"
         loading="lazy"
       />
     </span>
@@ -117,7 +117,7 @@ interface RichHyperlinkProps {
 function RichHyperlink({ link, children }: RichHyperlinkProps) {
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
-      // Open in new tab
+      // Open in new tmuxy-tab
       e.preventDefault();
       window.open(link.url, '_blank', 'noopener,noreferrer');
     },
@@ -136,14 +136,14 @@ function RichHyperlink({ link, children }: RichHyperlinkProps) {
 
   if (!isValidUrl) {
     // Render as plain text if URL is invalid/unsafe
-    return <span className="rich-link-invalid">{children || link.text}</span>;
+    return <span className="tmuxy-rich-link-invalid">{children || link.text}</span>;
   }
 
   return (
     <a
       href={link.url}
       onClick={handleClick}
-      className="rich-link"
+      className="tmuxy-rich-link"
       title={link.url}
       data-link-id={link.id}
     >

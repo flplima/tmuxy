@@ -53,7 +53,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
       const el = wrapperRef.current;
       if (!el) return;
       const scrollEl = el.querySelector(
-        '.widget-markdown, .widget-scrollable',
+        '.tmuxy-widget-markdown, .widget-scrollable',
       ) as HTMLElement | null;
       if (!scrollEl) return;
 
@@ -124,7 +124,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   return (
     <div
       ref={wrapperRef}
-      className={`pane-wrapper ${isSinglePane ? 'pane-single' : ''}`}
+      className={`tmuxy-pane-wrapper ${isSinglePane ? 'tmuxy-pane-single' : ''}`}
       style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
       role="group"
       aria-label={`Widget pane ${pane.tmuxId}`}
@@ -135,7 +135,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
       }}
     >
       <PaneHeader paneId={paneId} titleOverride={widgetTitle} />
-      <div className="pane-content" style={{ flex: 1, overflow: 'hidden' }}>
+      <div className="tmuxy-pane-content" style={{ flex: 1, overflow: 'hidden' }}>
         <WidgetComponent
           paneId={paneId}
           widgetName={widgetInfo.widgetName}
