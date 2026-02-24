@@ -31,6 +31,12 @@ pub struct SessionConnections {
     pub monitor_handle: Option<JoinHandle<()>>,
 }
 
+impl Default for SessionConnections {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionConnections {
     pub fn new() -> Self {
         let (state_tx, _) = broadcast::channel(100);
@@ -52,6 +58,12 @@ pub struct AppState {
     pub next_conn_id: AtomicU64,
     /// SSE session tokens: token -> (conn_id, session_name)
     pub sse_tokens: RwLock<HashMap<String, (u64, String)>>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AppState {

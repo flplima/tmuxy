@@ -24,7 +24,7 @@ describe('Terminal', () => {
 
     const terminal = screen.getByTestId('terminal');
     expect(terminal).toBeInTheDocument();
-    expect(terminal).toHaveClass('terminal-container');
+    expect(terminal).toHaveClass('tmuxy-terminal');
   });
 
   it('renders terminal lines', () => {
@@ -35,7 +35,7 @@ describe('Terminal', () => {
     expect(terminal).toBeInTheDocument();
 
     // Check that content is rendered
-    const pre = terminal.querySelector('.terminal-content');
+    const pre = terminal.querySelector('.tmuxy-terminal-content');
     expect(pre).toBeInTheDocument();
     expect(pre?.textContent).toContain('hello');
     expect(pre?.textContent).toContain('world');
@@ -53,8 +53,8 @@ describe('Terminal', () => {
     render(<Terminal content={content} height={5} />);
 
     const terminal = screen.getByTestId('terminal');
-    const pre = terminal.querySelector('.terminal-content');
-    const lines = pre?.querySelectorAll('.terminal-line');
+    const pre = terminal.querySelector('.tmuxy-terminal-content');
+    const lines = pre?.querySelectorAll('.tmuxy-terminal-line');
 
     // Should have 5 lines (1 content + 4 padding)
     expect(lines?.length).toBe(5);

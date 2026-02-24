@@ -24,7 +24,7 @@ const components: Components = {
     }
     if (!className) {
       return (
-        <code className="widget-markdown-inline-code" {...props}>
+        <code className="tmuxy-widget-markdown-inline-code" {...props}>
           {children}
         </code>
       );
@@ -37,7 +37,7 @@ const components: Components = {
   },
   pre({ children, ...props }) {
     return (
-      <pre className="widget-markdown-pre" {...props}>
+      <pre className="tmuxy-widget-markdown-pre" {...props}>
         {children}
       </pre>
     );
@@ -74,15 +74,15 @@ export function TmuxyMarkdown({ lines }: WidgetProps) {
   const { content, error } = useFetchFile(meta?.filePath, meta?.seq);
 
   if (error) {
-    return <div className="widget-markdown-empty">{error}</div>;
+    return <div className="tmuxy-widget-markdown-empty">{error}</div>;
   }
 
   if (!content.trim()) {
-    return <div className="widget-markdown-empty">Waiting for content...</div>;
+    return <div className="tmuxy-widget-markdown-empty">Waiting for content...</div>;
   }
 
   return (
-    <div className="widget-markdown">
+    <div className="tmuxy-widget-markdown">
       <Markdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </Markdown>
