@@ -564,7 +564,10 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 5: Close button removes float
     await ctx.page.click('.float-close');
-    await delay(DELAYS.SYNC);
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.float-modal').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
     let modals = await ctx.page.$$('.float-modal');
     expect(modals.length).toBe(0);
     windows = await ctx.session.getWindowInfo();

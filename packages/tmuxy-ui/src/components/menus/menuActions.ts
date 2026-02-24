@@ -50,7 +50,11 @@ export function executeMenuAction(send: Send, actionId: string): void {
       send({ type: 'SEND_COMMAND', command: 'break-pane' });
       break;
     case 'pane-add-to-group':
-      send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
+      send({
+        type: 'SEND_TMUX_COMMAND',
+        command:
+          'run-shell "/workspace/scripts/tmuxy/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"',
+      });
       break;
     case 'pane-copy-mode':
       send({ type: 'SEND_COMMAND', command: 'copy-mode' });

@@ -161,6 +161,24 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
     console.log('Warning: WebSocket adapter may not be available');
   }
 
+  // Wait for monitor connection to be ready by sending a harmless command
+  // The adapter may be available but the monitor (control mode) might not be connected yet
+  try {
+    await page.waitForFunction(
+      async () => {
+        try {
+          await window._adapter?.invoke('run_tmux_command', { command: 'display-message ""' });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 10000, polling: 200 }
+    );
+  } catch {
+    console.log('Warning: Monitor connection may not be ready');
+  }
+
   // Additional delay to ensure keyboard actor has received UPDATE_SESSION
   await delay(DELAYS.LONG);
 }

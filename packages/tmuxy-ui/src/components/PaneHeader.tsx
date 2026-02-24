@@ -185,7 +185,13 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
     e.preventDefault();
     e.stopPropagation();
     // Add a new pane to this group (or create a group if single pane)
-    send({ type: 'SEND_TMUX_COMMAND', command: 'tmuxy-pane-group-add' });
+    // Use run-shell directly with format strings (expanded client-side by SEND_TMUX_COMMAND handler)
+    // instead of the tmux alias, which resolves #{pane_id} to the control mode pane.
+    send({
+      type: 'SEND_TMUX_COMMAND',
+      command:
+        'run-shell "/workspace/scripts/tmuxy/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"',
+    });
   };
 
   const handleTabDragStart = (e: React.MouseEvent, dragPaneId: string) => {
