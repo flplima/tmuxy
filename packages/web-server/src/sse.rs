@@ -835,7 +835,7 @@ async fn cleanup_connection(
                 // Don't immediately kill the monitor — a page reload will reconnect
                 // within a few seconds. Defer cleanup to give new clients a chance.
                 eprintln!(
-                    "[cleanup] Last client for session '{}' disconnected, deferring monitor cleanup (5s grace period)",
+                    "[cleanup] Last client for session '{}' disconnected, deferring monitor cleanup (2s grace period)",
                     session
                 );
                 deferred = true;
@@ -857,7 +857,7 @@ async fn cleanup_connection(
         let state = state.clone();
         let session = session.to_string();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
 
             let (cmd_tx, monitor_handle) = {
                 let mut sessions = state.sessions.write().await;
