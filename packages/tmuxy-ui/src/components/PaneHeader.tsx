@@ -190,7 +190,7 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
     send({
       type: 'SEND_TMUX_COMMAND',
       command:
-        'run-shell "/workspace/scripts/tmuxy/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"',
+        'run-shell "scripts/tmuxy/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"',
     });
   };
 

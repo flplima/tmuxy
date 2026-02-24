@@ -1142,13 +1142,13 @@ export const appMachine = setup({
         CLOSE_PANE: {
           actions: sendTo('tmux', ({ event }) => ({
             type: 'SEND_COMMAND' as const,
-            command: `run-shell "/workspace/scripts/tmuxy/pane-group-close.sh ${event.paneId}"`,
+            command: `run-shell "scripts/tmuxy/pane-group-close.sh ${event.paneId}"`,
           })),
         },
         TAB_CLICK: {
           actions: sendTo('tmux', ({ event }) => ({
             type: 'SEND_COMMAND' as const,
-            command: `run-shell "/workspace/scripts/tmuxy/pane-group-switch.sh ${event.paneId}"`,
+            command: `run-shell "scripts/tmuxy/pane-group-switch.sh ${event.paneId}"`,
           })),
         },
         ZOOM_PANE: {
@@ -1166,7 +1166,7 @@ export const appMachine = setup({
         CLOSE_FLOAT: {
           actions: sendTo('tmux', ({ event }) => ({
             type: 'SEND_COMMAND' as const,
-            command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${event.paneId}"`,
+            command: `run-shell "scripts/tmuxy/float-close.sh ${event.paneId}"`,
           })),
         },
         CLOSE_TOP_FLOAT: {
@@ -1177,7 +1177,7 @@ export const appMachine = setup({
             enqueue(
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
-                command: `run-shell "/workspace/scripts/tmuxy/float-close.sh ${topFloat.paneId}"`,
+                command: `run-shell "scripts/tmuxy/float-close.sh ${topFloat.paneId}"`,
               }),
             );
           }),

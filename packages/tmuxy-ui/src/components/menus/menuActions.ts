@@ -53,7 +53,7 @@ export function executeMenuAction(send: Send, actionId: string): void {
       send({
         type: 'SEND_TMUX_COMMAND',
         command:
-          'run-shell "/workspace/scripts/tmuxy/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"',
+          'run-shell "scripts/tmuxy/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"',
       });
       break;
     case 'pane-copy-mode':
