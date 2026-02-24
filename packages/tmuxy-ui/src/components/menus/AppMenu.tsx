@@ -29,7 +29,7 @@ export const useNativeMenu = false;
 function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
   const label = getKeybindingLabel(keybindings, command);
   if (!label) return null;
-  return <span className="menu-keybinding">{label}</span>;
+  return <span className="tmuxy-menu-keybinding">{label}</span>;
 }
 
 export function AppMenu() {
@@ -47,7 +47,7 @@ export function AppMenu() {
   };
 
   const menuButton = (
-    <button className="app-menu-button" aria-label="Menu">
+    <button className="tmuxy-menu-button" aria-label="Menu">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
         <rect x="2" y="3" width="12" height="1.5" rx="0.5" />
         <rect x="2" y="7.25" width="12" height="1.5" rx="0.5" />
@@ -108,7 +108,7 @@ export function AppMenu() {
         </MenuItem>
         <MenuItem onClick={() => handleAction('pane-add-to-group')}>Add Pane to Group</MenuItem>
         <MenuDivider />
-        <MenuItem onClick={() => handleAction('pane-copy-mode')}>
+        <MenuItem onClick={() => handleAction('tmuxy-pane-copy-mode')}>
           Copy Mode
           <KeyLabel keybindings={keybindings} command="copy-mode" />
         </MenuItem>
@@ -125,23 +125,23 @@ export function AppMenu() {
       </SubMenu>
 
       <SubMenu label="Tab">
-        <MenuItem onClick={() => handleAction('tab-new')}>
+        <MenuItem onClick={() => handleAction('tmuxy-tab-new')}>
           New Tab
           <KeyLabel keybindings={keybindings} command="new-window" />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('tab-next')} disabled={isSingleWindow}>
+        <MenuItem onClick={() => handleAction('tmuxy-tab-next')} disabled={isSingleWindow}>
           Next Tab
           <KeyLabel keybindings={keybindings} command="next-window" />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('tab-previous')} disabled={isSingleWindow}>
+        <MenuItem onClick={() => handleAction('tmuxy-tab-previous')} disabled={isSingleWindow}>
           Previous Tab
           <KeyLabel keybindings={keybindings} command="previous-window" />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('tab-last')} disabled={isSingleWindow}>
+        <MenuItem onClick={() => handleAction('tmuxy-tab-last')} disabled={isSingleWindow}>
           Last Tab
           <KeyLabel keybindings={keybindings} command="last-window" />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('tab-rename')}>
+        <MenuItem onClick={() => handleAction('tmuxy-tab-rename')}>
           Rename Tab
           <KeyLabel
             keybindings={keybindings}
@@ -149,7 +149,7 @@ export function AppMenu() {
           />
         </MenuItem>
         <MenuDivider />
-        <MenuItem onClick={() => handleAction('tab-close')}>
+        <MenuItem onClick={() => handleAction('tmuxy-tab-close')}>
           Close Tab
           <KeyLabel keybindings={keybindings} command="kill-window" />
         </MenuItem>
@@ -190,7 +190,7 @@ export function AppMenu() {
           <KeyLabel keybindings={keybindings} command="list-keys" />
         </MenuItem>
         <MenuItem onClick={() => handleAction('help-github')}>
-          Tmuxy on GitHub<span className="menu-external">{'\u2197'}</span>
+          Tmuxy on GitHub<span className="tmuxy-menu-external">{'\u2197'}</span>
         </MenuItem>
       </SubMenu>
     </Menu>

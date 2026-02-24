@@ -16,15 +16,15 @@ export function StatusBar() {
   const contentWidth = totalWidth > 0 ? totalWidth * charWidth : undefined;
 
   return (
-    <div className="statusbar">
+    <div className="tmuxy-statusbar">
       <div
-        className="statusbar-inner"
+        className="tmuxy-statusbar-inner"
         style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
       >
         <AppMenu />
         <WindowTabs />
-        <button className="statusbar-session" aria-label="Session">
-          <span className="statusbar-session-name">{sessionName}</span>
+        <button className="tmuxy-statusbar-session" aria-label="Session">
+          <span className="tmuxy-statusbar-session-name">{sessionName}</span>
           <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
             <path
               d="M2 3.5L5 7L8 3.5"
