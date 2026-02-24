@@ -148,6 +148,12 @@ export interface AppMachineContext {
   } | null;
   /** Temporary status message (from display-message) */
   statusMessage: { text: string; timestamp: number } | null;
+  /** Current theme name */
+  themeName: string;
+  /** Current theme mode */
+  themeMode: 'dark' | 'light';
+  /** Available themes from server */
+  availableThemes: Array<{ name: string; displayName: string }>;
 }
 
 // ============================================
@@ -367,6 +373,19 @@ export type CommandModeCancelEvent = { type: 'COMMAND_MODE_CANCEL' };
 export type ShowStatusMessageEvent = { type: 'SHOW_STATUS_MESSAGE'; text: string };
 export type ClearStatusMessageEvent = { type: 'CLEAR_STATUS_MESSAGE' };
 
+// Theme events
+export type SetThemeEvent = { type: 'SET_THEME'; name: string };
+export type SetThemeModeEvent = { type: 'SET_THEME_MODE'; mode: 'dark' | 'light' };
+export type ThemeSettingsReceivedEvent = {
+  type: 'THEME_SETTINGS_RECEIVED';
+  theme: string;
+  mode: 'dark' | 'light';
+};
+export type ThemesListReceivedEvent = {
+  type: 'THEMES_LIST_RECEIVED';
+  themes: Array<{ name: string; displayName: string }>;
+};
+
 /** All events the app machine can receive from external sources */
 export type AppMachineEvent =
   | TmuxConnectedEvent
@@ -419,7 +438,11 @@ export type AppMachineEvent =
   | CommandModeSubmitEvent
   | CommandModeCancelEvent
   | ShowStatusMessageEvent
-  | ClearStatusMessageEvent;
+  | ClearStatusMessageEvent
+  | SetThemeEvent
+  | SetThemeModeEvent
+  | ThemeSettingsReceivedEvent
+  | ThemesListReceivedEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

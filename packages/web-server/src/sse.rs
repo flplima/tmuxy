@@ -660,6 +660,38 @@ async fn handle_command(
             let entries = list_directory(path)?;
             Ok(serde_json::to_value(entries).unwrap())
         }
+        "get_theme_settings" => {
+            let theme = executor::execute_tmux_command(&["show-options", "-gqv", "@tmuxy-theme"])
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            let mode =
+                executor::execute_tmux_command(&["show-options", "-gqv", "@tmuxy-theme-mode"])
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
+            Ok(serde_json::json!({
+                "theme": if theme.is_empty() { "default".to_string() } else { theme },
+                "mode": if mode.is_empty() { "dark".to_string() } else { mode },
+            }))
+        }
+        "set_theme" => {
+            let name = args
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("default");
+            executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme", name])
+                .map_err(|e| format!("Failed to set theme: {}", e))?;
+            if let Some(mode) = args.get("mode").and_then(|v| v.as_str()) {
+                executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", mode])
+                    .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+            }
+            Ok(serde_json::json!(null))
+        }
+        "set_theme_mode" => {
+            let mode = args.get("mode").and_then(|v| v.as_str()).unwrap_or("dark");
+            executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", mode])
+                .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+            Ok(serde_json::json!(null))
+        }
         "ping" => {
             // No-op for keepalive
             Ok(serde_json::json!(null))

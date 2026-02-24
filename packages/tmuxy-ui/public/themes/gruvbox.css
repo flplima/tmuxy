@@ -1,0 +1,161 @@
+/* Gruvbox theme - https://github.com/morhetz/gruvbox */
+
+:root.theme-dark {
+  --term-black: #282828;
+  --term-red: #cc241d;
+  --term-green: #98971a;
+  --term-yellow: #d79921;
+  --term-blue: #458588;
+  --term-magenta: #b16286;
+  --term-cyan: #689d6a;
+  --term-white: #a89984;
+  --term-bright-black: #928374;
+  --term-bright-red: #fb4934;
+  --term-bright-green: #b8bb26;
+  --term-bright-yellow: #fabd2f;
+  --term-bright-blue: #83a598;
+  --term-bright-magenta: #d3869b;
+  --term-bright-cyan: #8ec07c;
+  --term-bright-white: #ebdbb2;
+
+  --term-foreground: #ebdbb2;
+  --term-background: #282828;
+
+  --bg-black: #282828;
+  --bg-dark: #1d2021;
+  --bg-dark-alt: #242424;
+  --bg-medium: #32302f;
+  --bg-elevated-alt: #3c3836;
+  --bg-highlight: #504945;
+  --bg-highlight-alt: #665c54;
+
+  --text-primary: #ebdbb2;
+  --text-secondary: #d5c4a1;
+  --text-muted: #a89984;
+  --text-dimmed: #928374;
+  --text-subtle: #665c54;
+  --text-faint: #504945;
+  --text-dark: #282828;
+
+  --border-medium: #3c3836;
+  --border-light: #504945;
+
+  --pane-header-bg-active: #504945;
+  --pane-header-bg-inactive: #1d2021;
+  --pane-header-text-active: #ebdbb2;
+  --pane-header-text-inactive: #928374;
+
+  --accent-green: #98971a;
+  --accent-green-bright: #b8bb26;
+  --accent-green-bg: #2a2e1a;
+  --accent-green-border: #4a5020;
+  --accent-green-hover: #3a3e1a;
+
+  --accent-blue: #2a3a3a;
+  --accent-blue-light: rgba(131, 165, 152, 0.8);
+  --accent-blue-glow: rgba(131, 165, 152, 0.6);
+  --accent-blue-bg: rgba(131, 165, 152, 0.1);
+  --accent-blue-bg-hover: rgba(131, 165, 152, 0.3);
+  --accent-blue-bg-active: rgba(131, 165, 152, 0.5);
+
+  --link-color: #83a598;
+  --link-hover: #8ec07c;
+  --link-active: #458588;
+
+  --error-color: #fb4934;
+  --error-light: #fb4934;
+  --error-text: #fb4934;
+  --error-bg: rgba(251, 73, 52, 0.2);
+  --error-border: rgba(251, 73, 52, 0.4);
+
+  --cursor-bg: #ebdbb2;
+  --cursor-text: #282828;
+  --cursor-copy-bg: #458588;
+  --cursor-inactive: #928374;
+
+  --tmux-status-bg: #98971a;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+:root.theme-light {
+  --term-black: #fbf1c7;
+  --term-red: #cc241d;
+  --term-green: #797403;
+  --term-yellow: #b57614;
+  --term-blue: #076678;
+  --term-magenta: #8f3f71;
+  --term-cyan: #427b58;
+  --term-white: #3c3836;
+  --term-bright-black: #928374;
+  --term-bright-red: #9d0006;
+  --term-bright-green: #79740e;
+  --term-bright-yellow: #b57614;
+  --term-bright-blue: #076678;
+  --term-bright-magenta: #8f3f71;
+  --term-bright-cyan: #427b58;
+  --term-bright-white: #282828;
+
+  --term-foreground: #3c3836;
+  --term-background: #fbf1c7;
+
+  --bg-black: #fbf1c7;
+  --bg-dark: #f2e5bc;
+  --bg-dark-alt: #ebdbb2;
+  --bg-medium: #d5c4a1;
+  --bg-elevated-alt: #c9b89a;
+  --bg-highlight: #bdae93;
+  --bg-highlight-alt: #a89984;
+
+  --text-primary: #3c3836;
+  --text-secondary: #504945;
+  --text-muted: #665c54;
+  --text-dimmed: #928374;
+  --text-subtle: #a89984;
+  --text-faint: #bdae93;
+  --text-dark: #fbf1c7;
+
+  --border-medium: #d5c4a1;
+  --border-light: #c9b89a;
+
+  --pane-header-bg-active: #d5c4a1;
+  --pane-header-bg-inactive: #f2e5bc;
+  --pane-header-text-active: #3c3836;
+  --pane-header-text-inactive: #928374;
+
+  --accent-green: #797403;
+  --accent-green-bright: #79740e;
+  --accent-green-bg: #e8e5c0;
+  --accent-green-border: #b8b480;
+  --accent-green-hover: #ddd8a0;
+
+  --accent-blue: #d0e0e0;
+  --accent-blue-light: rgba(7, 102, 120, 0.8);
+  --accent-blue-glow: rgba(7, 102, 120, 0.4);
+  --accent-blue-bg: rgba(7, 102, 120, 0.08);
+  --accent-blue-bg-hover: rgba(7, 102, 120, 0.15);
+  --accent-blue-bg-active: rgba(7, 102, 120, 0.25);
+
+  --link-color: #076678;
+  --link-hover: #427b58;
+  --link-active: #054a5a;
+
+  --error-color: #9d0006;
+  --error-light: #cc241d;
+  --error-text: #9d0006;
+  --error-bg: rgba(157, 0, 6, 0.1);
+  --error-border: rgba(157, 0, 6, 0.3);
+
+  --cursor-bg: #3c3836;
+  --cursor-text: #fbf1c7;
+  --cursor-copy-bg: #076678;
+  --cursor-inactive: #928374;
+
+  --tmux-status-bg: #797403;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+}

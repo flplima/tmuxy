@@ -5,7 +5,9 @@ export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
   | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
-  | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: string; start: number; end: number };
+  | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: string; start: number; end: number }
+  | { type: 'FETCH_THEME_SETTINGS' }
+  | { type: 'FETCH_THEMES_LIST' };
 
 export interface TmuxActorInput {
   parent: AnyActorRef;
@@ -98,6 +100,29 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           })
           .catch((error) => {
             console.error('[tmuxActor] Fetch scrollback cells failed:', error);
+          });
+      } else if (event.type === 'FETCH_THEME_SETTINGS') {
+        adapter
+          .invoke<{ theme: string; mode: string }>('get_theme_settings', {})
+          .then((result) => {
+            parent.send({
+              type: 'THEME_SETTINGS_RECEIVED',
+              theme: result.theme || 'default',
+              mode: (result.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light',
+            });
+          })
+          .catch((error) => {
+            console.error('[tmuxActor] Fetch theme settings failed:', error);
+          });
+      } else if (event.type === 'FETCH_THEMES_LIST') {
+        // Fetch from HTTP API (not via adapter/commands)
+        fetch('/api/themes')
+          .then((res) => res.json())
+          .then((themes: Array<{ name: string; displayName: string }>) => {
+            parent.send({ type: 'THEMES_LIST_RECEIVED', themes });
+          })
+          .catch((error) => {
+            console.error('[tmuxActor] Fetch themes list failed:', error);
           });
       }
     });
