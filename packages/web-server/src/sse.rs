@@ -409,8 +409,13 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         "new_window" => {
-            let cmd = format!("neww -t {}", session);
-            send_via_control_mode(state, session, &cmd).await?;
+            // neww crashes tmux 3.5a control mode — use split+break workaround
+            let split_cmd = format!("splitw -t {} -dP", session);
+            send_via_control_mode(state, session, &split_cmd).await?;
+            // Small delay for split to complete before break-pane
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let break_cmd = format!("breakp -d -s {}", session);
+            send_via_control_mode(state, session, &break_cmd).await?;
             Ok(serde_json::json!(null))
         }
         "select_pane" => {
@@ -489,9 +494,18 @@ async fn handle_command(
         "execute_prefix_binding" => {
             let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
 
+            // neww crashes tmux 3.5a control mode — use split+break workaround
+            if key == "c" {
+                let split_cmd = format!("splitw -t {} -dP", session);
+                send_via_control_mode(state, session, &split_cmd).await?;
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                let break_cmd = format!("breakp -d -s {}", session);
+                send_via_control_mode(state, session, &break_cmd).await?;
+                return Ok(serde_json::json!(null));
+            }
+
             let cmd = match key {
                 // Window operations
-                "c" => format!("neww -t {}", session),
                 "n" => format!("next -t {}", session),
                 "p" => format!("prev -t {}", session),
                 "l" => format!("last -t {}", session),
@@ -548,6 +562,16 @@ async fn handle_command(
                     "[sse] Client {} blocked resize command (use set_client_size): {}",
                     conn_id, command
                 );
+                return Ok(serde_json::json!(null));
+            }
+
+            // neww crashes tmux 3.5a control mode — use split+break workaround
+            if command.starts_with("new-window") || command.starts_with("neww") {
+                let split_cmd = format!("splitw -t {} -dP", session);
+                send_via_control_mode(state, session, &split_cmd).await?;
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                let break_cmd = format!("breakp -d -s {}", session);
+                send_via_control_mode(state, session, &break_cmd).await?;
                 return Ok(serde_json::json!(null));
             }
 

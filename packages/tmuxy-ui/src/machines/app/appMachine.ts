@@ -754,6 +754,8 @@ export const appMachine = setup({
                   lastUpdateTime: Date.now(),
                   // Clear optimistic tracking - server state overwrites any predictions
                   optimisticOperation: null,
+                  // Clear held resize preview — server pane sizes are now authoritative
+                  resize: null,
                   groupSwitchDimOverride: groupSwitchOverride,
                   // Track pane activation order (MRU) for navigation prediction
                   paneActivationOrder:
@@ -820,7 +822,10 @@ export const appMachine = setup({
               // server dimensions and container height corrections (StatusBar mount).
               // If a resize is pending, use a longer delay for the round-trip.
               if (!context.enableAnimations) {
-                const delay = shouldResize ? 500 : 100;
+                // Wait for resized state to arrive before enabling transitions.
+                // If no resize needed, enable quickly. If resize pending, wait for
+                // the round-trip (resize command → tmux resizes → new state push).
+                const delay = shouldResize ? 1000 : 200;
                 enqueue(({ self }) => {
                   setTimeout(() => {
                     self.send({ type: 'ENABLE_ANIMATIONS' });
@@ -1054,7 +1059,20 @@ export const appMachine = setup({
           })),
         },
         RESIZE_COMPLETED: {
-          actions: assign({ resize: null }),
+          // Keep resize state as optimistic preview until next TMUX_STATE_UPDATE
+          // arrives with server-confirmed pane sizes. This prevents the visual
+          // snap-back glitch when releasing the resize divider.
+          // Timeout fallback: clear after 2s in case server update is delayed.
+          actions: enqueueActions(({ enqueue }) => {
+            enqueue(({ self }) => {
+              setTimeout(() => {
+                const snap = self.getSnapshot();
+                if (snap.context.resize) {
+                  self.send({ type: 'RESIZE_STATE_UPDATE', resize: null });
+                }
+              }, 2000);
+            });
+          }),
         },
         RESIZE_ERROR: {
           actions: assign(({ event }) => ({ error: event.error, resize: null })),
@@ -1237,6 +1255,18 @@ export const appMachine = setup({
               initialScrollTop = Math.max(0, scrollTop + event.scrollLines);
             }
 
+            // Clamp initial cursor column to line content
+            const initRow = historySize + pane.cursorY;
+            const initLine = lines.get(initRow);
+            const initLineText = initLine
+              ? initLine
+                  .map((c) => c.c)
+                  .join('')
+                  .trimEnd()
+              : '';
+            const initCol =
+              initLineText.length > 0 ? Math.min(pane.cursorX, initLineText.length - 1) : 0;
+
             const copyState: CopyModeState = {
               lines,
               totalLines,
@@ -1245,8 +1275,8 @@ export const appMachine = setup({
               loading: true,
               width: pane.width,
               height: pane.height,
-              cursorRow: historySize + pane.cursorY,
-              cursorCol: pane.cursorX,
+              cursorRow: initRow,
+              cursorCol: initCol,
               selectionMode: null,
               selectionAnchor: null,
               scrollTop: initialScrollTop,
@@ -1384,10 +1414,20 @@ export const appMachine = setup({
             }
             scrollTop = Math.max(0, Math.min(scrollTop, existing.totalLines - existing.height));
 
+            // Clamp cursor column to line content (prevent cursor in empty cells)
+            const line = existing.lines.get(absoluteRow);
+            const lineText = line
+              ? line
+                  .map((c) => c.c)
+                  .join('')
+                  .trimEnd()
+              : '';
+            const clampedCol = lineText.length > 0 ? Math.min(event.col, lineText.length - 1) : 0;
+
             const updated: CopyModeState = {
               ...existing,
               cursorRow: absoluteRow,
-              cursorCol: event.col,
+              cursorCol: clampedCol,
               scrollTop,
             };
 
@@ -1416,12 +1456,22 @@ export const appMachine = setup({
             const absoluteRow =
               event.row < existing.height ? existing.scrollTop + event.row : event.row;
 
+            // Clamp cursor column to line content
+            const line = existing.lines.get(absoluteRow);
+            const lineText = line
+              ? line
+                  .map((c) => c.c)
+                  .join('')
+                  .trimEnd()
+              : '';
+            const clampedCol = lineText.length > 0 ? Math.min(event.col, lineText.length - 1) : 0;
+
             const updated: CopyModeState = {
               ...existing,
               selectionMode: event.mode,
-              selectionAnchor: { row: absoluteRow, col: event.col },
+              selectionAnchor: { row: absoluteRow, col: clampedCol },
               cursorRow: absoluteRow,
-              cursorCol: event.col,
+              cursorCol: clampedCol,
             };
 
             return { copyModeStates: { ...context.copyModeStates, [event.paneId]: updated } };

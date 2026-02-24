@@ -518,8 +518,8 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 4px;
+  gap: 4px;
+  padding: 0 10px;
   height: 100%;
   background-color: var(--border-medium);
   border: none;

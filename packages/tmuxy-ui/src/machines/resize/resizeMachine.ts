@@ -241,8 +241,8 @@ export const resizeMachine = setup({
                 );
               }
             }),
-            assign({ resize: null }),
-            'notifyStateUpdate',
+            // Keep resize state — parent holds it as optimistic preview until
+            // the next TMUX_STATE_UPDATE arrives with server-confirmed sizes.
             'notifyCompleted',
           ],
         },
