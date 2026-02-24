@@ -82,6 +82,10 @@ await invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
 { "type": "event", "name": "tmux-state-update", "payload": {...} }
 ```
 
+## Testing & Bug Fixes (Critical)
+
+**ALWAYS fix any test failure or bug you encounter, even if it is unrelated to your current task or predates your changes.** Do not skip, ignore, or defer broken tests. If CI is red, make it green before moving on. A failing test is never "someone else's problem" — if you see it, you own it. This applies to unit tests, E2E tests, linting errors, type errors, and any other validation failures.
+
 ## Git
 
 Use [gitmoji](https://gitmoji.dev/) for commit messages:

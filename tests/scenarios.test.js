@@ -44,6 +44,7 @@ const {
   noteKnownLimitation,
   GlitchDetector,
   DELAYS,
+  waitForSessionReady,
 } = require('./helpers');
 
 const MOUSE_CAPTURE_SCRIPT = path.join(__dirname, 'helpers', 'mouse-capture.py');
@@ -579,10 +580,14 @@ describe('Scenario 6: Floating Panes', () => {
     await waitForFloatModal(ctx.page);
 
     // Step 7: Backdrop click closes float
+    // Click far from center to avoid hitting the centered float modal
     const newBackdrop = await ctx.page.$('.float-backdrop');
     const box = await newBackdrop.boundingBox();
-    await ctx.page.mouse.click(box.x + 10, box.y + 10);
-    await delay(DELAYS.SYNC);
+    await ctx.page.mouse.click(box.x + 5, box.y + 5);
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.float-modal').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
     modals = await ctx.page.$$('.float-modal');
     expect(modals.length).toBe(0);
   }, 120000);
@@ -1021,6 +1026,7 @@ describe('Scenario 12: Session Reconnect', () => {
     await ctx.page.reload({ waitUntil: 'domcontentloaded' });
     await ctx.page.waitForSelector('[role="log"]', { timeout: 10000 });
     ctx.session.setPage(ctx.page);
+    await waitForSessionReady(ctx.page, ctx.session.name, 10000);
     await delay(DELAYS.SYNC);
 
     // Step 3: Verify preserved
@@ -1473,14 +1479,14 @@ describe('Scenario 20: Glitch Detection', () => {
 
     // Step 1: Horizontal split with glitch detection
     await ctx.startGlitchDetection({ scope: '.pane-container' });
-    ctx.session.splitHorizontal();
+    await ctx.session.splitHorizontal();
     await waitForPaneCount(ctx.page, 2);
     await delay(DELAYS.SYNC);
     let result = await ctx.assertNoGlitches({ operation: 'split' });
 
     // Step 2: Vertical split with glitch detection
     await ctx.startGlitchDetection({ scope: '.pane-container' });
-    ctx.session.splitVertical();
+    await ctx.session.splitVertical();
     await waitForPaneCount(ctx.page, 3);
     await delay(DELAYS.SYNC);
     result = await ctx.assertNoGlitches({ operation: 'split' });
