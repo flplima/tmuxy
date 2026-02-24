@@ -1,7 +1,7 @@
 /* Rich Content Styles */
 
 /* Hyperlinks */
-.tmuxy-rich-link {
+.rich-link {
   color: #6ab0f3;
   text-decoration: underline;
   text-decoration-style: dotted;
@@ -12,22 +12,22 @@
     text-decoration-color 0.15s ease;
 }
 
-.tmuxy-rich-link:hover {
+.rich-link:hover {
   color: #8cc4ff;
   text-decoration-style: solid;
 }
 
-.tmuxy-rich-link:active {
+.rich-link:active {
   color: #4a9ae8;
 }
 
-.tmuxy-rich-link-invalid {
+.rich-link-invalid {
   color: inherit;
   /* No special styling for invalid links */
 }
 
 /* Images */
-.tmuxy-rich-image-container {
+.rich-image-container {
   display: inline-block;
   vertical-align: middle;
   margin: 2px 4px;
@@ -35,17 +35,17 @@
   transition: opacity 0.2s ease;
 }
 
-.tmuxy-rich-image-container.tmuxy-rich-image-loaded {
+.rich-image-container.rich-image-loaded {
   opacity: 1;
 }
 
-.tmuxy-rich-image {
+.rich-image {
   display: block;
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.tmuxy-rich-image-error {
+.rich-image-error {
   display: inline-block;
   padding: 2px 6px;
   background-color: rgba(229, 57, 53, 0.2);
@@ -57,13 +57,13 @@
 }
 
 /* Image hover effects */
-.tmuxy-rich-image:hover {
+.rich-image:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   cursor: zoom-in;
 }
 
 /* Image lightbox (future enhancement) */
-.tmuxy-rich-image-lightbox {
+.rich-image-lightbox {
   position: fixed;
   top: 0;
   left: 0;
@@ -77,7 +77,7 @@
   cursor: zoom-out;
 }
 
-.tmuxy-rich-image-lightbox img {
+.rich-image-lightbox img {
   max-width: 95vw;
   max-height: 95vh;
   object-fit: contain;
@@ -95,7 +95,7 @@
   }
 }
 
-.tmuxy-rich-image-container:not(.tmuxy-rich-image-loaded)::before {
+.rich-image-container:not(.rich-image-loaded)::before {
   content: '';
   display: inline-block;
   width: 48px;

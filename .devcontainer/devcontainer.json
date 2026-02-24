@@ -12,8 +12,7 @@
     "--init",
     "--memory=6g",
     "--shm-size=1g",
-    "--pids-limit=50000",
-    "--add-host=host.docker.internal:host-gateway"
+    "--pids-limit=50000"
   ],
   "customizations": {
     "vscode": {
@@ -33,18 +32,17 @@
     "source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind",
     "source=${localEnv:HOME}/.claude.json,target=/home/node/.claude.json,type=bind",
     "source=${localEnv:HOME}/.gitconfig,target=/home/node/.gitconfig,type=bind,readonly",
-    "source=${localEnv:HOME}/.ssh,target=/home/node/.ssh,type=bind,readonly",
     "source=${localEnv:HOME}/.config/gh,target=/home/node/.config/gh,type=bind,readonly"
   ],
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",
     "CLAUDE_CONFIG_DIR": "/home/node/.claude",
-    "CHROME_CDP_URL": "http://host.docker.internal:9222",
+    "CHROME_CDP_URL": "http://localhost:9222",
     "TMUX_SESSION": "dev",
     "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postCreateCommand": "npm install && ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf && ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf && ln -sf /workspace/docker/.p10k.zsh ~/.p10k.zsh",
+  "postCreateCommand": "npm install && ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf && ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf",
   "postStartCommand": "npm start"
 }

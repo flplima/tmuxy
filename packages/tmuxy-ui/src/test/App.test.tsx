@@ -37,12 +37,12 @@ vi.mock('../utils/debug', () => ({
 
 // Import the mocked module to access mock functions
 import * as AppContext from '../machines/AppContext';
-import TmuxyApp from '../App';
+import App from '../App';
 
 const mockUseAppSelector = AppContext.useAppSelector as ReturnType<typeof vi.fn>;
 const mockUseAppState = AppContext.useAppState as ReturnType<typeof vi.fn>;
 
-describe('TmuxyApp', () => {
+describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -57,7 +57,7 @@ describe('TmuxyApp', () => {
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
 
-    render(<TmuxyApp />);
+    render(<App />);
 
     expect(screen.getByTestId('loading-display')).toBeInTheDocument();
     expect(screen.getByText('Connecting to tmux...')).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe('TmuxyApp', () => {
     });
     mockUseAppState.mockReturnValue(false); // isConnecting = false
 
-    render(<TmuxyApp />);
+    render(<App />);
 
     // Still shows loading because panes.length === 0
     expect(screen.getByTestId('loading-display')).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe('TmuxyApp', () => {
     });
     mockUseAppState.mockReturnValue(false); // isConnecting = false
 
-    render(<TmuxyApp />);
+    render(<App />);
 
     // Shows loading because container width is 0
     expect(screen.getByTestId('loading-display')).toBeInTheDocument();
@@ -105,7 +105,7 @@ describe('TmuxyApp', () => {
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
 
-    render(<TmuxyApp />);
+    render(<App />);
 
     expect(screen.getByTestId('error-display')).toBeInTheDocument();
     expect(screen.getByText('Connection failed')).toBeInTheDocument();
@@ -121,7 +121,7 @@ describe('TmuxyApp', () => {
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
 
-    render(<TmuxyApp />);
+    render(<App />);
 
     expect(screen.getByTestId('status-bar')).toBeInTheDocument();
     expect(screen.getByTestId('tmux-status-bar')).toBeInTheDocument();
