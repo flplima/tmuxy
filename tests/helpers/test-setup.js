@@ -117,19 +117,18 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       }
     }
 
-    // Close the page but DO NOT destroy the tmux session.
-    // The web server runs an async cleanup when the SSE client disconnects:
-    // 1. Sends MonitorCommand::Shutdown to the control mode monitor
-    // 2. Monitor sends detach-client (500ms timeout)
-    // 3. Cleanup task waits 600ms then aborts monitor if needed
-    // Total: ~1.1s for the control mode process to fully exit.
-    // We must wait for this to complete before the next test creates a new session,
-    // otherwise execSync('tmux new-session') races with the dying control mode process.
-    if (ctx.page) {
-      // Clear the session's page ref first to prevent dangling references
-      if (ctx.session) {
-        ctx.session.setPage(null);
+    // Destroy the tmux session via the adapter (routes through control mode),
+    // then close the page. This ensures clean shutdown: the kill-session command
+    // goes through the monitor, which triggers %exit and graceful disconnect.
+    if (ctx.session && ctx.page) {
+      try {
+        await ctx.session.destroy();
+      } catch {
+        // Adapter may not be available, session will be cleaned up by server
       }
+    }
+
+    if (ctx.page) {
       await ctx.page.close().catch(() => {});
       ctx.page = null;
       // Wait for the web server's async control mode cleanup to complete
