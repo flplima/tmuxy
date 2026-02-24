@@ -18,7 +18,6 @@ use std::time::Duration;
 use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
 use tmuxy_core::{executor, session, StateUpdate};
 use tokio::sync::broadcast;
-use tokio::task::JoinHandle;
 
 use crate::{AppState, SessionConnections};
 
@@ -820,27 +819,26 @@ async fn cleanup_connection(
         tokens.remove(session_token);
     }
 
-    let (resize_to, command_tx, monitor_handle) = {
+    let (resize_to, command_tx, needs_deferred_cleanup) = {
         let mut sessions = state.sessions.write().await;
 
         let mut resize = None;
         let mut cmd_tx = None;
-        let mut handle: Option<JoinHandle<()>> = None;
+        let mut deferred = false;
 
         if let Some(session_conns) = sessions.get_mut(session) {
             // Remove this connection
             session_conns.connections.retain(|&id| id != conn_id);
             let had_size = session_conns.client_sizes.remove(&conn_id).is_some();
 
-            // Clean up empty sessions
             if session_conns.connections.is_empty() {
-                handle = session_conns.monitor_handle.take();
-                cmd_tx = session_conns.monitor_command_tx.take();
+                // Don't immediately kill the monitor — a page reload will reconnect
+                // within a few seconds. Defer cleanup to give new clients a chance.
                 eprintln!(
-                    "[cleanup] Last client for session '{}' disconnected, stopping monitor",
+                    "[cleanup] Last client for session '{}' disconnected, deferring monitor cleanup (5s grace period)",
                     session
                 );
-                sessions.remove(session);
+                deferred = true;
             } else if had_size && !session_conns.client_sizes.is_empty() {
                 // Recompute minimum size for remaining clients
                 let new_min = compute_min_client_size(&session_conns.client_sizes);
@@ -851,27 +849,57 @@ async fn cleanup_connection(
             }
         }
 
-        (resize, cmd_tx, handle)
+        (resize, cmd_tx, deferred)
     };
 
-    // Stop the monitor if this was the last client
-    if let Some(handle) = monitor_handle {
-        if let Some(ref tx) = command_tx {
-            eprintln!("[cleanup] Sending graceful shutdown to monitor");
-            let _ = tx.send(MonitorCommand::Shutdown).await;
-            // Wait for the monitor to finish gracefully. The monitor sends
-            // detach-client and waits up to 3s for the process to exit.
-            // Never abort the handle — that drops the ControlModeConnection
-            // which would orphan/kill the child process, crashing tmux 3.5a.
-            tokio::time::sleep(Duration::from_millis(4000)).await;
-        }
-        if !handle.is_finished() {
-            eprintln!(
-                "[cleanup] Monitor task still running after graceful shutdown (not aborting)"
-            );
-        } else {
-            eprintln!("[cleanup] Monitor task finished gracefully");
-        }
+    // Defer monitor cleanup: wait 5 seconds, then check if clients reconnected
+    if needs_deferred_cleanup {
+        let state = state.clone();
+        let session = session.to_string();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+
+            let (cmd_tx, monitor_handle) = {
+                let mut sessions = state.sessions.write().await;
+                if let Some(session_conns) = sessions.get_mut(&session) {
+                    if session_conns.connections.is_empty() {
+                        // Still no clients after grace period — clean up for real
+                        eprintln!(
+                            "[cleanup] No clients reconnected for session '{}' after grace period, stopping monitor",
+                            session
+                        );
+                        let handle = session_conns.monitor_handle.take();
+                        let tx = session_conns.monitor_command_tx.take();
+                        sessions.remove(&session);
+                        (tx, handle)
+                    } else {
+                        eprintln!(
+                            "[cleanup] Client reconnected for session '{}' during grace period, keeping monitor alive",
+                            session
+                        );
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                }
+            };
+
+            // Stop the monitor if cleanup proceeded
+            if let Some(handle) = monitor_handle {
+                if let Some(ref tx) = cmd_tx {
+                    eprintln!("[cleanup] Sending graceful shutdown to monitor");
+                    let _ = tx.send(MonitorCommand::Shutdown).await;
+                    tokio::time::sleep(Duration::from_millis(4000)).await;
+                }
+                if !handle.is_finished() {
+                    eprintln!(
+                        "[cleanup] Monitor task still running after graceful shutdown (not aborting)"
+                    );
+                } else {
+                    eprintln!("[cleanup] Monitor task finished gracefully");
+                }
+            }
+        });
         return;
     }
 
