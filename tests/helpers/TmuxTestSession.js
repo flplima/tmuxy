@@ -259,16 +259,16 @@ class TmuxTestSession {
             throw new Error('Adapter not available - is dev mode enabled?');
           }
           // Retry on transient failures (monitor not ready yet)
-          // Monitor connection can take 1-2 seconds to establish
+          // Monitor connection can take several seconds to establish after page reload
           let lastError = null;
-          for (let attempt = 0; attempt < 10; attempt++) {
+          for (let attempt = 0; attempt < 20; attempt++) {
             try {
               return await window._adapter.invoke('run_tmux_command', { command: cmd });
             } catch (e) {
               lastError = e;
               if (e.message?.includes('No monitor connection')) {
-                // Wait for monitor to connect (exponential backoff: 100, 200, 400, ...)
-                await new Promise(r => setTimeout(r, Math.min(100 * Math.pow(2, attempt), 1000)));
+                // Wait for monitor to connect (exponential backoff: 200, 400, 800, ..., max 2000)
+                await new Promise(r => setTimeout(r, Math.min(200 * Math.pow(2, attempt), 2000)));
                 continue;
               }
               throw e; // Non-transient error, rethrow

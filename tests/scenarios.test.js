@@ -1029,8 +1029,8 @@ describe('Scenario 12: Session Reconnect', () => {
     await ctx.page.reload({ waitUntil: 'domcontentloaded' });
     await ctx.page.waitForSelector('[role="log"]', { timeout: 10000 });
     ctx.session.setPage(ctx.page);
-    await waitForSessionReady(ctx.page, ctx.session.name, 10000);
-    await delay(DELAYS.SYNC);
+    await waitForSessionReady(ctx.page, ctx.session.name, 15000);
+    await delay(DELAYS.SYNC * 2);
 
     // Step 3: Verify preserved
     expect(await ctx.session.getPaneCount()).toBe(2);
