@@ -25,6 +25,7 @@ import {
   selectGroupSwitchPaneIds,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
+import './PaneLayout.css';
 
 interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;
@@ -111,9 +112,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   const getPaneClassName = useCallback(
     (pane: TmuxPane): string => {
-      const classes = ['tmuxy-pane-layout-item'];
-      classes.push(pane.active ? 'tmuxy-pane-active' : 'tmuxy-pane-inactive');
-      if (pane.tmuxId === draggedPaneId) classes.push('tmuxy-pane-dragging');
+      const classes = ['pane-layout-item'];
+      classes.push(pane.active ? 'pane-active' : 'pane-inactive');
+      if (pane.tmuxId === draggedPaneId) classes.push('pane-dragging');
       return classes.join(' ');
     },
     [draggedPaneId],
@@ -124,11 +125,11 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     const pane = visiblePanes[0];
     return (
       <div
-        className={`tmuxy-pane-layout${!enableAnimations ? ' tmuxy-pane-layout-no-animations' : ''}`}
+        className={`pane-layout${!enableAnimations ? ' pane-layout-no-animations' : ''}`}
         style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}
       >
         <div
-          className="tmuxy-pane-layout-item tmuxy-pane-active"
+          className="pane-layout-item pane-active"
           data-pane-id={pane.tmuxId}
           style={getPaneStyle(pane)}
         >
@@ -141,7 +142,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   return (
     <div
       ref={containerRef}
-      className={`tmuxy-pane-layout ${isDragging ? 'tmuxy-pane-layout-dragging' : ''} ${isResizing ? 'tmuxy-pane-layout-resizing' : ''} ${!enableAnimations ? 'tmuxy-pane-layout-no-animations' : ''}`}
+      className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing ? 'pane-layout-resizing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
       style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}
     >
       {visiblePanes.map((pane) => {
@@ -174,7 +175,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       {/* Ghost indicator showing dragged pane's current grid position */}
       {dropTarget && isDragging && (
         <div
-          className="tmuxy-pane-drag-ghost"
+          className="pane-drag-ghost"
           style={{
             position: 'absolute',
             left: centeringOffset.x + dropTarget.x * charWidth,

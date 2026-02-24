@@ -62,7 +62,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
 
   return (
     <div
-      className="tmuxy-float-modal"
+      className="float-modal"
       style={{
         position: 'absolute',
         left,
@@ -72,13 +72,13 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
       }}
       onClick={handleClick}
     >
-      <div className="tmuxy-float-header">
-        <span className="tmuxy-float-title">{title}</span>
-        <button className="tmuxy-float-close" onClick={handleClose} title="Close">
+      <div className="float-header">
+        <span className="float-title">{title}</span>
+        <button className="float-close" onClick={handleClose} title="Close">
           ×
         </button>
       </div>
-      <div className="tmuxy-float-content" style={{ width: floatWidth, height: floatState.height }}>
+      <div className="float-content" style={{ width: floatWidth, height: floatState.height }}>
         <Terminal
           content={pane.content}
           cursorX={pane.cursorX}
@@ -128,8 +128,8 @@ export function FloatContainer() {
   if (visibleFloats.length === 0) return null;
 
   return (
-    <div className="tmuxy-float-overlay">
-      <div className="tmuxy-float-backdrop" style={{ zIndex: 1000 }} onClick={closeTopFloat} />
+    <div className="float-overlay">
+      <div className="float-backdrop" style={{ zIndex: 1000 }} onClick={closeTopFloat} />
       {visibleFloats.map((floatState, index) => (
         <FloatPane key={floatState.paneId} floatState={floatState} zIndex={1001 + index} />
       ))}

@@ -465,7 +465,10 @@ pub fn capture_status_line(session_name: &str, width: usize) -> Result<String, S
         "#{status-left-length}\n#{status-right-length}",
     ])?;
     let meta_lines: Vec<&str> = meta.trim_end().lines().collect();
-    let max_left_len: usize = meta_lines.get(0).and_then(|s| s.parse().ok()).unwrap_or(30);
+    let max_left_len: usize = meta_lines
+        .first()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
     let max_right_len: usize = meta_lines.get(1).and_then(|s| s.parse().ok()).unwrap_or(50);
 
     // Get status-left (rendered) - preserve trailing spaces from format
@@ -692,9 +695,7 @@ fn tmux_style_to_ansi(style: &str) -> String {
             codes.push("8".to_string());
         } else if part == "strikethrough" {
             codes.push("9".to_string());
-        } else if part == "nobold" {
-            codes.push("22".to_string());
-        } else if part == "nodim" {
+        } else if part == "nobold" || part == "nodim" {
             codes.push("22".to_string());
         } else if part == "noitalic" {
             codes.push("23".to_string());
@@ -905,7 +906,7 @@ fn add_session_target_if_needed(
     }
 
     // Check if -t is already specified
-    let has_target = parts.iter().any(|&p| p == "-t");
+    let has_target = parts.contains(&"-t");
 
     if has_target {
         // Validate and potentially fix existing targets
