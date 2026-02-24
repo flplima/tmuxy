@@ -29,12 +29,12 @@ describe('Category 9: Status Bar & UI', () => {
 
       await ctx.setupPage();
 
-      const statusBar = await ctx.page.$('.tmuxy-tmux-status');
+      const statusBar = await ctx.page.$('.status-bar, .tmux-status-bar');
       expect(statusBar).not.toBeNull();
 
       // Verify status bar has meaningful content and is visible
       const statusBarInfo = await ctx.page.evaluate(() => {
-        const bar = document.querySelector('.tmuxy-tmux-status');
+        const bar = document.querySelector('.status-bar, .tmux-status-bar');
         if (!bar) return null;
         return {
           hasContent: bar.textContent.trim().length > 0,
@@ -58,7 +58,7 @@ describe('Category 9: Status Bar & UI', () => {
 
       await ctx.setupPage();
 
-      const windowTab = await ctx.page.$('.tmuxy-tab');
+      const windowTab = await ctx.page.$('.tab');
       expect(windowTab).not.toBeNull();
 
       // Tab should have content
@@ -75,17 +75,17 @@ describe('Category 9: Status Bar & UI', () => {
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);
 
-      const activeTab = await ctx.page.$('.tmuxy-tab-active');
+      const activeTab = await ctx.page.$('.tab-active');
       expect(activeTab).not.toBeNull();
 
       // Now we should have an inactive tab to compare against
-      const inactiveTab = await ctx.page.$('.tmuxy-tab:not(.tmuxy-tab-active)');
+      const inactiveTab = await ctx.page.$('.tab:not(.tab-active)');
       expect(inactiveTab).not.toBeNull();
 
       // Verify active tab has different styling from inactive tab
       const stylingInfo = await ctx.page.evaluate(() => {
-        const active = document.querySelector('.tmuxy-tab-active');
-        const inactive = document.querySelector('.tmuxy-tab:not(.tmuxy-tab-active)');
+        const active = document.querySelector('.tab-active');
+        const inactive = document.querySelector('.tab:not(.tab-active)');
         if (!active || !inactive) return { canCompare: false };
 
         const activeStyle = getComputedStyle(active);
@@ -116,7 +116,7 @@ describe('Category 9: Status Bar & UI', () => {
 
       await ctx.setupPage();
 
-      const statusBar = await ctx.page.$('.tmuxy-tmux-status');
+      const statusBar = await ctx.page.$('.status-bar, .tmux-status-bar');
       expect(statusBar).not.toBeNull();
 
       const statusText = await statusBar.textContent();
@@ -142,7 +142,7 @@ describe('Category 9: Status Bar & UI', () => {
       expect(await ctx.session.getCurrentWindowIndex()).toBe('2');
 
       // Find and click first window tab button
-      const tabButtons = await ctx.page.$$('.tmuxy-tab:not(.tmuxy-tab-add) .tmuxy-tab-button');
+      const tabButtons = await ctx.page.$$('.tab:not(.tab-add) .tab-button');
       expect(tabButtons.length).toBe(2);
 
       // Get the target window index from the first tab button's aria-label
@@ -154,7 +154,7 @@ describe('Category 9: Status Bar & UI', () => {
       // Wait for the UI to reflect the window switch (active tab changes)
       await ctx.page.waitForFunction(
         (idx) => {
-          const activeTab = document.querySelector('.tmuxy-tab-active .tmuxy-tab-button');
+          const activeTab = document.querySelector('.tab-active .tab-button');
           if (!activeTab) return false;
           const label = activeTab.getAttribute('aria-label') || '';
           return label.includes(`Window ${idx}`);
@@ -188,7 +188,7 @@ describe('Category 9: Status Bar & UI', () => {
       expect(await ctx.session.getWindowCount()).toBe(3);
 
       // UI should show 3 tabs
-      const tabs = await ctx.page.$$('.tmuxy-tab:not(.tmuxy-tab-add)');
+      const tabs = await ctx.page.$$('.tab:not(.tab-add)');
       expect(tabs.length).toBe(3);
     });
 
@@ -202,10 +202,10 @@ describe('Category 9: Status Bar & UI', () => {
       await delay(DELAYS.SYNC);
 
       // Tab should show new name
-      const tabs = await ctx.page.$$('.tmuxy-tab:not(.tmuxy-tab-add)');
+      const tabs = await ctx.page.$$('.tab:not(.tab-add)');
       let foundName = false;
       for (const tab of tabs) {
-        const text = await tmuxy-tab.textContent();
+        const text = await tab.textContent();
         if (text.includes(newName)) {
           foundName = true;
           break;
@@ -230,13 +230,13 @@ describe('Category 9: Status Bar & UI', () => {
       expect(await ctx.session.getWindowCount()).toBe(2);
 
       // Close button only appears on hover - hover over the first tab
-      const tabs = await ctx.page.$$('.tmuxy-tab:not(.tmuxy-tab-add)');
+      const tabs = await ctx.page.$$('.tab:not(.tab-add)');
       expect(tabs.length).toBe(2);
       await tabs[0].hover();
       await delay(DELAYS.SHORT);
 
       // Now find close button on the hovered tab
-      const closeBtn = await ctx.page.$('.tmuxy-tab-close');
+      const closeBtn = await ctx.page.$('.tab-close');
       expect(closeBtn).not.toBeNull();
 
       await closeBtn.click();
@@ -279,7 +279,7 @@ describe('Category 9: Status Bar & UI', () => {
       const initialCount = await ctx.session.getWindowCount();
 
       // Find new window button (class is .tab-add with aria-label "Create new window")
-      const newWindowBtn = await ctx.page.$('.tmuxy-tab-add');
+      const newWindowBtn = await ctx.page.$('.tab-add');
       expect(newWindowBtn).not.toBeNull();
 
       await newWindowBtn.click();
@@ -314,14 +314,14 @@ describe('Category 9: Status Bar & UI', () => {
 
       await ctx.setupPage();
 
-      const tabsBefore = await ctx.page.$$('.tmuxy-tab:not(.tmuxy-tab-add)');
+      const tabsBefore = await ctx.page.$$('.tab:not(.tab-add)');
       const countBefore = tabsBefore.length;
 
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);
       await waitForWindowCount(ctx.page, countBefore + 1);
 
-      const tabsAfter = await ctx.page.$$('.tmuxy-tab:not(.tmuxy-tab-add)');
+      const tabsAfter = await ctx.page.$$('.tab:not(.tab-add)');
       expect(tabsAfter.length).toBe(countBefore + 1);
     });
 
@@ -335,7 +335,7 @@ describe('Category 9: Status Bar & UI', () => {
       await delay(DELAYS.SYNC);
       await waitForWindowCount(ctx.page, 2);
 
-      const tabsBefore = await ctx.page.$$('.tmuxy-tab:not(.tmuxy-tab-add)');
+      const tabsBefore = await ctx.page.$$('.tab:not(.tab-add)');
       expect(tabsBefore.length).toBe(2);
       expect(await ctx.session.getWindowCount()).toBe(2);
 

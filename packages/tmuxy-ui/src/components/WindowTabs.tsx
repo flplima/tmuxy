@@ -32,19 +32,19 @@ export function WindowTabs() {
   );
 
   return (
-    <div className="tmuxy-tab-list">
+    <div className="tab-list">
       {visibleWindows.map((window) => (
-        <div key={window.index} className={`tmuxy-tab ${window.active ? 'tmuxy-tab-active' : ''}`}>
+        <div key={window.index} className={`tab ${window.active ? 'tab-active' : ''}`}>
           <button
-            className="tmuxy-tab-button"
+            className="tab-button"
             onClick={() => handleWindowClick(window.index)}
             aria-label={`Window ${window.index}: ${window.name}${window.active ? ' (active)' : ''}`}
             aria-pressed={window.active}
           >
-            <span className="tmuxy-tab-name">{window.name || `Window ${window.index}`}</span>
+            <span className="tab-name">{window.name || `Window ${window.index}`}</span>
           </button>
           <button
-            className="tmuxy-tab-close"
+            className="tab-close"
             onClick={(e) => handleCloseWindow(window.index, e)}
             title="Close window"
             aria-label={`Close window ${window.index}`}
@@ -62,7 +62,7 @@ export function WindowTabs() {
         </div>
       ))}
       <button
-        className="tmuxy-tab-add"
+        className="tab-add"
         onClick={handleNewWindow}
         title="New window"
         aria-label="Create new window"

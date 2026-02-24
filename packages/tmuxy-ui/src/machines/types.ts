@@ -348,6 +348,7 @@ export type CopyModeWordSelectEvent = {
   paneId: string;
   row: number;
   col: number;
+  broad?: boolean;
 };
 
 // Group switch detection event (fired internally when switch detected in state update)

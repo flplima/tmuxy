@@ -60,7 +60,7 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
       expect(terminalContent).not.toBeNull();
 
       // Verify no error state
-      const errorState = await ctx.page.$('.tmuxy-error-state, .disconnected');
+      const errorState = await ctx.page.$('.error-state, .disconnected');
       expect(errorState).toBeNull();
 
       // Verify terminal has actual content (shell prompt or output)
@@ -254,13 +254,13 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
 
       await ctx.setupPage();
 
-      // Verify cursor element exists (class is 'tmuxy-cursor' per Cursor.tsx)
-      const cursor = await ctx.page.$('.tmuxy-cursor');
+      // Verify cursor element exists (class is 'terminal-cursor' per Cursor.tsx)
+      const cursor = await ctx.page.$('.terminal-cursor');
       expect(cursor).not.toBeNull();
 
       // Verify cursor is visible and positioned within the terminal
       const cursorInfo = await ctx.page.evaluate(() => {
-        const cursor = document.querySelector('.tmuxy-cursor');
+        const cursor = document.querySelector('.terminal-cursor');
         const terminal = document.querySelector('[role="log"]');
         if (!cursor || !terminal) return null;
 

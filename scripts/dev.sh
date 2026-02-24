@@ -25,10 +25,10 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "[dev] Starting development server with hot reload..."
-echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-cli/src"
+echo "[dev] Watching: packages/tmuxy-core/src, packages/web-server/src"
 echo "[dev] Vite HMR is automatic via proxy to port 1420"
 echo ""
 
 # Kill any existing tmuxy session, then start the server
 tmux kill-session -t tmuxy 2>/dev/null || true
-exec cargo run -p tmuxy-cli -- server --dev
+exec cargo run -p web-server -- --dev

@@ -20,7 +20,7 @@ use tmuxy_core::{executor, session, StateUpdate};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use crate::web::{AppState, SessionConnections};
+use crate::{AppState, SessionConnections};
 
 // ============================================
 // SSE State Emitter (Adapter Pattern)
@@ -240,7 +240,7 @@ pub async fn sse_handler(
                                 };
 
                                 // For state updates, use delta seq as event ID
-                                if let SseEvent::StateUpdate(ref update) = event {
+                                if let SseEvent::StateUpdate(update) = &event {
                                     if let StateUpdate::Delta { delta, .. } = update.as_ref() {
                                         yield Ok(Event::default()
                                             .event(event_type)

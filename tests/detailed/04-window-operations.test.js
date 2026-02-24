@@ -181,14 +181,14 @@ describe('Category 4: Window Operations', () => {
       expect(afterNewIndex).not.toBe(initialIndex);
 
       // Get tabs and find the one that's NOT active (exclude "+" button)
-      const activeTab = await ctx.page.$('.tmuxy-tab-active');
-      const allTabs = await ctx.page.$$('.tmuxy-tab:not(.tmuxy-tab-add)');
+      const activeTab = await ctx.page.$('.tab-active');
+      const allTabs = await ctx.page.$$('.tab:not(.tab-add)');
       expect(allTabs.length).toBe(2);
 
       // Find inactive tab by checking which one is not the active tab
       let inactiveTab = null;
       for (const tab of allTabs) {
-        const isActive = await tmuxy-tab.evaluate(el => el.classList.contains('tab-active'));
+        const isActive = await tab.evaluate(el => el.classList.contains('tab-active'));
         if (!isActive) {
           inactiveTab = tab;
           break;
@@ -197,7 +197,7 @@ describe('Category 4: Window Operations', () => {
       expect(inactiveTab).not.toBeNull();
 
       // Click the button inside the inactive tab
-      const tabButton = await inactiveTab.$('.tmuxy-tab-button');
+      const tabButton = await inactiveTab.$('.tab-button');
       expect(tabButton).not.toBeNull();
       await tabButton.click();
       await delay(DELAYS.SYNC);

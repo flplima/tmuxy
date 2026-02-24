@@ -187,11 +187,11 @@ describe('Category 17: Widgets', () => {
 
       // Wait for command to execute and pane content to propagate
       await delay(2000);
-      await waitForSelector(page, '.tmuxy-widget-image', 30000);
+      await waitForSelector(page, '.widget-image', 30000);
 
       // Verify <img> has a base64 src
       const src = await page.evaluate(() => {
-        const img = document.querySelector('.tmuxy-widget-image img');
+        const img = document.querySelector('.widget-image img');
         return img ? img.getAttribute('src') : null;
       });
       expect(src).toContain('data:image/png;base64,');
@@ -200,7 +200,7 @@ describe('Category 17: Widgets', () => {
       const hasPaneHeader = await page.evaluate(() => {
         const wrapper = document.querySelector('[data-pane-id]');
         if (!wrapper) return false;
-        return wrapper.querySelector('.tmuxy-pane-tab, .tmuxy-pane-tabs') !== null;
+        return wrapper.querySelector('.pane-tab, .pane-tabs') !== null;
       });
       expect(hasPaneHeader).toBe(true);
 
@@ -227,18 +227,18 @@ describe('Category 17: Widgets', () => {
       sendCommand(session, `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | /workspace/scripts/tmuxy/tmuxy-widget image`);
 
       // Wait for widget to appear (command takes a few seconds to type via send-keys)
-      await waitForSelector(page, '.tmuxy-widget-image', 30000);
+      await waitForSelector(page, '.widget-image', 30000);
 
       // Wait for the final frame (green) — widget updates as new lines arrive
       const greenSignature = GREEN_PNG.slice(-30);
       await page.waitForFunction((sig) => {
-        const img = document.querySelector('.tmuxy-widget-image img');
+        const img = document.querySelector('.widget-image img');
         return img && img.src && img.src.includes(sig);
       }, greenSignature, { timeout: 30000, polling: 300 });
 
       // Verify final image src
       const finalSrc = await page.evaluate(() => {
-        const img = document.querySelector('.tmuxy-widget-image img');
+        const img = document.querySelector('.widget-image img');
         return img ? img.src : null;
       });
       expect(finalSrc).toContain(greenSignature);
@@ -263,7 +263,7 @@ describe('Category 17: Widgets', () => {
       expect(hasTerminal).toBe(true);
 
       const hasWidget = await page.evaluate(() =>
-        document.querySelector('.tmuxy-widget-image') !== null
+        document.querySelector('.widget-image') !== null
       );
       expect(hasWidget).toBe(false);
     });
@@ -287,7 +287,7 @@ describe('Category 17: Widgets', () => {
       expect(hasTerminal).toBe(true);
 
       const hasWidget = await page.evaluate(() =>
-        document.querySelector('.tmuxy-widget-image') !== null
+        document.querySelector('.widget-image') !== null
       );
       expect(hasWidget).toBe(false);
     });

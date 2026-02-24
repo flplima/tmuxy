@@ -83,7 +83,7 @@ echo ""
 
 # Step 2: Build Vite UI
 echo -e "${YELLOW}[2/4] Building Vite UI...${NC}"
-npm run build -w @tmuxy/ui
+npm run build -w tmuxy-ui
 
 if [[ ! -d "packages/tmuxy-ui/dist" ]]; then
     echo -e "${RED}Error: Vite build output not found at packages/tmuxy-ui/dist${NC}"
@@ -107,7 +107,7 @@ if [[ -n "$VERBOSE" ]]; then
 fi
 
 # Use npm run tauri build
-cd packages/tmuxy-tauri-app
+cd packages/tauri-app
 npx tauri build $TAURI_ARGS
 cd ../..
 

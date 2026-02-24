@@ -3,10 +3,10 @@ set -e
 
 # --- JS/TS ---
 echo "Formatting (Prettier)..."
-npm run format -w @tmuxy/ui
+npm run format -w tmuxy-ui
 
 echo "Linting (ESLint --fix)..."
-npm run lint:fix -w @tmuxy/ui
+npm run lint:fix -w tmuxy-ui
 
 # Re-stage any files auto-fixed by lint/format
 git add -u packages/tmuxy-ui/src
@@ -16,10 +16,10 @@ npm test -- --run
 
 # --- Rust ---
 echo "Formatting Rust (cargo fmt)..."
-cargo fmt -p tmuxy-core -p tmuxy-cli
+cargo fmt -p tmuxy-core -p web-server
 
 # Re-stage any files formatted by cargo fmt
-git add -u packages/tmuxy-core packages/tmuxy-cli
+git add -u packages/tmuxy-core packages/web-server
 
 echo "Checking Rust (cargo clippy)..."
-cargo clippy -p tmuxy-core -p tmuxy-cli
+cargo clippy -p tmuxy-core -p web-server

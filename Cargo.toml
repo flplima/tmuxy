@@ -2,7 +2,8 @@
 resolver = "2"
 members = [
     "packages/tmuxy-core",
-    "packages/tmuxy-tauri-app",
+    "packages/tauri-app",
+    "packages/web-server",
     "packages/tmuxy-cli",
 ]
 

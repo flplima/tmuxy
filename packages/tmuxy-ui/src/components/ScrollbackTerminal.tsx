@@ -85,7 +85,7 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
   return (
     <>
       <pre
-        className="tmuxy-terminal-content"
+        className="terminal-content"
         aria-hidden="true"
         data-testid="scrollback-terminal"
         data-copy-mode="true"

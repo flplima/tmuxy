@@ -13,7 +13,7 @@ import { PaneContextMenu } from './PaneContextMenu';
 import type { TmuxPane } from '../tmux/types';
 
 /**
- * Compute a stable tmuxy-tab title from pane data
+ * Compute a stable tab title from pane data
  * Uses command > title > tmuxId to avoid blink from borderTitle changes
  */
 function getTabTitle(pane: TmuxPane): string {
@@ -29,8 +29,11 @@ function getTabTitle(pane: TmuxPane): string {
 }
 
 /**
- * Memoized tmuxy-tab component to prevent unnecessary re-renders
+ * Memoized tab component to prevent unnecessary re-renders
  */
+/** Minimum pixels of movement before a mousedown becomes a drag */
+const DRAG_THRESHOLD = 5;
+
 const PaneTab = memo(function PaneTab({
   pane,
   isSelectedTab,
@@ -51,29 +54,52 @@ const PaneTab = memo(function PaneTab({
   onDragStart: (e: React.MouseEvent) => void;
 }) {
   const tabTitle = titleOverride ?? getTabTitle(pane);
+  const pendingDragRef = useRef<{ x: number; y: number; event: React.MouseEvent } | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    // Don't start drag from close button
-    if (target.classList.contains('tmuxy-pane-tab-close') || target.tagName === 'BUTTON') {
+    if (target.classList.contains('pane-tab-close') || target.tagName === 'BUTTON') {
       return;
     }
-    onDragStart(e);
+    // Record the start position — defer drag until mouse moves past threshold
+    pendingDragRef.current = { x: e.clientX, y: e.clientY, event: e };
+
+    const handleMouseMove = (moveEvt: MouseEvent) => {
+      if (!pendingDragRef.current) return;
+      const dx = Math.abs(moveEvt.clientX - pendingDragRef.current.x);
+      const dy = Math.abs(moveEvt.clientY - pendingDragRef.current.y);
+      if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+        onDragStart(pendingDragRef.current.event);
+        pendingDragRef.current = null;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      }
+    };
+
+    const handleMouseUp = () => {
+      pendingDragRef.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
   return (
     <div
-      className={`tmuxy-pane-tab ${isActivePane ? 'tmuxy-pane-tab-active' : ''} ${isSelectedTab ? 'tmuxy-pane-tab-selected' : ''}`}
+      className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''}`}
       onClick={onClick}
       onContextMenu={onContextMenu}
       onMouseDown={handleMouseDown}
-      role="tmuxy-tab"
+      role="tab"
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}
     >
-      <span className="tmuxy-pane-tab-title">{tabTitle}</span>
+      <span className="pane-tab-title">{tabTitle}</span>
       <button
-        className="tmuxy-pane-tab-close"
+        className="pane-tab-close"
         onClick={onClose}
         title="Close pane"
         aria-label={`Close pane ${pane.tmuxId}`}
@@ -86,7 +112,7 @@ const PaneTab = memo(function PaneTab({
 
 interface PaneHeaderProps {
   paneId: string;
-  /** Override the tmuxy-tab title for this pane (used by widgets) */
+  /** Override the tab title for this pane (used by widgets) */
   titleOverride?: string;
 }
 
@@ -110,10 +136,10 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
     targetPaneId: '',
   });
 
-  // Scroll selected tmuxy-tab into view
+  // Scroll selected tab into view
   useEffect(() => {
     if (!tabsRef.current || !activePaneId) return;
-    const selectedTab = tabsRef.current.querySelector('.tmuxy-pane-tab-selected');
+    const selectedTab = tabsRef.current.querySelector('.pane-tab-selected');
     if (selectedTab) {
       selectedTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     }
@@ -183,7 +209,7 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
   };
 
   const isInCopyMode = inMode || !!copyState;
-  const headerClass = `tmuxy-pane-header ${isActive ? 'tmuxy-pane-header-active' : ''} ${isInCopyMode ? 'tmuxy-pane-header-copy-mode' : ''}`;
+  const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${isInCopyMode ? 'pane-header-copy-mode' : ''}`;
 
   return (
     <div
@@ -192,11 +218,11 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
       role="tablist"
       aria-label={`Pane tabs`}
     >
-      <div className="tmuxy-pane-tabs" ref={tabsRef}>
+      <div className="pane-tabs" ref={tabsRef}>
         {tabPanes.map((tabPane) => {
           const isSelectedTab = tabPane.tmuxId === activeTabId;
           // Tab is "active" (green) only if this pane is the active tmux pane
-          // AND it's the selected tmuxy-tab in the group
+          // AND it's the selected tab in the group
           const isActivePane = tabPane.active && isSelectedTab;
 
           return (
@@ -215,7 +241,7 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
         })}
       </div>
       <button
-        className="tmuxy-pane-tab-add"
+        className="pane-tab-add"
         onClick={handleAddPane}
         title="Add pane to group"
         aria-label="Add new pane to group"

@@ -97,10 +97,10 @@ async function getUIState(page) {
     // Extract text content from DOM per pane
     const content = {};
     for (const pane of visiblePanes) {
-      const el = document.querySelector(`[data-pane-id="${pane.tmuxId}"] .tmuxy-terminal-content`);
+      const el = document.querySelector(`[data-pane-id="${pane.tmuxId}"] .terminal-content`);
       if (!el) { content[pane.tmuxId] = []; continue; }
       const lines = [];
-      el.querySelectorAll('.tmuxy-terminal-line').forEach(lineEl => {
+      el.querySelectorAll('.terminal-line').forEach(lineEl => {
         let text = '';
         const spans = lineEl.querySelectorAll('span');
         if (spans.length > 0) {
@@ -297,9 +297,9 @@ async function verifyDomSizes(page, options = {}) {
     // Filter to visible panes in active window
     const visiblePanes = (panes || []).filter(p => p.windowId === activeWindowId);
 
-    // Get actual DOM element sizes — use .tmuxy-pane-layout-item selector to get the
-    // positioned container (not the inner .tmuxy-pane-wrapper which may have different sizing)
-    const paneElements = document.querySelectorAll('.tmuxy-pane-layout-item[data-pane-id]');
+    // Get actual DOM element sizes — use .pane-layout-item selector to get the
+    // positioned container (not the inner .pane-wrapper which may have different sizing)
+    const paneElements = document.querySelectorAll('.pane-layout-item[data-pane-id]');
     const domPanes = [];
     const seenIds = new Set();
 
@@ -319,7 +319,7 @@ async function verifyDomSizes(page, options = {}) {
     }
 
     // Get container element
-    const container = document.querySelector('.tmuxy-pane-container');
+    const container = document.querySelector('.pane-container');
     const containerRect = container?.getBoundingClientRect();
 
     return {
@@ -390,12 +390,12 @@ async function verifyDomSizes(page, options = {}) {
     }
   }
 
-  // Note: Overlap check removed. CSS transitions on .tmuxy-pane-layout-item (250ms)
+  // Note: Overlap check removed. CSS transitions on .pane-layout-item (250ms)
   // cause intermediate overlap states that getBoundingClientRect captures during
   // animation. The positive dimensions and proportionality checks above are
   // sufficient to catch real layout bugs.
 
-  // Note: Container width check removed. The .tmuxy-pane-container uses flex:1 and fills
+  // Note: Container width check removed. The .pane-container uses flex:1 and fills
   // the full viewport, while pane content is centered within it via centeringOffset.
   // The container is intentionally wider than totalWidth * charWidth.
 

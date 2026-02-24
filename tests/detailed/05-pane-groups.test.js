@@ -48,12 +48,12 @@ describe('Category 5: Pane Groups', () => {
 
       await ctx.setupPage();
 
-      const header = await ctx.page.$('.tmuxy-pane-tab');
+      const header = await ctx.page.$('.pane-tab');
       expect(header).not.toBeNull();
 
       // Header should have some content (pane ID, title, or command)
       const headerText = await ctx.page.evaluate(() => {
-        const h = document.querySelector('.tmuxy-pane-tab');
+        const h = document.querySelector('.pane-tab');
         return h ? h.textContent.trim() : '';
       });
       expect(headerText.length).toBeGreaterThan(0);
@@ -66,11 +66,11 @@ describe('Category 5: Pane Groups', () => {
 
       // Wait for all pane tabs to render
       await ctx.page.waitForFunction(
-        () => document.querySelectorAll('.tmuxy-pane-tab').length === 2,
+        () => document.querySelectorAll('.pane-tab').length === 2,
         { timeout: 5000 }
       );
 
-      const headers = await ctx.page.$$('.tmuxy-pane-tab');
+      const headers = await ctx.page.$$('.pane-tab');
       expect(headers.length).toBe(2);
 
       // Each header should be associated with a pane
@@ -87,7 +87,7 @@ describe('Category 5: Pane Groups', () => {
 
       // Header should show something (bash, zsh, etc)
       const headerText = await ctx.page.evaluate(() => {
-        const h = document.querySelector('.tmuxy-pane-tab');
+        const h = document.querySelector('.pane-tab');
         return h ? h.textContent.toLowerCase() : '';
       });
 
@@ -101,7 +101,7 @@ describe('Category 5: Pane Groups', () => {
 
       await ctx.setupPage();
 
-      const addButton = await ctx.page.$('.tmuxy-pane-tab-add');
+      const addButton = await ctx.page.$('.pane-tab-add');
       expect(addButton).not.toBeNull();
 
       const title = await addButton.getAttribute('title');
@@ -119,7 +119,7 @@ describe('Category 5: Pane Groups', () => {
       await ctx.setupPage();
 
       const hasActiveStyle = await ctx.page.evaluate(() => {
-        return document.querySelector('.tmuxy-pane-tab-active') !== null;
+        return document.querySelector('.pane-tab-active') !== null;
       });
 
       expect(hasActiveStyle).toBe(true);
@@ -149,7 +149,7 @@ describe('Category 5: Pane Groups', () => {
 
       await ctx.setupFourPanes();
 
-      const activeHeaders = await ctx.page.$$('.tmuxy-pane-tab-active');
+      const activeHeaders = await ctx.page.$$('.pane-tab-active');
       expect(activeHeaders.length).toBe(1);
 
 
@@ -165,7 +165,7 @@ describe('Category 5: Pane Groups', () => {
 
       await ctx.setupPage();
 
-      const closeButton = await ctx.page.$('.tmuxy-pane-tab-close, .tmuxy-pane-tab button, [aria-label*="close" i]');
+      const closeButton = await ctx.page.$('.pane-tab-close, .pane-tab button, [aria-label*="close" i]');
       expect(closeButton).not.toBeNull();
     });
 
@@ -175,7 +175,7 @@ describe('Category 5: Pane Groups', () => {
       await ctx.setupTwoPanes('horizontal');
       expect(await ctx.session.getPaneCount()).toBe(2);
 
-      const closeButton = await ctx.page.$('.tmuxy-pane-tab-close');
+      const closeButton = await ctx.page.$('.pane-tab-close');
       expect(closeButton).not.toBeNull();
 
       await closeButton.click();
@@ -314,11 +314,11 @@ describe('Category 5: Pane Groups', () => {
 
       // Count panes: one grouped (2+ tabs) and one regular (1 tab)
       const paneRowInfo = await ctx.page.evaluate(() => {
-        const rows = document.querySelectorAll('.tmuxy-pane-tabs');
+        const rows = document.querySelectorAll('.pane-tabs');
         let grouped = 0;
         let regular = 0;
         for (const row of rows) {
-          const tabCount = row.querySelectorAll('.tmuxy-pane-tab').length;
+          const tabCount = row.querySelectorAll('.pane-tab').length;
           if (tabCount > 1) grouped++;
           else if (tabCount === 1) regular++;
         }
@@ -456,7 +456,7 @@ describe('Category 5: Pane Groups', () => {
       expect(await getGroupTabCount(ctx.page)).toBe(0);
 
       // Pane should still exist
-      const header = await ctx.page.$('.tmuxy-pane-tab');
+      const header = await ctx.page.$('.pane-tab');
       expect(header).not.toBeNull();
     });
 
@@ -780,8 +780,8 @@ describe('Category 5: Pane Groups', () => {
       // Start observing with focus on pane header elements
       const detector = new GlitchDetector(ctx.page);
       await detector.start({
-        scope: '.tmuxy-pane-header',
-        ignoreSelectors: ['.tmuxy-terminal-content', '.tmuxy-cursor', '.tmuxy-terminal-line'],
+        scope: '.pane-header',
+        ignoreSelectors: ['.terminal-content', '.terminal-cursor', '.terminal-line'],
         attributeFilter: ['class', 'style', 'aria-selected'],
         flickerWindowMs: 150,
         churnWindowMs: 300,
@@ -804,7 +804,7 @@ describe('Category 5: Pane Groups', () => {
 
       // Check for class attribute churn on tab elements
       const tabClassChurn = result.churn.filter(c =>
-        c.target.includes('tmuxy-pane-tab') && c.target.includes('class')
+        c.target.includes('pane-tab') && c.target.includes('class')
       );
 
       // Allow at most 1 rapid class change per tab switch
@@ -824,7 +824,7 @@ describe('Category 5: Pane Groups', () => {
 
       // Record initial tab sizes
       const initialSizes = await ctx.page.evaluate(() => {
-        const tabs = document.querySelectorAll('.tmuxy-pane-tab');
+        const tabs = document.querySelectorAll('.pane-tab');
         return Array.from(tabs).map(t => {
           const rect = t.getBoundingClientRect();
           return { width: rect.width, height: rect.height, text: t.textContent };
@@ -834,7 +834,7 @@ describe('Category 5: Pane Groups', () => {
       // Perform multiple rapid tab switches while monitoring
       const detector = new GlitchDetector(ctx.page);
       await detector.start({
-        scope: '.tmuxy-pane-tabs',
+        scope: '.pane-tabs',
         sizeJumpThreshold: 5, // Stricter threshold for tabs
       });
 
@@ -848,7 +848,7 @@ describe('Category 5: Pane Groups', () => {
 
       // Record final tab sizes
       const finalSizes = await ctx.page.evaluate(() => {
-        const tabs = document.querySelectorAll('.tmuxy-pane-tab');
+        const tabs = document.querySelectorAll('.pane-tab');
         return Array.from(tabs).map(t => {
           const rect = t.getBoundingClientRect();
           return { width: rect.width, height: rect.height, text: t.textContent };
@@ -878,10 +878,10 @@ describe('Category 5: Pane Groups', () => {
 
       // Get initial tab states
       const getTabStates = () => ctx.page.evaluate(() => {
-        const tabs = Array.from(document.querySelectorAll('.tmuxy-pane-tab'));
+        const tabs = Array.from(document.querySelectorAll('.pane-tab'));
         return tabs.map(t => ({
-          selected: t.classList.contains('tmuxy-pane-tab-selected') || t.classList.contains('tmuxy-pane-tab-active'),
-          active: t.classList.contains('tmuxy-pane-tab-active'),
+          selected: t.classList.contains('pane-tab-selected') || t.classList.contains('pane-tab-active'),
+          active: t.classList.contains('pane-tab-active'),
         }));
       });
 
@@ -895,10 +895,10 @@ describe('Category 5: Pane Groups', () => {
         return new Promise((resolve) => {
           const history = [];
           const poll = setInterval(() => {
-            const tabs = Array.from(document.querySelectorAll('.tmuxy-pane-tab'));
+            const tabs = Array.from(document.querySelectorAll('.pane-tab'));
             const state = tabs.map(t => ({
-              selected: t.classList.contains('tmuxy-pane-tab-selected'),
-              active: t.classList.contains('tmuxy-pane-tab-active'),
+              selected: t.classList.contains('pane-tab-selected'),
+              active: t.classList.contains('pane-tab-active'),
             }));
             history.push({ ts: Date.now(), state });
             if (history.length > 100) clearInterval(poll);
@@ -906,9 +906,9 @@ describe('Category 5: Pane Groups', () => {
 
           // Click the inactive tab after a brief delay
           setTimeout(() => {
-            const tabs = document.querySelectorAll('.tmuxy-pane-tab');
+            const tabs = document.querySelectorAll('.pane-tab');
             for (const tab of tabs) {
-              if (!tab.classList.contains('tmuxy-pane-tab-selected')) {
+              if (!tab.classList.contains('pane-tab-selected')) {
                 tab.click();
                 break;
               }
