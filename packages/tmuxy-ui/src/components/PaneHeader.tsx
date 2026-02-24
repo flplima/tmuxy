@@ -41,7 +41,6 @@ const PaneTab = memo(function PaneTab({
   titleOverride,
   onClick,
   onContextMenu,
-  onClose,
   onDragStart,
 }: {
   pane: TmuxPane;
@@ -50,7 +49,6 @@ const PaneTab = memo(function PaneTab({
   titleOverride?: string;
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
-  onClose: (e: React.MouseEvent) => void;
   onDragStart: (e: React.MouseEvent) => void;
 }) {
   const tabTitle = titleOverride ?? getTabTitle(pane);
@@ -58,10 +56,6 @@ const PaneTab = memo(function PaneTab({
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.classList.contains('pane-tab-close') || target.tagName === 'BUTTON') {
-      return;
-    }
     // Record the start position — defer drag until mouse moves past threshold
     pendingDragRef.current = { x: e.clientX, y: e.clientY, event: e };
 
@@ -98,14 +92,6 @@ const PaneTab = memo(function PaneTab({
       aria-label={`Pane ${pane.tmuxId}`}
     >
       <span className="pane-tab-title">{tabTitle}</span>
-      <button
-        className="pane-tab-close"
-        onClick={onClose}
-        title="Close pane"
-        aria-label={`Close pane ${pane.tmuxId}`}
-      >
-        ×
-      </button>
     </div>
   );
 });
@@ -168,12 +154,6 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
   // If in a group, show all group panes; otherwise just this pane
   const tabPanes = groupPanes && groupPanes.length > 0 ? groupPanes : [pane];
   const activeTabId = activePaneId ?? tmuxId;
-
-  const handleClose = (e: React.MouseEvent, closePaneId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    send({ type: 'CLOSE_PANE', paneId: closePaneId });
-  };
 
   const handleTabClick = (e: React.MouseEvent, clickedPaneId: string) => {
     e.preventDefault();
@@ -240,7 +220,6 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
               titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
-              onClose={(e) => handleClose(e, tabPane.tmuxId)}
               onDragStart={(e) => handleTabDragStart(e, tabPane.tmuxId)}
             />
           );

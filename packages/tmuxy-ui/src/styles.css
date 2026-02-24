@@ -217,7 +217,8 @@ body {
 }
 
 .pane-content {
-  padding: 0;
+  /* Horizontal padding set via CSS variable to cover tmux divider gap */
+  padding: 0 var(--pane-h-padding, 0);
   flex: 1;
   position: relative;
   box-sizing: border-box;
@@ -382,7 +383,7 @@ body {
 /* Active pane: green border + green-tinted background */
 .pane-layout-item.pane-active {
   border-color: var(--term-green);
-  background: rgba(0, 255, 0, 0.05);
+  background: rgba(0, 255, 0, 0.5);
 }
 
 /* Copy mode: bright green border */
@@ -558,34 +559,6 @@ body {
 .pane-tab-active .pane-tab-title {
   color: var(--accent-green);
   font-weight: 500;
-}
-
-/* Pane tab close button - hidden by default, shown on hover */
-.pane-tab-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  color: var(--text-subtle);
-  font-size: 11px;
-  cursor: pointer;
-  line-height: 1;
-  opacity: 0;
-  flex-shrink: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.pane-tab:hover .pane-tab-close {
-  opacity: 0.7;
-}
-
-/* Active tab close button */
-.pane-tab-active .pane-tab-close {
-  color: var(--accent-green);
 }
 
 /* Pane tab add button */
