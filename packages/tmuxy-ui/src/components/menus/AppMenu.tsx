@@ -17,6 +17,9 @@ import {
   selectKeyBindings,
   selectVisiblePanes,
   selectWindows,
+  selectThemeName,
+  selectThemeMode,
+  selectAvailableThemes,
 } from '../../machines/AppContext';
 import { getKeybindingLabel } from './keybindingLabel';
 import { executeMenuAction } from './menuActions';
@@ -37,6 +40,9 @@ export function AppMenu() {
   const keybindings = useAppSelector(selectKeyBindings);
   const visiblePanes = useAppSelector(selectVisiblePanes);
   const windows = useAppSelector(selectWindows);
+  const themeName = useAppSelector(selectThemeName);
+  const themeMode = useAppSelector(selectThemeMode);
+  const availableThemes = useAppSelector(selectAvailableThemes);
 
   const isSinglePane = visiblePanes.length <= 1;
   const isSingleWindow =
@@ -181,6 +187,22 @@ export function AppMenu() {
         <MenuItem onClick={() => handleAction('view-next-layout')}>
           Next Layout
           <KeyLabel keybindings={keybindings} command="next-layout" />
+        </MenuItem>
+        <MenuDivider />
+        <SubMenu label="Theme">
+          {availableThemes.map((t) => (
+            <MenuItem key={t.name} onClick={() => send({ type: 'SET_THEME', name: t.name })}>
+              {themeName === t.name ? '\u2713 ' : '\u2003 '}
+              {t.displayName}
+            </MenuItem>
+          ))}
+        </SubMenu>
+        <MenuDivider />
+        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}>
+          {themeMode === 'dark' ? '\u25CF ' : '\u25CB '}Dark Mode
+        </MenuItem>
+        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}>
+          {themeMode === 'light' ? '\u25CF ' : '\u25CB '}Light Mode
         </MenuItem>
       </SubMenu>
 
