@@ -11,6 +11,44 @@ import { useAppSend, usePane, usePaneGroup, useCopyModeState } from '../machines
 import { PaneContextMenu } from './PaneContextMenu';
 import type { TmuxPane } from '../tmux/types';
 
+const PROCESS_ICONS: Record<string, string> = {
+  zsh: '\ue6b2', //  nf-seti-shell
+  bash: '\ue6b2', //  nf-seti-shell
+  fish: '\ue6b2', //  nf-seti-shell
+  sh: '\ue6b2', //  nf-seti-shell
+  vi: '\ue62b', //  nf-seti-vim
+  vim: '\ue62b', //  nf-seti-vim
+  nvim: '\ue62b', //  nf-seti-vim
+  docker: '\u{f0868}', // 󰡨 nf-md-docker
+  node: '\ue718', //  nf-dev-nodejs_small
+  python: '\ue73c', //  nf-dev-python
+  python3: '\ue73c', //  nf-dev-python
+  cargo: '\ue7a8', //  nf-dev-rust
+  rustc: '\ue7a8', //  nf-dev-rust
+  git: '\ue702', //  nf-dev-git
+  ssh: '\uf489', //  nf-oct-terminal
+  htop: '\uf080', //  nf-fa-bar_chart
+  top: '\uf080', //  nf-fa-bar_chart
+  man: '\uf02d', //  nf-fa-book
+  less: '\uf02d', //  nf-fa-book
+  npm: '\ue71e', //  nf-dev-npm
+  make: '\ue779', //  nf-dev-gnu
+  gcc: '\ue779', //  nf-dev-gnu
+  go: '\ue626', //  nf-seti-go
+  lua: '\ue620', //  nf-seti-lua
+  ruby: '\ue739', //  nf-dev-ruby
+  tmux: '\uf489', //  nf-oct-terminal
+};
+
+const DEFAULT_ICON = '\uf489'; //  nf-oct-terminal
+
+function getProcessIcon(command: string): string {
+  const name = command.toLowerCase();
+  if (PROCESS_ICONS[name]) return PROCESS_ICONS[name];
+  if (name.includes('docker')) return PROCESS_ICONS.docker;
+  return DEFAULT_ICON;
+}
+
 /**
  * Compute a stable tab title from pane data
  */
@@ -19,7 +57,7 @@ function getTabTitle(pane: TmuxPane): string {
     return '[COPY]';
   }
   if (pane.command) {
-    return pane.command;
+    return `${getProcessIcon(pane.command)} ${pane.command}`;
   }
   return pane.tmuxId;
 }
