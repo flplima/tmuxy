@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { FakeShell } from '../fakeShell';
+import { DemoShell } from '../DemoShell';
 import { VirtualFS } from '../virtualFs';
 
-describe('FakeShell', () => {
+describe('DemoShell', () => {
   let vfs: VirtualFS;
-  let shell: FakeShell;
+  let shell: DemoShell;
 
   beforeEach(() => {
     vfs = new VirtualFS();
-    shell = new FakeShell(vfs, 80, 24);
+    shell = new DemoShell(vfs, 80, 24);
     shell.writePrompt();
   });
 
