@@ -40,6 +40,11 @@ const PROCESS_ICONS: Record<string, string> = {
   tmux: '\uf489', //  nf-oct-terminal
 };
 
+const WIDGET_ICONS: Record<string, string> = {
+  markdown: '\uf48a', //  nf-oct-markdown
+  image: '\uf03e', //  nf-fa-image
+};
+
 const DEFAULT_ICON = '\uf489'; //  nf-oct-terminal
 
 function getProcessIcon(command: string): string {
@@ -52,12 +57,15 @@ function getProcessIcon(command: string): string {
 /**
  * Compute a stable tab title from pane data
  */
-function getTabTitle(pane: TmuxPane): string {
+function getTabTitle(pane: TmuxPane, widgetName?: string): string {
   if (pane.inMode) {
     return '[COPY]';
   }
+  if (widgetName && WIDGET_ICONS[widgetName]) {
+    return `${WIDGET_ICONS[widgetName]} ${pane.title || pane.command || pane.tmuxId}`;
+  }
   if (pane.command) {
-    return `${getProcessIcon(pane.command)} ${pane.command}`;
+    return `${getProcessIcon(pane.command)} ${pane.title || pane.command}`;
   }
   return pane.tmuxId;
 }
@@ -70,6 +78,7 @@ const PaneTab = memo(function PaneTab({
   isSelectedTab,
   isActivePane,
   titleOverride,
+  widgetName,
   onClick,
   onContextMenu,
 }: {
@@ -77,10 +86,15 @@ const PaneTab = memo(function PaneTab({
   isSelectedTab: boolean;
   isActivePane: boolean;
   titleOverride?: string;
+  widgetName?: string;
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
-  const tabTitle = titleOverride ?? getTabTitle(pane);
+  const baseTitle = titleOverride ?? getTabTitle(pane, widgetName);
+  const tabTitle =
+    titleOverride && widgetName && WIDGET_ICONS[widgetName]
+      ? `${WIDGET_ICONS[widgetName]} ${titleOverride}`
+      : baseTitle;
 
   return (
     <div
@@ -100,6 +114,8 @@ interface PaneHeaderProps {
   paneId: string;
   /** Override the tab title for this pane (used by widgets) */
   titleOverride?: string;
+  /** Widget name for icon lookup (e.g., "markdown", "image") */
+  widgetName?: string;
 }
 
 interface ContextMenuState {
@@ -109,7 +125,7 @@ interface ContextMenuState {
   targetPaneId: string;
 }
 
-export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
+export function PaneHeader({ paneId, titleOverride, widgetName }: PaneHeaderProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
   const { groupPanes, activePaneId } = usePaneGroup(paneId);
@@ -240,6 +256,7 @@ export function PaneHeader({ paneId, titleOverride }: PaneHeaderProps) {
               isSelectedTab={isSelectedTab}
               isActivePane={isActivePane}
               titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
+              widgetName={tabPane.tmuxId === paneId ? widgetName : undefined}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
             />
