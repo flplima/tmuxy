@@ -16,7 +16,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
-use tmuxy_core::{executor, session, StateUpdate};
+use tmuxy_core::{executor, StateUpdate};
 use tokio::sync::broadcast;
 
 use crate::{AppState, SessionConnections};
@@ -126,9 +126,38 @@ pub async fn sse_handler(
     let conn_id = state.next_conn_id.fetch_add(1, Ordering::SeqCst);
     let session_token = generate_session_token();
 
-    // Ensure the session exists BEFORE starting monitor
-    if let Err(e) = session::create_or_attach(&session) {
-        eprintln!("Failed to create/attach session '{}': {}", session, e);
+    // Create the session if it doesn't exist, routing through an existing control mode
+    // connection to avoid spawning external tmux processes (which crash tmux 3.5a).
+    {
+        let sessions = state.sessions.read().await;
+        // Find any existing monitor with a command_tx to route through
+        let existing_tx = sessions.values().find_map(|s| s.monitor_command_tx.clone());
+        drop(sessions);
+
+        if let Some(tx) = existing_tx {
+            // Check if session exists using external command (safe — has-session is read-only)
+            let exists = std::process::Command::new("tmux")
+                .args(["has-session", "-t", &session])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            if !exists {
+                // Create the session through the existing control mode connection
+                let cmd = format!("new-session -d -s {}", session);
+                if let Err(e) = tx.send(MonitorCommand::RunCommand { command: cmd }).await {
+                    eprintln!(
+                        "[sse] Failed to create session '{}' via control mode: {}",
+                        session, e
+                    );
+                }
+                // Brief delay for tmux to process the new-session command
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+        // If no existing monitor, TmuxMonitor::connect() with create_session=true
+        // will handle session creation by spawning tmux -CC new-session (safe when
+        // no other control mode client is attached).
     }
 
     // Register connection and get/create shared session resources
@@ -386,7 +415,9 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         "initialize_session" => {
-            session::create_or_attach(session)?;
+            // Session is already created by TmuxMonitor::connect() when the SSE handler starts.
+            // No-op: avoid calling session::create_or_attach() which spawns external tmux commands
+            // that crash tmux 3.5a when control mode is attached.
             Ok(serde_json::json!(null))
         }
         "get_scrollback_history" => {
@@ -1020,6 +1051,7 @@ async fn start_monitoring_control_mode(
 
     let mut backoff = Duration::from_millis(100);
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
+    let mut is_first_connect = true;
 
     loop {
         // Stop reconnecting if session was cleaned up (no more clients)
@@ -1034,7 +1066,30 @@ async fn start_monitoring_control_mode(
             }
         }
 
-        match TmuxMonitor::connect(config.clone()).await {
+        // On reconnect (not first connect), check if the tmux session still exists.
+        // If it was destroyed (e.g., by test cleanup), stop the monitor loop.
+        // This prevents `tmux -CC new-session` from being called while another
+        // control mode client is attached (which crashes tmux 3.5a).
+        let mut connect_config = config.clone();
+        if !is_first_connect {
+            let session_exists = std::process::Command::new("tmux")
+                .args(["has-session", "-t", &session])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            if !session_exists {
+                eprintln!(
+                    "[monitor] tmux session '{}' no longer exists, stopping monitor loop",
+                    session
+                );
+                break;
+            }
+            // On reconnect, never create a new session — just attach to existing
+            connect_config.create_session = false;
+        }
+
+        match TmuxMonitor::connect(connect_config).await {
             Ok((mut monitor, command_tx)) => {
                 // Store command_tx so cleanup_connection can send Shutdown
                 let stored = {
@@ -1072,6 +1127,7 @@ async fn start_monitoring_control_mode(
             }
         }
 
+        is_first_connect = false;
         tokio::time::sleep(backoff).await;
         backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
     }

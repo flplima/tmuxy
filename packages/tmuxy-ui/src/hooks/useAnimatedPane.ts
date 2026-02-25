@@ -141,10 +141,10 @@ export function useAnimatedPane(
     }
   }, [targetX, targetY, enabled, animate, precision]);
 
-  // Handle zIndex changes
+  // Handle zIndex changes — only set inline when elevated (dragging)
   useEffect(() => {
     if (elementRef.current) {
-      elementRef.current.style.zIndex = elevated ? '100' : '1';
+      elementRef.current.style.zIndex = elevated ? 'var(--z-dragging)' : '';
     }
   }, [elevated]);
 
@@ -163,7 +163,7 @@ export function useAnimatedPane(
       if (el) {
         // Initialize transform
         el.style.transform = `translate3d(${stateRef.current.x}px, ${stateRef.current.y}px, 0)`;
-        el.style.zIndex = elevated ? '100' : '1';
+        el.style.zIndex = elevated ? 'var(--z-dragging)' : '';
       }
     },
     [elevated],
