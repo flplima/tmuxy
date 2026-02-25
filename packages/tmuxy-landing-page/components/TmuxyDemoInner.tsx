@@ -1,7 +1,7 @@
 'use client';
 
-import { TmuxyProvider, TmuxyApp, FakeTmuxAdapter } from '@tmuxy/ui';
-import '@tmuxy/ui/styles.css';
+import { TmuxyProvider, TmuxyApp, FakeTmuxAdapter } from 'tmuxy-ui';
+import 'tmuxy-ui/styles.css';
 import { useMemo } from 'react';
 
 export default function TmuxyDemoInner() {
