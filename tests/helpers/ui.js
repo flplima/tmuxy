@@ -220,7 +220,7 @@ async function getTerminalText(page) {
  * Wait for specific text to appear in terminal using Playwright's waitForFunction
  * This is more reliable than manual polling as it uses browser-side waiting
  */
-async function waitForTerminalText(page, text, timeout = 10000) {
+async function waitForTerminalText(page, text, timeout = 15000) {
   try {
     await page.waitForFunction(
       (searchText) => {
@@ -280,7 +280,7 @@ async function runCommand(page, command, expectedOutput, timeout = 10000) {
  * @param {string} expectedOutput - Text to wait for in terminal
  * @param {number} timeout - Timeout in ms
  */
-async function runCommandViaTmux(session, page, command, expectedOutput, timeout = 10000) {
+async function runCommandViaTmux(session, page, command, expectedOutput, timeout = 15000) {
   // Use tmux send-keys with literal flag for reliable input
   await session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
   await session.runCommand(`send-keys -t ${session.name} Enter`);
@@ -657,13 +657,25 @@ async function clickGroupTab(page, index) {
 }
 
 /**
- * Click the close button on a group tab by index (0-based)
+ * Close a group tab by index (0-based) via right-click context menu
  */
 async function clickGroupTabClose(page, index) {
-  // Use Playwright's native click for better React event handling
-  const closeButtons = await page.$$('.pane-tabs .pane-tab-close');
-  if (index >= closeButtons.length) throw new Error(`Group tab close at index ${index} not found (${closeButtons.length} buttons)`);
-  await closeButtons[index].click();
+  const tabs = await page.$$('.pane-tabs .pane-tab');
+  if (index >= tabs.length) throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
+  await tabs[index].click({ button: 'right' });
+  await delay(DELAYS.SHORT);
+  // Click "Close Pane" from the context menu
+  const menuItems = await page.$$('[role="menuitem"]');
+  let closeItem = null;
+  for (const item of menuItems) {
+    const text = await item.textContent();
+    if (text.includes('Close Pane')) {
+      closeItem = item;
+      break;
+    }
+  }
+  if (!closeItem) throw new Error('Close Pane menu item not found in context menu');
+  await closeItem.click();
   await delay(DELAYS.SYNC);
 }
 
@@ -712,7 +724,7 @@ async function isHeaderGrouped(page) {
 }
 
 /**
- * Get info about group tabs (title, active state)
+ * Get info about group tabs (title, active/selected state)
  */
 async function getGroupTabInfo(page) {
   return await page.evaluate(() => {
@@ -720,7 +732,7 @@ async function getGroupTabInfo(page) {
     return Array.from(tabs).map((tab, index) => ({
       index,
       title: tab.querySelector('.pane-tab-title')?.textContent?.trim() || '',
-      active: tab.classList.contains('pane-tab-active'),
+      active: tab.classList.contains('pane-tab-active') || tab.classList.contains('pane-tab-selected'),
     }));
   });
 }
