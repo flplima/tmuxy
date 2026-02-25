@@ -22,7 +22,6 @@
   align-items: center;
   padding: 4px 12px;
   color: var(--term-white);
-  cursor: pointer;
   border-radius: 0;
 }
 
@@ -35,7 +34,6 @@
 .szh-menu__item--disabled {
   color: var(--term-bright-black);
   opacity: 0.5;
-  cursor: default;
 }
 
 .szh-menu__item--disabled:hover,
@@ -86,7 +84,6 @@
   border: none;
   border-radius: var(--radius-md);
   color: var(--text-muted);
-  cursor: pointer;
   flex-shrink: 0;
 }
 
