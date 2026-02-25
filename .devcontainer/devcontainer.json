@@ -43,6 +43,6 @@
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postCreateCommand": "npm install && ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf && ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf",
+  "postCreateCommand": "npm install && ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf && ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf && ln -sf /workspace/scripts/tmuxy-cli ~/.local/bin/tmuxy",
   "postStartCommand": "npm start"
 }

@@ -374,7 +374,7 @@ pub async fn commands_handler(
 }
 
 // ============================================
-// Command Handler (migrated from websocket.rs)
+// Command Handler
 // ============================================
 
 async fn handle_command(
@@ -755,7 +755,7 @@ async fn handle_command(
 }
 
 // ============================================
-// Helper Functions (migrated from websocket.rs)
+// Helper Functions
 // ============================================
 
 /// Send a tmux command through control mode

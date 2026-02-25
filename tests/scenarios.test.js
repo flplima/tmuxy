@@ -168,7 +168,7 @@ describe('Scenario 1: Connect & Render', () => {
     expect(containerInfo.hasChildren).toBe(true);
     expect(containerInfo.hasTerminal).toBe(true);
 
-    // Step 2: WebSocket connected - no error state
+    // Step 2: SSE connected - no error state
     const errorState = await ctx.page.$('.error-state, .disconnected');
     expect(errorState).toBeNull();
 

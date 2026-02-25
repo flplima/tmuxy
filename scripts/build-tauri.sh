@@ -4,7 +4,7 @@
 # Tauri Build Script
 # =============================================================================
 # Builds the Tmuxy Tauri desktop application with native IPC communication
-# (no WebSocket - direct Tauri invoke/events for lower latency)
+# (direct Tauri invoke/events for lower latency)
 # =============================================================================
 
 set -e
@@ -149,7 +149,7 @@ echo -e "${GREEN}Tauri build complete!${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "${BLUE}Notes:${NC}"
-echo -e "   - This build uses Tauri IPC (not WebSocket) for communication"
+echo -e "   - This build uses Tauri IPC for communication"
 echo -e "   - Lower latency than the web version due to direct IPC"
 echo -e "   - Set TMUXY_SESSION env var to use a custom session name"
 echo ""

@@ -157,7 +157,7 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   ctx.navigateToSession = async () => {
     await navigateToSession(ctx.page, ctx.session.name);
     await waitForSessionReady(ctx.page, ctx.session.name);
-    // Set page reference for WebSocket routing
+    // Set page reference for adapter routing
     ctx.session.setPage(ctx.page);
     // Source tmuxy config (routes through control mode)
     await ctx.session.sourceConfig();
@@ -170,7 +170,7 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   ctx.setupPage = async () => {
     await navigateToSession(ctx.page, ctx.session.name);
     await waitForSessionReady(ctx.page, ctx.session.name);
-    // Set page reference for WebSocket routing
+    // Set page reference for adapter routing
     ctx.session.setPage(ctx.page);
     // Source tmuxy config (routes through control mode)
     await ctx.session.sourceConfig();
@@ -222,13 +222,13 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
 
   /**
    * Setup multiple panes with alternating split directions
-   * Navigates first, then creates panes via WebSocket
+   * Navigates first, then creates panes via adapter
    * @param {number} count - Number of panes to create (default: 3)
    */
   ctx.setupPanes = async (count = 3) => {
     await ctx.navigateToSession();
     await focusPage(ctx.page);
-    // Create panes via WebSocket after navigation
+    // Create panes via adapter after navigation
     for (let i = 1; i < count; i++) {
       if (i % 2 === 0) {
         await ctx.session.splitVertical();
@@ -242,13 +242,13 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
 
   /**
    * Setup two panes with a single split
-   * Navigates first, then creates split via WebSocket
+   * Navigates first, then creates split via adapter
    * @param {string} direction - 'horizontal' or 'vertical' (default: 'horizontal')
    */
   ctx.setupTwoPanes = async (direction = 'horizontal') => {
     await ctx.navigateToSession();
     await focusPage(ctx.page);
-    // Create split via WebSocket after navigation
+    // Create split via adapter after navigation
     if (direction === 'horizontal') {
       await ctx.session.splitHorizontal();
     } else {
@@ -266,7 +266,7 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
 
   /**
    * Setup a 4-pane grid layout
-   * Navigates first, then creates panes via WebSocket
+   * Navigates first, then creates panes via adapter
    */
   ctx.setupFourPanes = async () => {
     await ctx.navigateToSession();
@@ -281,7 +281,7 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       }
       throw new Error(`setupFourPanes: pane count did not reach ${n}`);
     };
-    // Create 4-pane grid via WebSocket
+    // Create 4-pane grid via adapter
     await ctx.session.splitHorizontal();
     await waitForPanes(2);
     await ctx.session.splitVertical();

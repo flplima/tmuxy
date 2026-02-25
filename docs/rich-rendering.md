@@ -208,7 +208,7 @@ tmux's `allow-passthrough` mode forwards escape sequences to the outer terminal 
 ### Future Solutions for Images
 
 1. **Tauri Desktop App** - Connect directly to a pty without tmux; all protocols would work
-2. **Sideband Channel** - Backend intercepts image sequences before tmux and sends via separate WebSocket message
+2. **Sideband Channel** - Backend intercepts image sequences before tmux and sends via separate SSE event
 3. **tmux Plugin** - Custom tmux plugin to capture and forward image data
 
 ## Testing
