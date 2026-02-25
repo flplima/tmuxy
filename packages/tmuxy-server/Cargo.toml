@@ -1,12 +1,12 @@
 [package]
-name = "tmuxy-cli"
+name = "tmuxy-server"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "Tmuxy CLI: production server, pane groups, floats, and widgets"
+description = "Tmuxy production server with embedded frontend"
 
 [[bin]]
-name = "tmuxy"
+name = "tmuxy-server"
 path = "src/main.rs"
 
 [dependencies]

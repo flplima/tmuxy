@@ -1,0 +1,105 @@
+#!/bin/bash
+# tmuxy — shell dispatcher for tmuxy CLI commands
+#
+# Usage:
+#   tmuxy float [cmd args...]     Create a float pane
+#   tmuxy group <action> [args]   Pane group operations
+#   tmuxy image <source>          Display image widget
+#   tmuxy md <file|->             Display markdown widget
+#   tmuxy server [args]           Delegate to tmuxy-server binary
+#   tmuxy --help                  Show this help
+
+set -euo pipefail
+
+SELF="$0"
+# Resolve symlinks to find the real script location
+if [ -L "$SELF" ]; then
+  SELF="$(readlink -f "$SELF")"
+fi
+REPO_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
+
+# Find tmuxy-server binary: PATH first, then cargo target directory
+find_server_binary() {
+  if command -v tmuxy-server &>/dev/null; then
+    echo "tmuxy-server"
+  elif [ -x "$REPO_ROOT/target/debug/tmuxy-server" ]; then
+    echo "$REPO_ROOT/target/debug/tmuxy-server"
+  elif [ -x "$REPO_ROOT/target/release/tmuxy-server" ]; then
+    echo "$REPO_ROOT/target/release/tmuxy-server"
+  else
+    echo "Error: tmuxy-server binary not found. Run 'cargo build -p tmuxy-server' first." >&2
+    exit 1
+  fi
+}
+
+usage() {
+  cat <<'EOF'
+Usage: tmuxy <command> [args...]
+
+Commands:
+  float [cmd args...]       Create a float pane (interactive or with command)
+  group <action> [args]     Pane group operations (add, close, switch, next, prev)
+  image <source>            Display an image widget (file path or URL)
+  md <file|->               Display a markdown widget (file or stdin)
+  server [args]             Start/stop/status the production server
+
+Run 'tmuxy <command> --help' for command-specific help.
+EOF
+}
+
+case "${1:-}" in
+  float)
+    shift
+    exec bash "$SCRIPTS_DIR/float-create.sh" "$@"
+    ;;
+  group)
+    shift
+    action="${1:?Usage: tmuxy group <add|close|switch|next|prev> [args]}"
+    shift
+    case "$action" in
+      add)
+        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"
+        ;;
+      close)
+        pane_id="${1:-#{pane_id}}"
+        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-close.sh $pane_id"
+        ;;
+      switch)
+        pane_id="${1:?Usage: tmuxy group switch <pane_id>}"
+        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-switch.sh $pane_id"
+        ;;
+      next)
+        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-next.sh #{pane_id}"
+        ;;
+      prev)
+        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-prev.sh #{pane_id}"
+        ;;
+      *)
+        echo "Unknown group action: $action" >&2
+        echo "Usage: tmuxy group <add|close|switch|next|prev> [args]" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  image)
+    shift
+    exec "$SCRIPTS_DIR/tmuxy-widget-image" "$@"
+    ;;
+  md|markdown)
+    shift
+    exec "$SCRIPTS_DIR/tmuxy-widget-markdown" "$@"
+    ;;
+  server)
+    shift
+    exec "$(find_server_binary)" "$@"
+    ;;
+  --help|-h|"")
+    usage
+    ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

@@ -64,7 +64,7 @@ We do NOT predict keystrokes locally to reduce perceived latency (like mosh does
 
 ### 7. Binary Protocol / Compression
 
-We use JSON over WebSocket, not binary encoding (MessagePack, Protobuf) or compression.
+We use JSON over SSE/HTTP, not binary encoding (MessagePack, Protobuf) or compression.
 
 **Why?**
 - For local tmux, bandwidth is not the bottleneck

@@ -77,7 +77,7 @@ async function waitForServer(url = TMUXY_URL, timeout = 30000) {
 
 /**
  * Navigate to tmuxy with session parameter
- * Includes retry logic for WebSocket connection race conditions
+ * Includes retry logic for SSE connection race conditions
  */
 async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
   const url = `${tmuxyUrl}?session=${encodeURIComponent(sessionName)}`;
@@ -129,7 +129,7 @@ async function focusPage(page) {
 }
 
 /**
- * Wait for the WebSocket connection to be established and session to be ready
+ * Wait for the SSE connection to be established and session to be ready
  * This ensures keyboard events will be sent to the correct session
  */
 async function waitForSessionReady(page, sessionName, timeout = 5000) {
@@ -158,7 +158,7 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
       { timeout: 5000, polling: 100 }
     );
   } catch {
-    console.log('Warning: WebSocket adapter may not be available');
+    console.log('Warning: HTTP adapter may not be available');
   }
 
   // Wait for monitor connection to be ready by sending a harmless command

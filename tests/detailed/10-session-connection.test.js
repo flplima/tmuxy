@@ -81,7 +81,7 @@ describe('Category 10: Session & Connection', () => {
   // 10.2 Reconnection
   // ====================
   describe('10.2 Reconnection', () => {
-    test('WebSocket connection established', async () => {
+    test('SSE connection established', async () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.setupPage();
@@ -166,9 +166,9 @@ describe('Category 10: Session & Connection', () => {
   });
 
   // ====================
-  // 10.5 WebSocket Edge Cases
+  // 10.5 SSE Edge Cases
   // ====================
-  describe('10.5 WebSocket Edge Cases', () => {
+  describe('10.5 SSE Edge Cases', () => {
     test('UI updates when tmux state changes externally', async () => {
       if (ctx.skipIfNotReady()) return;
 
@@ -182,7 +182,7 @@ describe('Category 10: Session & Connection', () => {
       await ctx.session.splitHorizontal();
       await delay(DELAYS.SYNC);
 
-      // UI should reflect the change via WebSocket state push
+      // UI should reflect the change via SSE state push
       await waitForPaneCount(ctx.page, 2);
       const newCount = await getUIPaneCount(ctx.page);
       expect(newCount).toBe(2);
@@ -208,7 +208,7 @@ describe('Category 10: Session & Connection', () => {
       expect(paneCount).toBe(await ctx.session.getPaneCount());
     });
 
-    test('WebSocket reconnects after navigation', async () => {
+    test('SSE reconnects after navigation', async () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.setupPage();
@@ -325,7 +325,7 @@ describe('Category 10: Session & Connection', () => {
       await delay(DELAYS.SYNC);
 
       // After coming back online, app should recover
-      // Page may need reload to reconnect WebSocket
+      // Page may need reload to reconnect SSE
       await ctx.page.reload({ waitUntil: 'domcontentloaded' });
       await ctx.page.waitForSelector('[role="log"]', { timeout: 10000 });
       ctx.session.setPage(ctx.page); // Re-set page reference after reload

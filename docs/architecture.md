@@ -7,7 +7,7 @@ This document describes the architecture of tmuxy, a web-based tmux interface.
 Tmuxy provides a browser-based UI for tmux sessions. It consists of:
 
 1. **tmuxy-core** - Rust library for tmux interaction
-2. **web-server** - Axum web server with WebSocket support
+2. **web-server** - Axum web server with SSE and HTTP endpoints
 3. **tmuxy-ui** - React frontend with XState state machine
 4. **tauri-app** - Desktop app wrapper (optional)
 
@@ -19,8 +19,8 @@ graph TD
         C3[Client 3]
     end
 
-    subgraph Server["Web Server (Axum + WebSocket)"]
-        WS[WebSocket Handler]
+    subgraph Server["Web Server (Axum + SSE/HTTP)"]
+        WS[SSE/HTTP Handler]
 
         subgraph SA["Session A (per-session)"]
             ConnsA[Connections]
@@ -38,7 +38,7 @@ graph TD
         TB["tmux session B"]
     end
 
-    C1 & C2 & C3 -->|WebSocket| WS
+    C1 & C2 & C3 -->|"SSE + HTTP POST"| WS
     WS --> ConnsA & ConnsB
     ConnsA --> MonA
     ConnsB --> MonB
@@ -121,24 +121,32 @@ if let Some(tx) = command_tx {
 }
 ```
 
-### 4. WebSocket Protocol
+### 4. SSE/HTTP Protocol
 
-**Client → Server:**
+**Client → Server (HTTP POST `/commands`):**
 ```json
-{ "type": "invoke", "id": "uuid", "cmd": "command_name", "args": {...} }
+{ "cmd": "command_name", "args": {...} }
 ```
 
-**Server → Client:**
+**Server → Client (HTTP POST response):**
 ```json
-// Command responses
-{ "type": "response", "id": "uuid", "result": ... }
-{ "type": "error", "id": "uuid", "error": "message" }
+{ "result": ... }
+{ "error": "message" }
+```
 
+**Server → Client (SSE stream `GET /events`):**
+```json
 // State updates (broadcast to all clients)
-{ "type": "event", "name": "tmux-state-update", "payload": {...} }
+event: state-update
+data: { "event": "state-update", "data": {...} }
 
-// Connection management
-{ "type": "connection_info", "connection_id": 1 }
+// Connection info (on initial connect)
+event: connection-info
+data: { "event": "connection-info", "data": { "connection_id": 1, "session_token": "...", "default_shell": "..." } }
+
+// Keybindings
+event: keybindings
+data: { "event": "keybindings", "data": {...} }
 ```
 
 ### 5. Frontend State Machine (XState)
@@ -149,7 +157,7 @@ The React frontend uses XState for state management. All client logic lives in t
 graph TD
     subgraph AppMachine["appMachine"]
         subgraph Actors
-            TA["tmuxActor (WebSocket)"]
+            TA["tmuxActor (SSE/HTTP adapter)"]
             KA["keyboardActor (input handling)"]
             SA["sizeActor (viewport tracking)"]
         end
@@ -171,7 +179,7 @@ graph TD
 
 ### Connection Lifecycle
 
-1. **Client connects** via WebSocket with `?session=name`
+1. **Client connects** via SSE (`GET /events?session=name`)
 2. Server generates unique `connection_id`
 3. Server checks if session monitor exists:
    - **No monitor:** Start new monitor, store handle in `SessionConnections`
@@ -186,8 +194,8 @@ graph TD
 ```mermaid
 graph TD
     TS["tmux session"] -->|"control mode notifications<br/>(%output, %layout-change, etc.)"| TM[TmuxMonitor]
-    TM -->|"StateEmitter.emit_state(StateUpdate)"| WSE[WebSocketEmitter]
-    WSE -->|"broadcast::Sender.send(JSON)"| STX["session_tx (broadcast channel)"]
+    TM -->|"StateEmitter.emit_state(StateUpdate)"| SSE_E[SseEmitter]
+    SSE_E -->|"broadcast::Sender.send(JSON)"| STX["session_tx (broadcast channel)"]
     STX --> C1[Client 1]
     STX --> C2[Client 2]
     STX --> C3[Client 3]
@@ -197,8 +205,8 @@ graph TD
 
 ```mermaid
 graph TD
-    Client -->|'invoke: send_keys'| WSH[WebSocket Handler]
-    WSH -->|match cmd| Decision{route}
+    Client -->|"POST /commands: send_keys"| CH[Command Handler]
+    CH -->|match cmd| Decision{route}
     Decision -->|subprocess| Exec["executor::send_keys()"]
     Decision -->|through control mode| Mon["monitor_command_tx.send()"]
     Exec --> Tmux1[tmux]
@@ -231,14 +239,14 @@ packages/
 ├── web-server/
 │   └── src/
 │       ├── main.rs             # Server setup, AppState, SessionConnections
-│       └── websocket.rs        # WebSocket handling, state broadcasting
+│       └── sse.rs              # SSE streaming, HTTP command handling
 └── tmuxy-ui/
     └── src/
         ├── machines/
         │   ├── app/
         │   │   └── appMachine.ts   # Main state machine
         │   └── actors/
-        │       ├── tmuxActor.ts    # WebSocket actor
+        │       ├── tmuxActor.ts    # Backend communication actor
         │       └── keyboardActor.ts
         └── components/
             ├── Terminal.tsx
@@ -257,20 +265,20 @@ When tmux control mode (`tmux -CC`) is attached to a session, running external `
 ```mermaid
 graph LR
     subgraph Commands
-        FE1[Frontend] -->|WebSocket| SCM["send_via_control_mode()"]
+        FE1[Frontend] -->|"HTTP POST"| SCM["send_via_control_mode()"]
         SCM --> Mon[Monitor]
         Mon -->|stdin| TMX["tmux -CC"]
     end
 
     subgraph Events
         TMX2["tmux -CC"] -->|stdout| Mon2[Monitor]
-        Mon2 -->|WebSocket| FE2[Frontend]
+        Mon2 -->|SSE| FE2[Frontend]
     end
 ```
 
 ### Implementation
 
-All WebSocket command handlers route through `send_via_control_mode()`:
+All HTTP command handlers route through `send_via_control_mode()`:
 
 ```rust
 async fn send_via_control_mode(state: &Arc<AppState>, session: &str, command: &str) -> Result<(), String> {
@@ -352,7 +360,7 @@ assertSnapshotsMatch(page);
 
 **Goal:** Verify features work correctly with real browser interactions.
 
-Tests use real tmux sessions, real keyboard/mouse events, and real WebSocket connections. No mocking.
+Tests use real tmux sessions, real keyboard/mouse events, and real SSE/HTTP connections. No mocking.
 
 ```javascript
 // Real keyboard

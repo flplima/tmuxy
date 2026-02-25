@@ -1,0 +1,28 @@
+#!/bin/bash
+# Display an image in a tmuxy widget pane
+#
+# Usage: tmuxy-widget-image <source>
+#   source: file path (relative or absolute) or URL (http/https)
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+SOURCE="${1:?Usage: tmuxy-widget-image <file-or-url>}"
+
+# Resolve source to absolute path (pass URLs through)
+if [[ "$SOURCE" =~ ^https?:// ]]; then
+  RESOLVED="$SOURCE"
+else
+  if [[ "$SOURCE" = /* ]]; then
+    RESOLVED="$SOURCE"
+  else
+    RESOLVED="$(cd "$(dirname "$SOURCE")" && pwd)/$(basename "$SOURCE")"
+  fi
+  if [ ! -f "$RESOLVED" ]; then
+    echo "Error: File not found: $RESOLVED" >&2
+    exit 1
+  fi
+fi
+
+# Output widget marker + JSON metadata via tmuxy-widget
+printf '{"src":"%s"}\n' "$RESOLVED" | "${SCRIPTS_DIR}/tmuxy-widget" image
