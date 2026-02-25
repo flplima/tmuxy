@@ -16,7 +16,7 @@ export interface TmuxActorInput {
 /**
  * Create a tmux actor with the given adapter.
  *
- * The actor handles WebSocket/Tauri communication:
+ * The actor handles SSE/HTTP or Tauri IPC communication:
  * - Connects on actor start
  * - Sends events to parent via parent.send()
  * - Receives commands from parent via receive callback

@@ -35,9 +35,9 @@ new -n mywindow
 
 ### Architecture
 ```
-Frontend → WebSocket → send_via_control_mode() → Monitor → stdin → tmux -CC
-                                                     ↑
-Events:  Frontend ← WebSocket ← Monitor ← stdout ← tmux -CC
+Frontend → HTTP POST → send_via_control_mode() → Monitor → stdin → tmux -CC
+                                                      ↑
+Events:  Frontend ← SSE ← Monitor ← stdout ← tmux -CC
 ```
 
 ### Helper Function
@@ -83,7 +83,7 @@ Note: `new` is short for `new-session`, NOT `new-window`. Use `neww` for creatin
 
 ## Commands Updated
 
-All these WebSocket handlers now route through control mode:
+All these HTTP command handlers now route through control mode:
 - `send_keys_to_tmux` → `send -t {session} {keys}`
 - `split_pane_horizontal/vertical` → `splitw -t {session} -h/-v`
 - `new_window` → `neww -t {session}`

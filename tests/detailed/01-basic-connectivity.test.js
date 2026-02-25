@@ -1,7 +1,7 @@
 /**
  * Category 1: Basic Connectivity & Rendering
  *
- * Tests for basic page load, WebSocket connection, terminal rendering,
+ * Tests for basic page load, SSE connection, terminal rendering,
  * ANSI colors, Unicode, and terminal state operations.
  */
 
@@ -51,7 +51,7 @@ describe('Category 1: Basic Connectivity & Rendering', () => {
       expect(containerInfo.hasTerminal).toBe(true);
     });
 
-    test('WebSocket connects - terminal is interactive', async () => {
+    test('SSE connects - terminal is interactive', async () => {
       if (ctx.skipIfNotReady()) return;
 
       await ctx.navigateToSession();
