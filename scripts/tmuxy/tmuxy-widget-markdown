@@ -1,41 +1,60 @@
 #!/bin/bash
-# Usage: tmuxy-widget-markdown <file.md>
+# Display markdown in a tmuxy widget pane
 #
-# Watches a markdown file for changes and outputs the file path through
-# tmuxy-widget. The React component fetches content via /api/file endpoint.
-# Uses stat polling (1s interval) to detect modifications.
-FILE="${1:?Usage: tmuxy-widget-markdown <file.md>}"
+# Usage:
+#   tmuxy-widget-markdown <file.md>    Watch a markdown file for changes
+#   tmuxy-widget-markdown -            Read one line from stdin as content
+
+set -euo pipefail
+
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+SOURCE="${1:?Usage: tmuxy-widget-markdown <file.md|->}"
 
-# Resolve to absolute path
-FILE=$(cd "$(dirname "$FILE")" && pwd)/$(basename "$FILE")
+if [ "$SOURCE" = "-" ]; then
+  # Stdin mode: read content, output metadata, block forever
+  read -r CONTENT
+  {
+    echo "__TMUXY_META_START__"
+    printf '{"content":"%s"}\n' "$CONTENT"
+    echo "__TMUXY_META_END__"
+    while true; do sleep 3600; done
+  } | "${SCRIPTS_DIR}/tmuxy-widget" markdown
+else
+  # File mode: resolve path, watch for changes
+  FILE="$SOURCE"
 
-if [ ! -f "$FILE" ]; then
-  echo "Error: File not found: $FILE" >&2
-  exit 1
+  # Resolve to absolute path
+  if [[ "$FILE" != /* ]]; then
+    FILE="$(cd "$(dirname "$FILE")" && pwd)/$(basename "$FILE")"
+  fi
+
+  if [ ! -f "$FILE" ]; then
+    echo "Error: File not found: $FILE" >&2
+    exit 1
+  fi
+
+  BASENAME=$(basename "$FILE")
+  LAST_MTIME=""
+  SEQ=0
+
+  output_frame() {
+    echo "__TITLE__:${BASENAME}"
+    echo "__FILE__:${FILE}"
+    echo "__SEQ__:${SEQ}"
+    SEQ=$((SEQ + 1))
+  }
+
+  {
+    output_frame
+    LAST_MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null)
+
+    while true; do
+      sleep 1
+      CURRENT_MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null)
+      if [ "$CURRENT_MTIME" != "$LAST_MTIME" ]; then
+        LAST_MTIME="$CURRENT_MTIME"
+        output_frame
+      fi
+    done
+  } | "${SCRIPTS_DIR}/tmuxy-widget" markdown
 fi
-
-BASENAME=$(basename "$FILE")
-LAST_MTIME=""
-SEQ=0
-
-output_frame() {
-  echo "__TITLE__:${BASENAME}"
-  echo "__FILE__:${FILE}"
-  echo "__SEQ__:${SEQ}"
-  SEQ=$((SEQ + 1))
-}
-
-{
-  output_frame
-  LAST_MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null)
-
-  while true; do
-    sleep 1
-    CURRENT_MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null)
-    if [ "$CURRENT_MTIME" != "$LAST_MTIME" ]; then
-      LAST_MTIME="$CURRENT_MTIME"
-      output_frame
-    fi
-  done
-} | "${SCRIPTS_DIR}/tmuxy-widget" markdown

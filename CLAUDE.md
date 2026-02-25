@@ -15,15 +15,37 @@ See [tests/README.md](tests/README.md) for running and writing E2E tests.
 tmuxy/
 ├── packages/
 │   ├── tmuxy-core/      # Rust: tmux control mode, parsing, state
-│   ├── tmuxy-cli/       # Rust: CLI binary (server, commands)
+│   ├── tmuxy-server/    # Rust: production server with embedded frontend
 │   ├── web-server/      # Rust: shared Axum routes and SSE handlers
 │   ├── tmuxy-ui/        # React/Vite frontend
 │   └── tauri-app/       # Tauri desktop app wrapper
+├── scripts/
+│   ├── tmuxy-cli        # Shell dispatcher (symlinked as ~/.local/bin/tmuxy)
+│   └── tmuxy/           # Shell scripts for floats, groups, widgets
 ├── tests/               # E2E tests (Jest + Playwright)
 │   ├── helpers/         # One file per helper function
 │   └── *.test.js        # Test suites grouped by operation
 ├── docs/                # Project documentation
 └── docker/              # Docker development environment
+```
+
+## CLI Usage
+
+The `tmuxy` CLI is a shell dispatcher at `scripts/tmuxy-cli`, symlinked as `~/.local/bin/tmuxy`.
+
+```bash
+tmuxy float                    # Interactive float (outputs pane ID)
+tmuxy float fzf                # Run fzf in float, capture stdout
+tmuxy group add                # Add current pane to a group
+tmuxy group next               # Next tab in group
+tmuxy group prev               # Previous tab in group
+tmuxy group switch %5          # Switch to specific pane in group
+tmuxy group close [%5]         # Close pane from group
+tmuxy image /path/to/img.png   # Display image widget
+tmuxy md README.md             # Display markdown widget
+echo "# Hello" | tmuxy md -   # Markdown from stdin
+tmuxy server                   # Start production server
+tmuxy server stop              # Stop production server
 ```
 
 ## Development
