@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'packages/tmuxy-landing-page/**'
+      - 'packages/tmuxy-ui/src/**'
+      - '.github/workflows/landing-page.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
