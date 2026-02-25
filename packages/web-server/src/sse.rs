@@ -130,12 +130,19 @@ pub async fn sse_handler(
     // connection to avoid spawning external tmux processes (which crash tmux 3.5a).
     {
         let sessions = state.sessions.read().await;
-        // Find any existing monitor with a command_tx to route through
-        let existing_tx = sessions.values().find_map(|s| s.monitor_command_tx.clone());
+        // Find any monitor with an open command channel to route through.
+        // Only filter out closed channels (dead monitors) — monitors in the
+        // grace period (no connections but channel still open) are still usable.
+        let existing_tx = sessions.values().find_map(|s| {
+            s.monitor_command_tx
+                .as_ref()
+                .filter(|tx| !tx.is_closed())
+                .cloned()
+        });
         drop(sessions);
 
         if let Some(tx) = existing_tx {
-            // Check if session exists using external command (safe — has-session is read-only)
+            // Check if session exists using external command (safe on tmux 3.5a)
             let exists = std::process::Command::new("tmux")
                 .args(["has-session", "-t", &session])
                 .output()
@@ -147,12 +154,34 @@ pub async fn sse_handler(
                 let cmd = format!("new-session -d -s {}", session);
                 if let Err(e) = tx.send(MonitorCommand::RunCommand { command: cmd }).await {
                     eprintln!(
-                        "[sse] Failed to create session '{}' via control mode: {}",
+                        "[sse] Failed to create session '{}' via control mode: {}, cleaning up stale entries",
                         session, e
                     );
+                    // The monitor is dead — clean up stale session entries so the new
+                    // monitor can start fresh without conflicting with a zombie.
+                    let mut sessions = state.sessions.write().await;
+                    let stale_keys: Vec<String> = sessions
+                        .iter()
+                        .filter(|(_, s)| {
+                            s.connections.is_empty()
+                                && s.monitor_command_tx
+                                    .as_ref()
+                                    .map(|t| t.is_closed())
+                                    .unwrap_or(true)
+                        })
+                        .map(|(k, _)| k.clone())
+                        .collect();
+                    for key in &stale_keys {
+                        eprintln!("[sse] Removing stale session entry '{}'", key);
+                        sessions.remove(key);
+                    }
+                    drop(sessions);
+                    // Wait for any lingering monitor processes to fully exit
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                } else {
+                    // Brief delay for tmux to process the new-session command
+                    tokio::time::sleep(Duration::from_millis(500)).await;
                 }
-                // Brief delay for tmux to process the new-session command
-                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         // If no existing monitor, TmuxMonitor::connect() with create_session=true
@@ -1076,8 +1105,6 @@ async fn start_monitoring_control_mode(
 
         // On reconnect (not first connect), check if the tmux session still exists.
         // If it was destroyed (e.g., by test cleanup), stop the monitor loop.
-        // This prevents `tmux -CC new-session` from being called while another
-        // control mode client is attached (which crashes tmux 3.5a).
         let mut connect_config = config.clone();
         if !is_first_connect {
             let session_exists = std::process::Command::new("tmux")

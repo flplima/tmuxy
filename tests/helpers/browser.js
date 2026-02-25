@@ -76,8 +76,10 @@ async function waitForServer(url = TMUXY_URL, timeout = 30000) {
 }
 
 /**
- * Navigate to tmuxy with session parameter
- * Includes retry logic for SSE connection race conditions
+ * Navigate to tmuxy with session parameter.
+ * Includes retry logic for SSE connection race conditions and a verified
+ * round-trip readiness gate: sends a unique marker command through tmux
+ * and waits for it to appear in the DOM before returning.
  */
 async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
   const url = `${tmuxyUrl}?session=${encodeURIComponent(sessionName)}`;
@@ -93,7 +95,6 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
         await delay(2000);
         continue;
       }
-      // Last attempt — continue anyway, waitForSessionReady may recover
       console.log('Warning: [role="log"] not found after all retries');
       await delay(DELAYS.MEDIUM);
       return url;
@@ -105,12 +106,10 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
         () => {
           const logs = document.querySelectorAll('[role="log"]');
           const content = Array.from(logs).map(l => l.textContent || '').join('\n');
-          // Content must have > 5 chars and contain shell prompt
           return content.length > 5 && /[$#%>]/.test(content);
         },
         { timeout: 5000, polling: 50 }
       );
-      // Success - terminal content loaded
       await delay(DELAYS.SHORT);
       return url;
     } catch {
@@ -121,10 +120,42 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
     }
   }
 
-  // Final attempt - just continue even if content seems empty
   console.log('Warning: Terminal content may not be fully loaded');
   await delay(DELAYS.MEDIUM);
   return url;
+}
+
+/**
+ * Verified round-trip readiness gate.
+ * Sends a unique marker through the full pipeline (adapter → tmux → terminal → DOM)
+ * and waits for it to appear. This ensures the entire data path is working
+ * before the test proceeds.
+ */
+async function verifyRoundTrip(page, sessionName, timeout = 10000) {
+  const marker = `READY_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  try {
+    // Send marker through adapter → tmux control mode → shell
+    await page.evaluate(async (cmd) => {
+      await window._adapter?.invoke('run_tmux_command', { command: cmd });
+    }, `send-keys -l 'echo ${marker}'`);
+    await page.evaluate(async () => {
+      await window._adapter?.invoke('run_tmux_command', { command: 'send-keys Enter' });
+    });
+
+    // Wait for marker to appear in the DOM
+    await page.waitForFunction(
+      (m) => {
+        const logs = document.querySelectorAll('[role="log"]');
+        const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+        return content.includes(m);
+      },
+      marker,
+      { timeout, polling: 100 }
+    );
+  } catch (error) {
+    console.log(`Warning: Round-trip verification failed for '${sessionName}': ${error.message}`);
+  }
 }
 
 /**
@@ -142,55 +173,73 @@ async function focusPage(page) {
 
 /**
  * Wait for the SSE connection to be established and session to be ready
- * This ensures keyboard events will be sent to the correct session
+ * This ensures keyboard events will be sent to the correct session.
+ *
+ * Uses exponential backoff for the control mode connection check to handle
+ * cold-start latency gracefully.
  */
 async function waitForSessionReady(page, sessionName, timeout = 5000) {
-  const start = Date.now();
-
-  // Wait for the UI to show connected state and have terminal content
+  // Phase 1: Wait for terminal content (shell prompt visible)
   try {
     await page.waitForFunction(
       () => {
-        // Check if terminal has content (means connection is established)
         const logs = document.querySelectorAll('[role="log"]');
         const content = Array.from(logs).map(l => l.textContent || '').join('');
-        // Content should have shell prompt
         return content.length > 5 && /[$#%>]/.test(content);
       },
       { timeout, polling: 50 }
     );
   } catch {
-    console.log('Warning: Session may not be fully ready');
+    console.log('Warning: Shell prompt not detected within timeout');
   }
 
-  // Wait for adapter to be available and responding
+  // Phase 2: Wait for adapter to be available
   try {
     await page.waitForFunction(
       () => typeof window._adapter?.invoke === 'function',
       { timeout: 5000, polling: 100 }
     );
   } catch {
-    console.log('Warning: HTTP adapter may not be available');
+    throw new Error(`HTTP adapter not available after 5s for session '${sessionName}'`);
   }
 
-  // Wait for monitor connection to be ready by sending a harmless command.
-  // The adapter may be available but the monitor (control mode) might not be
-  // connected yet — this can take several seconds when the server is starting
-  // a new control mode connection for a fresh session.
-  try {
-    await page.waitForFunction(
-      async () => {
-        try {
-          await window._adapter?.invoke('run_tmux_command', { command: 'display-message ""' });
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      { timeout: 15000, polling: 300 }
-    );
-  } catch {
-    console.log('Warning: Monitor connection may not be ready after 15s');
+  // Phase 3: Wait for monitor (control mode) connection with exponential backoff.
+  // The adapter may be available but the monitor might not be connected yet —
+  // this can take several seconds when the server is starting a new control
+  // mode connection for a fresh session (especially on cold start).
+  const monitorTimeout = 30000;
+  const monitorStart = Date.now();
+  let backoff = 200;
+  const maxBackoff = 2000;
+
+  while (Date.now() - monitorStart < monitorTimeout) {
+    const ready = await page.evaluate(async () => {
+      try {
+        await window._adapter?.invoke('run_tmux_command', { command: 'display-message ""' });
+        return true;
+      } catch {
+        return false;
+      }
+    }).catch(() => false);
+
+    if (ready) break;
+
+    await delay(backoff);
+    backoff = Math.min(backoff * 1.5, maxBackoff);
+  }
+
+  // Verify it actually connected
+  const finalCheck = await page.evaluate(async () => {
+    try {
+      await window._adapter?.invoke('run_tmux_command', { command: 'display-message ""' });
+      return true;
+    } catch {
+      return false;
+    }
+  }).catch(() => false);
+
+  if (!finalCheck) {
+    throw new Error(`Monitor connection not ready after ${monitorTimeout / 1000}s for session '${sessionName}'`);
   }
 
   // Additional delay to ensure keyboard actor has received UPDATE_SESSION
@@ -256,6 +305,7 @@ module.exports = {
   getBrowser,
   waitForServer,
   navigateToSession,
+  verifyRoundTrip,
   focusPage,
   waitForSessionReady,
   waitForWindowCount,

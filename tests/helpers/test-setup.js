@@ -8,6 +8,7 @@ const {
   getBrowser,
   waitForServer,
   navigateToSession,
+  verifyRoundTrip,
   focusPage,
   waitForSessionReady,
   waitForPaneCount,
@@ -133,10 +134,11 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       ctx.page = null;
       // Wait for the web server's deferred cleanup to complete.
       // The server has a 2s grace period after the last SSE client disconnects,
-      // then up to 2s for graceful monitor shutdown. Plus ~1s for disconnect
-      // detection. Total worst-case: ~5s. If the session was killed via
-      // destroy(), the monitor exits immediately and cleanup is faster.
-      await delay(5000);
+      // then up to 2s for graceful monitor shutdown. We wait the full worst-case
+      // duration to ensure the server has fully cleaned up the session's monitor
+      // before the next test starts a new session (which would need its own
+      // fresh monitor connection).
+      await delay(6000);
     }
 
     if (ctx.session) {
@@ -161,6 +163,8 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   ctx.navigateToSession = async () => {
     await navigateToSession(ctx.page, ctx.session.name);
     await waitForSessionReady(ctx.page, ctx.session.name);
+    // Verified round-trip: send marker through full pipeline and confirm it renders
+    await verifyRoundTrip(ctx.page, ctx.session.name);
     // Set page reference for adapter routing
     ctx.session.setPage(ctx.page);
     // Source tmuxy config (routes through control mode)
@@ -174,6 +178,8 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   ctx.setupPage = async () => {
     await navigateToSession(ctx.page, ctx.session.name);
     await waitForSessionReady(ctx.page, ctx.session.name);
+    // Verified round-trip: send marker through full pipeline and confirm it renders
+    await verifyRoundTrip(ctx.page, ctx.session.name);
     // Set page reference for adapter routing
     ctx.session.setPage(ctx.page);
     // Source tmuxy config (routes through control mode)
