@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { FakeTmux } from '../fakeTmux';
+import { DemoTmux } from '../DemoTmux';
 
-describe('FakeTmux', () => {
-  let tmux: FakeTmux;
+describe('DemoTmux', () => {
+  let tmux: DemoTmux;
 
   beforeEach(() => {
-    tmux = new FakeTmux();
+    tmux = new DemoTmux();
     tmux.init(80, 24);
   });
 

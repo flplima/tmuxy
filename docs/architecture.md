@@ -248,6 +248,11 @@ packages/
         │   └── actors/
         │       ├── tmuxActor.ts    # Backend communication actor
         │       └── keyboardActor.ts
+        ├── tmux/
+        │   └── demo/              # In-browser demo engine
+        │       ├── DemoAdapter.ts  # TmuxAdapter for demo/landing page
+        │       ├── DemoTmux.ts     # Simulated tmux server
+        │       └── DemoShell.ts    # Simulated shell
         └── components/
             ├── Terminal.tsx
             ├── PaneLayout.tsx

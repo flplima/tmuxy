@@ -4,7 +4,8 @@
   "private": true,
   "description": "A tmux terminal wrapper - available as Tauri app or web server",
   "workspaces": [
-    "packages/tmuxy-ui"
+    "packages/tmuxy-ui",
+    "packages/tmuxy-landing-page"
   ],
   "scripts": {
     "devcontainer": "bash scripts/devcontainer.sh",

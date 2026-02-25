@@ -4,11 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run build:lib -w @tmuxy/ui && next build",
+    "build": "next build",
     "start": "next start"
   },
   "dependencies": {
-    "@tmuxy/ui": "*",
+    "tmuxy-ui": "*",
     "next": "^15",
     "react": "^19",
     "react-dom": "^19"

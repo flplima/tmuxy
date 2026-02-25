@@ -1,6 +1,6 @@
 import type { ServerState, ServerPane, ServerWindow, PaneContent } from '../types';
 import { VirtualFS } from './virtualFs';
-import { FakeShell } from './fakeShell';
+import { DemoShell } from './DemoShell';
 
 // ============================================
 // Layout Tree
@@ -28,7 +28,7 @@ interface FakePane {
   id: string;
   numericId: number;
   windowId: string;
-  shell: FakeShell;
+  shell: DemoShell;
   command: string;
   title: string;
 }
@@ -41,10 +41,10 @@ interface FakeWindow {
 }
 
 // ============================================
-// FakeTmux Engine
+// DemoTmux Engine
 // ============================================
 
-export class FakeTmux {
+export class DemoTmux {
   private panes = new Map<string, FakePane>();
   private windows: FakeWindow[] = [];
   private activeWindowId = '@0';
@@ -68,7 +68,7 @@ export class FakeTmux {
     const paneId = this.allocPaneId();
     const windowId = this.allocWindowId();
 
-    const shell = new FakeShell(this.vfs, this.totalWidth, this.totalHeight);
+    const shell = new DemoShell(this.vfs, this.totalWidth, this.totalHeight);
     shell.writeBanner();
     shell.writePrompt();
 
@@ -197,7 +197,7 @@ export class FakeTmux {
     const newW = direction === 'vertical' ? Math.floor(w / 2) : w;
     const newH = direction === 'horizontal' ? Math.floor(h / 2) : h;
 
-    const shell = new FakeShell(this.vfs, newW, newH);
+    const shell = new DemoShell(this.vfs, newW, newH);
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -258,7 +258,7 @@ export class FakeTmux {
     const windowId = this.allocWindowId();
     const paneId = this.allocPaneId();
 
-    const shell = new FakeShell(this.vfs, this.totalWidth, this.totalHeight);
+    const shell = new DemoShell(this.vfs, this.totalWidth, this.totalHeight);
     shell.writePrompt();
 
     const pane: FakePane = {
