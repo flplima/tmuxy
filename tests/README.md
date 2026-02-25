@@ -8,9 +8,9 @@ This test suite verifies the integration between:
 - **React UI** (Vite frontend)
 - **Rust backend** (Axum web server)
 - **tmux** (terminal multiplexer)
-- **WebSocket** communication layer
+- **SSE/HTTP** communication layer
 
-Tests use real tmux sessions, real browser interactions, and real WebSocket connections. There is no mocking or stubbing.
+Tests use real tmux sessions, real browser interactions, and real SSE/HTTP connections. There is no mocking or stubbing.
 
 ## Running Tests
 
@@ -49,7 +49,7 @@ tests/
 ├── 07-mouse-events.test.js         # Mouse interactions
 ├── 08-copy-mode.test.js            # Tmux copy mode
 ├── 09-status-bar.test.js           # Status bar UI
-├── 10-session-connection.test.js   # WebSocket, reconnection
+├── 10-session-connection.test.js   # SSE connection, reconnection
 ├── 11-osc-protocols.test.js        # OSC 8, OSC 52 sequences
 ├── 12-popup-support.test.js        # Tmux popup (stability only)
 ├── 13-performance.test.js          # Stress tests
@@ -62,7 +62,7 @@ tests/
 
 | Category | Tests | Description |
 |----------|-------|-------------|
-| 01 - Basic Connectivity | 27 | Page load, WebSocket, terminal rendering, ANSI colors |
+| 01 - Basic Connectivity | 27 | Page load, SSE connection, terminal rendering, ANSI colors |
 | 02 - Keyboard Input | 25 | Key handling, modifiers, special keys, shortcuts |
 | 03 - Pane Operations | 16 | Split, navigate, resize, close, zoom, swap |
 | 04 - Window Operations | 15 | Create, navigate, rename, close, layouts |

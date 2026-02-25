@@ -20,7 +20,7 @@ const features = [
   {
     title: 'Real-Time Sync',
     description:
-      'WebSocket connection to tmux control mode. Every keystroke, every update — instantly reflected.',
+      'Real-time SSE connection to tmux control mode. Every keystroke, every update — instantly reflected.',
     icon: '⚡',
   },
 ];

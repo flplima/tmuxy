@@ -53,4 +53,4 @@ Changed in `/workspace/docker/.tmuxy.conf`:
 + set -g window-size latest
 ```
 
-This fixed the E2E tests which were crashing when creating new windows through the WebSocket → control mode pipeline.
+This fixed the E2E tests which were crashing when creating new windows through the SSE/HTTP → control mode pipeline.

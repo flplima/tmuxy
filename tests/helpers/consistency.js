@@ -16,7 +16,7 @@ const { DELAYS } = require('./config');
 // ==================== Structural State Comparison ====================
 
 /**
- * Get tmux state snapshot from the server via WebSocket.
+ * Get tmux state snapshot from the server via adapter.
  * Queries tmux for windows, panes, and capture-pane content.
  *
  * @param {Page} page - Playwright page
