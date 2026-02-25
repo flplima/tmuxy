@@ -2,16 +2,16 @@
  * TmuxTestSession - Encapsulates tmux test session lifecycle and state queries
  *
  * tmux 3.5a crashes on ANY external command (even read-only) while control
- * mode is attached. All commands must route through the WebSocket/control mode
+ * mode is attached. All commands must route through the adapter/control mode
  * channel when the browser is connected.
  *
  * Methods fall into three categories:
  * 1. Lifecycle methods (execSync) - create(), destroy(), exists()
  *    Run BEFORE/AFTER control mode, so execSync is safe.
  * 2. Query methods (hybrid async) - getPaneCount(), getActivePaneId(), etc.
- *    Route through WebSocket when browser connected, execSync otherwise.
+ *    Route through adapter when browser connected, execSync otherwise.
  * 3. Operation methods (hybrid async) - splitHorizontal(), killPane(), etc.
- *    Route through WebSocket when browser connected, execSync otherwise.
+ *    Route through adapter when browser connected, execSync otherwise.
  */
 
 const { execSync } = require('child_process');
@@ -45,7 +45,7 @@ class TmuxTestSession {
   }
 
   /**
-   * Set the Playwright page for WebSocket routing.
+   * Set the Playwright page for adapter routing.
    * Must be called after browser navigation.
    */
   setPage(page) {
@@ -63,7 +63,7 @@ class TmuxTestSession {
   // These run BEFORE control mode is attached, so they're safe as execSync
 
   /**
-   * Run a tmux command. Routes through WebSocket when browser is connected
+   * Run a tmux command. Routes through adapter when browser is connected
    * (to avoid crashing tmux 3.5a), falls back to execSync otherwise.
    * Returns a Promise when browser is connected, string otherwise.
    */
@@ -100,7 +100,7 @@ class TmuxTestSession {
   }
 
   /**
-   * Query tmux state — routes through WebSocket when browser is connected,
+   * Query tmux state — routes through adapter when browser is connected,
    * falls back to execSync otherwise. Use this for ALL read operations during tests.
    * tmux 3.5a crashes even on read-only external commands while control mode is attached.
    */
@@ -176,7 +176,7 @@ class TmuxTestSession {
   }
 
   /**
-   * Destroy the tmux session through the WebSocket adapter (control mode).
+   * Destroy the tmux session through the HTTP adapter (control mode).
    * This is SAFE to call while control mode is attached — the kill-session
    * command is routed through the existing control mode connection, avoiding
    * the tmux 3.5a crash that occurs with external subprocess commands.
@@ -217,17 +217,17 @@ class TmuxTestSession {
   // ==================== Hybrid Command Execution ====================
 
   /**
-   * Execute a tmux command - via WebSocket if browser connected, execSync otherwise.
+   * Execute a tmux command - via adapter if browser connected, execSync otherwise.
    * This is the core hybrid routing mechanism.
    * @param {string} command - Full tmux command
    * @returns {Promise<string>|string} - Result (async if browser connected)
    */
   /**
-   * Execute a tmux command - via WebSocket if browser connected, execSync otherwise.
+   * Execute a tmux command - via adapter if browser connected, execSync otherwise.
    * This is the core hybrid routing mechanism.
    *
    * IMPORTANT: Control mode is already attached to the session, so when routing
-   * through WebSocket, we strip the `-t session_name` from commands to avoid
+   * through adapter, we strip the `-t session_name` from commands to avoid
    * double-targeting which can cause issues with tmux 3.3a.
    *
    * @param {string} command - Full tmux command (may include -t session targeting)
@@ -235,7 +235,7 @@ class TmuxTestSession {
    */
   async _exec(command) {
     if (this.page) {
-      // Browser connected - use WebSocket to avoid crashing control mode
+      // Browser connected - use adapter to avoid crashing control mode
       // Strip session name from -t targets, but preserve window:pane suffixes
       // e.g., "-t session:2" becomes "-t :2", "-t session" is removed
       let cleanCmd = command;
@@ -251,7 +251,7 @@ class TmuxTestSession {
       // Only log mutations (not queries like list-panes, display-message) to reduce noise
       const isQuery = /^(list-|display-message|has-session|show-)/.test(cleanCmd.trim());
       if (!isQuery) {
-        console.log(`[_exec] Routing through WebSocket: ${cleanCmd} (original: ${command})`);
+        console.log(`[_exec] Routing through adapter: ${cleanCmd} (original: ${command})`);
       }
       try {
         const result = await this.page.evaluate(async (cmd) => {
@@ -304,8 +304,8 @@ class TmuxTestSession {
   }
 
   /**
-   * Run a tmux command via the browser's WebSocket adapter.
-   * Use this when you explicitly need WebSocket routing.
+   * Run a tmux command via the browser's HTTP adapter.
+   * Use this when you explicitly need adapter routing.
    * @param {string} command - tmux command
    */
   async runViaAdapter(command) {

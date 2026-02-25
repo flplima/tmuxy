@@ -2,7 +2,7 @@
 //!
 //! This module provides the main interface for tmux control mode monitoring.
 //! It uses an adapter pattern (like the frontend) to support different backends:
-//! - WebSocket (web-server)
+//! - SSE (web-server)
 //! - Tauri events (tauri-app)
 
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
@@ -27,7 +27,7 @@ pub enum MonitorCommand {
 
 /// Trait for emitting state changes (adapter pattern).
 ///
-/// Implement this trait in web-server (WebSocketEmitter) and tauri-app (TauriEmitter)
+/// Implement this trait in web-server (SseEmitter) and tauri-app (TauriEmitter)
 /// to receive state updates from the monitor.
 pub trait StateEmitter: Send + Sync {
     /// Called when tmux state changes (full or delta update)

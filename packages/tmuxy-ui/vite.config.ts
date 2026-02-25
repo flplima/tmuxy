@@ -13,13 +13,7 @@ export default defineConfig({
       port: 1420,
       clientPort: 1420,
     },
-    proxy: {
-      '/ws': {
-        target: 'http://localhost:3853',
-        ws: true,
-      },
-    },
-  },
+},
   envPrefix: ['VITE_', 'TAURI_'],
   test: {
     globals: true,
