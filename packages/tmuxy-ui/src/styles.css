@@ -654,30 +654,26 @@ body {
 }
 
 /* ============================================
-   Float Panes - Simple centered design
-   - Always centered on screen
-   - Semi-transparent backdrop (click to close)
-   - No drag, resize, or grouping
-   - Green border on all 4 sides of content
+   Modal - Generic reusable modal
    ============================================ */
 
 /* Full-screen overlay container */
-.float-overlay {
+.modal-overlay {
   position: absolute;
   inset: 0;
   z-index: 1000;
 }
 
 /* Semi-transparent backdrop */
-.float-backdrop {
+.modal-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   cursor: pointer;
 }
 
-/* Float modal - centered via JS positioning */
-.float-modal {
+/* Modal container - centered via JS positioning */
+.modal-container {
   position: absolute;
   background: var(--bg-black);
   border-radius: var(--radius-md);
@@ -688,8 +684,8 @@ body {
   pointer-events: auto;
 }
 
-/* Float header - simple, no drag */
-.float-header {
+/* Modal header */
+.modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -699,7 +695,7 @@ body {
   flex-shrink: 0;
 }
 
-.float-title {
+.modal-title {
   font-family: var(--font-mono);
   font-size: var(--font-size-md);
   color: var(--text-secondary);
@@ -708,8 +704,8 @@ body {
   white-space: nowrap;
 }
 
-/* Float close button */
-.float-close {
+/* Modal close button */
+.modal-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -726,7 +722,7 @@ body {
   transition: all var(--transition-fast);
 }
 
-.float-close:hover {
+.modal-close:hover {
   background: var(--error-color);
   color: white;
 }

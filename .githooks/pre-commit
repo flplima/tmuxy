@@ -11,6 +11,9 @@ npm run lint:fix -w tmuxy-ui
 # Re-stage any files auto-fixed by lint/format
 git add -u packages/tmuxy-ui/src
 
+echo "Linting E2E tests (no skipped tests)..."
+npm run lint:tests
+
 echo "Running unit tests..."
 npm test -- --run
 

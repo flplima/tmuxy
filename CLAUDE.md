@@ -7,7 +7,7 @@ See [docs/communication.md](docs/communication.md) for frontend↔backend and ba
 See [docs/non-goals.md](docs/non-goals.md) for what tmuxy intentionally does NOT do.
 See [docs/rich-rendering.md](docs/rich-rendering.md) for terminal image/OSC protocol support.
 See [docs/e2e-test-scenarios.md](docs/e2e-test-scenarios.md) for comprehensive test coverage planning.
-See [tests/README.md](tests/README.md) for running and writing E2E tests.
+See [docs/tests.md](docs/tests.md) for running and writing E2E tests.
 
 ## Project Structure
 
@@ -73,6 +73,7 @@ npm run test:e2e        # E2E tests (requires server + Chrome CDP)
 2. **No "not doing" comments** - Comments explain what code does, not what it doesn't do.
 3. **DRY** - Extract repeated logic. If you write similar code twice, refactor it.
 4. **Modular helpers** - Test helpers in `helpers/` directory, organized by domain.
+5. **Never modify ESLint rules** - Do not disable, remove, or weaken any ESLint rule. Do not add `eslint-disable` comments. If the user asks to disable or remove a rule, ask "Are you sure?" before proceeding.
 
 ### React + XState
 
@@ -108,6 +109,8 @@ await invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
 ## Testing & Bug Fixes (Critical)
 
 **ALWAYS fix any test failure or bug you encounter, even if it is unrelated to your current task or predates your changes.** Do not skip, ignore, or defer broken tests. If CI is red, make it green before moving on. A failing test is never "someone else's problem" — if you see it, you own it. This applies to unit tests, E2E tests, linting errors, type errors, and any other validation failures.
+
+**NEVER commit skipped tests** (`it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, `xdescribe`). If a test is failing, either fix the test, fix the underlying bug, or ask the user whether to remove the test entirely. ESLint enforces this via `jest/no-disabled-tests` (error) — the pre-commit hook and CI will reject skipped tests.
 
 ## Git
 
