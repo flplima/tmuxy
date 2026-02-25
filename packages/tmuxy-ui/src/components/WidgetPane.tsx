@@ -134,7 +134,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
         send({ type: 'FOCUS_PANE', paneId });
       }}
     >
-      <PaneHeader paneId={paneId} titleOverride={widgetTitle} />
+      <PaneHeader paneId={paneId} titleOverride={widgetTitle} widgetName={widgetInfo.widgetName} />
       <div className="pane-content" style={{ flex: 1, overflow: 'hidden' }}>
         <WidgetComponent
           paneId={paneId}
