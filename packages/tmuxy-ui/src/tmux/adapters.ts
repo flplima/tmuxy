@@ -8,7 +8,7 @@ import {
   ServerState,
 } from './types';
 import { HttpAdapter } from './HttpAdapter';
-import { FakeTmuxAdapter } from './fake/fakeTmuxAdapter';
+import { DemoAdapter } from './fake/DemoAdapter';
 
 // ============================================
 // Tauri Adapter
@@ -117,7 +117,7 @@ export function createAdapter(): TmuxAdapter {
     return new TauriAdapter();
   }
   if (isDemo()) {
-    return new FakeTmuxAdapter();
+    return new DemoAdapter();
   }
   return new HttpAdapter();
 }
