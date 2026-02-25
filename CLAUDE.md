@@ -7,7 +7,7 @@ See [docs/communication.md](docs/communication.md) for frontend↔backend and ba
 See [docs/non-goals.md](docs/non-goals.md) for what tmuxy intentionally does NOT do.
 See [docs/rich-rendering.md](docs/rich-rendering.md) for terminal image/OSC protocol support.
 See [docs/e2e-test-scenarios.md](docs/e2e-test-scenarios.md) for comprehensive test coverage planning.
-See [tests/README.md](tests/README.md) for running and writing E2E tests.
+See [docs/tests.md](docs/tests.md) for running and writing E2E tests.
 
 ## Project Structure
 

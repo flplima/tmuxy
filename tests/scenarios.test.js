@@ -1,10 +1,8 @@
 /**
  * Consolidated E2E Scenario Tests
  *
- * 20 scenario tests that chain multiple operations per session,
+ * 21 scenario tests that chain multiple operations per session,
  * eliminating ~208 session setup/teardown cycles.
- *
- * Original detailed tests preserved in tests/detailed/ for reference.
  */
 
 const fs = require('fs');
