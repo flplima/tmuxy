@@ -37,9 +37,7 @@ export function FilePicker({ isOpen, onClose, rootPath }: FilePickerProps) {
     setError(null);
 
     try {
-      // We need to use the adapter's invoke method
-      // For now, we'll use a direct WebSocket message approach
-      // This will be wired up through the tmux actor
+      // Use the HTTP API for directory listing
       const response = await fetch('/api/directory?path=' + encodeURIComponent(path));
       if (!response.ok) {
         throw new Error('Failed to load directory');

@@ -91,7 +91,7 @@ async function sendPrefixCommand(page, key, options = {}) {
   await page.keyboard.up('Control');
 
   // Wait for tmux to enter prefix mode - this is critical
-  // The key needs to travel: browser -> WebSocket -> server -> tmux
+  // The key needs to travel: browser -> SSE/HTTP -> server -> tmux
   await delay(DELAYS.PREFIX);
 
   // Send the command key
@@ -130,7 +130,7 @@ async function typeInTerminal(page, text) {
   }
   await delay(DELAYS.MEDIUM);
   // Use per-character typing with 50ms delay to prevent character transposition
-  // in the terminal emulator (headless Chrome → WebSocket → tmux pipeline)
+  // in the terminal emulator (headless Chrome → SSE/HTTP → tmux pipeline)
   for (const char of text) {
     await page.keyboard.type(char);
     await delay(50);

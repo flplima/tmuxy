@@ -3,7 +3,7 @@
  *
  * Coordinates:
  * - Actors (fromCallback, injected via factory):
- *   - tmuxActor: WebSocket lifecycle, state updates
+ *   - tmuxActor: SSE/HTTP lifecycle, state updates
  *   - keyboardActor: keydown → formatTmuxKey → send-keys
  *   - sizeActor: window.resize, ResizeObserver, char measurement
  *   - animationActor: anime.js layout, drag transforms, enter/exit (spawned dynamically)

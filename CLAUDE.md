@@ -3,6 +3,7 @@
 A web-based tmux interface built with React (Vite) frontend and Rust backend.
 
 See [docs/architecture.md](docs/architecture.md) for system design, data flow, and critical constraints.
+See [docs/communication.md](docs/communication.md) for frontend↔backend and backend↔tmux communication protocols.
 See [docs/non-goals.md](docs/non-goals.md) for what tmuxy intentionally does NOT do.
 See [docs/rich-rendering.md](docs/rich-rendering.md) for terminal image/OSC protocol support.
 See [docs/e2e-test-scenarios.md](docs/e2e-test-scenarios.md) for comprehensive test coverage planning.

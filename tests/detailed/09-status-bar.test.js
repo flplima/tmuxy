@@ -175,7 +175,7 @@ describe('Category 9: Status Bar & UI', () => {
 
       await ctx.setupPage();
 
-      // Create additional windows through WebSocket (safe with control mode)
+      // Create additional windows through adapter (safe with control mode)
       await ctx.session.newWindow();
       await ctx.session.newWindow();
       await delay(DELAYS.SYNC);

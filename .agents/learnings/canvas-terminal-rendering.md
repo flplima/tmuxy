@@ -27,7 +27,7 @@ To maintain test compatibility, a hidden DOM text layer must be preserved alongs
 
 ### No performance bottleneck in rendering
 
-The bottleneck (if any) is WebSocket message processing and state machine updates, not DOM painting. With TerminalLine memoization, unchanged lines skip re-rendering entirely. The browser efficiently paints ~100-700 inline `<span>` elements per pane.
+The bottleneck (if any) is SSE message processing and state machine updates, not DOM painting. With TerminalLine memoization, unchanged lines skip re-rendering entirely. The browser efficiently paints ~100-700 inline `<span>` elements per pane.
 
 ### Dual rendering paths create maintenance burden
 

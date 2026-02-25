@@ -8,7 +8,7 @@ Comprehensive test scenarios for tmuxy, ordered from simplest to most complex wi
 
 ### 1.1 Smoke Tests
 - [ ] **Page loads**: Open the page, verify the app container renders
-- [ ] **WebSocket connects**: Open the page, verify "connected" state in UI
+- [ ] **SSE connects**: Open the page, verify "connected" state in UI
 - [ ] **Single pane renders**: Open the page, verify one pane is visible with shell prompt
 - [ ] **Echo command**: Run `echo hello`, verify "hello" appears in UI
 - [ ] **Snapshot match**: Run `echo test`, compare tmux `capture-pane` output with UI text content
