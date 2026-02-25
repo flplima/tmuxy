@@ -131,8 +131,12 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
     if (ctx.page) {
       await ctx.page.close().catch(() => {});
       ctx.page = null;
-      // Wait for the web server's async control mode cleanup to complete
-      await delay(1500);
+      // Wait for the web server's deferred cleanup to complete.
+      // The server has a 2s grace period after the last SSE client disconnects,
+      // then up to 2s for graceful monitor shutdown. Plus ~1s for disconnect
+      // detection. Total worst-case: ~5s. If the session was killed via
+      // destroy(), the monitor exits immediately and cleanup is faster.
+      await delay(5000);
     }
 
     if (ctx.session) {

@@ -1166,7 +1166,7 @@ export const appMachine = setup({
         CLOSE_FLOAT: {
           actions: sendTo('tmux', ({ event }) => ({
             type: 'SEND_COMMAND' as const,
-            command: `run-shell "scripts/tmuxy/float-close.sh ${event.paneId}"`,
+            command: `kill-pane -t ${event.paneId}`,
           })),
         },
         CLOSE_TOP_FLOAT: {
@@ -1177,7 +1177,7 @@ export const appMachine = setup({
             enqueue(
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
-                command: `run-shell "scripts/tmuxy/float-close.sh ${topFloat.paneId}"`,
+                command: `kill-pane -t ${topFloat.paneId}`,
               }),
             );
           }),

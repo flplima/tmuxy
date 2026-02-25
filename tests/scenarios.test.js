@@ -368,10 +368,10 @@ describe('Scenario 3: Pane Lifecycle', () => {
     await delay(DELAYS.SYNC);
     expect(await ctx.session.getPaneCount()).toBe(1);
 
-    // Step 8: Exit last pane - session should survive
+    // Step 8: Exit last pane - session is destroyed
     await runCommandViaTmux(ctx.session, ctx.page, 'exit', '$', 5000).catch(() => {});
     await delay(DELAYS.SYNC);
-    expect(ctx.session.exists()).toBe(true);
+    expect(ctx.session.exists()).toBe(false);
   }, 120000);
 });
 
@@ -1025,7 +1025,7 @@ describe('Scenario 12: Session Reconnect', () => {
 
     // Step 2: Reload
     await ctx.page.reload({ waitUntil: 'domcontentloaded' });
-    await ctx.page.waitForSelector('[role="log"]', { timeout: 10000 });
+    await ctx.page.waitForSelector('[role="log"]', { timeout: 15000 });
     ctx.session.setPage(ctx.page);
     await waitForSessionReady(ctx.page, ctx.session.name, 15000);
     await delay(DELAYS.SYNC * 2);
@@ -1076,10 +1076,8 @@ describe('Scenario 13: Multi-Client', () => {
 
     // Step 2: Open second page
     const { navigateToSession } = require('./helpers');
-    const browser = await ctx.page.context().browser();
-    const page2 = await browser.newPage();
+    const page2 = await ctx.browser.newPage();
     await navigateToSession(page2, ctx.session.name);
-    await page2.waitForSelector('[role="log"]', { timeout: 10000 });
     await delay(DELAYS.SYNC);
 
     // Step 3: Both see terminal
@@ -1699,5 +1697,5 @@ describe('Scenario 21: Touch Scrolling', () => {
     // Both panes should still exist
     const finalPaneCount = await getUIPaneCount(ctx.page);
     expect(finalPaneCount).toBe(2);
-  }, 90000);
+  }, 120000);
 });

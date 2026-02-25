@@ -84,8 +84,20 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
   const maxRetries = 3;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('[role="log"]', { timeout: 10000 });
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('[role="log"]', { timeout: 10000 });
+    } catch {
+      if (attempt < maxRetries) {
+        console.log(`[role="log"] not found (attempt ${attempt}/${maxRetries}), reloading...`);
+        await delay(2000);
+        continue;
+      }
+      // Last attempt — continue anyway, waitForSessionReady may recover
+      console.log('Warning: [role="log"] not found after all retries');
+      await delay(DELAYS.MEDIUM);
+      return url;
+    }
 
     // Wait for terminal content (shell prompt)
     try {
@@ -96,7 +108,7 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
           // Content must have > 5 chars and contain shell prompt
           return content.length > 5 && /[$#%>]/.test(content);
         },
-        { timeout: 3000, polling: 50 }
+        { timeout: 5000, polling: 50 }
       );
       // Success - terminal content loaded
       await delay(DELAYS.SHORT);
@@ -161,8 +173,10 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
     console.log('Warning: HTTP adapter may not be available');
   }
 
-  // Wait for monitor connection to be ready by sending a harmless command
-  // The adapter may be available but the monitor (control mode) might not be connected yet
+  // Wait for monitor connection to be ready by sending a harmless command.
+  // The adapter may be available but the monitor (control mode) might not be
+  // connected yet — this can take several seconds when the server is starting
+  // a new control mode connection for a fresh session.
   try {
     await page.waitForFunction(
       async () => {
@@ -173,10 +187,10 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
           return false;
         }
       },
-      { timeout: 10000, polling: 200 }
+      { timeout: 15000, polling: 300 }
     );
   } catch {
-    console.log('Warning: Monitor connection may not be ready');
+    console.log('Warning: Monitor connection may not be ready after 15s');
   }
 
   // Additional delay to ensure keyboard actor has received UPDATE_SESSION

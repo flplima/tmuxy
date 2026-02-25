@@ -152,7 +152,7 @@ pub async fn sse_handler(
                     );
                 }
                 // Brief delay for tmux to process the new-session command
-                tokio::time::sleep(Duration::from_millis(200)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         // If no existing monitor, TmuxMonitor::connect() with create_session=true
@@ -917,17 +917,25 @@ async fn cleanup_connection(
 
             // Stop the monitor if cleanup proceeded
             if let Some(handle) = monitor_handle {
-                if let Some(ref tx) = cmd_tx {
+                if handle.is_finished() {
+                    eprintln!("[cleanup] Monitor task already finished (session was killed)");
+                } else if let Some(ref tx) = cmd_tx {
                     eprintln!("[cleanup] Sending graceful shutdown to monitor");
                     let _ = tx.send(MonitorCommand::Shutdown).await;
-                    tokio::time::sleep(Duration::from_millis(4000)).await;
-                }
-                if !handle.is_finished() {
-                    eprintln!(
-                        "[cleanup] Monitor task still running after graceful shutdown (not aborting)"
-                    );
-                } else {
-                    eprintln!("[cleanup] Monitor task finished gracefully");
+                    // Poll for completion instead of fixed sleep
+                    for _ in 0..20 {
+                        if handle.is_finished() {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                    if !handle.is_finished() {
+                        eprintln!(
+                            "[cleanup] Monitor task still running after graceful shutdown (not aborting)"
+                        );
+                    } else {
+                        eprintln!("[cleanup] Monitor task finished gracefully");
+                    }
                 }
             }
         });
