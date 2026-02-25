@@ -7,5 +7,5 @@
 
 export { AppProvider as TmuxyProvider } from './machines/AppContext';
 export { default as TmuxyApp } from './App';
-export { FakeTmuxAdapter } from './tmux/fake/fakeTmuxAdapter';
+export { DemoAdapter } from './tmux/fake/DemoAdapter';
 export type { TmuxAdapter } from './tmux/types';
