@@ -7,8 +7,9 @@
  * - Green border on all sides when active
  */
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback } from 'react';
 import { Terminal } from './Terminal';
+import { Modal } from './Modal';
 import {
   useAppSend,
   useAppSelector,
@@ -33,14 +34,9 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
 
-  const handleClose = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
-    },
-    [send, floatState.paneId],
-  );
+  const handleClose = useCallback(() => {
+    send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
+  }, [send, floatState.paneId]);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -61,24 +57,19 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const top = Math.max(0, (containerHeight - floatHeight) / 2);
 
   return (
-    <div
-      className="float-modal"
-      style={{
-        position: 'absolute',
-        left,
-        top,
-        width: floatWidth,
-        zIndex,
-      }}
-      onClick={handleClick}
+    <Modal
+      open={true}
+      onClose={handleClose}
+      title={title}
+      width={floatWidth}
+      zIndex={zIndex}
+      containerStyle={{ left, top }}
     >
-      <div className="float-header">
-        <span className="float-title">{title}</span>
-        <button className="float-close" onClick={handleClose} title="Close">
-          ×
-        </button>
-      </div>
-      <div className="float-content" style={{ width: floatWidth, height: floatState.height }}>
+      <div
+        className="float-content"
+        style={{ width: floatWidth, height: floatState.height }}
+        onClick={handleClick}
+      >
         <Terminal
           content={pane.content}
           cursorX={pane.cursorX}
@@ -90,49 +81,28 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
           copyCursorY={pane.copyCursorY}
         />
       </div>
-    </div>
+    </Modal>
   );
 }
 
 /**
- * FloatContainer - Container for float panes with backdrop
+ * FloatContainer - Container for float panes
  *
- * Renders whenever float panes exist. Clicking backdrop or pressing Esc
- * kills the topmost float. The × button kills that specific float.
+ * Renders whenever float panes exist. Each float gets its own Modal.
+ * Clicking backdrop or pressing Esc closes that float.
+ * The × button kills that specific float.
  */
 export function FloatContainer() {
-  const send = useAppSend();
   const floatPanes = useAppSelector((ctx) => ctx.floatPanes);
   const visibleFloats = Object.values(floatPanes);
-
-  const closeTopFloat = useCallback(() => {
-    send({ type: 'CLOSE_TOP_FLOAT' });
-  }, [send]);
-
-  // Esc key closes the topmost float (capture phase to prevent reaching keyboard actor)
-  useEffect(() => {
-    if (visibleFloats.length === 0) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        send({ type: 'CLOSE_TOP_FLOAT' });
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [visibleFloats.length, send]);
 
   if (visibleFloats.length === 0) return null;
 
   return (
-    <div className="float-overlay">
-      <div className="float-backdrop" style={{ zIndex: 1000 }} onClick={closeTopFloat} />
+    <>
       {visibleFloats.map((floatState, index) => (
         <FloatPane key={floatState.paneId} floatState={floatState} zIndex={1001 + index} />
       ))}
-    </div>
+    </>
   );
 }

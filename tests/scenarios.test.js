@@ -1,10 +1,8 @@
 /**
  * Consolidated E2E Scenario Tests
  *
- * 20 scenario tests that chain multiple operations per session,
+ * 21 scenario tests that chain multiple operations per session,
  * eliminating ~208 session setup/teardown cycles.
- *
- * Original detailed tests preserved in tests/detailed/ for reference.
  */
 
 const fs = require('fs');
@@ -130,15 +128,15 @@ async function createFloat(ctx, paneId) {
 }
 
 async function waitForFloatModal(page, timeout = 10000) {
-  await page.waitForSelector('.float-modal', { timeout });
+  await page.waitForSelector('.modal-container', { timeout });
 }
 
 async function getFloatModalInfo(page) {
   return await page.evaluate(() => {
-    const modals = document.querySelectorAll('.float-modal');
+    const modals = document.querySelectorAll('.modal-container');
     return Array.from(modals).map((modal) => ({
-      hasHeader: modal.querySelector('.float-header') !== null,
-      hasCloseButton: modal.querySelector('.float-close') !== null,
+      hasHeader: modal.querySelector('.modal-header') !== null,
+      hasCloseButton: modal.querySelector('.modal-close') !== null,
       hasTerminal: modal.querySelector('.terminal-container') !== null,
     }));
   });
@@ -549,7 +547,7 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 2: Float modal appears
     await waitForFloatModal(ctx.page);
-    const backdrop = await ctx.page.$('.float-backdrop');
+    const backdrop = await ctx.page.$('.modal-backdrop');
     expect(backdrop).not.toBeNull();
 
     // Step 3: Modal has header and close button
@@ -563,12 +561,12 @@ describe('Scenario 6: Floating Panes', () => {
     await waitForPaneCount(ctx.page, 1);
 
     // Step 5: Close button removes float
-    await ctx.page.click('.float-close');
+    await ctx.page.click('.modal-close');
     await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.float-modal').length === 0,
+      () => document.querySelectorAll('.modal-container').length === 0,
       { timeout: 10000, polling: 100 }
     );
-    let modals = await ctx.page.$$('.float-modal');
+    let modals = await ctx.page.$$('.modal-container');
     expect(modals.length).toBe(0);
     windows = await ctx.session.getWindowInfo();
     expect(windows.find(w => w.name === `__float_${paneNum}`)).toBeUndefined();
@@ -584,14 +582,14 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 7: Backdrop click closes float
     // Click far from center to avoid hitting the centered float modal
-    const newBackdrop = await ctx.page.$('.float-backdrop');
+    const newBackdrop = await ctx.page.$('.modal-backdrop');
     const box = await newBackdrop.boundingBox();
     await ctx.page.mouse.click(box.x + 5, box.y + 5);
     await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.float-modal').length === 0,
+      () => document.querySelectorAll('.modal-container').length === 0,
       { timeout: 10000, polling: 100 }
     );
-    modals = await ctx.page.$$('.float-modal');
+    modals = await ctx.page.$$('.modal-container');
     expect(modals.length).toBe(0);
   }, 120000);
 });
