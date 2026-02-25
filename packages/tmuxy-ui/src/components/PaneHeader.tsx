@@ -54,19 +54,18 @@ function getProcessIcon(command: string): string {
   return DEFAULT_ICON;
 }
 
-/**
- * Compute a stable tab title from pane data
- */
-function getTabTitle(pane: TmuxPane, widgetName?: string): string {
-  if (pane.inMode) {
-    return '[COPY]';
-  }
-  if (widgetName && WIDGET_ICONS[widgetName]) {
-    return `${WIDGET_ICONS[widgetName]} ${pane.title || pane.command || pane.tmuxId}`;
-  }
-  if (pane.command) {
-    return `${getProcessIcon(pane.command)} ${pane.title || pane.command}`;
-  }
+function getTabIcon(pane: TmuxPane, widgetName?: string): string | null {
+  if (pane.inMode) return null;
+  if (widgetName && WIDGET_ICONS[widgetName]) return WIDGET_ICONS[widgetName];
+  if (pane.command) return getProcessIcon(pane.command);
+  return null;
+}
+
+function getTabText(pane: TmuxPane, titleOverride?: string, widgetName?: string): string {
+  if (pane.inMode) return '[COPY]';
+  if (titleOverride) return titleOverride;
+  if (widgetName) return pane.title || pane.command || pane.tmuxId;
+  if (pane.command) return pane.title || pane.command;
   return pane.tmuxId;
 }
 
@@ -81,6 +80,7 @@ const PaneTab = memo(function PaneTab({
   widgetName,
   onClick,
   onContextMenu,
+  onIconClick,
 }: {
   pane: TmuxPane;
   isSelectedTab: boolean;
@@ -89,12 +89,10 @@ const PaneTab = memo(function PaneTab({
   widgetName?: string;
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  onIconClick: (e: React.MouseEvent) => void;
 }) {
-  const baseTitle = titleOverride ?? getTabTitle(pane, widgetName);
-  const tabTitle =
-    titleOverride && widgetName && WIDGET_ICONS[widgetName]
-      ? `${WIDGET_ICONS[widgetName]} ${titleOverride}`
-      : baseTitle;
+  const icon = getTabIcon(pane, widgetName);
+  const text = getTabText(pane, titleOverride, widgetName);
 
   return (
     <div
@@ -105,7 +103,20 @@ const PaneTab = memo(function PaneTab({
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}
     >
-      <span className="pane-tab-title">{tabTitle}</span>
+      {icon && (
+        <span
+          className="pane-tab-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            onIconClick(e);
+          }}
+          role="button"
+          aria-label="Pane menu"
+        >
+          {icon}
+        </span>
+      )}
+      <span className="pane-tab-title">{text}</span>
     </div>
   );
 });
@@ -159,6 +170,18 @@ export function PaneHeader({ paneId, titleOverride, widgetName }: PaneHeaderProp
     });
   }, []);
 
+  const handleIconClick = useCallback((e: React.MouseEvent, targetPaneId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setContextMenu({
+      visible: true,
+      x: rect.left,
+      y: rect.bottom + 2,
+      targetPaneId,
+    });
+  }, []);
+
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => ({ ...prev, visible: false }));
   }, []);
@@ -200,6 +223,7 @@ export function PaneHeader({ paneId, titleOverride, widgetName }: PaneHeaderProp
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.tagName === 'BUTTON') return;
+    if (target.classList.contains('pane-tab-icon')) return;
 
     pendingDragRef.current = { x: e.clientX, y: e.clientY };
 
@@ -259,6 +283,7 @@ export function PaneHeader({ paneId, titleOverride, widgetName }: PaneHeaderProp
               widgetName={tabPane.tmuxId === paneId ? widgetName : undefined}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
+              onIconClick={(e) => handleIconClick(e, tabPane.tmuxId)}
             />
           );
         })}

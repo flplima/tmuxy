@@ -23,6 +23,7 @@ import {
 } from '../../machines/AppContext';
 import { getKeybindingLabel } from './keybindingLabel';
 import { executeMenuAction } from './menuActions';
+import { PaneMenuItems } from './PaneMenuItems';
 import type { KeyBindings } from '../../machines/types';
 import './AppMenu.css';
 
@@ -62,69 +63,11 @@ export function AppMenu() {
   return (
     <Menu menuButton={menuButton} transition={false}>
       <SubMenu label="Pane">
-        <MenuItem onClick={() => handleAction('pane-split-below')}>
-          New Pane Below
-          <KeyLabel keybindings={keybindings} command="split-window -v" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-split-right')}>
-          New Pane Right
-          <KeyLabel keybindings={keybindings} command="split-window -h" />
-        </MenuItem>
-        <MenuDivider />
-        <MenuItem onClick={() => handleAction('pane-navigate-up')} disabled={isSinglePane}>
-          Navigate Up
-          <KeyLabel keybindings={keybindings} command="select-pane -U" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-navigate-down')} disabled={isSinglePane}>
-          Navigate Down
-          <KeyLabel keybindings={keybindings} command="select-pane -D" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-navigate-left')} disabled={isSinglePane}>
-          Navigate Left
-          <KeyLabel keybindings={keybindings} command="select-pane -L" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-navigate-right')} disabled={isSinglePane}>
-          Navigate Right
-          <KeyLabel keybindings={keybindings} command="select-pane -R" />
-        </MenuItem>
-        <MenuDivider />
-        <MenuItem onClick={() => handleAction('pane-next')} disabled={isSinglePane}>
-          Next Pane
-          <KeyLabel keybindings={keybindings} command="select-pane -t :.+" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-previous')} disabled={isSinglePane}>
-          Previous Pane
-          <KeyLabel keybindings={keybindings} command="last-pane" />
-        </MenuItem>
-        <MenuDivider />
-        <MenuItem onClick={() => handleAction('pane-swap-prev')} disabled={isSinglePane}>
-          Swap with Previous
-          <KeyLabel keybindings={keybindings} command="swap-pane -U" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-swap-next')} disabled={isSinglePane}>
-          Swap with Next
-          <KeyLabel keybindings={keybindings} command="swap-pane -D" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-move-new-tab')}>
-          Move to New Tab
-          <KeyLabel keybindings={keybindings} command="break-pane" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-add-to-group')}>Add Pane to Group</MenuItem>
-        <MenuDivider />
-        <MenuItem onClick={() => handleAction('pane-copy-mode')}>
-          Copy Mode
-          <KeyLabel keybindings={keybindings} command="copy-mode" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-paste')}>
-          Paste
-          <KeyLabel keybindings={keybindings} command="paste-buffer" />
-        </MenuItem>
-        <MenuItem onClick={() => handleAction('pane-clear')}>Clear Screen</MenuItem>
-        <MenuDivider />
-        <MenuItem onClick={() => handleAction('pane-close')}>
-          Close Pane
-          <KeyLabel keybindings={keybindings} command="kill-pane" />
-        </MenuItem>
+        <PaneMenuItems
+          keybindings={keybindings}
+          isSinglePane={isSinglePane}
+          onAction={handleAction}
+        />
       </SubMenu>
 
       <SubMenu label="Tab">

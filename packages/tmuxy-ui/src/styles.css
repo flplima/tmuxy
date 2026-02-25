@@ -553,6 +553,18 @@ body {
   border-bottom-color: var(--accent-green);
 }
 
+/* Pane tab icon - clickable, opens pane menu */
+.pane-tab-icon {
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 2px;
+  opacity: 0.7;
+}
+
+.pane-tab-icon:hover {
+  opacity: 1;
+}
+
 .pane-tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
