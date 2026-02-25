@@ -51,6 +51,7 @@ npm run test:e2e        # E2E tests (requires server + Chrome CDP)
 2. **No "not doing" comments** - Comments explain what code does, not what it doesn't do.
 3. **DRY** - Extract repeated logic. If you write similar code twice, refactor it.
 4. **Modular helpers** - Test helpers in `helpers/` directory, organized by domain.
+5. **Never modify ESLint rules** - Do not disable, remove, or weaken any ESLint rule. Do not add `eslint-disable` comments. If the user asks to disable or remove a rule, ask "Are you sure?" before proceeding.
 
 ### React + XState
 
