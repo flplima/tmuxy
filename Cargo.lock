@@ -4114,7 +4114,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "tmuxy-cli"
+name = "tmuxy-core"
+version = "1.0.0"
+dependencies = [
+ "dirs",
+ "libc",
+ "nix",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "vt100",
+]
+
+[[package]]
+name = "tmuxy-server"
 version = "1.0.0"
 dependencies = [
  "axum",
@@ -4128,20 +4142,6 @@ dependencies = [
  "tokio",
  "tower-http",
  "web-server",
-]
-
-[[package]]
-name = "tmuxy-core"
-version = "1.0.0"
-dependencies = [
- "dirs",
- "libc",
- "nix",
- "regex",
- "serde",
- "serde_json",
- "tokio",
- "vt100",
 ]
 
 [[package]]

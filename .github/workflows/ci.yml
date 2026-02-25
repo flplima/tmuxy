@@ -54,7 +54,7 @@ jobs:
         working-directory: packages/tmuxy-ui
 
       - name: Rust format check
-        run: cargo fmt --check -p tmuxy-core -p web-server
+        run: cargo fmt --check -p tmuxy-core -p web-server -p tmuxy-server
 
       # --- Linting ---
 
@@ -62,7 +62,7 @@ jobs:
         run: npm run lint -w tmuxy-ui
 
       - name: Clippy
-        run: cargo clippy -p tmuxy-core -p web-server -- -D warnings
+        run: cargo clippy -p tmuxy-core -p web-server -p tmuxy-server -- -D warnings
 
       # --- Type Check ---
 
