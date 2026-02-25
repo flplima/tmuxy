@@ -140,8 +140,9 @@
 
   /* Z-index */
   --z-base: 1;
+  --z-active: 2;
   --z-elevated: 50;
-  --z-dragging: 100;
+  --z-dragging: 3;
   --z-dropdown: 1000;
 }
 
@@ -213,7 +214,7 @@ body {
 
 /* Pane States */
 .pane-active {
-  z-index: var(--z-base);
+  z-index: var(--z-active);
 }
 
 .pane-content {
@@ -290,7 +291,6 @@ body {
   text-decoration: underline;
   text-decoration-color: var(--link-color);
   color: inherit;
-  cursor: pointer;
 }
 
 .terminal-hyperlink:hover {
@@ -394,11 +394,11 @@ body {
   z-index: var(--z-dragging);
   opacity: 0.85;
   box-shadow: var(--shadow-lg);
-  cursor: grabbing;
-  /* Remove browser default focus/drag outline */
   outline: none;
-  /* Disable position transitions during drag - transform handles movement */
-  transition: box-shadow var(--transition-layout);
+  transform: scale(1.02);
+  transition:
+    box-shadow var(--transition-layout),
+    transform var(--transition-normal);
 }
 
 /* Exit animation - pane is being removed */
@@ -487,16 +487,21 @@ body {
   background-color: var(--bg-dark);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  color: var(--pane-header-text-inactive);
+  color: rgba(255, 255, 255, 0.5);
   user-select: none;
   box-sizing: border-box;
   padding: 0;
   gap: 0;
-  border-bottom: 1px solid var(--border-medium);
 }
 
 .pane-header-active {
-  background-color: rgba(0, 255, 0, 0.5);
+  background-color: rgba(0, 255, 0, 0.25);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.pane-header-active .pane-tab-selected,
+.pane-header-active .pane-tab-active {
+  color: var(--term-bright-white);
 }
 
 /* Pane tabs container */
@@ -528,7 +533,6 @@ body {
     border-color var(--transition-fast);
   flex-shrink: 0;
   min-width: 0;
-  cursor: pointer;
 }
 
 .pane-tab:hover {
@@ -541,7 +545,7 @@ body {
 }
 
 .pane-tab-selected .pane-tab-title {
-  color: var(--text-secondary);
+  color: inherit;
 }
 
 /* Active tab: accent underline, bright text */
@@ -554,13 +558,13 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-sm);
-  color: var(--text-dimmed);
+  color: inherit;
   max-width: 150px;
 }
 
-/* Active tab title: bright text */
+/* Active tab title */
 .pane-tab-active .pane-tab-title {
-  color: var(--accent-green);
+  color: inherit;
   font-weight: 500;
 }
 
@@ -575,9 +579,8 @@ body {
   padding: 0;
   background: transparent;
   border: none;
-  color: var(--text-subtle);
+  color: inherit;
   font-size: 12px;
-  cursor: pointer;
   transition: color var(--transition-fast);
   flex-shrink: 0;
   z-index: 60; /* Above resize dividers */
@@ -669,7 +672,6 @@ body {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
-  cursor: pointer;
 }
 
 /* Modal container - centered via JS positioning */
@@ -717,7 +719,6 @@ body {
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   font-size: var(--font-size-lg);
-  cursor: pointer;
   line-height: 1;
   transition: all var(--transition-fast);
 }
@@ -750,7 +751,6 @@ body {
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  cursor: pointer;
   transition: all 0.15s ease;
 }
 
@@ -812,7 +812,6 @@ body {
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  cursor: pointer;
 }
 
 .file-picker-up:hover,
@@ -862,7 +861,6 @@ body {
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-sm);
-  cursor: pointer;
   font-family: var(--font-mono);
   font-size: var(--font-size-md);
   color: var(--text-secondary);
