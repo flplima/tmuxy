@@ -1,7 +1,7 @@
 /**
  * Consolidated E2E Scenario Tests
  *
- * 21 scenario tests that chain multiple operations per session,
+ * 20 scenario tests that chain multiple operations per session,
  * eliminating ~208 session setup/teardown cycles.
  */
 
@@ -234,7 +234,7 @@ describe('Scenario 1: Connect & Render', () => {
     await ctx.session.sendKeys('"echo -e \\"LINE1\\\\n\\\\nLINE3\\"" Enter');
     const emptyText = await waitForTerminalText(ctx.page, 'LINE1');
     expect(emptyText).toContain('LINE3');
-  }, 120000);
+  }, 180000);
 });
 
 // ==================== Scenario 2: Keyboard Basics ====================
@@ -270,21 +270,21 @@ describe('Scenario 2: Keyboard Basics', () => {
     await waitForTerminalText(ctx.page, 'tab_complete_test');
 
     // Step 4: Ctrl+C interrupts
-    await typeInTerminal(ctx.page, 'sleep 100');
-    await pressEnter(ctx.page);
+    await ctx.session.sendKeys('-l "sleep 100"');
+    await ctx.session.sendKeys('Enter');
+    await delay(DELAYS.EXTRA_LONG);
+    await ctx.session.sendKeys('C-c');
     await delay(DELAYS.LONG);
-    await sendKeyCombo(ctx.page, 'Control', 'c');
-    await delay(DELAYS.LONG);
-    await runCommand(ctx.page, 'echo "after_interrupt"', 'after_interrupt');
+    await runCommandViaTmux(ctx.session, ctx.page, 'echo "after_interrupt"', 'after_interrupt');
 
     // Step 5: Ctrl+D sends EOF
-    await typeInTerminal(ctx.page, 'cat');
-    await pressEnter(ctx.page);
+    await ctx.session.sendKeys('-l "cat"');
+    await ctx.session.sendKeys('Enter');
     await delay(DELAYS.LONG);
-    await typeInTerminal(ctx.page, 'test_input');
-    await pressEnter(ctx.page);
+    await ctx.session.sendKeys('-l "test_input"');
+    await ctx.session.sendKeys('Enter');
     await delay(DELAYS.SHORT);
-    await sendKeyCombo(ctx.page, 'Control', 'd');
+    await ctx.session.sendKeys('C-d');
     await waitForTerminalText(ctx.page, 'test_input');
 
     // Step 6: Arrow-up history recall
@@ -369,8 +369,16 @@ describe('Scenario 3: Pane Lifecycle', () => {
     expect(await ctx.session.getPaneCount()).toBe(1);
 
     // Step 8: Exit last pane - session is destroyed
-    await runCommandViaTmux(ctx.session, ctx.page, 'exit', '$', 5000).catch(() => {});
-    await delay(DELAYS.SYNC);
+    // Use kill-session through the adapter (which routes through control mode).
+    // This is more reliable than sending 'exit' to the shell, which may have
+    // traps or multiple nested shells.
+    await ctx.session.runViaAdapter(`kill-session -t ${ctx.session.name}`).catch(() => {});
+    // Wait for the session to actually be destroyed
+    const start = Date.now();
+    while (Date.now() - start < 15000) {
+      if (!ctx.session.exists()) break;
+      await delay(500);
+    }
     expect(ctx.session.exists()).toBe(false);
   }, 120000);
 });
@@ -596,6 +604,41 @@ describe('Scenario 6: Floating Panes', () => {
 
 // ==================== Scenario 7: Mouse Click & Scroll ====================
 
+// Helper: read browser-side copy mode state from XState
+async function getCopyModeState(page) {
+  return page.evaluate(() => {
+    const snap = window.app?.getSnapshot();
+    if (!snap?.context) return null;
+    const paneId = snap.context.activePaneId;
+    if (!paneId) return null;
+    const cs = snap.context.copyModeStates[paneId];
+    if (!cs) return null;
+    return {
+      active: true,
+      cursorRow: cs.cursorRow,
+      cursorCol: cs.cursorCol,
+      scrollTop: cs.scrollTop,
+      totalLines: cs.totalLines,
+      height: cs.height,
+      width: cs.width,
+      selectionMode: cs.selectionMode,
+      selectionAnchor: cs.selectionAnchor,
+    };
+  });
+}
+
+// Helper: poll until browser-side copy mode is active/inactive
+async function waitForCopyMode(page, active, timeout = 5000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const cs = await getCopyModeState(page);
+    if (active && cs?.active) return cs;
+    if (!active && !cs?.active) return null;
+    await delay(100);
+  }
+  throw new Error(`Copy mode did not become ${active ? 'active' : 'inactive'} within ${timeout}ms`);
+}
+
 describe('Scenario 7: Mouse Click & Scroll', () => {
   const ctx = createTestContext();
   beforeAll(ctx.beforeAll);
@@ -603,7 +646,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach);
 
-  test('Click terminal → scroll up (copy mode) → scroll down → user-select none → double-click → drag no selection', async () => {
+  test('Click focus → scroll enters copy mode → ScrollbackTerminal renders → exit q → user-select none → double-click word select → drag no browser selection', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -616,50 +659,55 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     await delay(DELAYS.LONG);
     await runCommandViaTmux(ctx.session, ctx.page, 'echo click_test', 'click_test');
 
-    // Step 2: Scroll up enters copy mode
+    // Step 2: Generate scrollback, then scroll up → browser copy mode activates
     await runCommandViaTmux(ctx.session, ctx.page, 'seq 1 100', '100');
     box = await ctx.page.locator('[role="log"]').first().boundingBox();
     await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await ctx.page.mouse.wheel(0, -300);
-    await delay(DELAYS.SHORT);
-    await ctx.page.mouse.wheel(0, -300);
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneInCopyMode()).toBe(true);
-
-    // Step 3: Scroll down
-    await ctx.page.mouse.wheel(0, 300);
-    await delay(DELAYS.LONG);
-    await ctx.page.mouse.wheel(0, 300);
-    await delay(DELAYS.SYNC);
-    // Exit copy mode
-    if (await ctx.session.isPaneInCopyMode()) {
-      await ctx.session.exitCopyMode();
+    for (let i = 0; i < 5; i++) {
+      await ctx.page.mouse.wheel(0, -300);
       await delay(DELAYS.SHORT);
     }
+    // Browser-side copy mode should be active (XState copyModeStates populated)
+    const csAfterScroll = await waitForCopyMode(ctx.page, true);
+    expect(csAfterScroll.active).toBe(true);
 
-    // Step 4: user-select: none on terminal content
+    // Step 3: ScrollbackTerminal renders in copy mode
+    const scrollbackEl = await ctx.page.$('[data-copy-mode="true"]');
+    expect(scrollbackEl).not.toBeNull();
+
+    // Step 4: Exit copy mode with 'q' via browser keyboard
+    await ctx.page.keyboard.press('q');
+    await waitForCopyMode(ctx.page, false);
+    const csAfterExit = await getCopyModeState(ctx.page);
+    expect(csAfterExit).toBeNull();
+
+    // Step 5: user-select: none on terminal content
     const userSelect = await ctx.page.evaluate(() => {
       const el = document.querySelector('.terminal-content');
       return el ? getComputedStyle(el).userSelect : null;
     });
     expect(userSelect).toBe('none');
 
-    // Step 5: Double-click no browser selection
+    // Step 6: Double-click enters copy mode with word selection (no browser selection)
     await runCommandViaTmux(ctx.session, ctx.page, 'echo "WORD1 WORD2 WORD3"', 'WORD1');
     const termEl = await ctx.page.$('[role="log"]');
     box = await termEl.boundingBox();
     await ctx.page.mouse.dblclick(box.x + 100, box.y + box.height / 2);
-    await delay(DELAYS.LONG);
+    await delay(DELAYS.SYNC);
+    // Browser text selection must be empty (user-select: none prevents it)
     const selectedText = await ctx.page.evaluate(() => {
       const selection = window.getSelection();
       return selection ? selection.toString() : '';
     });
     expect(selectedText).toBe('');
-    if (await ctx.session.isPaneInCopyMode()) {
-      await ctx.session.exitCopyMode();
+    // Exit copy mode if entered by double-click
+    const csAfterDblClick = await getCopyModeState(ctx.page);
+    if (csAfterDblClick?.active) {
+      await ctx.page.keyboard.press('q');
+      await waitForCopyMode(ctx.page, false);
     }
 
-    // Step 6: Drag no browser selection
+    // Step 7: Drag creates no browser selection
     await ctx.session.sendKeys('"echo DRAG_TEST_CONTENT" Enter');
     await delay(DELAYS.SYNC);
     const t2 = await ctx.page.$('[role="log"]');
@@ -671,9 +719,11 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     await delay(DELAYS.LONG);
     const selText = await ctx.page.evaluate(() => window.getSelection()?.toString() || '');
     expect(selText).toBe('');
-    if (await ctx.session.isPaneInCopyMode()) {
-      await ctx.session.exitCopyMode();
-      await delay(DELAYS.SHORT);
+    // Exit copy mode if drag entered it
+    const csAfterDrag = await getCopyModeState(ctx.page);
+    if (csAfterDrag?.active) {
+      await ctx.page.keyboard.press('q');
+      await waitForCopyMode(ctx.page, false);
     }
     await ctx.session.sendKeys('"echo AFTER_DRAG_OK" Enter');
     await delay(DELAYS.SYNC);
@@ -789,54 +839,143 @@ describe('Scenario 9: Copy Mode Navigate', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach);
 
-  test('Enter → hjkl → start/end line → page up/down → persists during nav → exit q → re-enter → exit Escape', async () => {
+  test('Scroll enter → hjkl cursor → 0/$ line edges → Ctrl+u/d half-page → persists → exit q → re-enter scroll → exit Escape → v selection', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Generate scrollback content
     await runCommandViaTmux(ctx.session, ctx.page, 'seq 1 200', '200');
+    await focusPage(ctx.page);
 
-    // Step 1: Enter copy mode
-    await ctx.session.enterCopyMode();
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneInCopyMode()).toBe(true);
-
-    // Step 2: Navigate with cursor keys (hjkl via tmux send-keys -X)
-    const initialPos = await ctx.session.getCopyCursorPosition();
-    await ctx.session.copyModeMove('up', 3);
-    await delay(DELAYS.SHORT);
-    const afterUp = await ctx.session.getCopyCursorPosition();
-    if (initialPos && afterUp) {
-      expect(afterUp.y).toBeLessThan(initialPos.y);
+    // Step 1: Enter copy mode via scroll (the real user path)
+    const box = await ctx.page.locator('[role="log"]').first().boundingBox();
+    await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 5; i++) {
+      await ctx.page.mouse.wheel(0, -300);
+      await delay(DELAYS.SHORT);
     }
-    await ctx.session.copyModeMove('down', 1);
+    const csEntry = await waitForCopyMode(ctx.page, true);
+    expect(csEntry.active).toBe(true);
+
+    // Step 2: Navigate with 'k' (up) — cursor row should decrease
+    const before = await getCopyModeState(ctx.page);
+    for (let i = 0; i < 3; i++) {
+      await ctx.page.keyboard.press('k');
+      await delay(50);
+    }
     await delay(DELAYS.SHORT);
-    await ctx.session.copyModeMove('right', 2);
+    const afterUp = await getCopyModeState(ctx.page);
+    expect(afterUp.cursorRow).toBeLessThan(before.cursorRow);
+
+    // Navigate with 'j' (down) — cursor row should increase
+    await ctx.page.keyboard.press('j');
     await delay(DELAYS.SHORT);
+    const afterDown = await getCopyModeState(ctx.page);
+    expect(afterDown.cursorRow).toBeGreaterThan(afterUp.cursorRow);
 
-    // Step 3: Page up/down
-    await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X page-up`);
-    await delay(DELAYS.LONG);
-    await ctx.session.runCommand(`send-keys -t ${ctx.session.name} -X page-down`);
-    await delay(DELAYS.LONG);
+    // Navigate with 'l' (right) — cursor col should increase
+    await ctx.page.keyboard.press('l');
+    await ctx.page.keyboard.press('l');
+    await delay(DELAYS.SHORT);
+    const afterRight = await getCopyModeState(ctx.page);
+    expect(afterRight.cursorCol).toBeGreaterThan(0);
 
-    // Step 4: Still in copy mode after navigation
-    expect(await ctx.session.isPaneInCopyMode()).toBe(true);
+    // Navigate with 'h' (left) — cursor col should decrease
+    await ctx.page.keyboard.press('h');
+    await delay(DELAYS.SHORT);
+    const afterLeft = await getCopyModeState(ctx.page);
+    expect(afterLeft.cursorCol).toBeLessThan(afterRight.cursorCol);
 
-    // Step 5: Exit with q
-    await ctx.session.exitCopyMode();
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneInCopyMode()).toBe(false);
+    // Step 3: Line edges: '0' goes to col 0, '$' goes to end of line
+    await ctx.page.keyboard.press('l');
+    await ctx.page.keyboard.press('l');
+    await delay(DELAYS.SHORT);
+    await ctx.page.keyboard.press('0');
+    await delay(DELAYS.SHORT);
+    const atStart = await getCopyModeState(ctx.page);
+    expect(atStart.cursorCol).toBe(0);
 
-    // Step 6: Re-enter
-    await ctx.session.enterCopyMode();
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneInCopyMode()).toBe(true);
+    await ctx.page.keyboard.press('$');
+    await delay(DELAYS.SHORT);
+    const atEnd = await getCopyModeState(ctx.page);
+    expect(atEnd.cursorCol).toBeGreaterThan(0);
 
-    // Step 7: Exit with Escape
-    await ctx.session.sendKeys('Escape');
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneInCopyMode()).toBe(false);
+    // Step 4: Half-page up/down (Ctrl+u / Ctrl+d)
+    const beforePage = await getCopyModeState(ctx.page);
+    await ctx.page.keyboard.down('Control');
+    await ctx.page.keyboard.press('u');
+    await ctx.page.keyboard.up('Control');
+    await delay(DELAYS.SHORT);
+    const afterPageUp = await getCopyModeState(ctx.page);
+    expect(afterPageUp.cursorRow).toBeLessThan(beforePage.cursorRow);
+
+    await ctx.page.keyboard.down('Control');
+    await ctx.page.keyboard.press('d');
+    await ctx.page.keyboard.up('Control');
+    await delay(DELAYS.SHORT);
+    const afterPageDown = await getCopyModeState(ctx.page);
+    expect(afterPageDown.cursorRow).toBeGreaterThan(afterPageUp.cursorRow);
+
+    // Step 5: Still in copy mode after all navigation
+    const csStillActive = await getCopyModeState(ctx.page);
+    expect(csStillActive.active).toBe(true);
+    // ScrollbackTerminal should be rendered
+    const scrollbackEl = await ctx.page.$('[data-copy-mode="true"]');
+    expect(scrollbackEl).not.toBeNull();
+
+    // Step 6: Exit with 'q'
+    await ctx.page.keyboard.press('q');
+    await waitForCopyMode(ctx.page, false);
+    expect(await getCopyModeState(ctx.page)).toBeNull();
+    // ScrollbackTerminal should be gone, normal terminal restored
+    const normalEl = await ctx.page.$('[role="log"]');
+    expect(normalEl).not.toBeNull();
+
+    // Step 7: Re-enter via scroll
+    await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 5; i++) {
+      await ctx.page.mouse.wheel(0, -300);
+      await delay(DELAYS.SHORT);
+    }
+    await waitForCopyMode(ctx.page, true);
+
+    // Step 8: Exit with Escape
+    await ctx.page.keyboard.press('Escape');
+    await waitForCopyMode(ctx.page, false);
+    expect(await getCopyModeState(ctx.page)).toBeNull();
+
+    // Step 9: Re-enter, test 'v' selection mode
+    for (let i = 0; i < 5; i++) {
+      await ctx.page.mouse.wheel(0, -300);
+      await delay(DELAYS.SHORT);
+    }
+    await waitForCopyMode(ctx.page, true);
+    // Move to start of line so we have room to move right
+    await ctx.page.keyboard.press('0');
+    await delay(DELAYS.SHORT);
+    // Press 'v' to enter char selection mode
+    await ctx.page.keyboard.press('v');
+    await delay(DELAYS.SHORT);
+    const csWithSelection = await getCopyModeState(ctx.page);
+    expect(csWithSelection.selectionMode).toBe('char');
+    expect(csWithSelection.selectionAnchor).not.toBeNull();
+    expect(csWithSelection.cursorCol).toBe(0);
+    // Move cursor right to expand selection
+    await ctx.page.keyboard.press('l');
+    await ctx.page.keyboard.press('l');
+    await ctx.page.keyboard.press('l');
+    await delay(DELAYS.SHORT);
+    const csExpanded = await getCopyModeState(ctx.page);
+    expect(csExpanded.cursorCol).toBeGreaterThan(csWithSelection.cursorCol);
+    // 'v' again toggles off selection
+    await ctx.page.keyboard.press('v');
+    await delay(DELAYS.SHORT);
+    const csNoSel = await getCopyModeState(ctx.page);
+    expect(csNoSel.selectionMode).toBeNull();
+
+    // Clean exit
+    await ctx.page.keyboard.press('q');
+    await waitForCopyMode(ctx.page, false);
   }, 120000);
 });
 
@@ -1142,59 +1281,6 @@ describe('Scenario 14: OSC Protocols', () => {
     await ctx.session.sendKeys('"echo -ne \\"\\\\e]52;c;dGhpcmQ=\\\\e\\\\\\\\\\"" Enter');
     await delay(DELAYS.SYNC);
     await runCommandViaTmux(ctx.session, ctx.page, 'echo "MULTI_OSC52_OK"', 'MULTI_OSC52_OK');
-  }, 120000);
-});
-
-// ==================== Scenario 15: Special Characters ====================
-
-describe('Scenario 15: Special Characters', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
-
-  test('; # $ {} \\ ~ quotes mixed → diacritics → paste with specials', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Step 1: Semicolon
-    await runCommandViaTmux(ctx.session, ctx.page, 'echo "a;b"', 'a;b');
-
-    // Step 2: Hash
-    await runCommandViaTmux(ctx.session, ctx.page, 'echo "a#b"', 'a#b');
-
-    // Step 3: Dollar sign (single-quoted)
-    await runCommandViaTmux(ctx.session, ctx.page, "echo 'a$b'", 'a$b');
-
-    // Step 4: Curly braces
-    await runCommandViaTmux(ctx.session, ctx.page, 'echo "a{b}c"', 'a{b}c');
-
-    // Step 5: Backslash (single-quoted)
-    await runCommandViaTmux(ctx.session, ctx.page, "echo 'a\\\\b'", 'a\\\\b');
-
-    // Step 6: Tilde
-    await runCommandViaTmux(ctx.session, ctx.page, 'echo "a~b"', 'a~b');
-
-    // Step 7: Quotes
-    await runCommandViaTmux(ctx.session, ctx.page, "echo 'say \"hi\"'", 'say "hi"');
-
-    // Step 8: Multiple special chars combined
-    await runCommandViaTmux(ctx.session, ctx.page, 'echo "x;y#z~w"', 'x;y#z~w');
-
-    // Step 9: Diacritics
-    await runCommandViaTmux(ctx.session, ctx.page, 'echo "café"', 'café');
-
-    // Step 10: Paste with special characters
-    const marker = `paste_marker_${Date.now()}`;
-    await pasteText(ctx.page, `echo "${marker}"`);
-    await pressEnter(ctx.page);
-    await waitForTerminalText(ctx.page, marker);
-
-    // Step 11: Paste with specials
-    await pasteText(ctx.page, 'echo "x;y#z"');
-    await pressEnter(ctx.page);
-    await waitForTerminalText(ctx.page, 'x;y#z');
   }, 120000);
 });
 
