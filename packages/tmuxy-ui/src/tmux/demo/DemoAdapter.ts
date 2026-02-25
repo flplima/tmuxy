@@ -7,7 +7,7 @@ import type {
   KeyBindingsListener,
   KeyBindings,
 } from '../types';
-import { FakeTmux } from './fakeTmux';
+import { DemoTmux } from './DemoTmux';
 
 const DEFAULT_KEYBINDINGS: KeyBindings = {
   prefix_key: 'C-a',
@@ -46,7 +46,7 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
 
 export class DemoAdapter implements TmuxAdapter {
   private connected = false;
-  private tmux: FakeTmux;
+  private tmux: DemoTmux;
 
   private stateListeners = new Set<StateListener>();
   private errorListeners = new Set<ErrorListener>();
@@ -55,7 +55,7 @@ export class DemoAdapter implements TmuxAdapter {
   private keyBindingsListeners = new Set<KeyBindingsListener>();
 
   constructor() {
-    this.tmux = new FakeTmux();
+    this.tmux = new DemoTmux();
   }
 
   async connect(): Promise<void> {

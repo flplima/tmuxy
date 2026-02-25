@@ -85,7 +85,7 @@ const KNOWN_COMMANDS = new Set([
   'jobs',
 ]);
 
-export class FakeShell {
+export class DemoShell {
   cwd: string;
   env: Map<string, string>;
   history: string[] = [];

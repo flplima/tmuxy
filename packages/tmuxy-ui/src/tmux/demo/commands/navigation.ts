@@ -18,7 +18,7 @@ export const cd: CommandFn = (args, ctx): CommandResult => {
   if (!node) return err(`cd: ${target}: No such file or directory`);
   if (node.type !== 'directory') return err(`cd: ${target}: Not a directory`);
   ctx.env.set('OLDPWD', ctx.cwd);
-  // Return the resolved path in output so FakeShell can update cwd
+  // Return the resolved path in output so DemoShell can update cwd
   return { output: path, exitCode: 0 };
 };
 

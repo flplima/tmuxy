@@ -8,7 +8,7 @@ import {
   ServerState,
 } from './types';
 import { HttpAdapter } from './HttpAdapter';
-import { DemoAdapter } from './fake/DemoAdapter';
+import { DemoAdapter } from './demo/DemoAdapter';
 
 // ============================================
 // Tauri Adapter

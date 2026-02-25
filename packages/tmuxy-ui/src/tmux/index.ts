@@ -12,4 +12,4 @@ export type {
 // Adapters (used by tmuxActor)
 export { HttpAdapter } from './HttpAdapter';
 export { TauriAdapter, createAdapter } from './adapters';
-export { DemoAdapter } from './fake/DemoAdapter';
+export { DemoAdapter } from './demo/DemoAdapter';
