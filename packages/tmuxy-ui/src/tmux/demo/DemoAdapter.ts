@@ -7,7 +7,7 @@ import type {
   KeyBindingsListener,
   KeyBindings,
 } from '../types';
-import { FakeTmux } from './fakeTmux';
+import { DemoTmux } from './DemoTmux';
 
 const DEFAULT_KEYBINDINGS: KeyBindings = {
   prefix_key: 'C-a',
@@ -44,9 +44,9 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
   root_bindings: [],
 };
 
-export class FakeTmuxAdapter implements TmuxAdapter {
+export class DemoAdapter implements TmuxAdapter {
   private connected = false;
-  private tmux: FakeTmux;
+  private tmux: DemoTmux;
 
   private stateListeners = new Set<StateListener>();
   private errorListeners = new Set<ErrorListener>();
@@ -55,7 +55,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
   private keyBindingsListeners = new Set<KeyBindingsListener>();
 
   constructor() {
-    this.tmux = new FakeTmux();
+    this.tmux = new DemoTmux();
   }
 
   async connect(): Promise<void> {
@@ -126,7 +126,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
         return null as T;
 
       default:
-        console.warn(`[FakeTmuxAdapter] Unhandled command: ${cmd}`);
+        console.warn(`[DemoAdapter] Unhandled command: ${cmd}`);
         return null as T;
     }
   }
@@ -311,7 +311,7 @@ export class FakeTmuxAdapter implements TmuxAdapter {
         break;
 
       default:
-        console.warn(`[FakeTmuxAdapter] Unhandled tmux command: ${cmd}`);
+        console.warn(`[DemoAdapter] Unhandled tmux command: ${cmd}`);
         break;
     }
 

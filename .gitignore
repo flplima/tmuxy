@@ -37,3 +37,7 @@ src-tauri/target
 
 # Test snapshots
 snapshots/
+
+# Next.js
+.next/
+out/

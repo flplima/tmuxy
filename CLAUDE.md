@@ -14,19 +14,21 @@ See [docs/tests.md](docs/tests.md) for running and writing E2E tests.
 ```
 tmuxy/
 ├── packages/
-│   ├── tmuxy-core/      # Rust: tmux control mode, parsing, state
-│   ├── tmuxy-server/    # Rust: production server with embedded frontend
-│   ├── web-server/      # Rust: shared Axum routes and SSE handlers
-│   ├── tmuxy-ui/        # React/Vite frontend
-│   └── tauri-app/       # Tauri desktop app wrapper
+│   ├── tmuxy-core/           # Rust: tmux control mode, parsing, state
+│   ├── tmuxy-server/         # Rust: production server with embedded frontend
+│   ├── web-server/           # Rust: shared Axum routes and SSE handlers
+│   ├── tmuxy-ui/             # React/Vite frontend
+│   │   └── src/tmux/demo/    # In-browser demo engine (DemoAdapter, DemoTmux, DemoShell)
+│   ├── tmuxy-landing-page/   # Next.js landing page (static export → GitHub Pages)
+│   └── tauri-app/            # Tauri desktop app wrapper
 ├── scripts/
-│   ├── tmuxy-cli        # Shell dispatcher (symlinked as ~/.local/bin/tmuxy)
-│   └── tmuxy/           # Shell scripts for floats, groups, widgets
-├── tests/               # E2E tests (Jest + Playwright)
-│   ├── helpers/         # One file per helper function
-│   └── *.test.js        # Test suites grouped by operation
-├── docs/                # Project documentation
-└── docker/              # Docker development environment
+│   ├── tmuxy-cli              # Shell dispatcher (symlinked as ~/.local/bin/tmuxy)
+│   └── tmuxy/                 # Shell scripts for floats, groups, widgets
+├── tests/                    # E2E tests (Jest + Playwright)
+│   ├── helpers/              # One file per helper function
+│   └── *.test.js             # Test suites grouped by operation
+├── docs/                     # Project documentation
+└── docker/                   # Docker development environment
 ```
 
 ## CLI Usage

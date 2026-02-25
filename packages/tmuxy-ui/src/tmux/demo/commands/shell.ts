@@ -24,7 +24,7 @@ export const history: CommandFn = (_args, ctx) => {
 };
 
 export const clear: CommandFn = () => {
-  // Return ANSI clear screen sequence - FakeShell handles this specially
+  // Return ANSI clear screen sequence - DemoShell handles this specially
   return ok('\x1b[2J\x1b[H');
 };
 
