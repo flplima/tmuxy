@@ -107,28 +107,6 @@ describe('Category 11: OSC Protocols', () => {
       await runCommandViaTmux(ctx.session, ctx.page, 'echo "DONE"', 'DONE');
     });
 
-    // Skipped: OSC 52 query handling has timing issues
-    test.skip('Terminal handles OSC 52 query gracefully', async () => {
-      if (ctx.skipIfNotReady()) return;
-
-      await ctx.setupPage();
-
-      // OSC 52 query (asking for clipboard contents)
-      // This may not be supported but shouldn't crash
-      await runCommandViaTmux(
-        ctx.session, ctx.page,
-        'echo -ne "\\e]52;c;?\\e\\\\" && echo "OSC_QUERY_SENT"',
-        'OSC_QUERY_SENT',
-        10000
-      );
-
-      // Extra delay to let any OSC response settle
-      await delay(DELAYS.SYNC);
-
-      // Terminal should still be functional - use a short marker
-      await runCommandViaTmux(ctx.session, ctx.page, 'echo "QHOK"', 'QHOK');
-    });
-
     test('Multiple OSC 52 operations in sequence', async () => {
       if (ctx.skipIfNotReady()) return;
 
