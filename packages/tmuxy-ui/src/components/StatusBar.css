@@ -44,7 +44,6 @@
   background-color: var(--bg-medium);
   border: none;
   border-radius: var(--radius-lg);
-  cursor: pointer;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
@@ -73,7 +72,6 @@
   padding: 0;
   background: transparent;
   border: none;
-  cursor: pointer;
   color: inherit;
   font-family: inherit;
   font-size: inherit;
@@ -99,7 +97,6 @@
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  cursor: pointer;
   line-height: 1;
   opacity: 0;
   flex-shrink: 0;
@@ -127,7 +124,6 @@
   border: none;
   border-radius: var(--radius-md);
   color: var(--text-subtle);
-  cursor: pointer;
 }
 
 .tab-add:hover {
@@ -147,7 +143,6 @@
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
-  cursor: pointer;
   flex-shrink: 0;
   margin-left: auto;
 }
@@ -169,7 +164,6 @@
   border: 2px dashed rgba(100, 150, 255, 0.8);
   background-color: rgba(100, 150, 255, 0.15);
   color: rgba(100, 150, 255, 0.9);
-  cursor: default;
   animation: pulse-placeholder 1s ease-in-out infinite;
 }
 
