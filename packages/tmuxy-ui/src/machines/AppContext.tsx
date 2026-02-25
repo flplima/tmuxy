@@ -27,6 +27,7 @@ import {
   selectPaneGroupPanes as selectPaneGroupPanesFn,
   getActivePaneInGroup,
 } from './selectors';
+import type { TmuxAdapter } from '../tmux/types';
 import { createAdapter } from '../tmux/adapters';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
@@ -96,19 +97,34 @@ function measureCharWidth(): number {
   return width;
 }
 
+/**
+ * Check if we're in dev/test mode (works in both Vite and non-Vite contexts).
+ */
+function isDevOrTest(): boolean {
+  try {
+    const env = (import.meta as unknown as { env?: Record<string, unknown> }).env;
+    return !!(env?.DEV || env?.VITE_E2E === 'true');
+  } catch {
+    return false;
+  }
+}
+
 // ============================================
 // Provider
 // ============================================
 
-export function AppProvider({ children }: { children: ReactNode }) {
+export function AppProvider({
+  children,
+  adapter: externalAdapter,
+}: {
+  children: ReactNode;
+  adapter?: TmuxAdapter;
+}) {
   // Create adapter and actors once
   const actors = useMemo(() => {
-    const adapter = createAdapter();
+    const adapter = externalAdapter ?? createAdapter();
     // Expose adapter for E2E testing (dev mode or CI)
-    if (
-      typeof window !== 'undefined' &&
-      (import.meta.env.DEV || import.meta.env.VITE_E2E === 'true')
-    ) {
+    if (typeof window !== 'undefined' && isDevOrTest()) {
       (window as unknown as { _adapter: typeof adapter })._adapter = adapter;
     }
     return {
@@ -126,10 +142,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Expose XState actor for debugging (dev mode or CI)
   useMemo(() => {
-    if (
-      typeof window !== 'undefined' &&
-      (import.meta.env.DEV || import.meta.env.VITE_E2E === 'true')
-    ) {
+    if (typeof window !== 'undefined' && isDevOrTest()) {
       (window as unknown as { app: typeof actorRef }).app = actorRef;
     }
   }, [actorRef]);
