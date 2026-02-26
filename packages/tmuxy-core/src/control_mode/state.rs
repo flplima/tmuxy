@@ -697,7 +697,8 @@ impl StateAggregator {
                 }
             }
 
-            ControlModeEvent::WindowAdd { window_id } => {
+            ControlModeEvent::WindowAdd { window_id }
+            | ControlModeEvent::UnlinkedWindowAdd { window_id } => {
                 self.windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
@@ -722,9 +723,12 @@ impl StateAggregator {
             }
 
             ControlModeEvent::WindowRenamed { window_id, name } => {
-                if let Some(window) = self.windows.get_mut(&window_id) {
-                    window.name = name;
-                }
+                // Create window if it doesn't exist yet (rename can arrive before add)
+                let window = self
+                    .windows
+                    .entry(window_id.clone())
+                    .or_insert_with(|| WindowState::new(&window_id));
+                window.name = name;
                 self.status_line_dirty = true; // Window renamed - refresh status line
                 ProcessEventResult {
                     state_changed: true,

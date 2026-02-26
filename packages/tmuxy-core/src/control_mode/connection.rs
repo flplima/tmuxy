@@ -76,7 +76,10 @@ impl ControlModeConnection {
     ///
     /// This spawns `tmux -CC attach-session -t <session>` wrapped in `script`
     /// to provide a PTY (required for tmux control mode).
-    pub async fn connect(session_name: &str) -> Result<Self, String> {
+    pub async fn connect(
+        session_name: &str,
+        working_dir: Option<&std::path::Path>,
+    ) -> Result<Self, String> {
         // First check if the session exists to avoid spawning control mode processes
         // that wait indefinitely for a non-existent session. This prevents a race condition
         // in tmux 3.3a where multiple waiting control mode clients crash the server.
@@ -97,11 +100,15 @@ impl ControlModeConnection {
             "stty cols {} rows {} 2>/dev/null; tmux -CC attach-session -t {}",
             INITIAL_PTY_COLS, INITIAL_PTY_ROWS, session_name
         );
-        let mut child = Command::new("script")
-            .args(["-q", "/dev/null", "-c", &tmux_cmd])
+        let mut cmd = Command::new("script");
+        cmd.args(["-q", "/dev/null", "-c", &tmux_cmd])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
+        }
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
 
@@ -123,18 +130,25 @@ impl ControlModeConnection {
     ///
     /// This spawns `tmux -CC new-session -s <session>` wrapped in `script`
     /// to provide a PTY (required for tmux control mode).
-    pub async fn new_session(session_name: &str) -> Result<Self, String> {
+    pub async fn new_session(
+        session_name: &str,
+        working_dir: Option<&std::path::Path>,
+    ) -> Result<Self, String> {
         // Use `script` to provide a PTY for tmux -CC
         // Set PTY size via stty to avoid tiny default dimensions in background processes.
         let tmux_cmd = format!(
             "stty cols {} rows {} 2>/dev/null; tmux -CC new-session -s {}",
             INITIAL_PTY_COLS, INITIAL_PTY_ROWS, session_name
         );
-        let mut child = Command::new("script")
-            .args(["-q", "/dev/null", "-c", &tmux_cmd])
+        let mut cmd = Command::new("script");
+        cmd.args(["-q", "/dev/null", "-c", &tmux_cmd])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
+        }
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
 
