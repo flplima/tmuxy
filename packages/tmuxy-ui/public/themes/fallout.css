@@ -1,0 +1,106 @@
+/* Fallout theme - Pip-Boy inspired glowing green on dark green */
+
+:root.theme-dark {
+  --fallout-fg: #33ff33;
+  --fallout-fg-dim: #1a9e1a;
+  --fallout-fg-faint: #0d5a0d;
+  --fallout-bg: #0a1a0a;
+  --fallout-bg-light: #0f260f;
+  --fallout-bg-lighter: #143214;
+
+  --term-black: var(--fallout-bg);
+  --term-red: var(--fallout-fg);
+  --term-green: var(--fallout-fg);
+  --term-yellow: var(--fallout-fg);
+  --term-blue: var(--fallout-fg);
+  --term-magenta: var(--fallout-fg);
+  --term-cyan: var(--fallout-fg);
+  --term-white: var(--fallout-fg);
+  --term-bright-black: var(--fallout-fg-dim);
+  --term-bright-red: var(--fallout-fg);
+  --term-bright-green: var(--fallout-fg);
+  --term-bright-yellow: var(--fallout-fg);
+  --term-bright-blue: var(--fallout-fg);
+  --term-bright-magenta: var(--fallout-fg);
+  --term-bright-cyan: var(--fallout-fg);
+  --term-bright-white: var(--fallout-fg);
+
+  --term-foreground: var(--fallout-fg);
+  --term-background: var(--fallout-bg);
+
+  --bg-black: var(--fallout-bg);
+  --bg-dark: #081408;
+  --bg-dark-alt: #0c1e0c;
+  --bg-medium: var(--fallout-bg-light);
+  --bg-elevated-alt: var(--fallout-bg-lighter);
+  --bg-highlight: #1a3d1a;
+  --bg-highlight-alt: #1f4a1f;
+
+  --text-primary: var(--fallout-fg);
+  --text-secondary: #2bcc2b;
+  --text-muted: var(--fallout-fg-dim);
+  --text-dimmed: #148a14;
+  --text-subtle: var(--fallout-fg-faint);
+  --text-faint: #094009;
+  --text-dark: var(--fallout-bg);
+
+  --border-medium: #1a3d1a;
+  --border-light: #1f4a1f;
+
+  --pane-header-bg-active: #1a3d1a;
+  --pane-header-bg-inactive: #081408;
+  --pane-header-text-active: var(--fallout-fg);
+  --pane-header-text-inactive: var(--fallout-fg-dim);
+
+  --accent-green: var(--fallout-fg);
+  --accent-green-bright: #55ff55;
+  --accent-green-bg: #0d2a0d;
+  --accent-green-border: #1a4a1a;
+  --accent-green-hover: #143a14;
+
+  --accent-blue: #0d2a0d;
+  --accent-blue-light: rgba(51, 255, 51, 0.8);
+  --accent-blue-glow: rgba(51, 255, 51, 0.6);
+  --accent-blue-bg: rgba(51, 255, 51, 0.1);
+  --accent-blue-bg-hover: rgba(51, 255, 51, 0.2);
+  --accent-blue-bg-active: rgba(51, 255, 51, 0.35);
+
+  --link-color: var(--fallout-fg);
+  --link-hover: #55ff55;
+  --link-active: var(--fallout-fg-dim);
+
+  --error-color: var(--fallout-fg);
+  --error-light: #55ff55;
+  --error-text: var(--fallout-fg);
+  --error-bg: rgba(51, 255, 51, 0.15);
+  --error-border: rgba(51, 255, 51, 0.3);
+
+  --cursor-bg: var(--fallout-fg);
+  --cursor-text: var(--fallout-bg);
+  --cursor-copy-bg: var(--fallout-fg-dim);
+  --cursor-inactive: var(--fallout-fg-dim);
+
+  --tmux-status-bg: var(--fallout-fg);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.7);
+}
+
+:root.theme-dark body {
+  background: radial-gradient(ellipse at center, #0f2a0f 0%, #0a1a0a 50%, #050d05 100%);
+}
+
+:root.theme-dark .pane-container,
+:root.theme-dark .terminal-container,
+:root.theme-dark .pane-scroll-container,
+:root.theme-dark .pane-layout-item,
+:root.theme-dark .float-content,
+:root.theme-dark .modal-container {
+  background: transparent;
+}
+
+:root.theme-dark .terminal-content,
+:root.theme-dark .pane-container .terminal-line {
+  text-shadow: 0 0 5px rgba(51, 255, 51, 0.5);
+}
