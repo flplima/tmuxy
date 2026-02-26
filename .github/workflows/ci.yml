@@ -94,10 +94,14 @@ jobs:
       # --- E2E Tests ---
 
       - name: Start server
-        run: PORT=9000 ./target/debug/tmuxy-web &
+        run: PORT=9000 ./target/debug/tmuxy-web 2>/tmp/tmuxy-server.log &
 
       - name: Wait for server
         run: timeout 30 bash -c 'until curl -s http://localhost:9000 >/dev/null; do sleep 1; done'
 
       - name: E2E tests
         run: npx jest --config tests/jest.config.js --forceExit
+
+      - name: Server logs (debug)
+        if: failure()
+        run: cat /tmp/tmuxy-server.log | grep -E '\[state\]|\[sse\]' | tail -200
