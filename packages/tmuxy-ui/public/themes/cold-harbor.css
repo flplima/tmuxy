@@ -1,0 +1,116 @@
+/* Cold Harbor theme - Severance Lumon terminal inspired, glowing blue on dark blue */
+
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+:root.theme-dark {
+  --font-mono: 'VT323', 'FiraCode Nerd Font', monospace;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-base: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+
+  --cold-fg: #4db8ff;
+  --cold-fg-dim: #2a7ab5;
+  --cold-fg-faint: #15476b;
+  --cold-bg: #06101a;
+  --cold-bg-light: #0c1a2a;
+  --cold-bg-lighter: #122440;
+
+  --term-black: var(--cold-bg);
+  --term-red: var(--cold-fg);
+  --term-green: var(--cold-fg);
+  --term-yellow: var(--cold-fg);
+  --term-blue: var(--cold-fg);
+  --term-magenta: var(--cold-fg);
+  --term-cyan: var(--cold-fg);
+  --term-white: var(--cold-fg);
+  --term-bright-black: var(--cold-fg-dim);
+  --term-bright-red: var(--cold-fg);
+  --term-bright-green: var(--cold-fg);
+  --term-bright-yellow: var(--cold-fg);
+  --term-bright-blue: var(--cold-fg);
+  --term-bright-magenta: var(--cold-fg);
+  --term-bright-cyan: var(--cold-fg);
+  --term-bright-white: var(--cold-fg);
+
+  --term-foreground: var(--cold-fg);
+  --term-background: var(--cold-bg);
+
+  --bg-black: var(--cold-bg);
+  --bg-dark: #050d16;
+  --bg-dark-alt: #091620;
+  --bg-medium: var(--cold-bg-light);
+  --bg-elevated-alt: var(--cold-bg-lighter);
+  --bg-highlight: #1a3050;
+  --bg-highlight-alt: #1f3a5e;
+
+  --text-primary: var(--cold-fg);
+  --text-secondary: #3da0e0;
+  --text-muted: var(--cold-fg-dim);
+  --text-dimmed: #1e6090;
+  --text-subtle: var(--cold-fg-faint);
+  --text-faint: #0e3050;
+  --text-dark: var(--cold-bg);
+
+  --border-medium: #1a3050;
+  --border-light: #1f3a5e;
+
+  --pane-header-bg-active: #1a3050;
+  --pane-header-bg-inactive: #050d16;
+  --pane-header-text-active: var(--cold-fg);
+  --pane-header-text-inactive: var(--cold-fg-dim);
+
+  --accent-green: var(--cold-fg);
+  --accent-green-bright: #70ccff;
+  --accent-green-bg: #0c1e30;
+  --accent-green-border: #1a3a55;
+  --accent-green-hover: #122e45;
+
+  --accent-blue: #0c1e30;
+  --accent-blue-light: rgba(77, 184, 255, 0.8);
+  --accent-blue-glow: rgba(77, 184, 255, 0.6);
+  --accent-blue-bg: rgba(77, 184, 255, 0.1);
+  --accent-blue-bg-hover: rgba(77, 184, 255, 0.2);
+  --accent-blue-bg-active: rgba(77, 184, 255, 0.35);
+
+  --link-color: var(--cold-fg);
+  --link-hover: #70ccff;
+  --link-active: var(--cold-fg-dim);
+
+  --error-color: var(--cold-fg);
+  --error-light: #70ccff;
+  --error-text: var(--cold-fg);
+  --error-bg: rgba(77, 184, 255, 0.15);
+  --error-border: rgba(77, 184, 255, 0.3);
+
+  --cursor-bg: var(--cold-fg);
+  --cursor-text: var(--cold-bg);
+  --cursor-copy-bg: var(--cold-fg-dim);
+  --cursor-inactive: var(--cold-fg-dim);
+
+  --tmux-status-bg: var(--cold-fg);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.7);
+}
+
+:root.theme-dark body {
+  background: radial-gradient(ellipse at center, #0c1e30 0%, #06101a 50%, #030810 100%);
+}
+
+:root.theme-dark .pane-container,
+:root.theme-dark .terminal-container,
+:root.theme-dark .pane-scroll-container,
+:root.theme-dark .pane-layout-item,
+:root.theme-dark .float-content,
+:root.theme-dark .modal-container {
+  background: transparent;
+}
+
+:root.theme-dark .terminal-content,
+:root.theme-dark .pane-container .terminal-line {
+  text-shadow: 0 0 5px rgba(77, 184, 255, 0.5);
+}
