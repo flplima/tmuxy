@@ -1,6 +1,16 @@
 /* Cold Harbor theme - Severance Lumon terminal inspired, glowing blue on dark blue */
 
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
 :root.theme-dark {
+  --font-mono: 'VT323', 'FiraCode Nerd Font', monospace;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-base: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+
   --cold-fg: #4db8ff;
   --cold-fg-dim: #2a7ab5;
   --cold-fg-faint: #15476b;

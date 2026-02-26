@@ -1,6 +1,16 @@
 /* Fallout theme - Pip-Boy inspired glowing green on dark green */
 
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
 :root.theme-dark {
+  --font-mono: 'VT323', 'FiraCode Nerd Font', monospace;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-base: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+
   --fallout-fg: #33ff33;
   --fallout-fg-dim: #1a9e1a;
   --fallout-fg-faint: #0d5a0d;

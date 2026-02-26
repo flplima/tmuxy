@@ -1,6 +1,16 @@
 /* System 1 theme - Apple Macintosh System 1 (1984) inspired, black and white */
 
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
 :root.theme-dark {
+  --font-mono: 'VT323', 'FiraCode Nerd Font', monospace;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-base: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+
   --sys1-fg: #e8e8e8;
   --sys1-fg-dim: #a0a0a0;
   --sys1-fg-faint: #606060;
@@ -88,6 +98,14 @@
 }
 
 :root.theme-light {
+  --font-mono: 'VT323', 'FiraCode Nerd Font', monospace;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-base: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+
   --sys1-fg: #1a1a1a;
   --sys1-fg-dim: #606060;
   --sys1-fg-faint: #a0a0a0;
