@@ -975,6 +975,7 @@ describe('Scenario 11: Status Bar', () => {
     expect(activeTab).not.toBeNull();
 
     // Step 6: Click inactive tab to switch
+    await waitForWindowCount(ctx.page, 2, 10000);
     const allTabs = await ctx.page.$$('.tab:not(.tab-add)');
     expect(allTabs.length).toBe(2);
     let inactiveTab = null;
