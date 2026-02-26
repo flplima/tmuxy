@@ -469,10 +469,17 @@ async fn handle_command(
         }
         "new_window" => {
             // neww crashes tmux 3.5a control mode — use split+break workaround.
-            // Compound command ensures splitw and breakp execute atomically so
-            // breakp targets the pane that splitw just created.
-            let cmd = format!("splitw -t {} ; breakp -s {}", session, session);
-            send_via_control_mode(state, session, &cmd).await?;
+            // Batch send ensures both commands are flushed together without
+            // interleaving from periodic syncs.
+            send_batch_via_control_mode(
+                state,
+                session,
+                vec![
+                    format!("splitw -t {}", session),
+                    format!("breakp -s {}", session),
+                ],
+            )
+            .await?;
             Ok(serde_json::json!(null))
         }
         "select_pane" => {
@@ -553,8 +560,15 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if key == "c" {
-                let cmd = format!("splitw -t {} ; breakp -s {}", session, session);
-                send_via_control_mode(state, session, &cmd).await?;
+                send_batch_via_control_mode(
+                    state,
+                    session,
+                    vec![
+                        format!("splitw -t {}", session),
+                        format!("breakp -s {}", session),
+                    ],
+                )
+                .await?;
                 return Ok(serde_json::json!(null));
             }
 
@@ -621,8 +635,15 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if command.starts_with("new-window") || command.starts_with("neww") {
-                let cmd = format!("splitw -t {} ; breakp -s {}", session, session);
-                send_via_control_mode(state, session, &cmd).await?;
+                send_batch_via_control_mode(
+                    state,
+                    session,
+                    vec![
+                        format!("splitw -t {}", session),
+                        format!("breakp -s {}", session),
+                    ],
+                )
+                .await?;
                 return Ok(serde_json::json!(null));
             }
 
@@ -798,6 +819,29 @@ async fn send_via_control_mode(
         })
         .await
         .map_err(|e| format!("Monitor channel error: {}", e))
+    } else {
+        Err("No monitor connection available".to_string())
+    }
+}
+
+/// Send multiple tmux commands through control mode in a single flush.
+/// Commands are sent back-to-back without interleaving from periodic syncs.
+async fn send_batch_via_control_mode(
+    state: &Arc<AppState>,
+    session: &str,
+    commands: Vec<String>,
+) -> Result<(), String> {
+    let command_tx = {
+        let sessions = state.sessions.read().await;
+        sessions
+            .get(session)
+            .and_then(|s| s.monitor_command_tx.clone())
+    };
+
+    if let Some(tx) = command_tx {
+        tx.send(MonitorCommand::RunCommandBatch { commands })
+            .await
+            .map_err(|e| format!("Monitor channel error: {}", e))
     } else {
         Err("No monitor connection available".to_string())
     }
