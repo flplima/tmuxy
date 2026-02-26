@@ -486,37 +486,26 @@ async function toggleZoomKeyboard(page) {
 // ==================== Window Operations ====================
 
 /**
- * Create new window via tmux commands.
+ * Create new window via tmux commands sent through the adapter.
  * Uses split-window + break-pane workaround because new-window crashes
- * tmux 3.5a when routed through control mode. The split-window creates a
- * pane, break-pane moves it to its own window (and switches to it).
+ * tmux 3.5a when routed through control mode. Commands are sent via the
+ * HTTP adapter (not keyboard) for reliability.
  */
 async function createWindowKeyboard(page) {
-  // Get current pane count before splitting
-  const beforeCount = await getUIPaneCount(page);
-  // Step 1: split-window -d creates a background pane (doesn't switch focus)
-  await tmuxCommandKeyboard(page, 'split-window -d');
-  // Wait for the split to actually produce a new pane in the UI
-  const expectedAfterSplit = beforeCount + 1;
-  for (let i = 0; i < 20; i++) {
-    const count = await getUIPaneCount(page);
-    if (count >= expectedAfterSplit) break;
-    await delay(DELAYS.MEDIUM);
-  }
-  // Step 2: Get the new pane's tmux ID (last pane in current window by internal ID)
-  const newPaneId = await page.evaluate(() => {
-    const snap = window.app?.getSnapshot();
-    if (!snap?.context?.panes) return null;
-    const awId = snap.context.activeWindowId;
-    const windowPanes = snap.context.panes
-      .filter(p => p.windowId === awId)
-      .sort((a, b) => a.id - b.id);
-    const last = windowPanes[windowPanes.length - 1];
-    return last?.tmuxId || null;
+  // Step 1: split-window -dP to create background pane, capture its ID
+  const newPaneId = await page.evaluate(async () => {
+    const result = await window._adapter?.invoke('run_tmux_command', {
+      command: 'split-window -dP -F "#{pane_id}"',
+    });
+    return typeof result === 'string' ? result.trim() : null;
   });
   if (newPaneId) {
-    // Step 3: break-pane moves it to its own window and switches to it
-    await tmuxCommandKeyboard(page, `break-pane -s ${newPaneId}`);
+    // Step 2: break-pane moves it to its own window and switches to it
+    await page.evaluate(async (paneId) => {
+      await window._adapter?.invoke('run_tmux_command', {
+        command: `break-pane -s ${paneId}`,
+      });
+    }, newPaneId);
   }
   await delay(DELAYS.SYNC);
 }
