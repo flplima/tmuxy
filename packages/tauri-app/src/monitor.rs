@@ -47,6 +47,7 @@ pub async fn start_monitoring(app: AppHandle) {
         throttle_interval: Duration::from_millis(16),
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),
+        working_dir: None,
     };
 
     // Keep trying to connect with exponential backoff

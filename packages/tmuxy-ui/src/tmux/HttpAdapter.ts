@@ -86,13 +86,16 @@ export class HttpAdapter implements TmuxAdapter {
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
 
-  // Keyboard batching state (special keys like Enter, Tab, arrows)
-  private pendingKeys: Map<string, string[]> = new Map(); // session -> keys[]
+  // Unified keystroke batching: ordered list of tmux commands per session.
+  // Literal chars accumulate as raw text in the last entry (if it's a literal
+  // entry); special keys are stored as individual command strings.  On flush,
+  // each entry becomes one tmux command and they're sent \n-joined in a single
+  // HTTP POST so the backend processes them atomically and in order.
+  private pendingKeyCommands: Map<
+    string,
+    Array<{ type: 'literal'; text: string } | { type: 'special'; keys: string[] }>
+  > = new Map();
   private keyBatchTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  // Literal text batching state (printable characters via send-keys -l)
-  private pendingLiteralText: Map<string, string> = new Map(); // session -> raw text
-  private literalBatchTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Delta protocol state
   private currentState: ServerState | null = null;
@@ -198,18 +201,12 @@ export class HttpAdapter implements TmuxAdapter {
       this.reconnectTimeout = null;
     }
 
-    // Clear any pending key batch timeouts
+    // Clear any pending key batch timeout
     if (this.keyBatchTimeout) {
       clearTimeout(this.keyBatchTimeout);
       this.keyBatchTimeout = null;
     }
-    this.pendingKeys.clear();
-
-    if (this.literalBatchTimeout) {
-      clearTimeout(this.literalBatchTimeout);
-      this.literalBatchTimeout = null;
-    }
-    this.pendingLiteralText.clear();
+    this.pendingKeyCommands.clear();
 
     if (this.eventSource) {
       this.eventSource.close();
@@ -246,24 +243,24 @@ export class HttpAdapter implements TmuxAdapter {
         const [, session, escapedText] = literalMatch;
         const rawText = unescapeLiteralText(escapedText);
 
-        // Cross-batch ordering: flush pending special keys for this session first
-        if (this.pendingKeys.has(session) && this.pendingKeys.get(session)!.length > 0) {
-          this.flushKeyBatchForSession(session);
+        if (!this.pendingKeyCommands.has(session)) {
+          this.pendingKeyCommands.set(session, []);
         }
+        const queue = this.pendingKeyCommands.get(session)!;
 
-        // Accumulate literal text
-        const existing = this.pendingLiteralText.get(session) || '';
-        this.pendingLiteralText.set(session, existing + rawText);
+        // Coalesce with previous literal entry if it exists
+        const last = queue[queue.length - 1];
+        if (last && last.type === 'literal') {
+          last.text += rawText;
+        } else {
+          queue.push({ type: 'literal', text: rawText });
+        }
 
         // Schedule flush if not already scheduled
-        if (!this.literalBatchTimeout) {
-          this.literalBatchTimeout = setTimeout(
-            () => this.flushLiteralBatch(),
-            KEY_BATCH_INTERVAL_MS,
-          );
+        if (!this.keyBatchTimeout) {
+          this.keyBatchTimeout = setTimeout(() => this.flushKeyBatch(), KEY_BATCH_INTERVAL_MS);
         }
 
-        // Return immediately - fire and forget
         return Promise.resolve(undefined as T);
       }
 
@@ -272,26 +269,24 @@ export class HttpAdapter implements TmuxAdapter {
       if (sendKeysMatch) {
         const [, session, keys] = sendKeysMatch;
 
-        // Cross-batch ordering: flush pending literal text for this session first
-        if (
-          this.pendingLiteralText.has(session) &&
-          this.pendingLiteralText.get(session)!.length > 0
-        ) {
-          this.flushLiteralBatchForSession(session);
+        if (!this.pendingKeyCommands.has(session)) {
+          this.pendingKeyCommands.set(session, []);
         }
+        const queue = this.pendingKeyCommands.get(session)!;
 
-        // Add keys to pending batch
-        if (!this.pendingKeys.has(session)) {
-          this.pendingKeys.set(session, []);
+        // Coalesce with previous special entry if it exists
+        const last = queue[queue.length - 1];
+        if (last && last.type === 'special') {
+          last.keys.push(keys);
+        } else {
+          queue.push({ type: 'special', keys: [keys] });
         }
-        this.pendingKeys.get(session)!.push(keys);
 
         // Schedule flush if not already scheduled
         if (!this.keyBatchTimeout) {
           this.keyBatchTimeout = setTimeout(() => this.flushKeyBatch(), KEY_BATCH_INTERVAL_MS);
         }
 
-        // Return immediately - batched commands don't wait for response
         return Promise.resolve(undefined as T);
       }
     }
@@ -303,66 +298,33 @@ export class HttpAdapter implements TmuxAdapter {
   }
 
   /**
-   * Flush batched special keystrokes to tmux
+   * Flush all batched keystrokes to tmux.
+   * Converts the ordered queue for each session into \n-joined tmux commands
+   * sent in a single HTTP POST, preserving the exact keystroke order.
    */
   private flushKeyBatch(): void {
     this.keyBatchTimeout = null;
 
-    for (const [session, keys] of this.pendingKeys) {
-      if (keys.length === 0) continue;
+    for (const [session, queue] of this.pendingKeyCommands) {
+      if (queue.length === 0) continue;
 
-      // Combine all keys into a single send-keys command
-      const combinedKeys = keys.join(' ');
-      const command = `send-keys -t ${session} ${combinedKeys}`;
+      const commands: string[] = [];
+      for (const entry of queue) {
+        if (entry.type === 'literal') {
+          commands.push(`send-keys -t ${session} -l ${escapeLiteralText(entry.text)}`);
+        } else {
+          commands.push(`send-keys -t ${session} ${entry.keys.join(' ')}`);
+        }
+      }
 
-      // Fire and forget - don't await
-      this.sendCommandFireAndForget('run_tmux_command', { command });
+      // Send all commands as \n-joined string — the backend writes this to
+      // control mode stdin and processes each line as a separate command in order.
+      this.sendCommandFireAndForget('run_tmux_command', {
+        command: commands.join('\n'),
+      });
     }
 
-    this.pendingKeys.clear();
-  }
-
-  /**
-   * Flush pending special keys for a single session (cross-batch ordering)
-   */
-  private flushKeyBatchForSession(session: string): void {
-    const keys = this.pendingKeys.get(session);
-    if (!keys || keys.length === 0) return;
-
-    const combinedKeys = keys.join(' ');
-    const command = `send-keys -t ${session} ${combinedKeys}`;
-    this.sendCommandFireAndForget('run_tmux_command', { command });
-    this.pendingKeys.delete(session);
-  }
-
-  /**
-   * Flush batched literal text to tmux
-   */
-  private flushLiteralBatch(): void {
-    this.literalBatchTimeout = null;
-
-    for (const [session, text] of this.pendingLiteralText) {
-      if (text.length === 0) continue;
-
-      const escaped = escapeLiteralText(text);
-      const command = `send-keys -t ${session} -l ${escaped}`;
-      this.sendCommandFireAndForget('run_tmux_command', { command });
-    }
-
-    this.pendingLiteralText.clear();
-  }
-
-  /**
-   * Flush pending literal text for a single session (cross-batch ordering)
-   */
-  private flushLiteralBatchForSession(session: string): void {
-    const text = this.pendingLiteralText.get(session);
-    if (!text || text.length === 0) return;
-
-    const escaped = escapeLiteralText(text);
-    const command = `send-keys -t ${session} -l ${escaped}`;
-    this.sendCommandFireAndForget('run_tmux_command', { command });
-    this.pendingLiteralText.delete(session);
+    this.pendingKeyCommands.clear();
   }
 
   /**
@@ -373,32 +335,17 @@ export class HttpAdapter implements TmuxAdapter {
       clearTimeout(this.keyBatchTimeout);
       this.keyBatchTimeout = null;
     }
-    if (this.literalBatchTimeout) {
-      clearTimeout(this.literalBatchTimeout);
-      this.literalBatchTimeout = null;
-    }
-
-    // Flush special keys
-    for (const [session, keys] of this.pendingKeys) {
-      if (keys.length === 0) continue;
-      const combinedKeys = keys.join(' ');
-      const command = `send-keys -t ${session} ${combinedKeys}`;
-      this.sendCommandFireAndForget('run_tmux_command', { command });
-    }
-    this.pendingKeys.clear();
-
-    // Flush literal text
-    for (const [session, text] of this.pendingLiteralText) {
-      if (text.length === 0) continue;
-      const escaped = escapeLiteralText(text);
-      const command = `send-keys -t ${session} -l ${escaped}`;
-      this.sendCommandFireAndForget('run_tmux_command', { command });
-    }
-    this.pendingLiteralText.clear();
+    this.flushKeyBatch();
   }
 
+  // Serialized send queue: ensures keystroke HTTP requests are sent one at a
+  // time so they arrive at the server in order.  Without this, concurrent
+  // fire-and-forget POSTs can arrive out of order, causing character
+  // transposition.
+  private sendQueue: Promise<void> = Promise.resolve();
+
   /**
-   * Send a command without waiting for response (fire and forget)
+   * Send a command in order (serialized, but caller doesn't await)
    */
   private sendCommandFireAndForget(cmd: string, args: Record<string, unknown>): void {
     if (!this.sessionToken) {
@@ -410,17 +357,21 @@ export class HttpAdapter implements TmuxAdapter {
     const protocol = window.location.protocol;
     const host = window.location.host || 'localhost:3853';
     const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
+    const token = this.sessionToken;
 
-    fetch(commandsUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Session-Token': this.sessionToken,
-      },
-      body: JSON.stringify({ cmd, args }),
-    }).catch(() => {
-      // Ignore errors for fire-and-forget commands
-    });
+    // Chain onto the serial queue so requests go one at a time
+    this.sendQueue = this.sendQueue.then(() =>
+      fetch(commandsUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': token,
+        },
+        body: JSON.stringify({ cmd, args }),
+      })
+        .then(() => {})
+        .catch(() => {}),
+    );
   }
 
   /**

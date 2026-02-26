@@ -205,7 +205,7 @@ describe('Scenario 2: Keyboard Basics', () => {
     await pressEnter(ctx.page);
     await delay(DELAYS.EXTRA_LONG);
     await sendKeyCombo(ctx.page, 'Control', 'c');
-    await delay(DELAYS.LONG);
+    await delay(DELAYS.SYNC);
     await runCommand(ctx.page, 'echo "after_interrupt"', 'after_interrupt');
 
     // Step 5: Ctrl+D sends EOF

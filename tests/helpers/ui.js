@@ -148,11 +148,12 @@ async function typeInTerminal(page, text) {
     await page.click('body');
   }
   await delay(DELAYS.MEDIUM);
-  // Per-character typing with small delay — the HttpAdapter batches literal
-  // characters into a single send-keys -l command, preventing transposition.
+  // Per-character typing with delay — the HttpAdapter batches literal
+  // characters into a single send-keys -l command and serializes HTTP
+  // requests, preventing transposition.
   for (const char of text) {
     await page.keyboard.type(char);
-    await delay(10);
+    await delay(30);
   }
 }
 

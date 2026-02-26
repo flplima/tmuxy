@@ -1084,6 +1084,7 @@ async fn start_monitoring_control_mode(
         throttle_interval: Duration::from_millis(16),
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),
+        working_dir: Some(crate::find_workspace_root()),
     };
 
     let mut backoff = Duration::from_millis(100);

@@ -60,6 +60,10 @@ pub struct MonitorConfig {
 
     /// Window for counting events to detect high-frequency output.
     pub rate_window: Duration,
+
+    /// Working directory for the tmux control mode process.
+    /// run-shell commands resolve relative paths from this directory.
+    pub working_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for MonitorConfig {
@@ -71,6 +75,7 @@ impl Default for MonitorConfig {
             throttle_interval: Duration::from_millis(16), // ~60fps when throttling
             throttle_threshold: 20,                       // >20 events/100ms triggers throttle
             rate_window: Duration::from_millis(100),
+            working_dir: None,
         }
     }
 }
@@ -104,14 +109,20 @@ impl TmuxMonitor {
     pub async fn connect(config: MonitorConfig) -> Result<(Self, MonitorCommandSender), String> {
         // First try to attach to existing session
         // If that fails and create_session is true, create a new session
-        let connection = match ControlModeConnection::connect(&config.session).await {
-            Ok(conn) => conn,
-            Err(e) if config.create_session && e.contains("does not exist") => {
-                // Session doesn't exist, try to create it
-                ControlModeConnection::new_session(&config.session).await?
-            }
-            Err(e) => return Err(e),
-        };
+        let connection =
+            match ControlModeConnection::connect(&config.session, config.working_dir.as_deref())
+                .await
+            {
+                Ok(conn) => conn,
+                Err(e) if config.create_session && e.contains("does not exist") => {
+                    ControlModeConnection::new_session(
+                        &config.session,
+                        config.working_dir.as_deref(),
+                    )
+                    .await?
+                }
+                Err(e) => return Err(e),
+            };
 
         let (command_tx, command_rx) = mpsc::channel(32);
 
@@ -235,7 +246,6 @@ impl TmuxMonitor {
             tokio::select! {
                 // Process control mode events
                 event = self.connection.recv() => {
-                    eprintln!("[monitor] recv() returned: {:?}", event.as_ref().map(std::mem::discriminant));
                     match event {
                         Some(ControlModeEvent::Exit { reason }) => {
                             let msg = reason.unwrap_or_else(|| "disconnected".to_string());
