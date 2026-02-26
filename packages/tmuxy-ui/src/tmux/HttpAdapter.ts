@@ -6,53 +6,11 @@ import {
   ReconnectionListener,
   KeyBindingsListener,
   ServerState,
-  ServerPane,
-  ServerWindow,
   StateUpdate,
-  ServerDelta,
-  PaneDelta,
-  WindowDelta,
   KeyBindings,
 } from './types';
-
-// Batching constants
-const KEY_BATCH_INTERVAL_MS = 16; // Batch keystrokes within ~1 frame
-
-/**
- * Escape text for use with tmux send-keys -l (literal mode).
- * Wraps in single quotes, escaping internal single quotes.
- */
-function escapeLiteralText(text: string): string {
-  return "'" + text.replace(/'/g, "'\\''") + "'";
-}
-
-/**
- * Unescape literal text from tmux send-keys -l format.
- * Reverses: 'text' → text, 'it'\''s' → it's
- */
-function unescapeLiteralText(escaped: string): string {
-  // Must start and end with single quote (possibly with '\'' sequences)
-  if (!escaped.startsWith("'")) return escaped;
-  // Remove outer quotes and unescape internal '\'' sequences
-  // The pattern is: 'text' with internal quotes escaped as '\''
-  // So 'it'\''s' is: 'it' + \' + 's' → it's
-  let result = '';
-  let i = 1; // skip opening quote
-  while (i < escaped.length) {
-    if (escaped[i] === "'" && escaped.substring(i, i + 4) === "'\\''" && i + 4 <= escaped.length) {
-      // Found '\'' escape sequence
-      result += "'";
-      i += 4;
-    } else if (escaped[i] === "'") {
-      // Closing quote
-      break;
-    } else {
-      result += escaped[i];
-      i++;
-    }
-  }
-  return result;
-}
+import { handleStateUpdate } from './deltaProtocol';
+import { KeyBatcher } from './keyBatching';
 
 // Reconnection constants (for EventSource manual reconnection with backoff)
 const MAX_RECONNECT_DELAY_MS = 30000;
@@ -86,19 +44,11 @@ export class HttpAdapter implements TmuxAdapter {
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
 
-  // Unified keystroke batching: ordered list of tmux commands per session.
-  // Literal chars accumulate as raw text in the last entry (if it's a literal
-  // entry); special keys are stored as individual command strings.  On flush,
-  // each entry becomes one tmux command and they're sent \n-joined in a single
-  // HTTP POST so the backend processes them atomically and in order.
-  private pendingKeyCommands: Map<
-    string,
-    Array<{ type: 'literal'; text: string } | { type: 'special'; keys: string[] }>
-  > = new Map();
-  private keyBatchTimeout: ReturnType<typeof setTimeout> | null = null;
-
   // Delta protocol state
   private currentState: ServerState | null = null;
+
+  // Keyboard batching
+  private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
 
   connect(): Promise<void> {
     if (this.connected && this.eventSource) return Promise.resolve();
@@ -140,7 +90,11 @@ export class HttpAdapter implements TmuxAdapter {
           const data = JSON.parse(event.data);
           // Handle nested structure from server
           const update: StateUpdate = data.data || data;
-          this.handleStateUpdate(update);
+          const newState = handleStateUpdate(update, this.currentState);
+          if (newState) {
+            this.currentState = newState;
+            this.notifyStateChange(newState);
+          }
         } catch (e) {
           console.error('Failed to parse state-update:', e);
         }
@@ -195,18 +149,12 @@ export class HttpAdapter implements TmuxAdapter {
     this.reconnectAttempts = 0;
     this.reconnecting = false;
 
-    // Clear any pending reconnect timeout
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
 
-    // Clear any pending key batch timeout
-    if (this.keyBatchTimeout) {
-      clearTimeout(this.keyBatchTimeout);
-      this.keyBatchTimeout = null;
-    }
-    this.pendingKeyCommands.clear();
+    this.keyBatcher.destroy();
 
     if (this.eventSource) {
       this.eventSource.close();
@@ -234,108 +182,14 @@ export class HttpAdapter implements TmuxAdapter {
     }
 
     // Check if this is a send-keys command that should be batched
-    if (cmd === 'run_tmux_command' && args?.command) {
-      const command = args.command as string;
-
-      // Match literal send-keys: send-keys -t SESSION -l 'ESCAPED_TEXT'
-      const literalMatch = command.match(/^send-keys -t (\S+) -l (.+)$/);
-      if (literalMatch) {
-        const [, session, escapedText] = literalMatch;
-        const rawText = unescapeLiteralText(escapedText);
-
-        if (!this.pendingKeyCommands.has(session)) {
-          this.pendingKeyCommands.set(session, []);
-        }
-        const queue = this.pendingKeyCommands.get(session)!;
-
-        // Coalesce with previous literal entry if it exists
-        const last = queue[queue.length - 1];
-        if (last && last.type === 'literal') {
-          last.text += rawText;
-        } else {
-          queue.push({ type: 'literal', text: rawText });
-        }
-
-        // Schedule flush if not already scheduled
-        if (!this.keyBatchTimeout) {
-          this.keyBatchTimeout = setTimeout(() => this.flushKeyBatch(), KEY_BATCH_INTERVAL_MS);
-        }
-
-        return Promise.resolve(undefined as T);
-      }
-
-      // Match special (non-literal) send-keys: send-keys -t SESSION KEYS
-      const sendKeysMatch = command.match(/^send-keys -t (\S+) (?!-l )(.+)$/);
-      if (sendKeysMatch) {
-        const [, session, keys] = sendKeysMatch;
-
-        if (!this.pendingKeyCommands.has(session)) {
-          this.pendingKeyCommands.set(session, []);
-        }
-        const queue = this.pendingKeyCommands.get(session)!;
-
-        // Coalesce with previous special entry if it exists
-        const last = queue[queue.length - 1];
-        if (last && last.type === 'special') {
-          last.keys.push(keys);
-        } else {
-          queue.push({ type: 'special', keys: [keys] });
-        }
-
-        // Schedule flush if not already scheduled
-        if (!this.keyBatchTimeout) {
-          this.keyBatchTimeout = setTimeout(() => this.flushKeyBatch(), KEY_BATCH_INTERVAL_MS);
-        }
-
-        return Promise.resolve(undefined as T);
-      }
+    if (this.keyBatcher.intercept(cmd, args)) {
+      return Promise.resolve(undefined as T);
     }
 
     // Non-send-keys command: flush all pending batches first to preserve ordering
-    this.flushAllBatches();
+    this.keyBatcher.flushAll();
 
     return this.invokeInternal(cmd, args);
-  }
-
-  /**
-   * Flush all batched keystrokes to tmux.
-   * Converts the ordered queue for each session into \n-joined tmux commands
-   * sent in a single HTTP POST, preserving the exact keystroke order.
-   */
-  private flushKeyBatch(): void {
-    this.keyBatchTimeout = null;
-
-    for (const [session, queue] of this.pendingKeyCommands) {
-      if (queue.length === 0) continue;
-
-      const commands: string[] = [];
-      for (const entry of queue) {
-        if (entry.type === 'literal') {
-          commands.push(`send-keys -t ${session} -l ${escapeLiteralText(entry.text)}`);
-        } else {
-          commands.push(`send-keys -t ${session} ${entry.keys.join(' ')}`);
-        }
-      }
-
-      // Send all commands as \n-joined string — the backend writes this to
-      // control mode stdin and processes each line as a separate command in order.
-      this.sendCommandFireAndForget('run_tmux_command', {
-        command: commands.join('\n'),
-      });
-    }
-
-    this.pendingKeyCommands.clear();
-  }
-
-  /**
-   * Flush all pending batches (called before non-batched commands)
-   */
-  private flushAllBatches(): void {
-    if (this.keyBatchTimeout) {
-      clearTimeout(this.keyBatchTimeout);
-      this.keyBatchTimeout = null;
-    }
-    this.flushKeyBatch();
   }
 
   // Serialized send queue: ensures keystroke HTTP requests are sent one at a
@@ -478,158 +332,5 @@ export class HttpAdapter implements TmuxAdapter {
 
   private notifyKeyBindings(keybindings: KeyBindings): void {
     this.keyBindingsListeners.forEach((listener) => listener(keybindings));
-  }
-
-  /**
-   * Handle StateUpdate (full or delta)
-   */
-  private handleStateUpdate(update: StateUpdate): void {
-    if (update.type === 'full') {
-      this.currentState = update.state;
-      this.notifyStateChange(update.state);
-    } else if (update.type === 'delta') {
-      const delta = update.delta;
-
-      if (this.currentState === null) {
-        console.warn('Received delta before full state, ignoring');
-        return;
-      }
-
-      const newState = this.applyDelta(this.currentState, delta);
-      this.currentState = newState;
-      this.notifyStateChange(newState);
-    }
-  }
-
-  /**
-   * Apply a delta to the current state and return a new state
-   */
-  private applyDelta(state: ServerState, delta: ServerDelta): ServerState {
-    const newState: ServerState = { ...state };
-
-    // Apply top-level field changes
-    if (delta.active_window_id !== undefined) {
-      newState.active_window_id = delta.active_window_id;
-    }
-    if (delta.active_pane_id !== undefined) {
-      newState.active_pane_id = delta.active_pane_id;
-    }
-    if (delta.status_line !== undefined) {
-      newState.status_line = delta.status_line;
-    }
-    if (delta.total_width !== undefined) {
-      newState.total_width = delta.total_width;
-    }
-    if (delta.total_height !== undefined) {
-      newState.total_height = delta.total_height;
-    }
-
-    // Apply pane changes
-    if (delta.panes || delta.new_panes) {
-      const paneMap = new Map<string, ServerPane>();
-      for (const pane of state.panes) {
-        paneMap.set(pane.tmux_id, pane);
-      }
-
-      if (delta.panes) {
-        for (const [paneId, paneDelta] of Object.entries(delta.panes)) {
-          if (paneDelta === null) {
-            paneMap.delete(paneId);
-          } else {
-            const existing = paneMap.get(paneId);
-            if (existing) {
-              paneMap.set(paneId, this.applyPaneDelta(existing, paneDelta));
-            }
-          }
-        }
-      }
-
-      if (delta.new_panes) {
-        for (const newPane of delta.new_panes) {
-          paneMap.set(newPane.tmux_id, newPane);
-        }
-      }
-
-      newState.panes = Array.from(paneMap.values());
-    }
-
-    // Apply window changes
-    if (delta.windows || delta.new_windows) {
-      const windowMap = new Map<string, ServerWindow>();
-      for (const window of state.windows) {
-        windowMap.set(window.id, window);
-      }
-
-      if (delta.windows) {
-        for (const [windowId, windowDelta] of Object.entries(delta.windows)) {
-          if (windowDelta === null) {
-            windowMap.delete(windowId);
-          } else {
-            const existing = windowMap.get(windowId);
-            if (existing) {
-              windowMap.set(windowId, this.applyWindowDelta(existing, windowDelta));
-            }
-          }
-        }
-      }
-
-      if (delta.new_windows) {
-        for (const newWindow of delta.new_windows) {
-          windowMap.set(newWindow.id, newWindow);
-        }
-      }
-
-      newState.windows = Array.from(windowMap.values());
-    }
-
-    return newState;
-  }
-
-  /**
-   * Apply a pane delta to an existing pane
-   */
-  private applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
-    return {
-      ...pane,
-      ...(delta.window_id !== undefined && { window_id: delta.window_id }),
-      ...(delta.content !== undefined && { content: delta.content }),
-      ...(delta.cursor_x !== undefined && { cursor_x: delta.cursor_x }),
-      ...(delta.cursor_y !== undefined && { cursor_y: delta.cursor_y }),
-      ...(delta.width !== undefined && { width: delta.width }),
-      ...(delta.height !== undefined && { height: delta.height }),
-      ...(delta.x !== undefined && { x: delta.x }),
-      ...(delta.y !== undefined && { y: delta.y }),
-      ...(delta.active !== undefined && { active: delta.active }),
-      ...(delta.command !== undefined && { command: delta.command }),
-      ...(delta.title !== undefined && { title: delta.title }),
-      ...(delta.border_title !== undefined && { border_title: delta.border_title }),
-      ...(delta.in_mode !== undefined && { in_mode: delta.in_mode }),
-      ...(delta.copy_cursor_x !== undefined && { copy_cursor_x: delta.copy_cursor_x }),
-      ...(delta.copy_cursor_y !== undefined && { copy_cursor_y: delta.copy_cursor_y }),
-      ...(delta.alternate_on !== undefined && { alternate_on: delta.alternate_on }),
-      ...(delta.mouse_any_flag !== undefined && { mouse_any_flag: delta.mouse_any_flag }),
-      ...(delta.paused !== undefined && { paused: delta.paused }),
-      ...(delta.history_size !== undefined && { history_size: delta.history_size }),
-      ...(delta.selection_present !== undefined && { selection_present: delta.selection_present }),
-      ...(delta.selection_start_x !== undefined && { selection_start_x: delta.selection_start_x }),
-      ...(delta.selection_start_y !== undefined && { selection_start_y: delta.selection_start_y }),
-    };
-  }
-
-  /**
-   * Apply a window delta to an existing window
-   */
-  private applyWindowDelta(window: ServerWindow, delta: WindowDelta): ServerWindow {
-    return {
-      ...window,
-      ...(delta.name !== undefined && { name: delta.name }),
-      ...(delta.active !== undefined && { active: delta.active }),
-      ...(delta.is_pane_group_window !== undefined && {
-        is_pane_group_window: delta.is_pane_group_window,
-      }),
-      ...(delta.pane_group_pane_ids !== undefined && {
-        pane_group_pane_ids: delta.pane_group_pane_ids,
-      }),
-    };
   }
 }

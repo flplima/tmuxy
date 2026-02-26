@@ -58,6 +58,10 @@ pub async fn start_monitoring(app: AppHandle) {
         match TmuxMonitor::connect(config.clone()).await {
             Ok(mut monitor) => {
                 backoff = Duration::from_millis(100); // Reset on success
+
+                // Emit keybindings on each successful connection
+                emit_keybindings(&app);
+
                 monitor.run(&emitter).await;
                 // If we get here, the connection was closed - continue to reconnect
             }
@@ -69,5 +73,22 @@ pub async fn start_monitoring(app: AppHandle) {
         // Exponential backoff before retry
         tokio::time::sleep(backoff).await;
         backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
+    }
+}
+
+/// Emit keybindings to the frontend after a successful connection
+fn emit_keybindings(app: &AppHandle) {
+    let prefix_key = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into());
+    let prefix_bindings = tmuxy_core::get_prefix_bindings().unwrap_or_default();
+    let root_bindings = tmuxy_core::get_root_bindings().unwrap_or_default();
+
+    let payload = serde_json::json!({
+        "prefix_key": prefix_key,
+        "prefix_bindings": prefix_bindings,
+        "root_bindings": root_bindings,
+    });
+
+    if let Err(e) = app.emit("tmux-keybindings", &payload) {
+        eprintln!("Failed to emit keybindings: {}", e);
     }
 }
