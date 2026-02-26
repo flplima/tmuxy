@@ -372,6 +372,11 @@ pub struct WindowState {
 
     /// Float height in chars (from @float_height option)
     pub float_height: Option<u32>,
+
+    /// Whether this window has been confirmed by a list-windows response.
+    /// Windows added by events (WindowAdd, WindowRenamed) start as unconfirmed.
+    /// Only confirmed windows are eligible for cleanup when missing from list-windows.
+    pub confirmed_by_list: bool,
 }
 
 impl WindowState {
@@ -385,6 +390,7 @@ impl WindowState {
             float_parent: None,
             float_width: None,
             float_height: None,
+            confirmed_by_list: false,
         }
     }
 
@@ -1100,10 +1106,15 @@ impl StateAggregator {
             }
         }
 
-        // Remove windows that weren't in the list-windows response (deleted in tmux)
+        // Remove windows that weren't in the list-windows response (deleted in tmux).
+        // Only remove windows that were previously confirmed by a list-windows response.
+        // Windows freshly added by events (WindowAdd/WindowRenamed) but not yet seen in
+        // a list-windows response are kept — the list-windows may have been sent before
+        // the window was created (stale response).
         if is_list_windows_response && !seen_windows.is_empty() {
-            self.windows
-                .retain(|window_id, _| seen_windows.contains(window_id));
+            self.windows.retain(|window_id, window| {
+                seen_windows.contains(window_id) || !window.confirmed_by_list
+            });
         }
 
         // Refresh status line on periodic sync (list-windows response)
@@ -1283,6 +1294,7 @@ impl StateAggregator {
         window.float_parent = float_parent;
         window.float_width = float_width;
         window.float_height = float_height;
+        window.confirmed_by_list = true;
 
         if active {
             self.active_window_id = Some(window_id.to_string());
