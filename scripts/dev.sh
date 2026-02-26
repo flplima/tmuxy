@@ -2,7 +2,7 @@
 #
 # Development server with hot reload
 #
-# - Watches Rust files (tmuxy-core, web-server) and restarts on change
+# - Watches Rust files (tmuxy-core, web-server) and rebuilds/restarts on change
 # - Vite HMR is handled automatically via the web-server proxy
 #
 # Usage:
@@ -29,6 +29,9 @@ echo "[dev] Watching: packages/tmuxy-core/src, packages/web-server/src"
 echo "[dev] Vite HMR is automatic via proxy to port 1420"
 echo ""
 
-# Kill any existing tmuxy session, then start the server
+# Kill any existing tmuxy session, then start the server with file watching
 tmux kill-session -t tmuxy 2>/dev/null || true
-exec cargo run -p web-server -- --dev
+exec cargo watch \
+    -w packages/tmuxy-core/src \
+    -w packages/web-server/src \
+    -x 'run -p web-server -- --dev'
