@@ -469,10 +469,11 @@ async fn handle_command(
         }
         "new_window" => {
             // neww crashes tmux 3.5a control mode — use split+break workaround.
-            // Compound command: splitw makes the new pane active, then breakp -d
-            // breaks it into its own window. The ; ensures both run as a single
-            // atomic operation with no intermediate state notifications.
-            let cmd = format!("splitw -t {} ; breakp -d", session);
+            // Compound command: splitw makes the new pane active, then breakp
+            // breaks it into its own window and switches to it (matching neww behavior).
+            // The ; ensures both run as a single atomic operation with no intermediate
+            // state notifications.
+            let cmd = format!("splitw -t {} ; breakp", session);
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
         }
@@ -554,7 +555,7 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if key == "c" {
-                let cmd = format!("splitw -t {} ; breakp -d", session);
+                let cmd = format!("splitw -t {} ; breakp", session);
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
@@ -622,7 +623,7 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if command.starts_with("new-window") || command.starts_with("neww") {
-                let cmd = format!("splitw -t {} ; breakp -d", session);
+                let cmd = format!("splitw -t {} ; breakp", session);
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
