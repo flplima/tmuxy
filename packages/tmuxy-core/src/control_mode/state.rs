@@ -1085,11 +1085,25 @@ impl StateAggregator {
 
         // Try to parse as list-windows output
         let mut is_list_windows_response = false;
+        let mut seen_windows: std::collections::HashSet<String> = std::collections::HashSet::new();
         for line in output.lines() {
             if line.contains('@') && line.contains(',') {
+                // Extract window_id before parsing (first field starts with @)
+                if let Some(wid) = line.split(',').next() {
+                    let wid = wid.trim();
+                    if wid.starts_with('@') {
+                        seen_windows.insert(wid.to_string());
+                    }
+                }
                 self.parse_list_windows_line(line);
                 is_list_windows_response = true;
             }
+        }
+
+        // Remove windows that weren't in the list-windows response (deleted in tmux)
+        if is_list_windows_response && !seen_windows.is_empty() {
+            self.windows
+                .retain(|window_id, _| seen_windows.contains(window_id));
         }
 
         // Refresh status line on periodic sync (list-windows response)
