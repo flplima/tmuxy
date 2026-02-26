@@ -18,6 +18,42 @@ import {
 // Batching constants
 const KEY_BATCH_INTERVAL_MS = 16; // Batch keystrokes within ~1 frame
 
+/**
+ * Escape text for use with tmux send-keys -l (literal mode).
+ * Wraps in single quotes, escaping internal single quotes.
+ */
+function escapeLiteralText(text: string): string {
+  return "'" + text.replace(/'/g, "'\\''") + "'";
+}
+
+/**
+ * Unescape literal text from tmux send-keys -l format.
+ * Reverses: 'text' → text, 'it'\''s' → it's
+ */
+function unescapeLiteralText(escaped: string): string {
+  // Must start and end with single quote (possibly with '\'' sequences)
+  if (!escaped.startsWith("'")) return escaped;
+  // Remove outer quotes and unescape internal '\'' sequences
+  // The pattern is: 'text' with internal quotes escaped as '\''
+  // So 'it'\''s' is: 'it' + \' + 's' → it's
+  let result = '';
+  let i = 1; // skip opening quote
+  while (i < escaped.length) {
+    if (escaped[i] === "'" && escaped.substring(i, i + 4) === "'\\''" && i + 4 <= escaped.length) {
+      // Found '\'' escape sequence
+      result += "'";
+      i += 4;
+    } else if (escaped[i] === "'") {
+      // Closing quote
+      break;
+    } else {
+      result += escaped[i];
+      i++;
+    }
+  }
+  return result;
+}
+
 // Reconnection constants (for EventSource manual reconnection with backoff)
 const MAX_RECONNECT_DELAY_MS = 30000;
 const INITIAL_RECONNECT_DELAY_MS = 1000;
@@ -50,9 +86,13 @@ export class HttpAdapter implements TmuxAdapter {
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
 
-  // Keyboard batching state
+  // Keyboard batching state (special keys like Enter, Tab, arrows)
   private pendingKeys: Map<string, string[]> = new Map(); // session -> keys[]
   private keyBatchTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  // Literal text batching state (printable characters via send-keys -l)
+  private pendingLiteralText: Map<string, string> = new Map(); // session -> raw text
+  private literalBatchTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Delta protocol state
   private currentState: ServerState | null = null;
@@ -158,12 +198,18 @@ export class HttpAdapter implements TmuxAdapter {
       this.reconnectTimeout = null;
     }
 
-    // Clear any pending key batch timeout
+    // Clear any pending key batch timeouts
     if (this.keyBatchTimeout) {
       clearTimeout(this.keyBatchTimeout);
       this.keyBatchTimeout = null;
     }
     this.pendingKeys.clear();
+
+    if (this.literalBatchTimeout) {
+      clearTimeout(this.literalBatchTimeout);
+      this.literalBatchTimeout = null;
+    }
+    this.pendingLiteralText.clear();
 
     if (this.eventSource) {
       this.eventSource.close();
@@ -193,10 +239,46 @@ export class HttpAdapter implements TmuxAdapter {
     // Check if this is a send-keys command that should be batched
     if (cmd === 'run_tmux_command' && args?.command) {
       const command = args.command as string;
-      const sendKeysMatch = command.match(/^send-keys -t (\S+) (?!-l )(.+)$/);
 
+      // Match literal send-keys: send-keys -t SESSION -l 'ESCAPED_TEXT'
+      const literalMatch = command.match(/^send-keys -t (\S+) -l (.+)$/);
+      if (literalMatch) {
+        const [, session, escapedText] = literalMatch;
+        const rawText = unescapeLiteralText(escapedText);
+
+        // Cross-batch ordering: flush pending special keys for this session first
+        if (this.pendingKeys.has(session) && this.pendingKeys.get(session)!.length > 0) {
+          this.flushKeyBatchForSession(session);
+        }
+
+        // Accumulate literal text
+        const existing = this.pendingLiteralText.get(session) || '';
+        this.pendingLiteralText.set(session, existing + rawText);
+
+        // Schedule flush if not already scheduled
+        if (!this.literalBatchTimeout) {
+          this.literalBatchTimeout = setTimeout(
+            () => this.flushLiteralBatch(),
+            KEY_BATCH_INTERVAL_MS,
+          );
+        }
+
+        // Return immediately - fire and forget
+        return Promise.resolve(undefined as T);
+      }
+
+      // Match special (non-literal) send-keys: send-keys -t SESSION KEYS
+      const sendKeysMatch = command.match(/^send-keys -t (\S+) (?!-l )(.+)$/);
       if (sendKeysMatch) {
         const [, session, keys] = sendKeysMatch;
+
+        // Cross-batch ordering: flush pending literal text for this session first
+        if (
+          this.pendingLiteralText.has(session) &&
+          this.pendingLiteralText.get(session)!.length > 0
+        ) {
+          this.flushLiteralBatchForSession(session);
+        }
 
         // Add keys to pending batch
         if (!this.pendingKeys.has(session)) {
@@ -214,11 +296,14 @@ export class HttpAdapter implements TmuxAdapter {
       }
     }
 
+    // Non-send-keys command: flush all pending batches first to preserve ordering
+    this.flushAllBatches();
+
     return this.invokeInternal(cmd, args);
   }
 
   /**
-   * Flush batched keystrokes to tmux
+   * Flush batched special keystrokes to tmux
    */
   private flushKeyBatch(): void {
     this.keyBatchTimeout = null;
@@ -235,6 +320,81 @@ export class HttpAdapter implements TmuxAdapter {
     }
 
     this.pendingKeys.clear();
+  }
+
+  /**
+   * Flush pending special keys for a single session (cross-batch ordering)
+   */
+  private flushKeyBatchForSession(session: string): void {
+    const keys = this.pendingKeys.get(session);
+    if (!keys || keys.length === 0) return;
+
+    const combinedKeys = keys.join(' ');
+    const command = `send-keys -t ${session} ${combinedKeys}`;
+    this.sendCommandFireAndForget('run_tmux_command', { command });
+    this.pendingKeys.delete(session);
+  }
+
+  /**
+   * Flush batched literal text to tmux
+   */
+  private flushLiteralBatch(): void {
+    this.literalBatchTimeout = null;
+
+    for (const [session, text] of this.pendingLiteralText) {
+      if (text.length === 0) continue;
+
+      const escaped = escapeLiteralText(text);
+      const command = `send-keys -t ${session} -l ${escaped}`;
+      this.sendCommandFireAndForget('run_tmux_command', { command });
+    }
+
+    this.pendingLiteralText.clear();
+  }
+
+  /**
+   * Flush pending literal text for a single session (cross-batch ordering)
+   */
+  private flushLiteralBatchForSession(session: string): void {
+    const text = this.pendingLiteralText.get(session);
+    if (!text || text.length === 0) return;
+
+    const escaped = escapeLiteralText(text);
+    const command = `send-keys -t ${session} -l ${escaped}`;
+    this.sendCommandFireAndForget('run_tmux_command', { command });
+    this.pendingLiteralText.delete(session);
+  }
+
+  /**
+   * Flush all pending batches (called before non-batched commands)
+   */
+  private flushAllBatches(): void {
+    if (this.keyBatchTimeout) {
+      clearTimeout(this.keyBatchTimeout);
+      this.keyBatchTimeout = null;
+    }
+    if (this.literalBatchTimeout) {
+      clearTimeout(this.literalBatchTimeout);
+      this.literalBatchTimeout = null;
+    }
+
+    // Flush special keys
+    for (const [session, keys] of this.pendingKeys) {
+      if (keys.length === 0) continue;
+      const combinedKeys = keys.join(' ');
+      const command = `send-keys -t ${session} ${combinedKeys}`;
+      this.sendCommandFireAndForget('run_tmux_command', { command });
+    }
+    this.pendingKeys.clear();
+
+    // Flush literal text
+    for (const [session, text] of this.pendingLiteralText) {
+      if (text.length === 0) continue;
+      const escaped = escapeLiteralText(text);
+      const command = `send-keys -t ${session} -l ${escaped}`;
+      this.sendCommandFireAndForget('run_tmux_command', { command });
+    }
+    this.pendingLiteralText.clear();
   }
 
   /**

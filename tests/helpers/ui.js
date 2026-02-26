@@ -37,7 +37,24 @@ async function sendKeyCombo(page, ...keys) {
 }
 
 /**
- * Send tmux prefix key (Ctrl+A for tmuxy)
+ * Read the tmux prefix key from the browser's XState context.
+ * Returns { modifier, key } e.g. { modifier: 'Control', key: 'b' } for C-b.
+ * Falls back to Ctrl+B (tmux default) if not available.
+ */
+async function getPrefixKey(page) {
+  const prefixStr = await page.evaluate(() => {
+    return window.app?.getSnapshot()?.context?.keybindings?.prefix_key;
+  });
+  // Parse "C-b" or "C-a" style prefix key strings
+  if (prefixStr && prefixStr.startsWith('C-')) {
+    return { modifier: 'Control', key: prefixStr.slice(2) };
+  }
+  // Default to Ctrl+B (tmux default)
+  return { modifier: 'Control', key: 'b' };
+}
+
+/**
+ * Send tmux prefix key (dynamically read from XState keybindings)
  * Includes a longer delay to allow tmux to enter prefix mode
  */
 async function sendTmuxPrefix(page) {
@@ -50,12 +67,13 @@ async function sendTmuxPrefix(page) {
   }
   await delay(DELAYS.MEDIUM);
 
-  // Send Ctrl+A with explicit timing
-  await page.keyboard.down('Control');
+  // Read the actual prefix key from the browser's XState context
+  const prefix = await getPrefixKey(page);
+  await page.keyboard.down(prefix.modifier);
   await delay(50);
-  await page.keyboard.press('a');
+  await page.keyboard.press(prefix.key);
   await delay(50);
-  await page.keyboard.up('Control');
+  await page.keyboard.up(prefix.modifier);
 
   // Use PREFIX delay to give tmux time to enter prefix mode
   await delay(DELAYS.PREFIX);
@@ -83,12 +101,13 @@ async function sendPrefixCommand(page, key, options = {}) {
   }
   await delay(DELAYS.MEDIUM);
 
-  // Send prefix (Ctrl+A) with explicit key timing
-  await page.keyboard.down('Control');
+  // Read the actual prefix key from the browser's XState context
+  const prefix = await getPrefixKey(page);
+  await page.keyboard.down(prefix.modifier);
   await delay(50);
-  await page.keyboard.press('a');
+  await page.keyboard.press(prefix.key);
   await delay(50);
-  await page.keyboard.up('Control');
+  await page.keyboard.up(prefix.modifier);
 
   // Wait for tmux to enter prefix mode - this is critical
   // The key needs to travel: browser -> SSE/HTTP -> server -> tmux
@@ -129,11 +148,11 @@ async function typeInTerminal(page, text) {
     await page.click('body');
   }
   await delay(DELAYS.MEDIUM);
-  // Use per-character typing with 50ms delay to prevent character transposition
-  // in the terminal emulator (headless Chrome → SSE/HTTP → tmux pipeline)
+  // Per-character typing with small delay — the HttpAdapter batches literal
+  // characters into a single send-keys -l command, preventing transposition.
   for (const char of text) {
     await page.keyboard.type(char);
-    await delay(50);
+    await delay(10);
   }
 }
 
@@ -266,24 +285,6 @@ async function uiContainsText(page, text) {
 async function runCommand(page, command, expectedOutput, timeout = 10000) {
   await typeInTerminal(page, command);
   await pressEnter(page);
-  return await waitForTerminalText(page, expectedOutput, timeout);
-}
-
-/**
- * Run a command via tmux send-keys (more reliable than browser typing)
- * and wait for the output to appear in the browser.
- * Use this when testing UI behavior, not keyboard input handling.
- *
- * @param {TmuxTestSession} session - The tmux test session
- * @param {Page} page - Playwright page
- * @param {string} command - The command to run
- * @param {string} expectedOutput - Text to wait for in terminal
- * @param {number} timeout - Timeout in ms
- */
-async function runCommandViaTmux(session, page, command, expectedOutput, timeout = 15000) {
-  // Use tmux send-keys with literal flag for reliable input
-  await session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
-  await session.runCommand(`send-keys -t ${session.name} Enter`);
   return await waitForTerminalText(page, expectedOutput, timeout);
 }
 
@@ -434,7 +435,9 @@ async function splitPaneUI(page, direction = 'horizontal') {
 // ==================== Navigation Operations ====================
 
 /**
- * Navigate to pane via keyboard
+ * Navigate to pane via keyboard using root bindings (Ctrl+arrow).
+ * The .tmuxy.conf binds Ctrl+arrow keys as root bindings (no prefix needed)
+ * for pane navigation: C-Up=select-pane -U, C-Down=select-pane -D, etc.
  */
 async function navigatePaneKeyboard(page, direction) {
   const keyMap = {
@@ -442,11 +445,16 @@ async function navigatePaneKeyboard(page, direction) {
     down: 'ArrowDown',
     left: 'ArrowLeft',
     right: 'ArrowRight',
-    next: 'o',
   };
 
-  const key = keyMap[direction] || direction;
-  await sendPrefixCommand(page, key);
+  const key = keyMap[direction];
+  if (key) {
+    // Use Ctrl+arrow root binding (no prefix needed)
+    await sendKeyCombo(page, 'Control', key);
+    await delay(DELAYS.LONG);
+  } else if (direction === 'next') {
+    await sendPrefixCommand(page, 'o');
+  }
 }
 
 // ==================== Swap Operations ====================
@@ -477,11 +485,39 @@ async function toggleZoomKeyboard(page) {
 // ==================== Window Operations ====================
 
 /**
- * Create new window via keyboard
+ * Create new window via tmux commands.
+ * Uses split-window + break-pane workaround because new-window crashes
+ * tmux 3.5a when routed through control mode. The split-window creates a
+ * pane, break-pane moves it to its own window (and switches to it).
  */
 async function createWindowKeyboard(page) {
-  await sendPrefixCommand(page, 'c');
-  await delay(DELAYS.LONG);
+  // Get current pane count before splitting
+  const beforeCount = await getUIPaneCount(page);
+  // Step 1: split-window -d creates a background pane (doesn't switch focus)
+  await tmuxCommandKeyboard(page, 'split-window -d');
+  // Wait for the split to actually produce a new pane in the UI
+  const expectedAfterSplit = beforeCount + 1;
+  for (let i = 0; i < 20; i++) {
+    const count = await getUIPaneCount(page);
+    if (count >= expectedAfterSplit) break;
+    await delay(DELAYS.MEDIUM);
+  }
+  // Step 2: Get the new pane's tmux ID (last pane in current window by internal ID)
+  const newPaneId = await page.evaluate(() => {
+    const snap = window.app?.getSnapshot();
+    if (!snap?.context?.panes) return null;
+    const awId = snap.context.activeWindowId;
+    const windowPanes = snap.context.panes
+      .filter(p => p.windowId === awId)
+      .sort((a, b) => a.id - b.id);
+    const last = windowPanes[windowPanes.length - 1];
+    return last?.tmuxId || null;
+  });
+  if (newPaneId) {
+    // Step 3: break-pane moves it to its own window and switches to it
+    await tmuxCommandKeyboard(page, `break-pane -s ${newPaneId}`);
+  }
+  await delay(DELAYS.SYNC);
 }
 
 /**
@@ -499,21 +535,26 @@ async function prevWindowKeyboard(page) {
 }
 
 /**
- * Switch to window by number via keyboard
+ * Switch to window by number via tmux command.
+ * The .tmuxy.conf binds Alt+number as root bindings (no prefix needed)
+ * for window selection, but the keyboard actor may not route Alt reliably.
+ * Using the command prompt is more reliable.
  */
 async function selectWindowKeyboard(page, number) {
-  await sendPrefixCommand(page, String(number));
+  await tmuxCommandKeyboard(page, `select-window -t :${number}`);
 }
 
 // ==================== Kill Operations ====================
 
 /**
- * Kill pane via keyboard
- * Note: In web UI, we skip tmux's confirmation since we can't interact with it
+ * Kill pane via tmux command prompt.
+ * Note: prefix+x uses confirm-before which shows a prompt in the tmux status
+ * line. The keyboard actor routes 'y' via send-keys to the pane, not to the
+ * confirm prompt. So we use the command prompt instead.
  */
 async function killPaneKeyboard(page) {
-  await sendPrefixCommand(page, 'x');
-  await delay(DELAYS.LONG);
+  await tmuxCommandKeyboard(page, 'kill-pane');
+  await delay(DELAYS.SYNC);
 }
 
 // ==================== Layout Operations ====================
@@ -763,6 +804,139 @@ async function getUIPaneTitles(page) {
   });
 }
 
+// ==================== Tmux Command Line ====================
+
+/**
+ * Run a tmux command via the tmux command prompt (prefix+: then type command + Enter)
+ */
+async function tmuxCommandKeyboard(page, cmd) {
+  await sendPrefixCommand(page, ':');
+  await delay(DELAYS.MEDIUM);
+  // Type command character by character — adapter batching preserves order
+  for (const char of cmd) {
+    await page.keyboard.type(char);
+    await delay(10);
+  }
+  await page.keyboard.press('Enter');
+  await delay(DELAYS.LONG);
+}
+
+// ==================== Additional Window Operations ====================
+
+/**
+ * Switch to last visited window via keyboard (prefix+l)
+ */
+async function lastWindowKeyboard(page) {
+  await sendPrefixCommand(page, 'l');
+}
+
+/**
+ * Rename current window via tmux command prompt.
+ * Note: prefix+, opens a rename prompt in the tmux status line. The keyboard
+ * actor routes keystrokes via send-keys to the pane, not to the rename prompt.
+ * So we use the command prompt instead.
+ */
+async function renameWindowKeyboard(page, name) {
+  await tmuxCommandKeyboard(page, `rename-window "${name}"`);
+}
+
+/**
+ * Kill current window via tmux command prompt.
+ * Note: prefix+& uses confirm-before which shows a prompt in the tmux status
+ * line. The keyboard actor routes 'y' via send-keys to the pane, not to the
+ * confirm prompt. So we use the command prompt instead.
+ */
+async function killWindowKeyboard(page) {
+  await tmuxCommandKeyboard(page, 'kill-window');
+  await delay(DELAYS.SYNC);
+}
+
+// ==================== Layout Operations (Extended) ====================
+
+/**
+ * Select a specific layout by name via tmux command
+ */
+async function selectLayoutKeyboard(page, name) {
+  await tmuxCommandKeyboard(page, `select-layout ${name}`);
+}
+
+// ==================== Resize Operations ====================
+
+/**
+ * Resize pane via tmux command
+ * @param {string} direction - 'U', 'D', 'L', 'R'
+ * @param {number} amount - Number of cells to resize
+ */
+async function resizePaneKeyboard(page, direction, amount = 5) {
+  await tmuxCommandKeyboard(page, `resize-pane -${direction} ${amount}`);
+}
+
+// ==================== Copy Mode Operations (Extended) ====================
+
+/**
+ * Paste from tmux buffer via keyboard (prefix+])
+ */
+async function pasteBufferKeyboard(page) {
+  await sendPrefixCommand(page, ']');
+  await delay(DELAYS.LONG);
+}
+
+/**
+ * Search forward in copy mode via tmux command.
+ * Note: The browser's client-side copy mode intercepts keyboard events and
+ * doesn't support '/' search. So we send search commands through tmux.
+ */
+async function copyModeSearchForwardKeyboard(page, pattern) {
+  await tmuxCommandKeyboard(page, `send-keys -X search-forward "${pattern}"`);
+}
+
+/**
+ * Search again in copy mode via tmux command
+ */
+async function copyModeSearchAgainKeyboard(page) {
+  await tmuxCommandKeyboard(page, 'send-keys -X search-again');
+}
+
+/**
+ * Search reverse in copy mode via tmux command
+ */
+async function copyModeSearchReverseKeyboard(page) {
+  await tmuxCommandKeyboard(page, 'send-keys -X search-reverse');
+}
+
+/**
+ * Begin selection in copy mode via tmux command
+ */
+async function copyModeBeginSelectionKeyboard(page) {
+  await tmuxCommandKeyboard(page, 'send-keys -X begin-selection');
+}
+
+/**
+ * Copy selection in copy mode via tmux command
+ */
+async function copyModeCopySelectionKeyboard(page) {
+  await tmuxCommandKeyboard(page, 'send-keys -X copy-selection-and-cancel');
+  await delay(DELAYS.SYNC);
+}
+
+/**
+ * Move cursor in copy mode via tmux command.
+ * @param {string} direction - 'left', 'right', 'up', 'down'
+ * @param {number} count - Number of times to move
+ */
+async function copyModeMoveKeyboard(page, direction, count = 1) {
+  const cmdMap = {
+    left: 'cursor-left',
+    right: 'cursor-right',
+    up: 'cursor-up',
+    down: 'cursor-down',
+  };
+  const cmd = cmdMap[direction] || direction;
+  for (let i = 0; i < count; i++) {
+    await tmuxCommandKeyboard(page, `send-keys -X ${cmd}`);
+  }
+}
+
 /**
  * Paste text into the terminal via a synthetic ClipboardEvent
  */
@@ -796,7 +970,6 @@ module.exports = {
   getPaneText,
   uiContainsText,
   runCommand,
-  runCommandViaTmux,
   runCommandWithDelay,
   // UI interactions
   clickPane,
@@ -817,13 +990,28 @@ module.exports = {
   nextWindowKeyboard,
   prevWindowKeyboard,
   selectWindowKeyboard,
+  lastWindowKeyboard,
+  renameWindowKeyboard,
+  killWindowKeyboard,
   // Kill
   killPaneKeyboard,
   // Layout
   cycleLayoutKeyboard,
+  selectLayoutKeyboard,
+  // Tmux command line
+  tmuxCommandKeyboard,
+  // Resize
+  resizePaneKeyboard,
   // Copy mode
   enterCopyModeKeyboard,
   exitCopyModeKeyboard,
+  pasteBufferKeyboard,
+  copyModeSearchForwardKeyboard,
+  copyModeSearchAgainKeyboard,
+  copyModeSearchReverseKeyboard,
+  copyModeBeginSelectionKeyboard,
+  copyModeCopySelectionKeyboard,
+  copyModeMoveKeyboard,
   scrollPaneUp,
   scrollPaneDown,
   isPaneCopyModeVisible,
