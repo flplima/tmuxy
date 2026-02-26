@@ -104,4 +104,4 @@ jobs:
 
       - name: Server logs (debug)
         if: failure()
-        run: cat /tmp/tmuxy-server.log | grep -E '\[state\]|\[sse\]' | tail -200
+        run: cat /tmp/tmuxy-server.log | grep -E '\[state\] Window|\[sse\].*new_window|\[sse\].*intercepted|\[state\] Emitting' | grep -v 'send-keys\|send_keys' | tail -500
