@@ -492,19 +492,34 @@ async function toggleZoomKeyboard(page) {
  * HTTP adapter (not keyboard) for reliability.
  */
 async function createWindowKeyboard(page) {
-  // Step 1: split-window -dP to create background pane, capture its ID
-  const newPaneId = await page.evaluate(async () => {
-    const result = await window._adapter?.invoke('run_tmux_command', {
-      command: 'split-window -dP -F "#{pane_id}"',
-    });
-    return typeof result === 'string' ? result.trim() : null;
+  // Get current pane count before splitting
+  const beforeCount = await getUIPaneCount(page);
+  // Step 1: split-window -d creates a background pane (doesn't switch focus)
+  await page.evaluate(async () => {
+    await window._adapter?.invoke('run_tmux_command', { command: 'split-window -d' });
+  });
+  // Wait for the split to produce a new pane in the UI
+  const expectedAfterSplit = beforeCount + 1;
+  for (let i = 0; i < 40; i++) {
+    const count = await getUIPaneCount(page);
+    if (count >= expectedAfterSplit) break;
+    await delay(DELAYS.MEDIUM);
+  }
+  // Step 2: Get the new pane's tmux ID (last pane in current window by internal ID)
+  const newPaneId = await page.evaluate(() => {
+    const snap = window.app?.getSnapshot();
+    if (!snap?.context?.panes) return null;
+    const awId = snap.context.activeWindowId;
+    const windowPanes = snap.context.panes
+      .filter(p => p.windowId === awId)
+      .sort((a, b) => a.id - b.id);
+    const last = windowPanes[windowPanes.length - 1];
+    return last?.tmuxId || null;
   });
   if (newPaneId) {
-    // Step 2: break-pane moves it to its own window and switches to it
+    // Step 3: break-pane moves it to its own window and switches to it
     await page.evaluate(async (paneId) => {
-      await window._adapter?.invoke('run_tmux_command', {
-        command: `break-pane -s ${paneId}`,
-      });
+      await window._adapter?.invoke('run_tmux_command', { command: `break-pane -s ${paneId}` });
     }, newPaneId);
   }
   await delay(DELAYS.SYNC);
