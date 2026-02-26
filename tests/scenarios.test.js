@@ -1355,13 +1355,13 @@ describe('Scenario 18: Rapid Operations', () => {
     }
     expect(await ctx.session.getPaneCount()).toBe(1);
 
-    // Step 5: 4 windows
+    // Step 5: 4 windows — wait for each before creating the next
+    await waitForWindowCount(ctx.page, 1, 5000);
     await createWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
+    await waitForWindowCount(ctx.page, 2, 10000);
     await createWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
+    await waitForWindowCount(ctx.page, 3, 10000);
     await createWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, 4, 10000);
     expect(await ctx.session.getWindowCount()).toBe(4);
 
