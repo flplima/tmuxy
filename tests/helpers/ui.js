@@ -494,7 +494,7 @@ async function createWindowKeyboard(page) {
   await page.evaluate(() => {
     window.app?.send({ type: 'SEND_COMMAND', command: 'new-window' });
   });
-  await delay(2000);
+  await delay(DELAYS.SYNC);
 }
 
 /**
