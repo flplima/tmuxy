@@ -473,10 +473,6 @@ async fn handle_command(
             // breaks it into its own window and switches to it (matching neww behavior).
             // The ; ensures both run as a single atomic operation with no intermediate
             // state notifications.
-            eprintln!(
-                "[sse] new_window IPC for session '{}' from conn {}",
-                session, conn_id
-            );
             let cmd = format!("splitw -t {} ; breakp", session);
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
@@ -627,7 +623,6 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if command.starts_with("new-window") || command.starts_with("neww") {
-                eprintln!("[sse] run_tmux_command intercepted '{}' -> splitw+breakp for session '{}' from conn {}", command, session, conn_id);
                 let cmd = format!("splitw -t {} ; breakp", session);
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));

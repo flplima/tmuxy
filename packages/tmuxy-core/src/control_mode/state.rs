@@ -372,11 +372,6 @@ pub struct WindowState {
 
     /// Float height in chars (from @float_height option)
     pub float_height: Option<u32>,
-
-    /// Whether this window has been confirmed by a list-windows response.
-    /// Windows added by events (WindowAdd, WindowRenamed) start as unconfirmed.
-    /// Only confirmed windows are eligible for cleanup when missing from list-windows.
-    pub confirmed_by_list: bool,
 }
 
 impl WindowState {
@@ -390,7 +385,6 @@ impl WindowState {
             float_parent: None,
             float_width: None,
             float_height: None,
-            confirmed_by_list: false,
         }
     }
 
@@ -703,44 +697,26 @@ impl StateAggregator {
                 }
             }
 
-            ControlModeEvent::WindowAdd { window_id }
-            | ControlModeEvent::UnlinkedWindowAdd { window_id } => {
-                eprintln!(
-                    "[state] WindowAdd {} (total windows: {})",
-                    window_id,
-                    self.windows.len()
-                        + if self.windows.contains_key(&window_id) {
-                            0
-                        } else {
-                            1
-                        }
-                );
+            // Unlinked window events are from OTHER sessions sharing the same
+            // tmux server — ignore them to avoid polluting this session's state.
+            ControlModeEvent::UnlinkedWindowAdd { .. }
+            | ControlModeEvent::UnlinkedWindowClose { .. } => ProcessEventResult::default(),
+
+            ControlModeEvent::WindowAdd { window_id } => {
                 self.windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
-                self.status_line_dirty = true; // Window added - refresh status line
-                                               // Don't emit state yet - wait for WindowRenamed or list-windows
-                                               // to populate the window name. This prevents brief flashes of
-                                               // windows appearing with empty names (which breaks stack detection).
+                self.status_line_dirty = true;
+                // Don't emit state yet - wait for WindowRenamed or list-windows
+                // to populate the window name. This prevents brief flashes of
+                // windows appearing with empty names (which breaks stack detection).
                 ProcessEventResult::default()
             }
 
-            ControlModeEvent::WindowClose { window_id }
-            | ControlModeEvent::UnlinkedWindowClose { window_id } => {
-                eprintln!(
-                    "[state] WindowClose {} (total windows: {})",
-                    window_id,
-                    self.windows.len()
-                        - if self.windows.contains_key(&window_id) {
-                            1
-                        } else {
-                            0
-                        }
-                );
+            ControlModeEvent::WindowClose { window_id } => {
                 self.windows.remove(&window_id);
-                // Remove panes belonging to this window
                 self.panes.retain(|_, p| p.window_id != window_id);
-                self.status_line_dirty = true; // Window closed - refresh status line
+                self.status_line_dirty = true;
                 ProcessEventResult {
                     state_changed: true,
                     change_type: ChangeType::Window,
@@ -749,19 +725,13 @@ impl StateAggregator {
             }
 
             ControlModeEvent::WindowRenamed { window_id, name } => {
-                eprintln!(
-                    "[state] WindowRenamed {} -> '{}' (total windows: {})",
-                    window_id,
-                    name,
-                    self.windows.len()
-                );
                 // Create window if it doesn't exist yet (rename can arrive before add)
                 let window = self
                     .windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
                 window.name = name;
-                self.status_line_dirty = true; // Window renamed - refresh status line
+                self.status_line_dirty = true;
                 ProcessEventResult {
                     state_changed: true,
                     change_type: ChangeType::Window,
@@ -1133,30 +1103,9 @@ impl StateAggregator {
         }
 
         // Remove windows that weren't in the list-windows response (deleted in tmux).
-        // Only remove windows that were previously confirmed by a list-windows response.
-        // Windows freshly added by events (WindowAdd/WindowRenamed) but not yet seen in
-        // a list-windows response are kept — the list-windows may have been sent before
-        // the window was created (stale response).
         if is_list_windows_response && !seen_windows.is_empty() {
-            let before_count = self.windows.len();
-            self.windows.retain(|window_id, window| {
-                let keep = seen_windows.contains(window_id) || !window.confirmed_by_list;
-                if !keep {
-                    eprintln!(
-                        "[state] Cleanup: removing window {} (name='{}', confirmed={})",
-                        window_id, window.name, window.confirmed_by_list
-                    );
-                }
-                keep
-            });
-            if self.windows.len() != before_count {
-                eprintln!(
-                    "[state] Cleanup: {} -> {} windows (seen: {:?})",
-                    before_count,
-                    self.windows.len(),
-                    seen_windows
-                );
-            }
+            self.windows
+                .retain(|window_id, _| seen_windows.contains(window_id));
         }
 
         // Refresh status line on periodic sync (list-windows response)
@@ -1336,7 +1285,6 @@ impl StateAggregator {
         window.float_parent = float_parent;
         window.float_width = float_width;
         window.float_height = float_height;
-        window.confirmed_by_list = true;
 
         if active {
             self.active_window_id = Some(window_id.to_string());
@@ -1691,27 +1639,6 @@ impl StateAggregator {
             .collect();
 
         let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
-
-        // Debug: log window count in state updates
-        let visible_count = windows
-            .iter()
-            .filter(|w| {
-                !w.name.is_empty()
-                    && parse_pane_group_window_name(&w.name).is_none()
-                    && !is_float_window_name(&w.name)
-            })
-            .count();
-        if visible_count > 1 {
-            eprintln!(
-                "[state] Emitting {} windows ({} visible): {:?}",
-                windows.len(),
-                visible_count,
-                windows
-                    .iter()
-                    .map(|w| format!("{}({})", w.id, w.name))
-                    .collect::<Vec<_>>()
-            );
-        }
 
         // Calculate total dimensions
         let total_width = panes.iter().map(|p| p.x + p.width).max().unwrap_or(80);
