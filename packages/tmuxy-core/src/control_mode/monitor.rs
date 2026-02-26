@@ -20,8 +20,6 @@ pub enum MonitorCommand {
     /// Run an arbitrary tmux command through control mode
     /// Use this for commands that crash when run externally with control mode attached (e.g., new-window)
     RunCommand { command: String },
-    /// Run multiple tmux commands in a single flush (no interleaving with periodic syncs)
-    RunCommandBatch { commands: Vec<String> },
     /// Gracefully shutdown the monitor
     /// Sends detach-client and waits for the connection to close cleanly
     Shutdown,
@@ -446,16 +444,6 @@ impl TmuxMonitor {
                                 emitter.emit_error(format!("Failed to run command: {}", e));
                             } else {
                                 eprintln!("[monitor] Sent command via control mode: {}", unescaped);
-                            }
-                        }
-                        Some(MonitorCommand::RunCommandBatch { commands }) => {
-                            eprintln!("[monitor] Processing RunCommandBatch: {} commands", commands.len());
-                            let unescaped: Vec<String> = commands
-                                .into_iter()
-                                .map(|c| c.replace(" \\; ", " ; "))
-                                .collect();
-                            if let Err(e) = self.connection.send_commands_batch(&unescaped).await {
-                                emitter.emit_error(format!("Failed to run batch command: {}", e));
                             }
                         }
                         Some(MonitorCommand::Shutdown) => {
