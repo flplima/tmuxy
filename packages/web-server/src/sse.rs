@@ -469,12 +469,9 @@ async fn handle_command(
         }
         "new_window" => {
             // neww crashes tmux 3.5a control mode — use split+break workaround.
-            // run-shell executes atomically and lets us capture the pane ID from
-            // split-window so break-pane targets the correct pane.
-            let cmd = format!(
-                "run-shell 'PANE=$(tmux splitw -t {} -dPF \"#{{pane_id}}\") && tmux breakp -d -s $PANE'",
-                session
-            );
+            // splitw creates a new pane and makes it active, then breakp (no -s)
+            // breaks the current pane to a new window.
+            let cmd = format!("splitw -t {} ; breakp", session);
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
         }
@@ -556,10 +553,7 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if key == "c" {
-                let cmd = format!(
-                    "run-shell 'PANE=$(tmux splitw -t {} -dPF \"#{{pane_id}}\") && tmux breakp -d -s $PANE'",
-                    session
-                );
+                let cmd = format!("splitw -t {} ; breakp", session);
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
@@ -627,10 +621,7 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if command.starts_with("new-window") || command.starts_with("neww") {
-                let cmd = format!(
-                    "run-shell 'PANE=$(tmux splitw -t {} -dPF \"#{{pane_id}}\") && tmux breakp -d -s $PANE'",
-                    session
-                );
+                let cmd = format!("splitw -t {} ; breakp", session);
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
