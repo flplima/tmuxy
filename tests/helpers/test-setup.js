@@ -18,6 +18,7 @@ const TmuxTestSession = require('./TmuxTestSession');
 const { TMUXY_URL, DELAYS } = require('./config');
 const { GlitchDetector } = require('./glitch-detector');
 const { assertStateMatches } = require('./consistency');
+const { splitPaneKeyboard, navigatePaneKeyboard } = require('./ui');
 
 /**
  * Create test context with beforeAll/afterAll/beforeEach/afterEach
@@ -134,11 +135,10 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       ctx.page = null;
       // Wait for the web server's deferred cleanup to complete.
       // The server has a 2s grace period after the last SSE client disconnects,
-      // then up to 2s for graceful monitor shutdown. We wait the full worst-case
-      // duration to ensure the server has fully cleaned up the session's monitor
-      // before the next test starts a new session (which would need its own
-      // fresh monitor connection).
-      await delay(6000);
+      // then up to 2s for graceful monitor shutdown. We add extra buffer for
+      // the server to fully release the monitor connection and be ready to
+      // accept a new one for the next test session.
+      await delay(8000);
     }
 
     if (ctx.session) {
@@ -232,38 +232,31 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
 
   /**
    * Setup multiple panes with alternating split directions
-   * Navigates first, then creates panes via adapter
+   * Navigates first, then creates panes via keyboard
    * @param {number} count - Number of panes to create (default: 3)
    */
   ctx.setupPanes = async (count = 3) => {
     await ctx.navigateToSession();
     await focusPage(ctx.page);
-    // Create panes via adapter after navigation
     for (let i = 1; i < count; i++) {
       if (i % 2 === 0) {
-        await ctx.session.splitVertical();
+        await splitPaneKeyboard(ctx.page, 'vertical');
       } else {
-        await ctx.session.splitHorizontal();
+        await splitPaneKeyboard(ctx.page, 'horizontal');
       }
-      // Wait for state to update
       await delay(DELAYS.SHORT);
     }
   };
 
   /**
    * Setup two panes with a single split
-   * Navigates first, then creates split via adapter
+   * Navigates first, then creates split via keyboard
    * @param {string} direction - 'horizontal' or 'vertical' (default: 'horizontal')
    */
   ctx.setupTwoPanes = async (direction = 'horizontal') => {
     await ctx.navigateToSession();
     await focusPage(ctx.page);
-    // Create split via adapter after navigation
-    if (direction === 'horizontal') {
-      await ctx.session.splitHorizontal();
-    } else {
-      await ctx.session.splitVertical();
-    }
+    await splitPaneKeyboard(ctx.page, direction);
     // Wait for XState to reflect 2 panes (not just DOM)
     const start = Date.now();
     while (Date.now() - start < 10000) {
@@ -276,7 +269,7 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
 
   /**
    * Setup a 4-pane grid layout
-   * Navigates first, then creates panes via adapter
+   * Navigates first, then creates panes via keyboard
    */
   ctx.setupFourPanes = async () => {
     await ctx.navigateToSession();
@@ -291,14 +284,13 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       }
       throw new Error(`setupFourPanes: pane count did not reach ${n}`);
     };
-    // Create 4-pane grid via adapter
-    await ctx.session.splitHorizontal();
+    await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPanes(2);
-    await ctx.session.splitVertical();
+    await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPanes(3);
-    await ctx.session.selectPane('U');
+    await navigatePaneKeyboard(ctx.page, 'up');
     await delay(DELAYS.SHORT);
-    await ctx.session.splitVertical();
+    await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPanes(4);
   };
 

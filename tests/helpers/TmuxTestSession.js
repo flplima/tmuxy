@@ -254,28 +254,33 @@ class TmuxTestSession {
         console.log(`[_exec] Routing through adapter: ${cleanCmd} (original: ${command})`);
       }
       try {
-        const result = await this.page.evaluate(async (cmd) => {
-          if (!window._adapter) {
-            throw new Error('Adapter not available - is dev mode enabled?');
-          }
-          // Retry on transient failures (monitor not ready yet)
-          // Monitor connection can take a few seconds to establish after page reload
-          let lastError = null;
-          for (let attempt = 0; attempt < 10; attempt++) {
-            try {
-              return await window._adapter.invoke('run_tmux_command', { command: cmd });
-            } catch (e) {
-              lastError = e;
-              if (e.message?.includes('No monitor connection')) {
-                // Wait for monitor to connect (exponential backoff: 200, 400, 800, ..., max 2000)
-                await new Promise(r => setTimeout(r, Math.min(200 * Math.pow(2, attempt), 2000)));
-                continue;
-              }
-              throw e; // Non-transient error, rethrow
+        const result = await Promise.race([
+          this.page.evaluate(async (cmd) => {
+            if (!window._adapter) {
+              throw new Error('Adapter not available - is dev mode enabled?');
             }
-          }
-          throw lastError || new Error('Failed after retries');
-        }, cleanCmd);
+            // Retry on transient failures (monitor not ready yet)
+            // Monitor connection can take a few seconds to establish after page reload
+            let lastError = null;
+            for (let attempt = 0; attempt < 10; attempt++) {
+              try {
+                return await window._adapter.invoke('run_tmux_command', { command: cmd });
+              } catch (e) {
+                lastError = e;
+                if (e.message?.includes('No monitor connection')) {
+                  // Wait for monitor to connect (exponential backoff: 200, 400, 800, ..., max 2000)
+                  await new Promise(r => setTimeout(r, Math.min(200 * Math.pow(2, attempt), 2000)));
+                  continue;
+                }
+                throw e; // Non-transient error, rethrow
+              }
+            }
+            throw lastError || new Error('Failed after retries');
+          }, cleanCmd),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`_exec timeout after 30s: ${cleanCmd}`)), 30000)
+          ),
+        ]);
         if (!isQuery) {
           console.log(`[_exec] Success: ${cleanCmd}`);
         }
@@ -301,23 +306,6 @@ class TmuxTestSession {
    */
   _execSession(command) {
     return this._exec(`${command} -t ${this.name}`);
-  }
-
-  /**
-   * Run a tmux command via the browser's HTTP adapter.
-   * Use this when you explicitly need adapter routing.
-   * @param {string} command - tmux command
-   */
-  async runViaAdapter(command) {
-    if (!this.page) {
-      throw new Error('Page not set - call setPage() after navigation');
-    }
-    return this.page.evaluate(async (cmd) => {
-      if (!window._adapter) {
-        throw new Error('Adapter not available - is dev mode enabled?');
-      }
-      return window._adapter.invoke('run_tmux_command', { command: cmd });
-    }, command);
   }
 
   /**
@@ -688,235 +676,7 @@ class TmuxTestSession {
     return this._exec(`split-window -t ${this.name} -h`);
   }
 
-  /**
-   * Navigate to pane in direction
-   * @param {string} direction - 'U', 'D', 'L', 'R' for up, down, left, right
-   */
-  selectPane(direction) {
-    return this._exec(`select-pane -t ${this.name} -${direction}`);
-  }
-
-  /**
-   * Cycle to next pane
-   */
-  nextPane() {
-    return this._exec(`select-pane -t ${this.name}:.+`);
-  }
-
-  /**
-   * Toggle pane zoom
-   */
-  toggleZoom() {
-    return this._exec(`resize-pane -t ${this.name} -Z`);
-  }
-
-  /**
-   * Swap pane with another
-   * @param {string} direction - 'U', 'D' for up/down swap
-   */
-  swapPane(direction) {
-    const flag = direction === 'U' ? '-U' : '-D';
-    return this._exec(`swap-pane -t ${this.name} ${flag}`);
-  }
-
-  /**
-   * Kill current pane
-   */
-  killPane() {
-    return this._exec(`kill-pane -t ${this.name}`);
-  }
-
-  /**
-   * Create new window and switch to it.
-   * Uses split-window + break-pane workaround because `new-window` crashes
-   * tmux 3.5a control mode (causes %exit event).
-   */
-  newWindow(name = null) {
-    // Workaround: split-window creates a pane, break-pane moves it to a new window.
-    // Using `\;` which the monitor unescapes to `;` (tmux command separator).
-    // `new-window` crashes tmux 3.5a control mode (causes %exit event).
-    const nameFlag = name ? ` -n ${name}` : '';
-    return this._exec(`split-window -t ${this.name} \\; break-pane${nameFlag}`);
-  }
-
-  /**
-   * Break pane to new window
-   */
-  breakPane() {
-    return this._exec(`break-pane -t ${this.name}`);
-  }
-
-  /**
-   * Enter copy mode
-   */
-  enterCopyMode() {
-    return this._exec(`copy-mode -t ${this.name}`);
-  }
-
-  /**
-   * Exit copy mode by sending 'q'
-   */
-  exitCopyMode() {
-    return this._exec(`send-keys -t ${this.name} q`);
-  }
-
-  // ==================== Window Operations ====================
-
-  /**
-   * Select window by index
-   */
-  selectWindow(index) {
-    return this._exec(`select-window -t ${this.name}:${index}`);
-  }
-
-  /**
-   * Switch to next window
-   */
-  nextWindow() {
-    return this._exec(`next-window -t ${this.name}`);
-  }
-
-  /**
-   * Switch to previous window
-   */
-  previousWindow() {
-    return this._exec(`previous-window -t ${this.name}`);
-  }
-
-  /**
-   * Switch to last visited window
-   */
-  lastWindow() {
-    return this._exec(`last-window -t ${this.name}`);
-  }
-
-  /**
-   * Kill window by index
-   */
-  killWindow(index) {
-    return this._exec(`kill-window -t ${this.name}:${index}`);
-  }
-
-  /**
-   * Rename current window
-   */
-  renameWindow(name) {
-    return this._exec(`rename-window -t ${this.name} "${name}"`);
-  }
-
-  /**
-   * Set window layout
-   */
-  selectLayout(layoutName) {
-    return this._exec(`select-layout -t ${this.name} ${layoutName}`);
-  }
-
-  /**
-   * Cycle to next layout
-   */
-  nextLayout() {
-    return this._exec(`next-layout -t ${this.name}`);
-  }
-
-  // ==================== Copy Mode Operations ====================
-
-  /**
-   * Start visual selection in copy mode (vi: v)
-   */
-  beginSelection() {
-    return this._exec(`send-keys -t ${this.name} -X begin-selection`);
-  }
-
-  /**
-   * Copy selection and exit copy mode (vi: y)
-   */
-  copySelection() {
-    return this._exec(`send-keys -t ${this.name} -X copy-selection-and-cancel`);
-  }
-
-  /**
-   * Move cursor in copy mode
-   * @param {string} direction - 'up', 'down', 'left', 'right'
-   * @param {number} count - Number of times to move
-   */
-  copyModeMove(direction, count = 1) {
-    // For sync mode, run all moves
-    if (!this.page) {
-      for (let i = 0; i < count; i++) {
-        this.runCommandSync(`send-keys -t ${this.name} -X cursor-${direction}`);
-      }
-      return;
-    }
-    // For async mode, chain promises
-    return (async () => {
-      for (let i = 0; i < count; i++) {
-        await this._exec(`send-keys -t ${this.name} -X cursor-${direction}`);
-      }
-    })();
-  }
-
-  /**
-   * Go to beginning of line in copy mode
-   */
-  copyModeStartOfLine() {
-    return this._exec(`send-keys -t ${this.name} -X start-of-line`);
-  }
-
-  /**
-   * Go to end of line in copy mode
-   */
-  copyModeEndOfLine() {
-    return this._exec(`send-keys -t ${this.name} -X end-of-line`);
-  }
-
-  /**
-   * Paste from tmux buffer
-   */
-  pasteBuffer() {
-    return this._exec(`paste-buffer -t ${this.name}`);
-  }
-
-  /**
-   * Get paste buffer content.
-   * When browser is connected, routes through _exec (which is fire-and-forget,
-   * so output is not captured). Falls back to execSync when no browser.
-   */
-  async getBufferContent() {
-    if (this.page) {
-      // show-buffer needs output — not available through control mode.
-      // Use a workaround: paste buffer into a temp file and read it.
-      // For now, return empty string (tests that need this may need adjustment).
-      return '';
-    }
-    try {
-      return this.runCommandSync('show-buffer');
-    } catch {
-      return '';
-    }
-  }
-
-  /**
-   * Search forward in copy mode
-   */
-  copyModeSearchForward(pattern) {
-    return this._exec(`send-keys -t ${this.name} -X search-forward "${pattern}"`);
-  }
-
-  /**
-   * Get the current cursor line content in copy mode.
-   * Not available through browser state; falls back to execSync when no browser.
-   */
-  async getCopyModeLine() {
-    if (this.page) {
-      // copy_cursor_line is not in browser state — return empty
-      return '';
-    }
-    try {
-      return this.runCommandSync(`display-message -t ${this.name} -p "#{copy_cursor_line}"`);
-    } catch {
-      return '';
-    }
-  }
+  // ==================== Copy Mode Queries ====================
 
   /**
    * Get cursor position in copy mode.
@@ -927,7 +687,6 @@ class TmuxTestSession {
     if (this.page) {
       const state = await this._waitForBrowserState();
       if (state) {
-        // copyCursorX/copyCursorY are in the full pane data
         const fullState = await this.page.evaluate(() => {
           const snap = window.app.getSnapshot();
           const pane = snap.context.panes.find(p => p.tmuxId === snap.context.activePaneId);
@@ -944,17 +703,6 @@ class TmuxTestSession {
     } catch {
       return { x: 0, y: 0 };
     }
-  }
-
-  // ==================== Resize Operations ====================
-
-  /**
-   * Resize pane
-   * @param {string} direction - 'U', 'D', 'L', 'R'
-   * @param {number} amount - Number of cells to resize
-   */
-  resizePane(direction, amount = 5) {
-    return this._exec(`resize-pane -t ${this.name} -${direction} ${amount}`);
   }
 
   // ==================== Commands ====================

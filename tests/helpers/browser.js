@@ -134,28 +134,26 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
 async function verifyRoundTrip(page, sessionName, timeout = 10000) {
   const marker = `READY_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  try {
-    // Send marker through adapter → tmux control mode → shell
-    await page.evaluate(async (cmd) => {
-      await window._adapter?.invoke('run_tmux_command', { command: cmd });
-    }, `send-keys -l 'echo ${marker}'`);
-    await page.evaluate(async () => {
-      await window._adapter?.invoke('run_tmux_command', { command: 'send-keys Enter' });
-    });
+  // Send marker through adapter → tmux control mode → shell
+  await page.evaluate(async (cmd) => {
+    await window._adapter?.invoke('run_tmux_command', { command: cmd });
+  }, `send-keys -l 'echo ${marker}'`);
+  await page.evaluate(async () => {
+    await window._adapter?.invoke('run_tmux_command', { command: 'send-keys Enter' });
+  });
 
-    // Wait for marker to appear in the DOM
-    await page.waitForFunction(
-      (m) => {
-        const logs = document.querySelectorAll('[role="log"]');
-        const content = Array.from(logs).map(l => l.textContent || '').join('\n');
-        return content.includes(m);
-      },
-      marker,
-      { timeout, polling: 100 }
-    );
-  } catch (error) {
-    console.log(`Warning: Round-trip verification failed for '${sessionName}': ${error.message}`);
-  }
+  // Wait for marker to appear in the DOM — this is the definitive readiness gate.
+  // If this fails, the full pipeline (adapter → control mode → tmux → SSE → DOM)
+  // is not working and the test cannot proceed.
+  await page.waitForFunction(
+    (m) => {
+      const logs = document.querySelectorAll('[role="log"]');
+      const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+      return content.includes(m);
+    },
+    marker,
+    { timeout, polling: 100 }
+  );
 }
 
 /**

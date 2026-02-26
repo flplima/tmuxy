@@ -2,7 +2,7 @@
 module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/scenarios.test.js'],
-  testTimeout: 120000,
+  testTimeout: 240000,
   verbose: true,
   // Don't transform ES modules
   transformIgnorePatterns: [],

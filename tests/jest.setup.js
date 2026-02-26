@@ -1,5 +1,7 @@
 // Jest setup for E2E tests
 
+const { execSync } = require('child_process');
+
 // Increase timeout for all tests
 jest.setTimeout(60000);
 
@@ -11,9 +13,34 @@ process.on('unhandledRejection', (reason, promise) => {
 // Cold-start warmup: absorb first-run latency (browser launch, server SSE init,
 // control mode attachment) so Scenario 1 doesn't bear the cost.
 const { getBrowser, waitForServer, navigateToSession, waitForSessionReady, delay } = require('./helpers/browser');
-const { TMUXY_URL } = require('./helpers/config');
+const { TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
+
+let _weStartedServer = false;
 
 beforeAll(async () => {
+  // Auto-start dev server if not running
+  let serverRunning = false;
+  try {
+    const response = await fetch(TMUXY_URL);
+    serverRunning = response.ok;
+  } catch {
+    // Server not running
+  }
+
+  if (!serverRunning) {
+    console.log('[setup] Dev server not running, starting via npm start...');
+    try {
+      execSync('npm start', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      _weStartedServer = true;
+      console.log('[setup] Waiting for server to be ready (cargo compilation may take a while)...');
+      await waitForServer(TMUXY_URL, 120000);
+      console.log('[setup] Server is ready');
+    } catch (error) {
+      console.error('[setup] Failed to start server:', error.message);
+      throw error;
+    }
+  }
+
   console.log('[warmup] Starting cold-start warmup...');
   const warmupStart = Date.now();
 
@@ -49,4 +76,16 @@ beforeAll(async () => {
   } catch (error) {
     console.log(`[warmup] Failed (non-fatal): ${error.message}`);
   }
-}, 60000);
+}, 180000);
+
+afterAll(async () => {
+  if (_weStartedServer) {
+    console.log('[teardown] Stopping dev server we started...');
+    try {
+      execSync('npm run stop', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      console.log('[teardown] Server stopped');
+    } catch (error) {
+      console.log(`[teardown] Failed to stop server: ${error.message}`);
+    }
+  }
+});
