@@ -486,42 +486,14 @@ async function toggleZoomKeyboard(page) {
 // ==================== Window Operations ====================
 
 /**
- * Create new window via tmux commands sent through the adapter.
- * Uses split-window + break-pane workaround because new-window crashes
- * tmux 3.5a when routed through control mode. Commands are sent via the
- * HTTP adapter (not keyboard) for reliability.
+ * Create new window via the XState SEND_COMMAND event.
+ * Uses the 'new-window' command which the server intercepts and converts
+ * to split-window + break-pane (since new-window crashes tmux 3.5a control mode).
  */
 async function createWindowKeyboard(page) {
-  // Get current pane count before splitting
-  const beforeCount = await getUIPaneCount(page);
-  // Step 1: split-window -d creates a background pane (doesn't switch focus)
-  await page.evaluate(async () => {
-    await window._adapter?.invoke('run_tmux_command', { command: 'split-window -d' });
+  await page.evaluate(() => {
+    window.app?.send({ type: 'SEND_COMMAND', command: 'new-window' });
   });
-  // Wait for the split to produce a new pane in the UI
-  const expectedAfterSplit = beforeCount + 1;
-  for (let i = 0; i < 40; i++) {
-    const count = await getUIPaneCount(page);
-    if (count >= expectedAfterSplit) break;
-    await delay(DELAYS.MEDIUM);
-  }
-  // Step 2: Get the new pane's tmux ID (last pane in current window by internal ID)
-  const newPaneId = await page.evaluate(() => {
-    const snap = window.app?.getSnapshot();
-    if (!snap?.context?.panes) return null;
-    const awId = snap.context.activeWindowId;
-    const windowPanes = snap.context.panes
-      .filter(p => p.windowId === awId)
-      .sort((a, b) => a.id - b.id);
-    const last = windowPanes[windowPanes.length - 1];
-    return last?.tmuxId || null;
-  });
-  if (newPaneId) {
-    // Step 3: break-pane moves it to its own window and switches to it
-    await page.evaluate(async (paneId) => {
-      await window._adapter?.invoke('run_tmux_command', { command: `break-pane -s ${paneId}` });
-    }, newPaneId);
-  }
   await delay(DELAYS.SYNC);
 }
 
