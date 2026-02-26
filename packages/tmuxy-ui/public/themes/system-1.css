@@ -1,0 +1,175 @@
+/* System 1 theme - Apple Macintosh System 1 (1984) inspired, black and white */
+
+:root.theme-dark {
+  --sys1-fg: #e8e8e8;
+  --sys1-fg-dim: #a0a0a0;
+  --sys1-fg-faint: #606060;
+  --sys1-bg: #1a1a1a;
+  --sys1-bg-light: #252525;
+  --sys1-bg-lighter: #333333;
+
+  --term-black: var(--sys1-bg);
+  --term-red: var(--sys1-fg);
+  --term-green: var(--sys1-fg);
+  --term-yellow: var(--sys1-fg);
+  --term-blue: var(--sys1-fg);
+  --term-magenta: var(--sys1-fg);
+  --term-cyan: var(--sys1-fg);
+  --term-white: var(--sys1-fg);
+  --term-bright-black: var(--sys1-fg-dim);
+  --term-bright-red: var(--sys1-fg);
+  --term-bright-green: var(--sys1-fg);
+  --term-bright-yellow: var(--sys1-fg);
+  --term-bright-blue: var(--sys1-fg);
+  --term-bright-magenta: var(--sys1-fg);
+  --term-bright-cyan: var(--sys1-fg);
+  --term-bright-white: var(--sys1-fg);
+
+  --term-foreground: var(--sys1-fg);
+  --term-background: var(--sys1-bg);
+
+  --bg-black: var(--sys1-bg);
+  --bg-dark: #151515;
+  --bg-dark-alt: #1e1e1e;
+  --bg-medium: var(--sys1-bg-light);
+  --bg-elevated-alt: var(--sys1-bg-lighter);
+  --bg-highlight: #404040;
+  --bg-highlight-alt: #4d4d4d;
+
+  --text-primary: var(--sys1-fg);
+  --text-secondary: #cccccc;
+  --text-muted: var(--sys1-fg-dim);
+  --text-dimmed: #808080;
+  --text-subtle: var(--sys1-fg-faint);
+  --text-faint: #444444;
+  --text-dark: var(--sys1-bg);
+
+  --border-medium: #404040;
+  --border-light: #555555;
+
+  --pane-header-bg-active: #404040;
+  --pane-header-bg-inactive: #151515;
+  --pane-header-text-active: var(--sys1-fg);
+  --pane-header-text-inactive: var(--sys1-fg-dim);
+
+  --accent-green: var(--sys1-fg);
+  --accent-green-bright: #ffffff;
+  --accent-green-bg: #2a2a2a;
+  --accent-green-border: #505050;
+  --accent-green-hover: #383838;
+
+  --accent-blue: #2a2a2a;
+  --accent-blue-light: rgba(232, 232, 232, 0.8);
+  --accent-blue-glow: rgba(232, 232, 232, 0.5);
+  --accent-blue-bg: rgba(232, 232, 232, 0.08);
+  --accent-blue-bg-hover: rgba(232, 232, 232, 0.18);
+  --accent-blue-bg-active: rgba(232, 232, 232, 0.3);
+
+  --link-color: var(--sys1-fg);
+  --link-hover: #ffffff;
+  --link-active: var(--sys1-fg-dim);
+
+  --error-color: var(--sys1-fg);
+  --error-light: #ffffff;
+  --error-text: var(--sys1-fg);
+  --error-bg: rgba(232, 232, 232, 0.12);
+  --error-border: rgba(232, 232, 232, 0.3);
+
+  --cursor-bg: var(--sys1-fg);
+  --cursor-text: var(--sys1-bg);
+  --cursor-copy-bg: var(--sys1-fg-dim);
+  --cursor-inactive: var(--sys1-fg-dim);
+
+  --tmux-status-bg: var(--sys1-fg);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+:root.theme-light {
+  --sys1-fg: #1a1a1a;
+  --sys1-fg-dim: #606060;
+  --sys1-fg-faint: #a0a0a0;
+  --sys1-bg: #f0f0f0;
+  --sys1-bg-light: #e0e0e0;
+  --sys1-bg-lighter: #d0d0d0;
+
+  --term-black: var(--sys1-bg);
+  --term-red: var(--sys1-fg);
+  --term-green: var(--sys1-fg);
+  --term-yellow: var(--sys1-fg);
+  --term-blue: var(--sys1-fg);
+  --term-magenta: var(--sys1-fg);
+  --term-cyan: var(--sys1-fg);
+  --term-white: var(--sys1-fg);
+  --term-bright-black: var(--sys1-fg-dim);
+  --term-bright-red: var(--sys1-fg);
+  --term-bright-green: var(--sys1-fg);
+  --term-bright-yellow: var(--sys1-fg);
+  --term-bright-blue: var(--sys1-fg);
+  --term-bright-magenta: var(--sys1-fg);
+  --term-bright-cyan: var(--sys1-fg);
+  --term-bright-white: var(--sys1-fg);
+
+  --term-foreground: var(--sys1-fg);
+  --term-background: var(--sys1-bg);
+
+  --bg-black: var(--sys1-bg);
+  --bg-dark: #e6e6e6;
+  --bg-dark-alt: #dcdcdc;
+  --bg-medium: var(--sys1-bg-light);
+  --bg-elevated-alt: var(--sys1-bg-lighter);
+  --bg-highlight: #c0c0c0;
+  --bg-highlight-alt: #b0b0b0;
+
+  --text-primary: var(--sys1-fg);
+  --text-secondary: #333333;
+  --text-muted: var(--sys1-fg-dim);
+  --text-dimmed: #808080;
+  --text-subtle: var(--sys1-fg-faint);
+  --text-faint: #c0c0c0;
+  --text-dark: var(--sys1-bg);
+
+  --border-medium: #c0c0c0;
+  --border-light: #b0b0b0;
+
+  --pane-header-bg-active: #d0d0d0;
+  --pane-header-bg-inactive: #e6e6e6;
+  --pane-header-text-active: var(--sys1-fg);
+  --pane-header-text-inactive: var(--sys1-fg-dim);
+
+  --accent-green: var(--sys1-fg);
+  --accent-green-bright: #000000;
+  --accent-green-bg: #dcdcdc;
+  --accent-green-border: #a0a0a0;
+  --accent-green-hover: #cccccc;
+
+  --accent-blue: #dcdcdc;
+  --accent-blue-light: rgba(26, 26, 26, 0.8);
+  --accent-blue-glow: rgba(26, 26, 26, 0.4);
+  --accent-blue-bg: rgba(26, 26, 26, 0.06);
+  --accent-blue-bg-hover: rgba(26, 26, 26, 0.12);
+  --accent-blue-bg-active: rgba(26, 26, 26, 0.2);
+
+  --link-color: var(--sys1-fg);
+  --link-hover: #000000;
+  --link-active: var(--sys1-fg-dim);
+
+  --error-color: var(--sys1-fg);
+  --error-light: #000000;
+  --error-text: var(--sys1-fg);
+  --error-bg: rgba(26, 26, 26, 0.08);
+  --error-border: rgba(26, 26, 26, 0.2);
+
+  --cursor-bg: var(--sys1-fg);
+  --cursor-text: var(--sys1-bg);
+  --cursor-copy-bg: var(--sys1-fg-dim);
+  --cursor-inactive: var(--sys1-fg-dim);
+
+  --tmux-status-bg: var(--sys1-fg);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
