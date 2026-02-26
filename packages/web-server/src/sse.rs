@@ -469,9 +469,12 @@ async fn handle_command(
         }
         "new_window" => {
             // neww crashes tmux 3.5a control mode — use split+break workaround.
-            // Compound command ensures splitw and breakp execute atomically so
-            // breakp targets the pane that splitw just created.
-            let cmd = format!("splitw -t {} ; breakp -s {}", session, session);
+            // run-shell executes atomically and lets us capture the pane ID from
+            // split-window so break-pane targets the correct pane.
+            let cmd = format!(
+                "run-shell 'PANE=$(tmux splitw -t {} -dPF \"#{{pane_id}}\") && tmux breakp -d -s $PANE'",
+                session
+            );
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
         }
@@ -553,7 +556,10 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if key == "c" {
-                let cmd = format!("splitw -t {} ; breakp -s {}", session, session);
+                let cmd = format!(
+                    "run-shell 'PANE=$(tmux splitw -t {} -dPF \"#{{pane_id}}\") && tmux breakp -d -s $PANE'",
+                    session
+                );
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
@@ -621,7 +627,10 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if command.starts_with("new-window") || command.starts_with("neww") {
-                let cmd = format!("splitw -t {} ; breakp -s {}", session, session);
+                let cmd = format!(
+                    "run-shell 'PANE=$(tmux splitw -t {} -dPF \"#{{pane_id}}\") && tmux breakp -d -s $PANE'",
+                    session
+                );
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
