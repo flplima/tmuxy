@@ -469,11 +469,11 @@ async fn handle_command(
         }
         "new_window" => {
             // neww crashes tmux 3.5a control mode — use split+break workaround
-            let split_cmd = format!("splitw -t {} -dP", session);
+            let split_cmd = format!("splitw -t {}", session);
             send_via_control_mode(state, session, &split_cmd).await?;
             // Small delay for split to complete before break-pane
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            let break_cmd = format!("breakp -d -s {}", session);
+            let break_cmd = format!("breakp -s {}", session);
             send_via_control_mode(state, session, &break_cmd).await?;
             Ok(serde_json::json!(null))
         }
@@ -555,10 +555,10 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if key == "c" {
-                let split_cmd = format!("splitw -t {} -dP", session);
+                let split_cmd = format!("splitw -t {}", session);
                 send_via_control_mode(state, session, &split_cmd).await?;
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                let break_cmd = format!("breakp -d -s {}", session);
+                let break_cmd = format!("breakp -s {}", session);
                 send_via_control_mode(state, session, &break_cmd).await?;
                 return Ok(serde_json::json!(null));
             }
@@ -626,10 +626,10 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if command.starts_with("new-window") || command.starts_with("neww") {
-                let split_cmd = format!("splitw -t {} -dP", session);
+                let split_cmd = format!("splitw -t {}", session);
                 send_via_control_mode(state, session, &split_cmd).await?;
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                let break_cmd = format!("breakp -d -s {}", session);
+                let break_cmd = format!("breakp -s {}", session);
                 send_via_control_mode(state, session, &break_cmd).await?;
                 return Ok(serde_json::json!(null));
             }
