@@ -705,6 +705,16 @@ impl StateAggregator {
 
             ControlModeEvent::WindowAdd { window_id }
             | ControlModeEvent::UnlinkedWindowAdd { window_id } => {
+                eprintln!(
+                    "[state] WindowAdd {} (total windows: {})",
+                    window_id,
+                    self.windows.len()
+                        + if self.windows.contains_key(&window_id) {
+                            0
+                        } else {
+                            1
+                        }
+                );
                 self.windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
@@ -717,6 +727,16 @@ impl StateAggregator {
 
             ControlModeEvent::WindowClose { window_id }
             | ControlModeEvent::UnlinkedWindowClose { window_id } => {
+                eprintln!(
+                    "[state] WindowClose {} (total windows: {})",
+                    window_id,
+                    self.windows.len()
+                        - if self.windows.contains_key(&window_id) {
+                            1
+                        } else {
+                            0
+                        }
+                );
                 self.windows.remove(&window_id);
                 // Remove panes belonging to this window
                 self.panes.retain(|_, p| p.window_id != window_id);
@@ -729,6 +749,12 @@ impl StateAggregator {
             }
 
             ControlModeEvent::WindowRenamed { window_id, name } => {
+                eprintln!(
+                    "[state] WindowRenamed {} -> '{}' (total windows: {})",
+                    window_id,
+                    name,
+                    self.windows.len()
+                );
                 // Create window if it doesn't exist yet (rename can arrive before add)
                 let window = self
                     .windows
@@ -1112,9 +1138,25 @@ impl StateAggregator {
         // a list-windows response are kept — the list-windows may have been sent before
         // the window was created (stale response).
         if is_list_windows_response && !seen_windows.is_empty() {
+            let before_count = self.windows.len();
             self.windows.retain(|window_id, window| {
-                seen_windows.contains(window_id) || !window.confirmed_by_list
+                let keep = seen_windows.contains(window_id) || !window.confirmed_by_list;
+                if !keep {
+                    eprintln!(
+                        "[state] Cleanup: removing window {} (name='{}', confirmed={})",
+                        window_id, window.name, window.confirmed_by_list
+                    );
+                }
+                keep
             });
+            if self.windows.len() != before_count {
+                eprintln!(
+                    "[state] Cleanup: {} -> {} windows (seen: {:?})",
+                    before_count,
+                    self.windows.len(),
+                    seen_windows
+                );
+            }
         }
 
         // Refresh status line on periodic sync (list-windows response)
@@ -1649,6 +1691,27 @@ impl StateAggregator {
             .collect();
 
         let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
+
+        // Debug: log window count in state updates
+        let visible_count = windows
+            .iter()
+            .filter(|w| {
+                !w.name.is_empty()
+                    && parse_pane_group_window_name(&w.name).is_none()
+                    && !is_float_window_name(&w.name)
+            })
+            .count();
+        if visible_count > 1 {
+            eprintln!(
+                "[state] Emitting {} windows ({} visible): {:?}",
+                windows.len(),
+                visible_count,
+                windows
+                    .iter()
+                    .map(|w| format!("{}({})", w.id, w.name))
+                    .collect::<Vec<_>>()
+            );
+        }
 
         // Calculate total dimensions
         let total_width = panes.iter().map(|p| p.x + p.width).max().unwrap_or(80);
