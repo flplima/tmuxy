@@ -34,6 +34,17 @@ const {
   DELAYS,
 } = require('./helpers');
 
+// ==================== Condition Polling Helper ====================
+
+async function waitForCondition(page, fn, timeout = 10000, description = 'condition') {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (await fn()) return;
+    await delay(100);
+  }
+  throw new Error(`Timed out waiting for ${description} (${timeout}ms)`);
+}
+
 // ==================== Float Helpers ====================
 
 async function createFloat(ctx, paneId) {
@@ -62,10 +73,10 @@ async function getFloatModalInfo(page) {
 
 describe('Scenario 4: Window Lifecycle', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('New window → tabs → next/prev → by-number → last → rename → close → layout', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -82,16 +93,22 @@ describe('Scenario 4: Window Lifecycle', () => {
     const windowInfo = await ctx.session.getWindowInfo();
     expect(windowInfo.length).toBe(2);
 
-    // Step 3: Next window
+    // Step 3: Next window (poll until window index changes)
     const currentIndex = await ctx.session.getCurrentWindowIndex();
     await nextWindowKeyboard(ctx.page);
-    await delay(DELAYS.LONG);
+    await waitForCondition(ctx.page, async () => {
+      const idx = await ctx.session.getCurrentWindowIndex();
+      return idx !== currentIndex;
+    }, 10000, 'next-window to change active window');
     expect(await ctx.session.getCurrentWindowIndex()).not.toBe(currentIndex);
 
-    // Step 4: Previous window
+    // Step 4: Previous window (poll until window index changes)
     const idx = await ctx.session.getCurrentWindowIndex();
     await prevWindowKeyboard(ctx.page);
-    await delay(DELAYS.LONG);
+    await waitForCondition(ctx.page, async () => {
+      const curIdx = await ctx.session.getCurrentWindowIndex();
+      return curIdx !== idx;
+    }, 10000, 'prev-window to change active window');
     expect(await ctx.session.getCurrentWindowIndex()).not.toBe(idx);
 
     // Step 5: Create 3rd window and select by number
@@ -99,13 +116,18 @@ describe('Scenario 4: Window Lifecycle', () => {
     await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, 3);
     await selectWindowKeyboard(ctx.page, 1);
-    await delay(DELAYS.LONG);
+    await waitForCondition(ctx.page, async () => {
+      const curIdx = await ctx.session.getCurrentWindowIndex();
+      return curIdx === '1';
+    }, 10000, 'select-window -t :1 to activate window 1');
     expect(await ctx.session.getCurrentWindowIndex()).toBe('1');
 
     // Step 6: Last window toggle
     await lastWindowKeyboard(ctx.page);
-    await delay(DELAYS.LONG);
-    // Should be on one of the other windows
+    await waitForCondition(ctx.page, async () => {
+      const curIdx = await ctx.session.getCurrentWindowIndex();
+      return curIdx !== '1';
+    }, 10000, 'last-window to change active window');
     expect(await ctx.session.getCurrentWindowIndex()).not.toBe('1');
 
     // Step 7: Rename window
@@ -149,10 +171,10 @@ describe('Scenario 4: Window Lifecycle', () => {
 
 describe('Scenario 5: Pane Groups', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Header → add button → create group → switch tabs → add 3rd → close tab → content verify → ungroup', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -229,10 +251,10 @@ describe('Scenario 5: Pane Groups', () => {
 
 describe('Scenario 6: Floating Panes', () => {
   const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Break-pane → float modal → header/close → tiled count → close button → re-float → backdrop close', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -298,10 +320,10 @@ describe('Scenario 6: Floating Panes', () => {
 
 describe('Scenario 11: Status Bar', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Bar visible → tab → session name → 2 windows → active distinct → click tab → rename → close via button', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -342,6 +364,7 @@ describe('Scenario 11: Status Bar', () => {
     expect(activeTab).not.toBeNull();
 
     // Step 6: Click inactive tab to switch
+    await waitForWindowCount(ctx.page, 2, 10000);
     const allTabs = await ctx.page.$$('.tab:not(.tab-add)');
     expect(allTabs.length).toBe(2);
     let inactiveTab = null;

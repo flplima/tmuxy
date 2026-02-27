@@ -192,8 +192,14 @@ export class HttpAdapter implements TmuxAdapter {
     return this.invokeInternal(cmd, args);
   }
 
+  // Serialized send queue: ensures keystroke HTTP requests are sent one at a
+  // time so they arrive at the server in order.  Without this, concurrent
+  // fire-and-forget POSTs can arrive out of order, causing character
+  // transposition.
+  private sendQueue: Promise<void> = Promise.resolve();
+
   /**
-   * Send a command without waiting for response (fire and forget)
+   * Send a command in order (serialized, but caller doesn't await)
    */
   private sendCommandFireAndForget(cmd: string, args: Record<string, unknown>): void {
     if (!this.sessionToken) {
@@ -205,17 +211,21 @@ export class HttpAdapter implements TmuxAdapter {
     const protocol = window.location.protocol;
     const host = window.location.host || 'localhost:3853';
     const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
+    const token = this.sessionToken;
 
-    fetch(commandsUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Session-Token': this.sessionToken,
-      },
-      body: JSON.stringify({ cmd, args }),
-    }).catch(() => {
-      // Ignore errors for fire-and-forget commands
-    });
+    // Chain onto the serial queue so requests go one at a time
+    this.sendQueue = this.sendQueue.then(() =>
+      fetch(commandsUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': token,
+        },
+        body: JSON.stringify({ cmd, args }),
+      })
+        .then(() => {})
+        .catch(() => {}),
+    );
   }
 
   /**

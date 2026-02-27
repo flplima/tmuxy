@@ -31,10 +31,10 @@ const {
 
 describe('Scenario 17: Large Output Perf', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('yes|head-500 → seq 1 2000 → scrollback → verify responsive', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -67,10 +67,10 @@ describe('Scenario 17: Large Output Perf', () => {
 
 describe('Scenario 18: Rapid Operations', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Split×4 → kill×3 → split-close-split → 6 panes → 4 windows → swap', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -152,13 +152,13 @@ describe('Scenario 18: Rapid Operations', () => {
     }
     expect(await ctx.session.getPaneCount()).toBe(1);
 
-    // Step 5: 4 windows
+    // Step 5: 4 windows — wait for each before creating the next
+    await waitForWindowCount(ctx.page, 1, 5000);
     await createWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
+    await waitForWindowCount(ctx.page, 2, 10000);
     await createWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
+    await waitForWindowCount(ctx.page, 3, 10000);
     await createWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, 4, 10000);
     expect(await ctx.session.getWindowCount()).toBe(4);
 
@@ -179,10 +179,10 @@ describe('Scenario 18: Rapid Operations', () => {
 
 describe('Scenario 19: Complex Workflow', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('3 windows × splits → navigate all → send commands → verify alive', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -251,10 +251,10 @@ describe('Scenario 19: Complex Workflow', () => {
 
 describe('Scenario 20: Glitch Detection', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Split H + detect → split V + detect → resize + detect → click focus + detect', async () => {
     if (ctx.skipIfNotReady()) return;

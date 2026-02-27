@@ -52,6 +52,7 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal \
     && rustup component add rustfmt clippy \
+    && cargo install cargo-watch \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
     && chown -R node:node /usr/local/cargo /usr/local/rustup
 

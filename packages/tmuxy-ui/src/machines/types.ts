@@ -454,13 +454,17 @@ export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;
 /** Optimistic operation tracking for instant UI feedback */
 export interface OptimisticOperation {
   id: string;
-  type: 'split' | 'navigate' | 'swap';
+  type: 'split' | 'navigate' | 'swap' | 'new-window';
   command: string;
   timestamp: number;
   prediction: OptimisticPrediction;
 }
 
-export type OptimisticPrediction = SplitPrediction | NavigatePrediction | SwapPrediction;
+export type OptimisticPrediction =
+  | SplitPrediction
+  | NavigatePrediction
+  | SwapPrediction
+  | NewWindowPrediction;
 
 export interface SplitPrediction {
   type: 'split';
@@ -496,4 +500,10 @@ export interface SwapPrediction {
   targetPaneId: string;
   sourceNewPosition: { x: number; y: number; width: number; height: number };
   targetNewPosition: { x: number; y: number; width: number; height: number };
+}
+
+export interface NewWindowPrediction {
+  type: 'new-window';
+  placeholderWindowId: string;
+  placeholderName: string;
 }

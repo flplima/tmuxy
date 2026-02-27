@@ -4,6 +4,7 @@
 
 use super::parser::{ControlModeEvent, Parser};
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
@@ -34,11 +35,19 @@ pub struct ControlModeConnection {
 ///
 /// Uses `read_until(b'\n')` instead of `lines()` to avoid failing on non-UTF-8
 /// bytes that the `script` PTY wrapper may introduce into the stream.
-fn spawn_parser_task(stdout: tokio::process::ChildStdout, tx: mpsc::Sender<ControlModeEvent>) {
+///
+/// Signals readiness via `ready_tx` after the first successfully parsed event,
+/// ensuring the caller knows the tmux control mode connection is alive.
+fn spawn_parser_task(
+    stdout: tokio::process::ChildStdout,
+    tx: mpsc::Sender<ControlModeEvent>,
+    ready_tx: tokio::sync::oneshot::Sender<()>,
+) {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout);
         let mut parser = Parser::new();
         let mut buf = Vec::with_capacity(4096);
+        let mut ready_tx = Some(ready_tx);
 
         loop {
             buf.clear();
@@ -57,6 +66,10 @@ fn spawn_parser_task(stdout: tokio::process::ChildStdout, tx: mpsc::Sender<Contr
                     let line = String::from_utf8_lossy(&buf);
 
                     if let Some(event) = parser.parse_line(&line) {
+                        // Signal readiness on first parsed event
+                        if let Some(rtx) = ready_tx.take() {
+                            let _ = rtx.send(());
+                        }
                         if tx.send(event).await.is_err() {
                             break;
                         }
@@ -76,7 +89,10 @@ impl ControlModeConnection {
     ///
     /// This spawns `tmux -CC attach-session -t <session>` wrapped in `script`
     /// to provide a PTY (required for tmux control mode).
-    pub async fn connect(session_name: &str) -> Result<Self, String> {
+    pub async fn connect(
+        session_name: &str,
+        working_dir: Option<&std::path::Path>,
+    ) -> Result<Self, String> {
         // First check if the session exists to avoid spawning control mode processes
         // that wait indefinitely for a non-existent session. This prevents a race condition
         // in tmux 3.3a where multiple waiting control mode clients crash the server.
@@ -97,11 +113,15 @@ impl ControlModeConnection {
             "stty cols {} rows {} 2>/dev/null; tmux -CC attach-session -t {}",
             INITIAL_PTY_COLS, INITIAL_PTY_ROWS, session_name
         );
-        let mut child = Command::new("script")
-            .args(["-q", "/dev/null", "-c", &tmux_cmd])
+        let mut cmd = Command::new("script");
+        cmd.args(["-q", "/dev/null", "-c", &tmux_cmd])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
+        }
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
 
@@ -109,7 +129,32 @@ impl ControlModeConnection {
         let stdout = child.stdout.take().ok_or("Failed to get stdout handle")?;
 
         let (tx, rx) = mpsc::channel(1000);
-        spawn_parser_task(stdout, tx);
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        spawn_parser_task(stdout, tx, ready_tx);
+
+        // Wait for the parser to receive the first event from tmux, confirming
+        // the control mode connection is alive. Without this gate, the caller
+        // may start sending commands before tmux has initialized, or worse,
+        // not notice that the script/tmux process exited immediately.
+        match tokio::time::timeout(Duration::from_secs(10), ready_rx).await {
+            Ok(Ok(())) => {} // Parser received first event
+            Ok(Err(_)) => {
+                // ready_tx was dropped without sending — parser hit EOF immediately
+                let _ = child.kill().await;
+                return Err(format!(
+                    "Control mode connection died immediately for session '{}'",
+                    session_name
+                ));
+            }
+            Err(_) => {
+                // Timeout waiting for first event
+                let _ = child.kill().await;
+                return Err(format!(
+                    "Control mode connection timed out waiting for first event for session '{}'",
+                    session_name
+                ));
+            }
+        }
 
         Ok(Self {
             child,
@@ -123,18 +168,25 @@ impl ControlModeConnection {
     ///
     /// This spawns `tmux -CC new-session -s <session>` wrapped in `script`
     /// to provide a PTY (required for tmux control mode).
-    pub async fn new_session(session_name: &str) -> Result<Self, String> {
+    pub async fn new_session(
+        session_name: &str,
+        working_dir: Option<&std::path::Path>,
+    ) -> Result<Self, String> {
         // Use `script` to provide a PTY for tmux -CC
         // Set PTY size via stty to avoid tiny default dimensions in background processes.
         let tmux_cmd = format!(
             "stty cols {} rows {} 2>/dev/null; tmux -CC new-session -s {}",
             INITIAL_PTY_COLS, INITIAL_PTY_ROWS, session_name
         );
-        let mut child = Command::new("script")
-            .args(["-q", "/dev/null", "-c", &tmux_cmd])
+        let mut cmd = Command::new("script");
+        cmd.args(["-q", "/dev/null", "-c", &tmux_cmd])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
+        }
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
 
@@ -142,7 +194,27 @@ impl ControlModeConnection {
         let stdout = child.stdout.take().ok_or("Failed to get stdout handle")?;
 
         let (tx, rx) = mpsc::channel(1000);
-        spawn_parser_task(stdout, tx);
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        spawn_parser_task(stdout, tx, ready_tx);
+
+        // Wait for the parser to confirm the connection is alive
+        match tokio::time::timeout(Duration::from_secs(10), ready_rx).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => {
+                let _ = child.kill().await;
+                return Err(format!(
+                    "Control mode connection died immediately for session '{}'",
+                    session_name
+                ));
+            }
+            Err(_) => {
+                let _ = child.kill().await;
+                return Err(format!(
+                    "Control mode connection timed out for session '{}'",
+                    session_name
+                ));
+            }
+        }
 
         Ok(Self {
             child,
