@@ -239,7 +239,7 @@ impl TmuxMonitor {
         let settling_max = Duration::from_millis(500);
         // Safety timeout: if no events arrive within this time after sending
         // a compound command, clear the settling state
-        let settling_await_timeout = Duration::from_millis(2000);
+        let _settling_await_timeout = Duration::from_millis(2000);
 
         loop {
             // Calculate throttle timeout (only used when in high-throughput mode)
