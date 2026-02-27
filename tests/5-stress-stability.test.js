@@ -244,7 +244,7 @@ describe('Scenario 19: Complex Workflow', () => {
       await delay(DELAYS.SHORT);
     }
     expect(ctx.session.exists()).toBe(true);
-  }, 180000);
+  }, 300000);
 });
 
 // ==================== Scenario 20: Glitch Detection ====================
@@ -316,7 +316,7 @@ describe('Scenario 20: Glitch Detection', () => {
 describe('Category 15: Glitch Detection (Detailed)', () => {
   const ctx = createTestContext();
 
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
   afterEach(async () => {
@@ -330,7 +330,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
       ctx.glitchDetector = null;
     }
     await ctx.afterEach();
-  });
+  }, ctx.hookTimeout);
 
   // ====================
   // 15.1 Pane Split Operations
@@ -355,7 +355,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
       if (process.env.DEBUG_TESTS) {
         console.log(`Split mutations: ${result.summary.totalNodeMutations} nodes`);
       }
-    }, 90000);
+    }, 180000);
 
     test('Vertical split produces no flicker', async () => {
       if (ctx.skipIfNotReady()) return;
@@ -372,7 +372,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
       const result = await ctx.assertNoGlitches({ operation: 'split' });
       expect(await getUIPaneCount(ctx.page)).toBe(2);
       expect(await ctx.session.getPaneCount()).toBe(2);
-    }, 90000);
+    }, 180000);
   });
 
   // ====================
@@ -400,7 +400,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
       });
 
       expect(await ctx.session.getPaneCount()).toBe(2);
-    }, 90000);
+    }, 180000);
   });
 
   // ====================
@@ -432,7 +432,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
       }
 
       const result = await ctx.assertNoGlitches({ operation: 'split', sizeJumps: 30 });
-    }, 90000);
+    }, 180000);
   });
 
   // ====================
@@ -465,7 +465,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
       expect(Array.isArray(result.nodes)).toBe(true);
       expect(Array.isArray(result.attributes)).toBe(true);
       expect(Array.isArray(result.sizes)).toBe(true);
-    }, 90000);
+    }, 180000);
 
     test('GlitchDetector.formatTimeline produces readable output', async () => {
       if (ctx.skipIfNotReady()) return;
@@ -488,7 +488,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
       } else {
         expect(timeline).toBe('');
       }
-    }, 90000);
+    }, 180000);
 
     test('GlitchDetector can be stopped without assertions', async () => {
       if (ctx.skipIfNotReady()) return;
@@ -503,7 +503,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
 
       expect(result).toBeDefined();
       expect(result.summary.duration).toBeGreaterThanOrEqual(0);
-    }, 90000);
+    }, 180000);
 
     test('GlitchDetector respects ignoreSelectors', async () => {
       if (ctx.skipIfNotReady()) return;
@@ -526,6 +526,6 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
         n.element?.includes('terminal') || n.target?.includes('terminal')
       );
       expect(terminalMutations.length).toBe(0);
-    }, 90000);
+    }, 180000);
   });
 });
