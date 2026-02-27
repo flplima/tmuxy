@@ -491,8 +491,8 @@ async function toggleZoomKeyboard(page) {
  * to split-window + break-pane (since new-window crashes tmux 3.5a control mode).
  */
 async function createWindowKeyboard(page) {
-  await page.evaluate(() => {
-    window.app?.send({ type: 'SEND_COMMAND', command: 'new-window' });
+  await page.evaluate(async () => {
+    await window._adapter.invoke('run_tmux_command', { command: 'new-window' });
   });
   await delay(DELAYS.SYNC);
 }
