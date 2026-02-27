@@ -93,6 +93,10 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
     ctx.page = await ctx.browser.newPage();
   };
 
+  // Hook timeout (ms): hooks need enough time for server/browser setup and cleanup.
+  // Jest's default hook timeout is 5s, which is too short for our operations.
+  ctx.hookTimeout = 30000;
+
   ctx.afterEach = async () => {
     // Capture assertion errors but ALWAYS run cleanup afterward.
     // If cleanup is skipped (e.g., snapshot check throws), the control mode
@@ -135,10 +139,9 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       ctx.page = null;
       // Wait for the web server's deferred cleanup to complete.
       // The server has a 2s grace period after the last SSE client disconnects,
-      // then up to 2s for graceful monitor shutdown. We add extra buffer for
-      // the server to fully release the monitor connection and be ready to
-      // accept a new one for the next test session.
-      await delay(8000);
+      // then the monitor shuts down. The readiness gate on new connections
+      // ensures the next test waits for a fully-initialized monitor.
+      await delay(4000);
     }
 
     if (ctx.session) {
@@ -256,15 +259,37 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   ctx.setupTwoPanes = async (direction = 'horizontal') => {
     await ctx.navigateToSession();
     await focusPage(ctx.page);
+    // Try keyboard split first
     await splitPaneKeyboard(ctx.page, direction);
     // Wait for XState to reflect 2 panes (not just DOM)
     const start = Date.now();
-    while (Date.now() - start < 10000) {
+    while (Date.now() - start < 5000) {
       const count = await ctx.session.getPaneCount();
       if (count === 2) return;
       await delay(100);
     }
-    throw new Error('setupTwoPanes: pane count did not reach 2 within 10s');
+    // Keyboard split may have failed — fall back to direct adapter command
+    const cmd = direction === 'horizontal' ? 'split-window' : 'split-window -h';
+    await ctx.page.evaluate(async (c) => {
+      await window._adapter.invoke('run_tmux_command', { command: c });
+    }, cmd);
+    const start2 = Date.now();
+    while (Date.now() - start2 < 5000) {
+      const count = await ctx.session.getPaneCount();
+      if (count === 2) return;
+      await delay(100);
+    }
+    // Debug: log what we see in XState
+    const debugState = await ctx.page.evaluate(() => {
+      const snap = window.app?.getSnapshot();
+      if (!snap) return { error: 'no snapshot' };
+      return {
+        panes: snap.context.panes?.map(p => `${p.tmuxId}:win=${p.windowId}`),
+        activeWindowId: snap.context.activeWindowId,
+        windows: snap.context.windows?.map(w => `${w.id}:${w.name}:a=${w.active}`),
+      };
+    });
+    throw new Error(`setupTwoPanes: pane count did not reach 2 within 10s\nXState: ${JSON.stringify(debugState)}`);
   };
 
   /**

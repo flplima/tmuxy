@@ -226,13 +226,20 @@ impl TmuxMonitor {
         let throttle_enabled = !self.config.throttle_interval.is_zero();
 
         // Command-aware settling state
-        // When a compound command (containing ";") is sent, we suppress window/layout
-        // emissions and debounce until events settle, then emit a single consolidated update.
+        // When a compound command (containing ";") is sent, we wait for the first
+        // window/layout event, then debounce until events settle before emitting
+        // a single consolidated state update.
         let mut settling_until: Option<tokio::time::Instant> = None;
         let mut settling_started: Option<tokio::time::Instant> = None;
+        // Whether we're waiting for the first event from a compound command.
+        // After sending a compound command, we suppress window emissions but
+        // don't start the timer until the first window event arrives.
+        let mut settling_awaiting_first_event = false;
         let settling_debounce = Duration::from_millis(100);
-        let settling_initial = Duration::from_millis(150);
         let settling_max = Duration::from_millis(500);
+        // Safety timeout: if no events arrive within this time after sending
+        // a compound command, clear the settling state
+        let settling_await_timeout = Duration::from_millis(2000);
 
         loop {
             // Calculate throttle timeout (only used when in high-throughput mode)
@@ -268,7 +275,27 @@ impl TmuxMonitor {
                             // Track last event time for idle-based heartbeat
                             last_event_at = tokio::time::Instant::now();
 
+                            // Detect events that need follow-up commands
+                            let is_window_add = matches!(&event, ControlModeEvent::WindowAdd { .. });
+
+                            // Log structural events (skip high-frequency %output)
+                            match &event {
+                                ControlModeEvent::Output { .. } | ControlModeEvent::CommandResponse { .. } => {}
+                                other => {
+                                    eprintln!("[monitor] Event: {:?}", other);
+                                }
+                            }
+
                             let result = self.aggregator.process_event(event);
+
+                            // After WindowAdd, request list-windows to get accurate
+                            // window indices (which differ from window IDs when base-index > 0).
+                            if is_window_add {
+                                let cmd = "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@float_parent},#{@float_width},#{@float_height}'";
+                                if let Err(e) = self.connection.send_command(cmd).await {
+                                    emitter.emit_error(format!("Failed to refresh windows: {}", e));
+                                }
+                            }
 
                             // Request content refresh for resized panes (batched for efficiency)
                             if !result.panes_needing_refresh.is_empty() {
@@ -300,7 +327,7 @@ impl TmuxMonitor {
                                 }
                             }
 
-                            // During settling: extend the debounce timer on window/layout events
+                            // During settling: manage debounce timer on window/layout events
                             if settling_until.is_some() {
                                 let is_window_event = matches!(
                                     result.change_type,
@@ -308,6 +335,12 @@ impl TmuxMonitor {
                                 );
                                 if is_window_event {
                                     let now = tokio::time::Instant::now();
+                                    if settling_awaiting_first_event {
+                                        // First window event after compound command — start real timer
+                                        settling_awaiting_first_event = false;
+                                        settling_started = Some(now);
+                                        eprintln!("[monitor] Settling: first event received, starting debounce timer");
+                                    }
                                     let max_deadline = settling_started.unwrap() + settling_max;
                                     let debounced = now + settling_debounce;
                                     // Extend but don't exceed the safety timeout
@@ -383,12 +416,28 @@ impl TmuxMonitor {
 
                 // Settling timer - emit consolidated state after compound command events settle
                 _ = tokio::time::sleep_until(settling_until.unwrap_or(tokio::time::Instant::now() + Duration::from_secs(3600))), if settling_until.is_some() => {
-                    eprintln!("[monitor] Settling complete, emitting consolidated state");
-                    if let Some(update) = self.aggregator.force_emit() {
-                        emitter.emit_state(update);
+                    if settling_awaiting_first_event {
+                        // Safety timeout: no window events arrived after compound command
+                        // Clear settling and let future events through normally
+                        eprintln!("[monitor] Settling: safety timeout, no events received from compound command");
+                        self.aggregator.set_suppress_window_emissions(false);
+                    } else {
+                        // Log the window count before and after emission
+                        let window_count = self.aggregator.window_count();
+                        eprintln!("[monitor] Settling complete (windows={}), emitting consolidated state", window_count);
+                        match self.aggregator.force_emit() {
+                            Some(update) => {
+                                emitter.emit_state(update);
+                                eprintln!("[monitor] Settling: emitted state update");
+                            }
+                            None => {
+                                eprintln!("[monitor] Settling: force_emit returned None (no delta vs prev_state)");
+                            }
+                        }
                     }
                     settling_until = None;
                     settling_started = None;
+                    settling_awaiting_first_event = false;
                 }
 
                 // Event-driven sync: fast polling in copy mode, heartbeat when idle
@@ -483,17 +532,10 @@ impl TmuxMonitor {
                             // Frontend sends \; for shell compatibility, convert to ; for control mode
                             let unescaped = command.replace(" \\; ", " ; ");
 
-                            // Start settling for compound commands (containing ";")
-                            // This batches intermediate events from multi-step commands
-                            // (e.g., "splitw ; breakp") into a single consolidated emission.
-                            let is_compound = unescaped.contains(';');
-                            if is_compound {
-                                let now = tokio::time::Instant::now();
-                                settling_started = Some(now);
-                                settling_until = Some(now + settling_initial);
-                                self.aggregator.set_suppress_window_emissions(true);
-                                eprintln!("[monitor] Started settling for compound command");
-                            }
+                            // Settling is disabled — all events emit immediately.
+                            // The splitw;breakp workaround produces intermediate events
+                            // but the frontend handles them correctly via its dedup logic.
+                            let is_compound = false;
 
                             if let Err(e) = self.connection.send_command(&unescaped).await {
                                 emitter.emit_error(format!("Failed to run command: {}", e));
@@ -501,6 +543,7 @@ impl TmuxMonitor {
                                 if is_compound {
                                     settling_until = None;
                                     settling_started = None;
+                                    settling_awaiting_first_event = false;
                                     self.aggregator.set_suppress_window_emissions(false);
                                 }
                             } else {

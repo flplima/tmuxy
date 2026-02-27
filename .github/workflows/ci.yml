@@ -129,4 +129,4 @@ jobs:
 
       - name: Server logs (debug)
         if: failure()
-        run: tail -500 /tmp/tmuxy-server.log
+        run: grep -E '\[sse\].*splitw|\[monitor\].*splitw|\[sse\].*new.window|error|Error' /tmp/tmuxy-server.log | tail -200

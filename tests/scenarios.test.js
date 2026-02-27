@@ -70,6 +70,22 @@ const {
 const MOUSE_CAPTURE_SCRIPT = path.join(__dirname, 'helpers', 'mouse-capture.py');
 const MOUSE_LOG = '/tmp/mouse-events.log';
 
+/**
+ * Poll until a condition becomes true.
+ * @param {Page} page - Playwright page (unused but keeps consistent API)
+ * @param {Function} fn - Async function returning boolean
+ * @param {number} timeout - Max wait time in ms
+ * @param {string} description - Human-readable description for error message
+ */
+async function waitForCondition(page, fn, timeout = 10000, description = 'condition') {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (await fn()) return;
+    await delay(100);
+  }
+  throw new Error(`Timed out waiting for ${description} (${timeout}ms)`);
+}
+
 // ==================== SGR Mouse Helpers ====================
 
 async function startMouseCapture(ctx) {
@@ -171,10 +187,10 @@ async function getFloatModalInfo(page) {
 
 describe('Scenario 2: Keyboard Basics', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Type → backspace → Tab → Ctrl+C → Ctrl+D → arrow-up history', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -236,10 +252,10 @@ describe('Scenario 2: Keyboard Basics', () => {
 
 describe('Scenario 4: Window Lifecycle', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('New window → tabs → next/prev → by-number → last → rename → close → layout', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -256,16 +272,22 @@ describe('Scenario 4: Window Lifecycle', () => {
     const windowInfo = await ctx.session.getWindowInfo();
     expect(windowInfo.length).toBe(2);
 
-    // Step 3: Next window
+    // Step 3: Next window (poll until window index changes)
     const currentIndex = await ctx.session.getCurrentWindowIndex();
     await nextWindowKeyboard(ctx.page);
-    await delay(DELAYS.LONG);
+    await waitForCondition(ctx.page, async () => {
+      const idx = await ctx.session.getCurrentWindowIndex();
+      return idx !== currentIndex;
+    }, 10000, 'next-window to change active window');
     expect(await ctx.session.getCurrentWindowIndex()).not.toBe(currentIndex);
 
-    // Step 4: Previous window
+    // Step 4: Previous window (poll until window index changes)
     const idx = await ctx.session.getCurrentWindowIndex();
     await prevWindowKeyboard(ctx.page);
-    await delay(DELAYS.LONG);
+    await waitForCondition(ctx.page, async () => {
+      const curIdx = await ctx.session.getCurrentWindowIndex();
+      return curIdx !== idx;
+    }, 10000, 'prev-window to change active window');
     expect(await ctx.session.getCurrentWindowIndex()).not.toBe(idx);
 
     // Step 5: Create 3rd window and select by number
@@ -273,13 +295,18 @@ describe('Scenario 4: Window Lifecycle', () => {
     await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, 3);
     await selectWindowKeyboard(ctx.page, 1);
-    await delay(DELAYS.LONG);
+    await waitForCondition(ctx.page, async () => {
+      const curIdx = await ctx.session.getCurrentWindowIndex();
+      return curIdx === '1';
+    }, 10000, 'select-window -t :1 to activate window 1');
     expect(await ctx.session.getCurrentWindowIndex()).toBe('1');
 
     // Step 6: Last window toggle
     await lastWindowKeyboard(ctx.page);
-    await delay(DELAYS.LONG);
-    // Should be on one of the other windows
+    await waitForCondition(ctx.page, async () => {
+      const curIdx = await ctx.session.getCurrentWindowIndex();
+      return curIdx !== '1';
+    }, 10000, 'last-window to change active window');
     expect(await ctx.session.getCurrentWindowIndex()).not.toBe('1');
 
     // Step 7: Rename window
@@ -323,10 +350,10 @@ describe('Scenario 4: Window Lifecycle', () => {
 
 describe('Scenario 5: Pane Groups', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Header → add button → create group → switch tabs → add 3rd → close tab → content verify → ungroup', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -410,10 +437,10 @@ describe('Scenario 5: Pane Groups', () => {
 
 describe('Scenario 6: Floating Panes', () => {
   const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Break-pane → float modal → header/close → tiled count → close button → re-float → backdrop close', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -514,10 +541,10 @@ async function waitForCopyMode(page, active, timeout = 5000) {
 
 describe('Scenario 7: Mouse Click & Scroll', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Click focus → scroll enters copy mode → ScrollbackTerminal renders → exit q → user-select none → double-click word select → drag no browser selection', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -608,10 +635,10 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
 
 describe('Scenario 8: Mouse Drag & SGR', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Drag H divider → drag V divider → SGR click → SGR wheel → SGR right-click', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -706,10 +733,10 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
 
 describe('Scenario 9: Copy Mode Navigate', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Scroll enter → hjkl cursor → 0/$ line edges → Ctrl+u/d half-page → persists → exit q → re-enter scroll → exit Escape → v selection', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -855,10 +882,10 @@ describe('Scenario 9: Copy Mode Navigate', () => {
 
 describe('Scenario 10: Copy Mode Search & Yank', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Set-buffer → paste → search → select → copy → paste → repeat search n/N', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -931,10 +958,10 @@ describe('Scenario 10: Copy Mode Search & Yank', () => {
 
 describe('Scenario 11: Status Bar', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Bar visible → tab → session name → 2 windows → active distinct → click tab → rename → close via button', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -1013,10 +1040,10 @@ describe('Scenario 11: Status Bar', () => {
 
 describe('Scenario 12: Session Reconnect', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('2 panes → reload → verify preserved → split via tmux → 3 rapid splits → UI synced', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -1078,10 +1105,10 @@ describe('Scenario 12: Session Reconnect', () => {
 
 describe('Scenario 13: Multi-Client', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('3 panes → page2 → both see layout', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -1122,10 +1149,10 @@ describe('Scenario 13: Multi-Client', () => {
 
 describe('Scenario 14: OSC Protocols', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Hyperlink → multiple links → malformed → OSC 52 no crash', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -1173,10 +1200,10 @@ describe('Scenario 14: OSC Protocols', () => {
 
 describe('Scenario 16: Unicode Rendering', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Box drawing → CJK → alignment → emoji single/multi → tree output', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -1227,10 +1254,10 @@ describe('Scenario 16: Unicode Rendering', () => {
 
 describe('Scenario 17: Large Output Perf', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('yes|head-500 → seq 1 2000 → scrollback → verify responsive', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -1263,10 +1290,10 @@ describe('Scenario 17: Large Output Perf', () => {
 
 describe('Scenario 18: Rapid Operations', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Split×4 → kill×3 → split-close-split → 6 panes → 4 windows → swap', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -1357,12 +1384,37 @@ describe('Scenario 18: Rapid Operations', () => {
 
     // Step 5: 4 windows — wait for each before creating the next
     await waitForWindowCount(ctx.page, 1, 5000);
+    const debugWindows = async (label) => {
+      const all = await ctx.page.evaluate(() => {
+        const snap = window.app?.getSnapshot();
+        return snap?.context?.windows?.map(w => ({ id: w.id, index: w.index, name: w.name, active: w.active, isPaneGroupWindow: w.isPaneGroupWindow, isFloatWindow: w.isFloatWindow }));
+      });
+      const tabInfo = await ctx.page.evaluate(() => {
+        const tabs = document.querySelectorAll('.tab:not(.tab-add)');
+        return Array.from(tabs).map(t => ({
+          text: t.textContent?.substring(0, 30),
+          classes: t.className,
+          key: t.getAttribute('data-key') || t.querySelector('button')?.getAttribute('aria-label'),
+        }));
+      });
+      console.log(`[DEBUG S18] ${label}: tabs=${tabInfo.length}, tabInfo=${JSON.stringify(tabInfo)}, xstate=${JSON.stringify(all)}`);
+    };
+    await debugWindows('before 1st create');
     await createWindowKeyboard(ctx.page);
     await waitForWindowCount(ctx.page, 2, 10000);
+    await debugWindows('after 1st create');
     await createWindowKeyboard(ctx.page);
+    await debugWindows('after 2nd create (before wait)');
     await waitForWindowCount(ctx.page, 3, 10000);
+    await debugWindows('after 2nd create (after wait)');
     await createWindowKeyboard(ctx.page);
-    await waitForWindowCount(ctx.page, 4, 10000);
+    await debugWindows('after 3rd create (before wait)');
+    try {
+      await waitForWindowCount(ctx.page, 4, 10000);
+    } catch (e) {
+      await debugWindows('FAILED waiting for 4');
+      throw e;
+    }
     expect(await ctx.session.getWindowCount()).toBe(4);
 
     // Step 6: Swap panes
@@ -1382,10 +1434,10 @@ describe('Scenario 18: Rapid Operations', () => {
 
 describe('Scenario 19: Complex Workflow', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('3 windows × splits → navigate all → send commands → verify alive', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -1455,10 +1507,10 @@ describe('Scenario 19: Complex Workflow', () => {
 
 describe('Scenario 20: Glitch Detection', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Split H + detect → split V + detect → resize + detect → click focus + detect', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -1562,10 +1614,10 @@ async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepD
 
 describe('Scenario 21: Touch Scrolling', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Touch scroll: CSS prevention → normal shell → alternate screen → multi-pane isolation', async () => {
     if (ctx.skipIfNotReady()) return;

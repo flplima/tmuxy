@@ -3,7 +3,7 @@
 const { execSync } = require('child_process');
 
 // Increase timeout for all tests
-jest.setTimeout(60000);
+// Hook and test timeout is set by testTimeout in jest.config.js (240000ms)
 
 // Global error handler
 process.on('unhandledRejection', (reason, promise) => {

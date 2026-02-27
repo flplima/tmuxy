@@ -261,10 +261,14 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
       { timeout, polling: 50 }
     );
   } catch {
-    const actualCount = await page.evaluate(() => {
-      return document.querySelectorAll('.tab:not(.tab-add)').length;
+    const diag = await page.evaluate(() => {
+      const tabs = document.querySelectorAll('.tab:not(.tab-add)');
+      const tabInfo = Array.from(tabs).map(t => t.querySelector('button')?.getAttribute('aria-label'));
+      const snap = window.app?.getSnapshot();
+      const windows = snap?.context?.windows?.map(w => `${w.id}:${w.index}:${w.name}:a=${w.active}:pg=${w.isPaneGroupWindow}:fl=${w.isFloatWindow}`);
+      return { count: tabs.length, tabInfo, windows };
     });
-    throw new Error(`Expected ${expectedCount} window tabs, found ${actualCount} (timeout ${timeout}ms)`);
+    throw new Error(`Expected ${expectedCount} window tabs, found ${diag.count} (timeout ${timeout}ms)\n  DOM tabs: ${JSON.stringify(diag.tabInfo)}\n  XState windows: ${JSON.stringify(diag.windows)}`);
   }
 }
 
