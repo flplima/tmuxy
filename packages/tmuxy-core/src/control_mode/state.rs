@@ -514,6 +514,12 @@ pub struct StateAggregator {
     /// Active popup state (if any)
     /// Note: Requires tmux with control mode popup support (PR #4361)
     popup: Option<PopupState>,
+
+    /// Recently closed window IDs — prevents stale `list-windows` responses
+    /// from re-adding windows that were already removed by `%window-close` events.
+    /// Entries are cleared when a fresh `list-windows` response does NOT include them
+    /// (confirming tmux has caught up).
+    recently_closed_windows: std::collections::HashSet<String>,
 }
 
 impl StateAggregator {
@@ -531,6 +537,7 @@ impl StateAggregator {
             prev_state: None,
             delta_seq: 0,
             popup: None,
+            recently_closed_windows: std::collections::HashSet::new(),
         }
     }
 
@@ -549,6 +556,7 @@ impl StateAggregator {
             prev_state: None,
             delta_seq: 0,
             popup: None,
+            recently_closed_windows: std::collections::HashSet::new(),
         }
     }
 
@@ -729,6 +737,8 @@ impl StateAggregator {
                 );
                 self.windows.remove(&window_id);
                 self.panes.retain(|_, p| p.window_id != window_id);
+                // Prevent stale list-windows responses from re-adding this window
+                self.recently_closed_windows.insert(window_id.clone());
                 self.status_line_dirty = true;
                 ProcessEventResult {
                     state_changed: true,
@@ -1146,6 +1156,12 @@ impl StateAggregator {
                     self.session_name
                 );
             }
+
+            // Clear recently_closed entries that are confirmed gone from tmux
+            // (not in this fresh list-windows response). If a recently-closed ID
+            // IS still in the response, keep it in the set — the response is stale.
+            self.recently_closed_windows
+                .retain(|wid| seen_windows.contains(wid));
         }
 
         // Refresh status line on periodic sync (list-windows response)
@@ -1299,6 +1315,12 @@ impl StateAggregator {
 
         let window_id = parts[0].trim();
         if !window_id.starts_with('@') {
+            return;
+        }
+
+        // Skip windows that were recently closed by a %window-close event.
+        // The list-windows response may be stale (sent before the close event).
+        if self.recently_closed_windows.contains(window_id) {
             return;
         }
 
@@ -1733,6 +1755,7 @@ impl StateAggregator {
         self.cached_status_line.clear();
         self.status_line_dirty = true;
         self.popup = None;
+        self.recently_closed_windows.clear();
     }
 
     /// Check if a popup is currently active
