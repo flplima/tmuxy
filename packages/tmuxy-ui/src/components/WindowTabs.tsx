@@ -5,12 +5,18 @@
  * Filters out special windows (pane groups, floats).
  */
 
-import { useCallback } from 'react';
-import { useAppSend, useAppSelector, selectVisibleWindows } from '../machines/AppContext';
+import { useMemo, useCallback } from 'react';
+import { useAppSend, useAppSelectorShallow, selectVisibleWindows } from '../machines/AppContext';
 
 export function WindowTabs() {
   const send = useAppSend();
-  const visibleWindows = useAppSelector(selectVisibleWindows);
+  const rawWindows = useAppSelectorShallow(selectVisibleWindows);
+
+  // Dedup safety net: ensure no duplicate window IDs reach the DOM
+  const visibleWindows = useMemo(
+    () => [...new Map(rawWindows.map((w) => [w.id, w])).values()],
+    [rawWindows],
+  );
 
   const handleWindowClick = useCallback(
     (windowIndex: number) => {
@@ -34,7 +40,7 @@ export function WindowTabs() {
   return (
     <div className="tab-list">
       {visibleWindows.map((window) => (
-        <div key={window.index} className={`tab ${window.active ? 'tab-active' : ''}`}>
+        <div key={window.id} className={`tab ${window.active ? 'tab-active' : ''}`}>
           <button
             className="tab-button"
             onClick={() => handleWindowClick(window.index)}

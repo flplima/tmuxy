@@ -515,11 +515,11 @@ pub struct StateAggregator {
     /// Note: Requires tmux with control mode popup support (PR #4361)
     popup: Option<PopupState>,
 
-    /// Recently closed window IDs — prevents stale `list-windows` responses
-    /// from re-adding windows that were already removed by `%window-close` events.
-    /// Entries are cleared when a fresh `list-windows` response does NOT include them
-    /// (confirming tmux has caught up).
-    recently_closed_windows: std::collections::HashSet<String>,
+    /// When true, window/layout change events update internal state but
+    /// return `state_changed: false` to suppress emission. Pane output
+    /// events still emit immediately. Used during command-aware settling
+    /// to batch intermediate states from compound commands (e.g., splitw ; breakp).
+    suppress_window_emissions: bool,
 }
 
 impl StateAggregator {
@@ -537,7 +537,7 @@ impl StateAggregator {
             prev_state: None,
             delta_seq: 0,
             popup: None,
-            recently_closed_windows: std::collections::HashSet::new(),
+            suppress_window_emissions: false,
         }
     }
 
@@ -556,13 +556,32 @@ impl StateAggregator {
             prev_state: None,
             delta_seq: 0,
             popup: None,
-            recently_closed_windows: std::collections::HashSet::new(),
+            suppress_window_emissions: false,
         }
     }
 
     /// Mark status line as needing refresh (call on window-related events)
     pub fn mark_status_line_dirty(&mut self) {
         self.status_line_dirty = true;
+    }
+
+    /// Enable or disable window/layout emission suppression.
+    /// When suppressed, window/layout events still update internal state
+    /// but `process_event()` returns `state_changed: false` for those events.
+    pub fn set_suppress_window_emissions(&mut self, suppress: bool) {
+        self.suppress_window_emissions = suppress;
+    }
+
+    /// Check if window emissions are currently suppressed.
+    pub fn is_suppressing_window_emissions(&self) -> bool {
+        self.suppress_window_emissions
+    }
+
+    /// Clear the suppression flag and return a state update with
+    /// all accumulated changes. Returns None if nothing changed.
+    pub fn force_emit(&mut self) -> Option<crate::StateUpdate> {
+        self.suppress_window_emissions = false;
+        self.to_state_update()
     }
 
     /// Refresh status line if dirty, otherwise use cached value.
@@ -699,7 +718,7 @@ impl StateAggregator {
             } => {
                 let resized_panes = self.handle_layout_change(&window_id, &layout);
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     panes_needing_refresh: resized_panes,
                     change_type: ChangeType::PaneLayout,
                 }
@@ -724,11 +743,9 @@ impl StateAggregator {
             ControlModeEvent::WindowClose { window_id } => {
                 self.windows.remove(&window_id);
                 self.panes.retain(|_, p| p.window_id != window_id);
-                // Prevent stale list-windows responses from re-adding this window
-                self.recently_closed_windows.insert(window_id.clone());
                 self.status_line_dirty = true;
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,
                     ..Default::default()
                 }
@@ -743,7 +760,7 @@ impl StateAggregator {
                 window.name = name;
                 self.status_line_dirty = true;
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,
                     ..Default::default()
                 }
@@ -757,7 +774,7 @@ impl StateAggregator {
                     }
                 }
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::PaneFocus,
                     ..Default::default()
                 }
@@ -783,7 +800,7 @@ impl StateAggregator {
                 self.active_window_id = Some(window_id);
                 self.status_line_dirty = true; // Active window changed - refresh status line
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,
                     ..Default::default()
                 }
@@ -1112,17 +1129,10 @@ impl StateAggregator {
             }
         }
 
-        // Note: We do NOT remove windows based on list-windows responses.
-        // list-windows responses can be stale (sent before a new window was created),
-        // so using them for removal would delete legitimate event-added windows.
-        // Window removal is handled exclusively by %window-close events, which are
-        // real-time and authoritative.
-        //
-        // We DO clear recently_closed entries when the response confirms
-        // they're gone from tmux (not in the response anymore).
+        // Remove windows that weren't in the list-windows response (deleted in tmux).
         if is_list_windows_response && !seen_windows.is_empty() {
-            self.recently_closed_windows
-                .retain(|wid| seen_windows.contains(wid));
+            self.windows
+                .retain(|window_id, _| seen_windows.contains(window_id));
         }
 
         // Refresh status line on periodic sync (list-windows response)
@@ -1276,12 +1286,6 @@ impl StateAggregator {
 
         let window_id = parts[0].trim();
         if !window_id.starts_with('@') {
-            return;
-        }
-
-        // Skip windows that were recently closed by a %window-close event.
-        // The list-windows response may be stale (sent before the close event).
-        if self.recently_closed_windows.contains(window_id) {
             return;
         }
 
@@ -1716,7 +1720,7 @@ impl StateAggregator {
         self.cached_status_line.clear();
         self.status_line_dirty = true;
         self.popup = None;
-        self.recently_closed_windows.clear();
+        self.suppress_window_emissions = false;
     }
 
     /// Check if a popup is currently active

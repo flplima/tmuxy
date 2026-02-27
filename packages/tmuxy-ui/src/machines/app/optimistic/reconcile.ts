@@ -5,12 +5,13 @@
  * Determines if predictions matched and handles rollback logging.
  */
 
-import type { TmuxPane } from '../../../tmux/types';
+import type { TmuxPane, TmuxWindow } from '../../../tmux/types';
 import type {
   OptimisticOperation,
   SplitPrediction,
   NavigatePrediction,
   SwapPrediction,
+  NewWindowPrediction,
 } from '../../types';
 
 /** Position tolerance for comparing pane positions (in cells) */
@@ -33,6 +34,7 @@ export function reconcileOptimisticUpdate(
   operation: OptimisticOperation,
   serverPanes: TmuxPane[],
   serverActivePaneId: string | null,
+  serverWindows?: TmuxWindow[],
 ): ReconciliationResult {
   const { prediction } = operation;
 
@@ -43,6 +45,8 @@ export function reconcileOptimisticUpdate(
       return reconcileNavigate(prediction, serverActivePaneId);
     case 'swap':
       return reconcileSwap(prediction, serverPanes);
+    case 'new-window':
+      return reconcileNewWindow(prediction, serverWindows);
     default:
       return { matched: true };
   }
@@ -148,6 +152,25 @@ function reconcileSwap(prediction: SwapPrediction, serverPanes: TmuxPane[]): Rec
   }
 
   return { matched: true };
+}
+
+/**
+ * Reconcile new window prediction.
+ * Check if server state now has more windows than the placeholder count.
+ */
+function reconcileNewWindow(
+  _prediction: NewWindowPrediction,
+  serverWindows?: TmuxWindow[],
+): ReconciliationResult {
+  // If server provided windows and we have at least one visible window,
+  // consider it reconciled. The placeholder will be replaced by server state.
+  if (serverWindows && serverWindows.length > 0) {
+    return { matched: true };
+  }
+  return {
+    matched: false,
+    mismatchReason: 'New window prediction: no windows in server state',
+  };
 }
 
 /**

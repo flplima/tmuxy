@@ -29,6 +29,7 @@ import {
   applySplitPrediction,
   applySwapPrediction,
   applyNavigatePrediction,
+  applyNewWindowPrediction,
   reconcileOptimisticUpdate,
 } from './optimistic';
 import {
@@ -604,6 +605,7 @@ export const appMachine = setup({
                   context.optimisticOperation,
                   transformed.panes,
                   transformed.activePaneId,
+                  transformed.windows,
                 );
 
                 if (!result.matched && result.mismatchReason) {
@@ -906,6 +908,7 @@ export const appMachine = setup({
                   context.activeWindowId,
                   command,
                   context.paneActivationOrder,
+                  context.windows,
                 )
               : null;
 
@@ -914,10 +917,11 @@ export const appMachine = setup({
               prediction && !(isDragging && prediction.prediction.type === 'swap');
 
             if (shouldApplyOptimistic && prediction) {
-              // Apply optimistic update directly to panes/activePaneId
+              // Apply optimistic update directly to panes/activePaneId/windows
               // Server state will overwrite when it arrives
               let newPanes = context.panes;
               let newActivePaneId = context.activePaneId;
+              let newWindows = context.windows;
 
               switch (prediction.prediction.type) {
                 case 'split':
@@ -936,12 +940,16 @@ export const appMachine = setup({
                 case 'swap':
                   newPanes = applySwapPrediction(context.panes, prediction.prediction);
                   break;
+                case 'new-window':
+                  newWindows = applyNewWindowPrediction(context.windows, prediction.prediction);
+                  break;
               }
 
               enqueue(
                 assign(({ context: ctx }) => ({
                   optimisticOperation: prediction,
                   panes: newPanes,
+                  windows: newWindows,
                   activePaneId: newActivePaneId,
                   paneActivationOrder:
                     newActivePaneId !== ctx.activePaneId
