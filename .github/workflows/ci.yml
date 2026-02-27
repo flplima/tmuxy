@@ -104,4 +104,4 @@ jobs:
 
       - name: Server logs (debug)
         if: failure()
-        run: grep -E '\[state\] Window|CREATED|cleanup' /tmp/tmuxy-server.log | tail -200
+        run: grep '\[state\] Window' /tmp/tmuxy-server.log | tail -500
