@@ -703,9 +703,18 @@ impl StateAggregator {
             | ControlModeEvent::UnlinkedWindowClose { .. } => ProcessEventResult::default(),
 
             ControlModeEvent::WindowAdd { window_id } => {
+                let is_new = !self.windows.contains_key(&window_id);
                 self.windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
+                if is_new {
+                    eprintln!(
+                        "[state] WindowAdd {} (now {} windows, session={})",
+                        window_id,
+                        self.windows.len(),
+                        self.session_name
+                    );
+                }
                 self.status_line_dirty = true;
                 // Don't emit state yet - wait for WindowRenamed or list-windows
                 // to populate the window name. This prevents brief flashes of
@@ -714,6 +723,12 @@ impl StateAggregator {
             }
 
             ControlModeEvent::WindowClose { window_id } => {
+                eprintln!(
+                    "[state] WindowClose {} (now {} windows, session={})",
+                    window_id,
+                    self.windows.len().saturating_sub(1),
+                    self.session_name
+                );
                 self.windows.remove(&window_id);
                 self.panes.retain(|_, p| p.window_id != window_id);
                 self.status_line_dirty = true;
@@ -725,12 +740,22 @@ impl StateAggregator {
             }
 
             ControlModeEvent::WindowRenamed { window_id, name } => {
+                let is_new = !self.windows.contains_key(&window_id);
                 // Create window if it doesn't exist yet (rename can arrive before add)
                 let window = self
                     .windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
-                window.name = name;
+                window.name = name.clone();
+                if is_new {
+                    eprintln!(
+                        "[state] WindowRenamed {} -> '{}' CREATED (now {} windows, session={})",
+                        window_id,
+                        name,
+                        self.windows.len(),
+                        self.session_name
+                    );
+                }
                 self.status_line_dirty = true;
                 ProcessEventResult {
                     state_changed: true,
@@ -1104,8 +1129,25 @@ impl StateAggregator {
 
         // Remove windows that weren't in the list-windows response (deleted in tmux).
         if is_list_windows_response && !seen_windows.is_empty() {
-            self.windows
-                .retain(|window_id, _| seen_windows.contains(window_id));
+            let before = self.windows.len();
+            self.windows.retain(|window_id, w| {
+                let keep = seen_windows.contains(window_id);
+                if !keep {
+                    eprintln!(
+                        "[state] list-windows cleanup: removing {} (name='{}', session={})",
+                        window_id, w.name, self.session_name
+                    );
+                }
+                keep
+            });
+            if self.windows.len() != before {
+                eprintln!(
+                    "[state] list-windows cleanup: {} -> {} windows (session={})",
+                    before,
+                    self.windows.len(),
+                    self.session_name
+                );
+            }
         }
 
         // Refresh status line on periodic sync (list-windows response)
