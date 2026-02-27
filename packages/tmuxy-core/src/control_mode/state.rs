@@ -714,13 +714,6 @@ impl StateAggregator {
                 self.windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
-                eprintln!(
-                    "[state] WindowAdd {} (now {} windows: {:?}, session={})",
-                    window_id,
-                    self.windows.len(),
-                    self.windows.keys().collect::<Vec<_>>(),
-                    self.session_name
-                );
                 self.status_line_dirty = true;
                 // Don't emit state yet - wait for WindowRenamed or list-windows
                 // to populate the window name. This prevents brief flashes of
@@ -729,12 +722,6 @@ impl StateAggregator {
             }
 
             ControlModeEvent::WindowClose { window_id } => {
-                eprintln!(
-                    "[state] WindowClose {} (now {} windows, session={})",
-                    window_id,
-                    self.windows.len().saturating_sub(1),
-                    self.session_name
-                );
                 self.windows.remove(&window_id);
                 self.panes.retain(|_, p| p.window_id != window_id);
                 // Prevent stale list-windows responses from re-adding this window
@@ -748,22 +735,12 @@ impl StateAggregator {
             }
 
             ControlModeEvent::WindowRenamed { window_id, name } => {
-                let is_new = !self.windows.contains_key(&window_id);
                 // Create window if it doesn't exist yet (rename can arrive before add)
                 let window = self
                     .windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
-                window.name = name.clone();
-                eprintln!(
-                    "[state] WindowRenamed {} -> '{}' {} (now {} windows: {:?}, session={})",
-                    window_id,
-                    name,
-                    if is_new { "CREATED" } else { "updated" },
-                    self.windows.len(),
-                    self.windows.keys().collect::<Vec<_>>(),
-                    self.session_name
-                );
+                window.name = name;
                 self.status_line_dirty = true;
                 ProcessEventResult {
                     state_changed: true,
@@ -1135,31 +1112,15 @@ impl StateAggregator {
             }
         }
 
-        // Remove windows that weren't in the list-windows response (deleted in tmux).
+        // Note: We do NOT remove windows based on list-windows responses.
+        // list-windows responses can be stale (sent before a new window was created),
+        // so using them for removal would delete legitimate event-added windows.
+        // Window removal is handled exclusively by %window-close events, which are
+        // real-time and authoritative.
+        //
+        // We DO clear recently_closed entries when the response confirms
+        // they're gone from tmux (not in the response anymore).
         if is_list_windows_response && !seen_windows.is_empty() {
-            let before = self.windows.len();
-            self.windows.retain(|window_id, w| {
-                let keep = seen_windows.contains(window_id);
-                if !keep {
-                    eprintln!(
-                        "[state] list-windows cleanup: removing {} (name='{}', session={})",
-                        window_id, w.name, self.session_name
-                    );
-                }
-                keep
-            });
-            if self.windows.len() != before {
-                eprintln!(
-                    "[state] list-windows cleanup: {} -> {} windows (session={})",
-                    before,
-                    self.windows.len(),
-                    self.session_name
-                );
-            }
-
-            // Clear recently_closed entries that are confirmed gone from tmux
-            // (not in this fresh list-windows response). If a recently-closed ID
-            // IS still in the response, keep it in the set — the response is stale.
             self.recently_closed_windows
                 .retain(|wid| seen_windows.contains(wid));
         }
