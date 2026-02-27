@@ -129,4 +129,4 @@ jobs:
 
       - name: Server logs (debug)
         if: failure()
-        run: grep '\[state\] Window' /tmp/tmuxy-server.log | tail -500
+        run: tail -500 /tmp/tmuxy-server.log
