@@ -201,8 +201,27 @@ pub async fn sse_handler(
         // Subscribe to shared session state channel
         let session_rx = session_conns.state_tx.subscribe();
 
-        // Start monitor if not already running
-        if session_conns.monitor_handle.is_none() {
+        // Start monitor if not already running, or restart if it died
+        let needs_monitor = match &session_conns.monitor_handle {
+            None => {
+                eprintln!("[sse] No monitor handle for session '{}'", session);
+                true
+            }
+            Some(handle) => {
+                let finished = handle.is_finished();
+                eprintln!(
+                    "[sse] Monitor handle for session '{}': finished={}",
+                    session, finished
+                );
+                finished
+            }
+        };
+        if needs_monitor {
+            if session_conns.monitor_handle.is_some() {
+                eprintln!("[sse] Monitor for session '{}' died, restarting", session);
+                session_conns.monitor_handle = None;
+                session_conns.monitor_command_tx = None;
+            }
             let monitor_session = session.clone();
             let monitor_state = state.clone();
             let monitor_tx = session_conns.state_tx.clone();
@@ -1121,22 +1140,37 @@ async fn start_monitoring_control_mode(
     let mut backoff = Duration::from_millis(100);
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
     let mut is_first_connect = true;
+    // Track whether monitor.run() ever processed events successfully.
+    // If the connection dies before processing any events, we should retry
+    // with create_session=true since the session may need to be recreated.
+    let mut ever_ran_successfully = false;
 
     loop {
         // Stop reconnecting if session was cleaned up (no more clients)
-        {
+        let has_clients = {
             let sessions = state.sessions.read().await;
-            if !sessions.contains_key(&session) {
-                eprintln!(
-                    "[monitor] Session '{}' removed, stopping monitor loop",
-                    session
-                );
-                break;
+            if let Some(session_conns) = sessions.get(&session) {
+                !session_conns.connections.is_empty()
+            } else {
+                false
             }
+        };
+        if !has_clients {
+            eprintln!(
+                "[monitor] Session '{}' has no clients, stopping monitor loop",
+                session
+            );
+            // Clean up the session entry so a fresh monitor can start next time
+            let mut sessions = state.sessions.write().await;
+            sessions.remove(&session);
+            break;
         }
 
         // On reconnect (not first connect), check if the tmux session still exists.
-        // If it was destroyed (e.g., by test cleanup), stop the monitor loop.
+        // If it was intentionally destroyed (by test cleanup or user) AND we had
+        // a successful run before, stop the monitor loop. If the session died
+        // before ever running successfully (crash on startup), retry with
+        // create_session=true to recreate it.
         let mut connect_config = config.clone();
         if !is_first_connect {
             let session_exists = std::process::Command::new("tmux")
@@ -1146,14 +1180,24 @@ async fn start_monitoring_control_mode(
                 .unwrap_or(false);
 
             if !session_exists {
+                if ever_ran_successfully {
+                    // Session was intentionally destroyed (e.g., kill-session from test cleanup)
+                    eprintln!(
+                        "[monitor] tmux session '{}' no longer exists (was running), stopping monitor loop",
+                        session
+                    );
+                    break;
+                }
+                // Session died before ever running — recreate it
                 eprintln!(
-                    "[monitor] tmux session '{}' no longer exists, stopping monitor loop",
+                    "[monitor] tmux session '{}' died before running, will recreate",
                     session
                 );
-                break;
+                connect_config.create_session = true;
+            } else {
+                // Session exists, just attach
+                connect_config.create_session = false;
             }
-            // On reconnect, never create a new session — just attach to existing
-            connect_config.create_session = false;
         }
 
         match TmuxMonitor::connect(connect_config).await {
@@ -1180,7 +1224,13 @@ async fn start_monitoring_control_mode(
                 }
 
                 backoff = Duration::from_millis(100);
+                let run_start = std::time::Instant::now();
                 monitor.run(&emitter).await;
+                // If the monitor ran for more than 2 seconds, consider it a successful run.
+                // Short-lived runs indicate startup crashes that should retry with create_session.
+                if run_start.elapsed() > Duration::from_secs(2) {
+                    ever_ran_successfully = true;
+                }
 
                 {
                     let mut sessions = state.sessions.write().await;

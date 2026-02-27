@@ -20,6 +20,25 @@
 const { delay } = require('./browser');
 const { DELAYS } = require('./config');
 
+// ==================== Focus Helper ====================
+
+/**
+ * Focus the terminal element, retrying if it's been detached by a React re-render.
+ */
+async function focusTerminal(page) {
+  try {
+    await page.click('[role="log"]', { timeout: 2000 });
+  } catch {
+    // Terminal may have been re-rendered; try again after a brief wait
+    await delay(100);
+    try {
+      await page.click('[role="log"]', { timeout: 2000 });
+    } catch {
+      await page.click('body').catch(() => {});
+    }
+  }
+}
+
 // ==================== Keyboard Input ====================
 
 /**
@@ -58,13 +77,7 @@ async function getPrefixKey(page) {
  * Includes a longer delay to allow tmux to enter prefix mode
  */
 async function sendTmuxPrefix(page) {
-  // Focus the terminal element specifically
-  const terminal = await page.$('[role="log"]');
-  if (terminal) {
-    await terminal.click();
-  } else {
-    await page.click('body').catch(() => {});
-  }
+  await focusTerminal(page);
   await delay(DELAYS.MEDIUM);
 
   // Read the actual prefix key from the browser's XState context
@@ -92,13 +105,7 @@ async function sendTmuxPrefix(page) {
 async function sendPrefixCommand(page, key, options = {}) {
   const { shift = false } = options;
 
-  // Focus the terminal element specifically
-  const terminal = await page.$('[role="log"]');
-  if (terminal) {
-    await terminal.click();
-  } else {
-    await page.click('body').catch(() => {});
-  }
+  await focusTerminal(page);
   await delay(DELAYS.MEDIUM);
 
   // Read the actual prefix key from the browser's XState context
