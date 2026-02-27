@@ -1,19 +1,15 @@
-import { Header } from '@/components/Header';
-import { Hero } from '@/components/Hero';
-import { Features } from '@/components/Features';
-import { OpenSource } from '@/components/OpenSource';
-import { DownloadCTA } from '@/components/DownloadCTA';
-import { Footer } from '@/components/Footer';
+import { MacWindow } from '@/components/MacWindow';
+import { TmuxyDemo } from '@/components/TmuxyDemo';
 
 export default function Home() {
   return (
-    <main className="min-h-screen">
-      <Header />
-      <Hero />
-      <Features />
-      <OpenSource />
-      <DownloadCTA />
-      <Footer />
+    <main className="flex min-h-screen flex-col items-center px-4 py-12">
+      <h1 className="mb-8 text-4xl font-bold tracking-tight text-white">tmuxy</h1>
+      <div className="w-full max-w-5xl">
+        <MacWindow>
+          <TmuxyDemo />
+        </MacWindow>
+      </div>
     </main>
   );
 }

@@ -193,6 +193,15 @@ impl PaneState {
 
         // Process through terminal emulator
         safe_process(&mut self.terminal, &processed);
+
+        // Derive alternate_on and mouse_any_flag from the vt100 parser state.
+        // This is more reliable than polling list-panes, as it updates immediately
+        // when the application sends the escape sequence.
+        self.alternate_on = self.terminal.screen().alternate_screen();
+        self.mouse_any_flag = !matches!(
+            self.terminal.screen().mouse_protocol_mode(),
+            vt100::MouseProtocolMode::None
+        );
     }
 
     /// Reset terminal and process capture-pane output.
