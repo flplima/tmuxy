@@ -2,9 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Tmuxy — A Modern Web Interface for tmux',
-  description:
-    'Control tmux from your browser. Real-time terminal rendering, keyboard-first navigation, pane management, and more.',
+  title: 'tmuxy',
+  description: 'A modern web interface for tmux.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -170,10 +170,10 @@ async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepD
 
 describe('Scenario 2: Keyboard Basics', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Type → backspace → Tab → Ctrl+C → Ctrl+D → arrow-up history', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -204,7 +204,7 @@ describe('Scenario 2: Keyboard Basics', () => {
     await pressEnter(ctx.page);
     await delay(DELAYS.EXTRA_LONG);
     await sendKeyCombo(ctx.page, 'Control', 'c');
-    await delay(DELAYS.LONG);
+    await delay(DELAYS.SYNC);
     await runCommand(ctx.page, 'echo "after_interrupt"', 'after_interrupt');
 
     // Step 5: Ctrl+D sends EOF
@@ -235,10 +235,10 @@ describe('Scenario 2: Keyboard Basics', () => {
 
 describe('Scenario 7: Mouse Click & Scroll', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Click focus → scroll enters copy mode → ScrollbackTerminal renders → exit q → user-select none → double-click word select → drag no browser selection', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -329,10 +329,10 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
 
 describe('Scenario 8: Mouse Drag & SGR', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Drag H divider → drag V divider → SGR click → SGR wheel → SGR right-click', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -427,10 +427,10 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
 
 describe('Scenario 9: Copy Mode Navigate', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Scroll enter → hjkl cursor → 0/$ line edges → Ctrl+u/d half-page → persists → exit q → re-enter scroll → exit Escape → v selection', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -576,10 +576,10 @@ describe('Scenario 9: Copy Mode Navigate', () => {
 
 describe('Scenario 10: Copy Mode Search & Yank', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Set-buffer → paste → search → select → copy → paste → repeat search n/N', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -652,10 +652,10 @@ describe('Scenario 10: Copy Mode Search & Yank', () => {
 
 describe('Scenario 21: Touch Scrolling', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Touch scroll: CSS prevention → normal shell → alternate screen → multi-pane isolation', async () => {
     if (ctx.skipIfNotReady()) return;

@@ -37,10 +37,10 @@ async function runCommandViaTmux(session, page, command, expectedText, timeout =
 
 describe('Scenario 14: OSC Protocols', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Hyperlink → multiple links → malformed → OSC 52 no crash', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -88,10 +88,10 @@ describe('Scenario 14: OSC Protocols', () => {
 
 describe('Scenario 16: Unicode Rendering', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('Box drawing → CJK → alignment → emoji single/multi → tree output', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -143,10 +143,10 @@ describe('Scenario 16: Unicode Rendering', () => {
 describe('Category 11: OSC Protocols (Detailed)', () => {
   const ctx = createTestContext({ snapshot: true });
 
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   // ====================
   // 11.1 Hyperlinks (OSC 8)

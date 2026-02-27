@@ -5,12 +5,13 @@
  * These predictions are applied immediately before server confirmation.
  */
 
-import type { TmuxPane } from '../../../tmux/types';
+import type { TmuxPane, TmuxWindow } from '../../../tmux/types';
 import type {
   OptimisticOperation,
   SplitPrediction,
   NavigatePrediction,
   SwapPrediction,
+  NewWindowPrediction,
 } from '../../types';
 import type {
   ParsedCommand,
@@ -18,6 +19,7 @@ import type {
   NavigateCommand,
   SwapCommand,
   SelectPaneCommand,
+  NewWindowCommand,
 } from './commandParser';
 
 let optimisticIdCounter = 0;
@@ -40,18 +42,28 @@ export function calculatePrediction(
   activeWindowId: string | null,
   command: string,
   paneActivationOrder: string[] = [],
+  windows: TmuxWindow[] = [],
 ): OptimisticOperation | null {
-  if (!parsed || !activePaneId) return null;
+  if (!parsed) return null;
+  if (!activePaneId && parsed.type !== 'new-window') return null;
 
   switch (parsed.type) {
     case 'split':
-      return calculateSplitPrediction(parsed, panes, activePaneId, activeWindowId, command);
+      return calculateSplitPrediction(parsed, panes, activePaneId!, activeWindowId, command);
     case 'navigate':
-      return calculateNavigatePrediction(parsed, panes, activePaneId, command, paneActivationOrder);
+      return calculateNavigatePrediction(
+        parsed,
+        panes,
+        activePaneId!,
+        command,
+        paneActivationOrder,
+      );
     case 'swap':
       return calculateSwapPrediction(parsed, panes, command);
     case 'select-pane':
-      return calculateSelectPanePrediction(parsed, panes, activePaneId, command);
+      return calculateSelectPanePrediction(parsed, panes, activePaneId!, command);
+    case 'new-window':
+      return calculateNewWindowPrediction(parsed, windows, command);
     default:
       return null;
   }
@@ -440,4 +452,54 @@ export function applySwapPrediction(panes: TmuxPane[], prediction: SwapPredictio
  */
 export function applyNavigatePrediction(prediction: NavigatePrediction): string {
   return prediction.toPaneId;
+}
+
+/**
+ * Calculate new window prediction.
+ * Creates a placeholder window tab with a temporary ID.
+ */
+function calculateNewWindowPrediction(
+  _parsed: NewWindowCommand,
+  windows: TmuxWindow[],
+  command: string,
+): OptimisticOperation {
+  const id = generateOptimisticId();
+  // Determine the next window index (max index + 1)
+  const maxIndex = windows.reduce((max, w) => Math.max(max, w.index), -1);
+
+  return {
+    id,
+    type: 'new-window',
+    command,
+    timestamp: Date.now(),
+    prediction: {
+      type: 'new-window',
+      placeholderWindowId: `__placeholder_${id}`,
+      placeholderName: `Window ${maxIndex + 1}`,
+    },
+  };
+}
+
+/**
+ * Apply a new window prediction to the windows array.
+ * Adds a placeholder window tab that appears instantly.
+ */
+export function applyNewWindowPrediction(
+  windows: TmuxWindow[],
+  prediction: NewWindowPrediction,
+): TmuxWindow[] {
+  const maxIndex = windows.reduce((max, w) => Math.max(max, w.index), -1);
+
+  const placeholderWindow: TmuxWindow = {
+    id: prediction.placeholderWindowId,
+    index: maxIndex + 1,
+    name: prediction.placeholderName,
+    active: false,
+    isPaneGroupWindow: false,
+    paneGroupPaneIds: null,
+    isFloatWindow: false,
+    floatPaneId: null,
+  };
+
+  return [...windows, placeholderWindow];
 }

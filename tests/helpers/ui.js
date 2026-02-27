@@ -20,6 +20,25 @@
 const { delay } = require('./browser');
 const { DELAYS } = require('./config');
 
+// ==================== Focus Helper ====================
+
+/**
+ * Focus the terminal element, retrying if it's been detached by a React re-render.
+ */
+async function focusTerminal(page) {
+  try {
+    await page.click('[role="log"]', { timeout: 2000 });
+  } catch {
+    // Terminal may have been re-rendered; try again after a brief wait
+    await delay(100);
+    try {
+      await page.click('[role="log"]', { timeout: 2000 });
+    } catch {
+      await page.click('body').catch(() => {});
+    }
+  }
+}
+
 // ==================== Keyboard Input ====================
 
 /**
@@ -58,13 +77,7 @@ async function getPrefixKey(page) {
  * Includes a longer delay to allow tmux to enter prefix mode
  */
 async function sendTmuxPrefix(page) {
-  // Focus the terminal element specifically
-  const terminal = await page.$('[role="log"]');
-  if (terminal) {
-    await terminal.click();
-  } else {
-    await page.click('body').catch(() => {});
-  }
+  await focusTerminal(page);
   await delay(DELAYS.MEDIUM);
 
   // Read the actual prefix key from the browser's XState context
@@ -92,13 +105,7 @@ async function sendTmuxPrefix(page) {
 async function sendPrefixCommand(page, key, options = {}) {
   const { shift = false } = options;
 
-  // Focus the terminal element specifically
-  const terminal = await page.$('[role="log"]');
-  if (terminal) {
-    await terminal.click();
-  } else {
-    await page.click('body').catch(() => {});
-  }
+  await focusTerminal(page);
   await delay(DELAYS.MEDIUM);
 
   // Read the actual prefix key from the browser's XState context
@@ -148,11 +155,12 @@ async function typeInTerminal(page, text) {
     await page.click('body');
   }
   await delay(DELAYS.MEDIUM);
-  // Per-character typing with small delay — the HttpAdapter batches literal
-  // characters into a single send-keys -l command, preventing transposition.
+  // Per-character typing with delay — the HttpAdapter batches literal
+  // characters into a single send-keys -l command and serializes HTTP
+  // requests, preventing transposition.
   for (const char of text) {
     await page.keyboard.type(char);
-    await delay(10);
+    await delay(30);
   }
 }
 
@@ -485,38 +493,14 @@ async function toggleZoomKeyboard(page) {
 // ==================== Window Operations ====================
 
 /**
- * Create new window via tmux commands.
- * Uses split-window + break-pane workaround because new-window crashes
- * tmux 3.5a when routed through control mode. The split-window creates a
- * pane, break-pane moves it to its own window (and switches to it).
+ * Create new window via the XState SEND_COMMAND event.
+ * Uses the 'new-window' command which the server intercepts and converts
+ * to split-window + break-pane (since new-window crashes tmux 3.5a control mode).
  */
 async function createWindowKeyboard(page) {
-  // Get current pane count before splitting
-  const beforeCount = await getUIPaneCount(page);
-  // Step 1: split-window -d creates a background pane (doesn't switch focus)
-  await tmuxCommandKeyboard(page, 'split-window -d');
-  // Wait for the split to actually produce a new pane in the UI
-  const expectedAfterSplit = beforeCount + 1;
-  for (let i = 0; i < 20; i++) {
-    const count = await getUIPaneCount(page);
-    if (count >= expectedAfterSplit) break;
-    await delay(DELAYS.MEDIUM);
-  }
-  // Step 2: Get the new pane's tmux ID (last pane in current window by internal ID)
-  const newPaneId = await page.evaluate(() => {
-    const snap = window.app?.getSnapshot();
-    if (!snap?.context?.panes) return null;
-    const awId = snap.context.activeWindowId;
-    const windowPanes = snap.context.panes
-      .filter(p => p.windowId === awId)
-      .sort((a, b) => a.id - b.id);
-    const last = windowPanes[windowPanes.length - 1];
-    return last?.tmuxId || null;
+  await page.evaluate(async () => {
+    await window._adapter.invoke('run_tmux_command', { command: 'new-window' });
   });
-  if (newPaneId) {
-    // Step 3: break-pane moves it to its own window and switches to it
-    await tmuxCommandKeyboard(page, `break-pane -s ${newPaneId}`);
-  }
   await delay(DELAYS.SYNC);
 }
 

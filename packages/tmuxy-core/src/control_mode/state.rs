@@ -193,6 +193,15 @@ impl PaneState {
 
         // Process through terminal emulator
         safe_process(&mut self.terminal, &processed);
+
+        // Derive alternate_on and mouse_any_flag from the vt100 parser state.
+        // This is more reliable than polling list-panes, as it updates immediately
+        // when the application sends the escape sequence.
+        self.alternate_on = self.terminal.screen().alternate_screen();
+        self.mouse_any_flag = !matches!(
+            self.terminal.screen().mouse_protocol_mode(),
+            vt100::MouseProtocolMode::None
+        );
     }
 
     /// Reset terminal and process capture-pane output.
@@ -372,6 +381,12 @@ pub struct WindowState {
 
     /// Float height in chars (from @float_height option)
     pub float_height: Option<u32>,
+
+    /// Active pane ID in this window (tracked from %window-pane-changed events)
+    pub active_pane_id: Option<String>,
+
+    /// Whether this window has a zoomed pane (from %layout-change flags containing 'Z')
+    pub zoomed: bool,
 }
 
 impl WindowState {
@@ -385,6 +400,8 @@ impl WindowState {
             float_parent: None,
             float_width: None,
             float_height: None,
+            active_pane_id: None,
+            zoomed: false,
         }
     }
 
@@ -475,6 +492,120 @@ impl PopupState {
     }
 }
 
+// ============================================================
+// Layout string parser
+// ============================================================
+
+/// Pane geometry extracted from a tmux layout string
+struct LayoutPane {
+    id: String,
+    index: u32,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+/// Parse a tmux layout string (after checksum removal) into pane geometries.
+///
+/// The format is recursive:
+/// - Leaf: `WxH,x,y,pane_index`
+/// - Vertical split: `WxH,x,y[child,child,...]`
+/// - Horizontal split: `WxH,x,y{child,child,...}`
+///
+/// Positions (x,y) in the layout are absolute (relative to window origin).
+fn parse_layout_panes(layout: &str) -> Vec<LayoutPane> {
+    let bytes = layout.as_bytes();
+    let mut pos = 0;
+    let mut panes = Vec::new();
+    parse_layout_node(bytes, &mut pos, &mut panes);
+    panes
+}
+
+fn parse_layout_u32(bytes: &[u8], pos: &mut usize) -> Option<u32> {
+    let start = *pos;
+    while *pos < bytes.len() && bytes[*pos].is_ascii_digit() {
+        *pos += 1;
+    }
+    if *pos == start {
+        return None;
+    }
+    std::str::from_utf8(&bytes[start..*pos]).ok()?.parse().ok()
+}
+
+fn parse_layout_node(bytes: &[u8], pos: &mut usize, panes: &mut Vec<LayoutPane>) {
+    // Parse WxH
+    let width = match parse_layout_u32(bytes, pos) {
+        Some(w) => w,
+        None => return,
+    };
+    if *pos >= bytes.len() || bytes[*pos] != b'x' {
+        return;
+    }
+    *pos += 1; // skip 'x'
+    let height = match parse_layout_u32(bytes, pos) {
+        Some(h) => h,
+        None => return,
+    };
+
+    // Skip comma before x
+    if *pos < bytes.len() && bytes[*pos] == b',' {
+        *pos += 1;
+    }
+    let x = match parse_layout_u32(bytes, pos) {
+        Some(v) => v,
+        None => return,
+    };
+
+    // Skip comma before y
+    if *pos < bytes.len() && bytes[*pos] == b',' {
+        *pos += 1;
+    }
+    let y = match parse_layout_u32(bytes, pos) {
+        Some(v) => v,
+        None => return,
+    };
+
+    // What follows determines node type:
+    // '[' or '{' → container with children
+    // ','        → leaf with pane index
+    if *pos < bytes.len() && (bytes[*pos] == b'[' || bytes[*pos] == b'{') {
+        // Container node
+        let open = bytes[*pos];
+        let close = if open == b'[' { b']' } else { b'}' };
+        *pos += 1; // skip open bracket
+
+        loop {
+            if *pos >= bytes.len() {
+                break;
+            }
+            if bytes[*pos] == close {
+                *pos += 1; // skip close bracket
+                break;
+            }
+            parse_layout_node(bytes, pos, panes);
+            // Skip child separator comma
+            if *pos < bytes.len() && bytes[*pos] == b',' {
+                *pos += 1;
+            }
+        }
+    } else if *pos < bytes.len() && bytes[*pos] == b',' {
+        // Leaf node: ,pane_index
+        *pos += 1; // skip comma
+        if let Some(pane_idx) = parse_layout_u32(bytes, pos) {
+            panes.push(LayoutPane {
+                id: format!("%{}", pane_idx),
+                index: pane_idx,
+                x,
+                y,
+                width,
+                height,
+            });
+        }
+    }
+    // else: end of input or unexpected char — return gracefully
+}
+
 /// Aggregates control mode events into coherent state
 pub struct StateAggregator {
     /// Session name (e.g., "tmuxy")
@@ -514,6 +645,12 @@ pub struct StateAggregator {
     /// Active popup state (if any)
     /// Note: Requires tmux with control mode popup support (PR #4361)
     popup: Option<PopupState>,
+
+    /// When true, window/layout change events update internal state but
+    /// return `state_changed: false` to suppress emission. Pane output
+    /// events still emit immediately. Used during command-aware settling
+    /// to batch intermediate states from compound commands (e.g., splitw ; breakp).
+    suppress_window_emissions: bool,
 }
 
 impl StateAggregator {
@@ -531,6 +668,7 @@ impl StateAggregator {
             prev_state: None,
             delta_seq: 0,
             popup: None,
+            suppress_window_emissions: false,
         }
     }
 
@@ -549,12 +687,37 @@ impl StateAggregator {
             prev_state: None,
             delta_seq: 0,
             popup: None,
+            suppress_window_emissions: false,
         }
     }
 
     /// Mark status line as needing refresh (call on window-related events)
     pub fn mark_status_line_dirty(&mut self) {
         self.status_line_dirty = true;
+    }
+
+    /// Enable or disable window/layout emission suppression.
+    /// When suppressed, window/layout events still update internal state
+    /// but `process_event()` returns `state_changed: false` for those events.
+    pub fn set_suppress_window_emissions(&mut self, suppress: bool) {
+        self.suppress_window_emissions = suppress;
+    }
+
+    /// Check if window emissions are currently suppressed.
+    pub fn is_suppressing_window_emissions(&self) -> bool {
+        self.suppress_window_emissions
+    }
+
+    /// Get the current number of windows tracked by the aggregator.
+    pub fn window_count(&self) -> usize {
+        self.windows.len()
+    }
+
+    /// Clear the suppression flag and return a state update with
+    /// all accumulated changes. Returns None if nothing changed.
+    pub fn force_emit(&mut self) -> Option<crate::StateUpdate> {
+        self.suppress_window_emissions = false;
+        self.to_state_update()
     }
 
     /// Refresh status line if dirty, otherwise use cached value.
@@ -687,71 +850,102 @@ impl StateAggregator {
             }
 
             ControlModeEvent::LayoutChange {
-                window_id, layout, ..
+                window_id,
+                layout,
+                visible_layout,
+                flags,
             } => {
+                // Use full layout for pane existence (includes hidden panes during zoom).
+                // Use visible_layout for rendered geometry (zoom adjusts sizes).
+                let zoomed = flags.contains('Z');
+
+                // Parse the full layout to track pane existence and membership
                 let resized_panes = self.handle_layout_change(&window_id, &layout);
+
+                // When zoomed, also parse visible_layout to update rendered geometry
+                if zoomed {
+                    // visible_layout shows only the zoomed pane at full window dimensions
+                    self.update_pane_geometry_from_layout(&window_id, &visible_layout);
+                }
+
+                // Track zoom state on window
+                if let Some(window) = self.windows.get_mut(&window_id) {
+                    window.zoomed = zoomed;
+                }
+
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     panes_needing_refresh: resized_panes,
                     change_type: ChangeType::PaneLayout,
                 }
             }
 
+            // Unlinked window events are from OTHER sessions sharing the same
+            // tmux server — ignore them to avoid polluting this session's state.
+            ControlModeEvent::UnlinkedWindowAdd { .. }
+            | ControlModeEvent::UnlinkedWindowClose { .. } => ProcessEventResult::default(),
+
             ControlModeEvent::WindowAdd { window_id } => {
                 self.windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
-                self.status_line_dirty = true; // Window added - refresh status line
-                                               // Don't emit state yet - wait for WindowRenamed or list-windows
-                                               // to populate the window name. This prevents brief flashes of
-                                               // windows appearing with empty names (which breaks stack detection).
+                self.status_line_dirty = true;
+                // Don't emit state yet - wait for WindowRenamed or list-windows
+                // to populate the window name. This prevents brief flashes of
+                // windows appearing with empty names (which breaks stack detection).
                 ProcessEventResult::default()
             }
 
-            ControlModeEvent::WindowClose { window_id }
-            | ControlModeEvent::UnlinkedWindowClose { window_id } => {
+            ControlModeEvent::WindowClose { window_id } => {
                 self.windows.remove(&window_id);
-                // Remove panes belonging to this window
                 self.panes.retain(|_, p| p.window_id != window_id);
-                self.status_line_dirty = true; // Window closed - refresh status line
+                self.status_line_dirty = true;
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,
                     ..Default::default()
                 }
             }
 
             ControlModeEvent::WindowRenamed { window_id, name } => {
-                if let Some(window) = self.windows.get_mut(&window_id) {
-                    window.name = name;
-                }
-                self.status_line_dirty = true; // Window renamed - refresh status line
+                // Create window if it doesn't exist yet (rename can arrive before add)
+                let window = self
+                    .windows
+                    .entry(window_id.clone())
+                    .or_insert_with(|| WindowState::new(&window_id));
+                window.name = name;
+                self.status_line_dirty = true;
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,
                     ..Default::default()
                 }
             }
 
             ControlModeEvent::WindowPaneChanged { window_id, pane_id } => {
-                // Update active pane in window
+                // Track active pane in window state (survives pane creation/deletion)
+                if let Some(window) = self.windows.get_mut(&window_id) {
+                    window.active_pane_id = Some(pane_id.clone());
+                }
+                // Update active pane flag on existing panes
                 for (_, pane) in self.panes.iter_mut() {
                     if pane.window_id == window_id {
                         pane.active = pane.id == pane_id;
                     }
                 }
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::PaneFocus,
                     ..Default::default()
                 }
             }
 
-            ControlModeEvent::PaneModeChanged { pane_id: _ } => {
-                // Don't toggle blindly - the list-panes periodic sync (every 500ms)
-                // provides the authoritative in_mode state. Toggling here could cause
-                // desync if events are duplicated or lost.
-                // The next list-panes response will set the correct in_mode value.
+            ControlModeEvent::PaneModeChanged { pane_id } => {
+                // Toggle in_mode for the pane. %pane-mode-changed fires on both
+                // entering and exiting copy mode, so toggling is correct.
+                if let Some(pane) = self.panes.get_mut(&pane_id) {
+                    pane.in_mode = !pane.in_mode;
+                }
                 ProcessEventResult {
                     state_changed: true,
                     change_type: ChangeType::PaneFocus,
@@ -767,7 +961,7 @@ impl StateAggregator {
                 self.active_window_id = Some(window_id);
                 self.status_line_dirty = true; // Active window changed - refresh status line
                 ProcessEventResult {
-                    state_changed: true,
+                    state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,
                     ..Default::default()
                 }
@@ -965,79 +1159,92 @@ impl StateAggregator {
         self.parse_layout(window_id, layout)
     }
 
-    /// Parse tmux layout string to extract pane positions.
-    /// Returns a list of pane IDs that were resized.
-    ///
-    /// Layout format: `checksum,WxH,x,y[,pane-id or {children} or [children]]`
-    /// - `{}` = horizontal split (side by side)
-    /// - `[]` = vertical split (stacked)
-    fn parse_layout(&mut self, window_id: &str, layout: &str) -> Vec<String> {
-        // Skip the checksum prefix (e.g., "abc123,")
-        let layout = if let Some(idx) = layout.find(',') {
-            &layout[idx + 1..]
-        } else {
-            return Vec::new();
+    /// Update only the geometry (x, y, width, height) of existing panes from a layout string.
+    /// Does NOT create or remove panes. Used for visible_layout during zoom.
+    fn update_pane_geometry_from_layout(&mut self, window_id: &str, layout: &str) {
+        let layout = match layout.find(',') {
+            Some(idx) => &layout[idx + 1..],
+            None => return,
         };
 
-        let mut resized_panes = Vec::new();
-        self.parse_layout_recursive(window_id, layout, 0, 0, &mut resized_panes);
-        resized_panes
-    }
-
-    fn parse_layout_recursive(
-        &mut self,
-        window_id: &str,
-        layout: &str,
-        base_x: u32,
-        base_y: u32,
-        resized_panes: &mut Vec<String>,
-    ) -> Option<(u32, u32)> {
-        // Parse dimensions: WxH,x,y
-        let parts: Vec<&str> = layout.splitn(4, ',').collect();
-        if parts.len() < 3 {
-            return None;
-        }
-
-        // Parse WxH
-        let dims: Vec<&str> = parts[0].split('x').collect();
-        if dims.len() != 2 {
-            return None;
-        }
-
-        let width: u32 = dims[0].parse().ok()?;
-        let height: u32 = dims[1].parse().ok()?;
-        let x: u32 = parts[1].parse().ok()?;
-        let y: u32 = parts[2].parse().ok()?;
-
-        // Check for children or pane ID
-        if parts.len() >= 4 {
-            let rest = parts[3];
-
-            // Check for pane ID (just a number)
-            if let Ok(pane_idx) = rest.trim_end_matches([']', '}']).parse::<u32>() {
-                // Find pane by index and update position
-                // Note: We construct pane_id from layout index, but this may not match actual
-                // pane IDs after panes are created/deleted. Only update position, not window_id.
-                // window_id is set by list-panes command which has accurate pane IDs.
-                let pane_id = format!("%{}", pane_idx);
-                if let Some(pane) = self.panes.get_mut(&pane_id) {
-                    // Only update position if pane already has this window_id
-                    // (was set by list-panes), to avoid associating wrong panes
-                    if pane.window_id == window_id {
-                        pane.x = base_x + x;
-                        pane.y = base_y + y;
-                        // resize() returns true if dimensions changed
-                        if pane.resize(width, height) {
-                            resized_panes.push(pane_id);
-                        }
-                    }
+        let parsed_panes = parse_layout_panes(layout);
+        for lp in &parsed_panes {
+            if let Some(pane) = self.panes.get_mut(&lp.id) {
+                if pane.window_id == window_id {
+                    pane.x = lp.x;
+                    pane.y = lp.y;
+                    let _ = pane.resize(lp.width, lp.height);
                 }
             }
-            // Note: Full recursive layout parsing with {} and [] is complex
-            // For now, we rely on list-panes command for accurate positions
+        }
+    }
+
+    /// Parse tmux layout string to extract pane positions, creating panes as needed.
+    /// Returns a list of pane IDs that were resized.
+    ///
+    /// Layout format: `checksum,WxH,x,y,pane-id` (leaf) or
+    ///                `checksum,WxH,x,y[children]` (vertical split) or
+    ///                `checksum,WxH,x,y{children}` (horizontal split)
+    ///
+    /// This is the authoritative source for pane geometry. Panes discovered in the
+    /// layout that don't exist in `self.panes` are created with default metadata.
+    /// Panes in this window that are NOT in the layout are removed (reconciliation).
+    fn parse_layout(&mut self, window_id: &str, layout: &str) -> Vec<String> {
+        // Skip the checksum prefix (e.g., "abc123,")
+        let layout = match layout.find(',') {
+            Some(idx) => &layout[idx + 1..],
+            None => return Vec::new(),
+        };
+
+        // Parse all pane geometries from the layout string
+        let parsed_panes = parse_layout_panes(layout);
+        if parsed_panes.is_empty() {
+            return Vec::new();
         }
 
-        Some((width, height))
+        // Look up the window's active pane for setting initial active flag on new panes
+        let active_pane_id = self
+            .windows
+            .get(window_id)
+            .and_then(|w| w.active_pane_id.clone());
+
+        let mut resized_panes = Vec::new();
+        let mut seen_panes: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for lp in &parsed_panes {
+            seen_panes.insert(lp.id.clone());
+
+            if let Some(pane) = self.panes.get_mut(&lp.id) {
+                // Existing pane: update geometry and window assignment
+                pane.x = lp.x;
+                pane.y = lp.y;
+                pane.window_id = window_id.to_string();
+                pane.index = lp.index;
+                if pane.resize(lp.width, lp.height) {
+                    resized_panes.push(lp.id.clone());
+                }
+            } else {
+                // New pane discovered in layout: create with geometry
+                let mut pane = PaneState::new(&lp.id, lp.width, lp.height);
+                pane.window_id = window_id.to_string();
+                pane.index = lp.index;
+                pane.x = lp.x;
+                pane.y = lp.y;
+                pane.active = active_pane_id.as_ref() == Some(&lp.id);
+                self.panes.insert(lp.id.clone(), pane);
+            }
+        }
+
+        // Reconcile: remove panes from this window that are no longer in the layout
+        self.panes.retain(|pane_id, pane| {
+            if pane.window_id == window_id {
+                seen_panes.contains(pane_id)
+            } else {
+                true // keep panes from other windows
+            }
+        });
+
+        resized_panes
     }
 
     /// Handle command response (list-panes, list-windows) and return list of panes that were resized.
@@ -1081,11 +1288,25 @@ impl StateAggregator {
 
         // Try to parse as list-windows output
         let mut is_list_windows_response = false;
+        let mut seen_windows: std::collections::HashSet<String> = std::collections::HashSet::new();
         for line in output.lines() {
             if line.contains('@') && line.contains(',') {
+                // Extract window_id before parsing (first field starts with @)
+                if let Some(wid) = line.split(',').next() {
+                    let wid = wid.trim();
+                    if wid.starts_with('@') {
+                        seen_windows.insert(wid.to_string());
+                    }
+                }
                 self.parse_list_windows_line(line);
                 is_list_windows_response = true;
             }
+        }
+
+        // Remove windows that weren't in the list-windows response (deleted in tmux).
+        if is_list_windows_response && !seen_windows.is_empty() {
+            self.windows
+                .retain(|window_id, _| seen_windows.contains(window_id));
         }
 
         // Refresh status line on periodic sync (list-windows response)
@@ -1673,6 +1894,7 @@ impl StateAggregator {
         self.cached_status_line.clear();
         self.status_line_dirty = true;
         self.popup = None;
+        self.suppress_window_emissions = false;
     }
 
     /// Check if a popup is currently active

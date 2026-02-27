@@ -201,8 +201,27 @@ pub async fn sse_handler(
         // Subscribe to shared session state channel
         let session_rx = session_conns.state_tx.subscribe();
 
-        // Start monitor if not already running
-        if session_conns.monitor_handle.is_none() {
+        // Start monitor if not already running, or restart if it died
+        let needs_monitor = match &session_conns.monitor_handle {
+            None => {
+                eprintln!("[sse] No monitor handle for session '{}'", session);
+                true
+            }
+            Some(handle) => {
+                let finished = handle.is_finished();
+                eprintln!(
+                    "[sse] Monitor handle for session '{}': finished={}",
+                    session, finished
+                );
+                finished
+            }
+        };
+        if needs_monitor {
+            if session_conns.monitor_handle.is_some() {
+                eprintln!("[sse] Monitor for session '{}' died, restarting", session);
+                session_conns.monitor_handle = None;
+                session_conns.monitor_command_tx = None;
+            }
             let monitor_session = session.clone();
             let monitor_state = state.clone();
             let monitor_tx = session_conns.state_tx.clone();
@@ -468,13 +487,13 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         "new_window" => {
-            // neww crashes tmux 3.5a control mode — use split+break workaround
-            let split_cmd = format!("splitw -t {} -dP", session);
-            send_via_control_mode(state, session, &split_cmd).await?;
-            // Small delay for split to complete before break-pane
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            let break_cmd = format!("breakp -d -s {}", session);
-            send_via_control_mode(state, session, &break_cmd).await?;
+            // neww crashes tmux 3.5a control mode — use split+break workaround.
+            // Compound command: splitw makes the new pane active, then breakp
+            // breaks it into its own window and switches to it (matching neww behavior).
+            // The ; ensures both run as a single atomic operation with no intermediate
+            // state notifications.
+            let cmd = format!("splitw -t {} ; breakp", session);
+            send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
         }
         "select_pane" => {
@@ -555,11 +574,8 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if key == "c" {
-                let split_cmd = format!("splitw -t {} -dP", session);
-                send_via_control_mode(state, session, &split_cmd).await?;
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                let break_cmd = format!("breakp -d -s {}", session);
-                send_via_control_mode(state, session, &break_cmd).await?;
+                let cmd = format!("splitw -t {} ; breakp", session);
+                send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
 
@@ -611,6 +627,12 @@ async fn handle_command(
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
         }
+        "refresh_keybindings" => {
+            // Re-fetch keybindings from tmux and broadcast to all clients.
+            // Called after source-file or other config changes.
+            broadcast_keybindings(state, session).await;
+            Ok(serde_json::json!(null))
+        }
         "run_tmux_command" => {
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -626,13 +648,14 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if command.starts_with("new-window") || command.starts_with("neww") {
-                let split_cmd = format!("splitw -t {} -dP", session);
-                send_via_control_mode(state, session, &split_cmd).await?;
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                let break_cmd = format!("breakp -d -s {}", session);
-                send_via_control_mode(state, session, &break_cmd).await?;
+                let cmd = format!("splitw -t {} ; breakp", session);
+                send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
+
+            // Detect source-file commands — keybindings may change
+            let is_source_file =
+                command.starts_with("source-file") || command.starts_with("source ");
 
             let command_tx = {
                 let sessions = state.sessions.read().await;
@@ -651,6 +674,14 @@ async fn handle_command(
                     "[sse] Client {} sent command via control mode: {}",
                     conn_id, command
                 );
+
+                // After source-file, re-broadcast keybindings (prefix key may have changed)
+                if is_source_file {
+                    // Brief delay to let tmux process the source-file
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    broadcast_keybindings(state, session).await;
+                }
+
                 Ok(serde_json::json!(null))
             } else {
                 Err("No monitor connection available".to_string())
@@ -786,6 +817,25 @@ async fn handle_command(
 // ============================================
 // Helper Functions
 // ============================================
+
+/// Re-fetch keybindings from tmux and broadcast to all SSE clients for a session.
+async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
+    let keybindings = KeyBindings {
+        prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
+        prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
+        root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
+    };
+    let kb_event = SseEvent::KeyBindings(keybindings);
+    let msg = serde_json::to_string(&kb_event).unwrap();
+    let sessions = state.sessions.read().await;
+    if let Some(session_conn) = sessions.get(session) {
+        let _ = session_conn.state_tx.send(msg);
+        eprintln!(
+            "[sse] Broadcast refreshed keybindings for session {}",
+            session
+        );
+    }
+}
 
 /// Send a tmux command through control mode
 async fn send_via_control_mode(
@@ -1084,27 +1134,43 @@ async fn start_monitoring_control_mode(
         throttle_interval: Duration::from_millis(16),
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),
+        working_dir: Some(crate::find_workspace_root()),
     };
 
     let mut backoff = Duration::from_millis(100);
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
     let mut is_first_connect = true;
+    // Track whether monitor.run() ever processed events successfully.
+    // If the connection dies before processing any events, we should retry
+    // with create_session=true since the session may need to be recreated.
+    let mut ever_ran_successfully = false;
 
     loop {
         // Stop reconnecting if session was cleaned up (no more clients)
-        {
+        let has_clients = {
             let sessions = state.sessions.read().await;
-            if !sessions.contains_key(&session) {
-                eprintln!(
-                    "[monitor] Session '{}' removed, stopping monitor loop",
-                    session
-                );
-                break;
+            if let Some(session_conns) = sessions.get(&session) {
+                !session_conns.connections.is_empty()
+            } else {
+                false
             }
+        };
+        if !has_clients {
+            eprintln!(
+                "[monitor] Session '{}' has no clients, stopping monitor loop",
+                session
+            );
+            // Clean up the session entry so a fresh monitor can start next time
+            let mut sessions = state.sessions.write().await;
+            sessions.remove(&session);
+            break;
         }
 
         // On reconnect (not first connect), check if the tmux session still exists.
-        // If it was destroyed (e.g., by test cleanup), stop the monitor loop.
+        // If it was intentionally destroyed (by test cleanup or user) AND we had
+        // a successful run before, stop the monitor loop. If the session died
+        // before ever running successfully (crash on startup), retry with
+        // create_session=true to recreate it.
         let mut connect_config = config.clone();
         if !is_first_connect {
             let session_exists = std::process::Command::new("tmux")
@@ -1114,14 +1180,24 @@ async fn start_monitoring_control_mode(
                 .unwrap_or(false);
 
             if !session_exists {
+                if ever_ran_successfully {
+                    // Session was intentionally destroyed (e.g., kill-session from test cleanup)
+                    eprintln!(
+                        "[monitor] tmux session '{}' no longer exists (was running), stopping monitor loop",
+                        session
+                    );
+                    break;
+                }
+                // Session died before ever running — recreate it
                 eprintln!(
-                    "[monitor] tmux session '{}' no longer exists, stopping monitor loop",
+                    "[monitor] tmux session '{}' died before running, will recreate",
                     session
                 );
-                break;
+                connect_config.create_session = true;
+            } else {
+                // Session exists, just attach
+                connect_config.create_session = false;
             }
-            // On reconnect, never create a new session — just attach to existing
-            connect_config.create_session = false;
         }
 
         match TmuxMonitor::connect(connect_config).await {
@@ -1148,7 +1224,13 @@ async fn start_monitoring_control_mode(
                 }
 
                 backoff = Duration::from_millis(100);
+                let run_start = std::time::Instant::now();
                 monitor.run(&emitter).await;
+                // If the monitor ran for more than 2 seconds, consider it a successful run.
+                // Short-lived runs indicate startup crashes that should retry with create_session.
+                if run_start.elapsed() > Duration::from_secs(2) {
+                    ever_ran_successfully = true;
+                }
 
                 {
                     let mut sessions = state.sessions.write().await;

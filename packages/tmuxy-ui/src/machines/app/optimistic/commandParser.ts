@@ -5,7 +5,13 @@
  * Returns parsed command info that can be used to calculate predictions.
  */
 
-export type ParsedCommand = SplitCommand | NavigateCommand | SwapCommand | SelectPaneCommand | null;
+export type ParsedCommand =
+  | SplitCommand
+  | NavigateCommand
+  | SwapCommand
+  | SelectPaneCommand
+  | NewWindowCommand
+  | null;
 
 export interface SplitCommand {
   type: 'split';
@@ -27,6 +33,10 @@ export interface SwapCommand {
 export interface SelectPaneCommand {
   type: 'select-pane';
   paneId: string;
+}
+
+export interface NewWindowCommand {
+  type: 'new-window';
 }
 
 /**
@@ -91,6 +101,11 @@ export function parseCommand(command: string): ParsedCommand {
       type: 'select-pane',
       paneId: selectMatch[2],
     };
+  }
+
+  // New window: new-window or neww
+  if (trimmed.match(/^(new-window|neww)(\s|$)/)) {
+    return { type: 'new-window' };
   }
 
   return null;

@@ -16,10 +16,10 @@ const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
 const DELAYS = {
   SHORT: 100,
   MEDIUM: 200,
-  LONG: 300,
+  LONG: 500,
   EXTRA_LONG: 1000,
-  SYNC: 1000, // For UI/tmux sync
-  PREFIX: 200, // Delay after tmux prefix key before next key
+  SYNC: 1500, // For UI/tmux sync (full round trip: browser→HTTP→server→control mode→tmux→SSE→browser)
+  PREFIX: 300, // Delay after tmux prefix key before next key
 };
 
 module.exports = {

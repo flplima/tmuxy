@@ -21,10 +21,10 @@ const {
 
 describe('Scenario 12: Session Reconnect', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('2 panes → reload → verify preserved → split via tmux → 3 rapid splits → UI synced', async () => {
     if (ctx.skipIfNotReady()) return;
@@ -86,10 +86,10 @@ describe('Scenario 12: Session Reconnect', () => {
 
 describe('Scenario 13: Multi-Client', () => {
   const ctx = createTestContext();
-  beforeAll(ctx.beforeAll);
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('3 panes → page2 → both see layout', async () => {
     if (ctx.skipIfNotReady()) return;
