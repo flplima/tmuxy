@@ -237,9 +237,11 @@ export function selectWindows(context: AppMachineContext) {
 }
 
 /** Windows visible in status bar (excludes pane group, float, and unnamed transient windows) */
-export function selectVisibleWindows(context: AppMachineContext) {
-  return context.windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow && w.name !== '');
-}
+export const selectVisibleWindows = createMemoizedSelector(
+  (ctx: AppMachineContext) => ctx.windows,
+  (context: AppMachineContext) =>
+    context.windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow && w.name !== ''),
+);
 
 export function selectActiveWindowId(context: AppMachineContext): string | null {
   return context.activeWindowId;

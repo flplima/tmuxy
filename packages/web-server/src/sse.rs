@@ -608,6 +608,12 @@ async fn handle_command(
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
         }
+        "refresh_keybindings" => {
+            // Re-fetch keybindings from tmux and broadcast to all clients.
+            // Called after source-file or other config changes.
+            broadcast_keybindings(state, session).await;
+            Ok(serde_json::json!(null))
+        }
         "run_tmux_command" => {
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -628,6 +634,10 @@ async fn handle_command(
                 return Ok(serde_json::json!(null));
             }
 
+            // Detect source-file commands — keybindings may change
+            let is_source_file =
+                command.starts_with("source-file") || command.starts_with("source ");
+
             let command_tx = {
                 let sessions = state.sessions.read().await;
                 sessions
@@ -645,6 +655,14 @@ async fn handle_command(
                     "[sse] Client {} sent command via control mode: {}",
                     conn_id, command
                 );
+
+                // After source-file, re-broadcast keybindings (prefix key may have changed)
+                if is_source_file {
+                    // Brief delay to let tmux process the source-file
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    broadcast_keybindings(state, session).await;
+                }
+
                 Ok(serde_json::json!(null))
             } else {
                 Err("No monitor connection available".to_string())
@@ -780,6 +798,25 @@ async fn handle_command(
 // ============================================
 // Helper Functions
 // ============================================
+
+/// Re-fetch keybindings from tmux and broadcast to all SSE clients for a session.
+async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
+    let keybindings = KeyBindings {
+        prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
+        prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
+        root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
+    };
+    let kb_event = SseEvent::KeyBindings(keybindings);
+    let msg = serde_json::to_string(&kb_event).unwrap();
+    let sessions = state.sessions.read().await;
+    if let Some(session_conn) = sessions.get(session) {
+        let _ = session_conn.state_tx.send(msg);
+        eprintln!(
+            "[sse] Broadcast refreshed keybindings for session {}",
+            session
+        );
+    }
+}
 
 /// Send a tmux command through control mode
 async fn send_via_control_mode(

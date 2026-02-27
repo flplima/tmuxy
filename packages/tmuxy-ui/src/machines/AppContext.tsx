@@ -166,6 +166,23 @@ export function useAppSelector<T>(selector: (context: AppMachineContext) => T): 
   return useSelector(actor, (snapshot) => selector(snapshot.context));
 }
 
+/** Selector hook with shallow array comparison (prevents re-renders when array contents unchanged) */
+export function useAppSelectorShallow<T extends unknown[]>(
+  selector: (context: AppMachineContext) => T,
+): T {
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => selector(snapshot.context), shallowArrayEqual);
+}
+
+function shallowArrayEqual<T extends unknown[]>(a: T, b: T): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 /** Get the send function for app machine events */
 export function useAppSend(): (event: AppMachineEvent) => void {
   const actor = useAppActor();

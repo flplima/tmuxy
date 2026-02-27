@@ -203,10 +203,13 @@ impl TmuxMonitor {
             return;
         }
 
-        // Dynamic sync interval: 500ms normally, 50ms when a pane is in copy mode
-        // (copy mode cursor position is only available via list-panes, so faster polling is needed)
+        // Event-driven sync: only poll when idle (no events in 10s) or in copy mode.
+        // Copy mode needs fast polling (50ms) for cursor position updates.
+        // Heartbeat runs every 15s during idle to catch external changes.
         let copy_mode_sync_interval = Duration::from_millis(50);
-        let mut last_sync = tokio::time::Instant::now();
+        let heartbeat_interval = Duration::from_secs(15);
+        let idle_threshold = Duration::from_secs(10);
+        let mut last_event_at = tokio::time::Instant::now();
         // Initial delay before first sync to let captures complete
         let mut next_sync_at =
             tokio::time::Instant::now() + self.config.sync_interval + Duration::from_secs(1);
@@ -221,6 +224,15 @@ impl TmuxMonitor {
         let mut rate_window_start = Instant::now();
         let mut rate_event_count: u32 = 0;
         let throttle_enabled = !self.config.throttle_interval.is_zero();
+
+        // Command-aware settling state
+        // When a compound command (containing ";") is sent, we suppress window/layout
+        // emissions and debounce until events settle, then emit a single consolidated update.
+        let mut settling_until: Option<tokio::time::Instant> = None;
+        let mut settling_started: Option<tokio::time::Instant> = None;
+        let settling_debounce = Duration::from_millis(100);
+        let settling_initial = Duration::from_millis(150);
+        let settling_max = Duration::from_millis(500);
 
         loop {
             // Calculate throttle timeout (only used when in high-throughput mode)
@@ -253,6 +265,9 @@ impl TmuxMonitor {
                             break;
                         }
                         Some(event) => {
+                            // Track last event time for idle-based heartbeat
+                            last_event_at = tokio::time::Instant::now();
+
                             let result = self.aggregator.process_event(event);
 
                             // Request content refresh for resized panes (batched for efficiency)
@@ -282,6 +297,21 @@ impl TmuxMonitor {
                                 let continue_cmd = format!("refresh-client -A '{}:continue'", pane_id);
                                 if let Err(e) = self.connection.send_command(&continue_cmd).await {
                                     emitter.emit_error(format!("Failed to resume pane {}: {}", pane_id, e));
+                                }
+                            }
+
+                            // During settling: extend the debounce timer on window/layout events
+                            if settling_until.is_some() {
+                                let is_window_event = matches!(
+                                    result.change_type,
+                                    ChangeType::Window | ChangeType::PaneLayout | ChangeType::PaneFocus
+                                );
+                                if is_window_event {
+                                    let now = tokio::time::Instant::now();
+                                    let max_deadline = settling_started.unwrap() + settling_max;
+                                    let debounced = now + settling_debounce;
+                                    // Extend but don't exceed the safety timeout
+                                    settling_until = Some(debounced.min(max_deadline));
                                 }
                             }
 
@@ -351,13 +381,23 @@ impl TmuxMonitor {
                     pending_output_emit = false;
                 }
 
-                // Periodic state sync (dynamic interval based on copy mode)
+                // Settling timer - emit consolidated state after compound command events settle
+                _ = tokio::time::sleep_until(settling_until.unwrap_or(tokio::time::Instant::now() + Duration::from_secs(3600))), if settling_until.is_some() => {
+                    eprintln!("[monitor] Settling complete, emitting consolidated state");
+                    if let Some(update) = self.aggregator.force_emit() {
+                        emitter.emit_state(update);
+                    }
+                    settling_until = None;
+                    settling_started = None;
+                }
+
+                // Event-driven sync: fast polling in copy mode, heartbeat when idle
                 _ = tokio::time::sleep_until(next_sync_at) => {
                     let in_copy_mode = self.aggregator.has_pane_in_copy_mode();
+                    let is_idle = last_event_at.elapsed() > idle_threshold;
 
-                    // In copy mode, only query pane info (for cursor position)
-                    // to minimize latency. Full sync (with list-windows) runs at normal interval.
-                    let sync_commands = if in_copy_mode && last_sync.elapsed() < self.config.sync_interval {
+                    // Copy mode: fast poll for cursor position
+                    if in_copy_mode {
                         let copy_pane_info = self.aggregator.get_copy_mode_pane_info();
                         let copy_pane_ids: Vec<String> = copy_pane_info.iter().map(|(id, _, _)| id.clone()).collect();
                         let mut cmds = vec![
@@ -372,15 +412,13 @@ impl TmuxMonitor {
                                 "#{scroll_position},",
                                 "#{window_id},#{T:pane-border-format},",
                                 "#{alternate_on},#{mouse_any_flag},",
-                "#{selection_present},",
-                "#{selection_start_x},#{selection_start_y},#{history_size}'"
+                                "#{selection_present},",
+                                "#{selection_start_x},#{selection_start_y},#{history_size}'"
                             ).to_string(),
                         ];
                         // Capture content for each pane in copy mode with scroll offset
                         for (pane_id, scroll_pos, height) in &copy_pane_info {
                             if *scroll_pos > 0 {
-                                // Capture the scrolled-back region: -S is start line (negative = from end of history)
-                                // -E is end line. We want `height` lines starting from scroll_pos lines back.
                                 let start = -(*scroll_pos as i64) - (*height as i64) + 1;
                                 let end = -(*scroll_pos as i64);
                                 cmds.push(format!("capture-pane -t {} -p -e -S {} -E {}", pane_id, start, end));
@@ -389,10 +427,14 @@ impl TmuxMonitor {
                             }
                         }
                         self.aggregator.queue_captures(&copy_pane_ids);
-                        cmds
-                    } else {
-                        last_sync = tokio::time::Instant::now();
-                        vec![
+                        if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+                            emitter.emit_error(format!("Failed to sync copy mode: {}", e));
+                        }
+                        next_sync_at = tokio::time::Instant::now() + copy_mode_sync_interval;
+                    } else if is_idle {
+                        // Heartbeat: full consistency check when no events for 10s
+                        // Catches external changes (e.g., someone running `tmux kill-window` from another terminal)
+                        let cmds = vec![
                             "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@float_parent},#{@float_width},#{@float_height}'".to_string(),
                             concat!(
                                 "list-panes -s -F '",
@@ -405,19 +447,19 @@ impl TmuxMonitor {
                                 "#{scroll_position},",
                                 "#{window_id},#{T:pane-border-format},",
                                 "#{alternate_on},#{mouse_any_flag},",
-                "#{selection_present},",
-                "#{selection_start_x},#{selection_start_y},#{history_size}'"
+                                "#{selection_present},",
+                                "#{selection_start_x},#{selection_start_y},#{history_size}'"
                             ).to_string(),
-                        ]
-                    };
-
-                    if let Err(e) = self.connection.send_commands_batch(&sync_commands).await {
-                        emitter.emit_error(format!("Failed to sync state: {}", e));
+                        ];
+                        if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+                            emitter.emit_error(format!("Failed to heartbeat sync: {}", e));
+                        }
+                        next_sync_at = tokio::time::Instant::now() + heartbeat_interval;
+                    } else {
+                        // Not idle, not in copy mode: schedule next check at idle threshold
+                        let time_until_idle = idle_threshold.saturating_sub(last_event_at.elapsed());
+                        next_sync_at = tokio::time::Instant::now() + time_until_idle;
                     }
-
-                    // Schedule next sync: fast in copy mode, normal otherwise
-                    let interval = if in_copy_mode { copy_mode_sync_interval } else { self.config.sync_interval };
-                    next_sync_at = tokio::time::Instant::now() + interval;
                 }
 
                 // Handle external commands (resize, etc.)
@@ -440,8 +482,27 @@ impl TmuxMonitor {
                             // Control mode expects raw tmux commands without shell escaping
                             // Frontend sends \; for shell compatibility, convert to ; for control mode
                             let unescaped = command.replace(" \\; ", " ; ");
+
+                            // Start settling for compound commands (containing ";")
+                            // This batches intermediate events from multi-step commands
+                            // (e.g., "splitw ; breakp") into a single consolidated emission.
+                            let is_compound = unescaped.contains(';');
+                            if is_compound {
+                                let now = tokio::time::Instant::now();
+                                settling_started = Some(now);
+                                settling_until = Some(now + settling_initial);
+                                self.aggregator.set_suppress_window_emissions(true);
+                                eprintln!("[monitor] Started settling for compound command");
+                            }
+
                             if let Err(e) = self.connection.send_command(&unescaped).await {
                                 emitter.emit_error(format!("Failed to run command: {}", e));
+                                // Clear settling on error
+                                if is_compound {
+                                    settling_until = None;
+                                    settling_started = None;
+                                    self.aggregator.set_suppress_window_emissions(false);
+                                }
                             } else {
                                 eprintln!("[monitor] Sent command via control mode: {}", unescaped);
                             }
