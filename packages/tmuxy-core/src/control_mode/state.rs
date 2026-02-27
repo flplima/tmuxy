@@ -703,18 +703,16 @@ impl StateAggregator {
             | ControlModeEvent::UnlinkedWindowClose { .. } => ProcessEventResult::default(),
 
             ControlModeEvent::WindowAdd { window_id } => {
-                let is_new = !self.windows.contains_key(&window_id);
                 self.windows
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
-                if is_new {
-                    eprintln!(
-                        "[state] WindowAdd {} (now {} windows, session={})",
-                        window_id,
-                        self.windows.len(),
-                        self.session_name
-                    );
-                }
+                eprintln!(
+                    "[state] WindowAdd {} (now {} windows: {:?}, session={})",
+                    window_id,
+                    self.windows.len(),
+                    self.windows.keys().collect::<Vec<_>>(),
+                    self.session_name
+                );
                 self.status_line_dirty = true;
                 // Don't emit state yet - wait for WindowRenamed or list-windows
                 // to populate the window name. This prevents brief flashes of
@@ -747,15 +745,15 @@ impl StateAggregator {
                     .entry(window_id.clone())
                     .or_insert_with(|| WindowState::new(&window_id));
                 window.name = name.clone();
-                if is_new {
-                    eprintln!(
-                        "[state] WindowRenamed {} -> '{}' CREATED (now {} windows, session={})",
-                        window_id,
-                        name,
-                        self.windows.len(),
-                        self.session_name
-                    );
-                }
+                eprintln!(
+                    "[state] WindowRenamed {} -> '{}' {} (now {} windows: {:?}, session={})",
+                    window_id,
+                    name,
+                    if is_new { "CREATED" } else { "updated" },
+                    self.windows.len(),
+                    self.windows.keys().collect::<Vec<_>>(),
+                    self.session_name
+                );
                 self.status_line_dirty = true;
                 ProcessEventResult {
                     state_changed: true,
