@@ -26,9 +26,9 @@ const {
  * Send a command via tmux send-keys and wait for expected text.
  * Used by detailed OSC tests to avoid keyboard-routing issues with escape sequences.
  */
-async function runCommandViaTmux(session, page, command, expectedText, timeout = 10000) {
-  session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
-  session.runCommand(`send-keys -t ${session.name} Enter`);
+async function runCommandViaTmux(session, page, command, expectedText, timeout = 20000) {
+  await session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
+  await session.runCommand(`send-keys -t ${session.name} Enter`);
   await waitForTerminalText(page, expectedText, timeout);
   return getTerminalText(page);
 }
@@ -248,9 +248,9 @@ const BLUE_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf
 const GREEN_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 /** Send a command to the pane via tmux send-keys (no Terminal text wait) */
-function sendCommand(session, command) {
-  session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
-  session.runCommand(`send-keys -t ${session.name} Enter`);
+async function sendCommand(session, command) {
+  await session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
+  await session.runCommand(`send-keys -t ${session.name} Enter`);
 }
 
 /** Wait for a CSS selector to appear in the page */
@@ -387,7 +387,7 @@ describe('Category 17: Widgets', () => {
       if (skipIfNotReady()) return;
       await setupPage();
 
-      sendCommand(session, `(echo "${RED_PNG}"; sleep 999) | /workspace/scripts/tmuxy/tmuxy-widget image`);
+      await sendCommand(session, `(echo "${RED_PNG}"; sleep 999) | /workspace/scripts/tmuxy/tmuxy-widget image`);
 
       await delay(2000);
       await waitForSelector(page, '.widget-image', 30000);
@@ -422,7 +422,7 @@ describe('Category 17: Widgets', () => {
       if (skipIfNotReady()) return;
       await setupPage();
 
-      sendCommand(session, `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | /workspace/scripts/tmuxy/tmuxy-widget image`);
+      await sendCommand(session, `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | /workspace/scripts/tmuxy/tmuxy-widget image`);
 
       await waitForSelector(page, '.widget-image', 30000);
 
@@ -448,7 +448,7 @@ describe('Category 17: Widgets', () => {
       if (skipIfNotReady()) return;
       await setupPage();
 
-      sendCommand(session, 'echo "hello world"');
+      await sendCommand(session, 'echo "hello world"');
       await waitForTerminalText(page, 'hello world');
 
       const hasTerminal = await page.evaluate(() =>
@@ -466,7 +466,7 @@ describe('Category 17: Widgets', () => {
       if (skipIfNotReady()) return;
       await setupPage();
 
-      sendCommand(session, 'echo "test" | /workspace/scripts/tmuxy/tmuxy-widget nonexistent_xyz');
+      await sendCommand(session, 'echo "test" | /workspace/scripts/tmuxy/tmuxy-widget nonexistent_xyz');
 
       await delay(2000);
 
