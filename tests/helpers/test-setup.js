@@ -54,23 +54,16 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
 
   ctx.beforeAll = async () => {
     // Wait for server
-    console.log('Checking server availability...');
     try {
       await waitForServer(TMUXY_URL, 10000);
-      console.log('Server is available');
-    } catch (error) {
-      console.error('Tmuxy server not available:', error.message);
+    } catch {
       ctx.serverAvailable = false;
       return;
     }
 
-    // Get browser
-    console.log('Launching browser...');
     try {
       ctx.browser = await getBrowser();
-      console.log('Browser launched successfully');
-    } catch (error) {
-      console.error('Browser not available:', error.message);
+    } catch {
       ctx.browserAvailable = false;
     }
   };
@@ -87,7 +80,6 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
     // is created by the web server when the browser navigates to the URL)
     ctx.session = new TmuxTestSession();
     ctx.testSession = ctx.session.name; // backwards compatibility
-    console.log(`Creating test session: ${ctx.session.name}`);
     ctx.session.create();
 
     ctx.page = await ctx.browser.newPage();
@@ -227,7 +219,6 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
    */
   ctx.skipIfNotReady = () => {
     if (!ctx.isReady()) {
-      console.log('Skipping test: prerequisites not available');
       return true;
     }
     return false;

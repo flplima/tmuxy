@@ -25,21 +25,16 @@ async function getBrowser() {
   if (!sharedBrowser) {
     // Try CDP connection first (external Chrome with --remote-debugging-port)
     try {
-      console.log(`Trying CDP connection on port ${CDP_PORT}...`);
       sharedBrowser = await chromium.connectOverCDP(`http://localhost:${CDP_PORT}`);
       sharedBrowser.on('disconnected', () => { sharedBrowser = null; });
-      console.log('Connected to Chrome via CDP');
     } catch {
       // No external Chrome — launch our own headless instance
-      console.log('No CDP endpoint, launching headless Chromium');
       sharedBrowser = await chromium.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
       });
       sharedBrowser.on('disconnected', () => { sharedBrowser = null; });
     }
-  } else {
-    console.log('Reusing existing browser connection');
   }
 
   return {
@@ -91,11 +86,11 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
       await page.waitForSelector('[role="log"]', { timeout: 10000 });
     } catch {
       if (attempt < maxRetries) {
-        console.log(`[role="log"] not found (attempt ${attempt}/${maxRetries}), reloading...`);
+        // [role="log"] not found, retry
         await delay(2000);
         continue;
       }
-      console.log('Warning: [role="log"] not found after all retries');
+      // [role="log"] not found after all retries
       await delay(DELAYS.MEDIUM);
       return url;
     }
@@ -114,13 +109,13 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
       return url;
     } catch {
       if (attempt < maxRetries) {
-        console.log(`Terminal content not ready (attempt ${attempt}/${maxRetries}), retrying...`);
+        // Terminal content not ready, retrying
         await delay(500);
       }
     }
   }
 
-  console.log('Warning: Terminal content may not be fully loaded');
+  // Terminal content may not be fully loaded
   await delay(DELAYS.MEDIUM);
   return url;
 }
@@ -188,7 +183,7 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
       { timeout, polling: 50 }
     );
   } catch {
-    console.log('Warning: Shell prompt not detected within timeout');
+    // Shell prompt not detected within timeout
   }
 
   // Phase 2: Wait for adapter to be available
@@ -297,7 +292,7 @@ async function waitForPaneCount(page, expectedCount, timeout = 3000) {
       const logs = document.querySelectorAll('[role="log"]');
       return Math.max(paneIds.length, logs.length);
     });
-    console.log(`Warning: Expected ${expectedCount} panes, found ${actualCount}`);
+    // Expected pane count not reached within timeout
   }
 }
 

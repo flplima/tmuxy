@@ -59,15 +59,8 @@ const KNOWN_LIMITATIONS = {
  * @param {string} key - Key from KNOWN_LIMITATIONS
  * @param {string} context - Optional additional context
  */
-function noteKnownLimitation(key, context = '') {
-  const limitation = KNOWN_LIMITATIONS[key];
-  if (limitation) {
-    console.log(`ℹ️  Known limitation: ${limitation.description}`);
-    if (context) console.log(`   Context: ${context}`);
-    if (limitation.issue) console.log(`   Tracking: ${limitation.issue}`);
-  } else {
-    console.log(`ℹ️  Unknown limitation key: ${key}`);
-  }
+function noteKnownLimitation(_key, _context = '') {
+  // Known limitations are documented in KNOWN_LIMITATIONS registry above
 }
 
 // ==================== Synthetic Event Helper ====================
@@ -83,10 +76,6 @@ function noteKnownLimitation(key, context = '') {
  * @param {string} reason - Why synthetic event is necessary (for documentation)
  */
 async function sendSyntheticEvent(page, event, reason) {
-  if (process.env.DEBUG_TESTS) {
-    console.log(`⚡ Synthetic event (${reason}):`, event.type);
-  }
-
   await page.evaluate((evt) => {
     if (window.app) {
       window.app.send(evt);

@@ -383,7 +383,7 @@ async function waitForPaneCount(page, expectedCount, timeout = 5000) {
   }
   // Log warning instead of throwing - UI sync can be slow
   const actualCount = await getUIPaneCount(page);
-  console.log(`Warning: Expected ${expectedCount} panes, found ${actualCount}`);
+  // Expected pane count not reached within timeout
   return false;
 }
 
