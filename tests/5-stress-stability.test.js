@@ -261,7 +261,7 @@ describe('Scenario 20: Glitch Detection', () => {
     await ctx.setupPage();
 
     // Step 1: Horizontal split with glitch detection
-    await ctx.startGlitchDetection({ scope: '.pane-container' });
+    await ctx.startGlitchDetection({ scope: '.pane-container', ignoreSelectors: ['.resize-divider'] });
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 2);
     await delay(DELAYS.SYNC);

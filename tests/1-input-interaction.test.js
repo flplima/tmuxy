@@ -612,7 +612,7 @@ describe('Scenario 10: Copy Mode Search & Yank', () => {
     await delay(DELAYS.SYNC);
     const posBeforeSearch = await ctx.session.getCopyCursorPosition();
     await ctx.session._exec('send-keys -X search-forward "SEARCH_TARGET"');
-    await delay(DELAYS.LONG);
+    await delay(DELAYS.SYNC);
     const posAfterSearch = await ctx.session.getCopyCursorPosition();
     if (posBeforeSearch && posAfterSearch) {
       // Cursor should have moved

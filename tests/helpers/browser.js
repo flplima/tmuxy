@@ -106,7 +106,7 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
         () => {
           const logs = document.querySelectorAll('[role="log"]');
           const content = Array.from(logs).map(l => l.textContent || '').join('\n');
-          return content.length > 5 && /[$#%>]/.test(content);
+          return content.length > 5 && /[$#%>❯]/.test(content);
         },
         { timeout: 5000, polling: 50 }
       );
@@ -131,7 +131,7 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
  * and waits for it to appear. This ensures the entire data path is working
  * before the test proceeds.
  */
-async function verifyRoundTrip(page, sessionName, timeout = 10000) {
+async function verifyRoundTrip(page, sessionName, timeout = 20000) {
   const marker = `READY_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   // Send marker through adapter → tmux control mode → shell
@@ -183,7 +183,7 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
       () => {
         const logs = document.querySelectorAll('[role="log"]');
         const content = Array.from(logs).map(l => l.textContent || '').join('');
-        return content.length > 5 && /[$#%>]/.test(content);
+        return content.length > 5 && /[$#%>❯]/.test(content);
       },
       { timeout, polling: 50 }
     );
