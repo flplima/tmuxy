@@ -609,11 +609,18 @@ describe('Scenario 10: Copy Mode Search & Yank', () => {
     await ctx.session._exec('copy-mode');
     await delay(DELAYS.SYNC);
     const posBeforeSearch = await ctx.session.getCopyCursorPosition();
-    await ctx.session._exec('send-keys -X search-forward "SEARCH_TARGET"');
-    await delay(DELAYS.SYNC);
-    const posAfterSearch = await ctx.session.getCopyCursorPosition();
+    await ctx.session._exec('send-keys -X search-backward "SEARCH_TARGET"');
+    // Poll for cursor to move (search result propagates through SSE → XState)
+    const searchTimeout = 10000;
+    const searchStart = Date.now();
+    let posAfterSearch = posBeforeSearch;
+    while (Date.now() - searchStart < searchTimeout) {
+      posAfterSearch = await ctx.session.getCopyCursorPosition();
+      if (posAfterSearch.y !== posBeforeSearch.y || posAfterSearch.x !== posBeforeSearch.x) break;
+      await delay(200);
+    }
     if (posBeforeSearch && posAfterSearch) {
-      // Cursor should have moved
+      // Cursor should have moved to the search match
       expect(posAfterSearch.y !== posBeforeSearch.y || posAfterSearch.x !== posBeforeSearch.x).toBe(true);
     }
     expect(await ctx.session.isPaneInCopyMode()).toBe(true);
@@ -621,7 +628,7 @@ describe('Scenario 10: Copy Mode Search & Yank', () => {
     // Step 4: Repeat search with n (search-again) and N (search-reverse)
     const posBeforeN = await ctx.session.getCopyCursorPosition();
     await ctx.session._exec('send-keys -X search-again');
-    await delay(DELAYS.LONG);
+    await delay(DELAYS.SYNC);
     const posAfterN = await ctx.session.getCopyCursorPosition();
     if (posBeforeN && posAfterN) {
       // Position should change or stay (depends on match count)
@@ -629,18 +636,23 @@ describe('Scenario 10: Copy Mode Search & Yank', () => {
     }
 
     await ctx.session._exec('send-keys -X search-reverse');
-    await delay(DELAYS.LONG);
+    await delay(DELAYS.SYNC);
 
     // Step 5: Select and copy
     await ctx.session._exec('send-keys -X begin-selection');
-    await delay(DELAYS.SHORT);
+    await delay(DELAYS.MEDIUM);
     for (let i = 0; i < 5; i++) {
       await ctx.session._exec('send-keys -X cursor-right');
-      await delay(100);
+      await delay(200);
     }
-    await delay(DELAYS.SHORT);
+    await delay(DELAYS.MEDIUM);
     await ctx.session._exec('send-keys -X copy-selection-and-cancel');
-    await delay(DELAYS.SYNC);
+    // Poll for copy mode to exit
+    const exitStart = Date.now();
+    while (Date.now() - exitStart < 10000) {
+      if (!(await ctx.session.isPaneInCopyMode())) break;
+      await delay(200);
+    }
     expect(await ctx.session.isPaneInCopyMode()).toBe(false);
 
     // Step 6: Paste copied text
