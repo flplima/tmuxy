@@ -297,6 +297,9 @@ async function killSessionViaControlMode(helperPage, sessionName) {
   await Promise.race([kill, timeout]);
 }
 
+// Resolve tmuxy-widget path relative to this file (works in both dev and CI)
+const TMUXY_WIDGET = path.resolve(__dirname, '..', 'scripts/tmuxy/tmuxy-widget');
+
 describe('Category 17: Widgets', () => {
   jest.setTimeout(60000);
 
@@ -387,7 +390,7 @@ describe('Category 17: Widgets', () => {
       if (skipIfNotReady()) return;
       await setupPage();
 
-      await sendCommand(session, `(echo "${RED_PNG}"; sleep 999) | /workspace/scripts/tmuxy/tmuxy-widget image`);
+      await sendCommand(session, `(echo "${RED_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
 
       await delay(2000);
       await waitForSelector(page, '.widget-image', 30000);
@@ -422,7 +425,7 @@ describe('Category 17: Widgets', () => {
       if (skipIfNotReady()) return;
       await setupPage();
 
-      await sendCommand(session, `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | /workspace/scripts/tmuxy/tmuxy-widget image`);
+      await sendCommand(session, `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
 
       await waitForSelector(page, '.widget-image', 30000);
 
@@ -466,7 +469,7 @@ describe('Category 17: Widgets', () => {
       if (skipIfNotReady()) return;
       await setupPage();
 
-      await sendCommand(session, 'echo "test" | /workspace/scripts/tmuxy/tmuxy-widget nonexistent_xyz');
+      await sendCommand(session, `echo "test" | ${TMUXY_WIDGET} nonexistent_xyz`);
 
       await delay(2000);
 
