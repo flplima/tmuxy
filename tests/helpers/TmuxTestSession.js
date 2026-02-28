@@ -676,35 +676,6 @@ class TmuxTestSession {
     return this._exec(`split-window -t ${this.name} -h`);
   }
 
-  // ==================== Copy Mode Queries ====================
-
-  /**
-   * Get cursor position in copy mode.
-   * When browser is connected, reads from XState machine context.
-   * @returns {{x: number, y: number}} Cursor position (0-indexed)
-   */
-  async getCopyCursorPosition() {
-    if (this.page) {
-      const state = await this._waitForBrowserState();
-      if (state) {
-        const fullState = await this.page.evaluate(() => {
-          const snap = window.app.getSnapshot();
-          const pane = snap.context.panes.find(p => p.tmuxId === snap.context.activePaneId);
-          return pane ? { x: pane.copyCursorX, y: pane.copyCursorY } : { x: 0, y: 0 };
-        });
-        return fullState;
-      }
-      return { x: 0, y: 0 };
-    }
-    try {
-      const x = parseInt(this.runCommandSync(`display-message -t ${this.name} -p "#{copy_cursor_x}"`), 10) || 0;
-      const y = parseInt(this.runCommandSync(`display-message -t ${this.name} -p "#{copy_cursor_y}"`), 10) || 0;
-      return { x, y };
-    } catch {
-      return { x: 0, y: 0 };
-    }
-  }
-
   // ==================== Commands ====================
 
   /**

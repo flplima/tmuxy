@@ -866,62 +866,6 @@ async function pasteBufferKeyboard(page) {
 }
 
 /**
- * Search forward in copy mode via tmux command.
- * Note: The browser's client-side copy mode intercepts keyboard events and
- * doesn't support '/' search. So we send search commands through tmux.
- */
-async function copyModeSearchForwardKeyboard(page, pattern) {
-  await tmuxCommandKeyboard(page, `send-keys -X search-forward "${pattern}"`);
-}
-
-/**
- * Search again in copy mode via tmux command
- */
-async function copyModeSearchAgainKeyboard(page) {
-  await tmuxCommandKeyboard(page, 'send-keys -X search-again');
-}
-
-/**
- * Search reverse in copy mode via tmux command
- */
-async function copyModeSearchReverseKeyboard(page) {
-  await tmuxCommandKeyboard(page, 'send-keys -X search-reverse');
-}
-
-/**
- * Begin selection in copy mode via tmux command
- */
-async function copyModeBeginSelectionKeyboard(page) {
-  await tmuxCommandKeyboard(page, 'send-keys -X begin-selection');
-}
-
-/**
- * Copy selection in copy mode via tmux command
- */
-async function copyModeCopySelectionKeyboard(page) {
-  await tmuxCommandKeyboard(page, 'send-keys -X copy-selection-and-cancel');
-  await delay(DELAYS.SYNC);
-}
-
-/**
- * Move cursor in copy mode via tmux command.
- * @param {string} direction - 'left', 'right', 'up', 'down'
- * @param {number} count - Number of times to move
- */
-async function copyModeMoveKeyboard(page, direction, count = 1) {
-  const cmdMap = {
-    left: 'cursor-left',
-    right: 'cursor-right',
-    up: 'cursor-up',
-    down: 'cursor-down',
-  };
-  const cmd = cmdMap[direction] || direction;
-  for (let i = 0; i < count; i++) {
-    await tmuxCommandKeyboard(page, `send-keys -X ${cmd}`);
-  }
-}
-
-/**
  * Paste text into the terminal via a synthetic ClipboardEvent
  */
 async function pasteText(page, text) {
@@ -990,12 +934,6 @@ module.exports = {
   enterCopyModeKeyboard,
   exitCopyModeKeyboard,
   pasteBufferKeyboard,
-  copyModeSearchForwardKeyboard,
-  copyModeSearchAgainKeyboard,
-  copyModeSearchReverseKeyboard,
-  copyModeBeginSelectionKeyboard,
-  copyModeCopySelectionKeyboard,
-  copyModeMoveKeyboard,
   scrollPaneUp,
   scrollPaneDown,
   isPaneCopyModeVisible,
