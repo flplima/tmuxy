@@ -125,20 +125,43 @@ jobs:
         run: timeout 30 bash -c 'until curl -s http://localhost:9000 >/dev/null; do sleep 1; done'
 
       - name: "E2E: 1 – Input & Interaction"
+        id: e2e1
+        continue-on-error: true
         run: npx jest --config tests/jest.config.js --forceExit tests/1-input-interaction.test.js
 
       - name: "E2E: 2 – Layout & Navigation"
+        id: e2e2
+        continue-on-error: true
         run: npx jest --config tests/jest.config.js --forceExit tests/2-layout-navigation.test.js
 
       - name: "E2E: 3 – Rendering & Protocols"
+        id: e2e3
+        continue-on-error: true
         run: npx jest --config tests/jest.config.js --forceExit tests/3-rendering-protocols.test.js
 
       - name: "E2E: 4 – Session & Connectivity"
+        id: e2e4
+        continue-on-error: true
         run: npx jest --config tests/jest.config.js --forceExit tests/4-session-connectivity.test.js
 
       - name: "E2E: 5 – Stress & Stability"
+        id: e2e5
+        continue-on-error: true
         run: npx jest --config tests/jest.config.js --forceExit tests/5-stress-stability.test.js
 
       - name: Server logs (debug)
-        if: failure()
+        if: failure() || steps.e2e1.outcome == 'failure' || steps.e2e2.outcome == 'failure' || steps.e2e3.outcome == 'failure' || steps.e2e4.outcome == 'failure' || steps.e2e5.outcome == 'failure'
         run: cat /tmp/tmuxy-server.log | tail -500
+
+      - name: E2E results
+        if: always()
+        run: |
+          echo "E2E 1: ${{ steps.e2e1.outcome }}"
+          echo "E2E 2: ${{ steps.e2e2.outcome }}"
+          echo "E2E 3: ${{ steps.e2e3.outcome }}"
+          echo "E2E 4: ${{ steps.e2e4.outcome }}"
+          echo "E2E 5: ${{ steps.e2e5.outcome }}"
+          if [ "${{ steps.e2e1.outcome }}" = "failure" ] || [ "${{ steps.e2e2.outcome }}" = "failure" ] || [ "${{ steps.e2e3.outcome }}" = "failure" ] || [ "${{ steps.e2e4.outcome }}" = "failure" ] || [ "${{ steps.e2e5.outcome }}" = "failure" ]; then
+            echo "::error::One or more E2E test suites failed"
+            exit 1
+          fi

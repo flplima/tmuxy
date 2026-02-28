@@ -675,9 +675,7 @@ describe('Scenario 21: Touch Scrolling', () => {
     expect(touchAction).toBe('none');
 
     // Step 2: Generate scrollback history for copy-mode scroll test
-    await typeInTerminal(ctx.page, 'for i in $(seq 0 59); do echo "line-$i"; done');
-    await pressEnter(ctx.page);
-    await waitForTerminalText(ctx.page, 'line-59');
+    await runCommand(ctx.page, 'for i in $(seq 0 59); do echo "line-$i"; done', 'line-59');
 
     // Get pane center coordinates
     const paneBox = await ctx.page.evaluate(() => {
