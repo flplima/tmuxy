@@ -8,6 +8,8 @@ See [docs/non-goals.md](docs/non-goals.md) for what tmuxy intentionally does NOT
 See [docs/rich-rendering.md](docs/rich-rendering.md) for terminal image/OSC protocol support.
 See [docs/e2e-test-scenarios.md](docs/e2e-test-scenarios.md) for comprehensive test coverage planning.
 See [docs/tests.md](docs/tests.md) for running and writing E2E tests.
+See [docs/copy-mode.md](docs/copy-mode.md) for the client-side copy mode architecture.
+See [docs/tmux.md](docs/tmux.md) for tmux version-specific bugs and workarounds.
 
 ## Project Structure
 
@@ -85,13 +87,13 @@ npm run test:e2e        # E2E tests (requires server + Chrome CDP)
 
 ### Tmux Control Mode (Critical)
 
-**All tmux commands must go through the control mode stdin connection**, not via external subprocess calls. Running external `tmux` commands while control mode is attached crashes tmux 3.3a.
+**All tmux commands must go through the control mode stdin connection**, not via external subprocess calls. Running external `tmux` commands while control mode is attached crashes tmux 3.5a. See [docs/tmux.md](docs/tmux.md) for version-specific workarounds.
 
-Use short command forms: `neww`, `splitw`, `selectp`, `killp`, `resizep`, etc.
+Use short command forms: `splitw`, `selectp`, `killp`, `resizep`, etc. **Exception:** `neww` crashes tmux 3.5a — always use `splitw ; breakp` instead (the server rewrites this automatically).
 
-Use `run_tmux_command` for all tmux operations from the frontend:
+Use `adapter.invoke()` for all tmux operations from the frontend:
 ```typescript
-await invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
+await adapter.invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
 ```
 
 ### SSE Protocol
@@ -108,6 +110,14 @@ await invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
 { "type": "event", "name": "tmux-state-update", "payload": {...} }
 ```
 
+## E2E Test Conventions
+
+- Tests use `createTestContext()` from `tests/helpers/test-setup.js` for shared setup/teardown.
+- All E2E tests run **sequentially** (`maxWorkers: 1`) — they share one tmux server.
+- Tests interact with the **browser UI** (keyboard events, page queries), not tmux directly. State assertions read from the XState machine context via `page.evaluate()`.
+- Copy mode is a client-side reimplementation — test it via browser keyboard events and `getCopyModeState()`, not `send-keys -X` tmux commands.
+- Never install Playwright browsers (`npx playwright install`). Tests connect to Chrome via CDP on port 9222, or use the pre-installed Chromium in `~/.cache/ms-playwright/`.
+
 ## Testing & Bug Fixes (Critical)
 
 **ALWAYS fix any test failure or bug you encounter, even if it is unrelated to your current task or predates your changes.** Do not skip, ignore, or defer broken tests. If CI is red, make it green before moving on. A failing test is never "someone else's problem" — if you see it, you own it. This applies to unit tests, E2E tests, linting errors, type errors, and any other validation failures.
@@ -115,6 +125,8 @@ await invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
 **NEVER commit skipped tests** (`it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, `xdescribe`). If a test is failing, either fix the test, fix the underlying bug, or ask the user whether to remove the test entirely. ESLint enforces this via `jest/no-disabled-tests` (error) — the pre-commit hook and CI will reject skipped tests.
 
 ## Git
+
+When working on a branch other than `main`, always `git merge main` before starting work to avoid future conflicts.
 
 Use [gitmoji](https://gitmoji.dev/) for commit messages:
 
