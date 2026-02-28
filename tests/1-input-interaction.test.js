@@ -23,8 +23,6 @@ const {
   killPaneKeyboard,
   resizePaneKeyboard,
   enterCopyModeKeyboard,
-  pasteBufferKeyboard,
-  tmuxCommandKeyboard,
   pasteText,
   DELAYS,
 } = require('./helpers');
@@ -579,77 +577,64 @@ describe('Scenario 9: Copy Mode Navigate', () => {
   }, 180000);
 });
 
-// ==================== Scenario 10: Copy Mode Search & Yank ====================
+// ==================== Scenario 10: Copy Mode Select & Yank ====================
 
-describe('Scenario 10: Copy Mode Search & Yank', () => {
+describe('Scenario 10: Copy Mode Select & Yank', () => {
   const ctx = createTestContext();
   beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Set-buffer → paste → search → select → copy → paste → repeat search n/N', async () => {
+  test('Selection with v → yank with y → exit → terminal functional', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Step 1: Set-buffer and paste
-    const testText = `pasted_${Date.now()}`;
-    await tmuxCommandKeyboard(ctx.page, `set-buffer "${testText}"`);
-    await pasteBufferKeyboard(ctx.page);
-    await waitForTerminalText(ctx.page, testText, 15000);
-    await ctx.page.keyboard.press('Enter');
-    await delay(DELAYS.SHORT);
+    // Step 1: Generate scrollback content with identifiable lines
+    await runCommand(ctx.page, 'seq 1 200', '200');
+    await focusPage(ctx.page);
 
-    // Step 2: Generate target content for search
-    await runCommand(ctx.page, 'echo "SEARCH_TARGET_AAA"', 'SEARCH_TARGET_AAA');
-    await runCommand(ctx.page, 'echo "SEARCH_TARGET_BBB"', 'SEARCH_TARGET_BBB');
+    // Step 2: Enter copy mode via keyboard (prefix+[)
+    const csEntry = await enterCopyModeAndWait(ctx.page);
+    expect(csEntry.active).toBe(true);
 
-    // Step 3: Enter copy mode and search (via adapter - keyboard actor
-    // intercepts all keys in copy mode and can't route prefix commands)
-    //
-    // Note: We can't assert cursor position because run_tmux_command returns null
-    // (fire-and-forget via control mode) and send-keys -X doesn't trigger monitor
-    // refresh events. We verify copy mode stays active after search commands.
-    await ctx.session._exec('copy-mode');
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneInCopyMode()).toBe(true);
-
-    await ctx.session._exec('send-keys -X search-backward "SEARCH_TARGET"');
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneInCopyMode()).toBe(true);
-
-    // Step 4: Repeat search with n (search-again) and N (search-reverse)
-    await ctx.session._exec('send-keys -X search-again');
-    await delay(DELAYS.SYNC);
-    expect(await ctx.session.isPaneInCopyMode()).toBe(true);
-
-    await ctx.session._exec('send-keys -X search-reverse');
-    await delay(DELAYS.SYNC);
-
-    // Step 5: Select and copy
-    await ctx.session._exec('send-keys -X begin-selection');
-    await delay(DELAYS.MEDIUM);
+    // Step 3: Navigate up to a content line with 'k'
     for (let i = 0; i < 5; i++) {
-      await ctx.session._exec('send-keys -X cursor-right');
-      await delay(200);
+      await ctx.page.keyboard.press('k');
+      await delay(50);
     }
-    await delay(DELAYS.MEDIUM);
-    await ctx.session._exec('send-keys -X copy-selection-and-cancel');
-    // Poll for copy mode to exit
-    const exitStart = Date.now();
-    while (Date.now() - exitStart < 10000) {
-      if (!(await ctx.session.isPaneInCopyMode())) break;
-      await delay(200);
-    }
-    expect(await ctx.session.isPaneInCopyMode()).toBe(false);
-
-    // Step 6: Paste copied text
-    await pasteBufferKeyboard(ctx.page);
-    await delay(DELAYS.LONG);
-    // Terminal should be functional after copy-paste workflow
-    await ctx.page.keyboard.press('Enter');
     await delay(DELAYS.SHORT);
-    await runCommand(ctx.page, 'echo "COPY_PASTE_OK"', 'COPY_PASTE_OK');
+
+    // Step 4: Go to start of line with '0'
+    await ctx.page.keyboard.press('0');
+    await delay(DELAYS.SHORT);
+    const atStart = await getCopyModeState(ctx.page);
+    expect(atStart.cursorCol).toBe(0);
+
+    // Step 5: Enter char selection with 'v'
+    await ctx.page.keyboard.press('v');
+    await delay(DELAYS.SHORT);
+    const csWithSelection = await getCopyModeState(ctx.page);
+    expect(csWithSelection.selectionMode).toBe('char');
+
+    // Step 6: Extend selection with 'l' keys
+    for (let i = 0; i < 3; i++) {
+      await ctx.page.keyboard.press('l');
+      await delay(50);
+    }
+    await delay(DELAYS.SHORT);
+    const csExtended = await getCopyModeState(ctx.page);
+    expect(csExtended.cursorCol).toBeGreaterThan(atStart.cursorCol);
+
+    // Step 7: Yank with 'y' (triggers extractSelectedText → clipboard → auto-exit)
+    await ctx.page.keyboard.press('y');
+
+    // Step 8: Verify copy mode exited after yank
+    await waitForCopyMode(ctx.page, false);
+    expect(await getCopyModeState(ctx.page)).toBeNull();
+
+    // Step 9: Verify terminal is functional after yank
+    await runCommand(ctx.page, 'echo "YANK_OK"', 'YANK_OK');
   }, 180000);
 });
 
