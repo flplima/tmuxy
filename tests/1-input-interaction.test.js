@@ -675,6 +675,16 @@ describe('Scenario 21: Touch Scrolling', () => {
     expect(touchAction).toBe('none');
 
     // Step 2: Generate scrollback history for copy-mode scroll test
+    // Wait for terminal content to stabilize after sourceConfig (move-window triggers re-render)
+    await ctx.page.waitForFunction(
+      () => {
+        const logs = document.querySelectorAll('[role="log"]');
+        const content = Array.from(logs).map(l => l.textContent || '').join('');
+        return content.length > 0;
+      },
+      { timeout: 10000, polling: 100 }
+    );
+    await focusPage(ctx.page);
     await runCommand(ctx.page, 'for i in $(seq 0 59); do echo "line-$i"; done', 'line-59');
 
     // Get pane center coordinates
