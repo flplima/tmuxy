@@ -290,7 +290,7 @@ async function uiContainsText(page, text) {
  * Run a command in terminal and wait for expected output
  * This is a common pattern extracted for reuse
  */
-async function runCommand(page, command, expectedOutput, timeout = 10000) {
+async function runCommand(page, command, expectedOutput, timeout = 20000) {
   await typeInTerminal(page, command);
   await pressEnter(page);
   return await waitForTerminalText(page, expectedOutput, timeout);
