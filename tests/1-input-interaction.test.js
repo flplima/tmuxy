@@ -596,9 +596,7 @@ describe('Scenario 10: Copy Mode Search & Yank', () => {
     const testText = `pasted_${Date.now()}`;
     await tmuxCommandKeyboard(ctx.page, `set-buffer "${testText}"`);
     await pasteBufferKeyboard(ctx.page);
-    await delay(DELAYS.LONG);
-    const text = await getTerminalText(ctx.page);
-    expect(text).toContain(testText);
+    await waitForTerminalText(ctx.page, testText, 15000);
     await ctx.page.keyboard.press('Enter');
     await delay(DELAYS.SHORT);
 
