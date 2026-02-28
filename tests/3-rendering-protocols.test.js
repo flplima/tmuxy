@@ -366,7 +366,6 @@ describe('Category 17: Widgets', () => {
 
   function skipIfNotReady() {
     if (!serverAvailable || !browserAvailable || !page || !session) {
-      console.log('Skipping test: prerequisites not available');
       return true;
     }
     return false;

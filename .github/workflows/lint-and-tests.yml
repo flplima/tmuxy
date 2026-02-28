@@ -48,6 +48,9 @@ jobs:
       - name: ESLint
         run: npm run lint -w tmuxy-ui
 
+      - name: ESLint (E2E tests)
+        run: npm run lint:tests
+
       - name: Clippy (core + web-server)
         run: cargo clippy -p tmuxy-core -p web-server -- -D warnings
 
@@ -119,25 +122,38 @@ jobs:
       # --- E2E Tests ---
 
       - name: Start server
-        run: PORT=9000 ./target/debug/tmuxy-web 2>/tmp/tmuxy-server.log &
-
-      - name: Wait for server
-        run: timeout 30 bash -c 'until curl -s http://localhost:9000 >/dev/null; do sleep 1; done'
+        run: |
+          PORT=9000 ./target/debug/tmuxy-web 2>/tmp/tmuxy-server.log &
+          node -e "
+            const start = Date.now();
+            const timeout = 30000;
+            const check = async () => {
+              while (Date.now() - start < timeout) {
+                try {
+                  const res = await fetch('http://localhost:9000');
+                  if (res.ok) { process.exit(0); }
+                } catch {}
+                await new Promise(r => setTimeout(r, 500));
+              }
+              process.exit(1);
+            };
+            check();
+          "
 
       - name: "E2E: 1 – Input & Interaction"
-        run: npx jest --config tests/jest.config.js --forceExit tests/1-input-interaction.test.js
+        run: npx jest --forceExit tests/1-input-interaction.test.js
 
       - name: "E2E: 2 – Layout & Navigation"
-        run: npx jest --config tests/jest.config.js --forceExit tests/2-layout-navigation.test.js
+        run: npx jest --forceExit tests/2-layout-navigation.test.js
 
       - name: "E2E: 3 – Rendering & Protocols"
-        run: npx jest --config tests/jest.config.js --forceExit tests/3-rendering-protocols.test.js
+        run: npx jest --forceExit tests/3-rendering-protocols.test.js
 
       - name: "E2E: 4 – Session & Connectivity"
-        run: npx jest --config tests/jest.config.js --forceExit tests/4-session-connectivity.test.js
+        run: npx jest --forceExit tests/4-session-connectivity.test.js
 
       - name: "E2E: 5 – Stress & Stability"
-        run: npx jest --config tests/jest.config.js --forceExit tests/5-stress-stability.test.js
+        run: npx jest --forceExit tests/5-stress-stability.test.js
 
       - name: Server logs (debug)
         if: failure()

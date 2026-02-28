@@ -352,9 +352,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
       expect(await getUIPaneCount(ctx.page)).toBe(2);
       expect(await ctx.session.getPaneCount()).toBe(2);
 
-      if (process.env.DEBUG_TESTS) {
-        console.log(`Split mutations: ${result.summary.totalNodeMutations} nodes`);
-      }
+      expect(result.summary.totalNodeMutations).toBeDefined();
     }, 180000);
 
     test('Vertical split produces no flicker', async () => {
