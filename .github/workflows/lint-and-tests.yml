@@ -1,4 +1,4 @@
-name: lint and test
+name: lint and tests
 
 on:
   push:
@@ -62,7 +62,7 @@ jobs:
         run: npx tsc --noEmit
         working-directory: packages/tmuxy-ui
 
-  test:
+  tests:
     runs-on: ubuntu-latest
 
     steps:
@@ -124,9 +124,21 @@ jobs:
       - name: Wait for server
         run: timeout 30 bash -c 'until curl -s http://localhost:9000 >/dev/null; do sleep 1; done'
 
-      - name: E2E tests
-        run: npx jest --config tests/jest.config.js --forceExit
+      - name: "E2E: 1 – Input & Interaction"
+        run: npx jest --config tests/jest.config.js --forceExit tests/1-input-interaction.test.js
+
+      - name: "E2E: 2 – Layout & Navigation"
+        run: npx jest --config tests/jest.config.js --forceExit tests/2-layout-navigation.test.js
+
+      - name: "E2E: 3 – Rendering & Protocols"
+        run: npx jest --config tests/jest.config.js --forceExit tests/3-rendering-protocols.test.js
+
+      - name: "E2E: 4 – Session & Connectivity"
+        run: npx jest --config tests/jest.config.js --forceExit tests/4-session-connectivity.test.js
+
+      - name: "E2E: 5 – Stress & Stability"
+        run: npx jest --config tests/jest.config.js --forceExit tests/5-stress-stability.test.js
 
       - name: Server logs (debug)
         if: failure()
-        run: grep -E '\[sse\].*splitw|\[monitor\].*splitw|\[sse\].*new.window|error|Error' /tmp/tmuxy-server.log | tail -200
+        run: cat /tmp/tmuxy-server.log | tail -500
