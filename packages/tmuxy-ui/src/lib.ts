@@ -7,5 +7,6 @@
 
 export { AppProvider as TmuxyProvider } from './machines/AppContext';
 export { default as TmuxyApp } from './App';
+export type { RenderTabline } from './App';
 export { DemoAdapter } from './tmux/demo/DemoAdapter';
 export type { TmuxAdapter } from './tmux/types';
