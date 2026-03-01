@@ -34,10 +34,9 @@ function generateTestSessionName() {
 function createTmuxSession(sessionName) {
   try {
     execSync(`tmux has-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' });
-    console.log(`Session ${sessionName} already exists`);
+    // Session already exists
   } catch {
     execSync(`tmux new-session -d -s ${sessionName} -x 120 -y 30`, { stdio: 'inherit' });
-    console.log(`Created tmux session: ${sessionName}`);
   }
 }
 
@@ -47,7 +46,6 @@ function createTmuxSession(sessionName) {
 function killTmuxSession(sessionName) {
   try {
     execSync(`tmux kill-session -t ${sessionName}`, { stdio: 'ignore' });
-    console.log(`Killed tmux session: ${sessionName}`);
   } catch {
     // Session might not exist
   }

@@ -129,23 +129,20 @@ class TmuxTestSession {
    */
   async sourceConfig() {
     if (!this.configPath || !this.page) {
-      console.log(`[sourceConfig] Skipping: configPath=${this.configPath}, page=${!!this.page}`);
+      // Skipping: no configPath or no page
       return;
     }
 
-    console.log(`[sourceConfig] Sourcing ${this.configPath}`);
     try {
       await this._exec(`source-file ${this.configPath}`);
-      console.log(`[sourceConfig] Config sourced successfully`);
     } catch (e) {
-      console.log(`[sourceConfig] Failed to source config: ${e.message}`);
+      throw new Error(`Failed to source config ${this.configPath}: ${e.message}`);
     }
 
     // Move window from index 0 to 1 (config sets base-index 1 but
     // new-session creates at 0). Ignore errors if already at 1.
     try {
       await this._exec(`move-window -s ${this.name}:0 -t ${this.name}:1`);
-      console.log(`[sourceConfig] Moved window to index 1`);
     } catch {
       // Already at base-index 1 or window not found — fine
     }
@@ -248,53 +245,39 @@ class TmuxTestSession {
         // No suffix, just remove the session target
         return '';
       });
-      // Only log mutations (not queries like list-panes, display-message) to reduce noise
-      const isQuery = /^(list-|display-message|has-session|show-)/.test(cleanCmd.trim());
-      if (!isQuery) {
-        console.log(`[_exec] Routing through adapter: ${cleanCmd} (original: ${command})`);
-      }
-      try {
-        const result = await Promise.race([
-          this.page.evaluate(async (cmd) => {
-            if (!window._adapter) {
-              throw new Error('Adapter not available - is dev mode enabled?');
-            }
-            // Retry on transient failures (monitor not ready yet)
-            // Monitor connection can take a few seconds to establish after page reload
-            let lastError = null;
-            for (let attempt = 0; attempt < 10; attempt++) {
-              try {
-                return await window._adapter.invoke('run_tmux_command', { command: cmd });
-              } catch (e) {
-                lastError = e;
-                if (e.message?.includes('No monitor connection')) {
-                  // Wait for monitor to connect (exponential backoff: 200, 400, 800, ..., max 2000)
-                  await new Promise(r => setTimeout(r, Math.min(200 * Math.pow(2, attempt), 2000)));
-                  continue;
-                }
-                throw e; // Non-transient error, rethrow
+      const result = await Promise.race([
+        this.page.evaluate(async (cmd) => {
+          if (!window._adapter) {
+            throw new Error('Adapter not available - is dev mode enabled?');
+          }
+          // Retry on transient failures (monitor not ready yet)
+          // Monitor connection can take a few seconds to establish after page reload
+          let lastError = null;
+          for (let attempt = 0; attempt < 10; attempt++) {
+            try {
+              return await window._adapter.invoke('run_tmux_command', { command: cmd });
+            } catch (e) {
+              lastError = e;
+              if (e.message?.includes('No monitor connection')) {
+                // Wait for monitor to connect (exponential backoff: 200, 400, 800, ..., max 2000)
+                await new Promise(r => setTimeout(r, Math.min(200 * Math.pow(2, attempt), 2000)));
+                continue;
               }
+              throw e; // Non-transient error, rethrow
             }
-            throw lastError || new Error('Failed after retries');
-          }, cleanCmd),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`_exec timeout after 30s: ${cleanCmd}`)), 30000)
-          ),
-        ]);
-        if (!isQuery) {
-          console.log(`[_exec] Success: ${cleanCmd}`);
-        }
-        // Wait for tmux to process the command and propagate state
-        // Chain: control mode → tmux → event → monitor → SSE → browser → XState
-        await new Promise(r => setTimeout(r, 250));
-        return result;
-      } catch (e) {
-        console.log(`[_exec] Failed: ${cleanCmd} - ${e.message}`);
-        throw e;
-      }
+          }
+          throw lastError || new Error('Failed after retries');
+        }, cleanCmd),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`_exec timeout after 30s: ${cleanCmd}`)), 30000)
+        ),
+      ]);
+      // Wait for tmux to process the command and propagate state
+      // Chain: control mode → tmux → event → monitor → SSE → browser → XState
+      await new Promise(r => setTimeout(r, 250));
+      return result;
     } else {
       // No browser - use execSync (safe, control mode not attached)
-      console.log(`[_exec] Routing through execSync: ${command}`);
       return this.runCommandSync(command);
     }
   }

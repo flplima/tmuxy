@@ -39,22 +39,55 @@ tmuxy/
 
 ## CLI Usage
 
-The `tmuxy` CLI is a shell dispatcher at `scripts/tmuxy-cli`, symlinked as `~/.local/bin/tmuxy`.
+The `tmuxy` CLI is a noun-verb dispatcher at `scripts/tmuxy-cli`, symlinked as `~/.local/bin/tmuxy`.
+All mutating commands route through `tmux run-shell` for safety with control mode.
 
 ```bash
-tmuxy float                    # Interactive float (outputs pane ID)
-tmuxy float fzf                # Run fzf in float, capture stdout
-tmuxy group add                # Add current pane to a group
-tmuxy group next               # Next tab in group
-tmuxy group prev               # Previous tab in group
-tmuxy group switch %5          # Switch to specific pane in group
-tmuxy group close [%5]         # Close pane from group
-tmuxy image /path/to/img.png   # Display image widget
-tmuxy md README.md             # Display markdown widget
-echo "# Hello" | tmuxy md -   # Markdown from stdin
-tmuxy server                   # Start production server
-tmuxy server stop              # Stop production server
+# Pane operations
+tmuxy pane list [--json] [--all]       # List panes
+tmuxy pane split [-h|-v]               # Split current pane
+tmuxy pane kill [%id]                  # Kill pane
+tmuxy pane select [-U|-D|-L|-R|%id]    # Select pane
+tmuxy pane resize [-U|-D|-L|-R] [n]    # Resize pane
+tmuxy pane swap %0 %1                  # Swap two panes
+tmuxy pane zoom                        # Toggle zoom
+tmuxy pane break                       # Break pane into own tab
+tmuxy pane capture [%id] [--json]      # Capture pane content
+tmuxy pane send ls Enter               # Send keys to pane
+tmuxy pane paste "some text"           # Paste text into pane
+tmuxy pane float [cmd args...]         # Create a float pane
+tmuxy pane group add                   # Add pane to a group
+tmuxy pane group close [%id]           # Close pane from group
+tmuxy pane group switch %5             # Switch to pane in group
+tmuxy pane group next                  # Next pane in group
+tmuxy pane group prev                  # Previous pane in group
+
+# Tab operations
+tmuxy tab list [--json]                # List tabs
+tmuxy tab create [name]                # Create tab (safe splitw+breakp)
+tmuxy tab kill [@id]                   # Kill tab
+tmuxy tab select <index|@id>           # Switch to tab
+tmuxy tab next                         # Next tab
+tmuxy tab prev                         # Previous tab
+tmuxy tab rename <name>                # Rename current tab
+tmuxy tab layout [next|even-h|...]     # Change pane layout
+
+# Widgets
+tmuxy widget image /path/to/img.png    # Display image widget
+tmuxy widget markdown README.md        # Display markdown widget
+echo "# Hello" | tmuxy widget markdown - # Markdown from stdin
+
+# Escape hatch (routes safely through run-shell)
+tmuxy run swap-pane -s %0 -t %1       # Run any tmux command safely
+tmuxy run new-window                   # Intercepted → splitw+breakp
+tmuxy run resize-window                # Blocked (crashes control mode)
+
+# Server
+tmuxy server                           # Start production server
+tmuxy server stop                      # Stop production server
 ```
+
+Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> --help` for details.
 
 ## Development
 
