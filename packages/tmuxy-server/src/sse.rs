@@ -18,7 +18,7 @@ use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig, StateEmitter, Tmux
 use tmuxy_core::{executor, StateUpdate};
 use tokio::sync::broadcast;
 
-use crate::{AppState, SessionConnections};
+use crate::state::{AppState, SessionConnections};
 
 // ============================================
 // SSE State Emitter (Adapter Pattern)
@@ -1082,7 +1082,7 @@ async fn start_monitoring_control_mode(
         throttle_interval: Duration::from_millis(16),
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),
-        working_dir: Some(crate::find_workspace_root()),
+        working_dir: Some(crate::state::find_workspace_root()),
     };
 
     let mut backoff = Duration::from_millis(100);

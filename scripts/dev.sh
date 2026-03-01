@@ -2,8 +2,8 @@
 #
 # Development server with hot reload
 #
-# - Watches Rust files (tmuxy-core, web-server) and rebuilds/restarts on change
-# - Vite HMR is handled automatically via the web-server proxy
+# - Watches Rust files (tmuxy-core, tmuxy-server) and rebuilds/restarts on change
+# - Vite HMR is handled automatically via the tmuxy-server dev mode proxy
 #
 # Usage:
 #   npm start  # Run in background with pm2
@@ -25,7 +25,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "[dev] Starting development server with hot reload..."
-echo "[dev] Watching: packages/tmuxy-core/src, packages/web-server/src"
+echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src"
 echo "[dev] Vite HMR is automatic via proxy to port 1420"
 echo ""
 
@@ -33,5 +33,5 @@ echo ""
 tmux kill-session -t tmuxy 2>/dev/null || true
 exec cargo watch \
     -w packages/tmuxy-core/src \
-    -w packages/web-server/src \
-    -x 'run -p web-server -- --dev'
+    -w packages/tmuxy-server/src \
+    -x 'run -p tmuxy-server -- --dev'

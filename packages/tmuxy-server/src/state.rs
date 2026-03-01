@@ -1,5 +1,3 @@
-pub mod sse;
-
 use axum::{
     body::Body,
     extract::Query,
@@ -77,8 +75,8 @@ impl AppState {
 /// Returns a Router that needs `.fallback_service(...)` and `.with_state(state)`.
 pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/events", get(sse::sse_handler))
-        .route("/commands", post(sse::commands_handler))
+        .route("/events", get(crate::sse::sse_handler))
+        .route("/commands", post(crate::sse::commands_handler))
         .route("/api/snapshot", get(snapshot_handler))
         .route("/api/directory", get(directory_handler))
         .route("/api/file", get(file_handler))
@@ -126,7 +124,7 @@ struct DirectoryQuery {
 async fn directory_handler(Query(query): Query<DirectoryQuery>) -> Response {
     let path = query.path.unwrap_or_else(|| "/".to_string());
 
-    match sse::list_directory(&path) {
+    match crate::sse::list_directory(&path) {
         Ok(entries) => Response::builder()
             .status(axum::http::StatusCode::OK)
             .header("Content-Type", "application/json")

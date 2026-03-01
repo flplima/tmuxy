@@ -21,7 +21,7 @@ The `TmuxMonitor` (in `tmuxy-core/src/control_mode/monitor.rs`) maintains a pers
 
 Running external `tmux` commands (as separate subprocesses) while a control mode client is attached can **crash the tmux server**. Observed in tmux 3.3a and 3.5a. The [tmux Control Mode wiki](https://github.com/tmux/tmux/wiki/Control-Mode) states that commands should be sent through the control mode client.
 
-All HTTP command handlers in the web server route through `send_via_control_mode()` in `web-server/src/sse.rs`, which looks up the session's `monitor_command_tx` and sends `MonitorCommand::RunCommand` through the channel.
+All HTTP command handlers in the web server route through `send_via_control_mode()` in `tmuxy-server/src/sse.rs`, which looks up the session's `monitor_command_tx` and sends `MonitorCommand::RunCommand` through the channel.
 
 ## Command Routing Rules
 
@@ -91,13 +91,13 @@ splitw -t <session> ; breakp
 This creates a new pane in the current window, then immediately breaks it into its own window — replicating `new-window` behavior without the crash.
 
 **Where it's applied:**
-- `packages/web-server/src/sse.rs` — The `new_window` command handler, `execute_prefix_binding` for `c` key, and `run_tmux_command` all intercept `neww`/`new-window` and rewrite to `splitw ; breakp`.
+- `packages/tmuxy-server/src/sse.rs` — The `new_window` command handler, `execute_prefix_binding` for `c` key, and `run_tmux_command` all intercept `neww`/`new-window` and rewrite to `splitw ; breakp`.
 - `scripts/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
 - `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
 
 ## Tauri Desktop App: Missing `new-window` Workaround
 
-**Known gap:** The Tauri desktop app (`tauri-app/src/commands.rs`) calls `executor::new_window()` which uses external `tmux new-window` without the `splitw ; breakp` workaround. This will crash tmux 3.5a when a control mode client is attached. The web server version (`web-server/src/sse.rs`) has the workaround but the Tauri code path bypasses it.
+**Known gap:** The Tauri desktop app (`tauri-app/src/commands.rs`) calls `executor::new_window()` which uses external `tmux new-window` without the `splitw ; breakp` workaround. This will crash tmux 3.5a when a control mode client is attached. The web server version (`tmuxy-server/src/sse.rs`) has the workaround but the Tauri code path bypasses it.
 
 ## `%unlinked-window-close` Events
 

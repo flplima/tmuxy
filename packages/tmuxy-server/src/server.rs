@@ -1,11 +1,14 @@
 use axum::body::Body;
+use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use clap::{Args, Subcommand};
 use rust_embed::Embed;
 use std::sync::Arc;
 use tokio::signal;
-use web_server::AppState;
+
+use crate::dev;
+use crate::state::AppState;
 
 #[derive(Embed)]
 #[folder = "../tmuxy-ui/dist/"]
@@ -23,6 +26,10 @@ pub struct ServerArgs {
     /// Host to bind to
     #[arg(long, default_value = "0.0.0.0")]
     pub host: String,
+
+    /// Run in development mode (proxy to Vite dev server)
+    #[arg(long)]
+    pub dev: bool,
 }
 
 #[derive(Subcommand)]
@@ -34,11 +41,46 @@ pub enum ServerAction {
 }
 
 pub async fn run(args: ServerArgs) {
+    let dev_mode = args.dev || std::env::var("TMUXY_DEV").is_ok();
     match args.action {
+        None if dev_mode => start_dev_server().await,
         None => start_server(args.port, args.host).await,
         Some(ServerAction::Stop) => stop_server(),
         Some(ServerAction::Status) => server_status(),
     }
+}
+
+/// Start the development server with Vite proxy
+async fn start_dev_server() {
+    let state = Arc::new(AppState::new());
+
+    println!(
+        "[dev] Starting Vite dev server on port {}...",
+        dev::VITE_PORT
+    );
+    let vite_child = dev::spawn_vite_dev_server().await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let app = crate::state::api_routes()
+        .fallback_service(tower::service_fn(|req: Request| async move {
+            Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
+        }))
+        .with_state(state);
+
+    let port = dev::get_port();
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+    println!("tmuxy dev server running at http://localhost:{}", port);
+    println!(
+        "[dev] Vite HMR and static files proxied from port {}",
+        dev::VITE_PORT
+    );
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal(vite_child))
+        .await
+        .unwrap();
 }
 
 /// Start the production server with embedded frontend assets
@@ -47,7 +89,7 @@ async fn start_server(port: u16, host: String) {
 
     let state = Arc::new(AppState::new());
 
-    let app = web_server::api_routes()
+    let app = crate::state::api_routes()
         .fallback(serve_embedded)
         .with_state(state);
 
@@ -60,7 +102,7 @@ async fn start_server(port: u16, host: String) {
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown_signal(None))
         .await
         .unwrap();
 
@@ -191,7 +233,7 @@ fn server_status() {
     }
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(vite_child: Option<dev::ViteChild>) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -215,4 +257,8 @@ async fn shutdown_signal() {
     }
 
     println!("\nShutting down...");
+
+    if let Some(child) = vite_child {
+        child.kill();
+    }
 }

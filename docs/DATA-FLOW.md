@@ -106,7 +106,7 @@ Frontend
           Monitor stdin → tmux
 ```
 
-The web server routes all state-modifying commands through `send_via_control_mode()` in `web-server/src/sse.rs`, which sends `MonitorCommand::RunCommand` through the monitor's command channel. The Tauri app calls `tmuxy-core` functions directly — some through the executor (subprocess), some through control mode.
+The web server routes all state-modifying commands through `send_via_control_mode()` in `tmuxy-server/src/sse.rs`, which sends `MonitorCommand::RunCommand` through the monitor's command channel. The Tauri app calls `tmuxy-core` functions directly — some through the executor (subprocess), some through control mode.
 
 ## Delta Protocol
 

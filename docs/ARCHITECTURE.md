@@ -31,9 +31,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 **tmuxy-core** — Rust library that manages tmux control mode connections. Contains `TmuxMonitor` (event loop), `StateAggregator` (event processing), `ControlModeConnection` (stdin/stdout to `tmux -CC`), and the executor module for safe subprocess calls. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for details.
 
-**web-server** — Axum HTTP server providing SSE streaming and HTTP POST command endpoints. Manages per-session connections, multi-client viewport sizing, and session tokens. Shared between the dev server and production server (`tmuxy-server`).
-
-**tmuxy-server** — Production binary that embeds the compiled frontend assets and serves them alongside the web-server API routes.
+**tmuxy-server** — Axum HTTP server providing SSE streaming, HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and session tokens. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
 
 **tmuxy-ui** — React frontend using XState for all state management. Communicates with the backend via an adapter pattern (`TmuxAdapter` interface). Includes an in-browser demo engine (`DemoAdapter`, `DemoTmux`, `DemoShell`) for the landing page. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
 
@@ -84,13 +82,13 @@ packages/
 │       │   └── parser.rs       # Control mode event parser
 │       ├── executor.rs         # Subprocess tmux commands (safe operations only)
 │       └── session.rs          # Session lifecycle (create, destroy, check)
-├── web-server/
-│   └── src/
-│       ├── lib.rs              # AppState, SessionConnections, api_routes()
-│       └── sse.rs              # SSE streaming, HTTP commands, SseEmitter
 ├── tmuxy-server/
 │   └── src/
-│       └── main.rs             # Production server with embedded frontend
+│       ├── main.rs             # Entry point, mod declarations
+│       ├── server.rs           # Server startup (prod + dev), PID management, shutdown
+│       ├── state.rs            # AppState, SessionConnections, api_routes()
+│       ├── sse.rs              # SSE streaming, HTTP commands, SseEmitter
+│       └── dev.rs              # ViteChild, dev server proxy, port discovery
 ├── tmuxy-ui/
 │   └── src/
 │       ├── machines/
