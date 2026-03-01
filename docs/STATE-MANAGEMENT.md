@@ -44,7 +44,7 @@ The core event loop, defined in `tmuxy-core/src/control_mode/monitor.rs`. Mainta
 - `config` — `MonitorConfig` with session name, sync intervals, throttle settings.
 - `command_rx` — Receiver for `MonitorCommand` messages from the frontend.
 
-The event loop uses `tokio::select!` with five branches: control mode events, throttle timer, settling timer, sync timer, and command channel. See [data-flow.md](data-flow.md) for the flow diagram.
+The event loop uses `tokio::select!` with five branches: control mode events, throttle timer, settling timer, sync timer, and command channel. See [DATA-FLOW.md](DATA-FLOW.md) for the flow diagram.
 
 ### MonitorCommand
 
@@ -146,7 +146,7 @@ The context holds all frontend state. Key fields:
 - `defaultShell` — Default shell (bash, zsh, etc.)
 
 **Client-only state:**
-- `copyModeStates: Record<string, CopyModeState>` — Per-pane copy mode (entirely client-side, see [copy-mode.md](copy-mode.md))
+- `copyModeStates: Record<string, CopyModeState>` — Per-pane copy mode (entirely client-side, see [COPY-MODE.md](COPY-MODE.md))
 - `drag: DragState | null` — Current pane drag operation
 - `resize: ResizeState | null` — Current pane resize operation
 - `paneGroups: Record<string, PaneGroup>` — Pane group tabs (hidden windows)
@@ -214,6 +214,6 @@ Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `sele
 
 4. **Optimistic reconciliation** — When the frontend has a pending optimistic operation and receives a state update, it validates the prediction. Matching predictions are confirmed; mismatches are overwritten by the server state.
 
-5. **Copy mode divergence** — Copy mode state is entirely client-side (scrollback lines, cursor, selection). The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag. See [copy-mode.md](copy-mode.md).
+5. **Copy mode divergence** — Copy mode state is entirely client-side (scrollback lines, cursor, selection). The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag. See [COPY-MODE.md](COPY-MODE.md).
 
 6. **Group state** — Pane groups are stored in tmux's session-level environment variable (`TMUXY_GROUPS` as compact JSON). The backend reads this on state sync and includes it in state updates. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `scripts/tmuxy/`.

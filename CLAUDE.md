@@ -2,16 +2,16 @@
 
 A web-based tmux interface built with React (Vite) frontend and Rust backend.
 
-See [docs/architecture.md](docs/architecture.md) for high-level system overview and component interaction.
-See [docs/state-management.md](docs/state-management.md) for frontend XState and backend Rust state details.
-See [docs/data-flow.md](docs/data-flow.md) for SSE/HTTP protocol, Tauri IPC, and deployment scenarios.
-See [docs/tmux.md](docs/tmux.md) for control mode routing, version-specific bugs, and workarounds.
-See [docs/copy-mode.md](docs/copy-mode.md) for the client-side copy mode architecture.
-See [docs/security.md](docs/security.md) for security risks, mitigations, and deployment warnings.
-See [docs/tests.md](docs/tests.md) for running and writing E2E tests.
-See [docs/e2e-test-scenarios.md](docs/e2e-test-scenarios.md) for comprehensive test coverage planning.
-See [docs/non-goals.md](docs/non-goals.md) for what tmuxy intentionally does NOT do.
-See [docs/rich-rendering.md](docs/rich-rendering.md) for terminal image/OSC protocol support.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for high-level system overview and component interaction.
+See [docs/STATE-MANAGEMENT.md](docs/STATE-MANAGEMENT.md) for frontend XState and backend Rust state details.
+See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for SSE/HTTP protocol, Tauri IPC, and deployment scenarios.
+See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs, and workarounds.
+See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side copy mode architecture.
+See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
+See [docs/TESTS.md](docs/TESTS.md) for running and writing E2E tests.
+See [docs/E2E-TEST-SCENARIOS.md](docs/E2E-TEST-SCENARIOS.md) for comprehensive test coverage planning.
+See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
+See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 
 ## Project Structure
 
@@ -89,11 +89,11 @@ npm run test:e2e        # E2E tests (requires server + Chrome CDP)
 
 ### Tmux Control Mode (Critical)
 
-**All tmux commands must go through the control mode stdin connection**, not via external subprocess calls. Running external `tmux` commands while control mode is attached crashes tmux 3.5a. See [docs/tmux.md](docs/tmux.md) for version-specific workarounds.
+**All tmux commands must go through the control mode stdin connection**, not via external subprocess calls. Running external `tmux` commands while control mode is attached crashes tmux 3.5a. See [docs/TMUX.md](docs/TMUX.md) for version-specific workarounds.
 
 Use short command forms: `splitw`, `selectp`, `killp`, `resizep`, etc. **Exception:** `neww` crashes tmux 3.5a — always use `splitw ; breakp` instead (the server rewrites this automatically).
 
-Use `adapter.invoke('run_tmux_command', { command: '...' })` for all tmux operations from the frontend. See `tmuxy-ui/src/tmux/adapters.ts` for the adapter implementations and [docs/data-flow.md](docs/data-flow.md) for the SSE/HTTP protocol details.
+Use `adapter.invoke('run_tmux_command', { command: '...' })` for all tmux operations from the frontend. See `tmuxy-ui/src/tmux/adapters.ts` for the adapter implementations and [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for the SSE/HTTP protocol details.
 
 ## E2E Test Conventions
 
@@ -111,11 +111,12 @@ Use `adapter.invoke('run_tmux_command', { command: '...' })` for all tmux operat
 
 ## Documentation
 
-The `docs/` directory contains architectural and design documentation. **Review relevant docs before and after working on a task** — they provide critical context (especially `tmux.md`, `state-management.md`, `data-flow.md`, and `copy-mode.md`).
+The `docs/` directory contains architectural and design documentation. **Review relevant docs before and after working on a task** — they provide critical context (especially `TMUX.md`, `STATE-MANAGEMENT.md`, `DATA-FLOW.md`, and `COPY-MODE.md`).
 
 - **Before starting**: read docs related to the area you're changing. Flag any misalignment between the docs and the user's request before proceeding.
 - **After finishing**: if your changes affect behavior described in docs, suggest updates to the user.
 - **No project-specific code in docs**: docs should describe architecture, protocols, and conventions in prose and tables — not inline code snippets from the codebase. Code is fragile and changes constantly; docs that embed it go stale immediately. Reference file paths instead (e.g., "see `web-server/src/lib.rs`").
+- **Use ASCII diagrams, not Mermaid**: diagrams in docs should use plain ASCII art inside fenced code blocks. Mermaid requires a renderer and is not universally supported by all markdown viewers or AI agents.
 
 ## Git
 

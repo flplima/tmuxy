@@ -112,3 +112,8 @@ These decisions can be revisited if:
 3. Strong user demand with clear use cases
 
 Until then, we stay focused on being the best tmux UI, not another terminal emulator.
+
+## Related
+
+- [COPY-MODE.md](COPY-MODE.md) — Client-side copy mode (the one scrollback-like feature we do implement)
+- [RICH-RENDERING.md](RICH-RENDERING.md) — Image protocol research and current status (mostly inactive)

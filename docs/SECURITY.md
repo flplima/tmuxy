@@ -186,3 +186,8 @@ These are not currently implemented but would improve the security posture:
 - **Audit logging** — Log all commands and client connections
 - **Path restrictions** — Limit `/api/file` and `/api/directory` to specific directories
 - **Rate limiting** — Prevent brute-force token guessing and command flooding
+
+## Related
+
+- [DATA-FLOW.md](DATA-FLOW.md) — Deployment scenarios with security guidance for each
+- [TMUX.md](TMUX.md) — Control mode constraints (commands that must go through control mode)
