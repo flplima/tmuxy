@@ -142,13 +142,17 @@ export class DemoAdapter implements TmuxAdapter {
 
       case 'get_scrollback_cells': {
         const paneId = args?.paneId as string;
-        const cells = this.tmux.getScrollbackCells(paneId);
+        const start = args?.start as number | undefined;
+        const end = args?.end as number | undefined;
+        const cells = this.tmux.getScrollbackCells(paneId, start, end);
+        const state = this.tmux.getState();
+        const pane = state.panes.find((p) => p.tmux_id === paneId);
         return {
           cells,
-          historySize: 0,
-          start: 0,
-          end: cells.length,
-          width: 80,
+          historySize: pane?.history_size ?? 0,
+          start: start ?? 0,
+          end: end ?? cells.length,
+          width: pane?.width ?? 80,
         } as T;
       }
 
