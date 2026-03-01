@@ -19,6 +19,7 @@ const { TMUXY_URL, DELAYS } = require('./config');
 const { GlitchDetector } = require('./glitch-detector');
 const { assertStateMatches } = require('./consistency');
 const { splitPaneKeyboard, navigatePaneKeyboard } = require('./ui');
+const { tmuxRun } = require('./cli');
 
 /**
  * Create test context with beforeAll/afterAll/beforeEach/afterEach
@@ -259,11 +260,11 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       if (count === 2) return;
       await delay(100);
     }
-    // Keyboard split may have failed — fall back to direct adapter command
-    const cmd = direction === 'horizontal' ? 'split-window' : 'split-window -h';
-    await ctx.page.evaluate(async (c) => {
-      await window._adapter.invoke('run_tmux_command', { command: c });
-    }, cmd);
+    // Keyboard split may have failed — fall back to CLI command
+    const cmd = direction === 'horizontal'
+      ? `split-window -t ${ctx.session.name}`
+      : `split-window -h -t ${ctx.session.name}`;
+    tmuxRun(cmd);
     const start2 = Date.now();
     while (Date.now() - start2 < 5000) {
       const count = await ctx.session.getPaneCount();

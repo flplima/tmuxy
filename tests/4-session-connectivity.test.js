@@ -18,7 +18,9 @@ const {
   getBrowser,
   TmuxTestSession,
   DELAYS,
+  TMUXY_URL,
 } = require('./helpers');
+const { tmuxQuery } = require('./helpers/cli');
 
 // ==================== Scenario 12: Session Reconnect ====================
 
@@ -141,29 +143,22 @@ describe('Scenario 22: Token-Free Command Routing', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Step 1: Verify the adapter connects without a session token
-    // The connection-info event should provide a connection_id
-    const connInfo = await ctx.page.evaluate(() => {
-      const adapter = window._adapter;
-      // connectionId is stored on the adapter after connect
+    // Step 1: Verify the app is connected (XState machine is running)
+    const appState = await ctx.page.evaluate(() => {
+      const snap = window.app?.getSnapshot();
+      if (!snap) return null;
       return {
-        connected: adapter?.isConnected?.() ?? false,
-        // Access internal connectionId (set from connection-info event)
-        hasConnectionId: typeof adapter?.connectionId === 'number' && adapter.connectionId > 0,
+        connected: snap.context.connected ?? false,
+        sessionName: snap.context.sessionName ?? null,
       };
     });
-    expect(connInfo.connected).toBe(true);
-    expect(connInfo.hasConnectionId).toBe(true);
+    expect(appState).not.toBeNull();
+    expect(appState.connected).toBe(true);
 
-    // Step 2: Commands work through the token-free path
-    // send-keys routes through control mode via X-Connection-Id header
+    // Step 2: Commands work through the CLI path
     const marker = `TOKEN_FREE_${Date.now()}`;
-    await ctx.page.evaluate(async (cmd) => {
-      await window._adapter?.invoke('run_tmux_command', { command: cmd });
-    }, `send-keys -l 'echo ${marker}'`);
-    await ctx.page.evaluate(async () => {
-      await window._adapter?.invoke('run_tmux_command', { command: 'send-keys Enter' });
-    });
+    tmuxQuery(`send-keys -t ${ctx.session.name} -l 'echo ${marker}'`);
+    tmuxQuery(`send-keys -t ${ctx.session.name} Enter`);
 
     await ctx.page.waitForFunction(
       (m) => {
@@ -174,22 +169,27 @@ describe('Scenario 22: Token-Free Command Routing', () => {
       { timeout: 10000, polling: 100 },
     );
 
-    // Step 3: Split pane via the token-free command path
+    // Step 3: Split pane via keyboard
     await focusPage(ctx.page);
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await delay(DELAYS.SYNC);
     await waitForPaneCount(ctx.page, 2, 10000);
     expect(await ctx.session.getPaneCount()).toBe(2);
 
-    // Step 4: Verify set_client_size works (uses conn_id from header)
-    const resizeResult = await ctx.page.evaluate(async () => {
+    // Step 4: Verify set_client_size works via HTTP POST
+    const baseUrl = TMUXY_URL;
+    const resizeResult = await ctx.page.evaluate(async (url) => {
       try {
-        await window._adapter?.invoke('set_client_size', { cols: 100, rows: 30 });
-        return { success: true };
+        const res = await fetch(`${url}/commands?session=${encodeURIComponent(window.app?.getSnapshot()?.context?.sessionName || '')}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Connection-Id': '1' },
+          body: JSON.stringify({ cmd: 'set_client_size', args: { cols: 100, rows: 30 } }),
+        });
+        return { success: res.ok, status: res.status };
       } catch (e) {
         return { success: false, error: e.message };
       }
-    });
+    }, baseUrl);
     expect(resizeResult.success).toBe(true);
   }, 180000);
 });

@@ -262,41 +262,6 @@ function waitForSelector(page, selector, timeout = 10000) {
   );
 }
 
-/**
- * Create a tmux session through control mode (safe when control mode is attached).
- */
-async function createSessionViaControlMode(helperPage, sessionName, width = 120, height = 30) {
-  await helperPage.evaluate(async (cmd) => {
-    let lastError = null;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      try {
-        return await window._adapter.invoke('run_tmux_command', { command: cmd });
-      } catch (e) {
-        lastError = e;
-        if (e.message?.includes('No monitor connection')) {
-          await new Promise(r => setTimeout(r, Math.min(100 * Math.pow(2, attempt), 1000)));
-          continue;
-        }
-        throw e;
-      }
-    }
-    throw lastError;
-  }, `new-session -d -s ${sessionName} -x ${width} -y ${height}`);
-}
-
-/**
- * Kill a tmux session through control mode (with timeout).
- */
-async function killSessionViaControlMode(helperPage, sessionName) {
-  const timeout = new Promise(resolve => setTimeout(resolve, 5000));
-  const kill = helperPage.evaluate(async (cmd) => {
-    try {
-      return await window._adapter.invoke('run_tmux_command', { command: cmd });
-    } catch { /* ignore */ }
-  }, `kill-session -t ${sessionName}`);
-  await Promise.race([kill, timeout]);
-}
-
 // Resolve tmuxy-widget path relative to this file (works in both dev and CI)
 const TMUXY_WIDGET = path.resolve(__dirname, '..', 'scripts/tmuxy/tmuxy-widget');
 
@@ -304,7 +269,6 @@ describe('Category 17: Widgets', () => {
   jest.setTimeout(60000);
 
   let browser;
-  let helperPage;
   let serverAvailable = false;
   let browserAvailable = false;
 
@@ -326,43 +290,32 @@ describe('Category 17: Widgets', () => {
     } catch {
       return;
     }
-
-    helperPage = await browser.newPage();
-    await helperPage.goto(`${TMUXY_URL}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await helperPage.waitForSelector('[role="log"]', { timeout: 10000 });
-    await helperPage.waitForFunction(() => !!window._adapter, { timeout: 10000 });
-
-    const warmupName = `tmuxy_warmup_${Date.now()}`;
-    try {
-      await createSessionViaControlMode(helperPage, warmupName);
-      await killSessionViaControlMode(helperPage, warmupName);
-    } catch { /* ignore warmup failures */ }
   });
 
   afterAll(async () => {
-    if (helperPage) await helperPage.close().catch(() => {});
+    // No helperPage to close
   });
 
   beforeEach(async () => {
     if (!serverAvailable || !browserAvailable) return;
 
     session = new TmuxTestSession();
-    await createSessionViaControlMode(helperPage, session.name);
     session.created = true;
 
-    try {
-      await helperPage.evaluate(async (cmd) => {
-        return await window._adapter.invoke('run_tmux_command', { command: cmd });
-      }, `source-file ${path.resolve(__dirname, '..', 'docker/.tmuxy.conf')}`);
-    } catch { /* config may not exist */ }
-
+    // Open page — the server will auto-create the tmux session
     page = await browser.newPage();
   });
 
   afterEach(async () => {
+    if (session) {
+      try {
+        await session.destroy();
+      } catch { /* ignore */ }
+    }
     if (page) {
       await page.close().catch(() => {});
       page = null;
+      await delay(4000); // Wait for server cleanup
     }
     session = null;
   });
@@ -378,6 +331,7 @@ describe('Category 17: Widgets', () => {
     await navigateToSession(page, session.name);
     await waitForSessionReady(page, session.name);
     session.setPage(page);
+    await session.sourceConfig();
     await focusPage(page);
   }
 
