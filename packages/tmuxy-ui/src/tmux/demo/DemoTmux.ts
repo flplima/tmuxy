@@ -38,6 +38,7 @@ interface FakeWindow {
   index: number;
   name: string;
   layout: LayoutNode;
+  layoutCycle: number; // tracks position in layout cycle
 }
 
 // ============================================
@@ -88,6 +89,7 @@ export class DemoTmux {
       index: 0,
       name: 'bash',
       layout: { type: 'leaf', paneId },
+      layoutCycle: 0,
     };
     this.windows.push(window);
 
@@ -285,6 +287,7 @@ export class DemoTmux {
       index,
       name: 'bash',
       layout: { type: 'leaf', paneId },
+      layoutCycle: 0,
     };
     this.windows.push(window);
 
@@ -436,6 +439,74 @@ export class DemoTmux {
     return pane.shell.getScrollbackContent(absStart, absEnd);
   }
 
+  /** Cycle to the next layout (even-horizontal → even-vertical → tiled → ...) */
+  nextLayout(): void {
+    const window = this.getActiveWindow();
+    if (!window) return;
+
+    const paneIds = this.collectLeafIds(window.layout);
+    if (paneIds.length <= 1) return;
+
+    const layouts = [
+      (ids: string[]) => this.buildEvenHorizontal(ids),
+      (ids: string[]) => this.buildEvenVertical(ids),
+      (ids: string[]) => this.buildTiled(ids),
+    ];
+
+    window.layoutCycle = (window.layoutCycle + 1) % layouts.length;
+    window.layout = layouts[window.layoutCycle](paneIds);
+    this.applyLayout(window);
+  }
+
+  private collectLeafIds(node: LayoutNode): string[] {
+    if (node.type === 'leaf') return [node.paneId];
+    return [...this.collectLeafIds(node.children[0]), ...this.collectLeafIds(node.children[1])];
+  }
+
+  /** All panes side by side (vertical splits) */
+  private buildEvenHorizontal(paneIds: string[]): LayoutNode {
+    return this.buildBalancedTree(paneIds, 'vertical');
+  }
+
+  /** All panes stacked (horizontal splits) */
+  private buildEvenVertical(paneIds: string[]): LayoutNode {
+    return this.buildBalancedTree(paneIds, 'horizontal');
+  }
+
+  /** Grid layout: rows × cols */
+  private buildTiled(paneIds: string[]): LayoutNode {
+    const count = paneIds.length;
+    const cols = Math.ceil(Math.sqrt(count));
+    const rows = Math.ceil(count / cols);
+
+    // Build rows, each row is a horizontal chain of panes
+    const rowNodes: LayoutNode[] = [];
+    for (let r = 0; r < rows; r++) {
+      const rowPanes = paneIds.slice(r * cols, Math.min((r + 1) * cols, count));
+      rowNodes.push(this.buildBalancedTree(rowPanes, 'vertical'));
+    }
+    return this.buildBalancedTree(rowNodes, 'horizontal');
+  }
+
+  private buildBalancedTree(
+    items: (string | LayoutNode)[],
+    direction: 'horizontal' | 'vertical',
+  ): LayoutNode {
+    if (items.length === 1) {
+      const item = items[0];
+      return typeof item === 'string' ? { type: 'leaf', paneId: item } : item;
+    }
+    const mid = Math.ceil(items.length / 2);
+    const left = this.buildBalancedTree(items.slice(0, mid), direction);
+    const right = this.buildBalancedTree(items.slice(mid), direction);
+    return {
+      type: 'split',
+      direction,
+      ratio: mid / items.length,
+      children: [left, right],
+    };
+  }
+
   /** Returns true if there is only one pane across all windows */
   isLastPane(): boolean {
     return this.panes.size <= 1 && this.windows.length <= 1;
@@ -512,7 +583,9 @@ export class DemoTmux {
     height: number,
   ): Array<{ paneId: string; x: number; y: number; width: number; height: number }> {
     if (node.type === 'leaf') {
-      return [{ paneId: node.paneId, x, y, width, height }];
+      // Reserve 1 row for the pane header (like tmux pane-border-status top).
+      // The UI positions the header at pane.y - 1, so y+1 keeps the header at row y.
+      return [{ paneId: node.paneId, x, y: y + 1, width, height: Math.max(height - 1, 1) }];
     }
 
     if (node.direction === 'vertical') {

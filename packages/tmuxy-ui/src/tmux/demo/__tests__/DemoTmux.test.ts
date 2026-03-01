@@ -21,7 +21,7 @@ describe('DemoTmux', () => {
     it('pane has correct dimensions', () => {
       const state = tmux.getState();
       expect(state.panes[0].width).toBe(80);
-      expect(state.panes[0].height).toBe(24);
+      expect(state.panes[0].height).toBe(23); // 24 - 1 header row
     });
 
     it('pane has content (welcome banner)', () => {
@@ -67,8 +67,8 @@ describe('DemoTmux', () => {
       const state = tmux.getState();
       const pane0 = state.panes.find((p) => p.tmux_id === '%0')!;
       const pane1 = state.panes.find((p) => p.tmux_id === '%1')!;
-      expect(pane0.y).toBe(0);
-      expect(pane1.y).toBeGreaterThan(0);
+      expect(pane0.y).toBe(1); // y=0 is header row
+      expect(pane1.y).toBeGreaterThan(pane0.y);
     });
 
     it('can split multiple times', () => {
@@ -186,7 +186,7 @@ describe('DemoTmux', () => {
       tmux.setSize(120, 40);
       const state = tmux.getState();
       expect(state.panes[0].width).toBe(120);
-      expect(state.panes[0].height).toBe(40);
+      expect(state.panes[0].height).toBe(39); // 40 - 1 header row
     });
   });
 

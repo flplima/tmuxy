@@ -40,6 +40,7 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: 'r', command: 'source-file ~/.tmuxy.conf', description: 'Reload config' },
     { key: 'S', command: 'setw synchronize-panes', description: 'Sync panes' },
     { key: '=', command: 'tmuxy-pane-group-add', description: 'Add to pane group' },
+    { key: 'Space', command: 'next-layout', description: 'Next layout' },
     { key: '>', command: 'swap-pane -D', description: 'Swap pane down' },
     { key: '<', command: 'swap-pane -U', description: 'Swap pane up' },
     { key: '0', command: 'select-window -t :=0', description: 'Window 0' },
@@ -358,6 +359,10 @@ export class DemoAdapter implements TmuxAdapter {
         }
         break;
       }
+
+      case 'next-layout':
+        this.tmux.nextLayout();
+        break;
 
       case 'copy-mode':
       case 'resize-window':
