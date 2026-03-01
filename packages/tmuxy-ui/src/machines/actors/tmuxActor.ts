@@ -115,11 +115,10 @@ export function createTmuxActor(adapter: TmuxAdapter) {
             console.error('[tmuxActor] Fetch theme settings failed:', error);
           });
       } else if (event.type === 'FETCH_THEMES_LIST') {
-        // Fetch from HTTP API (not via adapter/commands)
-        fetch('/api/themes')
-          .then((res) => res.json())
-          .then((themes: Array<{ name: string; displayName: string }>) => {
-            parent.send({ type: 'THEMES_LIST_RECEIVED', themes });
+        adapter
+          .invoke<Array<{ name: string; displayName: string }>>('get_themes_list', {})
+          .then((themes) => {
+            parent.send({ type: 'THEMES_LIST_RECEIVED', themes: themes || [] });
           })
           .catch((error) => {
             console.error('[tmuxActor] Fetch themes list failed:', error);

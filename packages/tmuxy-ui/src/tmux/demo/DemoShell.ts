@@ -1,5 +1,6 @@
 import type { PaneContent, CellLine, TerminalCell, CellStyle } from '../types';
 import type { VirtualFS } from './virtualFs';
+import type { DemoTmux } from './DemoTmux';
 import type { ShellContext, CommandResult } from './commands/types';
 import { ok } from './commands/types';
 import * as filesystem from './commands/filesystem';
@@ -7,6 +8,7 @@ import * as text from './commands/text';
 import * as navigation from './commands/navigation';
 import * as environment from './commands/environment';
 import * as shell from './commands/shell';
+import { tmuxy } from './commands/tmuxy';
 
 const COMMANDS: Record<string, (args: string[], ctx: ShellContext) => CommandResult> = {
   ls: filesystem.ls,
@@ -38,6 +40,7 @@ const COMMANDS: Record<string, (args: string[], ctx: ShellContext) => CommandRes
   exit: shell.exit,
   true: shell.trueCmd,
   false: shell.falseCmd,
+  tmuxy,
 };
 
 const KNOWN_COMMANDS = new Set([
@@ -95,6 +98,7 @@ export class DemoShell {
   lastExitCode = 0;
 
   private vfs: VirtualFS;
+  private tmux?: DemoTmux;
   private grid: PaneContent = [];
   private cursorRow = 0;
   private cursorCol = 0;
@@ -119,6 +123,10 @@ export class DemoShell {
     this.initGrid();
   }
 
+  setTmux(tmux: DemoTmux): void {
+    this.tmux = tmux;
+  }
+
   private initGrid(): void {
     this.grid = [];
     for (let r = 0; r < this.height; r++) {
@@ -133,7 +141,7 @@ export class DemoShell {
   }
 
   getContent(): PaneContent {
-    return this.grid;
+    return this.grid.map((line) => [...line]);
   }
 
   getCursorX(): number {
@@ -561,6 +569,7 @@ export class DemoShell {
       env: this.env,
       vfs: this.vfs,
       history: this.history,
+      tmux: this.tmux,
     };
   }
 

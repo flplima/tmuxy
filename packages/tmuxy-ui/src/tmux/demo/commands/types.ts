@@ -1,10 +1,12 @@
 import type { VirtualFS } from '../virtualFs';
+import type { DemoTmux } from '../DemoTmux';
 
 export interface ShellContext {
   cwd: string;
   env: Map<string, string>;
   vfs: VirtualFS;
   history: string[];
+  tmux?: DemoTmux;
 }
 
 export type CommandFn = (args: string[], ctx: ShellContext) => CommandResult;

@@ -69,6 +69,7 @@ export class DemoTmux {
     const windowId = this.allocWindowId();
 
     const shell = new DemoShell(this.vfs, this.totalWidth, this.totalHeight);
+    shell.setTmux(this);
     shell.writeBanner();
     shell.writePrompt();
 
@@ -198,6 +199,7 @@ export class DemoTmux {
     const newH = direction === 'horizontal' ? Math.floor(h / 2) : h;
 
     const shell = new DemoShell(this.vfs, newW, newH);
+    shell.setTmux(this);
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -259,6 +261,7 @@ export class DemoTmux {
     const paneId = this.allocPaneId();
 
     const shell = new DemoShell(this.vfs, this.totalWidth, this.totalHeight);
+    shell.setTmux(this);
     shell.writePrompt();
 
     const pane: FakePane = {
