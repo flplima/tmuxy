@@ -104,6 +104,15 @@ pane_window() {
   tmux display-message -t "$1" -p '#{window_id}'
 }
 
+# List visible (non-group) window IDs, one per line
+list_visible_windows() {
+  tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
+    if [[ "$wname" != __group_* ]]; then
+      echo "$wid"
+    fi
+  done
+}
+
 # Force a list-panes refresh (so server pushes new state to clients)
 refresh_panes() {
   tmux list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}' > /dev/null 2>&1

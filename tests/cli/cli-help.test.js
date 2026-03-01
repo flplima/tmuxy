@@ -111,6 +111,18 @@ describe('CLI help output', () => {
     });
   });
 
+  describe('nav help', () => {
+    test.each([
+      [['nav'], 'Usage: tmuxy nav <direction>'],
+      [['nav', '--help'], 'Usage: tmuxy nav <direction>'],
+      [['nav', '-h'], 'Usage: tmuxy nav <direction>'],
+    ])('tmuxy %j shows help', (args, expected) => {
+      const { stdout, exitCode } = runCLI(args);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain(expected);
+    });
+  });
+
   describe('run help', () => {
     test.each([
       [['run', '--help'], 'Usage: tmuxy run <tmux-command>'],
