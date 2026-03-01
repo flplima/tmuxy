@@ -14,6 +14,9 @@ const {
   splitPaneKeyboard,
   navigateToSession,
   waitForSessionReady,
+  verifyRoundTrip,
+  getBrowser,
+  TmuxTestSession,
   DELAYS,
 } = require('./helpers');
 
@@ -122,5 +125,71 @@ describe('Scenario 13: Multi-Client', () => {
     expect(p2PaneCount).toBeGreaterThanOrEqual(1);
 
     await page2.close();
+  }, 180000);
+});
+
+// ==================== Scenario 22: Token-Free Command Routing ====================
+
+describe('Scenario 22: Token-Free Command Routing', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Commands use connection ID header instead of session token', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Step 1: Verify the adapter connects without a session token
+    // The connection-info event should provide a connection_id
+    const connInfo = await ctx.page.evaluate(() => {
+      const adapter = window._adapter;
+      // connectionId is stored on the adapter after connect
+      return {
+        connected: adapter?.isConnected?.() ?? false,
+        // Access internal connectionId (set from connection-info event)
+        hasConnectionId: typeof adapter?.connectionId === 'number' && adapter.connectionId > 0,
+      };
+    });
+    expect(connInfo.connected).toBe(true);
+    expect(connInfo.hasConnectionId).toBe(true);
+
+    // Step 2: Commands work through the token-free path
+    // send-keys routes through control mode via X-Connection-Id header
+    const marker = `TOKEN_FREE_${Date.now()}`;
+    await ctx.page.evaluate(async (cmd) => {
+      await window._adapter?.invoke('run_tmux_command', { command: cmd });
+    }, `send-keys -l 'echo ${marker}'`);
+    await ctx.page.evaluate(async () => {
+      await window._adapter?.invoke('run_tmux_command', { command: 'send-keys Enter' });
+    });
+
+    await ctx.page.waitForFunction(
+      (m) => {
+        const logs = document.querySelectorAll('[role="log"]');
+        return Array.from(logs).some(l => (l.textContent || '').includes(m));
+      },
+      marker,
+      { timeout: 10000, polling: 100 },
+    );
+
+    // Step 3: Split pane via the token-free command path
+    await focusPage(ctx.page);
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await delay(DELAYS.SYNC);
+    await waitForPaneCount(ctx.page, 2, 10000);
+    expect(await ctx.session.getPaneCount()).toBe(2);
+
+    // Step 4: Verify set_client_size works (uses conn_id from header)
+    const resizeResult = await ctx.page.evaluate(async () => {
+      try {
+        await window._adapter?.invoke('set_client_size', { cols: 100, rows: 30 });
+        return { success: true };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    });
+    expect(resizeResult.success).toBe(true);
   }, 180000);
 });

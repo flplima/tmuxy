@@ -56,8 +56,6 @@ pub struct AppState {
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
     /// Counter for generating unique connection IDs
     pub next_conn_id: AtomicU64,
-    /// SSE session tokens: token -> (conn_id, session_name)
-    pub sse_tokens: RwLock<HashMap<String, (u64, String)>>,
 }
 
 impl Default for AppState {
@@ -65,7 +63,6 @@ impl Default for AppState {
         Self {
             sessions: RwLock::new(HashMap::new()),
             next_conn_id: AtomicU64::new(1),
-            sse_tokens: RwLock::new(HashMap::new()),
         }
     }
 }

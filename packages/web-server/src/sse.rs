@@ -8,7 +8,6 @@ use axum::{
     Json,
 };
 use futures_util::stream::Stream;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -65,7 +64,6 @@ enum SseEvent {
     #[serde(rename = "connection-info")]
     ConnectionInfo {
         connection_id: u64,
-        session_token: String,
         default_shell: String,
     },
     #[serde(rename = "state-update")]
@@ -104,12 +102,6 @@ pub struct SessionQuery {
     session: Option<String>,
 }
 
-/// Generate a random session token (32 hex chars)
-fn generate_session_token() -> String {
-    let bytes: [u8; 16] = rand::thread_rng().gen();
-    hex::encode(bytes)
-}
-
 // ============================================
 // SSE Handler (GET /events)
 // ============================================
@@ -122,9 +114,8 @@ pub async fn sse_handler(
         .session
         .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
 
-    // Generate unique connection ID and session token
+    // Generate unique connection ID
     let conn_id = state.next_conn_id.fetch_add(1, Ordering::SeqCst);
-    let session_token = generate_session_token();
 
     // Create the session if it doesn't exist, routing through an existing control mode
     // connection to avoid spawning external tmux processes (which crash tmux 3.5a).
@@ -236,12 +227,6 @@ pub async fn sse_handler(
         session_rx
     };
 
-    // Store the session token
-    {
-        let mut tokens = state.sse_tokens.write().await;
-        tokens.insert(session_token.clone(), (conn_id, session.clone()));
-    }
-
     // Create the SSE stream
     //
     // IMPORTANT: When the SSE client disconnects, Axum detects the broken connection
@@ -255,7 +240,6 @@ pub async fn sse_handler(
     {
         let cleanup_state = state.clone();
         let cleanup_session = session.clone();
-        let cleanup_token = session_token.clone();
         tokio::spawn(async move {
             // Wait for the stream to be dropped (sender dropped = Err)
             let _ = drop_rx.await;
@@ -263,7 +247,7 @@ pub async fn sse_handler(
                 "[sse] Client {} disconnected from session '{}', running cleanup",
                 conn_id, cleanup_session
             );
-            cleanup_connection(&cleanup_state, &cleanup_session, conn_id, &cleanup_token).await;
+            cleanup_connection(&cleanup_state, &cleanup_session, conn_id).await;
         });
     }
 
@@ -280,7 +264,6 @@ pub async fn sse_handler(
             .unwrap_or_else(|| "bash".to_string());
         let conn_info = SseEvent::ConnectionInfo {
             connection_id: conn_id,
-            session_token: session_token.clone(),
             default_shell,
         };
         yield Ok(Event::default()
@@ -364,41 +347,17 @@ pub async fn commands_handler(
     headers: HeaderMap,
     Json(request): Json<CommandRequest>,
 ) -> Response {
-    // Validate session token
-    let session_token = match headers.get("x-session-token") {
-        Some(value) => value.to_str().unwrap_or(""),
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(CommandResponse {
-                    result: None,
-                    error: Some("Missing X-Session-Token header".to_string()),
-                }),
-            )
-                .into_response();
-        }
-    };
+    // Get session from query param (required)
+    let session = query
+        .session
+        .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
 
-    // Look up connection ID from token
-    let (conn_id, token_session) = {
-        let tokens = state.sse_tokens.read().await;
-        match tokens.get(session_token) {
-            Some((id, sess)) => (*id, sess.clone()),
-            None => {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    Json(CommandResponse {
-                        result: None,
-                        error: Some("Invalid session token".to_string()),
-                    }),
-                )
-                    .into_response();
-            }
-        }
-    };
-
-    // Use session from query param or fall back to token's session
-    let session = query.session.unwrap_or(token_session);
+    // Get connection ID from header (used by set_client_size; default to 0)
+    let conn_id: u64 = headers
+        .get("x-connection-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
 
     // Handle the command
     match handle_command(&request.cmd, request.args, &session, &state, conn_id).await {
@@ -917,18 +876,7 @@ async fn set_client_size(state: &Arc<AppState>, session: &str, conn_id: u64, col
 }
 
 /// Remove a connection and resize tmux to remaining clients' minimum viewport
-async fn cleanup_connection(
-    state: &Arc<AppState>,
-    session: &str,
-    conn_id: u64,
-    session_token: &str,
-) {
-    // Remove session token
-    {
-        let mut tokens = state.sse_tokens.write().await;
-        tokens.remove(session_token);
-    }
-
+async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) {
     let (resize_to, command_tx, needs_deferred_cleanup) = {
         let mut sessions = state.sessions.write().await;
 
