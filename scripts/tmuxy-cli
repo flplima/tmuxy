@@ -44,6 +44,7 @@ Usage: tmuxy <command> [args...]
 Commands:
   pane        Manage panes (split, kill, select, resize, group, float)
   tab         Manage tabs (create, kill, select, rename, layout)
+  nav         Navigate across groups, splits, and tabs
   widget      Display widgets (image, markdown)
   run         Run any tmux command safely
   server      Production server operations
@@ -111,6 +112,20 @@ Usage: tmuxy widget <command> [args...]
 Commands:
   image         Display an image (file path or URL)
   markdown      Display markdown (file or stdin via -)
+EOF
+}
+
+usage_nav() {
+  cat <<'EOF'
+Usage: tmuxy nav <direction>
+
+Directions:
+  left        Group panes → splits → prev tab (circular)
+  right       Group panes → splits → next tab (circular)
+  up          Pane splits only (vertical)
+  down        Pane splits only (vertical)
+  next        Sequential forward (same as right)
+  prev        Last pane, fall back to last window
 EOF
 }
 
@@ -508,6 +523,32 @@ cmd_widget() {
   esac
 }
 
+# --- Nav subcommand ---
+
+cmd_nav() {
+  local dir="${1:-}"
+
+  case "$dir" in
+    left|right|up|down|next)
+      exec tmux run-shell "bash $SCRIPTS_DIR/nav.sh $dir #{pane_id}"
+      ;;
+    prev)
+      exec tmux run-shell "bash $SCRIPTS_DIR/nav.sh prev #{pane_id}"
+      ;;
+    --help|-h)
+      usage_nav
+      ;;
+    "")
+      usage_nav
+      ;;
+    *)
+      echo "Unknown direction: $dir" >&2
+      usage_nav >&2
+      return 1
+      ;;
+  esac
+}
+
 # --- Run escape hatch ---
 
 cmd_run() {
@@ -561,6 +602,10 @@ case "${1:-}" in
   tab)
     shift
     cmd_tab "$@"
+    ;;
+  nav)
+    shift
+    cmd_nav "$@"
     ;;
   widget)
     shift

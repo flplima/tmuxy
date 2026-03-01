@@ -7,6 +7,7 @@ describe('CLI dispatch', () => {
     expect(stdout).toContain('Usage: tmuxy <command>');
     expect(stdout).toContain('pane');
     expect(stdout).toContain('tab');
+    expect(stdout).toContain('nav');
     expect(stdout).toContain('widget');
     expect(stdout).toContain('run');
     expect(stdout).toContain('server');
@@ -53,6 +54,12 @@ describe('CLI dispatch', () => {
     const { stdout, exitCode } = runCLI(['widget', '--help']);
     expect(exitCode).toBe(0);
     expect(stdout).toContain('Usage: tmuxy widget <command>');
+  });
+
+  test('dispatches to nav subcommand', () => {
+    const { stdout, exitCode } = runCLI(['nav', '--help']);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('Usage: tmuxy nav <direction>');
   });
 
   test('dispatches to run subcommand', () => {
