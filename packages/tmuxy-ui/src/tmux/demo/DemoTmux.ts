@@ -436,6 +436,11 @@ export class DemoTmux {
     return pane.shell.getScrollbackContent(absStart, absEnd);
   }
 
+  /** Returns true if there is only one pane across all windows */
+  isLastPane(): boolean {
+    return this.panes.size <= 1 && this.windows.length <= 1;
+  }
+
   renameWindow(windowId: string, name: string): boolean {
     const window = this.windows.find((w) => w.id === windowId);
     if (!window) return false;

@@ -1,5 +1,5 @@
 import type { CommandFn } from './types';
-import { ok } from './types';
+import { ok, err } from './types';
 
 export const help: CommandFn = () => {
   return ok(
@@ -28,8 +28,13 @@ export const clear: CommandFn = () => {
   return ok('\x1b[2J\x1b[H');
 };
 
-export const exit: CommandFn = () => {
-  return ok('This is a demo shell. Close the pane with Ctrl+A, x instead.');
+export const exit: CommandFn = (_args, ctx) => {
+  if (!ctx.tmux) return ok();
+  if (ctx.tmux.isLastPane()) {
+    return err('exit: cannot exit the last pane');
+  }
+  ctx.tmux.killPane();
+  return ok();
 };
 
 export const trueCmd: CommandFn = () => ok();
