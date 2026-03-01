@@ -221,8 +221,8 @@ export class DemoTmux {
     // Resize existing pane
     const existingPane = this.panes.get(this.activePaneId);
     if (existingPane) {
-      const existW = direction === 'vertical' ? w - newW - 1 : w;
-      const existH = direction === 'horizontal' ? h - newH - 1 : h;
+      const existW = direction === 'vertical' ? w - newW : w;
+      const existH = direction === 'horizontal' ? h - newH : h;
       existingPane.shell.resize(Math.max(existW, 1), Math.max(existH, 1));
     }
 
@@ -590,17 +590,17 @@ export class DemoTmux {
 
     if (node.direction === 'vertical') {
       const leftW = Math.floor(width * node.ratio);
-      const rightW = width - leftW - 1; // -1 for separator
+      const rightW = width - leftW;
       return [
         ...this.computePositions(node.children[0], x, y, leftW, height),
-        ...this.computePositions(node.children[1], x + leftW + 1, y, Math.max(rightW, 1), height),
+        ...this.computePositions(node.children[1], x + leftW, y, Math.max(rightW, 1), height),
       ];
     } else {
       const topH = Math.floor(height * node.ratio);
-      const bottomH = height - topH - 1; // -1 for separator
+      const bottomH = height - topH;
       return [
         ...this.computePositions(node.children[0], x, y, width, topH),
-        ...this.computePositions(node.children[1], x, y + topH + 1, width, Math.max(bottomH, 1)),
+        ...this.computePositions(node.children[1], x, y + topH, width, Math.max(bottomH, 1)),
       ];
     }
   }
