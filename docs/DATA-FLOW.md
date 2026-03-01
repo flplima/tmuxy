@@ -59,13 +59,23 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 
 ## State Update Flow
 
-```mermaid
-graph TD
-    TM["tmux server"] -->|"control mode stdout<br/>(%output, %layout-change, etc.)"| Mon[TmuxMonitor]
-    Mon -->|"StateAggregator processes events"| SA[StateUpdate]
-    SA -->|"StateEmitter trait"| E{Emitter}
-    E -->|"SseEmitter → broadcast channel"| SSE["SSE clients"]
-    E -->|"TauriEmitter → app.emit()"| Tauri["Tauri frontend"]
+```
+tmux server
+    │ control mode stdout (%output, %layout-change, etc.)
+    ▼
+TmuxMonitor → StateAggregator → StateUpdate
+    │                                │
+    │                     ┌──────────┴──────────┐
+    │                     │   StateEmitter trait │
+    │                     └──────────┬──────────┘
+    │                     ┌──────────┴──────────┐
+    ▼                     ▼                     ▼
+                  SseEmitter              TauriEmitter
+              (broadcast channel)        (app.emit())
+                    │                         │
+              ┌─────┼─────┐                   │
+              ▼     ▼     ▼                   ▼
+          Client1 Client2 Client3      Tauri frontend
 ```
 
 The monitor's event loop uses `tokio::select!` with multiple branches:
@@ -77,14 +87,23 @@ The monitor's event loop uses `tokio::select!` with multiple branches:
 
 ## Command Execution Flow
 
-```mermaid
-graph TD
-    FE[Frontend] -->|"adapter.invoke(cmd, args)"| Backend{Backend}
-    Backend -->|"Web: POST /commands"| Handler["Command Handler"]
-    Backend -->|"Tauri: invoke()"| TauriCmd["Tauri Command"]
-    Handler --> SCM["send_via_control_mode()"]
-    TauriCmd --> Exec["executor or control mode"]
-    SCM --> Mon["Monitor stdin → tmux"]
+```
+Frontend
+    │ adapter.invoke(cmd, args)
+    ▼
+┌────────────────────────────────────┐
+│  Backend                           │
+│  ┌──────────────┐  ┌────────────┐  │
+│  │ Web: POST    │  │ Tauri:     │  │
+│  │ /commands    │  │ invoke()   │  │
+│  └──────┬───────┘  └─────┬──────┘  │
+│         ▼                ▼         │
+│  send_via_control    executor or   │
+│  _mode()             control mode  │
+└─────────┬────────────────┬─────────┘
+          └────────┬───────┘
+                   ▼
+          Monitor stdin → tmux
 ```
 
 The web server routes all state-modifying commands through `send_via_control_mode()` in `web-server/src/sse.rs`, which sends `MonitorCommand::RunCommand` through the monitor's command channel. The Tauri app calls `tmuxy-core` functions directly — some through the executor (subprocess), some through control mode.
@@ -102,7 +121,7 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 
 1. User presses a key in the browser
 2. `keyboardActor` captures the DOM `keydown` event
-3. If in copy mode: key routed to `COPY_MODE_KEY` handler (handled client-side, see [copy-mode.md](copy-mode.md))
+3. If in copy mode: key routed to `COPY_MODE_KEY` handler (handled client-side, see [COPY-MODE.md](COPY-MODE.md))
 4. If prefix key pressed: enters prefix mode, waits for next key to match a binding
 5. Otherwise: `keyboardActor` sends `SEND_TMUX_COMMAND` with `send -t <session> <key>`
 6. The `KeyBatcher` in the adapter batches rapid keystrokes (e.g., typing "hello") into single `send-keys` commands
@@ -217,7 +236,7 @@ The tmuxy server has **no built-in authentication** and **no TLS**. Exposing it 
 2. **Bind to localhost:** Use `tmuxy server --host 127.0.0.1` if accessed only via SSH tunnel
 3. **Use a reverse proxy for TLS:** The server does not support HTTPS natively
 
-See [security.md](security.md) for the full threat model and recommendations.
+See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
 
 **What works today:**
 - SSE streaming with delta protocol works well over high-latency connections
@@ -230,7 +249,7 @@ See [security.md](security.md) for the full threat model and recommendations.
 - No offline capability — requires constant network connection
 - No compression — JSON payloads can be large during rapid output (mitigated by delta protocol)
 - No authentication — must rely on external layers (SSH, VPN, reverse proxy)
-- Latency affects typing feel — no local echo or input prediction (see [non-goals.md](non-goals.md))
+- Latency affects typing feel — no local echo or input prediction (see [NON-GOALS.md](NON-GOALS.md))
 
 ## Additional API Endpoints
 
@@ -244,4 +263,4 @@ Beyond the core SSE/HTTP protocol, the web server exposes:
 | `/api/file` | GET | Read file contents (used by widget panes) |
 | `/api/directory` | GET | List directory contents (used by widget panes) |
 
-The `/api/file` and `/api/directory` endpoints exist for widget rendering (markdown viewer, image viewer) and have no authentication beyond being on the same server. See [security.md](security.md) for the implications.
+The `/api/file` and `/api/directory` endpoints exist for widget rendering (markdown viewer, image viewer) and have no authentication beyond being on the same server. See [SECURITY.md](SECURITY.md) for the implications.

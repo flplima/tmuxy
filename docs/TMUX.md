@@ -132,3 +132,9 @@ tmux 3.2+ supports `pause-after` flow control. The monitor configures `pause-aft
 ## JSON in tmux Environment Variables
 
 tmux doesn't handle newlines in environment variables. Always use `jq -c` (compact, single-line output) when storing JSON via `set-environment`.
+
+## Related
+
+- [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — TmuxMonitor, ControlModeConnection, and command channel details
+- [DATA-FLOW.md](DATA-FLOW.md) — How commands flow through control mode in different deployment scenarios
+- [SECURITY.md](SECURITY.md) — Security implications of `run-shell` and arbitrary command execution

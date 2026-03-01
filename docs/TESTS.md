@@ -114,3 +114,8 @@ DEBUG_TESTS=1 npm run test:e2e
 - **OSC 8 hyperlinks** render as text but are not clickable (feature enhancement)
 - **IME input** requires platform-specific APIs not available in headless Chrome (manual testing only)
 - **Visual regression**, accessibility, and cross-browser testing are not covered
+
+## Related
+
+- [E2E-TEST-SCENARIOS.md](E2E-TEST-SCENARIOS.md) — Full list of planned and implemented test scenarios
+- [ARCHITECTURE.md](ARCHITECTURE.md) — System overview including test architecture summary

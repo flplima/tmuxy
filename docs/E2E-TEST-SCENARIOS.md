@@ -2,7 +2,7 @@
 
 Comprehensive test scenarios for tmuxy, ordered from simplest to most complex within each category.
 
-**Current status:** 18 scenarios implemented across 5 test files. See [tests.md](tests.md) for the file-to-scenario mapping. Scenarios 1, 3, and 15 were removed (covered by other scenarios or unreliable). Scenarios 20 (Glitch Detection) and 21 (Touch Scrolling) were added after the original plan.
+**Current status:** 18 scenarios implemented across 5 test files. See [TESTS.md](TESTS.md) for the file-to-scenario mapping. Scenarios 1, 3, and 15 were removed (covered by other scenarios or unreliable). Scenarios 20 (Glitch Detection) and 21 (Touch Scrolling) were added after the original plan.
 
 ---
 

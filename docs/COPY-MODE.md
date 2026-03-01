@@ -136,3 +136,8 @@ tmux's `copyCursorX` / `copyCursorY` (from `list-panes`) are **not** used by the
 | `packages/tmuxy-ui/src/machines/actors/keyboardActor.ts` | DOM keyboard interception, copy mode key routing, clipboard operations |
 | `packages/tmuxy-ui/src/components/TerminalPane.tsx` | Scroll detection (enter copy mode), conditional rendering (ScrollbackTerminal vs Terminal) |
 | `packages/tmuxy-ui/src/components/ScrollbackTerminal.tsx` | Virtual rendering of scrollback lines, cursor display, selection highlighting |
+
+## Related
+
+- [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — XState machine context includes `copyModeStates` per-pane state
+- [NON-GOALS.md](NON-GOALS.md) — Why tmuxy doesn't maintain a local scrollback buffer (copy mode is the exception)

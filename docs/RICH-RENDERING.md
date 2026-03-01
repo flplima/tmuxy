@@ -231,3 +231,8 @@ imgcat image.png
 # Would work in Kitty terminal, not via tmux
 kitty +kitten icat image.png
 ```
+
+## Related
+
+- [NON-GOALS.md](NON-GOALS.md) — Image protocols listed as a non-goal (inactive dead code)
+- [TMUX.md](TMUX.md) — tmux limitations that prevent image protocol support
