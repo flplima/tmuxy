@@ -5,9 +5,10 @@
  * Uses @szhsin/react-menu ControlledMenu (same pattern as PaneContextMenu).
  */
 
-import { ControlledMenu, MenuItem } from '@szhsin/react-menu';
+import { ControlledMenu, MenuItem, MenuDivider } from '@szhsin/react-menu';
 import '@szhsin/react-menu/dist/index.css';
 import { useAppSend } from '../machines/AppContext';
+import { escapeLiteralText } from '../tmux/keyBatching';
 import './menus/AppMenu.css';
 
 interface SelectionContextMenuProps {
@@ -42,6 +43,19 @@ export function SelectionContextMenu({
       >
         Copy
       </MenuItem>
+      <MenuItem
+        onClick={() => {
+          send({ type: 'EXIT_COPY_MODE', paneId });
+          send({
+            type: 'SEND_COMMAND',
+            command: `send-keys -t ${paneId} -l ${escapeLiteralText(selectedText)}`,
+          });
+          onClose();
+        }}
+      >
+        Send keys
+      </MenuItem>
+      <MenuDivider />
       <MenuItem
         onClick={() => {
           window.open(
