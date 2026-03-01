@@ -17,7 +17,7 @@
     "logs": "pm2 logs tmuxy-dev",
     "tauri:dev": "cargo tauri dev --manifest-path packages/tauri-app/Cargo.toml",
     "tauri:build": "./scripts/build-tauri.sh",
-    "landing-page": "npm run build -w tmuxy-ui && npm run dev -w tmuxy-landing-page",
+    "landing-page": "npm run build -w tmuxy-ui && npm run dev -w tmuxy-landing-page -- --port 3000",
     "test": "npm run test -w tmuxy-ui",
     "test:e2e": "jest --runInBand",
     "lint:tests": "eslint tests/",
