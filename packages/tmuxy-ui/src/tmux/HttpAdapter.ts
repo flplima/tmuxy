@@ -31,7 +31,7 @@ function getSessionFromUrl(): string {
  */
 export class HttpAdapter implements TmuxAdapter {
   private eventSource: EventSource | null = null;
-  private sessionToken: string | null = null;
+  private connectionId: number = 0;
   private connected = false;
   private reconnecting = false;
   private reconnectAttempts = 0;
@@ -66,7 +66,7 @@ export class HttpAdapter implements TmuxAdapter {
       this.eventSource.addEventListener('connection-info', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
-          this.sessionToken = data.data?.session_token || data.session_token;
+          this.connectionId = data.data?.connection_id ?? data.connection_id ?? 0;
           this.connected = true;
           this.reconnectAttempts = 0;
 
@@ -76,9 +76,8 @@ export class HttpAdapter implements TmuxAdapter {
             this.notifyReconnection(false, 0);
           }
 
-          const connectionId = data.data?.connection_id ?? data.connection_id ?? 0;
           const defaultShell = data.data?.default_shell ?? data.default_shell ?? 'bash';
-          this.notifyConnectionInfo(connectionId, defaultShell);
+          this.notifyConnectionInfo(this.connectionId, defaultShell);
           resolve();
         } catch (e) {
           console.error('Failed to parse connection-info:', e);
@@ -130,7 +129,7 @@ export class HttpAdapter implements TmuxAdapter {
 
         // Connection lost - attempt reconnect
         this.connected = false;
-        this.sessionToken = null;
+        this.connectionId = 0;
 
         if (this.eventSource) {
           this.eventSource.close();
@@ -162,7 +161,7 @@ export class HttpAdapter implements TmuxAdapter {
     }
 
     this.connected = false;
-    this.sessionToken = null;
+    this.connectionId = 0;
   }
 
   isConnected(): boolean {
@@ -202,8 +201,8 @@ export class HttpAdapter implements TmuxAdapter {
    * Send a command in order (serialized, but caller doesn't await)
    */
   private sendCommandFireAndForget(cmd: string, args: Record<string, unknown>): void {
-    if (!this.sessionToken) {
-      console.warn('[HttpAdapter] No session token, cannot send command');
+    if (!this.connected) {
+      console.warn('[HttpAdapter] Not connected, cannot send command');
       return;
     }
 
@@ -211,7 +210,7 @@ export class HttpAdapter implements TmuxAdapter {
     const protocol = window.location.protocol;
     const host = window.location.host || 'localhost:3853';
     const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
-    const token = this.sessionToken;
+    const connId = String(this.connectionId);
 
     // Chain onto the serial queue so requests go one at a time
     this.sendQueue = this.sendQueue.then(() =>
@@ -219,7 +218,7 @@ export class HttpAdapter implements TmuxAdapter {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Session-Token': token,
+          'X-Connection-Id': connId,
         },
         body: JSON.stringify({ cmd, args }),
       })
@@ -232,14 +231,8 @@ export class HttpAdapter implements TmuxAdapter {
    * Internal invoke implementation
    */
   private async invokeInternal<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-    if (!this.sessionToken) {
-      // Wait for connection if not connected
-      if (!this.connected) {
-        await this.connect();
-      }
-      if (!this.sessionToken) {
-        throw new Error('No session token available');
-      }
+    if (!this.connected) {
+      await this.connect();
     }
 
     const session = getSessionFromUrl();
@@ -251,7 +244,7 @@ export class HttpAdapter implements TmuxAdapter {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Session-Token': this.sessionToken,
+        'X-Connection-Id': String(this.connectionId),
       },
       body: JSON.stringify({ cmd, args: args || {} }),
     });

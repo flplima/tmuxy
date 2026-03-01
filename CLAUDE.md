@@ -2,6 +2,8 @@
 
 A web-based tmux interface built with React (Vite) frontend and Rust backend.
 
+**This project is under active development, not production.** Breaking changes are welcome. No backwards compatibility required — delete, rename, and restructure freely.
+
 See [docs/architecture.md](docs/architecture.md) for system design, data flow, and critical constraints.
 See [docs/communication.md](docs/communication.md) for frontend↔backend and backend↔tmux communication protocols.
 See [docs/non-goals.md](docs/non-goals.md) for what tmuxy intentionally does NOT do.
