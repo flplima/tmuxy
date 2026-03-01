@@ -1,0 +1,219 @@
+# State Management
+
+This document describes how state is managed on both the frontend (React + XState) and the backend (Rust), and how they stay synchronized.
+
+## Overview
+
+State flows unidirectionally from tmux through the Rust backend to the browser frontend:
+
+```
+tmux server → ControlModeConnection → StateAggregator → StateEmitter → Frontend XState
+```
+
+The backend maintains the **authoritative** tmux state. The frontend maintains a **derived** copy with additional client-only state (copy mode, drag, resize, animations, UI preferences). The delta protocol keeps them synchronized.
+
+---
+
+## Backend State (Rust)
+
+### AppState
+
+The top-level server state, defined in `web-server/src/lib.rs`. Holds:
+
+- `sessions` — A `HashMap<String, SessionConnections>` mapping session names to their connection state. Protected by `RwLock` for concurrent access.
+- `next_conn_id` — Atomic counter for generating unique connection IDs (starts at 1).
+- `sse_tokens` — Maps session tokens to `(connection_id, session_name)` pairs for HTTP POST authentication.
+
+### SessionConnections
+
+Per-session connection tracking, also in `web-server/src/lib.rs`. One instance per tmux session, shared by all clients connected to that session:
+
+- `connections` — Ordered list of active connection IDs.
+- `client_sizes` — Each client's reported viewport size (cols, rows) for minimum-size computation.
+- `last_resize` — Last resize dimensions sent to tmux (avoids redundant commands).
+- `monitor_command_tx` — Channel sender for commands to the session's `TmuxMonitor`.
+- `state_tx` — Broadcast channel (capacity 100) for state updates, shared by all SSE clients.
+- `monitor_handle` — Tokio task handle for the monitor (used to detect if the monitor has exited).
+
+### TmuxMonitor
+
+The core event loop, defined in `tmuxy-core/src/control_mode/monitor.rs`. Maintains a persistent `tmux -CC attach-session` subprocess:
+
+- `connection` — The `ControlModeConnection` (stdin/stdout to the tmux subprocess).
+- `aggregator` — The `StateAggregator` that processes control mode events into state updates.
+- `config` — `MonitorConfig` with session name, sync intervals, throttle settings.
+- `command_rx` — Receiver for `MonitorCommand` messages from the frontend.
+
+The event loop uses `tokio::select!` with five branches: control mode events, throttle timer, settling timer, sync timer, and command channel. See [data-flow.md](data-flow.md) for the flow diagram.
+
+### MonitorCommand
+
+Enum with three variants (in `tmuxy-core/src/control_mode/monitor.rs`):
+
+- `ResizeWindow { cols, rows }` — Resize all windows in the session.
+- `RunCommand { command }` — Run an arbitrary tmux command through control mode stdin.
+- `Shutdown` — Gracefully disconnect (sends `detach-client`, waits for clean exit).
+
+### ControlModeConnection
+
+Manages the `tmux -CC` subprocess, defined in `tmuxy-core/src/control_mode/connection.rs`:
+
+- Spawns `tmux -CC` via a `script` wrapper for PTY allocation (initial size: 200x50).
+- Spawns a background parser task that reads stdout line-by-line and converts to `ControlModeEvent` values.
+- Provides `send_command()` and `send_commands_batch()` for writing to stdin.
+- `graceful_close()` sends `detach-client` and waits — never kills the process abruptly (to avoid crashing tmux 3.5a).
+
+### StateAggregator
+
+Processes raw control mode events into structured state, defined in `tmuxy-core/src/control_mode/state.rs`. This is the largest component:
+
+- `panes` — `HashMap<String, PaneState>` indexed by pane ID (`%0`, `%1`, etc.). Each `PaneState` contains a `vt100::Parser` terminal emulator, an `OscParser` for hyperlinks/clipboard, raw output buffer, position/size, cursor, metadata, copy mode state, and flow control flags.
+- `windows` — `HashMap<String, WindowState>` indexed by window ID (`@0`, `@1`, etc.).
+- `active_window_id` — Current active window.
+- `pending_captures` — FIFO queue of pane IDs awaiting `capture-pane` responses.
+- `prev_state` — Previous state snapshot for delta computation.
+- `delta_seq` — Sequence number for delta ordering.
+- `popup` — Active popup state (requires tmux PR #4361).
+- `suppress_window_emissions` — Suppresses intermediate states during compound commands.
+
+Key methods:
+- `process_event()` — Takes a `ControlModeEvent`, updates internal state, returns what changed and which panes need refresh.
+- `to_state_update()` — Computes a `StateUpdate` (full or delta) by diffing against `prev_state`.
+- `force_emit()` — Clears suppression and emits consolidated state (called after settling).
+
+### StateUpdate and TmuxState
+
+The data structures sent to the frontend (defined in `tmuxy-core/src/lib.rs`):
+
+**`StateUpdate`** is an enum: `Full { state: TmuxState }` for complete snapshots (initial sync, reconnection) or `Delta { delta: TmuxDelta }` for incremental updates.
+
+**`TmuxState`** contains: `session_name`, `active_window_id`, `active_pane_id`, `panes` (list of `TmuxPane`), `windows` (list of `TmuxWindow`), `total_width/height`, `status_line` (rendered with ANSI escapes), and `popup`.
+
+**`TmuxDelta`** contains only changed fields: `seq` (ordering), modified/removed panes and windows, new panes/windows, active pane/window changes, status line, dimensions, and popup state. `None` values mean "no change"; `Some(None)` means "removed".
+
+### StateEmitter Trait
+
+Adapter pattern for different backends, defined in `tmuxy-core/src/control_mode/monitor.rs`:
+
+- `emit_state(StateUpdate)` — Emit a state change.
+- `emit_error(String)` — Emit an error message.
+
+Two implementations:
+- `SseEmitter` (in `web-server/src/sse.rs`) — Serializes to JSON and sends through the session's broadcast channel to all SSE clients.
+- `TauriEmitter` (in `tauri-app/src/monitor.rs`) — Emits Tauri events via `app.emit()` to the desktop frontend.
+
+### Settling Mechanism
+
+When compound commands are sent (e.g., `splitw ; breakp`), tmux fires multiple events in rapid succession. The settling mechanism prevents flashing intermediate states:
+
+- When a command is sent, `settling_until` is set to `now + 100ms` (debounce).
+- Window/layout emissions are suppressed during settling.
+- Each new event resets the debounce timer (up to a 500ms maximum).
+- When the timer expires, `force_emit()` sends the consolidated final state.
+
+### Adaptive Throttling
+
+For high-frequency terminal output (e.g., `yes | head -500`):
+
+- The monitor tracks event rate over a 100ms window.
+- If >20 events arrive in 100ms: switch to throttle mode, buffer output, and emit at 16ms intervals (~60fps).
+- Below the threshold: emit immediately for low-latency typing feedback.
+
+---
+
+## Frontend State (XState)
+
+### appMachine
+
+The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Three top-level states:
+
+- **`connecting`** — Waiting for backend connection. Transitions to `idle` on `TMUX_CONNECTED`.
+- **`idle`** — Main operational state. Handles all normal interactions.
+- **`removingPane`** — Transient state for pane removal animations. Returns to `idle` when done.
+
+### Machine Context
+
+The context holds all frontend state. Key fields:
+
+**From backend (synchronized via state updates):**
+- `panes: TmuxPane[]` — All panes from tmux (content, cursor, dimensions, metadata)
+- `windows: TmuxWindow[]` — All windows
+- `activePaneId`, `activeWindowId` — Current focus
+- `totalWidth`, `totalHeight` — tmux grid dimensions
+- `statusLine` — Rendered tmux status line with ANSI codes
+- `keybindings` — Prefix key and all bindings from tmux config
+- `connectionId` — Server-assigned connection ID
+- `defaultShell` — Default shell (bash, zsh, etc.)
+
+**Client-only state:**
+- `copyModeStates: Record<string, CopyModeState>` — Per-pane copy mode (entirely client-side, see [copy-mode.md](copy-mode.md))
+- `drag: DragState | null` — Current pane drag operation
+- `resize: ResizeState | null` — Current pane resize operation
+- `paneGroups: Record<string, PaneGroup>` — Pane group tabs (hidden windows)
+- `floatPanes: Record<string, FloatPaneState>` — Floating pane positions
+- `commandMode` — Client-side command prompt (`:` mode)
+- `optimisticOperation` — Pending optimistic update being reconciled
+- `paneActivationOrder` — Most-recently-used pane order
+- `charWidth`, `charHeight` — Monospace font dimensions (measured once)
+- `targetCols`, `targetRows` — Browser viewport in character units
+- `containerWidth`, `containerHeight` — Browser container pixel dimensions
+- `themeName`, `themeMode`, `availableThemes` — Theme settings
+- `enableAnimations` — CSS transitions toggle (disabled on load, enabled after state settles)
+
+### Actors
+
+The machine spawns three persistent actors:
+
+**`tmuxActor`** (`tmuxy-ui/src/machines/actors/tmuxActor.ts`) — Bridge to the Rust backend. Receives `SEND_COMMAND`, `INVOKE`, `FETCH_INITIAL_STATE`, `FETCH_SCROLLBACK_CELLS`, etc. from the parent. Sends `TMUX_CONNECTED`, `TMUX_STATE_UPDATE`, `TMUX_ERROR`, `CONNECTION_INFO`, `KEYBINDINGS_RECEIVED`, `COPY_MODE_CHUNK_LOADED` to the parent.
+
+**`keyboardActor`** (`tmuxy-ui/src/machines/actors/keyboardActor.ts`) — DOM keyboard input handling. Manages prefix mode (waits for next key after prefix), IME composition support (suppresses individual keydowns during CJK input), copy mode interception (all keys captured when active), root bindings (bypass prefix), and paste chunking (large pastes split into 500-char chunks). Sends `SEND_TMUX_COMMAND`, `KEY_PRESS`, and `COPY_SELECTION` to the parent.
+
+**`sizeActor`** (`tmuxy-ui/src/machines/actors/sizeActor.ts`) — Viewport tracking. Measures monospace font char dimensions on start, listens to window resize (debounced 100ms), observes container with `ResizeObserver`. Sends `SET_CHAR_SIZE`, `SET_TARGET_SIZE`, `SET_CONTAINER_SIZE` to the parent.
+
+### Child Machines
+
+**`dragMachine`** (`tmuxy-ui/src/machines/drag/dragMachine.ts`) — Pane drag-to-swap. States: `idle` and `dragging`. During drag, finds swap targets based on cursor position and sends real-time `swap-pane` commands. Updates the parent's `drag` context via `DRAG_STATE_UPDATE`.
+
+**`resizeMachine`** (`tmuxy-ui/src/machines/resize/resizeMachine.ts`) — Pane resize via divider dragging. States: `idle` and `resizing`. Tracks pixel delta, converts to character units, sends tmux `resize-pane` commands when delta >= 1 char. Throttles to avoid command spam.
+
+### Optimistic Updates
+
+For operations where the user expects instant feedback (split, navigate, swap), the machine applies predicted state changes immediately:
+
+1. Component sends a command (e.g., `splitw`)
+2. Machine stores an `optimisticOperation` with the predicted result
+3. Prediction functions (in `tmuxy-ui/src/machines/app/optimistic/predictions.ts`) update the context panes
+4. UI renders with predicted state instantly
+5. When the real `TMUX_STATE_UPDATE` arrives, `reconcileOptimisticUpdate()` validates the prediction
+6. If the prediction matched: operation cleared, server state confirmed
+7. If mismatch: console warning, server state overwrites the prediction
+
+### React Integration
+
+Components consume the machine via hooks defined in `tmuxy-ui/src/machines/AppContext.tsx`:
+
+- `useAppSelector(selector)` — Subscribe to derived state
+- `useAppSend()` — Get event sender function
+- `useAppState(stateValue)` — Check current machine state
+- `usePane(paneId)` — Get a single pane by ID
+- `usePaneGroup(paneId)` — Get group info for a pane
+- `useCopyModeState(paneId)` — Get copy mode state for a pane
+- `useIsDragging()`, `useIsResizing()` — Operation state checks
+
+Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `selectPreviewPanes` (with resize preview), `selectVisiblePanes`, `selectWindows`, `selectGridDimensions`, `selectPaneGroups`, `selectFloatPanes`, `selectIsConnected`, etc.
+
+---
+
+## How Backend and Frontend Stay in Sync
+
+1. **Initial sync** — On connection, the frontend sends `get_initial_state` with viewport size. The backend responds with a full `TmuxState` snapshot. The frontend stores this as the base state.
+
+2. **Incremental updates** — The backend sends `TmuxDelta` updates with sequence numbers. The frontend merges these via `handleStateUpdate()` in `tmuxy-ui/src/tmux/deltaProtocol.ts`. Only changed fields are transmitted.
+
+3. **Sequence gaps** — If a delta arrives with an unexpected sequence number, the frontend requests a full resync.
+
+4. **Optimistic reconciliation** — When the frontend has a pending optimistic operation and receives a state update, it validates the prediction. Matching predictions are confirmed; mismatches are overwritten by the server state.
+
+5. **Copy mode divergence** — Copy mode state is entirely client-side (scrollback lines, cursor, selection). The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag. See [copy-mode.md](copy-mode.md).
+
+6. **Group state** — Pane groups are stored in tmux's session-level environment variable (`TMUXY_GROUPS` as compact JSON). The backend reads this on state sync and includes it in state updates. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `scripts/tmuxy/`.

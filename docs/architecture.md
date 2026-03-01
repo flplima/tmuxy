@@ -1,201 +1,81 @@
 # Tmuxy Architecture
 
-This document describes the architecture of tmuxy, a web-based tmux interface.
+Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop app) for managing tmux sessions with real-time state synchronization.
 
-## Overview
-
-Tmuxy provides a browser-based UI for tmux sessions. It consists of:
-
-1. **tmuxy-core** - Rust library for tmux interaction
-2. **web-server** - Axum web server with SSE and HTTP endpoints
-3. **tmuxy-ui** - React frontend with XState state machine
-4. **tauri-app** - Desktop app wrapper (optional)
+## Components
 
 ```mermaid
 graph TD
-    subgraph Browsers["Browser Clients"]
-        C1[Client 1]
-        C2[Client 2]
-        C3[Client 3]
+    subgraph Clients
+        Browser["Browser (React + XState)"]
+        Tauri["Tauri Desktop App"]
     end
 
-    subgraph Server["Web Server (Axum + SSE/HTTP)"]
-        WS[SSE/HTTP Handler]
-
-        subgraph SA["Session A (per-session)"]
-            ConnsA[Connections]
-            MonA[Monitor A]
-        end
-
-        subgraph SB["Session B (per-session)"]
-            ConnsB[Connections]
-            MonB[Monitor B]
-        end
+    subgraph Backend
+        WS["Web Server (Axum)"]
+        TA["Tauri Shell"]
     end
 
-    subgraph Tmux["tmux processes"]
-        TA["tmux session A"]
-        TB["tmux session B"]
+    subgraph Core["tmuxy-core (Rust library)"]
+        Mon["TmuxMonitor"]
+        Agg["StateAggregator"]
+        Conn["ControlModeConnection"]
     end
 
-    C1 & C2 & C3 -->|"SSE + HTTP POST"| WS
-    WS --> ConnsA & ConnsB
-    ConnsA --> MonA
-    ConnsB --> MonB
-    MonA <-->|"control mode (tmux -CC)"| TA
-    MonB <-->|"control mode (tmux -CC)"| TB
-```
-
-## Key Components
-
-### 1. TmuxMonitor (tmuxy-core)
-
-The `TmuxMonitor` connects to tmux using **control mode** (`tmux -CC`), which provides:
-- Real-time event notifications (pane content changes, layout changes, etc.)
-- Ability to send commands through the same connection
-- No polling required
-
-**One monitor per session.** When the first client connects to a session, a monitor is spawned. When the last client disconnects, the monitor is stopped.
-
-The monitor holds a `ControlModeConnection`, a `StateAggregator` (field: `aggregator`), a `MonitorConfig`, and a `command_rx` receiver for external commands. See `tmuxy-core/src/control_mode/monitor.rs` for the full definition.
-
-It exposes a command channel (`MonitorCommandSender`) for external code to send commands through the control mode connection. This is critical because **some tmux commands only work when sent through the control mode connection**, not via external `tmux` subprocess calls.
-
-### 2. SessionConnections (web-server)
-
-Tracks all clients connected to a single tmux session:
-
-Key fields (see `web-server/src/lib.rs` for the full definition):
-- `connections` — All connection IDs in order
-- `client_sizes` — Each client's reported viewport size (cols, rows)
-- `last_resize` — Last resize dimensions sent to tmux (avoids redundant resize commands)
-- `monitor_command_tx` — Channel to send commands to the session's monitor
-- `state_tx` — Broadcast channel for state updates, shared by all clients in the session
-- `monitor_handle` — Task handle to stop monitor when last client leaves
-
-### 3. Multi-Client Viewport Sizing
-
-Like native tmux, when multiple clients connect to the same session, the **session is sized to the smallest client's viewport**.
-
-```
-Client A: 120x40 viewport
-Client B:  80x24 viewport
-                ↓
-Session sized to: 80x24
-```
-
-**How it works:**
-1. Each client reports its viewport size via `set_client_size`
-2. Server computes the minimum across all connected clients
-3. Server sends resize command through the monitor's control mode connection
-
-**Why resize commands go through the monitor:**
-
-When a control mode client is attached to a tmux session, external `tmux resize-window` commands (run via subprocess) are ignored. Resize commands must be sent **through the control mode connection** to take effect.
-
-The `MonitorCommand` enum includes `ResizeWindow { cols, rows }`, `RunCommand { command }`, and `Shutdown`. When `set_client_size` is called, the server computes the minimum viewport across all clients and sends `MonitorCommand::ResizeWindow` through the monitor's command channel. See `tmuxy-core/src/control_mode/monitor.rs` for the enum and `web-server/src/sse.rs` for the resize logic.
-
-### 4. SSE/HTTP Protocol
-
-**Client → Server (HTTP POST `/commands`):**
-```json
-{ "cmd": "command_name", "args": {...} }
-```
-
-**Server → Client (HTTP POST response):**
-```json
-{ "result": ... }
-{ "error": "message" }
-```
-
-**Server → Client (SSE stream `GET /events`):**
-```json
-// State updates (broadcast to all clients)
-event: state-update
-data: { "event": "state-update", "data": {...} }
-
-// Connection info (on initial connect)
-event: connection-info
-data: { "event": "connection-info", "data": { "connection_id": 1, "session_token": "...", "default_shell": "..." } }
-
-// Keybindings
-event: keybindings
-data: { "event": "keybindings", "data": {...} }
-```
-
-### 5. Frontend State Machine (XState)
-
-The React frontend uses XState for state management. All client logic lives in the state machine, not in React components.
-
-```mermaid
-graph TD
-    subgraph AppMachine["appMachine"]
-        subgraph Actors
-            TA["tmuxActor (SSE/HTTP adapter)"]
-            KA["keyboardActor (input handling)"]
-            SA["sizeActor (viewport tracking)"]
-        end
-
-        Actors --> Context
-
-        subgraph Context["Context (state)"]
-            PW["panes, windows"]
-            Active["activePaneId, activeWindowIndex"]
-            Groups["groups (pane groupings)"]
-            Modes["copyMode, prefixMode, etc."]
-        end
+    subgraph Tmux
+        TM["tmux server"]
     end
 
-    AppMachine --> RC["React Components<br/>(read state, send events)"]
+    Browser -->|"SSE + HTTP POST"| WS
+    Tauri -->|"Tauri IPC"| TA
+    WS --> Mon
+    TA --> Mon
+    Mon --> Agg
+    Mon <--> Conn
+    Conn <-->|"control mode (tmux -CC)"| TM
 ```
 
-## Data Flow
+**tmuxy-core** — Rust library that manages tmux control mode connections. Contains `TmuxMonitor` (event loop), `StateAggregator` (event processing), `ControlModeConnection` (stdin/stdout to `tmux -CC`), and the executor module for safe subprocess calls. See [state-management.md](state-management.md) for details.
 
-### Connection Lifecycle
+**web-server** — Axum HTTP server providing SSE streaming and HTTP POST command endpoints. Manages per-session connections, multi-client viewport sizing, and session tokens. Shared between the dev server and production server (`tmuxy-server`).
 
-1. **Client connects** via SSE (`GET /events?session=name`)
-2. Server generates unique `connection_id`
-3. Server checks if session monitor exists:
-   - **No monitor:** Start new monitor, store handle in `SessionConnections`
-   - **Has monitor:** Subscribe to existing `state_tx` channel
-5. Client receives `connection_info` message
-6. Client sends `get_initial_state` with viewport size
-7. Server stores client size, computes minimum across all clients
-8. Server sends resize command through monitor's control mode connection
+**tmuxy-server** — Production binary that embeds the compiled frontend assets and serves them alongside the web-server API routes.
 
-### State Update Flow
+**tmuxy-ui** — React frontend using XState for all state management. Communicates with the backend via an adapter pattern (`TmuxAdapter` interface). Includes an in-browser demo engine (`DemoAdapter`, `DemoTmux`, `DemoShell`) for the landing page. See [state-management.md](state-management.md) for the XState architecture.
 
-```mermaid
-graph TD
-    TS["tmux session"] -->|"control mode notifications<br/>(%output, %layout-change, etc.)"| TM[TmuxMonitor]
-    TM -->|"StateEmitter.emit_state(StateUpdate)"| SSE_E[SseEmitter]
-    SSE_E -->|"broadcast::Sender.send(JSON)"| STX["session_tx (broadcast channel)"]
-    STX --> C1[Client 1]
-    STX --> C2[Client 2]
-    STX --> C3[Client 3]
-```
+**tauri-app** — Optional desktop wrapper using Tauri. Communicates via native IPC instead of HTTP, offering lower latency. Currently single-client only (no multi-client support). See [data-flow.md](data-flow.md) for the Tauri data flow.
 
-### Command Execution Flow
+## How They Interact
 
-```mermaid
-graph TD
-    Client -->|"POST /commands: send_keys"| CH[Command Handler]
-    CH -->|match cmd| Decision{route}
-    Decision -->|subprocess| Exec["executor::send_keys()"]
-    Decision -->|through control mode| Mon["monitor_command_tx.send()"]
-    Exec --> Tmux1[tmux]
-    Mon --> Tmux2[tmux]
-```
+1. The **frontend** connects to the backend via SSE (web) or Tauri events (desktop) to receive real-time state updates, and sends commands via HTTP POST (web) or Tauri invoke (desktop).
 
-## Tmux Configuration
+2. The **backend** maintains one `TmuxMonitor` per tmux session. When the first client connects to a session, a monitor is spawned. When the last client disconnects, the monitor shuts down.
 
-For multi-client viewport sizing to work correctly:
+3. The **monitor** holds a `ControlModeConnection` — a persistent `tmux -CC attach-session` subprocess. All state-modifying commands go through the control mode stdin connection. See [tmux.md](tmux.md) for why this is critical.
 
-```bash
-# ~/.tmux.conf or docker/.tmuxy.conf
-setw -g aggressive-resize off   # Don't auto-resize to largest client
-set -g window-size manual       # Manual control over window size
-```
+4. tmux sends real-time notifications (`%output`, `%layout-change`, `%window-add`, etc.) through control mode stdout. The `StateAggregator` processes these into `StateUpdate` objects (full snapshots or incremental deltas).
+
+5. State updates are emitted via the `StateEmitter` trait — `SseEmitter` broadcasts to all SSE clients in a session, `TauriEmitter` emits Tauri events to the desktop app.
+
+6. The frontend's XState machine merges state updates into its context, and React components re-render via selector hooks. See [data-flow.md](data-flow.md) for detailed flow diagrams.
+
+## Multi-Client Viewport Sizing
+
+Like native tmux, when multiple browser clients connect to the same session, the session is sized to the **smallest client's viewport**. Each client reports its viewport size, the server computes the minimum, and sends a resize command through the monitor's control mode connection. Resize commands must go through control mode — external `tmux resize-window` commands are ignored when a control mode client is attached.
+
+## Key Design Decisions
+
+1. **One monitor per session** — Avoids duplicate control mode connections and ensures resize commands work reliably.
+
+2. **All commands through control mode** — External tmux subprocess calls can crash the tmux server when control mode is attached. See [tmux.md](tmux.md).
+
+3. **State machine in frontend** — All client logic lives in XState, keeping React components purely presentational. No `useEffect` side effects.
+
+4. **Adapter pattern for transport** — `TmuxAdapter` interface abstracts SSE/HTTP vs Tauri IPC, making the frontend transport-agnostic.
+
+5. **Delta protocol** — After the initial full state snapshot, the server sends incremental deltas (changed panes, windows) to minimize bandwidth.
+
+6. **Adaptive throttling** — The monitor throttles state emissions during high-frequency output (>20 events per 100ms) at 16ms intervals (~60fps), and emits immediately during low-frequency interactions for responsive typing feedback.
 
 ## File Structure
 
@@ -205,150 +85,49 @@ packages/
 │   └── src/
 │       ├── control_mode/
 │       │   ├── connection.rs   # ControlModeConnection (tmux -CC)
-│       │   ├── monitor.rs      # TmuxMonitor, MonitorCommand
-│       │   ├── state.rs        # StateAggregator
+│       │   ├── monitor.rs      # TmuxMonitor, MonitorCommand, StateEmitter
+│       │   ├── state.rs        # StateAggregator, PaneState, layout parsing
 │       │   └── parser.rs       # Control mode event parser
-│       ├── executor.rs         # Subprocess tmux commands
-│       └── session.rs          # Session management
+│       ├── executor.rs         # Subprocess tmux commands (safe operations only)
+│       └── session.rs          # Session lifecycle (create, destroy, check)
 ├── web-server/
 │   └── src/
-│       ├── main.rs             # Server setup, AppState, SessionConnections
-│       └── sse.rs              # SSE streaming, HTTP command handling
-└── tmuxy-ui/
+│       ├── lib.rs              # AppState, SessionConnections, api_routes()
+│       └── sse.rs              # SSE streaming, HTTP commands, SseEmitter
+├── tmuxy-server/
+│   └── src/
+│       └── main.rs             # Production server with embedded frontend
+├── tmuxy-ui/
+│   └── src/
+│       ├── machines/
+│       │   ├── app/appMachine.ts   # Main XState machine
+│       │   ├── actors/             # tmuxActor, keyboardActor, sizeActor
+│       │   ├── drag/               # Pane drag child machine
+│       │   ├── resize/             # Pane resize child machine
+│       │   ├── AppContext.tsx       # Provider, hooks (useAppSelector, etc.)
+│       │   └── selectors.ts        # State selectors for components
+│       ├── tmux/
+│       │   ├── types.ts            # TmuxAdapter, TmuxPane, TmuxWindow
+│       │   ├── adapters.ts         # HttpAdapter, TauriAdapter
+│       │   └── demo/               # In-browser demo engine
+│       └── components/             # React components (Terminal, PaneLayout, etc.)
+└── tauri-app/
     └── src/
-        ├── machines/
-        │   ├── app/
-        │   │   └── appMachine.ts   # Main state machine
-        │   └── actors/
-        │       ├── tmuxActor.ts    # Backend communication actor
-        │       └── keyboardActor.ts
-        ├── tmux/
-        │   └── demo/              # In-browser demo engine
-        │       ├── DemoAdapter.ts  # TmuxAdapter for demo/landing page
-        │       ├── DemoTmux.ts     # Simulated tmux server
-        │       └── DemoShell.ts    # Simulated shell
-        └── components/
-            ├── Terminal.tsx
-            ├── PaneLayout.tsx
-            └── StatusBar.tsx
+        ├── main.rs                 # Tauri app setup, command registration
+        ├── commands.rs             # Tauri IPC command handlers
+        └── monitor.rs              # TauriEmitter, control mode monitoring
 ```
 
-## Tmux Control Mode Command Routing
+## Related Documentation
 
-**Critical:** All tmux commands must be sent through the control mode stdin connection, NOT via external subprocess calls.
-
-When tmux control mode (`tmux -CC`) is attached to a session, running external `tmux` commands as separate processes can crash the tmux server (observed in tmux 3.3a and 3.5a). See [tmux.md](tmux.md) for version-specific workarounds.
-
-### Architecture
-
-```mermaid
-graph LR
-    subgraph Commands
-        FE1[Frontend] -->|"HTTP POST"| SCM["send_via_control_mode()"]
-        SCM --> Mon[Monitor]
-        Mon -->|stdin| TMX["tmux -CC"]
-    end
-
-    subgraph Events
-        TMX2["tmux -CC"] -->|stdout| Mon2[Monitor]
-        Mon2 -->|SSE| FE2[Frontend]
-    end
-```
-
-### Implementation
-
-All HTTP command handlers route through `send_via_control_mode()` in `web-server/src/sse.rs`. This function looks up the session's `monitor_command_tx` and sends `MonitorCommand::RunCommand` through the channel.
-
-### Short Command Forms
-
-Use tmux short command aliases (preferred in control mode):
-
-| Long Form | Short Form |
-|-----------|------------|
-| `new-window` | `neww` |
-| `split-window` | `splitw` |
-| `select-pane` | `selectp` |
-| `select-window` | `selectw` |
-| `kill-pane` | `killp` |
-| `kill-window` | `killw` |
-| `resize-pane` | `resizep` |
-| `resize-window` | `resizew` |
-| `send-keys` | `send` |
-| `next-window` | `next` |
-| `previous-window` | `prev` |
-
-**Note:** `new` is short for `new-session`, NOT `new-window`. Use `neww` for creating windows.
-
-See the [tmux Control Mode wiki](https://github.com/tmux/tmux/wiki/Control-Mode) for detailed documentation.
-
-## Key Design Decisions
-
-1. **One monitor per session** - Avoids duplicate control mode connections and ensures resize commands work reliably.
-
-2. **Resize through control mode** - External `tmux resize-window` commands are ignored when control mode is attached. All resize commands go through the monitor's command channel.
-
-3. **Minimum viewport sizing** - Server computes the minimum viewport size across all connected clients and resizes the session accordingly. No "primary" client concept needed.
-
-4. **Broadcast channel for state** - All clients in a session share a single broadcast channel for state updates, reducing memory and CPU overhead.
-
-5. **State machine in frontend** - All client logic lives in XState, keeping React components purely presentational.
-
-## Testing
-
-The project has three distinct testing approaches, each serving different purposes.
-
-### 1. E2E Snapshot Tests (Jest + Playwright)
-
-**Goal:** Verify the UI renders terminal content identically to native tmux.
-
-These tests compare two text snapshots: the UI snapshot (`window.getSnapshot()`) and the tmux snapshot (`tmux capture-pane -p`). Suites opt in via `createTestContext({ snapshot: true })`. Comparison uses `assertStateMatches()` from `tests/helpers/consistency.js` with Levenshtein edit distance tolerance (≤8 chars per row).
-
-**Enabled for:** Rendering-focused suites (basic connectivity, floating panes, status bar, OSC protocols).
-
-### 2. E2E Functional Tests (Jest + Playwright)
-
-**Goal:** Verify features work correctly with real browser interactions.
-
-Tests use real tmux sessions, real keyboard/mouse events, and real SSE/HTTP connections. No mocking. Categories include keyboard input, pane/window operations, mouse events, copy mode, status bar, session connection, OSC protocols, and workflows.
-
-### 3. E2E Performance Tests (Jest + Playwright)
-
-**Goal:** Ensure operations complete within acceptable time bounds.
-
-Metrics: rapid output (yes | head -500), large output (seq 1 2000), many panes (6+), keyboard latency (<500ms), mouse click latency (<500ms), workflow round-trips (<15s).
-
-### 4. Glitch Detection Tests (Jest + Playwright + MutationObserver)
-
-**Goal:** Detect visual instability (flicker, layout shifts, attribute churn) that functional tests miss.
-
-These tests inject MutationObserver + size polling into the browser to catch DOM mutations during operations. Detection types: node flicker (added+removed within 100ms), attribute churn (>2 changes in 200ms), size jumps (>20px outside resize). See `tests/helpers/glitch-detector.js` for the `GlitchDetector` implementation.
-
-### 5. Unit Tests (Vitest + React Testing Library)
-
-**Goal:** Test React components and utilities in isolation. Scope: component rendering, props handling, accessibility attributes, demo engine logic. Tests live in `packages/tmuxy-ui/src/test/` and `packages/tmuxy-ui/src/tmux/demo/__tests__/`.
-
-### Running Tests
-
-See [tests.md](tests.md) for commands and details.
-
-### Test Files
-
-```
-tests/
-├── helpers/
-│   ├── TmuxTestSession.js    # Tmux session wrapper
-│   ├── browser.js            # Playwright utilities
-│   ├── ui.js                 # UI interaction helpers
-│   ├── glitch-detector.js    # MutationObserver harness for flicker detection
-│   ├── consistency.js        # UI↔tmux state consistency checks
-│   └── test-setup.js         # Context factory, snapshot comparison
-├── 1-input-interaction.test.js    # Scenarios 2, 7, 8, 9, 10, 21
-├── 2-layout-navigation.test.js   # Scenarios 4, 5, 6, 11
-├── 3-rendering-protocols.test.js  # Scenarios 14, 16, widgets
-├── 4-session-connectivity.test.js # Scenarios 12, 13
-└── 5-stress-stability.test.js     # Scenarios 17, 18, 19, 20
-
-packages/tmuxy-ui/src/test/
-├── Terminal.test.tsx              # Terminal component tests
-└── App.test.tsx                   # App component tests
-```
+| Document | Covers |
+|----------|--------|
+| [state-management.md](state-management.md) | Frontend XState + backend Rust state in detail |
+| [data-flow.md](data-flow.md) | SSE/HTTP protocol, Tauri IPC, real-world deployment scenarios |
+| [tmux.md](tmux.md) | Control mode routing, version-specific bugs, workarounds |
+| [copy-mode.md](copy-mode.md) | Client-side copy mode reimplementation |
+| [security.md](security.md) | Security risks, mitigations, deployment warnings |
+| [tests.md](tests.md) | Test framework, running tests, conventions |
+| [e2e-test-scenarios.md](e2e-test-scenarios.md) | Comprehensive test coverage planning |
+| [non-goals.md](non-goals.md) | What tmuxy intentionally does NOT do |
+| [rich-rendering.md](rich-rendering.md) | Terminal image/OSC protocol support |
