@@ -21,8 +21,7 @@ See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC prot
 tmuxy/
 ├── packages/
 │   ├── tmuxy-core/           # Rust: tmux control mode, parsing, state
-│   ├── tmuxy-server/         # Rust: production server with embedded frontend
-│   ├── web-server/           # Rust: shared Axum routes and SSE handlers
+│   ├── tmuxy-server/         # Rust: server (SSE, HTTP, embedded frontend, dev mode)
 │   ├── tmuxy-ui/             # React/Vite frontend
 │   │   └── src/tmux/demo/    # In-browser demo engine (DemoAdapter, DemoTmux, DemoShell)
 │   ├── tmuxy-landing-page/   # Next.js landing page (static export → GitHub Pages)
@@ -150,7 +149,7 @@ The `docs/` directory contains architectural and design documentation. **Review 
 
 - **Before starting**: read docs related to the area you're changing. Flag any misalignment between the docs and the user's request before proceeding.
 - **After finishing**: if your changes affect behavior described in docs, suggest updates to the user.
-- **No project-specific code in docs**: docs should describe architecture, protocols, and conventions in prose and tables — not inline code snippets from the codebase. Code is fragile and changes constantly; docs that embed it go stale immediately. Reference file paths instead (e.g., "see `web-server/src/lib.rs`").
+- **No project-specific code in docs**: docs should describe architecture, protocols, and conventions in prose and tables — not inline code snippets from the codebase. Code is fragile and changes constantly; docs that embed it go stale immediately. Reference file paths instead (e.g., "see `tmuxy-server/src/state.rs`").
 - **Use ASCII diagrams, not Mermaid**: diagrams in docs should use plain ASCII art inside fenced code blocks. Mermaid requires a renderer and is not universally supported by all markdown viewers or AI agents.
 
 ## Git

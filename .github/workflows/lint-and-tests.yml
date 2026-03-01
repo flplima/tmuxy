@@ -41,7 +41,7 @@ jobs:
         working-directory: packages/tmuxy-ui
 
       - name: Rust format check
-        run: cargo fmt --check -p tmuxy-core -p web-server -p tmuxy-server
+        run: cargo fmt --check -p tmuxy-core -p tmuxy-server
 
       # --- Linting ---
 
@@ -51,13 +51,10 @@ jobs:
       - name: ESLint (E2E tests)
         run: npm run lint:tests
 
-      - name: Clippy (core + web-server)
-        run: cargo clippy -p tmuxy-core -p web-server -- -D warnings
-
-      - name: Clippy (tmuxy-server, needs frontend dist stub)
+      - name: Clippy
         run: |
           mkdir -p packages/tmuxy-ui/dist
-          cargo clippy -p tmuxy-server -- -D warnings
+          cargo clippy -p tmuxy-core -p tmuxy-server -- -D warnings
 
       # --- Type Check ---
 
@@ -110,20 +107,17 @@ jobs:
 
       # --- Build ---
 
-      - name: Build server
-        run: cargo build -p web-server
-
       - name: Build frontend
         run: VITE_E2E=true npm run build -w tmuxy-ui
 
-      - name: Copy dist to CWD
-        run: cp -r packages/tmuxy-ui/dist ./dist
+      - name: Build server
+        run: cargo build -p tmuxy-server
 
       # --- E2E Tests ---
 
       - name: Start server
         run: |
-          PORT=9000 ./target/debug/tmuxy-web 2>/tmp/tmuxy-server.log &
+          PORT=9000 ./target/debug/tmuxy-server 2>/tmp/tmuxy-server.log &
           node -e "
             const start = Date.now();
             const timeout = 30000;

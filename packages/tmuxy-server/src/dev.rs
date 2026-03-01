@@ -1,18 +1,16 @@
-use axum::{body::Body, extract::Request, response::Response};
+use axum::body::Body;
+use axum::extract::Request;
+use axum::response::Response;
 use std::process::Stdio;
-use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::signal;
-use tower_http::services::ServeDir;
-use web_server::AppState;
 
 /// Port for Vite dev server
-const VITE_PORT: u16 = 1420;
+pub const VITE_PORT: u16 = 1420;
 
 /// Find an available port starting from 9000, incrementing until one is free.
 /// Override with PORT env var.
-fn get_port() -> u16 {
+pub fn get_port() -> u16 {
     if let Some(port) = std::env::var("PORT").ok().and_then(|p| p.parse().ok()) {
         return port;
     }
@@ -28,13 +26,13 @@ fn get_port() -> u16 {
 
 /// Handle to Vite child process for cleanup
 #[cfg(unix)]
-struct ViteChild {
+pub struct ViteChild {
     pgid: i32,
 }
 
 #[cfg(unix)]
 impl ViteChild {
-    fn kill(&self) {
+    pub fn kill(&self) {
         unsafe {
             libc::killpg(self.pgid, libc::SIGTERM);
         }
@@ -43,96 +41,19 @@ impl ViteChild {
 }
 
 #[cfg(not(unix))]
-struct ViteChild {
+pub struct ViteChild {
     child: tokio::process::Child,
 }
 
 #[cfg(not(unix))]
 impl ViteChild {
-    fn kill(mut self) {
+    pub fn kill(mut self) {
         let _ = self.child.start_kill();
         println!("[dev] Vite process killed");
     }
 }
 
-#[tokio::main]
-async fn main() {
-    let dev_mode = std::env::args().any(|arg| arg == "--dev") || std::env::var("TMUXY_DEV").is_ok();
-
-    let state = Arc::new(AppState::new());
-
-    // In dev mode, spawn Vite dev server
-    let vite_child = if dev_mode {
-        println!("[dev] Starting Vite dev server on port {}...", VITE_PORT);
-        let child = spawn_vite_dev_server().await;
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        child
-    } else {
-        None
-    };
-
-    // Build router: API routes + fallback (Vite proxy or static files)
-    let app = if dev_mode {
-        web_server::api_routes()
-            .fallback_service(tower::service_fn(|req: Request| async move {
-                Ok::<_, std::convert::Infallible>(proxy_to_vite(req).await)
-            }))
-            .with_state(state)
-    } else {
-        web_server::api_routes()
-            .fallback_service(ServeDir::new("dist"))
-            .with_state(state)
-    };
-
-    let port = get_port();
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
-    println!("tmuxy web server running at http://localhost:{}", port);
-    if dev_mode {
-        println!(
-            "[dev] Vite HMR and static files proxied from port {}",
-            VITE_PORT
-        );
-    }
-
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(vite_child))
-        .await
-        .unwrap();
-}
-
-async fn shutdown_signal(vite_child: Option<ViteChild>) {
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
-
-    println!("\nShutting down...");
-
-    if let Some(child) = vite_child {
-        child.kill();
-    }
-}
-
-async fn proxy_to_vite(req: Request) -> Response {
+pub async fn proxy_to_vite(req: Request) -> Response {
     let client = reqwest::Client::new();
 
     let uri = req.uri();
@@ -195,8 +116,8 @@ async fn proxy_to_vite(req: Request) -> Response {
     }
 }
 
-async fn spawn_vite_dev_server() -> Option<ViteChild> {
-    let workspace_root = web_server::find_workspace_root();
+pub async fn spawn_vite_dev_server() -> Option<ViteChild> {
+    let workspace_root = crate::state::find_workspace_root();
 
     #[cfg(unix)]
     let mut cmd = {

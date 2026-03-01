@@ -18,7 +18,7 @@ The backend maintains the **authoritative** tmux state. The frontend maintains a
 
 ### AppState
 
-The top-level server state, defined in `web-server/src/lib.rs`. Holds:
+The top-level server state, defined in `tmuxy-server/src/state.rs`. Holds:
 
 - `sessions` — A `HashMap<String, SessionConnections>` mapping session names to their connection state. Protected by `RwLock` for concurrent access.
 - `next_conn_id` — Atomic counter for generating unique connection IDs (starts at 1).
@@ -26,7 +26,7 @@ The top-level server state, defined in `web-server/src/lib.rs`. Holds:
 
 ### SessionConnections
 
-Per-session connection tracking, also in `web-server/src/lib.rs`. One instance per tmux session, shared by all clients connected to that session:
+Per-session connection tracking, also in `tmuxy-server/src/state.rs`. One instance per tmux session, shared by all clients connected to that session:
 
 - `connections` — Ordered list of active connection IDs.
 - `client_sizes` — Each client's reported viewport size (cols, rows) for minimum-size computation.
@@ -99,7 +99,7 @@ Adapter pattern for different backends, defined in `tmuxy-core/src/control_mode/
 - `emit_error(String)` — Emit an error message.
 
 Two implementations:
-- `SseEmitter` (in `web-server/src/sse.rs`) — Serializes to JSON and sends through the session's broadcast channel to all SSE clients.
+- `SseEmitter` (in `tmuxy-server/src/sse.rs`) — Serializes to JSON and sends through the session's broadcast channel to all SSE clients.
 - `TauriEmitter` (in `tauri-app/src/monitor.rs`) — Emits Tauri events via `app.emit()` to the desktop frontend.
 
 ### Settling Mechanism

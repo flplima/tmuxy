@@ -4131,17 +4131,22 @@ dependencies = [
 name = "tmuxy-server"
 version = "1.0.0"
 dependencies = [
+ "async-stream",
  "axum",
  "clap",
  "dirs",
+ "futures-util",
+ "libc",
  "nix",
+ "reqwest 0.12.28",
  "rust-embed",
  "serde",
  "serde_json",
  "tmuxy-core",
  "tokio",
+ "tower",
  "tower-http",
- "web-server",
+ "uuid",
 ]
 
 [[package]]
@@ -4786,24 +4791,6 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap 2.13.0",
  "semver",
-]
-
-[[package]]
-name = "web-server"
-version = "1.0.0"
-dependencies = [
- "async-stream",
- "axum",
- "futures-util",
- "libc",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tmuxy-core",
- "tokio",
- "tower",
- "tower-http",
- "uuid",
 ]
 
 [[package]]
