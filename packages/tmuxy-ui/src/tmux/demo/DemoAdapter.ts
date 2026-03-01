@@ -81,9 +81,15 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
   ],
 };
 
+export interface DemoAdapterOptions {
+  /** Tmux commands to run after initial state is loaded (e.g. split-window, new-window) */
+  initCommands?: string[];
+}
+
 export class DemoAdapter implements TmuxAdapter {
   private connected = false;
   private tmux: DemoTmux;
+  private initCommands: string[];
 
   private stateListeners = new Set<StateListener>();
   private errorListeners = new Set<ErrorListener>();
@@ -91,8 +97,9 @@ export class DemoAdapter implements TmuxAdapter {
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
 
-  constructor() {
+  constructor(options?: DemoAdapterOptions) {
     this.tmux = new DemoTmux();
+    this.initCommands = options?.initCommands ?? [];
   }
 
   async connect(): Promise<void> {
@@ -124,6 +131,11 @@ export class DemoAdapter implements TmuxAdapter {
         const cols = (args?.cols as number) || 80;
         const rows = (args?.rows as number) || 24;
         this.tmux.setSize(cols, rows);
+        // Run init commands (splits, new windows, etc.) before returning state
+        for (const initCmd of this.initCommands) {
+          this.executeCommand(initCmd);
+        }
+        this.initCommands = []; // Only run once
         return this.tmux.getState() as T;
       }
 
@@ -227,6 +239,12 @@ export class DemoAdapter implements TmuxAdapter {
   }
 
   private handleSingleCommand(command: string): void {
+    this.executeCommand(command);
+    this.emitState();
+  }
+
+  /** Execute a tmux command without emitting state (used for batched init) */
+  private executeCommand(command: string): void {
     if (!command) return;
 
     // Parse tmux command
@@ -374,8 +392,6 @@ export class DemoAdapter implements TmuxAdapter {
       default:
         break;
     }
-
-    this.emitState();
   }
 
   private handleSendKeys(args: string[]): void {
