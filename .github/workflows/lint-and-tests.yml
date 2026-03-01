@@ -108,7 +108,7 @@ jobs:
       # --- Build ---
 
       - name: Build frontend
-        run: VITE_E2E=true npm run build -w tmuxy-ui
+        run: npm run build -w tmuxy-ui
 
       - name: Build server (release)
         run: cargo build --release -p tmuxy-server

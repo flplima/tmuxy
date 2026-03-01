@@ -97,18 +97,6 @@ function measureCharWidth(): number {
   return width;
 }
 
-/**
- * Check if we're in dev/test mode (works in both Vite and non-Vite contexts).
- */
-function isDevOrTest(): boolean {
-  try {
-    const env = (import.meta as unknown as { env?: Record<string, unknown> }).env;
-    return !!(env?.DEV || env?.VITE_E2E === 'true');
-  } catch {
-    return false;
-  }
-}
-
 // ============================================
 // Provider
 // ============================================
@@ -123,10 +111,6 @@ export function AppProvider({
   // Create adapter and actors once
   const actors = useMemo(() => {
     const adapter = externalAdapter ?? createAdapter();
-    // Expose adapter for E2E testing (dev mode or CI)
-    if (typeof window !== 'undefined' && isDevOrTest()) {
-      (window as unknown as { _adapter: typeof adapter })._adapter = adapter;
-    }
     return {
       tmuxActor: createTmuxActor(adapter),
       keyboardActor: createKeyboardActor(),
@@ -140,9 +124,9 @@ export function AppProvider({
     }),
   );
 
-  // Expose XState actor for debugging (dev mode or CI)
+  // Expose XState actor for debugging and E2E tests
   useMemo(() => {
-    if (typeof window !== 'undefined' && isDevOrTest()) {
+    if (typeof window !== 'undefined') {
       (window as unknown as { app: typeof actorRef }).app = actorRef;
     }
   }, [actorRef]);
