@@ -5,7 +5,7 @@
  * All state is accessed via hooks - no prop drilling.
  */
 
-import { useCallback, useRef } from 'react';
+import { type ReactNode, useCallback, useRef } from 'react';
 import './styles.css';
 import { StatusBar } from './components/StatusBar';
 import { TmuxStatusBar } from './components/TmuxStatusBar';
@@ -22,10 +22,12 @@ import {
 } from './machines/AppContext';
 import { initDebugHelpers } from './utils/debug';
 
+export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
+
 // Initialize debug helpers
 initDebugHelpers();
 
-function App() {
+function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // Select minimal state needed at App level
   const panes = useAppSelector(selectPreviewPanes);
   const error = useAppSelector(selectError);
@@ -54,7 +56,7 @@ function App() {
   // starts measuring immediately, preventing a layout flash on first pane render.
   return (
     <div className="app-container">
-      <StatusBar />
+      <StatusBar renderTabline={renderTabline} />
       <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
         {error && !isReady ? (
           <div className="error" data-testid="error-display">
