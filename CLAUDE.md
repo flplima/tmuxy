@@ -91,24 +91,7 @@ npm run test:e2e        # E2E tests (requires server + Chrome CDP)
 
 Use short command forms: `splitw`, `selectp`, `killp`, `resizep`, etc. **Exception:** `neww` crashes tmux 3.5a — always use `splitw ; breakp` instead (the server rewrites this automatically).
 
-Use `adapter.invoke()` for all tmux operations from the frontend:
-```typescript
-await adapter.invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
-```
-
-### SSE Protocol
-
-```typescript
-// Client sends
-{ "type": "invoke", "id": "uuid", "cmd": "command_name", "args": {...} }
-
-// Server responds
-{ "type": "response", "id": "uuid", "result": ... }
-{ "type": "error", "id": "uuid", "error": "message" }
-
-// Server pushes state
-{ "type": "event", "name": "tmux-state-update", "payload": {...} }
-```
+Use `adapter.invoke('run_tmux_command', { command: '...' })` for all tmux operations from the frontend. See `tmuxy-ui/src/tmux/HttpAdapter.ts` for the adapter implementation and [docs/communication.md](docs/communication.md) for the SSE/HTTP protocol details.
 
 ## E2E Test Conventions
 
@@ -123,6 +106,14 @@ await adapter.invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
 **ALWAYS fix any test failure or bug you encounter, even if it is unrelated to your current task or predates your changes.** Do not skip, ignore, or defer broken tests. If CI is red, make it green before moving on. A failing test is never "someone else's problem" — if you see it, you own it. This applies to unit tests, E2E tests, linting errors, type errors, and any other validation failures.
 
 **NEVER commit skipped tests** (`it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, `xdescribe`). If a test is failing, either fix the test, fix the underlying bug, or ask the user whether to remove the test entirely. ESLint enforces this via `jest/no-disabled-tests` (error) — the pre-commit hook and CI will reject skipped tests.
+
+## Documentation
+
+The `docs/` directory contains architectural and design documentation. **Review relevant docs before and after working on a task** — they provide critical context (especially `tmux.md`, `communication.md`, and `copy-mode.md`).
+
+- **Before starting**: read docs related to the area you're changing. Flag any misalignment between the docs and the user's request before proceeding.
+- **After finishing**: if your changes affect behavior described in docs, suggest updates to the user.
+- **No project-specific code in docs**: docs should describe architecture, protocols, and conventions in prose and tables — not inline code snippets from the codebase. Code is fragile and changes constantly; docs that embed it go stale immediately. Reference file paths instead (e.g., "see `web-server/src/lib.rs`").
 
 ## Git
 

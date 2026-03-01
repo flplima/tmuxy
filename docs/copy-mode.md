@@ -114,7 +114,9 @@ Two selection modes:
 - Line mode: full-width lines with trailing spaces trimmed
 - Returns newline-separated string
 
-Clipboard write uses `document.execCommand('copy')` triggered from the keyboard actor, with `pendingCopyText` set for the copy event handler. `Ctrl+C` / `Cmd+C` also copies if there's an active selection.
+Clipboard write uses two mechanisms:
+- **Yank (`y`) and `Ctrl+C` / `Cmd+C`**: `document.execCommand('copy')` triggered from the keyboard actor, with `pendingCopyText` set for the copy event handler.
+- **Context menu "Copy"**: `navigator.clipboard.writeText()` triggered from `SelectionContextMenu.tsx`.
 
 ## tmux Interaction
 
