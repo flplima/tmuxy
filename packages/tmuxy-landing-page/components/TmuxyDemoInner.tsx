@@ -8,7 +8,7 @@ export default function TmuxyDemoInner() {
   const adapter = useMemo(() => new DemoAdapter(), []);
 
   return (
-    <div style={{ height: 500, position: 'relative' }}>
+    <div style={{ height: 500, position: 'relative', display: 'flex', flexDirection: 'column' }}>
       <TmuxyProvider adapter={adapter}>
         <TmuxyApp />
       </TmuxyProvider>
