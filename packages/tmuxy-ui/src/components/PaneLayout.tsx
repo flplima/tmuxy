@@ -102,8 +102,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         position: 'absolute',
         left: Math.round(centeringOffset.x + pane.x * charWidth) - hPadding,
         top: centeringOffset.y + headerY * charHeight,
-        width: Math.ceil(pane.width * charWidth) + hPadding * 2,
-        height: (pane.height + 1) * charHeight,
+        // +1px so adjacent pane borders overlap (border-collapse effect)
+        width: Math.ceil(pane.width * charWidth) + hPadding * 2 + 1,
+        height: (pane.height + 1) * charHeight + 1,
       };
     },
     [charWidth, charHeight, centeringOffset, hPadding],
