@@ -4,12 +4,16 @@ A web-based tmux interface built with React (Vite) frontend and Rust backend.
 
 **This project is under active development, not production.** Breaking changes are welcome. No backwards compatibility required — delete, rename, and restructure freely.
 
-See [docs/architecture.md](docs/architecture.md) for system design, data flow, and critical constraints.
-See [docs/communication.md](docs/communication.md) for frontend↔backend and backend↔tmux communication protocols.
-See [docs/non-goals.md](docs/non-goals.md) for what tmuxy intentionally does NOT do.
-See [docs/rich-rendering.md](docs/rich-rendering.md) for terminal image/OSC protocol support.
-See [docs/e2e-test-scenarios.md](docs/e2e-test-scenarios.md) for comprehensive test coverage planning.
-See [docs/tests.md](docs/tests.md) for running and writing E2E tests.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for high-level system overview and component interaction.
+See [docs/STATE-MANAGEMENT.md](docs/STATE-MANAGEMENT.md) for frontend XState and backend Rust state details.
+See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for SSE/HTTP protocol, Tauri IPC, and deployment scenarios.
+See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs, and workarounds.
+See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side copy mode architecture.
+See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
+See [docs/TESTS.md](docs/TESTS.md) for running and writing E2E tests.
+See [docs/E2E-TEST-SCENARIOS.md](docs/E2E-TEST-SCENARIOS.md) for comprehensive test coverage planning.
+See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
+See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 
 ## Project Structure
 
@@ -87,28 +91,19 @@ npm run test:e2e        # E2E tests (requires server + Chrome CDP)
 
 ### Tmux Control Mode (Critical)
 
-**All tmux commands must go through the control mode stdin connection**, not via external subprocess calls. Running external `tmux` commands while control mode is attached crashes tmux 3.3a.
+**All tmux commands must go through the control mode stdin connection**, not via external subprocess calls. Running external `tmux` commands while control mode is attached crashes tmux 3.5a. See [docs/TMUX.md](docs/TMUX.md) for version-specific workarounds.
 
-Use short command forms: `neww`, `splitw`, `selectp`, `killp`, `resizep`, etc.
+Use short command forms: `splitw`, `selectp`, `killp`, `resizep`, etc. **Exception:** `neww` crashes tmux 3.5a — always use `splitw ; breakp` instead (the server rewrites this automatically).
 
-Use `run_tmux_command` for all tmux operations from the frontend:
-```typescript
-await invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
-```
+Use `adapter.invoke('run_tmux_command', { command: '...' })` for all tmux operations from the frontend. See `tmuxy-ui/src/tmux/adapters.ts` for the adapter implementations and [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for the SSE/HTTP protocol details.
 
-### SSE Protocol
+## E2E Test Conventions
 
-```typescript
-// Client sends
-{ "type": "invoke", "id": "uuid", "cmd": "command_name", "args": {...} }
-
-// Server responds
-{ "type": "response", "id": "uuid", "result": ... }
-{ "type": "error", "id": "uuid", "error": "message" }
-
-// Server pushes state
-{ "type": "event", "name": "tmux-state-update", "payload": {...} }
-```
+- Tests use `createTestContext()` from `tests/helpers/test-setup.js` for shared setup/teardown.
+- All E2E tests run **sequentially** (`maxWorkers: 1`) — they share one tmux server.
+- Tests interact with the **browser UI** (keyboard events, page queries), not tmux directly. State assertions read from the XState machine context via `page.evaluate()`.
+- Copy mode is a client-side reimplementation — test it via browser keyboard events and `getCopyModeState()`, not `send-keys -X` tmux commands.
+- Never install Playwright browsers (`npx playwright install`). Tests connect to Chrome via CDP on port 9222, or use the pre-installed Chromium in `~/.cache/ms-playwright/`.
 
 ## Testing & Bug Fixes (Critical)
 
@@ -116,7 +111,18 @@ await invoke('run_tmux_command', { command: 'swap-pane -s %0 -t %1' });
 
 **NEVER commit skipped tests** (`it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, `xdescribe`). If a test is failing, either fix the test, fix the underlying bug, or ask the user whether to remove the test entirely. ESLint enforces this via `jest/no-disabled-tests` (error) — the pre-commit hook and CI will reject skipped tests.
 
+## Documentation
+
+The `docs/` directory contains architectural and design documentation. **Review relevant docs before and after working on a task** — they provide critical context (especially `TMUX.md`, `STATE-MANAGEMENT.md`, `DATA-FLOW.md`, and `COPY-MODE.md`).
+
+- **Before starting**: read docs related to the area you're changing. Flag any misalignment between the docs and the user's request before proceeding.
+- **After finishing**: if your changes affect behavior described in docs, suggest updates to the user.
+- **No project-specific code in docs**: docs should describe architecture, protocols, and conventions in prose and tables — not inline code snippets from the codebase. Code is fragile and changes constantly; docs that embed it go stale immediately. Reference file paths instead (e.g., "see `web-server/src/lib.rs`").
+- **Use ASCII diagrams, not Mermaid**: diagrams in docs should use plain ASCII art inside fenced code blocks. Mermaid requires a renderer and is not universally supported by all markdown viewers or AI agents.
+
 ## Git
+
+When working on a branch other than `main`, always `git merge main` before starting work to avoid future conflicts.
 
 Use [gitmoji](https://gitmoji.dev/) for commit messages:
 
