@@ -1,0 +1,3 @@
+#!/bin/bash
+# Mock tmuxy-server binary for CLI tests
+echo "mock-server-started $*"
