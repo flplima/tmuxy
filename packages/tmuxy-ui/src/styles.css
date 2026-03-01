@@ -616,6 +616,7 @@ body {
   display: flex;
   justify-content: center;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .tmux-status-bar-content {

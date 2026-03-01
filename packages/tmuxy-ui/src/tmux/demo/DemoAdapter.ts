@@ -165,11 +165,22 @@ export class DemoAdapter implements TmuxAdapter {
       case 'initialize_session':
         return null as T;
 
+      case 'set_theme':
+      case 'set_theme_mode':
+        return null as T;
+
       case 'get_theme_settings':
         return { theme: 'default', mode: 'dark' } as T;
 
       case 'get_themes_list':
-        return [] as T;
+        return [
+          { name: 'default', displayName: 'Default' },
+          { name: 'dracula', displayName: 'Dracula' },
+          { name: 'gruvbox', displayName: 'Gruvbox' },
+          { name: 'nord', displayName: 'Nord' },
+          { name: 'solarized', displayName: 'Solarized' },
+          { name: 'tokyonight', displayName: 'Tokyo Night' },
+        ] as T;
 
       default:
         return null as T;

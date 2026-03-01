@@ -590,13 +590,12 @@ export class DemoTmux {
 
   private buildStatusLine(): string {
     // Mimic the .tmuxy.conf status bar: green bg, black fg
-    // Format: [session] <window list>                  user@host
+    // Format: [session]           <padding>           user@host
     const green = '\x1b[42;30m'; // bg=green, fg=black
-    const bold = '\x1b[1m';
     const reset = '\x1b[0m';
-    const left = `${green}${bold} [${this.sessionName}] ${reset}${green} `;
-    const right = ` demo@tmuxy `;
-    // Window names would go in between, but tmux hides them via window-status-format=''
-    return `${left}${right}${reset}`;
+    const leftText = ` [${this.sessionName}] `;
+    const rightText = ` demo@tmuxy `;
+    const padding = Math.max(0, this.totalWidth - leftText.length - rightText.length);
+    return `${green}${leftText}${' '.repeat(padding)}${rightText}${reset}`;
   }
 }
