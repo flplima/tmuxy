@@ -16,9 +16,10 @@ const { getBrowser, waitForServer, navigateToSession, waitForSessionReady, delay
 const { TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
 
 let _weStartedServer = false;
+let _serverPid = null;
 
 beforeAll(async () => {
-  // Auto-start dev server if not running
+  // Auto-start production server if not running
   let serverRunning = false;
   try {
     const response = await fetch(TMUXY_URL);
@@ -29,8 +30,19 @@ beforeAll(async () => {
 
   if (!serverRunning) {
     try {
-      execSync('npm start', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      console.warn('[setup] Building frontend and server...');
+      execSync('VITE_E2E=true npm run build -w tmuxy-ui', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      execSync('cargo build --release -p tmuxy-server', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      console.warn('[setup] Starting production server...');
+      const { spawn } = require('child_process');
+      const server = spawn('./target/release/tmuxy-server', [], {
+        cwd: WORKSPACE_ROOT,
+        stdio: 'ignore',
+        detached: true,
+      });
+      server.unref();
       _weStartedServer = true;
+      _serverPid = server.pid;
       await waitForServer(TMUXY_URL, 120000);
     } catch (error) {
       console.error('[setup] Failed to start server:', error.message);
@@ -74,11 +86,11 @@ beforeAll(async () => {
 }, 180000);
 
 afterAll(async () => {
-  if (_weStartedServer) {
+  if (_weStartedServer && _serverPid) {
     try {
-      execSync('npm run stop', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      process.kill(_serverPid);
     } catch {
-      // Best effort
+      // Best effort — process may already be gone
     }
   }
 });
