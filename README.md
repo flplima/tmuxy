@@ -1,5 +1,5 @@
 > [!WARNING]
-> This project is under active development. Expect breaking changes at any time. Not ready for production. See [docs/SECURITY.md](docs/SECURITY.md).
+> *This project is under active development. Not ready for production. See [docs/SECURITY.md](docs/SECURITY.md).*
 
 # tmuxy
 
@@ -8,13 +8,12 @@ The missing tmux GUI you didn't know you needed.
 ## why?
 
 tmux is the best tool for agent-driven development, but it lacks a good UX.
+**tmuxy** fixes that by adding an interface layer with a smoother UX on top of tmux, accessible from anywhere.
 
-tmuxy fixes that by adding an interface layer with a smoother UX, accessible from anywhere. Behind the scenes, it's still good ol' tmux, ready to be managed by you and your AI agents.
-
-- **Agent-friendly**: AI agents already love tmux. Now with tmuxy it's easy to watch them work on long-lived sessions.
-- **Beginner-friendly**: Do you know what `<prefix> %` does? Me neither! It's okay if you don't remember all tmux keybindings. tmuxy won't judge you for using the mouse and the system menus.
+- **Agent-friendly**: AI agents already love tmux. Why create a new tool? Instead, tmuxy offers a better UI to watch them in their work.
+- **Beginner-friendly**: Do you know what `<prefix> %` does? Me neither! tmuxy won't judge you for using the mouse and the system menus.
 - **Mobile-friendly**: Combines the tmux power of detachable sessions with the convenience of the browser. Start something on your laptop, pick it up from your phone. No app required. (but a VPN is highly recommended)
-- **Web-friendly**: Built on web technologies enabling fancy UX and rich rendering stuff like images and markdown.
+- **Web-friendly**: Built on web technologies to unlock richer interfaces. Pane group tabs, pane floats, image rendering, markdown preview, while behind the scenes it's still tmux!
 
 ## how it works
 
