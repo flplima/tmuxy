@@ -56,7 +56,7 @@ pub async fn start_monitoring(app: AppHandle) {
 
     loop {
         match TmuxMonitor::connect(config.clone()).await {
-            Ok(mut monitor) => {
+            Ok((mut monitor, _cmd_tx)) => {
                 backoff = Duration::from_millis(100); // Reset on success
 
                 // Emit keybindings on each successful connection
