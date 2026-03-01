@@ -1,23 +1,25 @@
 #!/bin/bash
-# tmuxy — shell dispatcher for tmuxy CLI commands
+# tmuxy — AI-first noun-verb CLI for tmux
 #
-# Usage:
-#   tmuxy float [cmd args...]     Create a float pane
-#   tmuxy group <action> [args]   Pane group operations
-#   tmuxy image <source>          Display image widget
-#   tmuxy md <file|->             Display markdown widget
-#   tmuxy server [args]           Delegate to tmuxy-server binary
-#   tmuxy --help                  Show this help
+# Safety: All mutating commands route through `tmux run-shell` to avoid
+# crashing tmux 3.3a–3.5a when control mode is attached.
+# Read-only commands run as direct subprocesses (safe with control mode).
 
 set -euo pipefail
 
 SELF="$0"
-# Resolve symlinks to find the real script location
 if [ -L "$SELF" ]; then
   SELF="$(readlink -f "$SELF")"
 fi
 REPO_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
+
+# --- Helpers ---
+
+# Run a mutating tmux command safely through run-shell
+run_safe() {
+  tmux run-shell "tmux $*"
+}
 
 # Find tmuxy-server binary: PATH first, then cargo target directory
 find_server_binary() {
@@ -33,68 +35,549 @@ find_server_binary() {
   fi
 }
 
+# --- Help ---
+
 usage() {
   cat <<'EOF'
 Usage: tmuxy <command> [args...]
 
 Commands:
-  float [cmd args...]       Create a float pane (interactive or with command)
-  group <action> [args]     Pane group operations (add, close, switch, next, prev)
-  image <source>            Display an image widget (file path or URL)
-  md <file|->               Display a markdown widget (file or stdin)
-  server [args]             Start/stop/status the production server
+  pane        Manage panes (split, kill, select, resize, group, float)
+  tab         Manage tabs (create, kill, select, rename, layout)
+  widget      Display widgets (image, markdown)
+  run         Run any tmux command safely
+  server      Production server operations
 
-Run 'tmuxy <command> --help' for command-specific help.
+Run 'tmuxy <command> --help' for details.
 EOF
 }
 
+usage_pane() {
+  cat <<'EOF'
+Usage: tmuxy pane <command> [args...]
+
+Commands:
+  list          List all panes [--json] [--all]
+  split         Split current pane [-h|-v]
+  kill          Kill a pane [%id]
+  select        Select/focus a pane [-U|-D|-L|-R|%id]
+  resize        Resize a pane [-U|-D|-L|-R] [n]
+  swap          Swap two panes <src> <dst>
+  zoom          Toggle pane zoom
+  break         Break pane into own tab
+  capture       Capture pane content [%id] [--json]
+  send          Send keys to pane <keys...>
+  paste         Paste text into pane <text>
+  float         Create a float pane [cmd args...]
+  group         Pane group operations (add, close, switch, next, prev)
+
+Run 'tmuxy pane <command> --help' for details.
+EOF
+}
+
+usage_pane_group() {
+  cat <<'EOF'
+Usage: tmuxy pane group <command> [args...]
+
+Commands:
+  add           Add current pane to a group
+  close         Close pane from group [%id]
+  switch        Switch to pane in group <%id>
+  next          Next pane in group
+  prev          Previous pane in group
+EOF
+}
+
+usage_tab() {
+  cat <<'EOF'
+Usage: tmuxy tab <command> [args...]
+
+Commands:
+  list          List all tabs [--json]
+  create        Create a new tab [name]
+  kill          Kill a tab [@id]
+  select        Switch to a tab <index|@id>
+  next          Next tab
+  prev          Previous tab
+  rename        Rename current tab <name>
+  layout        Change pane layout [next|even-h|even-v|main-h|main-v|tiled]
+EOF
+}
+
+usage_widget() {
+  cat <<'EOF'
+Usage: tmuxy widget <command> [args...]
+
+Commands:
+  image         Display an image (file path or URL)
+  markdown      Display markdown (file or stdin via -)
+EOF
+}
+
+usage_run() {
+  cat <<'EOF'
+Usage: tmuxy run <tmux-command> [args...]
+
+Run any tmux command safely through run-shell.
+
+Safety features:
+  - new-window is intercepted → split-window + break-pane
+  - resize-window is blocked (crashes control mode)
+  - All other commands route through run-shell
+
+Examples:
+  tmuxy run swap-pane -s %0 -t %1
+  tmuxy run new-window              # intercepted → safe alternative
+  tmuxy run send-keys -t %3 ls Enter
+EOF
+}
+
+# --- Pane subcommands ---
+
+cmd_pane() {
+  local sub="${1:-}"
+  shift 2>/dev/null || true
+
+  case "$sub" in
+    list)
+      local json=false all=false
+      for arg in "$@"; do
+        case "$arg" in
+          --json) json=true ;;
+          --all) all=true ;;
+          --help|-h) echo "Usage: tmuxy pane list [--json] [--all]"; return ;;
+        esac
+      done
+      local scope=()
+      if $all; then scope=(-s); fi
+      if $json; then
+        tmux list-panes "${scope[@]}" -F '#{pane_id},#{window_id},#{pane_width},#{pane_height},#{pane_current_command},#{pane_active}' | \
+          awk -F',' 'BEGIN{printf "["} NR>1{printf ","} {printf "{\"id\":\"%s\",\"tab\":\"%s\",\"width\":%s,\"height\":%s,\"command\":\"%s\",\"active\":%s}", $1, $2, $3, $4, $5, ($6=="1"?"true":"false")} END{printf "]\n"}'
+      else
+        tmux list-panes "${scope[@]}"
+      fi
+      ;;
+
+    split)
+      local args=""
+      for arg in "$@"; do
+        case "$arg" in
+          --help|-h) echo "Usage: tmuxy pane split [-h|-v]"; return ;;
+          *) args="$args $arg" ;;
+        esac
+      done
+      run_safe "splitw$args"
+      ;;
+
+    kill)
+      local target=""
+      for arg in "$@"; do
+        case "$arg" in
+          --help|-h) echo "Usage: tmuxy pane kill [%id]"; return ;;
+          *) target="$arg" ;;
+        esac
+      done
+      if [ -n "$target" ]; then
+        run_safe "killp -t $target"
+      else
+        run_safe "killp"
+      fi
+      ;;
+
+    select)
+      local arg="${1:-}"
+      case "$arg" in
+        --help|-h) echo "Usage: tmuxy pane select [-U|-D|-L|-R|%id]"; return ;;
+        -U|-D|-L|-R) run_safe "selectp $arg" ;;
+        %*) run_safe "selectp -t $arg" ;;
+        "") echo "Error: pane direction or ID required" >&2; return 1 ;;
+        *) echo "Error: invalid argument '$arg'. Use -U, -D, -L, -R, or %id" >&2; return 1 ;;
+      esac
+      ;;
+
+    resize)
+      local args=""
+      for arg in "$@"; do
+        case "$arg" in
+          --help|-h) echo "Usage: tmuxy pane resize [-U|-D|-L|-R] [n]"; return ;;
+          *) args="$args $arg" ;;
+        esac
+      done
+      if [ -z "$args" ]; then
+        echo "Error: direction required (-U, -D, -L, -R)" >&2; return 1
+      fi
+      run_safe "resizep$args"
+      ;;
+
+    swap)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane swap <src> <dst>"; return ;;
+      esac
+      local src="${1:?Usage: tmuxy pane swap <src> <dst>}"
+      local dst="${2:?Usage: tmuxy pane swap <src> <dst>}"
+      run_safe "swap-pane -s $src -t $dst"
+      ;;
+
+    zoom)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane zoom"; return ;;
+      esac
+      run_safe "resizep -Z"
+      ;;
+
+    break)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane break"; return ;;
+      esac
+      run_safe "breakp"
+      ;;
+
+    capture)
+      local target="" json=false
+      for arg in "$@"; do
+        case "$arg" in
+          --help|-h) echo "Usage: tmuxy pane capture [%id] [--json]"; return ;;
+          --json) json=true ;;
+          %*) target="$arg" ;;
+        esac
+      done
+      local cmd="capture-pane -p"
+      if [ -n "$target" ]; then cmd="$cmd -t $target"; fi
+      local content
+      content=$(tmux $cmd)
+      if $json; then
+        # Escape for JSON: backslash, double-quote, then convert newlines
+        local escaped
+        escaped=$(printf '%s' "$content" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{if(NR>1)printf "\\n"; printf "%s",$0}')
+        printf '{"content":"%s"}\n' "$escaped"
+      else
+        echo "$content"
+      fi
+      ;;
+
+    send)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane send <keys...>"; return ;;
+        "") echo "Error: keys required" >&2; return 1 ;;
+      esac
+      run_safe "send-keys $*"
+      ;;
+
+    paste)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane paste <text>"; return ;;
+        "") echo "Error: text required" >&2; return 1 ;;
+      esac
+      local text="$*"
+      tmux load-buffer - <<< "$text"
+      run_safe "pasteb"
+      ;;
+
+    float)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane float [cmd args...]"; return ;;
+      esac
+      exec bash "$SCRIPTS_DIR/float-create.sh" "$@"
+      ;;
+
+    group)
+      cmd_pane_group "$@"
+      ;;
+
+    --help|-h)
+      usage_pane
+      ;;
+
+    "")
+      usage_pane
+      ;;
+
+    *)
+      echo "Unknown pane command: $sub" >&2
+      usage_pane >&2
+      return 1
+      ;;
+  esac
+}
+
+# --- Pane group subcommands ---
+
+cmd_pane_group() {
+  local sub="${1:-}"
+  shift 2>/dev/null || true
+
+  case "$sub" in
+    add)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane group add"; return ;;
+      esac
+      exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"
+      ;;
+
+    close)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane group close [%id]"; return ;;
+      esac
+      local pane_id="${1:-#{pane_id}}"
+      exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-close.sh $pane_id"
+      ;;
+
+    switch)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane group switch <%id>"; return ;;
+      esac
+      local pane_id="${1:?Usage: tmuxy pane group switch <pane_id>}"
+      exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-switch.sh $pane_id"
+      ;;
+
+    next)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane group next"; return ;;
+      esac
+      exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-next.sh #{pane_id}"
+      ;;
+
+    prev)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane group prev"; return ;;
+      esac
+      exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-prev.sh #{pane_id}"
+      ;;
+
+    --help|-h)
+      usage_pane_group
+      ;;
+
+    "")
+      usage_pane_group
+      ;;
+
+    *)
+      echo "Unknown group command: $sub" >&2
+      usage_pane_group >&2
+      return 1
+      ;;
+  esac
+}
+
+# --- Tab subcommands ---
+
+cmd_tab() {
+  local sub="${1:-}"
+  shift 2>/dev/null || true
+
+  case "$sub" in
+    list)
+      local json=false
+      for arg in "$@"; do
+        case "$arg" in
+          --json) json=true ;;
+          --help|-h) echo "Usage: tmuxy tab list [--json]"; return ;;
+        esac
+      done
+      if $json; then
+        tmux list-windows -F '#{window_id},#{window_index},#{window_name},#{window_panes},#{window_active}' | \
+          awk -F',' 'BEGIN{printf "["} NR>1{printf ","} {printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", $1, $2, $3, $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
+      else
+        tmux list-windows
+      fi
+      ;;
+
+    create)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy tab create [name]"; return ;;
+      esac
+      local name="${1:-}"
+      # new-window crashes tmux 3.5a — use split-window + break-pane workaround
+      local new_pane
+      new_pane=$(tmux split-window -dP -F '#{pane_id}')
+      if [ -n "$name" ]; then
+        tmux break-pane -d -s "$new_pane" -n "$name"
+      else
+        tmux break-pane -d -s "$new_pane"
+      fi
+      echo "$new_pane"
+      ;;
+
+    kill)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy tab kill [@id]"; return ;;
+      esac
+      local target="${1:-}"
+      if [ -n "$target" ]; then
+        run_safe "kill-window -t $target"
+      else
+        run_safe "kill-window"
+      fi
+      ;;
+
+    select)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy tab select <index|@id>"; return ;;
+        "") echo "Error: tab index or @id required" >&2; return 1 ;;
+      esac
+      run_safe "select-window -t $1"
+      ;;
+
+    next)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy tab next"; return ;;
+      esac
+      run_safe "next-window"
+      ;;
+
+    prev)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy tab prev"; return ;;
+      esac
+      run_safe "previous-window"
+      ;;
+
+    rename)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy tab rename <name>"; return ;;
+        "") echo "Error: name required" >&2; return 1 ;;
+      esac
+      run_safe "rename-window '$1'"
+      ;;
+
+    layout)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy tab layout [next|even-h|even-v|main-h|main-v|tiled]"; return ;;
+      esac
+      local layout="${1:-next}"
+      if [ "$layout" = "next" ]; then
+        run_safe "next-layout"
+      else
+        run_safe "select-layout $layout"
+      fi
+      ;;
+
+    --help|-h)
+      usage_tab
+      ;;
+
+    "")
+      usage_tab
+      ;;
+
+    *)
+      echo "Unknown tab command: $sub" >&2
+      usage_tab >&2
+      return 1
+      ;;
+  esac
+}
+
+# --- Widget subcommands ---
+
+cmd_widget() {
+  local sub="${1:-}"
+  shift 2>/dev/null || true
+
+  case "$sub" in
+    image)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy widget image <source>"; return ;;
+        "") echo "Error: image source required" >&2; return 1 ;;
+      esac
+      exec "$SCRIPTS_DIR/tmuxy-widget-image" "$@"
+      ;;
+
+    markdown|md)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy widget markdown <file|->"; return ;;
+        "") echo "Error: file or - required" >&2; return 1 ;;
+      esac
+      exec "$SCRIPTS_DIR/tmuxy-widget-markdown" "$@"
+      ;;
+
+    --help|-h)
+      usage_widget
+      ;;
+
+    "")
+      usage_widget
+      ;;
+
+    *)
+      echo "Unknown widget command: $sub" >&2
+      usage_widget >&2
+      return 1
+      ;;
+  esac
+}
+
+# --- Run escape hatch ---
+
+cmd_run() {
+  case "${1:-}" in
+    --help|-h) usage_run; return ;;
+    "") echo "Error: tmux command required" >&2; usage_run >&2; return 1 ;;
+  esac
+
+  local tmux_cmd="$1"
+  shift
+
+  case "$tmux_cmd" in
+    new-window|neww)
+      # Intercept: new-window crashes tmux 3.5a — use safe alternative
+      echo "Note: new-window intercepted for safety. Using split-window + break-pane." >&2
+      local name_arg=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          -n) name_arg="$2"; shift 2 ;;
+          *) shift ;;
+        esac
+      done
+      local new_pane
+      new_pane=$(tmux split-window -dP -F '#{pane_id}')
+      if [ -n "$name_arg" ]; then
+        tmux break-pane -d -s "$new_pane" -n "$name_arg"
+      else
+        tmux break-pane -d -s "$new_pane"
+      fi
+      echo "$new_pane"
+      ;;
+
+    resize-window|resizew)
+      echo "Error: resize-window is blocked — it crashes tmux with control mode attached." >&2
+      return 1
+      ;;
+
+    *)
+      run_safe "$tmux_cmd $*"
+      ;;
+  esac
+}
+
+# --- Main dispatcher ---
+
 case "${1:-}" in
-  float)
+  pane)
     shift
-    exec bash "$SCRIPTS_DIR/float-create.sh" "$@"
+    cmd_pane "$@"
     ;;
-  group)
+  tab)
     shift
-    action="${1:?Usage: tmuxy group <add|close|switch|next|prev> [args]}"
-    shift
-    case "$action" in
-      add)
-        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"
-        ;;
-      close)
-        pane_id="${1:-#{pane_id}}"
-        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-close.sh $pane_id"
-        ;;
-      switch)
-        pane_id="${1:?Usage: tmuxy group switch <pane_id>}"
-        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-switch.sh $pane_id"
-        ;;
-      next)
-        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-next.sh #{pane_id}"
-        ;;
-      prev)
-        exec tmux run-shell "bash $SCRIPTS_DIR/pane-group-prev.sh #{pane_id}"
-        ;;
-      *)
-        echo "Unknown group action: $action" >&2
-        echo "Usage: tmuxy group <add|close|switch|next|prev> [args]" >&2
-        exit 1
-        ;;
-    esac
+    cmd_tab "$@"
     ;;
-  image)
+  widget)
     shift
-    exec "$SCRIPTS_DIR/tmuxy-widget-image" "$@"
+    cmd_widget "$@"
     ;;
-  md|markdown)
+  run)
     shift
-    exec "$SCRIPTS_DIR/tmuxy-widget-markdown" "$@"
+    cmd_run "$@"
     ;;
   server)
     shift
     exec "$(find_server_binary)" "$@"
     ;;
-  --help|-h|"")
+  --help|-h)
+    usage
+    ;;
+  "")
     usage
     ;;
   *)

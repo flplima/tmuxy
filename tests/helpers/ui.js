@@ -244,26 +244,23 @@ async function getTerminalText(page) {
 }
 
 /**
- * Wait for specific text to appear in terminal using Playwright's waitForFunction
- * This is more reliable than manual polling as it uses browser-side waiting
+ * Wait for specific text to appear in terminal.
+ * Uses Node-side polling with page.evaluate for reliable cross-environment behavior.
+ * (Browser-side waitForFunction can miss transient DOM states on CI.)
  */
 async function waitForTerminalText(page, text, timeout = 15000) {
-  try {
-    await page.waitForFunction(
-      (searchText) => {
-        const logs = document.querySelectorAll('[role="log"]');
-        const content = Array.from(logs).map(l => l.textContent || '').join('\n');
-        return content.includes(searchText);
-      },
-      text,
-      { timeout, polling: 100 }
-    );
-    // Return the content after it's found
-    return await getTerminalText(page);
-  } catch (error) {
-    const content = await getTerminalText(page);
-    throw new Error(`Timeout waiting for "${text}" in terminal (${timeout}ms). Content (${content.length} chars): "${content.slice(0, 200)}"`);
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const found = await page.evaluate((searchText) => {
+      const logs = document.querySelectorAll('[role="log"]');
+      const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+      return content.includes(searchText);
+    }, text);
+    if (found) return await getTerminalText(page);
+    await delay(100);
   }
+  const content = await getTerminalText(page);
+  throw new Error(`Timeout waiting for "${text}" in terminal (${timeout}ms). Content (${content.length} chars): "${content.slice(0, 200)}"`);
 }
 
 /**
@@ -386,7 +383,7 @@ async function waitForPaneCount(page, expectedCount, timeout = 5000) {
   }
   // Log warning instead of throwing - UI sync can be slow
   const actualCount = await getUIPaneCount(page);
-  console.log(`Warning: Expected ${expectedCount} panes, found ${actualCount}`);
+  // Expected pane count not reached within timeout
   return false;
 }
 

@@ -6,6 +6,7 @@ export default [
     plugins: { jest },
     rules: {
       'jest/no-disabled-tests': 'error',
+      'no-console': ['error', { allow: ['error', 'warn'] }],
     },
   },
 ];

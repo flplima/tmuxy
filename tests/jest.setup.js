@@ -28,20 +28,16 @@ beforeAll(async () => {
   }
 
   if (!serverRunning) {
-    console.log('[setup] Dev server not running, starting via npm start...');
     try {
       execSync('npm start', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
       _weStartedServer = true;
-      console.log('[setup] Waiting for server to be ready (cargo compilation may take a while)...');
       await waitForServer(TMUXY_URL, 120000);
-      console.log('[setup] Server is ready');
     } catch (error) {
       console.error('[setup] Failed to start server:', error.message);
       throw error;
     }
   }
 
-  console.log('[warmup] Starting cold-start warmup...');
   const warmupStart = Date.now();
 
   try {
@@ -57,7 +53,6 @@ beforeAll(async () => {
       await waitForSessionReady(page, warmupSession);
     } catch {
       // Warmup session readiness is best-effort
-      console.log('[warmup] Session readiness check timed out (non-fatal)');
     }
 
     // Kill the warmup session and close the page
@@ -72,20 +67,18 @@ beforeAll(async () => {
     await page.close().catch(() => {});
     await delay(2000); // Let server clean up
 
-    console.log(`[warmup] Done in ${Date.now() - warmupStart}ms`);
-  } catch (error) {
-    console.log(`[warmup] Failed (non-fatal): ${error.message}`);
+    void warmupStart; // Used for timing, value not needed
+  } catch {
+    // Warmup failure is non-fatal
   }
 }, 180000);
 
 afterAll(async () => {
   if (_weStartedServer) {
-    console.log('[teardown] Stopping dev server we started...');
     try {
       execSync('npm run stop', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
-      console.log('[teardown] Server stopped');
-    } catch (error) {
-      console.log(`[teardown] Failed to stop server: ${error.message}`);
+    } catch {
+      // Best effort
     }
   }
 });
