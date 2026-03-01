@@ -135,6 +135,7 @@ export class DemoTmux {
         in_mode: false,
         copy_cursor_x: 0,
         copy_cursor_y: 0,
+        history_size: pane.shell.getHistorySize(),
       });
     }
 
@@ -154,7 +155,7 @@ export class DemoTmux {
       windows,
       total_width: this.totalWidth,
       total_height: this.totalHeight,
-      status_line: '',
+      status_line: this.buildStatusLine(),
     };
   }
 
@@ -422,10 +423,17 @@ export class DemoTmux {
     return true;
   }
 
-  getScrollbackCells(paneId: string): PaneContent {
+  getScrollbackCells(paneId: string, start?: number, end?: number): PaneContent {
     const pane = this.panes.get(paneId);
     if (!pane) return [];
-    return pane.shell.getContent();
+    const historySize = pane.shell.getHistorySize();
+    const height = pane.shell.getContent().length;
+    const totalLines = historySize + height;
+    // Convert tmux-relative offsets to absolute indices
+    // Tmux uses negative offsets for history (e.g., -200 to 0 = last 200 history lines + visible)
+    const absStart = start !== undefined ? historySize + start : 0;
+    const absEnd = end !== undefined ? historySize + end : totalLines;
+    return pane.shell.getScrollbackContent(absStart, absEnd);
   }
 
   renameWindow(windowId: string, name: string): boolean {
@@ -578,5 +586,17 @@ export class DemoTmux {
     const cwd = pane.shell.cwd;
     const name = cwd === '/' ? '/' : (cwd.split('/').pop() ?? 'bash');
     window.name = name;
+  }
+
+  private buildStatusLine(): string {
+    // Mimic the .tmuxy.conf status bar: green bg, black fg
+    // Format: [session] <window list>                  user@host
+    const green = '\x1b[42;30m'; // bg=green, fg=black
+    const bold = '\x1b[1m';
+    const reset = '\x1b[0m';
+    const left = `${green}${bold} [${this.sessionName}] ${reset}${green} `;
+    const right = ` demo@tmuxy `;
+    // Window names would go in between, but tmux hides them via window-status-format=''
+    return `${left}${right}${reset}`;
   }
 }

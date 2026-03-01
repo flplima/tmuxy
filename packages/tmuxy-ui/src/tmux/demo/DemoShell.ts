@@ -100,6 +100,7 @@ export class DemoShell {
   private vfs: VirtualFS;
   private tmux?: DemoTmux;
   private grid: PaneContent = [];
+  private scrollback: CellLine[] = [];
   private cursorRow = 0;
   private cursorCol = 0;
   private width: number;
@@ -142,6 +143,29 @@ export class DemoShell {
 
   getContent(): PaneContent {
     return this.grid.map((line) => [...line]);
+  }
+
+  getHistorySize(): number {
+    return this.scrollback.length;
+  }
+
+  /** Get scrollback + visible content for a range of absolute line indices */
+  getScrollbackContent(start: number, end: number): PaneContent {
+    const result: PaneContent = [];
+    const totalLines = this.scrollback.length + this.height;
+    const clampedStart = Math.max(0, start);
+    const clampedEnd = Math.min(end, totalLines);
+    for (let i = clampedStart; i < clampedEnd; i++) {
+      if (i < this.scrollback.length) {
+        result.push([...this.scrollback[i]]);
+      } else {
+        const gridIdx = i - this.scrollback.length;
+        if (gridIdx < this.grid.length) {
+          result.push([...this.grid[gridIdx]]);
+        }
+      }
+    }
+    return result;
   }
 
   getCursorX(): number {
@@ -337,6 +361,7 @@ export class DemoShell {
   }
 
   private handleClearScreen(): void {
+    this.scrollback = [];
     this.initGrid();
   }
 
@@ -640,8 +665,9 @@ export class DemoShell {
     this.cursorCol = 0;
     this.cursorRow++;
     if (this.cursorRow >= this.height) {
-      // Scroll up
-      this.grid.shift();
+      // Scroll up — save shifted line to scrollback
+      const shifted = this.grid.shift()!;
+      this.scrollback.push(shifted);
       this.grid.push(this.emptyLine());
       this.cursorRow = this.height - 1;
     }
