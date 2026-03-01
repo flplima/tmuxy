@@ -15,8 +15,16 @@ const renderTabline: RenderTabline = ({ children }) => (
   </>
 );
 
+const INIT_COMMANDS = [
+  'split-window -h',        // vertical split → pane 1 (right), now active
+  'split-window -v',        // horizontal split on right pane → pane 2 (bottom-right)
+  'select-pane -t %0',      // select left pane
+  'new-window',             // create tab 2
+  'select-window -t @0',    // back to tab 1
+];
+
 export default function TmuxyDemoInner() {
-  const adapter = useMemo(() => new DemoAdapter(), []);
+  const adapter = useMemo(() => new DemoAdapter({ initCommands: INIT_COMMANDS }), []);
 
   return (
     <div style={{ height: 500, position: 'relative', display: 'flex', flexDirection: 'column' }}>
