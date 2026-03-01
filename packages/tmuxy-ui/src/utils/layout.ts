@@ -12,19 +12,27 @@ import {
 } from '../constants';
 
 /**
- * Calculate target dimensions (cols/rows) based on window size
+ * Calculate target dimensions (cols/rows) based on available space.
  *
- * The available space is calculated as:
- * - Width: viewport width - (CONTAINER_PADDING * 2)
- * - Height: viewport height - STATUS_BAR_HEIGHT - TMUX_STATUS_BAR_HEIGHT - (CONTAINER_PADDING * 2)
+ * When containerWidth/containerHeight are provided (from ResizeObserver on .pane-container),
+ * uses those directly — the container already accounts for status bars and padding.
+ *
+ * Otherwise falls back to window dimensions with manual bar-height subtraction.
  *
  * When multiple clients are connected, the server uses the minimum cols/rows
  * across all clients (like native tmux behavior).
  */
-export function calculateTargetSize(charWidth: number): { cols: number; rows: number } {
-  const availableWidth = window.innerWidth - CONTAINER_PADDING * 2;
+export function calculateTargetSize(
+  charWidth: number,
+  containerWidth?: number,
+  containerHeight?: number,
+): { cols: number; rows: number } {
+  const availableWidth =
+    containerWidth != null ? containerWidth : window.innerWidth - CONTAINER_PADDING * 2;
   const availableHeight =
-    window.innerHeight - STATUS_BAR_HEIGHT - TMUX_STATUS_BAR_HEIGHT - CONTAINER_PADDING * 2;
+    containerHeight != null
+      ? containerHeight
+      : window.innerHeight - STATUS_BAR_HEIGHT - TMUX_STATUS_BAR_HEIGHT - CONTAINER_PADDING * 2;
 
   const cols = Math.floor(availableWidth / charWidth);
   const rows = Math.floor(availableHeight / CHAR_HEIGHT);

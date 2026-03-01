@@ -31,13 +31,17 @@ export function createSizeActor(measureFn: MeasureFn) {
     let lastCols = 0;
     let lastRows = 0;
 
+    // Track container dimensions from ResizeObserver
+    let containerWidth: number | undefined;
+    let containerHeight: number | undefined;
+
     // Measure char size and send immediately
     const charWidth = measureFn();
     input.parent.send({ type: 'SET_CHAR_SIZE', charWidth, charHeight: CHAR_HEIGHT });
 
-    // Calculate and send target size
+    // Calculate and send target size using container dimensions if available
     const updateTargetSize = () => {
-      const { cols, rows } = calculateTargetSize(charWidth);
+      const { cols, rows } = calculateTargetSize(charWidth, containerWidth, containerHeight);
       if (cols !== lastCols || rows !== lastRows) {
         lastCols = cols;
         lastRows = rows;
@@ -60,11 +64,15 @@ export function createSizeActor(measureFn: MeasureFn) {
         containerObserver = new ResizeObserver((entries) => {
           const entry = entries[0];
           if (entry) {
+            containerWidth = entry.contentRect.width;
+            containerHeight = entry.contentRect.height;
             input.parent.send({
               type: 'SET_CONTAINER_SIZE',
-              width: entry.contentRect.width,
-              height: entry.contentRect.height,
+              width: containerWidth,
+              height: containerHeight,
             });
+            // Recalculate target size when container resizes
+            updateTargetSize();
           }
         });
         containerObserver.observe(event.element);
@@ -72,6 +80,8 @@ export function createSizeActor(measureFn: MeasureFn) {
       if (event.type === 'STOP_OBSERVE') {
         containerObserver?.disconnect();
         containerObserver = null;
+        containerWidth = undefined;
+        containerHeight = undefined;
       }
       if (event.type === 'CONNECTED') {
         // Force re-send size on reconnection

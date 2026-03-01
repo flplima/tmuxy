@@ -496,6 +496,16 @@ export const appMachine = setup({
         TMUX_ERROR: {
           actions: assign(({ event }) => ({ error: event.error })),
         },
+        // Keybindings may arrive before TMUX_CONNECTED (e.g. DemoAdapter emits synchronously)
+        KEYBINDINGS_RECEIVED: {
+          actions: [
+            assign({ keybindings: ({ event }) => event.keybindings }),
+            sendTo('keyboard', ({ event }) => ({
+              type: 'UPDATE_KEYBINDINGS' as const,
+              keybindings: event.keybindings,
+            })),
+          ],
+        },
       },
     },
 
