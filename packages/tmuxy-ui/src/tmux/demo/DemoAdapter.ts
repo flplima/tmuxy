@@ -12,7 +12,10 @@ import { DemoTmux } from './DemoTmux';
 const DEFAULT_KEYBINDINGS: KeyBindings = {
   prefix_key: 'C-a',
   prefix_bindings: [
-    { key: '"', command: 'split-window', description: 'Split horizontally' },
+    { key: '-', command: 'split-window -v', description: 'Split horizontally' },
+    { key: '|', command: 'split-window -h', description: 'Split vertically' },
+    { key: '\\', command: 'split-window -h', description: 'Split vertically' },
+    { key: '"', command: 'split-window -v', description: 'Split horizontally' },
     { key: '%', command: 'split-window -h', description: 'Split vertically' },
     { key: 'c', command: 'new-window', description: 'New window' },
     { key: 'n', command: 'next-window', description: 'Next window' },
@@ -30,6 +33,15 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: 'Down', command: 'select-pane -D', description: 'Pane below' },
     { key: 'Left', command: 'select-pane -L', description: 'Pane left' },
     { key: 'Right', command: 'select-pane -R', description: 'Pane right' },
+    { key: 'H', command: 'resize-pane -L 5', description: 'Resize left' },
+    { key: 'J', command: 'resize-pane -D 5', description: 'Resize down' },
+    { key: 'K', command: 'resize-pane -U 5', description: 'Resize up' },
+    { key: 'L', command: 'resize-pane -R 5', description: 'Resize right' },
+    { key: 'r', command: 'source-file ~/.tmuxy.conf', description: 'Reload config' },
+    { key: 'S', command: 'setw synchronize-panes', description: 'Sync panes' },
+    { key: '=', command: 'tmuxy-pane-group-add', description: 'Add to pane group' },
+    { key: '>', command: 'swap-pane -D', description: 'Swap pane down' },
+    { key: '<', command: 'swap-pane -U', description: 'Swap pane up' },
     { key: '0', command: 'select-window -t :=0', description: 'Window 0' },
     { key: '1', command: 'select-window -t :=1', description: 'Window 1' },
     { key: '2', command: 'select-window -t :=2', description: 'Window 2' },
@@ -41,7 +53,31 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: '8', command: 'select-window -t :=8', description: 'Window 8' },
     { key: '9', command: 'select-window -t :=9', description: 'Window 9' },
   ],
-  root_bindings: [],
+  root_bindings: [
+    { key: 'C-h', command: 'select-pane -L', description: 'Pane left' },
+    { key: 'C-j', command: 'select-pane -D', description: 'Pane below' },
+    { key: 'C-k', command: 'select-pane -U', description: 'Pane above' },
+    { key: 'C-l', command: 'select-pane -R', description: 'Pane right' },
+    { key: 'C-Left', command: 'select-pane -L', description: 'Pane left' },
+    { key: 'C-Right', command: 'select-pane -R', description: 'Pane right' },
+    { key: 'C-Up', command: 'select-pane -U', description: 'Pane above' },
+    { key: 'C-Down', command: 'select-pane -D', description: 'Pane below' },
+    { key: 'M-h', command: 'previous-window', description: 'Previous window' },
+    { key: 'M-l', command: 'next-window', description: 'Next window' },
+    { key: 'M-j', command: 'tmuxy-pane-group-next', description: 'Next pane group' },
+    { key: 'M-k', command: 'tmuxy-pane-group-prev', description: 'Prev pane group' },
+    { key: 'M-1', command: 'select-window -t 1', description: 'Window 1' },
+    { key: 'M-2', command: 'select-window -t 2', description: 'Window 2' },
+    { key: 'M-3', command: 'select-window -t 3', description: 'Window 3' },
+    { key: 'M-4', command: 'select-window -t 4', description: 'Window 4' },
+    { key: 'M-5', command: 'select-window -t 5', description: 'Window 5' },
+    { key: 'M-6', command: 'select-window -t 6', description: 'Window 6' },
+    { key: 'M-7', command: 'select-window -t 7', description: 'Window 7' },
+    { key: 'M-8', command: 'select-window -t 8', description: 'Window 8' },
+    { key: 'M-9', command: 'select-window -t 9', description: 'Window 9' },
+    { key: 'S-Left', command: 'previous-window', description: 'Previous window' },
+    { key: 'S-Right', command: 'next-window', description: 'Next window' },
+  ],
 };
 
 export class DemoAdapter implements TmuxAdapter {
@@ -125,8 +161,13 @@ export class DemoAdapter implements TmuxAdapter {
       case 'initialize_session':
         return null as T;
 
+      case 'get_theme_settings':
+        return { theme: 'default', mode: 'dark' } as T;
+
+      case 'get_themes_list':
+        return [] as T;
+
       default:
-        console.warn(`[DemoAdapter] Unhandled command: ${cmd}`);
         return null as T;
     }
   }
@@ -311,7 +352,6 @@ export class DemoAdapter implements TmuxAdapter {
         break;
 
       default:
-        console.warn(`[DemoAdapter] Unhandled tmux command: ${cmd}`);
         break;
     }
 
