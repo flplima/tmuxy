@@ -6,7 +6,7 @@ import { useMemo } from 'react';
 
 const renderTabline: RenderTabline = ({ children }) => (
   <>
-    <div className="flex items-center gap-1.5 px-2 shrink-0">
+    <div className="flex items-center gap-1.5 shrink-0" style={{ paddingLeft: 12, paddingRight: 4 }}>
       <span className="h-3 w-3 rounded-full bg-red-500" />
       <span className="h-3 w-3 rounded-full bg-yellow-500" />
       <span className="h-3 w-3 rounded-full bg-green-500" />
