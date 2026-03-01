@@ -27,11 +27,13 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 ## `%unlinked-window-close` Events
 
-**Behavior:** When `kill-window` is used on a non-active window, tmux fires `%unlinked-window-close` instead of `%window-close`. Both event types must be handled to properly track window lifecycle.
+**Behavior:** tmux fires `%unlinked-window-close` (instead of `%window-close`) for windows from **other sessions** sharing the same tmux server. The parser handles both event types (`parser.rs`), but `state.rs` intentionally **ignores** `UnlinkedWindowClose` events to avoid polluting the current session's state with events from other sessions.
 
-**Where it's handled:**
-- `packages/tmuxy-core/src/control_mode/parser.rs` — Parses both event types
-- `packages/tmuxy-core/src/control_mode/state.rs` — Updates window state for both
+Note: `%window-close` handles window removal for the current session. `%unlinked-window-close` is only relevant in multi-session environments and is correctly ignored.
+
+## Tauri Desktop App: Missing `new-window` Workaround
+
+**Known gap:** The Tauri desktop app (`tauri-app/src/commands.rs`) calls `executor::new_window()` which uses external `tmux new-window` without the `splitw ; breakp` workaround. This will crash tmux 3.5a when a control mode client is attached. The web server version (`web-server/src/sse.rs`) has the workaround but the Tauri code path bypasses it.
 
 ## External `tmux` Commands While Control Mode Is Attached
 

@@ -12,7 +12,7 @@ Tests verify the full integration between React UI, Rust backend, tmux, and the 
 # Start the dev server first
 npm start
 
-# Run all E2E tests
+# Run all E2E tests (sequential via --runInBand, maxWorkers: 1)
 npm run test:e2e
 
 # Run with debug output
@@ -31,110 +31,53 @@ tests/
 │   ├── TmuxTestSession.js    # Tmux session wrapper class
 │   ├── browser.js            # Browser/Playwright utilities
 │   ├── ui.js                 # UI interaction helpers
-│   ├── assertions.js         # Custom assertions
 │   ├── consistency.js        # UI↔tmux state consistency checks
-│   ├── performance.js        # Performance measurement utilities
 │   ├── glitch-detector.js    # MutationObserver harness for flicker detection
 │   ├── mouse-capture.py      # Mouse event capture helper
-│   ├── tmux.js               # Tmux command helpers
 │   ├── config.js             # Test configuration
-│   └── test-setup.js         # Jest setup/teardown
-├── scenarios.test.js         # Primary E2E test suite (21 scenarios)
-└── detailed/                 # Specialized tests
-    ├── 11-osc-protocols.test.js    # OSC 8 hyperlinks, OSC 52 clipboard
-    ├── 15-glitch-detection.test.js # Visual stability (flicker, attribute churn)
-    └── 17-widgets.test.js          # Widget rendering (images, markdown)
+│   └── test-setup.js         # Context factory, snapshot comparison
+├── 1-input-interaction.test.js    # Scenarios 2, 7, 8, 9, 10, 21
+├── 2-layout-navigation.test.js   # Scenarios 4, 5, 6, 11
+├── 3-rendering-protocols.test.js  # Scenarios 14, 16, widgets
+├── 4-session-connectivity.test.js # Scenarios 12, 13
+└── 5-stress-stability.test.js     # Scenarios 17, 18, 19, 20
 ```
 
 ## Test Suites
 
-### scenarios.test.js (primary)
+### Test Suites
 
-21 chained scenarios that each run multiple operations in a single session, minimizing setup/teardown overhead. This is the main test suite that covers all core functionality:
+18 scenarios organized across 5 thematic test files. Each file creates isolated tmux sessions per `describe` block:
 
-| Scenario | Coverage |
-|----------|----------|
-| 1. Connect & Render | Page load, SSE, ANSI colors, 256/truecolor, cursor, empty lines |
-| 2. Keyboard Basics | Typing, backspace, Tab, Ctrl+C, Ctrl+D, arrow-up history |
-| 3. Pane Lifecycle | Split H/V, navigate, resize, zoom/unzoom, kill, exit last |
-| 4. Window Lifecycle | New window, tabs, next/prev, by-number, last, rename, close, layout |
-| 5. Pane Groups | Header, add button, create group, switch tabs, add/close tab, content verify |
-| 6. Floating Panes | Break-pane, float modal, header/close, tiled count, backdrop close |
-| 7. Mouse Click & Scroll | Click terminal, scroll copy mode, user-select none, double-click |
-| 8. Mouse Drag & SGR | Drag H/V divider, SGR click/wheel/right-click |
-| 9. Copy Mode Navigate | Enter, hjkl, start/end line, page up/down, exit q/Escape |
-| 10. Copy Mode Search & Yank | Set-buffer, paste, search, select, copy, repeat search n/N |
-| 11. Status Bar | Bar visible, tabs, session name, active distinct, click tab, rename, close |
-| 12. Session Reconnect | 2 panes, reload, verify preserved, split via tmux, rapid splits |
-| 13. Multi-Client | 3 panes, page2, both see layout |
-| 14. OSC Protocols | Hyperlink, multiple links, malformed, OSC 52 no crash |
-| 15. Special Characters | ; # $ {} \ ~ quotes, diacritics, paste with specials |
-| 16. Unicode Rendering | Box drawing, CJK, alignment, emoji single/multi, tree output |
-| 17. Large Output Perf | yes\|head-500, seq 1 2000, scrollback, verify responsive |
-| 18. Rapid Operations | Split x4, kill x3, split-close-split, 6 panes, 4 windows, swap |
-| 19. Complex Workflow | 3 windows x splits, navigate all, send commands, verify alive |
-| 20. Glitch Detection | Split H/V + detect, resize + detect, click focus + detect |
-| 21. Touch Scrolling | CSS prevention, normal shell, alternate screen, multi-pane isolation |
-
-### Specialized detailed tests
-
-Tests with unique assertion types not covered by scenarios:
-
-- **11-osc-protocols** — Focused OSC 8/52 sequence handling and edge cases
-- **15-glitch-detection** — MutationObserver-based flicker detection with GlitchDetector API tests
-- **17-widgets** — Image widget rendering, animation frames, widget detection edge cases
+| File | Scenarios | Coverage |
+|------|-----------|----------|
+| `1-input-interaction` | 2, 7, 8, 9, 10, 21 | Keyboard, mouse click/scroll, mouse drag/SGR, copy mode, touch |
+| `2-layout-navigation` | 4, 5, 6, 11 | Window lifecycle, pane groups, floating panes, status bar |
+| `3-rendering-protocols` | 14, 16, widgets | OSC 8/52, unicode, box drawing, image/markdown widgets |
+| `4-session-connectivity` | 12, 13 | Session reconnect, multi-client |
+| `5-stress-stability` | 17, 18, 19, 20 | Large output perf, rapid operations, complex workflow, glitch detection |
 
 ## Architecture
 
 ### Test Context
 
-Each test uses a shared context object that manages browser and tmux lifecycle:
-
-```javascript
-const ctx = createTestContext();
-
-beforeAll(ctx.beforeAll);   // Launch browser, check server
-afterAll(ctx.afterAll);     // Close browser
-beforeEach(ctx.beforeEach); // Create fresh tmux session
-afterEach(ctx.afterEach);   // Kill tmux session
-```
+Each `describe` block uses `createTestContext()` from `tests/helpers/test-setup.js`. It provides lifecycle hooks (`beforeAll`/`afterAll`/`beforeEach`/`afterEach`) that manage browser launch, server checks, tmux session creation, and cleanup. Access the browser page via `ctx.page` and the tmux session via `ctx.session`.
 
 ### TmuxTestSession
 
-Wrapper class for tmux operations:
-
-```javascript
-ctx.session.splitHorizontal();        // Split pane
-ctx.session.getPaneCount();           // Query state
-ctx.session.sendKeys('"text" Enter'); // Send input
-ctx.session.runCommand('list-panes'); // Run tmux command
-```
+Wrapper class (in `tests/helpers/TmuxTestSession.js`) for tmux operations. Key methods: `splitHorizontal()`, `getPaneCount()`, `sendKeys()`, `_exec()` (route commands through the adapter when a browser page is connected).
 
 ### UI Helpers
 
-```javascript
-await runCommand(ctx.page, 'echo hello', 'hello');   // Type and verify
-await waitForTerminalText(ctx.page, 'expected');      // Wait for content
-await getUIPaneCount(ctx.page);                       // Query UI state
-await assertStateConsistency(ctx.page, ctx.session);  // UI matches tmux
-```
+Key helpers from `tests/helpers/ui.js` and `tests/helpers/consistency.js`:
+- `runCommand(page, cmd, expected)` — Type command and wait for expected output
+- `waitForTerminalText(page, text)` — Wait for text to appear in terminal
+- `getUIPaneCount(page)` — Query pane count from XState context
+- `assertStateMatches(page)` — Verify UI state matches tmux (Levenshtein distance)
 
 ### Glitch Detection
 
-Tests can detect visual instability using MutationObserver:
-
-```javascript
-const detector = new GlitchDetector(ctx.page);
-await detector.start();
-// ... operation ...
-const result = await detector.stop();
-console.log(GlitchDetector.formatTimeline(result));
-```
-
-Detection types:
-- **Node flicker:** Element added then removed (or vice versa) within 100ms
-- **Attribute churn:** Same attribute changing rapidly (>2x in 200ms)
-- **Size jumps:** Pane dimensions changing >20px unexpectedly
+Tests can detect visual instability using `GlitchDetector` from `tests/helpers/glitch-detector.js`. It injects a MutationObserver into the browser to catch: node flicker (added+removed within 100ms), attribute churn (>2 changes in 200ms), and size jumps (>20px unexpectedly). Enable via `createTestContext({ glitchDetection: true })` or use the detector directly.
 
 ## Rules
 

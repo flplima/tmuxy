@@ -188,11 +188,11 @@ ESC ] 7 ; file://<hostname>/<path> ST
 
 ## Current Implementation Status
 
-| Feature | Parser | Renderer | Works via tmux | Notes |
-|---------|--------|----------|----------------|-------|
-| **OSC 8 Hyperlinks** | ✅ | ✅ | ✅ | Requires `terminal-features "hyperlinks"` in tmux config |
-| **iTerm2 Images** | ✅ | ✅ | ❌ | `allow-passthrough` forwards to outer terminal, not captured |
-| **Kitty Graphics** | ✅ | ✅ | ❌ | kitten detects tmux incompatibility, falls back to Unicode |
+| Feature | Status | Works via tmux | Notes |
+|---------|--------|----------------|-------|
+| **OSC 8 Hyperlinks** | ✅ Working | ✅ | Rust backend parses OSC 8 → `cell.style.url` → `TerminalLine.tsx` renders `<a>` tags. Requires `terminal-features "hyperlinks"` in tmux config |
+| **iTerm2 Images** | ❌ Inactive | ❌ | Frontend parser/renderer exist in `richContentParser.ts` and `RichContent.tsx` but are unused (dead code). `allow-passthrough` forwards to outer terminal, not captured |
+| **Kitty Graphics** | ❌ Inactive | ❌ | Frontend parser/renderer exist but are unused (dead code). kitten detects tmux incompatibility, falls back to Unicode |
 
 ### tmux Limitations
 

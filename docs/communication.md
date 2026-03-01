@@ -72,19 +72,16 @@ Tauri IPC has lower latency than HTTP since it bypasses the network stack entire
 
 ### Adapter Interface
 
-Both transports implement the same `TmuxAdapter` TypeScript interface:
+Both transports implement the `TmuxAdapter` interface defined in `tmuxy-ui/src/tmux/types.ts`. Key methods:
 
-```typescript
-interface TmuxAdapter {
-  connect(): Promise<void>;
-  disconnect(): void;
-  invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T>;
-  onStateChange(callback: (state: ServerState) => void): () => void;
-  onError(callback: (error: string) => void): () => void;
-  onKeyBindings(callback: (kb: KeyBindings) => void): () => void;
-  onConnectionInfo(callback: (id: number, shell: string) => void): () => void;
-}
-```
+- `connect()` / `disconnect()` — Lifecycle
+- `isConnected()` / `isReconnecting()` — Connection state queries
+- `invoke<T>(cmd, args?)` — Send a command to the backend (args is optional)
+- `onStateChange(listener)` — Subscribe to state updates
+- `onError(listener)` — Subscribe to error notifications
+- `onConnectionInfo(listener)` — Receive connection ID and default shell
+- `onReconnection(listener)` — Notified on successful reconnection
+- `onKeyBindings(listener)` — Receive tmux keybindings
 
 The `tmuxActor` XState actor uses whichever adapter is injected, making the frontend transport-agnostic.
 
@@ -94,7 +91,7 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 
 ### Why Control Mode Only
 
-When a tmux control mode client (`tmux -CC`) is attached to a session, running external `tmux` commands as separate processes can **crash the tmux server** (observed in tmux 3.3a and 3.5a). This is by design — the [tmux Control Mode documentation](https://github.com/tmux/tmux/wiki/Control-Mode) states that commands should be sent through the control mode client.
+When a tmux control mode client (`tmux -CC`) is attached to a session, running external `tmux` commands as separate processes can **crash the tmux server** (observed in tmux 3.3a and 3.5a). See [tmux.md](tmux.md) for version-specific workarounds. The [tmux Control Mode documentation](https://github.com/tmux/tmux/wiki/Control-Mode) states that commands should be sent through the control mode client.
 
 ### How It Works
 
@@ -113,13 +110,7 @@ Events:    Frontend ← SSE/IPC ← SseEmitter/TauriEmitter ← Monitor ← stdo
 
 ### MonitorCommand Types
 
-```rust
-enum MonitorCommand {
-    ResizeWindow { cols: u32, rows: u32 },  // Resize all windows
-    RunCommand { command: String },          // Run arbitrary tmux command
-    Shutdown,                                // Gracefully close connection
-}
-```
+The `MonitorCommand` enum (in `tmuxy-core/src/control_mode/monitor.rs`) has three variants: `ResizeWindow { cols, rows }` for viewport resize, `RunCommand { command }` for arbitrary tmux commands, and `Shutdown` for graceful disconnection.
 
 ### Acceptable tmux CLI Usage
 
@@ -129,7 +120,7 @@ The tmux CLI (`std::process::Command::new("tmux")`) is only used for operations 
 |-----------|----------|---------------|
 | `has-session` | `session.rs`, `connection.rs` | Check if session exists **before** connecting control mode |
 | `new-session` | `session.rs` | Create session **before** control mode attaches |
-| `source-file` | `session.rs` | Source config during session creation |
+| `source-file` | `session.rs`, `monitor.rs` | Source config during session creation (external) and initial state sync (control mode) |
 | `kill-session` | `session.rs` | Destroy session (no control mode attached) |
 | `capture-pane` | `executor.rs` | Used for initial state capture and scrollback history |
 | `display-message` | `executor.rs` | Query pane metadata (width, history size) |
@@ -171,28 +162,7 @@ Use short command forms when sending through control mode: `splitw`, `selectp`, 
 
 ### The `send_via_control_mode` Helper
 
-All server-side command handlers route through this function:
-
-```rust
-async fn send_via_control_mode(
-    state: &Arc<AppState>,
-    session: &str,
-    command: &str,
-) -> Result<(), String> {
-    let command_tx = {
-        let sessions = state.sessions.read().await;
-        sessions.get(session).and_then(|s| s.monitor_command_tx.clone())
-    };
-
-    if let Some(tx) = command_tx {
-        tx.send(MonitorCommand::RunCommand { command: command.to_string() })
-            .await
-            .map_err(|e| format!("Monitor channel error: {}", e))
-    } else {
-        Err("No monitor connection available".to_string())
-    }
-}
-```
+All server-side command handlers route through `send_via_control_mode()` in `web-server/src/sse.rs`. It looks up the session's `monitor_command_tx` and sends `MonitorCommand::RunCommand` through the channel, ensuring the command goes through the control mode stdin connection.
 
 ## Shell Scripts (run-shell)
 

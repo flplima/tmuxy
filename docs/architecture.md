@@ -57,36 +57,21 @@ The `TmuxMonitor` connects to tmux using **control mode** (`tmux -CC`), which pr
 
 **One monitor per session.** When the first client connects to a session, a monitor is spawned. When the last client disconnects, the monitor is stopped.
 
-```rust
-pub struct TmuxMonitor {
-    connection: ControlModeConnection,
-    state: StateAggregator,
-    config: MonitorConfig,
-    command_rx: mpsc::Receiver<MonitorCommand>,  // External commands (resize, etc.)
-}
-```
+The monitor holds a `ControlModeConnection`, a `StateAggregator` (field: `aggregator`), a `MonitorConfig`, and a `command_rx` receiver for external commands. See `tmuxy-core/src/control_mode/monitor.rs` for the full definition.
 
-The monitor exposes a command channel (`MonitorCommandSender`) for external code to send commands through the control mode connection. This is critical because **some tmux commands only work when sent through the control mode connection**, not via external `tmux` subprocess calls.
+It exposes a command channel (`MonitorCommandSender`) for external code to send commands through the control mode connection. This is critical because **some tmux commands only work when sent through the control mode connection**, not via external `tmux` subprocess calls.
 
 ### 2. SessionConnections (web-server)
 
 Tracks all clients connected to a single tmux session:
 
-```rust
-pub struct SessionConnections {
-    pub connections: Vec<u64>,             // All connection IDs
-    pub connection_channels: HashMap<...>, // Per-connection direct message channels
-    pub client_sizes: HashMap<u64, (u32, u32)>,  // Viewport sizes
-    pub monitor_command_tx: Option<MonitorCommandSender>,  // Commands to monitor
-    pub state_tx: broadcast::Sender<String>,  // Shared state updates
-    pub monitor_handle: Option<JoinHandle<()>>,  // Monitor task handle
-}
-```
-
-**Shared resources:**
-- `state_tx` - Broadcast channel for state updates, shared by all clients in the session
-- `monitor_command_tx` - Channel to send commands to the session's monitor
-- `monitor_handle` - Task handle to stop monitor when last client leaves
+Key fields (see `web-server/src/lib.rs` for the full definition):
+- `connections` — All connection IDs in order
+- `client_sizes` — Each client's reported viewport size (cols, rows)
+- `last_resize` — Last resize dimensions sent to tmux (avoids redundant resize commands)
+- `monitor_command_tx` — Channel to send commands to the session's monitor
+- `state_tx` — Broadcast channel for state updates, shared by all clients in the session
+- `monitor_handle` — Task handle to stop monitor when last client leaves
 
 ### 3. Multi-Client Viewport Sizing
 
@@ -108,18 +93,7 @@ Session sized to: 80x24
 
 When a control mode client is attached to a tmux session, external `tmux resize-window` commands (run via subprocess) are ignored. Resize commands must be sent **through the control mode connection** to take effect.
 
-```rust
-// MonitorCommand enum
-pub enum MonitorCommand {
-    ResizeWindow { cols: u32, rows: u32 },
-}
-
-// In set_client_size - server computes minimum and resizes:
-let (min_cols, min_rows) = compute_min_client_size(&session_conns.client_sizes);
-if let Some(tx) = command_tx {
-    tx.send(MonitorCommand::ResizeWindow { cols: min_cols, rows: min_rows }).await;
-}
-```
+The `MonitorCommand` enum includes `ResizeWindow { cols, rows }`, `RunCommand { command }`, and `Shutdown`. When `set_client_size` is called, the server computes the minimum viewport across all clients and sends `MonitorCommand::ResizeWindow` through the monitor's command channel. See `tmuxy-core/src/control_mode/monitor.rs` for the enum and `web-server/src/sse.rs` for the resize logic.
 
 ### 4. SSE/HTTP Protocol
 
@@ -263,7 +237,7 @@ packages/
 
 **Critical:** All tmux commands must be sent through the control mode stdin connection, NOT via external subprocess calls.
 
-When tmux control mode (`tmux -CC`) is attached to a session, running external `tmux` commands as separate processes can crash the tmux server (observed in tmux 3.3a). This is by design - the [tmux Control Mode documentation](https://github.com/tmux/tmux/wiki/Control-Mode) states that commands should be sent through the control mode client.
+When tmux control mode (`tmux -CC`) is attached to a session, running external `tmux` commands as separate processes can crash the tmux server (observed in tmux 3.3a and 3.5a). See [tmux.md](tmux.md) for version-specific workarounds.
 
 ### Architecture
 
@@ -283,24 +257,7 @@ graph LR
 
 ### Implementation
 
-All HTTP command handlers route through `send_via_control_mode()`:
-
-```rust
-async fn send_via_control_mode(state: &Arc<AppState>, session: &str, command: &str) -> Result<(), String> {
-    let command_tx = {
-        let sessions = state.sessions.read().await;
-        sessions.get(session).and_then(|s| s.monitor_command_tx.clone())
-    };
-
-    if let Some(tx) = command_tx {
-        tx.send(MonitorCommand::RunCommand { command: command.to_string() })
-            .await
-            .map_err(|e| format!("Monitor channel error: {}", e))
-    } else {
-        Err("No monitor connection available".to_string())
-    }
-}
-```
+All HTTP command handlers route through `send_via_control_mode()` in `web-server/src/sse.rs`. This function looks up the session's `monitor_command_tx` and sends `MonitorCommand::RunCommand` through the channel.
 
 ### Short Command Forms
 
@@ -344,20 +301,7 @@ The project has three distinct testing approaches, each serving different purpos
 
 **Goal:** Verify the UI renders terminal content identically to native tmux.
 
-These tests compare two text snapshots:
-- **UI Snapshot:** `window.getSnapshot()` - Renders the React terminal grid to ASCII text
-- **Tmux Snapshot:** `window.getTmuxSnapshot()` → `tmux capture-pane -p` - Native tmux output
-
-```javascript
-// Test suites enable snapshot comparison in afterEach
-const ctx = createTestContext({ snapshot: true });
-
-// After each test, compare UI vs tmux output
-// Uses Levenshtein edit distance with threshold (≤8 chars difference allowed)
-assertSnapshotsMatch(page);
-```
-
-**Tolerance:** Small differences (≤8 character edits per row) are tolerated for terminal emulation edge cases (escape sequences, cursor positioning).
+These tests compare two text snapshots: the UI snapshot (`window.getSnapshot()`) and the tmux snapshot (`tmux capture-pane -p`). Suites opt in via `createTestContext({ snapshot: true })`. Comparison uses `assertStateMatches()` from `tests/helpers/consistency.js` with Levenshtein edit distance tolerance (≤8 chars per row).
 
 **Enabled for:** Rendering-focused suites (basic connectivity, floating panes, status bar, OSC protocols).
 
@@ -365,117 +309,27 @@ assertSnapshotsMatch(page);
 
 **Goal:** Verify features work correctly with real browser interactions.
 
-Tests use real tmux sessions, real keyboard/mouse events, and real SSE/HTTP connections. No mocking.
-
-```javascript
-// Real keyboard
-await ctx.page.keyboard.press('Enter');
-
-// Real mouse
-await ctx.page.mouse.click(x, y);
-
-// State consistency - UI matches tmux
-const uiPaneCount = await getUIPaneCount(ctx.page);
-expect(uiPaneCount).toBe(ctx.session.getPaneCount());
-```
-
-**Categories:**
-- Basic connectivity & rendering
-- Keyboard input
-- Pane/window operations
-- Mouse events
-- Copy mode
-- Status bar
-- Session connection
-- OSC protocols
-- Workflows
+Tests use real tmux sessions, real keyboard/mouse events, and real SSE/HTTP connections. No mocking. Categories include keyboard input, pane/window operations, mouse events, copy mode, status bar, session connection, OSC protocols, and workflows.
 
 ### 3. E2E Performance Tests (Jest + Playwright)
 
 **Goal:** Ensure operations complete within acceptable time bounds.
 
-```javascript
-// Output performance - large content renders quickly
-await runCommand(ctx.page, 'seq 1 2000 && echo "SEQ_DONE"', 'SEQ_DONE', 15000);
-expect(elapsed).toBeLessThan(20000);
-
-// Input latency - keyboard round-trip
-const elapsed = await measureKeyboardRoundTrip(ctx.page);
-expect(elapsed).toBeLessThan(500);
-
-// Layout performance - many panes
-ctx.session.splitHorizontal(); // repeat 5x
-await waitForPaneCount(ctx.page, 6);
-```
-
-**Metrics:**
-- Rapid output (yes | head -500)
-- Large output (seq 1 2000)
-- Many panes (6+ panes)
-- Keyboard latency (<500ms)
-- Mouse click latency (<500ms)
-- Workflow round-trips (<15s)
+Metrics: rapid output (yes | head -500), large output (seq 1 2000), many panes (6+), keyboard latency (<500ms), mouse click latency (<500ms), workflow round-trips (<15s).
 
 ### 4. Glitch Detection Tests (Jest + Playwright + MutationObserver)
 
 **Goal:** Detect visual instability (flicker, layout shifts, attribute churn) that functional tests miss.
 
-These tests inject MutationObserver + size polling into the browser to catch DOM mutations during operations.
-
-```javascript
-// Start glitch detection before operation
-await ctx.startGlitchDetection({ scope: '.pane-layout' });
-
-// Perform operation
-await splitPaneKeyboard(ctx.page, 'horizontal');
-await waitForPaneCount(ctx.page, 2);
-
-// Assert no glitches detected
-await ctx.assertNoGlitches({ operation: 'split' });
-```
-
-**Detection types:**
-- **Node flicker:** Element added then removed (or vice versa) within 100ms
-- **Attribute churn:** Same attribute changing >2 times within 200ms
-- **Size jumps:** Pane dimensions changing >20px between frames outside resize
-
-**Exclusions (expected mutations):**
-- Terminal content (`.terminal-content`, `.terminal-line`)
-- Cursor updates (`.terminal-cursor`)
-- CSS transition styles during animations
-
-**File:** `tests/15-glitch-detection.test.js`
+These tests inject MutationObserver + size polling into the browser to catch DOM mutations during operations. Detection types: node flicker (added+removed within 100ms), attribute churn (>2 changes in 200ms), size jumps (>20px outside resize). See `tests/helpers/glitch-detector.js` for the `GlitchDetector` implementation.
 
 ### 5. Unit Tests (Vitest + React Testing Library)
 
-**Goal:** Test React components in isolation.
-
-```javascript
-// packages/tmuxy-ui/src/test/Terminal.test.tsx
-describe('Terminal', () => {
-  it('renders terminal lines', () => {
-    const content = createContent(['hello', 'world']);
-    render(<Terminal content={content} />);
-    expect(screen.getByTestId('terminal')).toBeInTheDocument();
-  });
-});
-```
-
-**Scope:** Component rendering, props handling, accessibility attributes.
+**Goal:** Test React components and utilities in isolation. Scope: component rendering, props handling, accessibility attributes, demo engine logic. Tests live in `packages/tmuxy-ui/src/test/` and `packages/tmuxy-ui/src/tmux/demo/__tests__/`.
 
 ### Running Tests
 
-```bash
-# E2E tests (requires dev server running)
-npm run web:dev:start
-npm run test:e2e
-
-# Specific E2E suite
-npm run test:e2e -- --testPathPattern="01-basic-connectivity"
-
-# Unit tests
-npm test
-```
+See [tests.md](tests.md) for commands and details.
 
 ### Test Files
 
@@ -486,13 +340,13 @@ tests/
 │   ├── browser.js            # Playwright utilities
 │   ├── ui.js                 # UI interaction helpers
 │   ├── glitch-detector.js    # MutationObserver harness for flicker detection
+│   ├── consistency.js        # UI↔tmux state consistency checks
 │   └── test-setup.js         # Context factory, snapshot comparison
-├── 01-basic-connectivity.test.js  # Smoke tests, rendering (snapshot: true)
-├── 02-keyboard-input.test.js      # Keyboard handling
-├── 03-pane-operations.test.js     # Split, navigate, resize
-├── ...
-├── 14-workflows.test.js           # Real-world scenarios
-└── 15-glitch-detection.test.js    # Visual stability tests (flicker, churn)
+├── 1-input-interaction.test.js    # Scenarios 2, 7, 8, 9, 10, 21
+├── 2-layout-navigation.test.js   # Scenarios 4, 5, 6, 11
+├── 3-rendering-protocols.test.js  # Scenarios 14, 16, widgets
+├── 4-session-connectivity.test.js # Scenarios 12, 13
+└── 5-stress-stability.test.js     # Scenarios 17, 18, 19, 20
 
 packages/tmuxy-ui/src/test/
 ├── Terminal.test.tsx              # Terminal component tests
