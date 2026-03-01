@@ -22,3 +22,6 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+[profile.release.package.tauri-app]
+strip = false
