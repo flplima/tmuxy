@@ -1,0 +1,66 @@
+#!/bin/bash
+# Mock tmux binary for CLI tests
+# Logs every invocation and returns canned responses
+
+# Log the call as JSON to the temp file
+if [ -n "$MOCK_TMUX_LOG" ]; then
+  # Build args array as JSON
+  args_json="["
+  first=true
+  for arg in "$@"; do
+    if $first; then first=false; else args_json="$args_json,"; fi
+    # Escape quotes and backslashes in arg
+    escaped=$(printf '%s' "$arg" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    args_json="$args_json\"$escaped\""
+  done
+  args_json="$args_json]"
+  echo "{\"args\":$args_json}" >> "$MOCK_TMUX_LOG"
+fi
+
+# Return configured exit code if set
+exit_code="${MOCK_TMUX_EXIT_CODE:-0}"
+
+# Handle stdin for load-buffer
+if [ "${1:-}" = "load-buffer" ] && [ "${2:-}" = "-" ]; then
+  cat > /dev/null
+  exit "$exit_code"
+fi
+
+# Return canned responses based on subcommand
+case "${1:-}" in
+  list-panes)
+    if [ -n "${MOCK_TMUX_LIST_PANES:-}" ]; then
+      echo "$MOCK_TMUX_LIST_PANES"
+    else
+      echo "%0,@0,120,40,zsh,1"
+      echo "%1,@0,120,40,vim,0"
+    fi
+    ;;
+  list-windows)
+    if [ -n "${MOCK_TMUX_LIST_WINDOWS:-}" ]; then
+      echo "$MOCK_TMUX_LIST_WINDOWS"
+    else
+      echo "@0,0,main,2,1"
+      echo "@1,1,editor,1,0"
+    fi
+    ;;
+  split-window)
+    echo "${MOCK_TMUX_SPLIT_PANE_ID:-%99}"
+    ;;
+  capture-pane)
+    if [ -n "${MOCK_TMUX_CAPTURE:-}" ]; then
+      echo "$MOCK_TMUX_CAPTURE"
+    else
+      echo "mock captured content"
+    fi
+    ;;
+  run-shell)
+    # Just log it, no output needed
+    ;;
+  break-pane)
+    ;;
+  *)
+    ;;
+esac
+
+exit "$exit_code"
