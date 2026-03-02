@@ -129,21 +129,21 @@ export function AppMenu() {
           <KeyLabel keybindings={keybindings} command="next-layout" />
         </MenuItem>
         <MenuDivider />
-        <SubMenu label="Theme">
-          {availableThemes.map((t) => (
-            <MenuItem key={t.name} onClick={() => send({ type: 'SET_THEME', name: t.name })}>
-              {themeName === t.name ? '\u2713 ' : '\u2003 '}
-              {t.displayName}
-            </MenuItem>
-          ))}
-        </SubMenu>
+        <MenuItem
+          onClick={() =>
+            send({ type: 'SET_THEME_MODE', mode: themeMode === 'dark' ? 'light' : 'dark' })
+          }
+        >
+          {themeMode === 'dark' ? '\u263E' : '\u2600'} {themeMode === 'dark' ? 'Dark' : 'Light'}{' '}
+          Mode
+        </MenuItem>
         <MenuDivider />
-        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}>
-          {themeMode === 'dark' ? '\u25CF ' : '\u25CB '}Dark Mode
-        </MenuItem>
-        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}>
-          {themeMode === 'light' ? '\u25CF ' : '\u25CB '}Light Mode
-        </MenuItem>
+        {availableThemes.map((t) => (
+          <MenuItem key={t.name} onClick={() => send({ type: 'SET_THEME', name: t.name })}>
+            {themeName === t.name ? '\u2713 ' : '\u2003 '}
+            {t.displayName}
+          </MenuItem>
+        ))}
       </SubMenu>
 
       <SubMenu label="Help">

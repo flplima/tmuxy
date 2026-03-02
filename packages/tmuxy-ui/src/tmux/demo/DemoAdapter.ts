@@ -8,6 +8,7 @@ import type {
   KeyBindings,
 } from '../types';
 import { DemoTmux } from './DemoTmux';
+import { saveThemeToStorage, loadThemeFromStorage } from '../../utils/themeManager';
 
 const DEFAULT_KEYBINDINGS: KeyBindings = {
   prefix_key: 'C-a',
@@ -178,20 +179,39 @@ export class DemoAdapter implements TmuxAdapter {
       case 'initialize_session':
         return null as T;
 
-      case 'set_theme':
-      case 'set_theme_mode':
+      case 'set_theme': {
+        const name = args?.name as string | undefined;
+        const mode = args?.mode as string | undefined;
+        const saved = loadThemeFromStorage();
+        saveThemeToStorage(
+          name || saved?.theme || 'default',
+          (mode === 'light' ? 'light' : mode === 'dark' ? 'dark' : null) ?? saved?.mode ?? 'dark',
+        );
         return null as T;
+      }
+      case 'set_theme_mode': {
+        const setMode = (args?.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light';
+        const prev = loadThemeFromStorage();
+        saveThemeToStorage(prev?.theme || 'default', setMode);
+        return null as T;
+      }
 
-      case 'get_theme_settings':
-        return { theme: 'default', mode: 'dark' } as T;
+      case 'get_theme_settings': {
+        const stored = loadThemeFromStorage();
+        return (stored || { theme: 'default', mode: 'dark' }) as T;
+      }
 
       case 'get_themes_list':
         return [
           { name: 'default', displayName: 'Default' },
+          { name: 'cold-harbor', displayName: 'Cold Harbor' },
           { name: 'dracula', displayName: 'Dracula' },
+          { name: 'fallout', displayName: 'Fallout' },
           { name: 'gruvbox', displayName: 'Gruvbox' },
+          { name: 'gruvbox-material', displayName: 'Gruvbox Material' },
           { name: 'nord', displayName: 'Nord' },
           { name: 'solarized', displayName: 'Solarized' },
+          { name: 'system-1', displayName: 'System 1' },
           { name: 'tokyonight', displayName: 'Tokyo Night' },
         ] as T;
 

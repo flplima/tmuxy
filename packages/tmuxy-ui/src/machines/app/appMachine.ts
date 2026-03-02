@@ -47,7 +47,7 @@ import {
 } from './helpers';
 import { handleCopyModeKey } from '../../utils/copyModeKeys';
 import { mergeScrollbackChunk, getNeededChunk } from '../../utils/copyMode';
-import { applyTheme, applyThemeMode } from '../../utils/themeManager';
+import { applyTheme, applyThemeMode, saveThemeToStorage } from '../../utils/themeManager';
 import type { CopyModeState, CellLine } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -424,6 +424,7 @@ export const appMachine = setup({
     SET_THEME: {
       actions: enqueueActions(({ event, context, enqueue }) => {
         applyTheme(event.name, context.themeMode);
+        saveThemeToStorage(event.name, context.themeMode);
         enqueue(assign({ themeName: event.name }));
         enqueue(
           sendTo('tmux', {
@@ -437,6 +438,7 @@ export const appMachine = setup({
     SET_THEME_MODE: {
       actions: enqueueActions(({ event, context, enqueue }) => {
         applyThemeMode(event.mode);
+        saveThemeToStorage(context.themeName, event.mode);
         enqueue(assign({ themeMode: event.mode }));
         enqueue(
           sendTo('tmux', {
@@ -458,6 +460,7 @@ export const appMachine = setup({
     THEME_SETTINGS_RECEIVED: {
       actions: enqueueActions(({ event, enqueue }) => {
         applyTheme(event.theme, event.mode);
+        saveThemeToStorage(event.theme, event.mode);
         enqueue(assign({ themeName: event.theme, themeMode: event.mode }));
       }),
     },
