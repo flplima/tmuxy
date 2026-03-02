@@ -10,18 +10,9 @@ function DemoTabline({ children }: { children: React.ReactNode }) {
   return (
     <>
       <div className="flex items-center gap-1.5 shrink-0" style={{ paddingLeft: 12, paddingRight: 4 }}>
-        <span
-          className="h-3 w-3 rounded-full bg-red-500"
-          style={{ opacity: appFocused ? 1 : 0.3, transition: 'opacity 0.2s' }}
-        />
-        <span
-          className="h-3 w-3 rounded-full bg-yellow-500"
-          style={{ opacity: appFocused ? 1 : 0.3, transition: 'opacity 0.2s' }}
-        />
-        <span
-          className="h-3 w-3 rounded-full bg-green-500"
-          style={{ opacity: appFocused ? 1 : 0.3, transition: 'opacity 0.2s' }}
-        />
+        <span className={`h-3 w-3 rounded-full ${appFocused ? 'bg-red-500' : 'bg-gray-500'}`} />
+        <span className={`h-3 w-3 rounded-full ${appFocused ? 'bg-yellow-500' : 'bg-gray-500'}`} />
+        <span className={`h-3 w-3 rounded-full ${appFocused ? 'bg-green-500' : 'bg-gray-500'}`} />
       </div>
       {children}
     </>
