@@ -84,11 +84,13 @@ We use DOM rendering (spans), not canvas or WebGL.
 - Accessibility (screen readers) works with DOM
 - Canvas/WebGL is premature optimization
 
-### 10. Cross-Session Features
+### 10. Cross-Session Features (Revised)
 
-We do NOT implement features that span multiple tmux sessions (session switcher, session browser, etc.). One tmuxy instance = one tmux session.
+Session switching is supported via `tmuxy session switch` and the status bar session picker. One tmuxy instance connects to one session at a time, but can switch between sessions without page reload.
 
-**Why?** Keep scope focused. Users can open multiple browser tabs.
+### 11. SSH via Web Server
+
+SSH connections (remote server attachment) are only available in the Tauri desktop app. The web server accesses the host's local tmux; there is no browser-to-SSH tunnel.
 
 ---
 

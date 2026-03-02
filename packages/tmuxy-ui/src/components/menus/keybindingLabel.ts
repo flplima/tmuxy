@@ -23,7 +23,7 @@ const KEY_DISPLAY: Record<string, string> = {
 /**
  * Format a prefix key for display: "C-b" → "^B", "C-a" → "^A"
  */
-function formatPrefixKey(prefixKey: string): string {
+export function formatPrefixKey(prefixKey: string): string {
   const match = prefixKey.match(/^C-(.)/);
   if (match) {
     return '^' + match[1].toUpperCase();

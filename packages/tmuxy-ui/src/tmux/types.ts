@@ -257,6 +257,7 @@ export interface TmuxAdapter {
   onConnectionInfo(listener: ConnectionInfoListener): () => void;
   onReconnection(listener: ReconnectionListener): () => void;
   onKeyBindings(listener: KeyBindingsListener): () => void;
+  switchSession?(sessionName: string): Promise<void>;
 }
 
 // ============================================

@@ -463,6 +463,62 @@ export const appMachine = setup({
     THEMES_LIST_RECEIVED: {
       actions: assign(({ event }) => ({ availableThemes: event.themes })),
     },
+
+    // Session events (global — work in any state)
+    SWITCH_SESSION: {
+      actions: enqueueActions(({ event, enqueue }) => {
+        enqueue(
+          assign({
+            panes: [],
+            windows: [],
+            floatPanes: {},
+            paneGroups: {},
+            activeWindowId: null,
+            activePaneId: null,
+            sessionName: event.sessionName,
+            connected: false,
+            error: null,
+            copyModeStates: {},
+            optimisticOperation: null,
+            enableAnimations: false,
+          }),
+        );
+        enqueue(
+          sendTo('tmux', {
+            type: 'SWITCH_SESSION' as const,
+            sessionName: event.sessionName,
+          }),
+        );
+        // Update browser URL without reload
+        enqueue(() => {
+          if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.set('session', event.sessionName);
+            window.history.pushState({}, '', url.toString());
+          }
+        });
+      }),
+    },
+    OPEN_SESSION_FLOAT: {
+      actions: sendTo('tmux', {
+        type: 'SEND_COMMAND' as const,
+        command:
+          'split-window "tmuxy session switch --float" \\; break-pane -d -n "__float_session"',
+      }),
+    },
+    OPEN_CONNECT_FLOAT: {
+      actions: sendTo('tmux', {
+        type: 'SEND_COMMAND' as const,
+        command: 'split-window "tmuxy session connect" \\; break-pane -d -n "__float_connect"',
+      }),
+    },
+    SESSION_SWITCH_REQUESTED: {
+      actions: enqueueActions(({ event, enqueue }) => {
+        enqueue(({ self }) => {
+          self.send({ type: 'SWITCH_SESSION', sessionName: event.sessionName });
+        });
+      }),
+    },
   },
   states: {
     connecting: {
@@ -640,6 +696,13 @@ export const appMachine = setup({
                 context.charWidth,
                 context.charHeight,
               );
+
+              // Detect float removal — check for session switch env var
+              const prevFloatCount = Object.keys(context.floatPanes).length;
+              const newFloatCount = Object.keys(floatPanes).length;
+              if (prevFloatCount > 0 && newFloatCount < prevFloatCount) {
+                enqueue(sendTo('tmux', { type: 'CHECK_SESSION_SWITCH' as const }));
+              }
 
               // Detect new panes for enter animation
               const currentPaneIds = context.panes.map((p) => p.tmuxId);
