@@ -37,30 +37,34 @@
 
 /* Tab name - plain text, clickable */
 .tab-name {
-  color: var(--text-muted);
+  color: var(--term-white);
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
   white-space: nowrap;
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-2xl);
   border-radius: var(--radius-md);
+  opacity: 0.5;
   transition:
     color var(--transition-fast),
-    background-color var(--transition-fast);
+    background-color var(--transition-fast),
+    opacity var(--transition-fast);
 }
 
 .tab-name:hover {
-  color: var(--text-secondary);
   background-color: var(--bg-medium);
+  opacity: 0.8;
 }
 
-/* Active tab: green text */
+/* Active tab */
 .tab-name-active {
-  color: var(--accent-green);
+  color: var(--term-white);
+  background-color: var(--bg-medium);
+  opacity: 1;
 }
 
 .tab-name-active:hover {
-  color: var(--accent-green);
   background-color: var(--bg-medium);
+  opacity: 1;
 }
 
 /* Add tab button */

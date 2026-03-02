@@ -55,14 +55,14 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: '9', command: 'select-window -t :=9', description: 'Window 9' },
   ],
   root_bindings: [
-    { key: 'C-h', command: 'select-pane -L', description: 'Pane left' },
-    { key: 'C-j', command: 'select-pane -D', description: 'Pane below' },
-    { key: 'C-k', command: 'select-pane -U', description: 'Pane above' },
-    { key: 'C-l', command: 'select-pane -R', description: 'Pane right' },
-    { key: 'C-Left', command: 'select-pane -L', description: 'Pane left' },
-    { key: 'C-Right', command: 'select-pane -R', description: 'Pane right' },
-    { key: 'C-Up', command: 'select-pane -U', description: 'Pane above' },
-    { key: 'C-Down', command: 'select-pane -D', description: 'Pane below' },
+    { key: 'C-h', command: 'tmuxy-nav left', description: 'Navigate left' },
+    { key: 'C-j', command: 'tmuxy-nav down', description: 'Navigate down' },
+    { key: 'C-k', command: 'tmuxy-nav up', description: 'Navigate up' },
+    { key: 'C-l', command: 'tmuxy-nav right', description: 'Navigate right' },
+    { key: 'C-Left', command: 'tmuxy-nav left', description: 'Navigate left' },
+    { key: 'C-Right', command: 'tmuxy-nav right', description: 'Navigate right' },
+    { key: 'C-Up', command: 'tmuxy-nav up', description: 'Navigate up' },
+    { key: 'C-Down', command: 'tmuxy-nav down', description: 'Navigate down' },
     { key: 'M-h', command: 'previous-window', description: 'Previous window' },
     { key: 'M-l', command: 'next-window', description: 'Next window' },
     { key: 'M-j', command: 'tmuxy-pane-group-next', description: 'Next pane group' },
@@ -424,6 +424,16 @@ export class DemoAdapter implements TmuxAdapter {
       case 'tmuxy-pane-group-prev':
         this.tmux.groupPrev();
         break;
+
+      case 'tmuxy-nav': {
+        const dir = parts[1];
+        if (dir === 'left' || dir === 'right') {
+          this.tmux.navHorizontal(dir);
+        } else if (dir === 'up' || dir === 'down') {
+          this.tmux.navVertical(dir);
+        }
+        break;
+      }
 
       case 'run-shell': {
         // Handle pane-group scripts; ignore everything else

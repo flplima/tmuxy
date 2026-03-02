@@ -11,6 +11,7 @@ export type ParsedCommand =
   | SwapCommand
   | SelectPaneCommand
   | NewWindowCommand
+  | SelectWindowCommand
   | null;
 
 export interface SplitCommand {
@@ -37,6 +38,12 @@ export interface SelectPaneCommand {
 
 export interface NewWindowCommand {
   type: 'new-window';
+}
+
+export interface SelectWindowCommand {
+  type: 'select-window';
+  /** Window index to select, or 'next'/'previous' for relative navigation */
+  target: number | 'next' | 'previous';
 }
 
 /**
@@ -106,6 +113,26 @@ export function parseCommand(command: string): ParsedCommand {
   // New window: new-window or neww
   if (trimmed.match(/^(new-window|neww)(\s|$)/)) {
     return { type: 'new-window' };
+  }
+
+  // Select window by index: select-window -t <index> or selectw -t <index>
+  // Supports formats: "5", ":5", ":=5"
+  const selectWindowMatch = trimmed.match(/^(select-window|selectw)\s+-t\s+:?=?(\d+)/);
+  if (selectWindowMatch) {
+    return {
+      type: 'select-window',
+      target: parseInt(selectWindowMatch[2], 10),
+    };
+  }
+
+  // Next window: next-window, nextw, next
+  if (trimmed.match(/^(next-window|nextw|next)(\s|$)/)) {
+    return { type: 'select-window', target: 'next' };
+  }
+
+  // Previous window: previous-window, prevw, prev
+  if (trimmed.match(/^(previous-window|prevw|prev)(\s|$)/)) {
+    return { type: 'select-window', target: 'previous' };
   }
 
   return null;

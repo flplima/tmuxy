@@ -428,11 +428,19 @@ export class DemoTmux {
     const current = positions.find((p) => p.paneId === this.activePaneId);
     if (!current) return false;
 
-    let best: { paneId: string; dist: number } | null = null;
+    // tmux-style navigation: candidate must share an edge overlap in the
+    // perpendicular axis and be adjacent in the primary axis. Among valid
+    // candidates, pick the one whose center is closest in the primary axis,
+    // breaking ties by perpendicular center distance.
+    let best: { paneId: string; primaryDist: number; crossDist: number } | null = null;
     for (const pos of positions) {
       if (pos.paneId === this.activePaneId) continue;
-      let valid = false;
-      let dist = 0;
+
+      let adjacent = false;
+      let overlaps = false;
+      let primaryDist = 0;
+      let crossDist = 0;
+
       const cx = current.x + current.width / 2;
       const cy = current.y + current.height / 2;
       const px = pos.x + pos.width / 2;
@@ -440,24 +448,39 @@ export class DemoTmux {
 
       switch (direction) {
         case 'Up':
-          valid = py < cy;
-          dist = cy - py;
+          adjacent = pos.y + pos.height <= current.y;
+          overlaps = pos.x < current.x + current.width && pos.x + pos.width > current.x;
+          primaryDist = current.y - (pos.y + pos.height);
+          crossDist = Math.abs(px - cx);
           break;
         case 'Down':
-          valid = py > cy;
-          dist = py - cy;
+          adjacent = pos.y >= current.y + current.height;
+          overlaps = pos.x < current.x + current.width && pos.x + pos.width > current.x;
+          primaryDist = pos.y - (current.y + current.height);
+          crossDist = Math.abs(px - cx);
           break;
         case 'Left':
-          valid = px < cx;
-          dist = cx - px;
+          adjacent = pos.x + pos.width <= current.x;
+          overlaps = pos.y < current.y + current.height && pos.y + pos.height > current.y;
+          primaryDist = current.x - (pos.x + pos.width);
+          crossDist = Math.abs(py - cy);
           break;
         case 'Right':
-          valid = px > cx;
-          dist = px - cx;
+          adjacent = pos.x >= current.x + current.width;
+          overlaps = pos.y < current.y + current.height && pos.y + pos.height > current.y;
+          primaryDist = pos.x - (current.x + current.width);
+          crossDist = Math.abs(py - cy);
           break;
       }
-      if (valid && (!best || dist < best.dist)) {
-        best = { paneId: pos.paneId, dist };
+
+      if (adjacent && overlaps) {
+        if (
+          !best ||
+          primaryDist < best.primaryDist ||
+          (primaryDist === best.primaryDist && crossDist < best.crossDist)
+        ) {
+          best = { paneId: pos.paneId, primaryDist, crossDist };
+        }
       }
     }
 
@@ -867,6 +890,55 @@ export class DemoTmux {
 
     const nextIdx = (idx + 1) % groupPaneIds.length;
     return this.groupSwitch(groupPaneIds[nextIdx]);
+  }
+
+  // ============================================
+  // Unified Navigation (mirrors nav.sh)
+  // ============================================
+
+  /** Navigate left/right: group pane tabs → horizontal pane splits → window tabs (circular wrap) */
+  navHorizontal(direction: 'left' | 'right'): void {
+    const activeWindow = this.getActiveWindow();
+    if (!activeWindow) return;
+
+    // Step 1: Check if active pane is in a group
+    const groupWindow = this.findGroupForPane(this.activePaneId);
+    if (groupWindow) {
+      const groupPaneIds = this.parseGroupPaneIds(groupWindow.name);
+      if (groupPaneIds && groupPaneIds.length > 1) {
+        // Find which pane from the group is visible in active window
+        const visibleId = groupPaneIds.find((id) => this.containsPane(activeWindow.layout, id));
+        if (visibleId) {
+          const idx = groupPaneIds.indexOf(visibleId);
+          if (direction === 'right' && idx < groupPaneIds.length - 1) {
+            this.groupSwitch(groupPaneIds[idx + 1]);
+            return;
+          }
+          if (direction === 'left' && idx > 0) {
+            this.groupSwitch(groupPaneIds[idx - 1]);
+            return;
+          }
+          // At edge of group — fall through to pane splits
+        }
+      }
+    }
+
+    // Step 2: Try directional pane select
+    const tmuxDir = direction === 'right' ? 'Right' : 'Left';
+    if (this.selectPaneByDirection(tmuxDir)) return;
+
+    // Step 3: Wrap to next/previous window tab
+    if (direction === 'right') {
+      this.nextWindow();
+    } else {
+      this.previousWindow();
+    }
+  }
+
+  /** Navigate up/down: vertical pane splits only (no group or tab fallback) */
+  navVertical(direction: 'up' | 'down'): void {
+    const tmuxDir = direction === 'down' ? 'Down' : 'Up';
+    this.selectPaneByDirection(tmuxDir);
   }
 
   /** Navigate to previous pane in group */

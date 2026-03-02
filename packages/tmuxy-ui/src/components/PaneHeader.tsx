@@ -12,10 +12,10 @@ import { PaneContextMenu } from './PaneContextMenu';
 import type { TmuxPane } from '../tmux/types';
 
 const PROCESS_ICONS: Record<string, string> = {
-  zsh: '\ue6b2', //  nf-seti-shell
-  bash: '\ue6b2', //  nf-seti-shell
-  fish: '\ue6b2', //  nf-seti-shell
-  sh: '\ue6b2', //  nf-seti-shell
+  zsh: '\uf120', // >_ nf-fa-terminal
+  bash: '\uf120', // >_ nf-fa-terminal
+  fish: '\uf120', // >_ nf-fa-terminal
+  sh: '\uf120', // >_ nf-fa-terminal
   vi: '\ue62b', //  nf-seti-vim
   vim: '\ue62b', //  nf-seti-vim
   nvim: '\ue62b', //  nf-seti-vim

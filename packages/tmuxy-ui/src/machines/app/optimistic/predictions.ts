@@ -12,6 +12,7 @@ import type {
   NavigatePrediction,
   SwapPrediction,
   NewWindowPrediction,
+  SelectWindowPrediction,
 } from '../../types';
 import type {
   ParsedCommand,
@@ -20,6 +21,7 @@ import type {
   SwapCommand,
   SelectPaneCommand,
   NewWindowCommand,
+  SelectWindowCommand,
 } from './commandParser';
 
 let optimisticIdCounter = 0;
@@ -64,6 +66,8 @@ export function calculatePrediction(
       return calculateSelectPanePrediction(parsed, panes, activePaneId!, command);
     case 'new-window':
       return calculateNewWindowPrediction(parsed, windows, command);
+    case 'select-window':
+      return calculateSelectWindowPrediction(parsed, panes, activeWindowId, command, windows);
     default:
       return null;
   }
@@ -502,4 +506,75 @@ export function applyNewWindowPrediction(
   };
 
   return [...windows, placeholderWindow];
+}
+
+/**
+ * Calculate select-window prediction.
+ *
+ * Determines the target window by index or relative navigation (next/previous).
+ * Also determines which pane becomes active in the target window.
+ */
+function calculateSelectWindowPrediction(
+  parsed: SelectWindowCommand,
+  panes: TmuxPane[],
+  activeWindowId: string | null,
+  command: string,
+  windows: TmuxWindow[],
+): OptimisticOperation | null {
+  if (!activeWindowId) return null;
+
+  // Filter to visible windows (exclude group/float windows)
+  const visibleWindows = windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow);
+  if (visibleWindows.length === 0) return null;
+
+  let targetWindow: TmuxWindow | undefined;
+
+  if (typeof parsed.target === 'number') {
+    targetWindow = visibleWindows.find((w) => w.index === parsed.target);
+  } else {
+    const currentIdx = visibleWindows.findIndex((w) => w.id === activeWindowId);
+    if (currentIdx === -1) return null;
+
+    if (parsed.target === 'next') {
+      const nextIdx = (currentIdx + 1) % visibleWindows.length;
+      targetWindow = visibleWindows[nextIdx];
+    } else {
+      const prevIdx = (currentIdx - 1 + visibleWindows.length) % visibleWindows.length;
+      targetWindow = visibleWindows[prevIdx];
+    }
+  }
+
+  if (!targetWindow || targetWindow.id === activeWindowId) return null;
+
+  // Find the active pane in the target window
+  const windowPanes = panes.filter((p) => p.windowId === targetWindow!.id);
+  const activePaneInWindow = windowPanes.find((p) => p.active) ?? windowPanes[0];
+  if (!activePaneInWindow) return null;
+
+  return {
+    id: generateOptimisticId(),
+    type: 'select-window',
+    command,
+    timestamp: Date.now(),
+    prediction: {
+      type: 'select-window',
+      fromWindowId: activeWindowId,
+      toWindowId: targetWindow.id,
+      toActivePaneId: activePaneInWindow.tmuxId,
+    },
+  };
+}
+
+/**
+ * Apply a select-window prediction.
+ * Returns the new activeWindowId and activePaneId.
+ */
+export function applySelectWindowPrediction(prediction: SelectWindowPrediction): {
+  activeWindowId: string;
+  activePaneId: string;
+} {
+  return {
+    activeWindowId: prediction.toWindowId,
+    activePaneId: prediction.toActivePaneId,
+  };
 }
