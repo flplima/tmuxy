@@ -1,10 +1,10 @@
 #!/bin/bash
-# Unified navigation across groups, pane splits, and tabs
+# Unified navigation across groups and pane splits (no tab wrap)
 # Args: $1=direction (left|right|up|down|next|prev), $2=current pane_id
 #
-# left/right: group panes → pane splits (horizontal) → tabs (circular wrap)
+# left/right: group panes (circular) → pane splits (horizontal)
 # up/down:    pane splits only (vertical neighbors, no fallback)
-# next:       same as right (sequential forward through hierarchy)
+# next:       same as right
 # prev:       last-pane in window, fall back to last-window
 
 set -euo pipefail
@@ -65,88 +65,31 @@ nav_horizontal() {
           idx=$((idx + 1))
         done
 
-        local last_idx=$((pane_count - 1))
-        local at_edge=false
-
-        if [ "$edge_dir" = "right" ] && [ "$visible_idx" -lt "$last_idx" ]; then
-          # Can move right within group
-          local next_idx=$((visible_idx + 1))
-          idx=0
-          for pid in $pane_ids; do
-            if [ "$idx" -eq "$next_idx" ]; then
-              exec "$SCRIPTS_DIR/pane-group-switch.sh" "$pid"
-            fi
-            idx=$((idx + 1))
-          done
-        elif [ "$edge_dir" = "left" ] && [ "$visible_idx" -gt 0 ]; then
-          # Can move left within group
-          local prev_idx=$((visible_idx - 1))
-          idx=0
-          for pid in $pane_ids; do
-            if [ "$idx" -eq "$prev_idx" ]; then
-              exec "$SCRIPTS_DIR/pane-group-switch.sh" "$pid"
-            fi
-            idx=$((idx + 1))
-          done
+        # Circular wrap within group
+        local target_idx
+        if [ "$edge_dir" = "right" ]; then
+          target_idx=$(( (visible_idx + 1) % pane_count ))
         else
-          at_edge=true
+          target_idx=$(( (visible_idx - 1 + pane_count) % pane_count ))
         fi
 
-        if ! $at_edge; then
-          return
+        if [ "$target_idx" -ne "$visible_idx" ]; then
+          idx=0
+          for pid in $pane_ids; do
+            if [ "$idx" -eq "$target_idx" ]; then
+              exec "$SCRIPTS_DIR/pane-group-switch.sh" "$pid"
+            fi
+            idx=$((idx + 1))
+          done
         fi
+        return
       fi
     fi
   fi
 
-  # Step 2: Try tmux directional select
-  local before after
-  before=$(tmux display-message -p '#{pane_id}')
+  # Step 2: Try tmux directional select (no tab fallback)
   tmux selectp "$tmux_dir" 2>/dev/null || true
-  after=$(tmux display-message -p '#{pane_id}')
-
-  if [ "$before" != "$after" ]; then
-    refresh_panes
-    return
-  fi
-
-  # Step 3: Navigate to next/prev visible tab (skip __group_* windows)
-  local windows
-  windows=$(list_visible_windows)
-  local win_count
-  win_count=$(echo "$windows" | wc -l)
-
-  if [ "$win_count" -le 1 ]; then
-    return
-  fi
-
-  local current_win
-  current_win=$(tmux display-message -p '#{window_id}')
-
-  local win_idx=0 current_idx=0
-  while IFS= read -r wid; do
-    if [ "$wid" = "$current_win" ]; then
-      current_idx=$win_idx
-    fi
-    win_idx=$((win_idx + 1))
-  done <<< "$windows"
-
-  local target_idx
-  if [ "$edge_dir" = "right" ]; then
-    target_idx=$(( (current_idx + 1) % win_count ))
-  else
-    target_idx=$(( (current_idx - 1 + win_count) % win_count ))
-  fi
-
-  local idx=0
-  while IFS= read -r wid; do
-    if [ "$idx" -eq "$target_idx" ]; then
-      tmux select-window -t "$wid"
-      refresh_panes
-      return
-    fi
-    idx=$((idx + 1))
-  done <<< "$windows"
+  refresh_panes
 }
 
 case "$DIR" in
