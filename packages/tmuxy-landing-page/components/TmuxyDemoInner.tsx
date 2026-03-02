@@ -26,26 +26,41 @@ const renderTabline: RenderTabline = ({ children }) => (
 const MARKDOWN_CONTENT = [
   '# Markdown Widget',
   '',
-  'Tmuxy renders **markdown documents**',
-  'inside terminal panes.',
+  'How is this possible?? Is it still tmux?',
   '',
-  '## Features',
+  '**Yes, it is.** Tmuxy renders rich markdown',
+  'directly inside tmux panes. The terminal',
+  'content is replaced with a React component',
+  'that renders GitHub Flavored Markdown —',
+  'headings, bold, tables, code blocks, and more.',
   '',
-  '- GitHub Flavored Markdown',
-  '- Code blocks with syntax highlighting',
-  '- Mermaid diagrams',
-  '- Live-updating content',
+  'The pane on the left is displaying an **animated',
+  'nyan cat GIF** using the same widget system.',
+  'Tmuxy detects a special marker in the pane',
+  'content and swaps the raw terminal grid for a',
+  'full image viewer — still inside tmux.',
   '',
-  '```js',
-  'const greeting = "Hello, tmuxy!";',
-  'console.log(greeting);',
-  '```',
+  '## How It Works',
   '',
-  '| Feature | Status |',
-  '|---------|--------|',
-  '| GFM | :white_check_mark: |',
-  '| Code blocks | :white_check_mark: |',
-  '| Mermaid | :white_check_mark: |',
+  'A shell command writes a widget marker +',
+  'content into the pane scrollback. The frontend',
+  'detects the marker and renders the appropriate',
+  'widget (markdown, image, or any custom one)',
+  'instead of the terminal grid.',
+  '',
+  '## What This Enables',
+  '',
+  '- **Documentation panes** — READMEs, changelogs,',
+  '  runbooks rendered inline while you work',
+  '- **Image previews** — screenshots, diagrams,',
+  '  charts, GIFs right next to your code',
+  '- **Dashboards** — live-updating markdown with',
+  '  tables, metrics, and status indicators',
+  '- **Custom widgets** — register any React',
+  '  component as a tmux pane widget',
+  '',
+  'The widget system is extensible: anything you',
+  'can render in React, you can render in a pane.',
 ].join('\n');
 
 // Split URL into short lines (pane may be narrow); TmuxyImage joins them
@@ -70,7 +85,14 @@ const INIT_COMMANDS = [
   'split-window -v',          // %5 (bottom-left)
   `write-widget %5 image ${NYAN_CAT_IMAGE}`,
   `write-widget %4 markdown ${MARKDOWN_CONTENT}`,
-  'select-pane -t %3',        // select top-left (empty shell)
+  // Top-left pane (%3): pane group with 2 panes running cat
+  'select-pane -t %3',
+  'send-keys -t %3 -l cat ~/pane-group-1.txt',
+  'send-keys -t %3 Enter',
+  'tmuxy-pane-group-add',     // creates %6, swaps into view; %3 goes to group
+  'send-keys -l cat ~/pane-group-2.txt',       // goes to %6 (now active)
+  'send-keys Enter',
+  'tmuxy-pane-group-next',    // switch back to %3 visible (first tab)
   'select-window -t @0',      // back to welcome tab
 ];
 
