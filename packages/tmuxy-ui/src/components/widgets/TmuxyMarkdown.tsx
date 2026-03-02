@@ -73,18 +73,23 @@ export function TmuxyMarkdown({ lines }: WidgetProps) {
   const meta = extractMeta(lines);
   const { content, error } = useFetchFile(meta?.filePath, meta?.seq);
 
+  // When no __FILE__ metadata, render lines directly as inline markdown
+  const inlineContent = !meta ? lines.join('\n').trim() : '';
+
+  const markdown = meta ? content : inlineContent;
+
   if (error) {
     return <div className="widget-markdown-empty">{error}</div>;
   }
 
-  if (!content.trim()) {
+  if (!markdown) {
     return <div className="widget-markdown-empty">Waiting for content...</div>;
   }
 
   return (
     <div className="widget-markdown">
       <Markdown remarkPlugins={[remarkGfm]} components={components}>
-        {content}
+        {markdown}
       </Markdown>
     </div>
   );
