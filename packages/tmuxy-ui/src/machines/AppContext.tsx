@@ -33,6 +33,19 @@ import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createSizeActor } from './actors/sizeActor';
 
+// ============================================
+// App Config (static flags passed via provider)
+// ============================================
+
+export interface AppConfig {
+  /** When true, wheel events on panes with no scrollback bubble to the parent page */
+  forwardScrollToParent?: boolean;
+  /** When true, keyboard capture is gated by click-to-focus on the app container */
+  requireFocus?: boolean;
+}
+
+const AppConfigContext = createContext<AppConfig>({});
+
 // Re-export all selectors
 export {
   selectPreviewPanes,
@@ -104,9 +117,11 @@ function measureCharWidth(): number {
 export function AppProvider({
   children,
   adapter: externalAdapter,
+  config,
 }: {
   children: ReactNode;
   adapter?: TmuxAdapter;
+  config?: AppConfig;
 }) {
   // Create adapter and actors once
   const actors = useMemo(() => {
@@ -131,7 +146,11 @@ export function AppProvider({
     }
   }, [actorRef]);
 
-  return <AppContext.Provider value={actorRef}>{children}</AppContext.Provider>;
+  return (
+    <AppConfigContext.Provider value={config ?? {}}>
+      <AppContext.Provider value={actorRef}>{children}</AppContext.Provider>
+    </AppConfigContext.Provider>
+  );
 }
 
 // ============================================
@@ -251,4 +270,15 @@ export function usePaneGroup(paneId: string): {
 export function useCopyModeState(paneId: string): CopyModeState | undefined {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.copyModeStates[paneId]);
+}
+
+/** Get the app config flags */
+export function useAppConfig(): AppConfig {
+  return useContext(AppConfigContext);
+}
+
+/** Check if the app container is focused (for keyboard capture gating) */
+export function useAppFocused(): boolean {
+  const actor = useAppActor();
+  return useSelector(actor, (snapshot) => snapshot.context.appFocused);
 }

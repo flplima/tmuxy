@@ -33,6 +33,10 @@ interface UsePaneMouseOptions {
   contentRef: RefObject<HTMLDivElement | null>;
   /** Ref to the scroll container (proxy target for wheel events) */
   scrollRef: RefObject<HTMLDivElement | null>;
+  /** Number of scrollback lines above the visible terminal */
+  historySize: number;
+  /** When true, wheel events bubble to parent when there's nothing to scroll */
+  forwardScrollToParent?: boolean;
 }
 
 /** Minimum time between drag updates (ms) */
@@ -55,6 +59,8 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     copyModeActive,
     contentRef,
     scrollRef,
+    historySize,
+    forwardScrollToParent,
   } = options;
 
   // Track mouse button state for drag events
@@ -361,6 +367,18 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
   // wheel events are intercepted and manually forwarded to the scroll container.
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
+      // When forwardScrollToParent is enabled and the pane has no scrollback,
+      // let the event bubble to the parent (e.g. landing page scroll).
+      if (
+        forwardScrollToParent &&
+        historySize === 0 &&
+        !alternateOn &&
+        !mouseAnyFlag &&
+        !copyModeActive
+      ) {
+        return;
+      }
+
       e.preventDefault();
 
       // Alternate screen (vim, less) and mouse tracking need line-quantized input.
@@ -391,7 +409,18 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         scrollRef.current.scrollTop += e.deltaY;
       }
     },
-    [send, paneId, charHeight, alternateOn, mouseAnyFlag, pixelToCell, scrollRef],
+    [
+      send,
+      paneId,
+      charHeight,
+      alternateOn,
+      mouseAnyFlag,
+      copyModeActive,
+      pixelToCell,
+      scrollRef,
+      historySize,
+      forwardScrollToParent,
+    ],
   );
 
   // Handle double-click for word selection

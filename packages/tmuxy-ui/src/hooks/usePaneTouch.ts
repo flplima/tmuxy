@@ -21,6 +21,8 @@ interface UsePaneTouchOptions {
   mouseAnyFlag: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
   send: (event: AppMachineEvent) => void;
+  historySize: number;
+  forwardScrollToParent?: boolean;
 }
 
 /** Exponential decay rate per millisecond (tuned to feel like iOS UIScrollView) */
@@ -36,7 +38,16 @@ const MAX_VELOCITY = 5;
 const VELOCITY_SAMPLES = 3;
 
 export function usePaneTouch(options: UsePaneTouchOptions) {
-  const { paneId, charHeight, alternateOn, mouseAnyFlag, scrollRef, send } = options;
+  const {
+    paneId,
+    charHeight,
+    alternateOn,
+    mouseAnyFlag,
+    scrollRef,
+    send,
+    historySize,
+    forwardScrollToParent,
+  } = options;
 
   // Touch tracking state
   const lastTouchYRef = useRef(0);
@@ -107,6 +118,9 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   const handleTouchMove = useCallback(
     (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
+      if (forwardScrollToParent && historySize === 0 && !alternateOn && !mouseAnyFlag) {
+        return;
+      }
       e.preventDefault(); // Prevent browser scroll/pull-to-refresh
 
       const touch = e.touches[0];
@@ -122,7 +136,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
 
       processPixelDelta(deltaY);
     },
-    [processPixelDelta],
+    [processPixelDelta, forwardScrollToParent, historySize, alternateOn, mouseAnyFlag],
   );
 
   const handleTouchEnd = useCallback(

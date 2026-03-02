@@ -226,6 +226,8 @@ export const appMachine = setup({
     themeName: 'default',
     themeMode: 'dark' as const,
     availableThemes: [],
+    // App focus state (for keyboard capture gating)
+    appFocused: true,
   },
   invoke: [
     {
@@ -319,6 +321,20 @@ export const appMachine = setup({
     },
     ENABLE_ANIMATIONS: {
       actions: assign({ enableAnimations: true }),
+    },
+
+    // Focus gating events
+    APP_FOCUS: {
+      actions: [
+        assign({ appFocused: true }),
+        sendTo('keyboard', { type: 'UPDATE_ENABLED' as const, enabled: true }),
+      ],
+    },
+    APP_BLUR: {
+      actions: [
+        assign({ appFocused: false }),
+        sendTo('keyboard', { type: 'UPDATE_ENABLED' as const, enabled: false }),
+      ],
     },
 
     // Connection info events

@@ -154,6 +154,8 @@ export interface AppMachineContext {
   themeMode: 'dark' | 'light';
   /** Available themes from server */
   availableThemes: Array<{ name: string; displayName: string }>;
+  /** Whether the app container is focused (for keyboard capture gating) */
+  appFocused: boolean;
 }
 
 // ============================================
@@ -373,6 +375,10 @@ export type CommandModeCancelEvent = { type: 'COMMAND_MODE_CANCEL' };
 export type ShowStatusMessageEvent = { type: 'SHOW_STATUS_MESSAGE'; text: string };
 export type ClearStatusMessageEvent = { type: 'CLEAR_STATUS_MESSAGE' };
 
+// Focus events (for keyboard capture gating)
+export type AppFocusEvent = { type: 'APP_FOCUS' };
+export type AppBlurEvent = { type: 'APP_BLUR' };
+
 // Theme events
 export type SetThemeEvent = { type: 'SET_THEME'; name: string };
 export type SetThemeModeEvent = { type: 'SET_THEME_MODE'; mode: 'dark' | 'light' };
@@ -442,7 +448,9 @@ export type AppMachineEvent =
   | SetThemeEvent
   | SetThemeModeEvent
   | ThemeSettingsReceivedEvent
-  | ThemesListReceivedEvent;
+  | ThemesListReceivedEvent
+  | AppFocusEvent
+  | AppBlurEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;
