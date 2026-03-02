@@ -23,6 +23,7 @@
   padding: 4px 12px;
   color: var(--term-white);
   border-radius: 0;
+  cursor: default;
 }
 
 .szh-menu__item:hover,
@@ -77,18 +78,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   background: transparent;
   border: none;
   border-radius: var(--radius-md);
   color: var(--text-muted);
   flex-shrink: 0;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .app-menu-button:hover {
-  background-color: var(--bg-elevated-alt);
+  background-color: var(--bg-medium);
   color: var(--text-primary);
 }
 
