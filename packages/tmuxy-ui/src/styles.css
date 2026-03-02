@@ -455,8 +455,9 @@
 
 /* Ghost indicator - shows dragged pane's current grid position */
 .pane-drag-ghost {
-  border: 1px dashed var(--accent-blue-glow);
-  background: var(--accent-blue-bg);
+  border: 1px dashed var(--accent-green);
+  background: var(--accent-green-bg);
+  opacity: 0.5;
   border-radius: 4px;
   z-index: 1;
   pointer-events: none;
