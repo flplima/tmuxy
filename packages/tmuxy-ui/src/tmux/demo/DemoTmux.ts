@@ -896,7 +896,7 @@ export class DemoTmux {
   // Unified Navigation (mirrors nav.sh)
   // ============================================
 
-  /** Navigate left/right: group pane tabs → horizontal pane splits → window tabs (circular wrap) */
+  /** Navigate left/right: group pane tabs → horizontal pane splits (circular, no tab wrap) */
   navHorizontal(direction: 'left' | 'right'): void {
     const activeWindow = this.getActiveWindow();
     if (!activeWindow) return;
@@ -910,29 +910,24 @@ export class DemoTmux {
         const visibleId = groupPaneIds.find((id) => this.containsPane(activeWindow.layout, id));
         if (visibleId) {
           const idx = groupPaneIds.indexOf(visibleId);
-          if (direction === 'right' && idx < groupPaneIds.length - 1) {
-            this.groupSwitch(groupPaneIds[idx + 1]);
+          // Circular wrap within group
+          if (direction === 'right') {
+            const nextIdx = (idx + 1) % groupPaneIds.length;
+            if (nextIdx !== idx) this.groupSwitch(groupPaneIds[nextIdx]);
             return;
           }
-          if (direction === 'left' && idx > 0) {
-            this.groupSwitch(groupPaneIds[idx - 1]);
+          if (direction === 'left') {
+            const prevIdx = (idx - 1 + groupPaneIds.length) % groupPaneIds.length;
+            if (prevIdx !== idx) this.groupSwitch(groupPaneIds[prevIdx]);
             return;
           }
-          // At edge of group — fall through to pane splits
         }
       }
     }
 
-    // Step 2: Try directional pane select
+    // Step 2: Try directional pane select (no tab fallback)
     const tmuxDir = direction === 'right' ? 'Right' : 'Left';
-    if (this.selectPaneByDirection(tmuxDir)) return;
-
-    // Step 3: Wrap to next/previous window tab
-    if (direction === 'right') {
-      this.nextWindow();
-    } else {
-      this.previousWindow();
-    }
+    this.selectPaneByDirection(tmuxDir);
   }
 
   /** Navigate up/down: vertical pane splits only (no group or tab fallback) */
