@@ -1,17 +1,12 @@
 /**
  * TmuxTestSession - Encapsulates tmux test session lifecycle and state queries
  *
- * tmux 3.5a crashes on ANY external command (even read-only) while control
- * mode is attached. All commands must route through the adapter/control mode
- * channel when the browser is connected.
+ * All mutating commands route through the tmuxy CLI (`tmuxy run ...`) which uses
+ * `tmux run-shell` to avoid crashing tmux 3.5a control mode.
  *
- * Methods fall into three categories:
- * 1. Lifecycle methods (execSync) - create(), destroy(), exists()
- *    Run BEFORE/AFTER control mode, so execSync is safe.
- * 2. Query methods (hybrid async) - getPaneCount(), getActivePaneId(), etc.
- *    Route through adapter when browser connected, execSync otherwise.
- * 3. Operation methods (hybrid async) - splitHorizontal(), killPane(), etc.
- *    Route through adapter when browser connected, execSync otherwise.
+ * State queries use either:
+ * - The browser's XState machine context (when page is connected) for accurate UI state
+ * - Direct `tmux` commands via execSync (when no page, for lifecycle operations)
  */
 
 const { execSync } = require('child_process');
@@ -19,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { WORKSPACE_ROOT } = require('./config');
+const { tmuxRun, tmuxQuery } = require('./cli');
 
 /**
  * Get the path to the tmuxy config file
@@ -63,20 +59,17 @@ class TmuxTestSession {
   // These run BEFORE control mode is attached, so they're safe as execSync
 
   /**
-   * Run a tmux command. Routes through adapter when browser is connected
-   * (to avoid crashing tmux 3.5a), falls back to execSync otherwise.
-   * Returns a Promise when browser is connected, string otherwise.
+   * Run a tmux command. Commands that are safe to run as external subprocesses
+   * (per docs/TMUX.md) run directly; others route through tmuxy CLI (run-shell).
    */
   runCommand(command) {
-    if (this.page) {
-      return this._exec(command);
+    // These commands are safe to run as external subprocesses even when
+    // control mode is attached (per docs/TMUX.md "Commands Safe to Run")
+    const safeExternally = /^(send-keys|source-file|kill-session|has-session|capture-pane|display-message|list-keys|show-options|list-windows|list-panes)\b/;
+    if (safeExternally.test(command)) {
+      return tmuxQuery(command);
     }
-    try {
-      return execSync(`tmux ${command}`, { encoding: 'utf-8' }).trim();
-    } catch (error) {
-      console.error(`Failed to run tmux command: ${command}`, error.message);
-      throw error;
-    }
+    return tmuxRun(command);
   }
 
   /**
@@ -125,11 +118,9 @@ class TmuxTestSession {
 
   /**
    * Source the tmuxy config and set up window index.
-   * Must be called AFTER browser navigation (routes through control mode).
    */
   async sourceConfig() {
-    if (!this.configPath || !this.page) {
-      // Skipping: no configPath or no page
+    if (!this.configPath) {
       return;
     }
 
@@ -150,47 +141,16 @@ class TmuxTestSession {
 
   /**
    * Destroy the tmux session.
-   * Uses destroyViaAdapter when browser is connected (routes through
-   * control mode). External `tmux kill-session` crashes tmux 3.5a when
-   * any control mode is attached, so we skip it.
+   * kill-session is safe to run externally (per docs/TMUX.md).
    */
   async destroy() {
     if (!this.created) return;
 
-    if (this.page) {
-      try {
-        await this.destroyViaAdapter();
-        return;
-      } catch {
-        // Adapter not available, fall through
-      }
+    try {
+      tmuxQuery(`kill-session -t ${this.name}`);
+    } catch {
+      // Session may already be gone
     }
-
-    // No page available — skip external tmux command (it would crash tmux 3.5a).
-    // The session will be cleaned up naturally when it becomes idle.
-    this.created = false;
-    this.page = null;
-  }
-
-  /**
-   * Destroy the tmux session through the HTTP adapter (control mode).
-   * This is SAFE to call while control mode is attached — the kill-session
-   * command is routed through the existing control mode connection, avoiding
-   * the tmux 3.5a crash that occurs with external subprocess commands.
-   *
-   * Must be called BEFORE closing the page.
-   */
-  async destroyViaAdapter() {
-    if (!this.page) {
-      throw new Error('Page not available for adapter-based destroy');
-    }
-
-    await this.page.evaluate(async (name) => {
-      if (!window._adapter) throw new Error('Adapter not available');
-      await window._adapter.invoke('run_tmux_command', {
-        command: `kill-session -t ${name}`,
-      });
-    }, this.name);
 
     // Wait for monitor to process the %exit event and disconnect
     await new Promise(r => setTimeout(r, 500));
@@ -214,72 +174,17 @@ class TmuxTestSession {
   // ==================== Hybrid Command Execution ====================
 
   /**
-   * Execute a tmux command - via adapter if browser connected, execSync otherwise.
-   * This is the core hybrid routing mechanism.
-   * @param {string} command - Full tmux command
-   * @returns {Promise<string>|string} - Result (async if browser connected)
-   */
-  /**
-   * Execute a tmux command - via adapter if browser connected, execSync otherwise.
-   * This is the core hybrid routing mechanism.
-   *
-   * IMPORTANT: Control mode is already attached to the session, so when routing
-   * through adapter, we strip the `-t session_name` from commands to avoid
-   * double-targeting which can cause issues with tmux 3.3a.
+   * Execute a tmux command. Routes safe commands directly, others through run-shell.
    *
    * @param {string} command - Full tmux command (may include -t session targeting)
-   * @returns {Promise<string>|string} - Result (async if browser connected)
+   * @returns {Promise<string>} - Result
    */
   async _exec(command) {
-    if (this.page) {
-      // Browser connected - use adapter to avoid crashing control mode
-      // Strip session name from -t targets, but preserve window:pane suffixes
-      // e.g., "-t session:2" becomes "-t :2", "-t session" is removed
-      let cleanCmd = command;
-      const targetRegex = new RegExp(` -t ${this.name}(:[^\\s]+)?`, 'g');
-      cleanCmd = command.replace(targetRegex, (match, suffix) => {
-        if (suffix) {
-          // Preserve the window:pane suffix (e.g., :1 or :.+ or :%5)
-          return ` -t ${suffix}`;
-        }
-        // No suffix, just remove the session target
-        return '';
-      });
-      const result = await Promise.race([
-        this.page.evaluate(async (cmd) => {
-          if (!window._adapter) {
-            throw new Error('Adapter not available - is dev mode enabled?');
-          }
-          // Retry on transient failures (monitor not ready yet)
-          // Monitor connection can take a few seconds to establish after page reload
-          let lastError = null;
-          for (let attempt = 0; attempt < 10; attempt++) {
-            try {
-              return await window._adapter.invoke('run_tmux_command', { command: cmd });
-            } catch (e) {
-              lastError = e;
-              if (e.message?.includes('No monitor connection')) {
-                // Wait for monitor to connect (exponential backoff: 200, 400, 800, ..., max 2000)
-                await new Promise(r => setTimeout(r, Math.min(200 * Math.pow(2, attempt), 2000)));
-                continue;
-              }
-              throw e; // Non-transient error, rethrow
-            }
-          }
-          throw lastError || new Error('Failed after retries');
-        }, cleanCmd),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`_exec timeout after 30s: ${cleanCmd}`)), 30000)
-        ),
-      ]);
-      // Wait for tmux to process the command and propagate state
-      // Chain: control mode → tmux → event → monitor → SSE → browser → XState
-      await new Promise(r => setTimeout(r, 250));
-      return result;
-    } else {
-      // No browser - use execSync (safe, control mode not attached)
-      return this.runCommandSync(command);
-    }
+    const result = this.runCommand(command);
+    // Wait for tmux to process the command and propagate state
+    // Chain: tmux → event → monitor → SSE → browser → XState
+    await new Promise(r => setTimeout(r, 250));
+    return result;
   }
 
   /**

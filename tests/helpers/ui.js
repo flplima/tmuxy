@@ -490,14 +490,20 @@ async function toggleZoomKeyboard(page) {
 // ==================== Window Operations ====================
 
 /**
- * Create new window via the XState SEND_COMMAND event.
- * Uses the 'new-window' command which the server intercepts and converts
- * to split-window + break-pane (since new-window crashes tmux 3.5a control mode).
+ * Create new window via the server's HTTP command endpoint.
+ * Routes through control mode which handles the new-window → split-window +
+ * break-pane workaround (since new-window crashes tmux 3.5a control mode).
  */
 async function createWindowKeyboard(page) {
-  await page.evaluate(async () => {
-    await window._adapter.invoke('run_tmux_command', { command: 'new-window' });
-  });
+  const { TMUXY_URL } = require('./config');
+  await page.evaluate(async (url) => {
+    const session = window.app?.getSnapshot()?.context?.sessionName || '';
+    await fetch(`${url}/commands?session=${encodeURIComponent(session)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Connection-Id': '1' },
+      body: JSON.stringify({ cmd: 'run_tmux_command', args: { command: 'new-window' } }),
+    });
+  }, TMUXY_URL);
   await delay(DELAYS.SYNC);
 }
 

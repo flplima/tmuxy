@@ -108,16 +108,16 @@ jobs:
       # --- Build ---
 
       - name: Build frontend
-        run: VITE_E2E=true npm run build -w tmuxy-ui
+        run: npm run build -w tmuxy-ui
 
-      - name: Build server
-        run: cargo build -p tmuxy-server
+      - name: Build server (release)
+        run: cargo build --release -p tmuxy-server
 
       # --- E2E Tests ---
 
       - name: Start server
         run: |
-          PORT=9000 ./target/debug/tmuxy-server 2>/tmp/tmuxy-server.log &
+          ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
           node -e "
             const start = Date.now();
             const timeout = 30000;

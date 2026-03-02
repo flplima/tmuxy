@@ -6,6 +6,7 @@
 
 const { chromium } = require('playwright');
 const { CDP_PORT, TMUXY_URL, DELAYS } = require('./config');
+const { tmuxQuery } = require('./cli');
 
 /**
  * Helper to wait for a given time
@@ -122,23 +123,19 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
 
 /**
  * Verified round-trip readiness gate.
- * Sends a unique marker through the full pipeline (adapter → tmux → terminal → DOM)
+ * Sends a unique marker through the full pipeline (CLI → tmux → SSE → DOM)
  * and waits for it to appear. This ensures the entire data path is working
  * before the test proceeds.
  */
 async function verifyRoundTrip(page, sessionName, timeout = 20000) {
   const marker = `READY_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  // Send marker through adapter → tmux control mode → shell
-  await page.evaluate(async (cmd) => {
-    await window._adapter?.invoke('run_tmux_command', { command: cmd });
-  }, `send-keys -l 'echo ${marker}'`);
-  await page.evaluate(async () => {
-    await window._adapter?.invoke('run_tmux_command', { command: 'send-keys Enter' });
-  });
+  // Send marker through CLI → tmux run-shell → shell
+  tmuxQuery(`send-keys -t ${sessionName} -l 'echo ${marker}'`);
+  tmuxQuery(`send-keys -t ${sessionName} Enter`);
 
   // Wait for marker to appear in the DOM — this is the definitive readiness gate.
-  // If this fails, the full pipeline (adapter → control mode → tmux → SSE → DOM)
+  // If this fails, the full pipeline (CLI → tmux → SSE → DOM)
   // is not working and the test cannot proceed.
   await page.waitForFunction(
     (m) => {
@@ -186,53 +183,33 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
     // Shell prompt not detected within timeout
   }
 
-  // Phase 2: Wait for adapter to be available
+  // Phase 2: Wait for window.app to be available (XState machine loaded)
   try {
     await page.waitForFunction(
-      () => typeof window._adapter?.invoke === 'function',
+      () => !!window.app?.getSnapshot,
       { timeout: 5000, polling: 100 }
     );
   } catch {
-    throw new Error(`HTTP adapter not available after 5s for session '${sessionName}'`);
+    throw new Error(`window.app not available after 5s for session '${sessionName}'`);
   }
 
-  // Phase 3: Wait for monitor (control mode) connection with exponential backoff.
-  // The adapter may be available but the monitor might not be connected yet —
-  // this can take several seconds when the server is starting a new control
-  // mode connection for a fresh session (especially on cold start).
+  // Phase 3: Wait for tmux session to exist and be responsive via CLI.
+  // The server creates the session when the browser navigates to the URL,
+  // but it may take a moment for control mode to attach.
   const monitorTimeout = 30000;
   const monitorStart = Date.now();
   let backoff = 200;
   const maxBackoff = 2000;
 
   while (Date.now() - monitorStart < monitorTimeout) {
-    const ready = await page.evaluate(async () => {
-      try {
-        await window._adapter?.invoke('run_tmux_command', { command: 'display-message ""' });
-        return true;
-      } catch {
-        return false;
-      }
-    }).catch(() => false);
-
-    if (ready) break;
-
+    try {
+      tmuxQuery(`display-message -t ${sessionName} ""`);
+      break;
+    } catch {
+      // Session not ready yet
+    }
     await delay(backoff);
     backoff = Math.min(backoff * 1.5, maxBackoff);
-  }
-
-  // Verify it actually connected
-  const finalCheck = await page.evaluate(async () => {
-    try {
-      await window._adapter?.invoke('run_tmux_command', { command: 'display-message ""' });
-      return true;
-    } catch {
-      return false;
-    }
-  }).catch(() => false);
-
-  if (!finalCheck) {
-    throw new Error(`Monitor connection not ready after ${monitorTimeout / 1000}s for session '${sessionName}'`);
   }
 
   // Additional delay to ensure keyboard actor has received UPDATE_SESSION
