@@ -231,14 +231,11 @@ function AnimatedPaneWrapper({
   elevated,
   children,
 }: AnimatedPaneWrapperProps) {
-  const transformStyle: React.CSSProperties =
-    targetX || targetY
-      ? {
-          ...style,
-          transform: `translate3d(${targetX}px, ${targetY}px, 0)`,
-          zIndex: elevated ? 'var(--z-dragging)' : undefined,
-        }
-      : style;
+  const transformStyle: React.CSSProperties = {
+    ...style,
+    transform: `translate3d(${targetX}px, ${targetY}px, 0)`,
+    zIndex: elevated ? 'var(--z-dragging)' : undefined,
+  };
 
   return (
     <div data-pane-id={pane.tmuxId} className={className} style={transformStyle}>
