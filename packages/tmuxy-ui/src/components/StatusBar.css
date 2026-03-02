@@ -92,18 +92,18 @@
 
 /* Tab placeholder (drag target) */
 .tab-placeholder {
-  border: 2px dashed rgba(100, 150, 255, 0.8);
-  background-color: rgba(100, 150, 255, 0.15);
-  color: rgba(100, 150, 255, 0.9);
+  border: 2px dashed var(--accent-blue-light);
+  background-color: var(--accent-blue-bg);
+  color: var(--accent-blue-light);
   animation: pulse-placeholder 1s ease-in-out infinite;
 }
 
 @keyframes pulse-placeholder {
   0%,
   100% {
-    background-color: rgba(100, 150, 255, 0.15);
+    background-color: var(--accent-blue-bg);
   }
   50% {
-    background-color: rgba(100, 150, 255, 0.25);
+    background-color: var(--accent-blue-bg-hover);
   }
 }

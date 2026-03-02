@@ -1,6 +1,6 @@
 .terminal-cursor {
-  background-color: #d4d4d4;
-  color: #1e1e1e;
+  background-color: var(--cursor-bg);
+  color: var(--cursor-text);
 }
 
 .terminal-cursor-blink {
@@ -9,27 +9,27 @@
 
 .terminal-cursor-inactive {
   background-color: transparent;
-  outline: 1px solid #888;
+  outline: 1px solid var(--cursor-inactive);
   color: inherit;
 }
 
 .terminal-cursor-copy {
-  background-color: #264f78;
-  color: #d4d4d4;
+  background-color: var(--cursor-copy-bg);
+  color: var(--cursor-bg);
 }
 
 .terminal-cursor-underline {
   background-color: transparent;
   color: inherit;
   text-decoration: underline;
-  text-decoration-color: #d4d4d4;
+  text-decoration-color: var(--cursor-bg);
   text-decoration-thickness: 2px;
 }
 
 .terminal-cursor-bar {
   background-color: transparent;
   color: inherit;
-  border-left: 2px solid #d4d4d4;
+  border-left: 2px solid var(--cursor-bg);
 }
 
 @keyframes cursor-blink {

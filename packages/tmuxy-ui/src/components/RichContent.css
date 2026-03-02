@@ -2,7 +2,7 @@
 
 /* Hyperlinks */
 .rich-link {
-  color: #6ab0f3;
+  color: var(--link-color);
   text-decoration: underline;
   text-decoration-style: dotted;
   text-underline-offset: 2px;
@@ -12,12 +12,12 @@
 }
 
 .rich-link:hover {
-  color: #8cc4ff;
+  color: var(--link-hover);
   text-decoration-style: solid;
 }
 
 .rich-link:active {
-  color: #4a9ae8;
+  color: var(--link-active);
 }
 
 .rich-link-invalid {
@@ -40,23 +40,23 @@
 .rich-image {
   display: block;
   border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-sm);
 }
 
 .rich-image-error {
   display: inline-block;
   padding: 2px 6px;
-  background-color: rgba(229, 57, 53, 0.2);
-  border: 1px solid rgba(229, 57, 53, 0.4);
+  background-color: var(--error-bg);
+  border: 1px solid var(--error-border);
   border-radius: 3px;
-  color: #e57373;
+  color: var(--error-text);
   font-size: 0.85em;
   font-family: inherit;
 }
 
 /* Image hover effects */
 .rich-image:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md);
 }
 
 /* Image lightbox (future enhancement) */
@@ -96,7 +96,12 @@
   display: inline-block;
   width: 48px;
   height: 32px;
-  background: linear-gradient(90deg, #333 25%, #444 50%, #333 75%);
+  background: linear-gradient(
+    90deg,
+    var(--bg-medium) 25%,
+    var(--bg-elevated-alt) 50%,
+    var(--bg-medium) 75%
+  );
   background-size: 200% 100%;
   animation: rich-image-pulse 1.5s ease-in-out infinite;
   border-radius: 4px;
