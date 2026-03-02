@@ -180,10 +180,10 @@ export class DemoShell {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
-    // Widget grids can exceed pane height — preserve all rows, only adjust width
-    const rowCount = this.widgetGrid ? Math.max(this.grid.length, height) : height;
+    // Widget grids store raw text — preserve all rows and columns untouched
+    if (this.widgetGrid) return;
     const newGrid: PaneContent = [];
-    for (let r = 0; r < rowCount; r++) {
+    for (let r = 0; r < height; r++) {
       if (r < this.grid.length) {
         const oldRow = this.grid[r];
         const newRow: CellLine = [];
@@ -204,39 +204,18 @@ export class DemoShell {
   writeWidgetContent(widgetName: string, contentLines: string[]): void {
     this.scrollback = [];
     this.widgetGrid = true;
-    // Expand grid to fit all content — widget grids are data transport, never
-    // rendered as terminal cells, so they can exceed the visible pane size.
-    const totalRows = 1 + contentLines.length; // marker + content
-    const rows = Math.max(this.height, totalRows);
-    this.grid = Array.from({ length: rows }, () =>
-      Array.from({ length: this.width }, () => ({ c: ' ' })),
-    );
-    let row = 0;
-    let col = 0;
-    const put = (text: string) => {
-      for (const ch of text) {
-        if (row >= rows) return;
-        this.grid[row][col] = { c: ch };
-        col++;
-        if (col >= this.width) {
-          col = 0;
-          row++;
-        }
-      }
-    };
-    // Marker on first row
-    put(`__TMUXY_WIDGET__:${widgetName}`);
-    row++;
-    col = 0;
-    // Content lines, each starting on a new row
-    for (const line of contentLines) {
-      if (row >= rows) break;
-      put(line);
-      row++;
-      col = 0;
+    // Widget grids are data transport for the React renderer — never shown as
+    // terminal cells. Store each line as a full-width row (no column truncation
+    // or wrapping) so detectWidget() recovers the original text intact.
+    const marker = `__TMUXY_WIDGET__:${widgetName}`;
+    const allLines = [marker, ...contentLines];
+    this.grid = allLines.map((line) => [...line].map((c) => ({ c })));
+    // Pad to at least this.height rows so getContent() returns enough rows
+    while (this.grid.length < this.height) {
+      this.grid.push(Array.from({ length: this.width }, () => ({ c: ' ' })));
     }
-    this.cursorRow = Math.min(row, this.height - 1);
-    this.cursorCol = col;
+    this.cursorRow = Math.min(allLines.length, this.height - 1);
+    this.cursorCol = 0;
   }
 
   /** Write a welcome banner to the grid */
