@@ -100,10 +100,20 @@ struct FileQuery {
 
 async fn file_handler(Query(query): Query<FileQuery>) -> Response {
     let path = std::path::Path::new(&query.path);
-    match std::fs::read_to_string(path) {
+    let content_type = match path.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("bmp") => "image/bmp",
+        Some("ico") => "image/x-icon",
+        _ => "text/plain; charset=utf-8",
+    };
+    match std::fs::read(path) {
         Ok(content) => Response::builder()
             .status(axum::http::StatusCode::OK)
-            .header("Content-Type", "text/plain; charset=utf-8")
+            .header("Content-Type", content_type)
             .body(Body::from(content))
             .unwrap(),
         Err(e) => Response::builder()

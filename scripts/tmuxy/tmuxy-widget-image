@@ -24,5 +24,5 @@ else
   fi
 fi
 
-# Output widget marker + JSON metadata via tmuxy-widget
-printf '{"src":"%s"}\n' "$RESOLVED" | "${SCRIPTS_DIR}/tmuxy-widget" image
+# Output resolved path/URL via tmuxy-widget marker; keep pipe open so widget persists
+{ echo "$RESOLVED"; while true; do sleep 3600; done; } | "${SCRIPTS_DIR}/tmuxy-widget" image

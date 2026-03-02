@@ -50,9 +50,10 @@ const MARKDOWN_CONTENT = [
 
 // Split URL into short lines (pane may be narrow); TmuxyImage joins them
 const NYAN_CAT_IMAGE = [
-  'https://upload.wikimedia.org/',
-  'wikipedia/en/e/ed/',
-  'Nyan_cat_250px_frame.PNG',
+  'https://gist.githubusercontent.com/',
+  'brudnak/',
+  'aba00c9a1c92d226f68e8ad8ba1e0a40/',
+  'raw/nyan-cat.gif',
 ].join('\n');
 
 const INIT_COMMANDS = [

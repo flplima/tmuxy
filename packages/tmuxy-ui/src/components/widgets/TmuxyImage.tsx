@@ -16,6 +16,7 @@ export function TmuxyImage({ lines }: WidgetProps) {
   // base64 data URI pattern to avoid matching across URI boundaries.
   const dataPattern = /data:image\/[^;]+;base64,[A-Za-z0-9+/]+=*/g;
   const httpPattern = /https?:\/\/[^\s]+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?[^\s]*)?/gi;
+  const filePattern = /\/[^\s]+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)/gi;
   let src = '';
   let match;
   while ((match = dataPattern.exec(joined)) !== null) {
@@ -24,6 +25,11 @@ export function TmuxyImage({ lines }: WidgetProps) {
   if (!src) {
     while ((match = httpPattern.exec(joined)) !== null) {
       src = match[0];
+    }
+  }
+  if (!src) {
+    while ((match = filePattern.exec(joined)) !== null) {
+      src = `/api/file?path=${encodeURIComponent(match[0])}`;
     }
   }
 
