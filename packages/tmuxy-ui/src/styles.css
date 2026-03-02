@@ -527,10 +527,7 @@ body {
   height: 100%;
   background-color: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
-  transition:
-    color var(--transition-fast),
-    border-color var(--transition-fast);
+  transition: color var(--transition-fast);
   flex-shrink: 0;
   min-width: 0;
 }
@@ -539,18 +536,14 @@ body {
   color: var(--text-secondary);
 }
 
-/* Selected tab in a group (but pane not active) - underline indicator */
-.pane-tab-selected {
-  border-bottom-color: var(--text-dimmed);
-}
-
+/* Selected tab in a group (but pane not active) */
 .pane-tab-selected .pane-tab-title {
   color: inherit;
 }
 
-/* Active tab: accent underline, bright text */
+/* Active tab: bright text */
 .pane-tab-active {
-  border-bottom-color: var(--accent-green);
+  color: var(--term-bright-white);
 }
 
 /* Pane tab icon - clickable, opens pane menu */
@@ -580,26 +573,38 @@ body {
   font-weight: 500;
 }
 
-/* Pane tab add button */
-.pane-tab-add {
+/* Pane close button */
+.pane-header-close {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 16px;
   height: 16px;
-  margin: 0 4px;
+  margin: 0 4px 0 auto;
   padding: 0;
   background: transparent;
   border: none;
+  border-radius: var(--radius-sm);
   color: inherit;
-  font-size: 12px;
-  transition: color var(--transition-fast);
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  transition:
+    color var(--transition-fast),
+    opacity var(--transition-fast),
+    background-color var(--transition-fast);
   flex-shrink: 0;
   z-index: 60; /* Above resize dividers */
 }
 
-.pane-tab-add:hover {
-  color: var(--text-muted);
+.pane-header:hover .pane-header-close {
+  opacity: 1;
+}
+
+.pane-header-close:hover {
+  background-color: var(--error-color);
+  color: white;
+  opacity: 1;
 }
 
 /* ============================================

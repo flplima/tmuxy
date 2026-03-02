@@ -199,14 +199,12 @@ export function PaneHeader({ paneId, titleOverride, widgetName }: PaneHeaderProp
     send({ type: 'TAB_CLICK', paneId: clickedPaneId });
   };
 
-  const handleAddPane = (e: React.MouseEvent) => {
+  const handleClosePane = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    send({
-      type: 'SEND_TMUX_COMMAND',
-      command:
-        'run-shell "scripts/tmuxy/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"',
-    });
+    // Kill the active pane in the group (or the only pane)
+    const targetId = activePaneId ?? tmuxId;
+    send({ type: 'SEND_TMUX_COMMAND', command: `kill-pane -t ${targetId}` });
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
@@ -289,12 +287,12 @@ export function PaneHeader({ paneId, titleOverride, widgetName }: PaneHeaderProp
         })}
       </div>
       <button
-        className="pane-tab-add"
-        onClick={handleAddPane}
-        title="Add pane to group"
-        aria-label="Add new pane to group"
+        className="pane-header-close"
+        onClick={handleClosePane}
+        title="Close pane"
+        aria-label="Close pane"
       >
-        +
+        ✕
       </button>
       {contextMenu.visible && (
         <PaneContextMenu
