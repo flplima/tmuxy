@@ -128,10 +128,11 @@ export class DemoTmux {
     const panes: ServerPane[] = [];
     for (const [, pane] of this.panes) {
       const pos = posMap.get(pane.id);
-      // Include panes from active window, plus float panes
+      // Include panes from active window, float windows, and group windows
       const paneWindow = this.windows.find((w) => w.id === pane.windowId);
       const isFloat = paneWindow?.name.startsWith('__float_') ?? false;
-      if (pane.windowId !== this.activeWindowId && !isFloat) continue;
+      const isGroup = paneWindow?.name.startsWith('__group_') ?? false;
+      if (pane.windowId !== this.activeWindowId && !isFloat && !isGroup) continue;
       // In zoom mode, only show the zoomed pane from the active window
       if (
         this.zoomedPaneId &&
