@@ -105,6 +105,7 @@ export class DemoShell {
   private cursorCol = 0;
   private width: number;
   private height: number;
+  private widgetGrid = false;
   /** Saved input when browsing history */
   private savedInput = '';
 
@@ -179,9 +180,10 @@ export class DemoShell {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
-    // Rebuild grid preserving content
+    // Widget grids can exceed pane height — preserve all rows, only adjust width
+    const rowCount = this.widgetGrid ? Math.max(this.grid.length, height) : height;
     const newGrid: PaneContent = [];
-    for (let r = 0; r < height; r++) {
+    for (let r = 0; r < rowCount; r++) {
       if (r < this.grid.length) {
         const oldRow = this.grid[r];
         const newRow: CellLine = [];
@@ -201,12 +203,19 @@ export class DemoShell {
   /** Replace the grid with a widget marker + content lines (direct cell write) */
   writeWidgetContent(widgetName: string, contentLines: string[]): void {
     this.scrollback = [];
-    this.initGrid();
+    this.widgetGrid = true;
+    // Expand grid to fit all content — widget grids are data transport, never
+    // rendered as terminal cells, so they can exceed the visible pane size.
+    const totalRows = 1 + contentLines.length; // marker + content
+    const rows = Math.max(this.height, totalRows);
+    this.grid = Array.from({ length: rows }, () =>
+      Array.from({ length: this.width }, () => ({ c: ' ' })),
+    );
     let row = 0;
     let col = 0;
     const put = (text: string) => {
       for (const ch of text) {
-        if (row >= this.height) return;
+        if (row >= rows) return;
         this.grid[row][col] = { c: ch };
         col++;
         if (col >= this.width) {
@@ -221,7 +230,7 @@ export class DemoShell {
     col = 0;
     // Content lines, each starting on a new row
     for (const line of contentLines) {
-      if (row >= this.height) break;
+      if (row >= rows) break;
       put(line);
       row++;
       col = 0;
