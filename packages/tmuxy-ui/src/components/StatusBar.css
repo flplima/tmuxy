@@ -41,7 +41,7 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
   white-space: nowrap;
-  padding: var(--spacing-sm) var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
   border-radius: var(--radius-md);
   transition:
     color var(--transition-fast),
