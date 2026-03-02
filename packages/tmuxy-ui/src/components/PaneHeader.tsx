@@ -222,9 +222,10 @@ export function PaneHeader({
   const handleClosePane = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // Kill the active pane in the group (or the only pane)
+    // Uses CLOSE_PANE which routes through pane-group-close.sh
+    // to handle both grouped and ungrouped panes correctly.
     const targetId = activePaneId ?? tmuxId;
-    send({ type: 'SEND_TMUX_COMMAND', command: `kill-pane -t ${targetId}` });
+    send({ type: 'CLOSE_PANE', paneId: targetId });
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {

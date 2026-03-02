@@ -413,9 +413,39 @@ export class DemoAdapter implements TmuxAdapter {
         this.tmux.breakPane();
         break;
 
+      case 'tmuxy-pane-group-add':
+        this.tmux.groupAdd();
+        break;
+
+      case 'tmuxy-pane-group-next':
+        this.tmux.groupNext();
+        break;
+
+      case 'tmuxy-pane-group-prev':
+        this.tmux.groupPrev();
+        break;
+
+      case 'run-shell': {
+        // Handle pane-group scripts; ignore everything else
+        const cmdStr = parts.join(' ');
+        if (cmdStr.includes('pane-group-add')) {
+          this.tmux.groupAdd();
+        } else if (cmdStr.includes('pane-group-switch')) {
+          const paneMatch = cmdStr.match(/%\d+/);
+          if (paneMatch) this.tmux.groupSwitch(paneMatch[0]);
+        } else if (cmdStr.includes('pane-group-close')) {
+          const paneMatch = cmdStr.match(/%\d+/);
+          const targetId = paneMatch ? paneMatch[0] : undefined;
+          // groupClose handles grouped panes; falls back to killPane for ungrouped
+          if (!this.tmux.groupClose(targetId)) {
+            this.tmux.killPane(targetId);
+          }
+        }
+        break;
+      }
+
       case 'copy-mode':
       case 'resize-window':
-      case 'run-shell':
         // Not supported in demo mode - silently ignore
         break;
 
