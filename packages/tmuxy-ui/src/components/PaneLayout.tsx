@@ -7,7 +7,6 @@
  */
 
 import React, { useCallback, useEffect, useRef, useMemo, ReactNode } from 'react';
-import { useAnimatedPane } from '../hooks/useAnimatedPane';
 import { ResizeDividers } from './ResizeDividers';
 import {
   useAppSelector,
@@ -172,7 +171,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
             targetX={shouldFollowCursor ? dragOffset.x : 0}
             targetY={shouldFollowCursor ? dragOffset.y : 0}
             elevated={shouldFollowCursor}
-            enableAnimations={enableAnimations}
           >
             {children(pane)}
           </AnimatedPaneWrapper>
@@ -221,7 +219,6 @@ interface AnimatedPaneWrapperProps {
   targetX: number;
   targetY: number;
   elevated: boolean;
-  enableAnimations: boolean;
   children: ReactNode;
 }
 
@@ -232,13 +229,19 @@ function AnimatedPaneWrapper({
   targetX,
   targetY,
   elevated,
-  enableAnimations,
   children,
 }: AnimatedPaneWrapperProps) {
-  const setRef = useAnimatedPane(targetX, targetY, elevated, enableAnimations);
+  const transformStyle: React.CSSProperties =
+    targetX || targetY
+      ? {
+          ...style,
+          transform: `translate3d(${targetX}px, ${targetY}px, 0)`,
+          zIndex: elevated ? 'var(--z-dragging)' : undefined,
+        }
+      : style;
 
   return (
-    <div ref={setRef} data-pane-id={pane.tmuxId} className={className} style={style}>
+    <div data-pane-id={pane.tmuxId} className={className} style={transformStyle}>
       {children}
     </div>
   );
