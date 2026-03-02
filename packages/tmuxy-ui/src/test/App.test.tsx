@@ -6,6 +6,7 @@ vi.mock('../machines/AppContext', () => ({
   useAppSelector: vi.fn(),
   useAppSend: vi.fn(() => vi.fn()),
   useAppState: vi.fn(),
+  useAppConfig: vi.fn(() => ({})),
   selectPreviewPanes: vi.fn(),
   selectError: vi.fn(),
   selectContainerSize: vi.fn(),

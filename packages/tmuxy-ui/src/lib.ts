@@ -5,7 +5,8 @@
  * and other external consumers.
  */
 
-export { AppProvider as TmuxyProvider } from './machines/AppContext';
+export { AppProvider as TmuxyProvider, useAppFocused } from './machines/AppContext';
+export type { AppConfig } from './machines/AppContext';
 export { default as TmuxyApp } from './App';
 export type { RenderTabline } from './App';
 export { DemoAdapter } from './tmux/demo/DemoAdapter';

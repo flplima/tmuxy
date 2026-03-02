@@ -5,7 +5,7 @@
  * All state is accessed via hooks - no prop drilling.
  */
 
-import { type ReactNode, useCallback, useRef } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef } from 'react';
 import './styles.css';
 import { StatusBar } from './components/StatusBar';
 import { TmuxStatusBar } from './components/TmuxStatusBar';
@@ -16,6 +16,7 @@ import {
   useAppSelector,
   useAppSend,
   useAppState,
+  useAppConfig,
   selectPreviewPanes,
   selectError,
   selectContainerSize,
@@ -34,9 +35,11 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const containerSize = useAppSelector(selectContainerSize);
   const isConnecting = useAppState('connecting');
   const send = useAppSend();
+  const { requireFocus } = useAppConfig();
 
   // Track if we've started observing
   const observingRef = useRef(false);
+  const appContainerRef = useRef<HTMLDivElement>(null);
 
   // Use callback ref to observe container when it mounts
   const containerRef = useCallback(
@@ -49,13 +52,33 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     [send],
   );
 
+  // Focus gating: when requireFocus is set, start unfocused and track clicks
+  useEffect(() => {
+    if (!requireFocus) return;
+
+    // Start unfocused
+    send({ type: 'APP_BLUR' });
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const container = appContainerRef.current;
+      if (container && container.contains(event.target as Node)) {
+        send({ type: 'APP_FOCUS' });
+      } else {
+        send({ type: 'APP_BLUR' });
+      }
+    };
+
+    document.addEventListener('mousedown', handleMouseDown, true);
+    return () => document.removeEventListener('mousedown', handleMouseDown, true);
+  }, [requireFocus, send]);
+
   // Ready when connected, have panes, AND container is measured
   const isReady = !isConnecting && panes.length > 0 && containerSize.width > 0;
 
   // Always render .app-container so containerRef is attached and ResizeObserver
   // starts measuring immediately, preventing a layout flash on first pane render.
   return (
-    <div className="app-container">
+    <div ref={appContainerRef} className="app-container">
       <StatusBar renderTabline={renderTabline} />
       <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
         {error && !isReady ? (

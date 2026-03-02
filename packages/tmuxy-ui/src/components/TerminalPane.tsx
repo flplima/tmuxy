@@ -23,6 +23,7 @@ import {
   useIsSinglePane,
   useCopyModeState,
   useAppSelector,
+  useAppConfig,
   selectCharSize,
 } from '../machines/AppContext';
 import { usePaneMouse, usePaneTouch } from '../hooks';
@@ -43,6 +44,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const copyState = useCopyModeState(paneId);
+  const { forwardScrollToParent } = useAppConfig();
 
   // Selection context menu state
   const [selectionMenu, setSelectionMenu] = useState<{
@@ -168,6 +170,8 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     paneHeight,
     contentRef,
     scrollRef,
+    historySize,
+    forwardScrollToParent,
   });
 
   // Touch handling for mobile scroll
@@ -178,6 +182,8 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
     scrollRef,
     send,
+    historySize,
+    forwardScrollToParent,
   });
 
   // Ref to latest handleWheel for the native listener

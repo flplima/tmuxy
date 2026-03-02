@@ -19,7 +19,8 @@ import { extractSelectedText } from '../../utils/copyMode';
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
   | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
-  | { type: 'UPDATE_COPY_MODE'; active: boolean; paneId: string | null };
+  | { type: 'UPDATE_COPY_MODE'; active: boolean; paneId: string | null }
+  | { type: 'UPDATE_ENABLED'; enabled: boolean };
 
 export interface KeyboardActorInput {
   parent: AnyActorRef;
@@ -103,6 +104,7 @@ function escapeLiteralText(text: string): string {
 export function createKeyboardActor() {
   return fromCallback<KeyboardActorEvent, KeyboardActorInput>(({ input, receive }) => {
     let sessionName = 'tmuxy';
+    let enabled = true;
     let isComposing = false;
     let inPrefixMode = false;
     let prefixTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -136,6 +138,8 @@ export function createKeyboardActor() {
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!enabled) return;
+
       // Skip during IME composition
       // keyCode 229 is a special value indicating IME is processing
       if (isComposing || event.isComposing || event.keyCode === 229) {
@@ -367,6 +371,7 @@ export function createKeyboardActor() {
     const PASTE_CHUNK_SIZE = 500;
 
     const handlePaste = (event: ClipboardEvent) => {
+      if (!enabled) return;
       event.preventDefault();
       const text = event.clipboardData?.getData('text/plain');
       if (!text) return;
@@ -427,6 +432,8 @@ export function createKeyboardActor() {
         rootBindings = new Map(kb.root_bindings.map((b) => [b.key, b.command]));
       } else if (event.type === 'UPDATE_COPY_MODE') {
         copyModeActive = event.active;
+      } else if (event.type === 'UPDATE_ENABLED') {
+        enabled = event.enabled;
       }
     });
 
