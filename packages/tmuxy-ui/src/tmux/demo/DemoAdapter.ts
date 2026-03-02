@@ -348,7 +348,9 @@ export class DemoAdapter implements TmuxAdapter {
       case 'resize-pane':
       case 'resizep': {
         const state = this.tmux.getState();
-        const paneId = state.active_pane_id ?? '';
+        const tIdx = parts.indexOf('-t');
+        const paneId =
+          tIdx !== -1 && tIdx + 1 < parts.length ? parts[tIdx + 1] : (state.active_pane_id ?? '');
         const adjustment = parseInt(parts[parts.length - 1]) || 1;
         if (parts.includes('-Z')) {
           this.tmux.toggleZoom();
