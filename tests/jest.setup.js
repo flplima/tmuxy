@@ -14,11 +14,13 @@ process.on('unhandledRejection', (reason, promise) => {
 // control mode attachment) so Scenario 1 doesn't bear the cost.
 const { getBrowser, waitForServer, navigateToSession, waitForSessionReady, delay } = require('./helpers/browser');
 const { TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
+const { tmuxQuery } = require('./helpers/cli');
 
 let _weStartedServer = false;
+let _serverPid = null;
 
 beforeAll(async () => {
-  // Auto-start dev server if not running
+  // Auto-start production server if not running
   let serverRunning = false;
   try {
     const response = await fetch(TMUXY_URL);
@@ -29,8 +31,19 @@ beforeAll(async () => {
 
   if (!serverRunning) {
     try {
-      execSync('npm start', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      console.warn('[setup] Building frontend and server...');
+      execSync('npm run build -w tmuxy-ui', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      execSync('cargo build --release -p tmuxy-server', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      console.warn('[setup] Starting production server...');
+      const { spawn } = require('child_process');
+      const server = spawn('./target/release/tmuxy-server', [], {
+        cwd: WORKSPACE_ROOT,
+        stdio: 'ignore',
+        detached: true,
+      });
+      server.unref();
       _weStartedServer = true;
+      _serverPid = server.pid;
       await waitForServer(TMUXY_URL, 120000);
     } catch (error) {
       console.error('[setup] Failed to start server:', error.message);
@@ -38,8 +51,7 @@ beforeAll(async () => {
     }
   }
 
-  const warmupStart = Date.now();
-
+  // Cold-start warmup: open a browser page to trigger SSE init and server warmup
   try {
     await waitForServer(TMUXY_URL, 15000);
     const browser = await getBrowser();
@@ -55,30 +67,26 @@ beforeAll(async () => {
       // Warmup session readiness is best-effort
     }
 
-    // Kill the warmup session and close the page
+    // Kill the warmup session via CLI and close the page
     try {
-      await page.evaluate(async () => {
-        await window._adapter?.invoke('run_tmux_command', { command: 'kill-session' });
-      });
+      tmuxQuery(`kill-session -t ${warmupSession}`);
     } catch {
       // Best effort
     }
 
     await page.close().catch(() => {});
     await delay(2000); // Let server clean up
-
-    void warmupStart; // Used for timing, value not needed
   } catch {
     // Warmup failure is non-fatal
   }
 }, 180000);
 
 afterAll(async () => {
-  if (_weStartedServer) {
+  if (_weStartedServer && _serverPid) {
     try {
-      execSync('npm run stop', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
+      process.kill(_serverPid);
     } catch {
-      // Best effort
+      // Best effort — process may already be gone
     }
   }
 });
