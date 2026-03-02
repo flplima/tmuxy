@@ -48,7 +48,12 @@ const MARKDOWN_CONTENT = [
   '| Mermaid | :white_check_mark: |',
 ].join('\n');
 
-const NYAN_CAT_URL = 'https://upload.wikimedia.org/wikipedia/en/e/ed/Nyan_cat_250px_frame.PNG';
+// Split URL into short lines (pane may be narrow); TmuxyImage joins them
+const NYAN_CAT_IMAGE = [
+  'https://upload.wikimedia.org/',
+  'wikipedia/en/e/ed/',
+  'Nyan_cat_250px_frame.PNG',
+].join('\n');
 
 const INIT_COMMANDS = [
   // Tab 1: welcome (3-pane layout)
@@ -62,7 +67,7 @@ const INIT_COMMANDS = [
   'split-window -h',          // %4 (right)
   'select-pane -t %3',        // select left
   'split-window -v',          // %5 (bottom-left)
-  `write-widget %5 image ${NYAN_CAT_URL}`,
+  `write-widget %5 image ${NYAN_CAT_IMAGE}`,
   `write-widget %4 markdown ${MARKDOWN_CONTENT}`,
   'select-pane -t %3',        // select top-left (empty shell)
   'select-window -t @0',      // back to welcome tab

@@ -5,6 +5,8 @@
  * and other external consumers.
  */
 
+import './components/widgets/init';
+
 export { AppProvider as TmuxyProvider, useAppFocused } from './machines/AppContext';
 export type { AppConfig } from './machines/AppContext';
 export { default as TmuxyApp } from './App';

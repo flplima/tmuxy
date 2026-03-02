@@ -198,16 +198,36 @@ export class DemoShell {
     if (this.cursorCol >= width) this.cursorCol = width - 1;
   }
 
-  /** Replace the grid with a widget marker + content lines */
+  /** Replace the grid with a widget marker + content lines (direct cell write) */
   writeWidgetContent(widgetName: string, contentLines: string[]): void {
     this.scrollback = [];
     this.initGrid();
-    this.writeText(`__TMUXY_WIDGET__:${widgetName}`);
-    this.newline();
+    let row = 0;
+    let col = 0;
+    const put = (text: string) => {
+      for (const ch of text) {
+        if (row >= this.height) return;
+        this.grid[row][col] = { c: ch };
+        col++;
+        if (col >= this.width) {
+          col = 0;
+          row++;
+        }
+      }
+    };
+    // Marker on first row
+    put(`__TMUXY_WIDGET__:${widgetName}`);
+    row++;
+    col = 0;
+    // Content lines, each starting on a new row
     for (const line of contentLines) {
-      this.writeText(line);
-      this.newline();
+      if (row >= this.height) break;
+      put(line);
+      row++;
+      col = 0;
     }
+    this.cursorRow = Math.min(row, this.height - 1);
+    this.cursorCol = col;
   }
 
   /** Write a welcome banner to the grid */
