@@ -92,8 +92,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, [isDragging, isResizing, send]);
 
-  // Horizontal padding: half a charWidth on each side to cover tmux divider column gap
+  // Padding to cover tmux divider gaps: extend each pane so adjacent borders overlap
   const hPadding = Math.round(charWidth / 2);
+  const vPadding = Math.round(charHeight / 2);
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
@@ -102,12 +103,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         position: 'absolute',
         left: Math.round(centeringOffset.x + pane.x * charWidth) - hPadding,
         top: centeringOffset.y + headerY * charHeight,
-        // +1px so adjacent pane borders overlap (border-collapse effect)
-        width: Math.ceil(pane.width * charWidth) + hPadding * 2 + 1,
-        height: (pane.height + 1) * charHeight + 1,
+        width: Math.ceil(pane.width * charWidth) + hPadding * 2,
+        // Extend downward so bottom border overlaps next pane's top border
+        height: (pane.height + 1) * charHeight + vPadding * 2,
       };
     },
-    [charWidth, charHeight, centeringOffset, hPadding],
+    [charWidth, charHeight, centeringOffset, hPadding, vPadding],
   );
 
   const getPaneClassName = useCallback(
@@ -181,7 +182,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
             left: centeringOffset.x + dropTarget.x * charWidth - hPadding,
             top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
             width: dropTarget.width * charWidth + hPadding * 2,
-            height: (dropTarget.height + 1) * charHeight,
+            height: (dropTarget.height + 1) * charHeight + vPadding * 2,
           }}
         />
       )}
