@@ -470,7 +470,7 @@
   align-items: center;
   height: var(--pane-header-height);
   margin-top: 0;
-  background-color: var(--pane-header-bg-inactive);
+  background-color: color-mix(in srgb, var(--term-bright-black) 50%, transparent);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   color: var(--pane-header-text-inactive);
@@ -481,7 +481,7 @@
 }
 
 .pane-header-active {
-  background-color: var(--pane-header-bg-active);
+  background-color: color-mix(in srgb, var(--term-green) 30%, transparent);
   color: var(--pane-header-text-inactive);
 }
 
