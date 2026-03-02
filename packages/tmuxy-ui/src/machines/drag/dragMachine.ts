@@ -133,11 +133,22 @@ export const dragMachine = setup({
               (context.containerHeight - totalH * context.charHeight) / 2,
             );
 
-            // Use the cursor position directly for hit-testing.
-            // The ghost center can diverge from the cursor after swaps (since the
-            // ghost snaps to each target's position), making some panes unreachable.
-            const paneCenterX = event.clientX;
-            const paneCenterY = event.clientY;
+            // Use the center of the dragged pane's visual position for hit-testing.
+            // Visual position = grid position (pixels) + drag offset (cursor - start).
+            const draggedPane = context.panes.find((p) => p.tmuxId === context.drag!.draggedPaneId);
+            const dragOffsetX = event.clientX - context.drag.startX;
+            const dragOffsetY = event.clientY - context.drag.startY;
+            const headerY = Math.max(0, (draggedPane?.y ?? 0) - 1);
+            const paneCenterX =
+              centerOffsetX +
+              (draggedPane?.x ?? 0) * context.charWidth +
+              ((draggedPane?.width ?? 0) * context.charWidth) / 2 +
+              dragOffsetX;
+            const paneCenterY =
+              centerOffsetY +
+              headerY * context.charHeight +
+              (((draggedPane?.height ?? 0) + 1) * context.charHeight) / 2 +
+              dragOffsetY;
 
             const targetPaneId = findSwapTarget(
               context.panes,
