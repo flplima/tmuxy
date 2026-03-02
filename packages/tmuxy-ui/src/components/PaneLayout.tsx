@@ -51,29 +51,19 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [dragOffsetX, dragOffsetY],
   );
 
-  // Padding to cover tmux divider gaps: extend each pane so adjacent borders overlap
+  // Padding to cover tmux separator gaps between adjacent panes
   const hPadding = Math.round(charWidth / 2);
   const vPadding = Math.round(charHeight / 2);
 
-  // Calculate centering offset to center panes in the container
-  // Include hPadding/vPadding so edge panes' borders aren't clipped by overflow:hidden
+  // Center the pane grid in the container (no padding needed — edge panes don't extend outward)
   const centeringOffset = useMemo(() => {
-    const paneContentWidth = totalWidth * charWidth + hPadding * 2;
-    const paneContentHeight = totalHeight * charHeight + vPadding * 2;
+    const paneContentWidth = totalWidth * charWidth;
+    const paneContentHeight = totalHeight * charHeight;
     return {
-      x: Math.max(hPadding, (containerWidth - paneContentWidth) / 2 + hPadding),
-      y: Math.max(vPadding, (containerHeight - paneContentHeight) / 2 + vPadding),
+      x: Math.max(0, (containerWidth - paneContentWidth) / 2),
+      y: Math.max(0, (containerHeight - paneContentHeight) / 2),
     };
-  }, [
-    totalWidth,
-    totalHeight,
-    charWidth,
-    charHeight,
-    containerWidth,
-    containerHeight,
-    hPadding,
-    vPadding,
-  ]);
+  }, [totalWidth, totalHeight, charWidth, charHeight, containerWidth, containerHeight]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -109,16 +99,22 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
       const headerY = Math.max(0, pane.y - 1);
+      // Only extend padding toward interior neighbors, not beyond grid edges
+      const onLeft = pane.x === 0;
+      const onRight = pane.x + pane.width >= totalWidth;
+      const onBottom = pane.y + pane.height >= totalHeight;
+      const padLeft = onLeft ? 0 : hPadding;
+      const padRight = onRight ? 0 : hPadding;
+      const padBottom = onBottom ? 0 : vPadding * 2;
       return {
         position: 'absolute',
-        left: Math.round(centeringOffset.x + pane.x * charWidth) - hPadding,
+        left: Math.round(centeringOffset.x + pane.x * charWidth) - padLeft,
         top: centeringOffset.y + headerY * charHeight,
-        width: Math.ceil(pane.width * charWidth) + hPadding * 2,
-        // Extend downward so bottom border overlaps next pane's top border
-        height: (pane.height + 1) * charHeight + vPadding * 2,
+        width: Math.ceil(pane.width * charWidth) + padLeft + padRight,
+        height: (pane.height + 1) * charHeight + padBottom,
       };
     },
-    [charWidth, charHeight, centeringOffset, hPadding, vPadding],
+    [charWidth, charHeight, centeringOffset, hPadding, vPadding, totalWidth, totalHeight],
   );
 
   const getPaneClassName = useCallback(
@@ -184,18 +180,25 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       })}
 
       {/* Ghost indicator showing dragged pane's current grid position */}
-      {dropTarget && isDragging && (
-        <div
-          className="pane-drag-ghost"
-          style={{
-            position: 'absolute',
-            left: centeringOffset.x + dropTarget.x * charWidth - hPadding,
-            top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
-            width: dropTarget.width * charWidth + hPadding * 2,
-            height: (dropTarget.height + 1) * charHeight + vPadding * 2,
-          }}
-        />
-      )}
+      {dropTarget &&
+        isDragging &&
+        (() => {
+          const gl = dropTarget.x === 0 ? 0 : hPadding;
+          const gr = dropTarget.x + dropTarget.width >= totalWidth ? 0 : hPadding;
+          const gb = dropTarget.y + dropTarget.height >= totalHeight ? 0 : vPadding * 2;
+          return (
+            <div
+              className="pane-drag-ghost"
+              style={{
+                position: 'absolute',
+                left: centeringOffset.x + dropTarget.x * charWidth - gl,
+                top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
+                width: dropTarget.width * charWidth + gl + gr,
+                height: (dropTarget.height + 1) * charHeight + gb,
+              }}
+            />
+          );
+        })()}
 
       <ResizeDividers
         panes={visiblePanes}
