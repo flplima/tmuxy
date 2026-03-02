@@ -7,7 +7,9 @@ export type TmuxActorEvent =
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: string; start: number; end: number }
   | { type: 'FETCH_THEME_SETTINGS' }
-  | { type: 'FETCH_THEMES_LIST' };
+  | { type: 'FETCH_THEMES_LIST' }
+  | { type: 'SWITCH_SESSION'; sessionName: string }
+  | { type: 'CHECK_SESSION_SWITCH' };
 
 export interface TmuxActorInput {
   parent: AnyActorRef;
@@ -122,6 +124,35 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           })
           .catch((error) => {
             console.error('[tmuxActor] Fetch themes list failed:', error);
+          });
+      } else if (event.type === 'SWITCH_SESSION') {
+        if (adapter.switchSession) {
+          adapter.switchSession(event.sessionName).catch((error) => {
+            parent.send({
+              type: 'TMUX_ERROR',
+              error: error.message || 'Session switch failed',
+            });
+          });
+        }
+      } else if (event.type === 'CHECK_SESSION_SWITCH') {
+        adapter
+          .invoke<string>('run_tmux_command', { command: 'show-environment -g TMUXY_SWITCH_TO' })
+          .then((result) => {
+            const str = String(result);
+            const match = str.match(/TMUXY_SWITCH_TO=(.+)/);
+            if (match) {
+              const sessionName = match[1].trim();
+              parent.send({ type: 'SESSION_SWITCH_REQUESTED', sessionName });
+              // Clear the env var
+              adapter
+                .invoke('run_tmux_command', {
+                  command: 'set-environment -g -u TMUXY_SWITCH_TO',
+                })
+                .catch(() => {});
+            }
+          })
+          .catch(() => {
+            // Env var not set — no session switch pending
           });
       }
     });
