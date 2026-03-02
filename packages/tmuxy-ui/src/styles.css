@@ -439,7 +439,7 @@
 
 /* Drag placeholder - shows original position during drag */
 .pane-drag-placeholder {
-  background: linear-gradient(135deg, rgba(100, 150, 255, 0.1) 0%, rgba(100, 150, 255, 0.2) 100%);
+  background: linear-gradient(135deg, var(--accent-blue-bg) 0%, var(--accent-blue-bg-hover) 100%);
   border: 2px dashed var(--accent-blue-light);
   box-sizing: border-box;
   z-index: var(--z-elevated);
@@ -447,8 +447,8 @@
 
 /* Ghost indicator - shows dragged pane's current grid position */
 .pane-drag-ghost {
-  border: 1px dashed rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed var(--accent-blue-glow);
+  background: var(--accent-blue-bg);
   border-radius: 4px;
   z-index: 1;
   pointer-events: none;
@@ -619,7 +619,7 @@
 
 .pane-header-close:hover {
   background-color: var(--error-color);
-  color: white;
+  color: var(--term-bright-white);
   opacity: 1;
 }
 
@@ -713,7 +713,7 @@
   position: absolute;
   background: var(--bg-black);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -759,7 +759,7 @@
 
 .modal-close:hover {
   background: var(--error-color);
-  color: white;
+  color: var(--term-bright-white);
 }
 
 /* ============================================
@@ -784,7 +784,7 @@
   flex-direction: column;
   border-radius: var(--radius-md);
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow-lg);
   border: 1px solid var(--accent-green);
 }
 
@@ -844,7 +844,7 @@
   background-color: var(--bg-dark);
   border: 1px solid var(--border-medium);
   border-radius: 0 0 var(--radius-md) var(--radius-md);
-  box-shadow: -4px 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
   pointer-events: auto;
