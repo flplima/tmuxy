@@ -548,7 +548,6 @@ body {
 
 /* Pane tab icon - clickable, opens pane menu */
 .pane-tab-icon {
-  cursor: pointer;
   flex-shrink: 0;
   border-radius: 2px;
   opacity: 0.7;

@@ -25,7 +25,7 @@
 .tab-list {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xl);
+  gap: var(--spacing-3xl);
   flex: 1;
   overflow-x: auto;
   scrollbar-width: none;
@@ -41,13 +41,16 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
   white-space: nowrap;
-  cursor: pointer;
-  padding: var(--spacing-sm) 0;
-  transition: color var(--transition-fast);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
 }
 
 .tab-name:hover {
   color: var(--text-secondary);
+  background-color: var(--bg-medium);
 }
 
 /* Active tab: green text */
@@ -57,6 +60,7 @@
 
 .tab-name-active:hover {
   color: var(--accent-green);
+  background-color: var(--bg-medium);
 }
 
 /* Add tab button */
@@ -64,9 +68,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  min-width: 20px;
-  height: 20px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
   padding: 0;
   background: transparent;
   border: none;
@@ -76,10 +80,14 @@
   font-size: 14px;
   line-height: 1;
   flex-shrink: 0;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .tab-add:hover {
   color: var(--text-muted);
+  background-color: var(--bg-medium);
 }
 
 /* Tab placeholder (drag target) */
