@@ -22,29 +22,12 @@ export function PaneMenuItems({ keybindings, isSinglePane, onAction }: PaneMenuI
   return (
     <>
       <MenuItem onClick={() => onAction('pane-split-below')}>
-        New Pane Below
+        Split Pane Below
         <KeyLabel keybindings={keybindings} command="split-window -v" />
       </MenuItem>
       <MenuItem onClick={() => onAction('pane-split-right')}>
-        New Pane Right
+        Split Pane Right
         <KeyLabel keybindings={keybindings} command="split-window -h" />
-      </MenuItem>
-      <MenuDivider />
-      <MenuItem onClick={() => onAction('pane-navigate-up')} disabled={isSinglePane}>
-        Navigate Up
-        <KeyLabel keybindings={keybindings} command="select-pane -U" />
-      </MenuItem>
-      <MenuItem onClick={() => onAction('pane-navigate-down')} disabled={isSinglePane}>
-        Navigate Down
-        <KeyLabel keybindings={keybindings} command="select-pane -D" />
-      </MenuItem>
-      <MenuItem onClick={() => onAction('pane-navigate-left')} disabled={isSinglePane}>
-        Navigate Left
-        <KeyLabel keybindings={keybindings} command="select-pane -L" />
-      </MenuItem>
-      <MenuItem onClick={() => onAction('pane-navigate-right')} disabled={isSinglePane}>
-        Navigate Right
-        <KeyLabel keybindings={keybindings} command="select-pane -R" />
       </MenuItem>
       <MenuDivider />
       <MenuItem onClick={() => onAction('pane-next')} disabled={isSinglePane}>

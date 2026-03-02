@@ -30,6 +30,7 @@ import {
   applySwapPrediction,
   applyNavigatePrediction,
   applyNewWindowPrediction,
+  applySelectWindowPrediction,
   reconcileOptimisticUpdate,
 } from './optimistic';
 import {
@@ -616,6 +617,7 @@ export const appMachine = setup({
                   transformed.panes,
                   transformed.activePaneId,
                   transformed.windows,
+                  transformed.activeWindowId,
                 );
 
                 if (!result.matched && result.mismatchReason) {
@@ -931,6 +933,7 @@ export const appMachine = setup({
               // Server state will overwrite when it arrives
               let newPanes = context.panes;
               let newActivePaneId = context.activePaneId;
+              let newActiveWindowId = context.activeWindowId;
               let newWindows = context.windows;
 
               switch (prediction.prediction.type) {
@@ -953,6 +956,12 @@ export const appMachine = setup({
                 case 'new-window':
                   newWindows = applyNewWindowPrediction(context.windows, prediction.prediction);
                   break;
+                case 'select-window': {
+                  const result = applySelectWindowPrediction(prediction.prediction);
+                  newActiveWindowId = result.activeWindowId;
+                  newActivePaneId = result.activePaneId;
+                  break;
+                }
               }
 
               enqueue(
@@ -961,6 +970,7 @@ export const appMachine = setup({
                   panes: newPanes,
                   windows: newWindows,
                   activePaneId: newActivePaneId,
+                  activeWindowId: newActiveWindowId,
                   paneActivationOrder:
                     newActivePaneId !== ctx.activePaneId
                       ? updateActivationOrder(ctx.paneActivationOrder, newActivePaneId)

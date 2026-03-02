@@ -12,6 +12,7 @@ export type {
   SwapCommand,
   SelectPaneCommand,
   NewWindowCommand,
+  SelectWindowCommand,
 } from './commandParser';
 
 export {
@@ -20,6 +21,7 @@ export {
   applySwapPrediction,
   applyNavigatePrediction,
   applyNewWindowPrediction,
+  applySelectWindowPrediction,
 } from './predictions';
 
 export { reconcileOptimisticUpdate, isOperationStale } from './reconcile';

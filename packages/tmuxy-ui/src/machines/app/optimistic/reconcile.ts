@@ -12,6 +12,7 @@ import type {
   NavigatePrediction,
   SwapPrediction,
   NewWindowPrediction,
+  SelectWindowPrediction,
 } from '../../types';
 
 /** Position tolerance for comparing pane positions (in cells) */
@@ -35,6 +36,7 @@ export function reconcileOptimisticUpdate(
   serverPanes: TmuxPane[],
   serverActivePaneId: string | null,
   serverWindows?: TmuxWindow[],
+  serverActiveWindowId?: string | null,
 ): ReconciliationResult {
   const { prediction } = operation;
 
@@ -47,6 +49,8 @@ export function reconcileOptimisticUpdate(
       return reconcileSwap(prediction, serverPanes);
     case 'new-window':
       return reconcileNewWindow(prediction, serverWindows);
+    case 'select-window':
+      return reconcileSelectWindow(prediction, serverActiveWindowId ?? null);
     default:
       return { matched: true };
   }
@@ -170,6 +174,24 @@ function reconcileNewWindow(
   return {
     matched: false,
     mismatchReason: 'New window prediction: no windows in server state',
+  };
+}
+
+/**
+ * Reconcile select-window prediction.
+ * Check if the active window matches the predicted target.
+ */
+function reconcileSelectWindow(
+  prediction: SelectWindowPrediction,
+  serverActiveWindowId: string | null,
+): ReconciliationResult {
+  if (serverActiveWindowId === prediction.toWindowId) {
+    return { matched: true };
+  }
+
+  return {
+    matched: false,
+    mismatchReason: `Select-window prediction: expected active window ${prediction.toWindowId}, but server has ${serverActiveWindowId}`,
   };
 }
 

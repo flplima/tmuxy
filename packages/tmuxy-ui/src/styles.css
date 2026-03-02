@@ -366,6 +366,11 @@
     box-shadow var(--transition-layout);
 }
 
+/* Inactive pane: slightly dimmed content */
+.pane-layout-item:not(.pane-active):not(.pane-dragging):not(.pane-leaving) {
+  opacity: 0.7;
+}
+
 /* Active pane: green border */
 .pane-layout-item.pane-active {
   border-color: var(--term-green);
@@ -470,7 +475,11 @@
   align-items: center;
   height: var(--pane-header-height);
   margin-top: 0;
-  background-color: color-mix(in srgb, var(--term-bright-black) 50%, transparent);
+  background-color: color-mix(
+    in srgb,
+    color-mix(in hsl, var(--term-bright-black), gray 50%) 20%,
+    transparent
+  );
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   color: var(--pane-header-text-inactive);
@@ -481,7 +490,11 @@
 }
 
 .pane-header-active {
-  background-color: color-mix(in srgb, var(--term-green) 30%, transparent);
+  background-color: color-mix(
+    in srgb,
+    color-mix(in hsl, var(--term-green), gray 50%) 20%,
+    transparent
+  );
   color: var(--pane-header-text-inactive);
 }
 
@@ -535,11 +548,15 @@
 /* Pane tab icon - clickable, opens pane menu */
 .pane-tab-icon {
   flex-shrink: 0;
-  border-radius: 2px;
+  margin-right: 4px;
   opacity: 0.7;
+  transition:
+    background-color var(--transition-fast),
+    opacity var(--transition-fast);
 }
 
 .pane-tab-icon:hover {
+  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
   opacity: 1;
 }
 
@@ -569,23 +586,20 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: inherit;
+  color: var(--term-white);
   font-size: 12px;
   line-height: 1;
-  opacity: 0;
+  opacity: 0.5;
   transition:
     color var(--transition-fast),
-    opacity var(--transition-fast);
+    opacity var(--transition-fast),
+    background-color var(--transition-fast);
   flex-shrink: 0;
   z-index: 60;
 }
 
-.pane-header:hover .pane-tab-add {
-  opacity: 1;
-}
-
 .pane-tab-add:hover {
-  color: var(--text-primary);
+  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
   opacity: 1;
 }
 
@@ -600,11 +614,11 @@
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: var(--radius-sm);
-  color: inherit;
+  border-radius: 0;
+  color: var(--term-white);
   font-size: 10px;
   line-height: 1;
-  opacity: 0;
+  opacity: 0.5;
   transition:
     color var(--transition-fast),
     opacity var(--transition-fast),
@@ -613,13 +627,8 @@
   z-index: 60; /* Above resize dividers */
 }
 
-.pane-header:hover .pane-header-close {
-  opacity: 1;
-}
-
 .pane-header-close:hover {
-  background-color: var(--error-color);
-  color: var(--term-bright-white);
+  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
   opacity: 1;
 }
 
