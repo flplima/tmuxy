@@ -129,13 +129,11 @@ export function AppMenu() {
           <KeyLabel keybindings={keybindings} command="next-layout" />
         </MenuItem>
         <MenuDivider />
-        <MenuItem
-          onClick={() =>
-            send({ type: 'SET_THEME_MODE', mode: themeMode === 'dark' ? 'light' : 'dark' })
-          }
-        >
-          {themeMode === 'dark' ? '\u263E' : '\u2600'} {themeMode === 'dark' ? 'Dark' : 'Light'}{' '}
-          Mode
+        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}>
+          {themeMode === 'dark' ? '\u25CF ' : '\u25CB '}Dark Mode
+        </MenuItem>
+        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}>
+          {themeMode === 'light' ? '\u25CF ' : '\u25CB '}Light Mode
         </MenuItem>
         <MenuDivider />
         {availableThemes.map((t) => (

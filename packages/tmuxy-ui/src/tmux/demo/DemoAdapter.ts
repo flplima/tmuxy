@@ -211,7 +211,6 @@ export class DemoAdapter implements TmuxAdapter {
           { name: 'gruvbox-material', displayName: 'Gruvbox Material' },
           { name: 'nord', displayName: 'Nord' },
           { name: 'solarized', displayName: 'Solarized' },
-          { name: 'system-1', displayName: 'System 1' },
           { name: 'tokyonight', displayName: 'Tokyo Night' },
         ] as T;
 

@@ -97,8 +97,107 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.7);
 }
 
+:root.theme-light {
+  --font-mono: 'VT323', 'FiraCode Nerd Font', monospace;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-base: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+
+  --cold-light-fg: #1a3550;
+  --cold-light-fg-dim: #4a6a85;
+  --cold-light-fg-faint: #8aaabe;
+  --cold-light-bg: #c8d8d8;
+  --cold-light-bg-dark: #bccece;
+  --cold-light-bg-darker: #b0c2c2;
+
+  --term-black: var(--cold-light-bg);
+  --term-red: var(--cold-light-fg);
+  --term-green: var(--cold-light-fg);
+  --term-yellow: var(--cold-light-fg);
+  --term-blue: var(--cold-light-fg);
+  --term-magenta: var(--cold-light-fg);
+  --term-cyan: var(--cold-light-fg);
+  --term-white: var(--cold-light-fg);
+  --term-bright-black: var(--cold-light-fg-dim);
+  --term-bright-red: var(--cold-light-fg);
+  --term-bright-green: var(--cold-light-fg);
+  --term-bright-yellow: var(--cold-light-fg);
+  --term-bright-blue: var(--cold-light-fg);
+  --term-bright-magenta: var(--cold-light-fg);
+  --term-bright-cyan: var(--cold-light-fg);
+  --term-bright-white: #0e2030;
+
+  --term-foreground: var(--cold-light-fg);
+  --term-background: var(--cold-light-bg);
+
+  --bg-black: var(--cold-light-bg);
+  --bg-dark: var(--cold-light-bg-dark);
+  --bg-dark-alt: #c0d0d0;
+  --bg-medium: var(--cold-light-bg-darker);
+  --bg-elevated-alt: #a5b8b8;
+  --bg-highlight: #98acac;
+  --bg-highlight-alt: #8a9e9e;
+
+  --text-primary: var(--cold-light-fg);
+  --text-secondary: #2a4a65;
+  --text-muted: var(--cold-light-fg-dim);
+  --text-dimmed: #6a8a9e;
+  --text-subtle: var(--cold-light-fg-faint);
+  --text-faint: #a0b8c8;
+  --text-dark: var(--cold-light-bg);
+
+  --border-medium: #a5b8b8;
+  --border-light: #98acac;
+
+  --pane-header-bg-active: #b0c2c2;
+  --pane-header-bg-inactive: #c0d0d0;
+  --pane-header-text-active: var(--cold-light-fg);
+  --pane-header-text-inactive: var(--cold-light-fg-dim);
+
+  --accent-green: var(--cold-light-fg);
+  --accent-green-bright: #0e2030;
+  --accent-green-bg: #b8ccd0;
+  --accent-green-border: #8aaabe;
+  --accent-green-hover: #aec0c8;
+
+  --accent-blue: #b8ccd0;
+  --accent-blue-light: rgba(26, 53, 80, 0.7);
+  --accent-blue-glow: rgba(26, 53, 80, 0.4);
+  --accent-blue-bg: rgba(26, 53, 80, 0.08);
+  --accent-blue-bg-hover: rgba(26, 53, 80, 0.15);
+  --accent-blue-bg-active: rgba(26, 53, 80, 0.25);
+
+  --link-color: var(--cold-light-fg);
+  --link-hover: #0e2030;
+  --link-active: var(--cold-light-fg-dim);
+
+  --error-color: var(--cold-light-fg);
+  --error-light: #0e2030;
+  --error-text: var(--cold-light-fg);
+  --error-bg: rgba(26, 53, 80, 0.12);
+  --error-border: rgba(26, 53, 80, 0.25);
+
+  --cursor-bg: var(--cold-light-fg);
+  --cursor-text: var(--cold-light-bg);
+  --cursor-copy-bg: var(--cold-light-fg-dim);
+  --cursor-inactive: var(--cold-light-fg-faint);
+
+  --tmux-status-bg: var(--cold-light-fg);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
 :root.theme-dark body {
   background: radial-gradient(ellipse at center, #0c1e30 0%, #06101a 50%, #030810 100%);
+}
+
+:root.theme-light body {
+  background: var(--cold-light-bg);
 }
 
 :root.theme-dark .pane-container,

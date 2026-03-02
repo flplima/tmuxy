@@ -97,8 +97,107 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.7);
 }
 
+:root.theme-light {
+  --font-mono: 'VT323', 'FiraCode Nerd Font', monospace;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-base: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+
+  --fallout-light-fg: #2a3a1a;
+  --fallout-light-fg-dim: #556a40;
+  --fallout-light-fg-faint: #8a9a78;
+  --fallout-light-bg: #c5c8a0;
+  --fallout-light-bg-dark: #b8bb95;
+  --fallout-light-bg-darker: #acaf8a;
+
+  --term-black: var(--fallout-light-bg);
+  --term-red: var(--fallout-light-fg);
+  --term-green: var(--fallout-light-fg);
+  --term-yellow: var(--fallout-light-fg);
+  --term-blue: var(--fallout-light-fg);
+  --term-magenta: var(--fallout-light-fg);
+  --term-cyan: var(--fallout-light-fg);
+  --term-white: var(--fallout-light-fg);
+  --term-bright-black: var(--fallout-light-fg-dim);
+  --term-bright-red: var(--fallout-light-fg);
+  --term-bright-green: var(--fallout-light-fg);
+  --term-bright-yellow: var(--fallout-light-fg);
+  --term-bright-blue: var(--fallout-light-fg);
+  --term-bright-magenta: var(--fallout-light-fg);
+  --term-bright-cyan: var(--fallout-light-fg);
+  --term-bright-white: #1a2a10;
+
+  --term-foreground: var(--fallout-light-fg);
+  --term-background: var(--fallout-light-bg);
+
+  --bg-black: var(--fallout-light-bg);
+  --bg-dark: var(--fallout-light-bg-dark);
+  --bg-dark-alt: #bec19a;
+  --bg-medium: var(--fallout-light-bg-darker);
+  --bg-elevated-alt: #a0a380;
+  --bg-highlight: #959878;
+  --bg-highlight-alt: #888b6e;
+
+  --text-primary: var(--fallout-light-fg);
+  --text-secondary: #3a4a28;
+  --text-muted: var(--fallout-light-fg-dim);
+  --text-dimmed: #6a7a58;
+  --text-subtle: var(--fallout-light-fg-faint);
+  --text-faint: #a0aa90;
+  --text-dark: var(--fallout-light-bg);
+
+  --border-medium: #a0a380;
+  --border-light: #959878;
+
+  --pane-header-bg-active: #acaf8a;
+  --pane-header-bg-inactive: #b8bb95;
+  --pane-header-text-active: var(--fallout-light-fg);
+  --pane-header-text-inactive: var(--fallout-light-fg-dim);
+
+  --accent-green: var(--fallout-light-fg);
+  --accent-green-bright: #1a2a10;
+  --accent-green-bg: #b5b890;
+  --accent-green-border: #8a9a78;
+  --accent-green-hover: #aab088;
+
+  --accent-blue: #b5b890;
+  --accent-blue-light: rgba(42, 58, 26, 0.7);
+  --accent-blue-glow: rgba(42, 58, 26, 0.4);
+  --accent-blue-bg: rgba(42, 58, 26, 0.08);
+  --accent-blue-bg-hover: rgba(42, 58, 26, 0.15);
+  --accent-blue-bg-active: rgba(42, 58, 26, 0.25);
+
+  --link-color: var(--fallout-light-fg);
+  --link-hover: #1a2a10;
+  --link-active: var(--fallout-light-fg-dim);
+
+  --error-color: var(--fallout-light-fg);
+  --error-light: #1a2a10;
+  --error-text: var(--fallout-light-fg);
+  --error-bg: rgba(42, 58, 26, 0.12);
+  --error-border: rgba(42, 58, 26, 0.25);
+
+  --cursor-bg: var(--fallout-light-fg);
+  --cursor-text: var(--fallout-light-bg);
+  --cursor-copy-bg: var(--fallout-light-fg-dim);
+  --cursor-inactive: var(--fallout-light-fg-faint);
+
+  --tmux-status-bg: var(--fallout-light-fg);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
 :root.theme-dark body {
   background: radial-gradient(ellipse at center, #0f2a0f 0%, #0a1a0a 50%, #050d05 100%);
+}
+
+:root.theme-light body {
+  background: var(--fallout-light-bg);
 }
 
 :root.theme-dark .pane-container,
