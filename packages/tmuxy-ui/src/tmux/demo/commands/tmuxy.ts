@@ -4,11 +4,53 @@ import { ok, err } from './types';
 const USAGE = `Usage: tmuxy <command> [subcommand] [options]
 
 Commands:
-  pane list [--json] [--all]   List panes
-  tab  list [--json]           List tabs (windows)
+  pane        Manage panes (split, kill, select, resize, swap, zoom, break, send, float, group)
+  tab         Manage tabs (create, kill, select, rename, layout)
 
 Options:
-  --help                       Show this help message`;
+  --help      Show this help message`;
+
+const PANE_USAGE = `Usage: tmuxy pane <command> [args...]
+
+Commands:
+  list          List all panes [--json] [--all]
+  split         Split current pane [-h|-v]
+  kill          Kill a pane [%id]
+  select        Select/focus a pane [-U|-D|-L|-R|%id]
+  resize        Resize a pane [-U|-D|-L|-R] [n]
+  swap          Swap two panes <src> <dst>
+  zoom          Toggle pane zoom
+  break         Break pane into own tab
+  send          Send keys to pane <keys...>
+  paste         Paste text into pane <text>
+  float         Create a float pane [cmd args...]
+  group         Pane group operations (add, close, switch, next, prev)`;
+
+const TAB_USAGE = `Usage: tmuxy tab <command> [args...]
+
+Commands:
+  list          List all tabs [--json]
+  create        Create a new tab [name]
+  kill          Kill a tab [@id]
+  select        Switch to a tab <index|@id>
+  next          Next tab
+  prev          Previous tab
+  rename        Rename current tab <name>
+  layout        Change pane layout [next]`;
+
+const GROUP_USAGE = `Usage: tmuxy pane group <command> [args...]
+
+Commands:
+  add           Add current pane to a group
+  close         Close pane from group [%id]
+  switch        Switch to pane in group <%id>
+  next          Next pane in group
+  prev          Previous pane in group`;
+
+function requireTmux(ctx: ShellContext) {
+  if (!ctx.tmux) return err('tmuxy: not connected to tmux');
+  return null;
+}
 
 export function tmuxy(args: string[], ctx: ShellContext): CommandResult {
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
@@ -28,20 +70,52 @@ export function tmuxy(args: string[], ctx: ShellContext): CommandResult {
   }
 }
 
+// ============================================
+// Pane commands
+// ============================================
+
 function handlePane(subcommand: string, args: string[], ctx: ShellContext): CommandResult {
-  if (!subcommand || subcommand === '--help') {
-    return ok('Usage: tmuxy pane <list> [options]');
+  if (!subcommand || subcommand === '--help' || subcommand === '-h') {
+    return ok(PANE_USAGE);
   }
 
-  if (subcommand !== 'list') {
-    return err(`tmuxy pane: unknown subcommand '${subcommand}'`);
+  switch (subcommand) {
+    case 'list':
+      return paneList(args, ctx);
+    case 'split':
+      return paneSplit(args, ctx);
+    case 'kill':
+      return paneKill(args, ctx);
+    case 'select':
+      return paneSelect(args, ctx);
+    case 'resize':
+      return paneResize(args, ctx);
+    case 'swap':
+      return ok('swap-pane is not supported in demo mode');
+    case 'zoom':
+      return ok('zoom is not supported in demo mode');
+    case 'break':
+      return ok('break-pane is not supported in demo mode');
+    case 'capture':
+      return ok('capture is not supported in demo mode');
+    case 'send':
+      return paneSend(args, ctx);
+    case 'paste':
+      return panePaste(args, ctx);
+    case 'float':
+      return ok('float panes are not supported in demo mode');
+    case 'group':
+      return handlePaneGroup(args[0], args.slice(1), ctx);
+    default:
+      return err(`tmuxy pane: unknown subcommand '${subcommand}'\n${PANE_USAGE}`);
   }
+}
 
-  if (!ctx.tmux) {
-    return err('tmuxy: not connected to tmux');
-  }
+function paneList(args: string[], ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
 
-  const state = ctx.tmux.getState();
+  const state = ctx.tmux!.getState();
   const json = args.includes('--json');
   const all = args.includes('--all');
 
@@ -64,7 +138,6 @@ function handlePane(subcommand: string, args: string[], ctx: ShellContext): Comm
     return ok(JSON.stringify(data, null, 2));
   }
 
-  // Table format
   const header = 'ID        WINDOW    SIZE       COMMAND   ACTIVE';
   const lines = panes.map((p) => {
     const id = p.tmux_id.padEnd(10);
@@ -77,20 +150,186 @@ function handlePane(subcommand: string, args: string[], ctx: ShellContext): Comm
   return ok([header, ...lines].join('\n'));
 }
 
+function paneSplit(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane split [-h|-v]');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  // -h = vertical split (tmux convention: -h splits horizontally, creating vertical panes)
+  const direction = args.includes('-h') ? 'vertical' : 'horizontal';
+  const paneId = ctx.tmux!.splitPane(direction);
+  if (!paneId) return err('tmuxy pane split: failed to split pane');
+  return ok(paneId);
+}
+
+function paneKill(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane kill [%id]');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const target = args.find((a) => a.startsWith('%'));
+  const success = ctx.tmux!.killPane(target ?? undefined);
+  if (!success) return err('tmuxy pane kill: failed to kill pane');
+  return ok();
+}
+
+function paneSelect(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane select [-U|-D|-L|-R|%id]');
+  }
+  if (args.length === 0) {
+    return err('Error: pane direction or ID required');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const arg = args[0];
+  const directionMap: Record<string, string> = {
+    '-U': 'Up',
+    '-D': 'Down',
+    '-L': 'Left',
+    '-R': 'Right',
+  };
+
+  if (directionMap[arg]) {
+    const success = ctx.tmux!.selectPaneByDirection(directionMap[arg]);
+    if (!success) return err('tmuxy pane select: no pane in that direction');
+    return ok();
+  }
+
+  if (arg.startsWith('%')) {
+    const success = ctx.tmux!.selectPane(arg);
+    if (!success) return err(`tmuxy pane select: pane '${arg}' not found`);
+    return ok();
+  }
+
+  return err(`Error: invalid argument '${arg}'. Use -U, -D, -L, -R, or %id`);
+}
+
+function paneResize(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane resize [-U|-D|-L|-R] [n]');
+  }
+  if (args.length === 0) {
+    return err('Error: direction required (-U, -D, -L, -R)');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const directionMap: Record<string, string> = {
+    '-U': 'Up',
+    '-D': 'Down',
+    '-L': 'Left',
+    '-R': 'Right',
+  };
+
+  const dirArg = args.find((a) => directionMap[a]);
+  if (!dirArg) {
+    return err('Error: direction required (-U, -D, -L, -R)');
+  }
+
+  const numArg = args.find((a) => /^\d+$/.test(a));
+  const adjustment = numArg ? parseInt(numArg) : 1;
+
+  const state = ctx.tmux!.getState();
+  if (!state.active_pane_id) return err('tmuxy pane resize: no active pane');
+  const success = ctx.tmux!.resizePane(state.active_pane_id, directionMap[dirArg], adjustment);
+  if (!success) return err('tmuxy pane resize: failed to resize pane');
+  return ok();
+}
+
+function paneSend(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane send <keys...>');
+  }
+  if (args.length === 0) {
+    return err('Error: keys required');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  for (const key of args) {
+    ctx.tmux!.sendKey(key);
+  }
+  return ok();
+}
+
+function panePaste(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane paste <text>');
+  }
+  if (args.length === 0) {
+    return err('Error: text required');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const text = args.join(' ');
+  ctx.tmux!.sendLiteral(text);
+  return ok();
+}
+
+// ============================================
+// Pane group commands
+// ============================================
+
+function handlePaneGroup(subcommand: string, _args: string[], _ctx: ShellContext): CommandResult {
+  if (!subcommand || subcommand === '--help' || subcommand === '-h') {
+    return ok(GROUP_USAGE);
+  }
+
+  switch (subcommand) {
+    case 'add':
+    case 'close':
+    case 'switch':
+    case 'next':
+    case 'prev':
+      return ok(`pane group ${subcommand} is not supported in demo mode`);
+    default:
+      return err(`tmuxy pane group: unknown subcommand '${subcommand}'\n${GROUP_USAGE}`);
+  }
+}
+
+// ============================================
+// Tab commands
+// ============================================
+
 function handleTab(subcommand: string, args: string[], ctx: ShellContext): CommandResult {
-  if (!subcommand || subcommand === '--help') {
-    return ok('Usage: tmuxy tab <list> [options]');
+  if (!subcommand || subcommand === '--help' || subcommand === '-h') {
+    return ok(TAB_USAGE);
   }
 
-  if (subcommand !== 'list') {
-    return err(`tmuxy tab: unknown subcommand '${subcommand}'`);
+  switch (subcommand) {
+    case 'list':
+      return tabList(args, ctx);
+    case 'create':
+      return tabCreate(args, ctx);
+    case 'kill':
+      return tabKill(args, ctx);
+    case 'select':
+      return tabSelect(args, ctx);
+    case 'next':
+      return tabNext(ctx);
+    case 'prev':
+      return tabPrev(ctx);
+    case 'rename':
+      return tabRename(args, ctx);
+    case 'layout':
+      return tabLayout(args, ctx);
+    default:
+      return err(`tmuxy tab: unknown subcommand '${subcommand}'\n${TAB_USAGE}`);
   }
+}
 
-  if (!ctx.tmux) {
-    return err('tmuxy: not connected to tmux');
-  }
+function tabList(args: string[], ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
 
-  const state = ctx.tmux.getState();
+  const state = ctx.tmux!.getState();
   const json = args.includes('--json');
 
   if (json) {
@@ -103,7 +342,6 @@ function handleTab(subcommand: string, args: string[], ctx: ShellContext): Comma
     return ok(JSON.stringify(data, null, 2));
   }
 
-  // Table format
   const header = 'ID        INDEX     NAME       ACTIVE';
   const lines = state.windows.map((w) => {
     const id = w.id.padEnd(10);
@@ -113,4 +351,89 @@ function handleTab(subcommand: string, args: string[], ctx: ShellContext): Comma
     return `${id}${index}${name}${active}`;
   });
   return ok([header, ...lines].join('\n'));
+}
+
+function tabCreate(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy tab create [name]');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const windowId = ctx.tmux!.newWindow();
+  const name = args[0];
+  if (name) {
+    ctx.tmux!.renameWindow(windowId, name);
+  }
+  return ok(windowId);
+}
+
+function tabKill(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy tab kill [@id]');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const target = args.find((a) => a.startsWith('@'));
+  const success = ctx.tmux!.killWindow(target ?? undefined);
+  if (!success) return err('tmuxy tab kill: failed to kill tab');
+  return ok();
+}
+
+function tabSelect(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy tab select <index|@id>');
+  }
+  if (args.length === 0) {
+    return err('Error: tab index or @id required');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const success = ctx.tmux!.selectWindow(args[0]);
+  if (!success) return err(`tmuxy tab select: tab '${args[0]}' not found`);
+  return ok();
+}
+
+function tabNext(ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+  ctx.tmux!.nextWindow();
+  return ok();
+}
+
+function tabPrev(ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+  ctx.tmux!.previousWindow();
+  return ok();
+}
+
+function tabRename(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy tab rename <name>');
+  }
+  if (args.length === 0) {
+    return err('Error: name required');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const state = ctx.tmux!.getState();
+  if (!state.active_window_id) return err('tmuxy tab rename: no active tab');
+  const success = ctx.tmux!.renameWindow(state.active_window_id, args[0]);
+  if (!success) return err('tmuxy tab rename: failed to rename tab');
+  return ok();
+}
+
+function tabLayout(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy tab layout [next]');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  ctx.tmux!.nextLayout();
+  return ok();
 }

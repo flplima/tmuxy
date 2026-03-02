@@ -37,6 +37,7 @@ interface FakeWindow {
   id: string;
   index: number;
   name: string;
+  manualName: boolean; // true if renamed manually, prevents auto-update from cwd
   layout: LayoutNode;
   layoutCycle: number; // tracks position in layout cycle
 }
@@ -88,6 +89,7 @@ export class DemoTmux {
       id: windowId,
       index: 0,
       name: 'bash',
+      manualName: false,
       layout: { type: 'leaf', paneId },
       layoutCycle: 0,
     };
@@ -286,6 +288,7 @@ export class DemoTmux {
       id: windowId,
       index,
       name: 'bash',
+      manualName: false,
       layout: { type: 'leaf', paneId },
       layoutCycle: 0,
     };
@@ -516,6 +519,7 @@ export class DemoTmux {
     const window = this.windows.find((w) => w.id === windowId);
     if (!window) return false;
     window.name = name;
+    window.manualName = true;
     return true;
   }
 
@@ -659,7 +663,7 @@ export class DemoTmux {
     const pane = this.panes.get(this.activePaneId);
     if (!pane) return;
     const window = this.windows.find((w) => w.id === pane.windowId);
-    if (!window) return;
+    if (!window || window.manualName) return;
     // Set window name to last path component of cwd
     const cwd = pane.shell.cwd;
     const name = cwd === '/' ? '/' : (cwd.split('/').pop() ?? 'bash');
