@@ -56,16 +56,19 @@ function collectDividerSegments(panes: TmuxPane[]) {
     for (let j = i + 1; j < panes.length; j++) {
       const other = panes[j];
 
-      // Horizontal divider: panes share a horizontal edge (with 1-cell tmux divider gap)
+      // Horizontal divider: panes share a horizontal edge.
+      // Gap is 1 (real tmux) or 2 (demo: separator + header row).
       const horizontallyOverlap = pane.x < other.x + other.width && pane.x + pane.width > other.x;
+      const hGapAB = other.y - (pane.y + pane.height);
+      const hGapBA = pane.y - (other.y + other.height);
 
-      if (pane.y + pane.height + 1 === other.y && horizontallyOverlap) {
+      if ((hGapAB === 1 || hGapAB === 2) && horizontallyOverlap) {
         const yPos = pane.y + pane.height;
         const left = Math.max(pane.x, other.x);
         const right = Math.min(pane.x + pane.width, other.x + other.width);
         if (!horizontal.has(yPos)) horizontal.set(yPos, []);
         horizontal.get(yPos)!.push({ start: left, end: right, paneId: pane.tmuxId });
-      } else if (other.y + other.height + 1 === pane.y && horizontallyOverlap) {
+      } else if ((hGapBA === 1 || hGapBA === 2) && horizontallyOverlap) {
         const yPos = other.y + other.height;
         const left = Math.max(pane.x, other.x);
         const right = Math.min(pane.x + pane.width, other.x + other.width);

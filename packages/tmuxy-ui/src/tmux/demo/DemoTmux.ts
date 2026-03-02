@@ -1166,13 +1166,11 @@ export class DemoTmux {
         ...this.computePositions(node.children[1], x + leftW + 1, y, Math.max(rightW, 1), height),
       ];
     } else {
-      // No -1 for separator: with pane-border-status top, the bottom pane's
-      // header row replaces the separator line (matching real tmux behavior).
       const topH = Math.floor(height * node.ratio);
-      const bottomH = height - topH;
+      const bottomH = height - topH - 1; // -1 for separator
       return [
         ...this.computePositions(node.children[0], x, y, width, topH),
-        ...this.computePositions(node.children[1], x, y + topH, width, Math.max(bottomH, 1)),
+        ...this.computePositions(node.children[1], x, y + topH + 1, width, Math.max(bottomH, 1)),
       ];
     }
   }
@@ -1245,7 +1243,7 @@ export class DemoTmux {
         );
       } else {
         const topH = Math.floor(availHeight * node.ratio);
-        const bottomH = availHeight - topH;
+        const bottomH = availHeight - topH - 1;
         if (leftContains)
           return this.adjustRatio(
             node.children[0],
