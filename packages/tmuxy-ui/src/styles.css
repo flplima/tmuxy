@@ -470,10 +470,10 @@
   align-items: center;
   height: var(--pane-header-height);
   margin-top: 0;
-  background-color: var(--bg-dark);
+  background-color: var(--pane-header-bg-inactive);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--pane-header-text-inactive);
   user-select: none;
   box-sizing: border-box;
   padding: 0;
@@ -481,13 +481,13 @@
 }
 
 .pane-header-active {
-  background-color: rgba(0, 255, 0, 0.25);
-  color: rgba(255, 255, 255, 0.5);
+  background-color: var(--pane-header-bg-active);
+  color: var(--pane-header-text-inactive);
 }
 
 .pane-header-active .pane-tab-selected,
 .pane-header-active .pane-tab-active {
-  color: var(--term-bright-white);
+  color: var(--pane-header-text-active);
 }
 
 /* Pane tabs container */
