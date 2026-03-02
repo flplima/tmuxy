@@ -497,9 +497,16 @@ export class DemoTmux {
     const window = this.windows.find((w) => w.id === pane.windowId);
     if (!window) return false;
 
-    // Adjust ratio in the nearest split ancestor
-    const delta = adjustment * 0.05; // Each unit = 5% adjustment
-    this.adjustRatio(window.layout, paneId, direction, delta);
+    // Adjust ratio in the nearest split ancestor, converting cell-based
+    // adjustment to a ratio delta using the available space at that split level.
+    this.adjustRatio(
+      window.layout,
+      paneId,
+      direction,
+      adjustment,
+      this.totalWidth,
+      this.totalHeight,
+    );
     this.applyLayout(window);
     return true;
   }
@@ -1159,11 +1166,13 @@ export class DemoTmux {
         ...this.computePositions(node.children[1], x + leftW + 1, y, Math.max(rightW, 1), height),
       ];
     } else {
+      // No -1 for separator: with pane-border-status top, the bottom pane's
+      // header row replaces the separator line (matching real tmux behavior).
       const topH = Math.floor(height * node.ratio);
-      const bottomH = height - topH - 1; // -1 for separator
+      const bottomH = height - topH;
       return [
         ...this.computePositions(node.children[0], x, y, width, topH),
-        ...this.computePositions(node.children[1], x, y + topH + 1, width, Math.max(bottomH, 1)),
+        ...this.computePositions(node.children[1], x, y + topH, width, Math.max(bottomH, 1)),
       ];
     }
   }
@@ -1178,7 +1187,14 @@ export class DemoTmux {
     }
   }
 
-  private adjustRatio(node: LayoutNode, paneId: string, direction: string, delta: number): boolean {
+  private adjustRatio(
+    node: LayoutNode,
+    paneId: string,
+    direction: string,
+    adjustment: number,
+    availWidth: number,
+    availHeight: number,
+  ): boolean {
     if (node.type === 'leaf') return false;
 
     // Check if either child contains the pane
@@ -1196,6 +1212,9 @@ export class DemoTmux {
         (node.direction === 'vertical' && isVerticalResize) ||
         (node.direction === 'horizontal' && isHorizontalResize)
       ) {
+        // Convert cell-based adjustment to ratio delta using available space
+        const available = node.direction === 'vertical' ? availWidth : availHeight;
+        const delta = adjustment / Math.max(available, 1);
         const grow =
           (leftContains && (direction === 'Right' || direction === 'Down')) ||
           (rightContains && (direction === 'Left' || direction === 'Up'));
@@ -1203,9 +1222,48 @@ export class DemoTmux {
         return true;
       }
 
-      // Recurse into the child that contains the pane
-      if (leftContains) return this.adjustRatio(node.children[0], paneId, direction, delta);
-      return this.adjustRatio(node.children[1], paneId, direction, delta);
+      // Recurse into the child that contains the pane, propagating available space
+      if (node.direction === 'vertical') {
+        const leftW = Math.floor(availWidth * node.ratio);
+        const rightW = availWidth - leftW - 1;
+        if (leftContains)
+          return this.adjustRatio(
+            node.children[0],
+            paneId,
+            direction,
+            adjustment,
+            leftW,
+            availHeight,
+          );
+        return this.adjustRatio(
+          node.children[1],
+          paneId,
+          direction,
+          adjustment,
+          rightW,
+          availHeight,
+        );
+      } else {
+        const topH = Math.floor(availHeight * node.ratio);
+        const bottomH = availHeight - topH;
+        if (leftContains)
+          return this.adjustRatio(
+            node.children[0],
+            paneId,
+            direction,
+            adjustment,
+            availWidth,
+            topH,
+          );
+        return this.adjustRatio(
+          node.children[1],
+          paneId,
+          direction,
+          adjustment,
+          availWidth,
+          bottomH,
+        );
+      }
     }
 
     return false;
