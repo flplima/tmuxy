@@ -351,7 +351,7 @@ export class DemoAdapter implements TmuxAdapter {
         const paneId = state.active_pane_id ?? '';
         const adjustment = parseInt(parts[parts.length - 1]) || 1;
         if (parts.includes('-Z')) {
-          // Zoom toggle - not supported in demo, ignore
+          this.tmux.toggleZoom();
         } else if (parts.includes('-U')) {
           this.tmux.resizePane(paneId, 'Up', adjustment);
         } else if (parts.includes('-D')) {
@@ -382,9 +382,39 @@ export class DemoAdapter implements TmuxAdapter {
         this.tmux.nextLayout();
         break;
 
+      case 'swap-pane':
+      case 'swapp': {
+        let src = '';
+        let dst = '';
+        for (let i = 1; i < parts.length; i++) {
+          if (parts[i] === '-s' && i + 1 < parts.length) {
+            src = parts[++i];
+          } else if (parts[i] === '-t' && i + 1 < parts.length) {
+            dst = parts[++i];
+          } else if (parts[i] === '-U') {
+            // swap up - swap with previous pane
+            const state = this.tmux.getState();
+            const idx = state.panes.findIndex((p) => p.tmux_id === state.active_pane_id);
+            if (idx > 0)
+              this.tmux.swapPanes(state.panes[idx].tmux_id, state.panes[idx - 1].tmux_id);
+          } else if (parts[i] === '-D') {
+            const state = this.tmux.getState();
+            const idx = state.panes.findIndex((p) => p.tmux_id === state.active_pane_id);
+            if (idx >= 0 && idx < state.panes.length - 1)
+              this.tmux.swapPanes(state.panes[idx].tmux_id, state.panes[idx + 1].tmux_id);
+          }
+        }
+        if (src && dst) this.tmux.swapPanes(src, dst);
+        break;
+      }
+
+      case 'break-pane':
+      case 'breakp':
+        this.tmux.breakPane();
+        break;
+
       case 'copy-mode':
       case 'resize-window':
-      case 'swap-pane':
       case 'run-shell':
         // Not supported in demo mode - silently ignore
         break;

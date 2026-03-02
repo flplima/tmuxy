@@ -91,19 +91,19 @@ function handlePane(subcommand: string, args: string[], ctx: ShellContext): Comm
     case 'resize':
       return paneResize(args, ctx);
     case 'swap':
-      return ok('swap-pane is not supported in demo mode');
+      return paneSwap(args, ctx);
     case 'zoom':
-      return ok('zoom is not supported in demo mode');
+      return paneZoom(ctx);
     case 'break':
-      return ok('break-pane is not supported in demo mode');
+      return paneBreak(ctx);
     case 'capture':
-      return ok('capture is not supported in demo mode');
+      return paneCapture(args, ctx);
     case 'send':
       return paneSend(args, ctx);
     case 'paste':
       return panePaste(args, ctx);
     case 'float':
-      return ok('float panes are not supported in demo mode');
+      return paneFloat(ctx);
     case 'group':
       return handlePaneGroup(args[0], args.slice(1), ctx);
     default:
@@ -273,25 +273,143 @@ function panePaste(args: string[], ctx: ShellContext): CommandResult {
   return ok();
 }
 
+function paneSwap(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane swap <src> <dst>');
+  }
+  if (args.length < 2) {
+    return err('Usage: tmuxy pane swap <src> <dst>');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const success = ctx.tmux!.swapPanes(args[0], args[1]);
+  if (!success) return err('tmuxy pane swap: failed to swap panes');
+  return ok();
+}
+
+function paneZoom(ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const success = ctx.tmux!.toggleZoom();
+  if (!success) return err('tmuxy pane zoom: cannot zoom (single pane)');
+  return ok(ctx.tmux!.isZoomed() ? 'zoomed' : 'unzoomed');
+}
+
+function paneBreak(ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const windowId = ctx.tmux!.breakPane();
+  if (!windowId) return err('tmuxy pane break: cannot break (single pane)');
+  return ok(windowId);
+}
+
+function paneCapture(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane capture [%id] [--json]');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const target = args.find((a) => a.startsWith('%'));
+  const content = ctx.tmux!.capturePane(target ?? undefined);
+  const json = args.includes('--json');
+
+  if (json) {
+    return ok(JSON.stringify({ content }));
+  }
+  return ok(content);
+}
+
+function paneFloat(ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const paneId = ctx.tmux!.createFloat();
+  if (!paneId) return err('tmuxy pane float: failed to create float');
+  return ok(paneId);
+}
+
 // ============================================
 // Pane group commands
 // ============================================
 
-function handlePaneGroup(subcommand: string, _args: string[], _ctx: ShellContext): CommandResult {
+function handlePaneGroup(subcommand: string, args: string[], ctx: ShellContext): CommandResult {
   if (!subcommand || subcommand === '--help' || subcommand === '-h') {
     return ok(GROUP_USAGE);
   }
 
   switch (subcommand) {
     case 'add':
+      return groupAdd(ctx);
     case 'close':
+      return groupClose(args, ctx);
     case 'switch':
+      return groupSwitchCmd(args, ctx);
     case 'next':
+      return groupNext(ctx);
     case 'prev':
-      return ok(`pane group ${subcommand} is not supported in demo mode`);
+      return groupPrev(ctx);
     default:
       return err(`tmuxy pane group: unknown subcommand '${subcommand}'\n${GROUP_USAGE}`);
   }
+}
+
+function groupAdd(ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const newPaneId = ctx.tmux!.groupAdd();
+  if (!newPaneId) return err('tmuxy pane group add: failed to add pane to group');
+  return ok(newPaneId);
+}
+
+function groupClose(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane group close [%id]');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const target = args.find((a) => a.startsWith('%'));
+  const success = ctx.tmux!.groupClose(target ?? undefined);
+  if (!success) return err('tmuxy pane group close: pane not in a group');
+  return ok();
+}
+
+function groupSwitchCmd(args: string[], ctx: ShellContext): CommandResult {
+  if (args.includes('--help')) {
+    return ok('Usage: tmuxy pane group switch <%id>');
+  }
+  if (args.length === 0) {
+    return err('Error: pane ID required');
+  }
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const success = ctx.tmux!.groupSwitch(args[0]);
+  if (!success) return err(`tmuxy pane group switch: failed to switch to '${args[0]}'`);
+  return ok();
+}
+
+function groupNext(ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const success = ctx.tmux!.groupNext();
+  if (!success) return err('tmuxy pane group next: pane not in a group');
+  return ok();
+}
+
+function groupPrev(ctx: ShellContext): CommandResult {
+  const tmuxErr = requireTmux(ctx);
+  if (tmuxErr) return tmuxErr;
+
+  const success = ctx.tmux!.groupPrev();
+  if (!success) return err('tmuxy pane group prev: pane not in a group');
+  return ok();
 }
 
 // ============================================
