@@ -51,15 +51,29 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [dragOffsetX, dragOffsetY],
   );
 
+  // Padding to cover tmux divider gaps: extend each pane so adjacent borders overlap
+  const hPadding = Math.round(charWidth / 2);
+  const vPadding = Math.round(charHeight / 2);
+
   // Calculate centering offset to center panes in the container
+  // Include hPadding/vPadding so edge panes' borders aren't clipped by overflow:hidden
   const centeringOffset = useMemo(() => {
-    const paneContentWidth = totalWidth * charWidth;
-    const paneContentHeight = totalHeight * charHeight;
+    const paneContentWidth = totalWidth * charWidth + hPadding * 2;
+    const paneContentHeight = totalHeight * charHeight + vPadding * 2;
     return {
-      x: Math.max(0, (containerWidth - paneContentWidth) / 2),
-      y: Math.max(0, (containerHeight - paneContentHeight) / 2),
+      x: Math.max(hPadding, (containerWidth - paneContentWidth) / 2 + hPadding),
+      y: Math.max(vPadding, (containerHeight - paneContentHeight) / 2 + vPadding),
     };
-  }, [totalWidth, totalHeight, charWidth, charHeight, containerWidth, containerHeight]);
+  }, [
+    totalWidth,
+    totalHeight,
+    charWidth,
+    charHeight,
+    containerWidth,
+    containerHeight,
+    hPadding,
+    vPadding,
+  ]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -91,10 +105,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isDragging, isResizing, send]);
-
-  // Padding to cover tmux divider gaps: extend each pane so adjacent borders overlap
-  const hPadding = Math.round(charWidth / 2);
-  const vPadding = Math.round(charHeight / 2);
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
