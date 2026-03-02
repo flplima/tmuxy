@@ -1,0 +1,16 @@
+/* Standalone-only styles — imported by main.tsx, NOT by library consumers.
+   These set body/root for when tmuxy-ui is the full-page app. */
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--bg-black);
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+}

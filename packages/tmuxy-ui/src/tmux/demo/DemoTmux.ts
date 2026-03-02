@@ -1163,13 +1163,13 @@ export class DemoTmux {
   }
 
   private buildStatusLine(): string {
-    // Mimic the .tmuxy.conf status bar: green bg, black fg
-    // Format: [session]           <padding>           user@host
-    const green = '\x1b[42;30m'; // bg=green, fg=black
+    // The .tmux-status-bar container already provides the themed background
+    // via --tmux-status-bg. Only set fg color here to avoid ANSI bg mismatch.
+    const style = '\x1b[30m'; // black fg (text color on green bar)
     const reset = '\x1b[0m';
     const leftText = ` [${this.sessionName}] `;
     const rightText = ` demo@tmuxy `;
     const padding = Math.max(0, this.totalWidth - leftText.length - rightText.length);
-    return `${green}${leftText}${' '.repeat(padding)}${rightText}${reset}`;
+    return `${style}${leftText}${' '.repeat(padding)}${rightText}${reset}`;
   }
 }

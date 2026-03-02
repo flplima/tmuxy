@@ -150,20 +150,6 @@
    Base / Reset
    ============================================ */
 
-body {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  background-color: var(--bg-black);
-}
-
-#root {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  box-sizing: border-box;
-}
-
 /* ============================================
    App Container
    ============================================ */
