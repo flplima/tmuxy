@@ -12,6 +12,8 @@ interface ModalProps {
   closeOnEsc?: boolean;
   zIndex?: number;
   containerStyle?: React.CSSProperties;
+  portalTarget?: HTMLElement | null;
+  inline?: boolean;
 }
 
 export function Modal({
@@ -25,6 +27,8 @@ export function Modal({
   closeOnEsc = true,
   zIndex = 1000,
   containerStyle,
+  portalTarget,
+  inline,
 }: ModalProps) {
   const handleBackdropClick = useCallback(() => {
     if (closeOnBackdrop) onClose();
@@ -47,7 +51,7 @@ export function Modal({
 
   if (!open) return null;
 
-  return createPortal(
+  const content = (
     <div className={`modal-overlay${className ? ` ${className}` : ''}`} style={{ zIndex }}>
       <div className="modal-backdrop" onClick={handleBackdropClick} />
       <div
@@ -64,7 +68,9 @@ export function Modal({
         )}
         {children}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
+
+  if (inline) return content;
+  return createPortal(content, portalTarget ?? document.body);
 }

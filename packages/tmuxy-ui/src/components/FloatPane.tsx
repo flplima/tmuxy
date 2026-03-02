@@ -64,6 +64,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
       width={floatWidth}
       zIndex={zIndex}
       containerStyle={{ left, top }}
+      inline
     >
       <div
         className="float-content"
