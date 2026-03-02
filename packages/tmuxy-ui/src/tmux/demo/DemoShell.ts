@@ -198,6 +198,18 @@ export class DemoShell {
     if (this.cursorCol >= width) this.cursorCol = width - 1;
   }
 
+  /** Replace the grid with a widget marker + content lines */
+  writeWidgetContent(widgetName: string, contentLines: string[]): void {
+    this.scrollback = [];
+    this.initGrid();
+    this.writeText(`__TMUXY_WIDGET__:${widgetName}`);
+    this.newline();
+    for (const line of contentLines) {
+      this.writeText(line);
+      this.newline();
+    }
+  }
+
   /** Write a welcome banner to the grid */
   writeBanner(): void {
     const lines = [

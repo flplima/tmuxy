@@ -1081,6 +1081,13 @@ export class DemoTmux {
     return this.panes.size <= 1 && this.windows.length <= 1;
   }
 
+  /** Replace a pane's content with a widget marker + content lines */
+  writeWidget(paneId: string, widgetName: string, lines: string[]): void {
+    const pane = this.panes.get(paneId);
+    if (!pane) return;
+    pane.shell.writeWidgetContent(widgetName, lines);
+  }
+
   renameWindow(windowId: string, name: string): boolean {
     const window = this.windows.find((w) => w.id === windowId);
     if (!window) return false;

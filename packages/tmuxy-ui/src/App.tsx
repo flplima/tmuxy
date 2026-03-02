@@ -52,12 +52,9 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     [send],
   );
 
-  // Focus gating: when requireFocus is set, start unfocused and track clicks
+  // Focus gating: when requireFocus is set, track clicks inside/outside container
   useEffect(() => {
     if (!requireFocus) return;
-
-    // Start unfocused
-    send({ type: 'APP_BLUR' });
 
     const handleMouseDown = (event: MouseEvent) => {
       const container = appContainerRef.current;

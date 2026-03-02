@@ -266,6 +266,15 @@ export class DemoAdapter implements TmuxAdapter {
   private executeCommand(command: string): void {
     if (!command) return;
 
+    // Special handling for write-widget (content may contain special chars)
+    const widgetMatch = command.match(/^write-widget\s+(%\d+)\s+(\S+)(?:\s+([\s\S]*))?$/);
+    if (widgetMatch) {
+      const [, paneId, widgetName, content] = widgetMatch;
+      const contentLines = content ? content.split('\n') : [];
+      this.tmux.writeWidget(paneId, widgetName, contentLines);
+      return;
+    }
+
     // Parse tmux command
     const parts = this.parseTmuxCommand(command);
     if (parts.length === 0) return;
@@ -387,10 +396,15 @@ export class DemoAdapter implements TmuxAdapter {
 
       case 'rename-window':
       case 'renamew': {
-        // rename-window -- 'name'
+        // rename-window -- 'name' OR rename-window name
+        let name = '';
         const dashIdx = parts.indexOf('--');
         if (dashIdx !== -1 && dashIdx + 1 < parts.length) {
-          const name = parts[dashIdx + 1].replace(/^'|'$/g, '');
+          name = parts[dashIdx + 1].replace(/^'|'$/g, '');
+        } else if (parts.length >= 2) {
+          name = parts[parts.length - 1];
+        }
+        if (name) {
           const state = this.tmux.getState();
           if (state.active_window_id) {
             this.tmux.renameWindow(state.active_window_id, name);
