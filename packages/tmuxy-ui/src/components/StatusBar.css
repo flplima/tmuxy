@@ -25,7 +25,7 @@
 .tab-list {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
+  gap: var(--spacing-xl);
   flex: 1;
   overflow-x: auto;
   scrollbar-width: none;
@@ -35,80 +35,28 @@
   display: none;
 }
 
-/* Individual tab */
-.tab {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-3xl);
-  background-color: var(--bg-medium);
-  border: none;
-  border-radius: var(--radius-lg);
+/* Tab name - plain text, clickable */
+.tab-name {
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
   white-space: nowrap;
-  min-width: 60px;
+  cursor: pointer;
+  padding: var(--spacing-sm) 0;
+  transition: color var(--transition-fast);
 }
 
-.tab:hover {
-  background-color: var(--bg-elevated-alt);
+.tab-name:hover {
   color: var(--text-secondary);
 }
 
-.tab-active {
-  background-color: var(--bg-highlight);
-  color: var(--text-primary);
+/* Active tab: green text */
+.tab-name-active {
+  color: var(--accent-green);
 }
 
-.tab-active:hover {
-  background-color: var(--bg-highlight-alt);
-}
-
-/* Tab button (clickable name area) */
-.tab-button {
-  display: flex;
-  align-items: center;
-  padding: 0;
-  background: transparent;
-  border: none;
-  color: inherit;
-  font-family: inherit;
-  font-size: inherit;
-}
-
-/* Tab name */
-.tab-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 150px;
-}
-
-/* Tab close button - hidden by default, visible on hover */
-.tab-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  line-height: 1;
-  opacity: 0;
-  flex-shrink: 0;
-}
-
-.tab:hover .tab-close {
-  opacity: 1;
-}
-
-.tab-close:hover {
-  background-color: var(--error-color);
-  color: white;
+.tab-name-active:hover {
+  color: var(--accent-green);
 }
 
 /* Add tab button */
@@ -116,47 +64,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
   padding: 0;
   background: transparent;
   border: none;
   border-radius: var(--radius-md);
   color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .tab-add:hover {
-  background-color: var(--bg-elevated-alt);
   color: var(--text-muted);
-}
-
-/* Session dropdown button */
-.statusbar-session {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-xl);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-base);
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
-.statusbar-session:hover {
-  background-color: var(--bg-elevated-alt);
-  color: var(--text-primary);
-}
-
-.statusbar-session-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 120px;
 }
 
 /* Tab placeholder (drag target) */

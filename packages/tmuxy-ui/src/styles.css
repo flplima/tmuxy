@@ -573,6 +573,37 @@ body {
   font-weight: 500;
 }
 
+/* Pane add-to-group button */
+.pane-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0;
+  transition:
+    color var(--transition-fast),
+    opacity var(--transition-fast);
+  flex-shrink: 0;
+  z-index: 60;
+}
+
+.pane-header:hover .pane-tab-add {
+  opacity: 1;
+}
+
+.pane-tab-add:hover {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
 /* Pane close button */
 .pane-header-close {
   display: flex;
