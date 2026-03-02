@@ -15,9 +15,9 @@ interface SpringState {
 }
 
 const DEFAULT_CONFIG: SpringConfig = {
-  stiffness: 500,
-  damping: 30,
-  mass: 0.5,
+  stiffness: 1200,
+  damping: 50,
+  mass: 0.3,
   precision: 0.01,
 };
 

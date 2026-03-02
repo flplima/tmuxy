@@ -131,7 +131,7 @@
   --transition-fast: 0.1s ease;
   --transition-normal: 0.15s ease;
   --transition-slow: 0.2s ease;
-  --transition-layout: 250ms linear;
+  --transition-layout: 100ms linear;
 
   /* Shadows */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -432,6 +432,11 @@
   will-change: transform, left, top, width, height;
 }
 
+/* During drag, non-dragged panes swap positions instantly */
+.pane-layout-dragging .pane-layout-item:not(.pane-dragging) {
+  transition: none;
+}
+
 /* Disable ALL transitions when enableAnimations is false */
 .pane-layout-no-animations .pane-layout-item {
   transition: none;
@@ -459,10 +464,10 @@
   pointer-events: none;
   box-sizing: border-box;
   transition:
-    left 200ms ease-out,
-    top 200ms ease-out,
-    width 200ms ease-out,
-    height 200ms ease-out;
+    left 60ms ease-out,
+    top 60ms ease-out,
+    width 60ms ease-out,
+    height 60ms ease-out;
 }
 
 /* ============================================
