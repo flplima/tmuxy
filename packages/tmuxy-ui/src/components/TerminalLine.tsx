@@ -13,12 +13,37 @@ import { Cursor } from './Cursor';
 import type { CellLine, TerminalCell, CellColor, CellStyle } from '../tmux/types';
 
 /**
+ * Standard 16 terminal colors mapped to CSS theme variables.
+ * These match the --term-* variables defined in each theme CSS file.
+ */
+const STANDARD_16_VARS = [
+  'var(--term-black)',
+  'var(--term-red)',
+  'var(--term-green)',
+  'var(--term-yellow)',
+  'var(--term-blue)',
+  'var(--term-magenta)',
+  'var(--term-cyan)',
+  'var(--term-white)',
+  'var(--term-bright-black)',
+  'var(--term-bright-red)',
+  'var(--term-bright-green)',
+  'var(--term-bright-yellow)',
+  'var(--term-bright-blue)',
+  'var(--term-bright-magenta)',
+  'var(--term-bright-cyan)',
+  'var(--term-bright-white)',
+];
+
+/**
  * Convert CellColor to CSS color string
  */
 function cellColorToCss(color: CellColor): string {
   if (typeof color === 'number') {
-    // Indexed color (0-255)
-    return `var(--ansi-${color}, ${getAnsi256Color(color)})`;
+    // Standard 16 colors use theme CSS variables
+    if (color < 16) return STANDARD_16_VARS[color];
+    // Extended 256 colors use computed hex
+    return getAnsi256Color(color);
   } else {
     // RGB color
     return `rgb(${color.r}, ${color.g}, ${color.b})`;
