@@ -1,15 +1,14 @@
 /**
- * FloatPane - Simple centered floating pane with backdrop
+ * FloatPane - Floating pane overlay inside the pane container.
  *
- * - Always centered on screen
- * - Clicking backdrop, pressing Esc, or clicking × all close (kill) the float
- * - No dragging, resizing, or grouping
- * - Green border on all sides when active
+ * Uses the same PaneHeader as regular panes (without group buttons).
+ * Rendered inline (no portal) so the overlay stays within .pane-container.
+ * Clicking the backdrop closes the float.
  */
 
 import React, { useCallback } from 'react';
 import { Terminal } from './Terminal';
-import { Modal } from './Modal';
+import { PaneHeader } from './PaneHeader';
 import {
   useAppSend,
   useAppSelector,
@@ -26,8 +25,6 @@ interface FloatPaneProps {
 
 export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const send = useAppSend();
-  // Use raw panes list (not selectPreviewPanes) because float panes live in
-  // non-active windows and selectPreviewPanes filters to activeWindowId only
   const pane = useAppSelector((ctx) =>
     ctx.panes.find((p: TmuxPane) => p.tmuxId === floatState.paneId),
   );
@@ -46,52 +43,52 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
     [send, floatState.paneId],
   );
 
+  const handleBackdropClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.target === e.currentTarget) handleClose();
+    },
+    [handleClose],
+  );
+
   if (!pane) return null;
 
-  const title = pane.borderTitle || pane.tmuxId;
   const terminalRows = Math.floor(floatState.height / charHeight);
-
   const floatWidth = floatState.width;
-  const floatHeight = floatState.height + 28;
+  const headerHeight = 24; // --pane-header-height
+  const floatHeight = floatState.height + headerHeight;
   const left = Math.max(0, (containerWidth - floatWidth) / 2);
   const top = Math.max(0, (containerHeight - floatHeight) / 2);
 
   return (
-    <Modal
-      open={true}
-      onClose={handleClose}
-      title={title}
-      width={floatWidth}
-      zIndex={zIndex}
-      containerStyle={{ left, top }}
-      inline
-    >
+    <div className="float-overlay" style={{ zIndex }} onClick={handleBackdropClick}>
       <div
-        className="float-content"
-        style={{ width: floatWidth, height: floatState.height }}
+        className="float-container"
+        style={{ left, top, width: floatWidth, height: floatHeight }}
         onClick={handleClick}
+        tabIndex={0}
+        data-pane-id={pane.tmuxId}
       >
-        <Terminal
-          content={pane.content}
-          cursorX={pane.cursorX}
-          cursorY={pane.cursorY}
-          isActive={pane.active}
-          height={terminalRows}
-          inMode={pane.inMode}
-          copyCursorX={pane.copyCursorX}
-          copyCursorY={pane.copyCursorY}
-        />
+        <PaneHeader paneId={floatState.paneId} isFloat onFloatClose={handleClose} />
+        <div className="float-content" style={{ height: floatState.height }}>
+          <Terminal
+            content={pane.content}
+            cursorX={pane.cursorX}
+            cursorY={pane.cursorY}
+            isActive={pane.active}
+            height={terminalRows}
+            inMode={pane.inMode}
+            copyCursorX={pane.copyCursorX}
+            copyCursorY={pane.copyCursorY}
+          />
+        </div>
       </div>
-    </Modal>
+    </div>
   );
 }
 
 /**
- * FloatContainer - Container for float panes
- *
- * Renders whenever float panes exist. Each float gets its own Modal.
- * Clicking backdrop or pressing Esc closes that float.
- * The × button kills that specific float.
+ * FloatContainer - Container for all float panes.
+ * Renders inline inside .pane-container so overlays stay scoped.
  */
 export function FloatContainer() {
   const floatPanes = useAppSelector((ctx) => ctx.floatPanes);

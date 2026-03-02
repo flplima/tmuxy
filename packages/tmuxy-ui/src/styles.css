@@ -776,12 +776,36 @@ body {
   color: white;
 }
 
-/* Float content - green border on all 4 sides */
+/* ============================================
+   Float Pane Overlay
+   ============================================ */
+
+.float-overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.float-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.float-container {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+  border: 1px solid var(--accent-green);
+}
+
 .float-content {
   flex: 1;
   overflow: hidden;
   background: var(--bg-black);
-  border: 1px solid var(--accent-green);
   box-sizing: border-box;
 }
 

@@ -127,6 +127,10 @@ interface PaneHeaderProps {
   titleOverride?: string;
   /** Widget name for icon lookup (e.g., "markdown", "image") */
   widgetName?: string;
+  /** Float pane mode: hides group add button, wires close to onFloatClose */
+  isFloat?: boolean;
+  /** Called when the close button is clicked in float mode */
+  onFloatClose?: () => void;
 }
 
 interface ContextMenuState {
@@ -136,7 +140,13 @@ interface ContextMenuState {
   targetPaneId: string;
 }
 
-export function PaneHeader({ paneId, titleOverride, widgetName }: PaneHeaderProps) {
+export function PaneHeader({
+  paneId,
+  titleOverride,
+  widgetName,
+  isFloat,
+  onFloatClose,
+}: PaneHeaderProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
   const { groupPanes, activePaneId } = usePaneGroup(paneId);
@@ -296,17 +306,19 @@ export function PaneHeader({ paneId, titleOverride, widgetName }: PaneHeaderProp
           );
         })}
       </div>
-      <button
-        className="pane-tab-add"
-        onClick={handleAddPane}
-        title="Add pane to group"
-        aria-label="Add pane to group"
-      >
-        +
-      </button>
+      {!isFloat && (
+        <button
+          className="pane-tab-add"
+          onClick={handleAddPane}
+          title="Add pane to group"
+          aria-label="Add pane to group"
+        >
+          +
+        </button>
+      )}
       <button
         className="pane-header-close"
-        onClick={handleClosePane}
+        onClick={isFloat ? onFloatClose : handleClosePane}
         title="Close pane"
         aria-label="Close pane"
       >
