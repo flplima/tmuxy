@@ -12,25 +12,30 @@ import type { AnserJsonEntry } from 'anser';
  * xterm standard 16 color RGB values mapped to CSS variable names
  * These match the --term-* variables defined in styles.css
  */
+/**
+ * Map normalized "r,g,b" strings to CSS variable names.
+ * Anser outputs RGB values with inconsistent spacing (e.g., "0, 0, 0" or "255,255,255").
+ * We normalize by stripping spaces before lookup (see rgbToColor).
+ */
 const STANDARD_COLORS: Record<string, string> = {
-  // Normal colors (0-7)
+  // Anser's standard 8 colors (ANSI 30-37 / 40-47)
   '0,0,0': 'var(--term-black)',
-  '205,0,0': 'var(--term-red)',
-  '0,205,0': 'var(--term-green)',
-  '205,205,0': 'var(--term-yellow)',
-  '0,0,238': 'var(--term-blue)',
-  '205,0,205': 'var(--term-magenta)',
-  '0,205,205': 'var(--term-cyan)',
-  '229,229,229': 'var(--term-white)',
-  // Bright colors (8-15)
-  '127,127,127': 'var(--term-bright-black)',
-  '255,0,0': 'var(--term-bright-red)',
+  '187,0,0': 'var(--term-red)',
+  '0,187,0': 'var(--term-green)',
+  '187,187,0': 'var(--term-yellow)',
+  '0,0,187': 'var(--term-blue)',
+  '187,0,187': 'var(--term-magenta)',
+  '0,187,187': 'var(--term-cyan)',
+  '255,255,255': 'var(--term-white)',
+  // Anser's bright 8 colors (ANSI 90-97 / 100-107)
+  '85,85,85': 'var(--term-bright-black)',
+  '255,85,85': 'var(--term-bright-red)',
   '0,255,0': 'var(--term-bright-green)',
-  '255,255,0': 'var(--term-bright-yellow)',
-  '92,92,255': 'var(--term-bright-blue)',
-  '255,0,255': 'var(--term-bright-magenta)',
-  '0,255,255': 'var(--term-bright-cyan)',
-  '255,255,255': 'var(--term-bright-white)',
+  '255,255,85': 'var(--term-bright-yellow)',
+  '85,85,255': 'var(--term-bright-blue)',
+  '255,85,255': 'var(--term-bright-magenta)',
+  '85,255,255': 'var(--term-bright-cyan)',
+  // 255,255,255 already mapped to --term-white above; bright white is the same in Anser
 };
 
 /**
@@ -44,7 +49,10 @@ const styleCache = new Map<string, React.CSSProperties>();
  * Generate cache key from ANSI style properties
  */
 function getStyleCacheKey(part: AnserJsonEntry): string {
-  return `${part.fg || ''},${part.bg || ''},${part.decorations.sort().join(':')}`;
+  // Normalize spaces in color strings for consistent caching
+  const fg = part.fg?.replace(/\s/g, '') || '';
+  const bg = part.bg?.replace(/\s/g, '') || '';
+  return `${fg},${bg},${part.decorations.sort().join(':')}`;
 }
 
 /**
@@ -52,8 +60,9 @@ function getStyleCacheKey(part: AnserJsonEntry): string {
  * Uses CSS variable for standard colors, rgb() for true color
  */
 function rgbToColor(rgb: string): string {
-  // Check if it's a standard terminal color
-  const cssVar = STANDARD_COLORS[rgb];
+  // Normalize spaces: Anser may output "0, 187, 0" or "255,255,255"
+  const normalized = rgb.replace(/\s/g, '');
+  const cssVar = STANDARD_COLORS[normalized];
   if (cssVar) {
     return cssVar;
   }
