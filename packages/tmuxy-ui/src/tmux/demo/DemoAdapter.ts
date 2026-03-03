@@ -101,6 +101,13 @@ export class DemoAdapter implements TmuxAdapter {
   private connected = false;
   private tmux: DemoTmux;
   private initCommands: string[];
+  /** Copy of initCommands saved to re-run if set_client_size fires with different dims */
+  private savedInitCommands: string[];
+  /** Cols/rows used during get_initial_state — compared against first set_client_size */
+  private initCols = 0;
+  private initRows = 0;
+  /** True after the first set_client_size has been handled (no further reinit) */
+  private firstSizeHandled = false;
 
   private stateListeners = new Set<StateListener>();
   private errorListeners = new Set<ErrorListener>();
@@ -111,6 +118,7 @@ export class DemoAdapter implements TmuxAdapter {
   constructor(options?: DemoAdapterOptions) {
     this.tmux = new DemoTmux();
     this.initCommands = options?.initCommands ?? [];
+    this.savedInitCommands = [...this.initCommands];
   }
 
   async connect(): Promise<void> {
@@ -141,6 +149,8 @@ export class DemoAdapter implements TmuxAdapter {
       case 'get_initial_state': {
         const cols = (args?.cols as number) || 80;
         const rows = (args?.rows as number) || 24;
+        this.initCols = cols;
+        this.initRows = rows;
         this.tmux.setSize(cols, rows);
         // Run init commands (splits, new windows, etc.) before returning state
         for (const initCmd of this.initCommands) {
@@ -153,7 +163,24 @@ export class DemoAdapter implements TmuxAdapter {
       case 'set_client_size': {
         const cols = (args?.cols as number) || 80;
         const rows = (args?.rows as number) || 24;
-        this.tmux.setSize(cols, rows);
+        // On the first set_client_size, if dimensions differ from what was used during
+        // get_initial_state (which used window.innerWidth as fallback before the container
+        // was measured), re-initialize DemoTmux with the correct container dimensions so
+        // group pane content is rendered at the right width.
+        if (!this.firstSizeHandled && this.savedInitCommands.length > 0) {
+          this.firstSizeHandled = true;
+          if (cols !== this.initCols || rows !== this.initRows) {
+            this.tmux = new DemoTmux();
+            this.tmux.init(cols, rows);
+            for (const cmd of this.savedInitCommands) {
+              this.executeCommand(cmd);
+            }
+          } else {
+            this.tmux.setSize(cols, rows);
+          }
+        } else {
+          this.tmux.setSize(cols, rows);
+        }
         this.emitState();
         return null as T;
       }
