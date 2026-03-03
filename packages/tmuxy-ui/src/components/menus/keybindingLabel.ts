@@ -21,12 +21,12 @@ const KEY_DISPLAY: Record<string, string> = {
 };
 
 /**
- * Format a prefix key for display: "C-b" → "^B", "C-a" → "^A"
+ * Format a prefix key for display: "C-b" → "ctrl+b", "C-a" → "ctrl+a"
  */
 export function formatPrefixKey(prefixKey: string): string {
   const match = prefixKey.match(/^C-(.)/);
   if (match) {
-    return '^' + match[1].toUpperCase();
+    return 'ctrl+' + match[1].toLowerCase();
   }
   return prefixKey;
 }

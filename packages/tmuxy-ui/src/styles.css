@@ -741,7 +741,7 @@
 
 /* Keybinding hints */
 .statusline-hints {
-  color: var(--text-subtle);
+  color: #000;
   font-size: 11px;
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -751,14 +751,14 @@
 
 .statusline-hints kbd {
   font-weight: bold;
-  color: var(--text-secondary);
+  color: #000;
   font-family: inherit;
 }
 
 /* Host and session labels */
 .statusline-host,
 .statusline-session {
-  color: var(--text-muted);
+  color: #000;
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
   padding: var(--spacing-md) var(--spacing-lg);

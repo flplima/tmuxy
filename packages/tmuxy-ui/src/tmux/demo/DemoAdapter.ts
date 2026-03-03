@@ -79,6 +79,16 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: 'M-9', command: 'select-window -t 9', description: 'Window 9' },
     { key: 'S-Left', command: 'previous-window', description: 'Previous window' },
     { key: 'S-Right', command: 'next-window', description: 'Next window' },
+    { key: 'C-0', command: 'select-window -t 0', description: 'Window 0' },
+    { key: 'C-1', command: 'select-window -t 1', description: 'Window 1' },
+    { key: 'C-2', command: 'select-window -t 2', description: 'Window 2' },
+    { key: 'C-3', command: 'select-window -t 3', description: 'Window 3' },
+    { key: 'C-4', command: 'select-window -t 4', description: 'Window 4' },
+    { key: 'C-5', command: 'select-window -t 5', description: 'Window 5' },
+    { key: 'C-6', command: 'select-window -t 6', description: 'Window 6' },
+    { key: 'C-7', command: 'select-window -t 7', description: 'Window 7' },
+    { key: 'C-8', command: 'select-window -t 8', description: 'Window 8' },
+    { key: 'C-9', command: 'select-window -t 9', description: 'Window 9' },
   ],
 };
 
