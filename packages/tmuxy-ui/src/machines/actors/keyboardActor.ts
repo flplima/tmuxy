@@ -307,11 +307,9 @@ export function createKeyboardActor() {
 
       const rootCommand = rootBindings.get(formattedKey);
       if (rootCommand) {
-        // Replace session placeholder in command
-        const command = rootCommand.replace(/-t \S+/, `-t ${sessionName}`);
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
-          command,
+          command: rootCommand,
         });
 
         input.parent.send({

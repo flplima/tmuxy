@@ -46,13 +46,13 @@ function StatusLineHints({ keybindings }: { keybindings: KeyBindings | null }) {
       {hasNav && (
         <>
           {'  '}
-          <kbd>ctrl+hjkl</kbd> nav
+          <kbd>ctrl+hjkl</kbd> pane navigation
         </>
       )}
       {hasTabs && (
         <>
           {'  '}
-          <kbd>ctrl+[0-9]</kbd> tabs
+          <kbd>ctrl+[0-9]</kbd> tab navigation
         </>
       )}
     </span>
