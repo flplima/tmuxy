@@ -62,7 +62,7 @@ export class VirtualFS {
       ['/home/demo/pane-group-1.txt', 'Did you notice that this pane has two tabs?'],
       [
         '/home/demo/pane-group-2.txt',
-        'A pane group lets you stack several panes in the same\nposition within your layout. The inactive panes live in hidden tmux windows.\n\nWhen you switch tabs, tmuxy swaps the visible pane with\nthe hidden one.\n',
+        'A pane group lets you stack several panes in the same position within your layout. The inactive panes live in hidden tmux windows.\n\nWhen you switch tabs, tmuxy swaps the visible pane with the hidden one.\n',
       ],
     ];
     for (const [path, content] of files) {

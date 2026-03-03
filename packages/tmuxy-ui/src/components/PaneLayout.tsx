@@ -98,17 +98,21 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     (pane: TmuxPane): React.CSSProperties => {
       const headerY = Math.max(0, pane.y - 1);
       // Extend horizontally into the tmux separator column between adjacent panes.
-      // Vertical: no extension needed — the separator row IS the next pane's header.
       const onLeft = pane.x === 0;
       const onRight = pane.x + pane.width >= totalWidth;
       const padLeft = onLeft ? 0 : hPadding;
       const padRight = onRight ? 0 : hPadding;
+      // Extend vertically into the tmux separator row below the pane.
+      // The separator row sits between the top pane's last content row and the
+      // bottom pane's header row. Extending by charHeight closes that gap.
+      const onBottom = pane.y + pane.height >= totalHeight;
+      const padBottom = onBottom ? 0 : charHeight;
       return {
         position: 'absolute',
         left: Math.round(centeringOffset.x + pane.x * charWidth) - padLeft,
         top: centeringOffset.y + headerY * charHeight,
         width: Math.ceil(pane.width * charWidth) + padLeft + padRight,
-        height: (pane.height + 1) * charHeight,
+        height: (pane.height + 1) * charHeight + padBottom,
         '--pane-h-padding-left': `${padLeft}px`,
         '--pane-h-padding-right': `${padRight}px`,
       } as React.CSSProperties;
