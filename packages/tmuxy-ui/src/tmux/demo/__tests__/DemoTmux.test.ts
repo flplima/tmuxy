@@ -30,7 +30,7 @@ describe('DemoTmux', () => {
       expect(content.length).toBeGreaterThan(0);
       // First line should have welcome text
       const firstLineText = content[0].map((c) => c.c).join('');
-      expect(firstLineText).toContain('Welcome to tmuxy demo');
+      expect(firstLineText).toContain('This is a live demo!');
     });
 
     it('state has session name', () => {
