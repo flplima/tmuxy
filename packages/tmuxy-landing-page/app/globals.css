@@ -1,11 +1,11 @@
 @import 'tailwindcss';
 
-/* Page background: use the theme's base dark/light, nudged slightly off pure black/white */
+/* Page background: same as app's --bg-black, nudged slightly off pure black/white */
 :root.theme-dark {
-  --page-bg: #111111;
+  --page-bg: color-mix(in srgb, var(--bg-black, #000) 85%, white);
 }
 :root.theme-light {
-  --page-bg: #f0f0f0;
+  --page-bg: color-mix(in srgb, var(--bg-black, #fafafa) 85%, black);
 }
 
 body {
