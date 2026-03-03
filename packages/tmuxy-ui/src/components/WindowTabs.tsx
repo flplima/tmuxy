@@ -119,7 +119,7 @@ export function WindowTabs() {
           aria-selected={window.active}
           aria-label={`Tab ${window.index}: ${window.name}${window.active ? ' (active)' : ''}`}
         >
-          {window.index}: {window.name || `Tab ${window.index}`}
+          {window.index}:{window.name || `Tab ${window.index}`}
         </span>
       ))}
       <button
