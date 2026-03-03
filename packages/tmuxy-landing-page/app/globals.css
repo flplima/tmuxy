@@ -1,7 +1,15 @@
 @import 'tailwindcss';
 
+/* Page background: use the theme's base dark/light, nudged slightly off pure black/white */
+:root.theme-dark {
+  --page-bg: #111111;
+}
+:root.theme-light {
+  --page-bg: #f0f0f0;
+}
+
 body {
-  background: var(--bg-medium, #2d2d2d);
+  background: var(--page-bg, #111111);
   color: var(--text-primary, #e5e5e5);
   font-family: var(--font-mono, 'FiraCode Nerd Font', 'Monaco', 'Menlo', 'Courier New', monospace);
   transition: background-color 0.3s, color 0.3s;

@@ -35,6 +35,10 @@ const PREFIX_HINTS = [
   { key: 'c', label: 'new tab' },
 ];
 
+function Separator() {
+  return <span style={{ opacity: 0.3, padding: '0 0.35em' }}>⋅</span>;
+}
+
 function Key({ children, active }: { children: string; active?: boolean }) {
   return (
     <>
@@ -60,10 +64,10 @@ function StatusLineHints({
     return (
       <span className="statusline-hints">
         <Key active>{prefix}</Key>
-        {'   '}
+        <Separator />
         {PREFIX_HINTS.map(({ key, label }, i) => (
           <span key={key}>
-            {i > 0 && '   '}
+            {i > 0 && <Separator />}
             <Key>{key}</Key> <span className="statusline-hint-desc">{label}</span>
           </span>
         ))}
@@ -84,13 +88,13 @@ function StatusLineHints({
       <Key>{prefix}</Key> <span className="statusline-hint-desc">prefix</span>
       {hasNav && (
         <>
-          {'   '}
+          <Separator />
           <Key>ctrl+hjkl</Key> <span className="statusline-hint-desc">pane nav</span>
         </>
       )}
       {hasTabs && (
         <>
-          {'   '}
+          <Separator />
           <Key>ctrl+&lt;0-9&gt;</Key> <span className="statusline-hint-desc">tab nav</span>
         </>
       )}

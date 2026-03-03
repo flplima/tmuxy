@@ -30,9 +30,9 @@ export default function Home() {
           target="_blank"
           rel="noopener noreferrer"
           className="landing-github-link text-sm"
-          style={{ color: 'var(--text-primary)', textDecoration: 'underline' }}
+          style={{ color: 'var(--text-primary)' }}
         >
-          {'\uF09B'} View on GitHub {'\uF08E'}
+          <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span> {'\uF08E'}
         </a>
       </div>
       <div className="w-full max-w-3xl">
@@ -104,9 +104,9 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
             className="landing-github-link"
-            style={{ color: 'var(--text-primary)', textDecoration: 'underline' }}
+            style={{ color: 'var(--text-primary)' }}
           >
-            {'\uF09B'} GitHub {'\uF08E'}
+            <span style={{ textDecoration: 'underline' }}>{'\uF09B'} GitHub</span> {'\uF08E'}
           </a>
           {' '}and there&apos;s a full architecture walkthrough on{' '}
           <a
@@ -114,9 +114,9 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
             className="landing-github-link"
-            style={{ color: 'var(--text-primary)', textDecoration: 'underline' }}
+            style={{ color: 'var(--text-primary)' }}
           >
-            {'\uF02D'} DeepWiki {'\uF08E'}
+            <span style={{ textDecoration: 'underline' }}>DeepWiki</span> {'\uF08E'}
           </a>
           {' '}if you want to understand how things work before jumping in. Or you can just{' '}
           <a
@@ -124,9 +124,9 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
             className="landing-github-link"
-            style={{ color: 'var(--text-primary)', textDecoration: 'underline' }}
+            style={{ color: 'var(--text-primary)' }}
           >
-            share it on X {'\uF08E'}
+            <span style={{ textDecoration: 'underline' }}>share it on X</span> {'\uF08E'}
           </a>.
         </p>
       </div>
