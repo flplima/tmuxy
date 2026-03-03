@@ -59,13 +59,10 @@ export class VirtualFS {
       ],
       ['/etc/hostname', 'tmuxy-demo\n'],
       ['/etc/os-release', 'NAME="Tmuxy Demo"\nVERSION="1.0"\nID=tmuxy\n'],
-      [
-        '/home/demo/pane-group-1.txt',
-        'Did you notice that this pane has tabs?\n\nLook at the top of this pane — those small tabs let you\nswitch between multiple shells that share the same space.\n\nThis is a pane group. Press the tab or use the keyboard\nshortcut to flip to the next pane and learn more.\n',
-      ],
+      ['/home/demo/pane-group-1.txt', 'Did you notice this pane has two tabs?'],
       [
         '/home/demo/pane-group-2.txt',
-        'Pane groups: multiple shells, one slot.\n\nA pane group lets you stack several panes in the same\nposition within your layout. Only one is visible at a\ntime — the rest live in a hidden tmux window.\n\nWhen you switch tabs, tmuxy swaps the visible pane with\na hidden one using tmux swap-pane. The layout stays\nuntouched — only the content changes.\n\nThis means you can have a build log, a test runner, and\na shell all sharing the same spot, without splitting\nyour screen further. Tmux handles the plumbing;\ntmuxy adds the tab UI on top.\n',
+        'A pane group stacks panes in one slot.\nInactive panes hide in tmux windows.\n\nSwitch tabs: tmuxy swaps the visible\npane with the hidden one instantly.\n',
       ],
     ];
     for (const [path, content] of files) {
