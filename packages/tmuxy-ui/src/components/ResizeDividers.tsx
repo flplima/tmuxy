@@ -8,6 +8,7 @@
 import React from 'react';
 import { useAppSend } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
+import { haptics } from '../utils/haptics';
 
 interface ResizeDividersProps {
   panes: TmuxPane[];
@@ -129,6 +130,8 @@ export function ResizeDividers({
           onMouseDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            haptics.trigger(10);
+            document.addEventListener('mouseup', () => haptics.trigger('success'), { once: true });
             send({
               type: 'RESIZE_START',
               paneId: seg.paneId,
@@ -161,6 +164,8 @@ export function ResizeDividers({
           onMouseDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            haptics.trigger(10);
+            document.addEventListener('mouseup', () => haptics.trigger('success'), { once: true });
             send({
               type: 'RESIZE_START',
               paneId: seg.paneId,

@@ -17,6 +17,7 @@ import {
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
 import { getKeybindingLabel } from './menus/keybindingLabel';
+import { haptics } from '../utils/haptics';
 import type { KeyBindings } from '../machines/types';
 
 function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
@@ -55,6 +56,7 @@ export function WindowTabs() {
 
   const handleWindowClick = useCallback(
     (windowIndex: number) => {
+      haptics.trigger(10);
       send({ type: 'SEND_COMMAND', command: `select-window -t ${windowIndex}` });
     },
     [send],

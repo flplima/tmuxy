@@ -10,6 +10,7 @@ import { useRef, useEffect, useState, useCallback, memo } from 'react';
 import { useAppSend, usePane, usePaneGroup, useCopyModeState } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import type { TmuxPane } from '../tmux/types';
+import { haptics } from '../utils/haptics';
 
 const PROCESS_ICONS: Record<string, string> = {
   zsh: '\uf120', // >_ nf-fa-terminal
@@ -257,6 +258,8 @@ export function PaneHeader({
         pendingDragRef.current = null;
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
+        haptics.trigger(10);
+        document.addEventListener('mouseup', () => haptics.trigger('success'), { once: true });
         send({
           type: 'DRAG_START',
           paneId: tmuxId,
