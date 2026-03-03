@@ -223,16 +223,9 @@ export class DemoShell {
   /** Write a welcome banner to the grid */
   writeBanner(): void {
     const lines = [
-      '\x1b[1;36m Welcome to tmuxy demo! \x1b[0m',
-      '',
-      ' Try these commands:',
-      '   ls, cd, cat, echo, help',
-      '',
-      ' Tmux shortcuts:',
-      '   Ctrl+A " — split horizontally',
-      '   Ctrl+A % — split vertically',
-      '   Ctrl+A c — new window',
-      '   Ctrl+A arrow — navigate panes',
+      '\x1b[1;36mThis is a live demo! \x1b[0m',
+      'Running in your browser.',
+      '100% client-side. Explore freely!',
       '',
     ];
     for (const line of lines) {
