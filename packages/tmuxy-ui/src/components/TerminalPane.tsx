@@ -25,6 +25,7 @@ import {
   useAppSelector,
   useAppConfig,
   selectCharSize,
+  selectCursorBlink,
 } from '../machines/AppContext';
 import { usePaneMouse, usePaneTouch } from '../hooks';
 import { extractSelectedText } from '../utils/copyMode';
@@ -40,6 +41,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
+  const cursorBlink = useAppSelector(selectCursorBlink);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -211,7 +213,10 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     el.addEventListener('wheel', wheelHandler, { passive: false });
     el.addEventListener('touchstart', touchStartHandler, { passive: true });
     el.addEventListener('touchmove', touchMoveHandler, { passive: false });
-    el.addEventListener('touchend', touchEndHandler, { passive: true });
+    // passive: false so handleTouchEnd can call preventDefault() on taps,
+    // which suppresses synthetic mouse events that would steal focus from
+    // the mobile keyboard's hidden input.
+    el.addEventListener('touchend', touchEndHandler, { passive: false });
     return () => {
       el.removeEventListener('wheel', wheelHandler);
       el.removeEventListener('touchstart', touchStartHandler);
@@ -354,6 +359,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
                   cursorX={pane.cursorX}
                   cursorY={pane.cursorY}
                   isActive={pane.active && isInActiveWindow}
+                  blink={cursorBlink}
                   width={pane.width}
                   height={pane.height}
                   inMode={pane.inMode}

@@ -85,9 +85,12 @@ export {
   selectKeyBindings,
   selectCommandMode,
   selectStatusMessage,
+  selectPrefixActive,
   selectThemeName,
   selectThemeMode,
   selectAvailableThemes,
+  selectBaseFontSize,
+  selectCursorBlink,
 } from './selectors';
 
 // ============================================

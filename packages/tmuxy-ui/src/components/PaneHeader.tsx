@@ -260,11 +260,15 @@ export function PaneHeader({
         document.removeEventListener('mouseup', handleMouseUp);
         haptics.trigger(10);
         document.addEventListener('mouseup', () => haptics.trigger('success'), { once: true });
+        const containerEl = (moveEvt.target as HTMLElement).closest('.pane-layout');
+        const containerRect = containerEl?.getBoundingClientRect();
         send({
           type: 'DRAG_START',
           paneId: tmuxId,
           startX,
           startY,
+          containerLeft: containerRect?.left ?? 0,
+          containerTop: containerRect?.top ?? 0,
         });
       }
     };

@@ -2,7 +2,7 @@
  * AppMenu - Application-level hamburger menu with submenus
  *
  * Uses @szhsin/react-menu for menu rendering.
- * 5 submenus: Pane, Tab, Session, View, Help
+ * 6 submenus: Pane, Tab, Session, Theme, View, Help
  * Keybinding labels are derived from server-provided keybindings.
  *
  * TODO: Add native Tauri menu integration (useNativeMenu). For now, always show
@@ -14,12 +14,14 @@ import '@szhsin/react-menu/dist/index.css';
 import {
   useAppSend,
   useAppSelector,
+  useAppConfig,
   selectKeyBindings,
   selectVisiblePanes,
   selectWindows,
   selectThemeName,
   selectThemeMode,
   selectAvailableThemes,
+  selectCursorBlink,
 } from '../../machines/AppContext';
 import { getKeybindingLabel } from './keybindingLabel';
 import { executeMenuAction } from './menuActions';
@@ -35,12 +37,14 @@ function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; c
 
 export function AppMenu() {
   const send = useAppSend();
+  const { isDemo } = useAppConfig();
   const keybindings = useAppSelector(selectKeyBindings);
   const visiblePanes = useAppSelector(selectVisiblePanes);
   const windows = useAppSelector(selectWindows);
   const themeName = useAppSelector(selectThemeName);
   const themeMode = useAppSelector(selectThemeMode);
   const availableThemes = useAppSelector(selectAvailableThemes);
+  const cursorBlink = useAppSelector(selectCursorBlink);
 
   const isSinglePane = visiblePanes.length <= 1;
   const isSingleWindow =
@@ -102,21 +106,43 @@ export function AppMenu() {
       </SubMenu>
 
       <SubMenu label="Session">
-        <MenuItem onClick={() => handleAction('session-new')}>New Session</MenuItem>
-        <MenuItem onClick={() => handleAction('session-rename')}>
+        <MenuItem onClick={() => handleAction('session-new')} disabled={isDemo}>
+          New Session
+        </MenuItem>
+        <MenuItem onClick={() => handleAction('session-rename')} disabled={isDemo}>
           Rename Session
           <KeyLabel
             keybindings={keybindings}
             command={'command-prompt -I "#S" "rename-session -- \'%%\'"'}
           />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('session-detach')}>
+        <MenuItem onClick={() => handleAction('session-detach')} disabled={isDemo}>
           Detach Session
           <KeyLabel keybindings={keybindings} command="detach-client" />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('session-kill')}>Kill Session</MenuItem>
+        <MenuItem onClick={() => handleAction('session-kill')} disabled={isDemo}>
+          Kill Session
+        </MenuItem>
         <MenuDivider />
-        <MenuItem onClick={() => handleAction('session-reload-config')}>Reload Config</MenuItem>
+        <MenuItem onClick={() => handleAction('session-reload-config')} disabled={isDemo}>
+          Reload Config
+        </MenuItem>
+      </SubMenu>
+
+      <SubMenu label="Theme">
+        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}>
+          {themeMode === 'dark' ? '\u25CF ' : '\u25CB '}Dark Mode
+        </MenuItem>
+        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}>
+          {themeMode === 'light' ? '\u25CF ' : '\u25CB '}Light Mode
+        </MenuItem>
+        {availableThemes.length > 0 && <MenuDivider />}
+        {availableThemes.map((t) => (
+          <MenuItem key={t.name} onClick={() => send({ type: 'SET_THEME', name: t.name })}>
+            {themeName === t.name ? '\u2713 ' : '\u2003 '}
+            {t.displayName}
+          </MenuItem>
+        ))}
       </SubMenu>
 
       <SubMenu label="View">
@@ -129,19 +155,13 @@ export function AppMenu() {
           <KeyLabel keybindings={keybindings} command="next-layout" />
         </MenuItem>
         <MenuDivider />
-        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'dark' })}>
-          {themeMode === 'dark' ? '\u25CF ' : '\u25CB '}Dark Mode
-        </MenuItem>
-        <MenuItem onClick={() => send({ type: 'SET_THEME_MODE', mode: 'light' })}>
-          {themeMode === 'light' ? '\u25CF ' : '\u25CB '}Light Mode
-        </MenuItem>
+        <MenuItem onClick={() => send({ type: 'INCREASE_FONT_SIZE' })}>Make Text Bigger</MenuItem>
+        <MenuItem onClick={() => send({ type: 'DECREASE_FONT_SIZE' })}>Make Text Smaller</MenuItem>
+        <MenuItem onClick={() => send({ type: 'RESET_FONT_SIZE' })}>Make Text Normal Size</MenuItem>
         <MenuDivider />
-        {availableThemes.map((t) => (
-          <MenuItem key={t.name} onClick={() => send({ type: 'SET_THEME', name: t.name })}>
-            {themeName === t.name ? '\u2713 ' : '\u2003 '}
-            {t.displayName}
-          </MenuItem>
-        ))}
+        <MenuItem onClick={() => send({ type: 'TOGGLE_CURSOR_BLINK' })}>
+          {cursorBlink ? '\u2713 ' : '\u2003 '}Blinking Cursor
+        </MenuItem>
       </SubMenu>
 
       <SubMenu label="Help">

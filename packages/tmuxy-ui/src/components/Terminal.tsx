@@ -15,6 +15,7 @@ interface TerminalProps {
   cursorX?: number;
   cursorY?: number;
   isActive?: boolean;
+  blink?: boolean;
   width?: number;
   height?: number;
   inMode?: boolean; // copy mode
@@ -80,6 +81,7 @@ export const Terminal: React.FC<TerminalProps> = ({
   cursorX = 0,
   cursorY = 0,
   isActive = false,
+  blink,
   width = 80,
   height = 24,
   inMode = false,
@@ -154,6 +156,7 @@ export const Terminal: React.FC<TerminalProps> = ({
             showCursor={showCursor}
             inMode={inMode}
             isActive={isActive}
+            blink={blink}
             selectionRange={getSelectionRange(lineIndex)}
             width={width}
           />

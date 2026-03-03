@@ -15,6 +15,7 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { KeyBindings, CopyModeState } from '../../tmux/types';
 import { extractSelectedText } from '../../utils/copyMode';
+import { setupMobileKeyboard, getMobileInput, isTouchDevice } from '../../utils/mobileKeyboard';
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
@@ -117,23 +118,45 @@ export function createKeyboardActor() {
     let prefixBindings: Map<string, string> = new Map();
     let rootBindings: Map<string, string> = new Map();
 
-    // Prefix key timeout (tmux default is 500ms, we use 2000ms for web latency)
-    const PREFIX_TIMEOUT_MS = 2000;
+    // Prefix key timeout (tmux default is 500ms, we use 8000ms so the hint is
+    // readable and users have time to choose a binding)
+    const PREFIX_TIMEOUT_MS = 8000;
 
-    const resetPrefixMode = () => {
+    // Mobile keyboard: forward typed characters to the active tmux session.
+    // keydown handles special keys (Backspace, Enter, arrows) via the existing
+    // window listener; this handles printable chars that mobile browsers only
+    // deliver via `input` events.
+    const cleanupMobileKeyboard = isTouchDevice()
+      ? setupMobileKeyboard((text) => {
+          if (!enabled) return;
+          const escaped = escapeLiteralText(text);
+          input.parent.send({
+            type: 'SEND_TMUX_COMMAND',
+            command: `send-keys -t ${sessionName} -l ${escaped}`,
+          });
+        })
+      : null;
+
+    const resetPrefixMode = (notify = true) => {
+      const wasActive = inPrefixMode;
       inPrefixMode = false;
       if (prefixTimeout) {
         clearTimeout(prefixTimeout);
         prefixTimeout = null;
       }
+      if (notify && wasActive) {
+        input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
+      }
     };
 
     const enterPrefixMode = () => {
       inPrefixMode = true;
+      input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: true });
       // Reset after timeout
       prefixTimeout = setTimeout(() => {
         inPrefixMode = false;
         prefixTimeout = null;
+        input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
       }, PREFIX_TIMEOUT_MS);
     };
 
@@ -150,6 +173,18 @@ export function createKeyboardActor() {
       // These fire as separate keydown events but shouldn't trigger any action
       const modifierKeys = ['Shift', 'Control', 'Alt', 'Meta'];
       if (modifierKeys.includes(event.key)) {
+        return;
+      }
+
+      // On mobile, printable character keydowns from the hidden input are handled
+      // by the `input` event in mobileKeyboard.ts to avoid double-sending.
+      if (
+        event.target === getMobileInput() &&
+        event.key.length === 1 &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey
+      ) {
         return;
       }
 
@@ -436,7 +471,8 @@ export function createKeyboardActor() {
     });
 
     return () => {
-      resetPrefixMode();
+      cleanupMobileKeyboard?.();
+      resetPrefixMode(false);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);

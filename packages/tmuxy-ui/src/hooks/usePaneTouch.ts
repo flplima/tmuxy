@@ -13,6 +13,8 @@
 import { useCallback, useRef, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 import { sendScrollLines } from './scrollUtils';
+import { focusMobileInput } from '../utils/mobileKeyboard';
+import { haptics } from '../utils/haptics';
 
 interface UsePaneTouchOptions {
   paneId: string;
@@ -53,6 +55,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   const lastTouchYRef = useRef(0);
   const remainderRef = useRef(0);
   const momentumRAFRef = useRef<number | null>(null);
+  const tapStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Velocity tracking: store recent (timestamp, y) samples for averaging
   const velocitySamplesRef = useRef<Array<{ t: number; y: number }>>([]);
@@ -111,6 +114,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
       const touch = e.touches[0];
       lastTouchYRef.current = touch.clientY;
       velocitySamplesRef.current = [{ t: e.timeStamp, y: touch.clientY }];
+      tapStartRef.current = { x: touch.clientX, y: touch.clientY };
     },
     [cancelMomentum],
   );
@@ -140,8 +144,25 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   );
 
   const handleTouchEnd = useCallback(
-    (_e: TouchEvent) => {
+    (e: TouchEvent) => {
       touchActiveRef.current = false;
+
+      // Tap detection: small displacement = open/toggle mobile keyboard
+      if (tapStartRef.current && e.changedTouches.length === 1) {
+        const touch = e.changedTouches[0];
+        const dx = Math.abs(touch.clientX - tapStartRef.current.x);
+        const dy = Math.abs(touch.clientY - tapStartRef.current.y);
+        if (dx < 10 && dy < 10) {
+          // Prevent synthetic mouse events (mousedown/mouseup/click) from firing.
+          // Without this, the pane wrapper's tabIndex=0 receives a synthetic mousedown
+          // which steals focus from the hidden mobile input and closes the keyboard.
+          e.preventDefault();
+          haptics.trigger(10);
+          send({ type: 'FOCUS_PANE', paneId });
+          focusMobileInput(paneId);
+        }
+      }
+      tapStartRef.current = null;
 
       // Calculate velocity from recent samples
       const samples = velocitySamplesRef.current;
@@ -183,7 +204,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
 
       momentumRAFRef.current = requestAnimationFrame(momentumTick);
     },
-    [processPixelDelta],
+    [send, paneId, processPixelDelta],
   );
 
   return {

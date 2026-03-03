@@ -246,7 +246,7 @@
   margin: 0;
   padding: 0;
   font-family: var(--font-mono);
-  font-size: var(--font-size-xl);
+  font-size: var(--tmuxy-font-size, 15px);
   line-height: var(--line-height-terminal);
   color: var(--term-foreground);
   white-space: pre;
@@ -655,7 +655,7 @@
 
 .tmux-status-bar-content {
   font-family: var(--font-mono);
-  font-size: var(--font-size-xl);
+  font-size: var(--tmuxy-font-size, 15px);
   line-height: var(--line-height-terminal);
   white-space: pre;
   margin: 0;
@@ -677,7 +677,7 @@
 
 .tmux-command-prompt {
   font-family: var(--font-mono);
-  font-size: var(--font-size-xl);
+  font-size: var(--tmuxy-font-size, 15px);
   line-height: var(--line-height-terminal);
   color: var(--text-dark);
   white-space: pre;
@@ -687,7 +687,7 @@
 .tmux-command-input {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: var(--font-size-xl);
+  font-size: var(--tmuxy-font-size, 15px);
   line-height: var(--line-height-terminal);
   color: var(--text-dark);
   background: transparent;
@@ -729,6 +729,8 @@
 
 .tmux-statusline-center .tmux-status-bar-content {
   padding: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .tmux-statusline-right {
@@ -749,7 +751,7 @@
   padding: 0 var(--spacing-lg);
 }
 
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 600px) {
   .statusline-hints {
     display: none;
   }
@@ -759,6 +761,22 @@
   font-weight: bold;
   color: #000;
   font-family: inherit;
+}
+
+.statusline-bracket {
+  opacity: 0.5;
+  font-weight: normal;
+}
+
+.statusline-hints .statusline-prefix-active {
+  background: #000;
+  color: #0f0;
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+.statusline-hint-desc {
+  opacity: 0.7;
 }
 
 /* Host and session labels */

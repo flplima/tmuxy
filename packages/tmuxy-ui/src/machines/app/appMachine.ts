@@ -48,6 +48,16 @@ import {
 import { handleCopyModeKey } from '../../utils/copyModeKeys';
 import { mergeScrollbackChunk, getNeededChunk } from '../../utils/copyMode';
 import { applyTheme, applyThemeMode, saveThemeToStorage } from '../../utils/themeManager';
+import {
+  applyFontSize,
+  loadFontSizeFromStorage,
+  saveFontSizeToStorage,
+  increaseFontSize,
+  decreaseFontSize,
+  DEFAULT_FONT_SIZE,
+  loadCursorBlinkFromStorage,
+  saveCursorBlinkToStorage,
+} from '../../utils/fontSizeManager';
 import type { CopyModeState, CellLine } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -228,7 +238,13 @@ export const appMachine = setup({
     availableThemes: [],
     // App focus state (for keyboard capture gating)
     appFocused: true,
+    // Prefix key active state (for statusline hint highlight)
+    prefixActive: false,
+    // Display settings
+    baseFontSize: loadFontSizeFromStorage(),
+    cursorBlink: loadCursorBlinkFromStorage(),
   },
+  entry: [({ context }) => applyFontSize(context.baseFontSize)],
   invoke: [
     {
       id: 'tmux',
@@ -335,6 +351,10 @@ export const appMachine = setup({
         assign({ appFocused: false }),
         sendTo('keyboard', { type: 'UPDATE_ENABLED' as const, enabled: false }),
       ],
+    },
+
+    PREFIX_MODE_CHANGE: {
+      actions: assign(({ event }) => ({ prefixActive: event.active })),
     },
 
     // Connection info events
@@ -482,6 +502,41 @@ export const appMachine = setup({
     },
     THEMES_LIST_RECEIVED: {
       actions: assign(({ event }) => ({ availableThemes: event.themes })),
+    },
+
+    // Display settings events (global — work in any state)
+    INCREASE_FONT_SIZE: {
+      actions: enqueueActions(({ context, enqueue }) => {
+        const newSize = increaseFontSize(context.baseFontSize);
+        applyFontSize(newSize);
+        saveFontSizeToStorage(newSize);
+        enqueue(assign({ baseFontSize: newSize }));
+        enqueue(sendTo('size', { type: 'REMEASURE' as const }));
+      }),
+    },
+    DECREASE_FONT_SIZE: {
+      actions: enqueueActions(({ context, enqueue }) => {
+        const newSize = decreaseFontSize(context.baseFontSize);
+        applyFontSize(newSize);
+        saveFontSizeToStorage(newSize);
+        enqueue(assign({ baseFontSize: newSize }));
+        enqueue(sendTo('size', { type: 'REMEASURE' as const }));
+      }),
+    },
+    RESET_FONT_SIZE: {
+      actions: enqueueActions(({ enqueue }) => {
+        applyFontSize(DEFAULT_FONT_SIZE);
+        saveFontSizeToStorage(DEFAULT_FONT_SIZE);
+        enqueue(assign({ baseFontSize: DEFAULT_FONT_SIZE }));
+        enqueue(sendTo('size', { type: 'REMEASURE' as const }));
+      }),
+    },
+    TOGGLE_CURSOR_BLINK: {
+      actions: enqueueActions(({ context, enqueue }) => {
+        const newBlink = !context.cursorBlink;
+        saveCursorBlinkToStorage(newBlink);
+        enqueue(assign({ cursorBlink: newBlink }));
+      }),
     },
 
     // Session events (global — work in any state)
@@ -1105,7 +1160,9 @@ export const appMachine = setup({
             }),
             sendTo('dragLogic', ({ event, context }) => ({
               ...event,
-              panes: context.panes,
+              panes: context.activeWindowId
+                ? context.panes.filter((p) => p.windowId === context.activeWindowId)
+                : context.panes,
               activePaneId: context.activePaneId,
               charWidth: context.charWidth,
               charHeight: context.charHeight,

@@ -59,6 +59,8 @@ export const dragMachine = setup({
     charHeight: DEFAULT_CHAR_HEIGHT,
     containerWidth: 0,
     containerHeight: 0,
+    containerLeft: 0,
+    containerTop: 0,
     drag: null,
   },
   states: {
@@ -93,6 +95,8 @@ export const dragMachine = setup({
                 charHeight: event.charHeight,
                 containerWidth: event.containerWidth,
                 containerHeight: event.containerHeight,
+                containerLeft: event.containerLeft,
+                containerTop: event.containerTop,
               };
             }),
             'notifyStateUpdate',
@@ -133,28 +137,17 @@ export const dragMachine = setup({
               (context.containerHeight - totalH * context.charHeight) / 2,
             );
 
-            // Use the center of the dragged pane's visual position for hit-testing.
-            // Visual position = grid position (pixels) + drag offset (cursor - start).
-            const draggedPane = context.panes.find((p) => p.tmuxId === context.drag!.draggedPaneId);
-            const dragOffsetX = event.clientX - context.drag.startX;
-            const dragOffsetY = event.clientY - context.drag.startY;
-            const headerY = Math.max(0, (draggedPane?.y ?? 0) - 1);
-            const paneCenterX =
-              centerOffsetX +
-              (draggedPane?.x ?? 0) * context.charWidth +
-              ((draggedPane?.width ?? 0) * context.charWidth) / 2 +
-              dragOffsetX;
-            const paneCenterY =
-              centerOffsetY +
-              headerY * context.charHeight +
-              (((draggedPane?.height ?? 0) + 1) * context.charHeight) / 2 +
-              dragOffsetY;
+            // Use cursor position (container-relative) for hit-testing.
+            // This correctly handles dragging large panes onto smaller targets,
+            // where the pane center would never enter the target's bounds.
+            const cursorContainerX = event.clientX - context.containerLeft;
+            const cursorContainerY = event.clientY - context.containerTop;
 
             const targetPaneId = findSwapTarget(
               context.panes,
               context.drag.draggedPaneId,
-              paneCenterX,
-              paneCenterY,
+              cursorContainerX,
+              cursorContainerY,
               context.charWidth,
               context.charHeight,
               centerOffsetX,

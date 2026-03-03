@@ -21,16 +21,55 @@ import {
   selectGridDimensions,
   selectSessionName,
   selectKeyBindings,
+  selectPrefixActive,
 } from '../machines/AppContext';
 import { buildAnsiStyle } from '../utils/ansiStyles';
 import { formatPrefixKey } from './menus/keybindingLabel';
 import { isTauri } from '../tmux/adapters';
 import type { KeyBindings } from '../machines/types';
 
-function StatusLineHints({ keybindings }: { keybindings: KeyBindings | null }) {
+const PREFIX_HINTS = [
+  { key: '-', label: 'split h' },
+  { key: '|', label: 'split v' },
+  { key: 'x', label: 'close pane' },
+  { key: 'c', label: 'new tab' },
+];
+
+function Key({ children, active }: { children: string; active?: boolean }) {
+  return (
+    <>
+      <span className="statusline-bracket">[</span>
+      <kbd className={active ? 'statusline-prefix-active' : undefined}>{children}</kbd>
+      <span className="statusline-bracket">]</span>
+    </>
+  );
+}
+
+function StatusLineHints({
+  keybindings,
+  prefixActive,
+}: {
+  keybindings: KeyBindings | null;
+  prefixActive: boolean;
+}) {
   if (!keybindings) return null;
 
   const prefix = formatPrefixKey(keybindings.prefix_key);
+
+  if (prefixActive) {
+    return (
+      <span className="statusline-hints">
+        <Key active>{prefix}</Key>
+        {'   '}
+        {PREFIX_HINTS.map(({ key, label }, i) => (
+          <span key={key}>
+            {i > 0 && '   '}
+            <Key>{key}</Key> <span className="statusline-hint-desc">{label}</span>
+          </span>
+        ))}
+      </span>
+    );
+  }
 
   const hasNav = ['C-h', 'C-j', 'C-k', 'C-l'].some((key) =>
     keybindings.root_bindings.some((b) => b.key === key && b.command.includes('tmuxy-nav')),
@@ -42,17 +81,17 @@ function StatusLineHints({ keybindings }: { keybindings: KeyBindings | null }) {
 
   return (
     <span className="statusline-hints">
-      <kbd>{prefix}</kbd> prefix
+      <Key>{prefix}</Key> <span className="statusline-hint-desc">prefix</span>
       {hasNav && (
         <>
-          {'  '}
-          <kbd>ctrl+hjkl</kbd> pane navigation
+          {'   '}
+          <Key>ctrl+hjkl</Key> <span className="statusline-hint-desc">pane nav</span>
         </>
       )}
       {hasTabs && (
         <>
-          {'  '}
-          <kbd>ctrl+[0-9]</kbd> tab navigation
+          {'   '}
+          <Key>ctrl+&lt;0-9&gt;</Key> <span className="statusline-hint-desc">tab nav</span>
         </>
       )}
     </span>
@@ -115,6 +154,7 @@ export function TmuxStatusBar() {
   const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
   const sessionName = useAppSelector(selectSessionName);
   const keybindings = useAppSelector(selectKeyBindings);
+  const prefixActive = useAppSelector(selectPrefixActive);
   const send = useAppSend();
   const { isDemo } = useAppConfig();
 
@@ -164,10 +204,11 @@ export function TmuxStatusBar() {
 
   const handleSessionClick = isDemo ? undefined : () => send({ type: 'OPEN_SESSION_FLOAT' });
 
-  // Status message: replaces the center area
+  // Status message: replaces the center area.
+  // In demo mode, skip the ANSI status line — it duplicates the right-column session info.
   const centerContent = statusMessage ? (
     <pre className="tmux-status-bar-content tmux-status-message">{statusMessage.text}</pre>
-  ) : content ? (
+  ) : content && !isDemo ? (
     <pre className="tmux-status-bar-content">{renderedContent}</pre>
   ) : null;
 
@@ -178,7 +219,7 @@ export function TmuxStatusBar() {
         style={gridPixelWidth > 0 ? { width: gridPixelWidth, margin: '0 auto' } : undefined}
       >
         <div className="tmux-statusline-left">
-          <StatusLineHints keybindings={keybindings} />
+          <StatusLineHints keybindings={keybindings} prefixActive={prefixActive} />
         </div>
         <div className="tmux-statusline-center">{centerContent}</div>
         <div className="tmux-statusline-right">

@@ -156,6 +156,12 @@ export interface AppMachineContext {
   availableThemes: Array<{ name: string; displayName: string }>;
   /** Whether the app container is focused (for keyboard capture gating) */
   appFocused: boolean;
+  /** Whether the tmux prefix key has been pressed and we're awaiting a binding key */
+  prefixActive: boolean;
+  /** Base font size for terminal text in pixels */
+  baseFontSize: number;
+  /** Whether the cursor blinks */
+  cursorBlink: boolean;
 }
 
 // ============================================
@@ -169,6 +175,8 @@ export interface DragMachineContext {
   charHeight: number;
   containerWidth: number;
   containerHeight: number;
+  containerLeft: number;
+  containerTop: number;
   drag: DragState | null;
 }
 
@@ -184,6 +192,8 @@ export type DragMachineEvent =
       charHeight: number;
       containerWidth: number;
       containerHeight: number;
+      containerLeft: number;
+      containerTop: number;
     }
   | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
   | { type: 'DRAG_END' }
@@ -257,7 +267,14 @@ export type ConnectionInfoEvent = {
 export type KeybindingsReceivedEvent = { type: 'KEYBINDINGS_RECEIVED'; keybindings: KeyBindings };
 
 // Drag events
-export type DragStartEvent = { type: 'DRAG_START'; paneId: string; startX: number; startY: number };
+export type DragStartEvent = {
+  type: 'DRAG_START';
+  paneId: string;
+  startX: number;
+  startY: number;
+  containerLeft: number;
+  containerTop: number;
+};
 export type DragMoveEvent = { type: 'DRAG_MOVE'; clientX: number; clientY: number };
 export type DragEndEvent = { type: 'DRAG_END' };
 export type DragCancelEvent = { type: 'DRAG_CANCEL' };
@@ -283,6 +300,7 @@ export type KeyPressEvent = {
   shiftKey: boolean;
   metaKey: boolean;
 };
+export type PrefixModeChangeEvent = { type: 'PREFIX_MODE_CHANGE'; active: boolean };
 
 // UI config events
 export type SetCharSizeEvent = { type: 'SET_CHAR_SIZE'; charWidth: number; charHeight: number };
@@ -388,6 +406,12 @@ export type SessionSwitchRequestedEvent = {
   sessionName: string;
 };
 
+// Display settings events
+export type IncreaseFontSizeEvent = { type: 'INCREASE_FONT_SIZE' };
+export type DecreaseFontSizeEvent = { type: 'DECREASE_FONT_SIZE' };
+export type ResetFontSizeEvent = { type: 'RESET_FONT_SIZE' };
+export type ToggleCursorBlinkEvent = { type: 'TOGGLE_CURSOR_BLINK' };
+
 // Theme events
 export type SetThemeEvent = { type: 'SET_THEME'; name: string };
 export type SetThemeModeEvent = { type: 'SET_THEME_MODE'; mode: 'dark' | 'light' };
@@ -460,10 +484,15 @@ export type AppMachineEvent =
   | ThemesListReceivedEvent
   | AppFocusEvent
   | AppBlurEvent
+  | PrefixModeChangeEvent
   | SwitchSessionEvent
   | OpenSessionFloatEvent
   | OpenConnectFloatEvent
-  | SessionSwitchRequestedEvent;
+  | SessionSwitchRequestedEvent
+  | IncreaseFontSizeEvent
+  | DecreaseFontSizeEvent
+  | ResetFontSizeEvent
+  | ToggleCursorBlinkEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

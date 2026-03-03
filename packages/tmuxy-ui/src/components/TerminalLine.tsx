@@ -131,6 +131,7 @@ export interface TerminalLineProps {
   showCursor: boolean;
   inMode: boolean;
   isActive: boolean;
+  blink?: boolean;
   selectionRange?: { startCol: number; endCol: number } | null;
   /** Terminal width in columns (needed to pad selection highlight beyond line content) */
   width: number;
@@ -145,6 +146,7 @@ export const TerminalLine = memo(
     showCursor,
     inMode,
     isActive,
+    blink,
     selectionRange,
     width: _width,
   }: TerminalLineProps) {
@@ -164,6 +166,7 @@ export const TerminalLine = memo(
               char=" "
               copyMode={inMode}
               active={isActive}
+              blink={blink}
               mode="block"
             />
           </>
@@ -220,6 +223,7 @@ export const TerminalLine = memo(
                   char={cursorChar}
                   copyMode={inMode}
                   active={isActive}
+                  blink={blink}
                   mode="block"
                 />
                 {after}

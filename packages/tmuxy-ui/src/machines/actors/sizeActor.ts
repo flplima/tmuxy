@@ -12,7 +12,8 @@ import { CHAR_HEIGHT } from '../../constants';
 export type SizeActorEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
   | { type: 'STOP_OBSERVE' }
-  | { type: 'CONNECTED' };
+  | { type: 'CONNECTED' }
+  | { type: 'REMEASURE' };
 
 export interface SizeActorInput {
   parent: AnyActorRef;
@@ -36,7 +37,7 @@ export function createSizeActor(measureFn: MeasureFn) {
     let containerHeight: number | undefined;
 
     // Measure char size and send immediately
-    const charWidth = measureFn();
+    let charWidth = measureFn();
     input.parent.send({ type: 'SET_CHAR_SIZE', charWidth, charHeight: CHAR_HEIGHT });
 
     // Calculate and send target size using container dimensions if available
@@ -85,6 +86,13 @@ export function createSizeActor(measureFn: MeasureFn) {
       }
       if (event.type === 'CONNECTED') {
         // Force re-send size on reconnection
+        lastCols = 0;
+        lastRows = 0;
+        updateTargetSize();
+      }
+      if (event.type === 'REMEASURE') {
+        charWidth = measureFn();
+        input.parent.send({ type: 'SET_CHAR_SIZE', charWidth, charHeight: CHAR_HEIGHT });
         lastCols = 0;
         lastRows = 0;
         updateTargetSize();

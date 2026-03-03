@@ -568,6 +568,10 @@ export function selectStatusMessage(context: AppMachineContext) {
   return context.statusMessage;
 }
 
+export function selectPrefixActive(context: AppMachineContext): boolean {
+  return context.prefixActive;
+}
+
 // ============================================
 // Theme Selectors
 // ============================================
@@ -584,4 +588,12 @@ export function selectAvailableThemes(
   context: AppMachineContext,
 ): Array<{ name: string; displayName: string }> {
   return context.availableThemes;
+}
+
+export function selectBaseFontSize(context: AppMachineContext): number {
+  return context.baseFontSize;
+}
+
+export function selectCursorBlink(context: AppMachineContext): boolean {
+  return context.cursorBlink;
 }
