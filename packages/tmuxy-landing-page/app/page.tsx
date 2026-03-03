@@ -49,20 +49,20 @@ export default function Home() {
           wait, is this another terminal emulator?
         </h2>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          No. The best terminal emulator already exists. It&apos;s tmux.
+          No. The best terminal emulator already exists: <b>It&apos;s tmux.</b>
         </p>
-        <p className="mb-8" style={{ lineHeight: '1.7' }}>
+        <p className="mb-3" style={{ lineHeight: '1.7' }}>
           tmux already solved terminal emulation, multiplexing, persistent sessions. It has a
           client-server architecture battle-tested for over 15 years. It plays nicely with AI agents
           and it is the glue to connect all terminal apps in this TUI renaissance we&apos;re living through.
         </p>
-        <p className="mb-8" style={{ lineHeight: '1.7' }}>
+        <p className="mb-3" style={{ lineHeight: '1.7' }}>
           So... what is missing? Well... If you&apos;ve tried to use tmux for more than a few minutes,
           you already know the answer.
         </p>
 
         <h2
-          className="text-2xl font-bold mb-4"
+          className="text-2xl font-bold mb-4 mt-8"
           style={{ color: 'var(--accent-green)' }}
         >
           so, what is tmuxy?
@@ -75,19 +75,19 @@ export default function Home() {
           control mode (tmux -CC) and streams state updates to a React frontend via SSE (or Tauri
           IPC, on the desktop app version).
         </p>
-        <p className="mb-8" style={{ lineHeight: '1.7' }}>
+        <p className="mb-3" style={{ lineHeight: '1.7' }}>
           Open the tmuxy desktop app and it attaches to your local tmux server. Need to connect to
           a VM? No problem. It can talk with your server&apos;s tmux via ssh.
           Want to vibe code from your phone? Just start the tmuxy web server and access it from
           your mobile browser. No additional app needed.
         </p>
-        <p className="mb-8" style={{ lineHeight: '1.7' }}>
+        <p className="mb-3" style={{ lineHeight: '1.7' }}>
           You don&apos;t need a new IDE. You already know the workflow to get your stuff done.
           tmuxy just gives you a better view into it.
         </p>
 
         <h2
-          className="text-2xl font-bold mb-4"
+          className="text-2xl font-bold mb-4 mt-8"
           style={{ color: 'var(--accent-green)' }}
         >
           ok, I got you. where&apos;s the download button?
