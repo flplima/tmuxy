@@ -12,6 +12,7 @@
 import { useCallback, useRef, useState, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 import { sendScrollLines } from './scrollUtils';
+import { haptics } from '../utils/haptics';
 
 interface UsePaneMouseOptions {
   paneId: string;
@@ -163,6 +164,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
 
       // Shift+click always focuses pane, regardless of mouse mode
       if (e.shiftKey) {
+        haptics.trigger(10);
         send({ type: 'FOCUS_PANE', paneId });
         return;
       }
@@ -181,6 +183,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       }
 
       // Default: focus the pane and prepare for potential drag selection
+      haptics.trigger(10);
       send({ type: 'FOCUS_PANE', paneId });
       mouseButtonRef.current = e.button;
 
