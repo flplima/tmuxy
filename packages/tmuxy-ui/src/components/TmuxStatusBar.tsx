@@ -1,7 +1,9 @@
 /**
- * TmuxStatusBar - Renders the tmux status line with ANSI colors
+ * TmuxStatusBar - Bottom status line with hints, tmux status, host, and session
  *
- * Three modes:
+ * Layout: [left: hints] [center: tmux status line] [right: host + session]
+ *
+ * Three center-area modes (cascading priority):
  * 1. Command mode: shows command prompt input (like tmux prefix+:)
  * 2. Status message: shows temporary message (from display-message)
  * 3. Default: renders tmux status line with ANSI colors
@@ -12,12 +14,50 @@ import Anser from 'anser';
 import {
   useAppSelector,
   useAppSend,
+  useAppConfig,
   selectStatusLine,
   selectCommandMode,
   selectStatusMessage,
   selectGridDimensions,
+  selectSessionName,
+  selectKeyBindings,
 } from '../machines/AppContext';
 import { buildAnsiStyle } from '../utils/ansiStyles';
+import { formatPrefixKey } from './menus/keybindingLabel';
+import { isTauri } from '../tmux/adapters';
+import type { KeyBindings } from '../machines/types';
+
+function StatusLineHints({ keybindings }: { keybindings: KeyBindings | null }) {
+  if (!keybindings) return null;
+
+  const prefix = formatPrefixKey(keybindings.prefix_key);
+
+  const hasNav = ['C-h', 'C-j', 'C-k', 'C-l'].some((key) =>
+    keybindings.root_bindings.some((b) => b.key === key && b.command.includes('tmuxy-nav')),
+  );
+
+  const hasTabs = keybindings.root_bindings.some(
+    (b) => /^C-[0-9]$/.test(b.key) && b.command.includes('select-window'),
+  );
+
+  return (
+    <span className="statusline-hints">
+      <kbd>{prefix}</kbd> prefix
+      {hasNav && (
+        <>
+          {'  '}
+          <kbd>ctrl+hjkl</kbd> nav
+        </>
+      )}
+      {hasTabs && (
+        <>
+          {'  '}
+          <kbd>ctrl+[0-9]</kbd> tabs
+        </>
+      )}
+    </span>
+  );
+}
 
 function CommandModeInput({
   prompt,
@@ -73,7 +113,10 @@ export function TmuxStatusBar() {
   const commandMode = useAppSelector(selectCommandMode);
   const statusMessage = useAppSelector(selectStatusMessage);
   const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
+  const sessionName = useAppSelector(selectSessionName);
+  const keybindings = useAppSelector(selectKeyBindings);
   const send = useAppSend();
+  const { isDemo } = useAppConfig();
 
   const gridPixelWidth = totalWidth * charWidth;
 
@@ -91,7 +134,7 @@ export function TmuxStatusBar() {
     });
   }, [content]);
 
-  // Command mode: show input
+  // Command mode: full-width input replaces everything
   if (commandMode) {
     return (
       <CommandModeInput
@@ -103,21 +146,56 @@ export function TmuxStatusBar() {
     );
   }
 
-  // Status message: show temporary message
-  if (statusMessage) {
-    return (
-      <div className="tmux-status-bar tmux-status-message" data-testid="tmux-status-message">
-        <pre className="tmux-status-bar-content">{statusMessage.text}</pre>
-      </div>
-    );
-  }
+  const hostname = isDemo
+    ? 'demo@localhost'
+    : isTauri()
+      ? 'localhost'
+      : window.location.hostname || 'localhost';
 
-  // Default: render tmux status line
-  if (!content) return null;
+  const handleHostClick = isDemo
+    ? undefined
+    : () => {
+        if (isTauri()) {
+          send({ type: 'OPEN_CONNECT_FLOAT' });
+        } else {
+          send({ type: 'SHOW_STATUS_MESSAGE', text: 'SSH only available in desktop app' });
+        }
+      };
+
+  const handleSessionClick = isDemo ? undefined : () => send({ type: 'OPEN_SESSION_FLOAT' });
+
+  // Status message: replaces the center area
+  const centerContent = statusMessage ? (
+    <pre className="tmux-status-bar-content tmux-status-message">{statusMessage.text}</pre>
+  ) : content ? (
+    <pre className="tmux-status-bar-content">{renderedContent}</pre>
+  ) : null;
 
   return (
     <div className="tmux-status-bar" data-testid="tmux-status-bar">
-      <pre className="tmux-status-bar-content">{renderedContent}</pre>
+      <div
+        className="tmux-statusline-inner"
+        style={gridPixelWidth > 0 ? { width: gridPixelWidth, margin: '0 auto' } : undefined}
+      >
+        <div className="tmux-statusline-left">
+          <StatusLineHints keybindings={keybindings} />
+        </div>
+        <div className="tmux-statusline-center">{centerContent}</div>
+        <div className="tmux-statusline-right">
+          <span
+            className={`statusline-host${handleHostClick ? ' statusline-clickable' : ''}`}
+            onClick={handleHostClick}
+          >
+            {hostname}
+          </span>
+          <span
+            className={`statusline-session${handleSessionClick ? ' statusline-clickable' : ''}`}
+            onClick={handleSessionClick}
+          >
+            [{sessionName}]
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

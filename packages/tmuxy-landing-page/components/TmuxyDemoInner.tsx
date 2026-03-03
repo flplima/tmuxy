@@ -101,7 +101,7 @@ export default function TmuxyDemoInner() {
 
   return (
     <div style={{ height: 500, position: 'relative', display: 'flex', flexDirection: 'column' }}>
-      <TmuxyProvider adapter={adapter} config={{ forwardScrollToParent: true, requireFocus: true }}>
+      <TmuxyProvider adapter={adapter} config={{ forwardScrollToParent: true, requireFocus: true, isDemo: true }}>
         <TmuxyApp renderTabline={renderTabline} />
       </TmuxyProvider>
     </div>

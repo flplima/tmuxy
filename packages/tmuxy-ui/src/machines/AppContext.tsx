@@ -42,6 +42,8 @@ export interface AppConfig {
   forwardScrollToParent?: boolean;
   /** When true, keyboard capture is gated by click-to-focus on the app container */
   requireFocus?: boolean;
+  /** When true, running in demo mode — disables session/host click actions */
+  isDemo?: boolean;
 }
 
 const AppConfigContext = createContext<AppConfig>({});

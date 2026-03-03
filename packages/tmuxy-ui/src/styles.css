@@ -703,6 +703,80 @@
   background-color: var(--tmux-status-bg);
 }
 
+/* Status line 3-column layout */
+.tmux-statusline-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+}
+
+.tmux-statusline-left {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.tmux-statusline-center {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.tmux-statusline-center .tmux-status-bar-content {
+  padding: 0;
+}
+
+.tmux-statusline-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Keybinding hints */
+.statusline-hints {
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  padding: 0 var(--spacing-lg);
+}
+
+.statusline-hints kbd {
+  font-weight: bold;
+  color: var(--text-secondary);
+  font-family: inherit;
+}
+
+/* Host and session labels */
+.statusline-host,
+.statusline-session {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-md);
+}
+
+.statusline-clickable {
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.statusline-clickable:hover {
+  color: var(--text-secondary);
+  background-color: var(--bg-medium);
+}
+
 /* ============================================
    Modal - Generic reusable modal
    ============================================ */
