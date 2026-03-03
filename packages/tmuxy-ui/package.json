@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/lib.ts",
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./src/styles.css",
+    "./fonts/nerd-font.css": "./src/fonts/nerd-font.css"
   },
   "scripts": {
     "dev": "vite",
