@@ -106,9 +106,10 @@ export class DemoTmux {
   setSize(cols: number, rows: number): void {
     this.totalWidth = cols;
     this.totalHeight = rows;
-    // Resize all panes according to layout
     for (const win of this.windows) {
-      this.applyLayout(win);
+      if (!win.name.startsWith('__group_')) {
+        this.applyLayout(win);
+      }
     }
   }
 
