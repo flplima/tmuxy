@@ -22,6 +22,7 @@
     "test:e2e": "jest --runInBand",
     "test:cli": "jest --config tests/cli/jest.config.js",
     "lint": "eslint tests/ && npm run lint -w tmuxy-ui",
+    "lint:tests": "eslint tests/",
     "format": "prettier --write 'tests/**/*.js' && npm run format -w tmuxy-ui",
     "prepare": "git config core.hooksPath .githooks"
   },

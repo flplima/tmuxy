@@ -20,7 +20,7 @@ const {
   DELAYS,
   TMUXY_URL,
 } = require('./helpers');
-const { tmuxQuery } = require('./helpers/cli');
+const { tmuxQuery, tmuxRun } = require('./helpers/cli');
 
 // ==================== Scenario 12: Session Reconnect ====================
 
@@ -157,8 +157,8 @@ describe('Scenario 22: Token-Free Command Routing', () => {
 
     // Step 2: Commands work through the CLI path
     const marker = `TOKEN_FREE_${Date.now()}`;
-    tmuxQuery(`send-keys -t ${ctx.session.name} -l 'echo ${marker}'`);
-    tmuxQuery(`send-keys -t ${ctx.session.name} Enter`);
+    tmuxRun(`send-keys -t ${ctx.session.name} -l 'echo ${marker}'`);
+    tmuxRun(`send-keys -t ${ctx.session.name} Enter`);
 
     await ctx.page.waitForFunction(
       (m) => {

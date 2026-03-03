@@ -103,10 +103,13 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       const padLeft = onLeft ? 0 : hPadding;
       const padRight = onRight ? 0 : hPadding;
       // Extend vertically into the tmux separator row below the pane.
-      // The separator row sits between the top pane's last content row and the
-      // bottom pane's header row. Extending by charHeight closes that gap.
+      // In DemoTmux panes start at y=1 (one header row above), so the separator
+      // between stacked panes is not covered by either pane div — extend downward
+      // by charHeight to close that gap. In real tmux panes start at y=0, where
+      // the by-design charHeight overlap between adjacent panes already covers the
+      // separator, so no extra extension is needed (it would double the overlap).
       const onBottom = pane.y + pane.height >= totalHeight;
-      const padBottom = onBottom ? 0 : charHeight;
+      const padBottom = pane.y > 0 && !onBottom ? charHeight : 0;
       return {
         position: 'absolute',
         left: Math.round(centeringOffset.x + pane.x * charWidth) - padLeft,
