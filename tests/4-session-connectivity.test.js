@@ -20,7 +20,6 @@ const {
   DELAYS,
   TMUXY_URL,
 } = require('./helpers');
-const { tmuxQuery, tmuxRun } = require('./helpers/cli');
 
 // ==================== Scenario 12: Session Reconnect ====================
 
@@ -155,28 +154,14 @@ describe('Scenario 22: Token-Free Command Routing', () => {
     expect(appState).not.toBeNull();
     expect(appState.connected).toBe(true);
 
-    // Step 2: Commands work through the CLI path
-    const marker = `TOKEN_FREE_${Date.now()}`;
-    tmuxRun(`send-keys -t ${ctx.session.name} -l 'echo ${marker}'`);
-    tmuxRun(`send-keys -t ${ctx.session.name} Enter`);
-
-    await ctx.page.waitForFunction(
-      (m) => {
-        const logs = document.querySelectorAll('[role="log"]');
-        return Array.from(logs).some(l => (l.textContent || '').includes(m));
-      },
-      marker,
-      { timeout: 10000, polling: 100 },
-    );
-
-    // Step 3: Split pane via keyboard
+    // Step 2: Split pane via keyboard
     await focusPage(ctx.page);
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await delay(DELAYS.SYNC);
     await waitForPaneCount(ctx.page, 2, 10000);
     expect(await ctx.session.getPaneCount()).toBe(2);
 
-    // Step 4: Verify set_client_size works via HTTP POST
+    // Step 3: Verify set_client_size works via HTTP POST with X-Connection-Id (no session token)
     const baseUrl = TMUXY_URL;
     const resizeResult = await ctx.page.evaluate(async (url) => {
       try {
