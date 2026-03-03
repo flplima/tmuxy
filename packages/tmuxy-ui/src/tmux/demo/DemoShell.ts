@@ -106,6 +106,8 @@ export class DemoShell {
   private width: number;
   private height: number;
   private widgetGrid = false;
+  /** Row where the current prompt starts (start of input area) */
+  private promptRow = 0;
   /** Saved input when browsing history */
   private savedInput = '';
 
@@ -256,6 +258,7 @@ export class DemoShell {
     this.writeStyled(displayCwd, { fg: 4, bold: true });
     this.writeCell({ c: '$', s: undefined });
     this.writeCell({ c: ' ', s: undefined });
+    this.promptRow = this.cursorRow;
   }
 
   /** Process a tmux key sequence */
@@ -269,12 +272,12 @@ export class DemoShell {
     } else if (key === 'Left') {
       if (this.cursorPos > 0) {
         this.cursorPos--;
-        this.cursorCol--;
+        this.updateCursorPosition();
       }
     } else if (key === 'Right') {
       if (this.cursorPos < this.inputBuffer.length) {
         this.cursorPos++;
-        this.cursorCol++;
+        this.updateCursorPosition();
       }
     } else if (key === 'Up') {
       this.historyUp();
@@ -337,8 +340,9 @@ export class DemoShell {
   }
 
   private handleEnter(): void {
-    // Move cursor to end of input
-    this.cursorCol = this.promptLength() + this.inputBuffer.length;
+    // Position cursor at end of input (accounts for wrapped lines)
+    this.cursorPos = this.inputBuffer.length;
+    this.updateCursorPosition();
     this.newline();
 
     const line = this.inputBuffer.trim();
@@ -376,8 +380,7 @@ export class DemoShell {
   private handleClear(): void {
     this.handleClearScreen();
     this.writePrompt();
-    this.writeText(this.inputBuffer);
-    this.cursorCol = this.promptLength() + this.cursorPos;
+    this.redrawInput();
   }
 
   private handleClearScreen(): void {
@@ -468,12 +471,12 @@ export class DemoShell {
 
   private moveCursorToStart(): void {
     this.cursorPos = 0;
-    this.cursorCol = this.promptLength();
+    this.updateCursorPosition();
   }
 
   private moveCursorToEnd(): void {
     this.cursorPos = this.inputBuffer.length;
-    this.cursorCol = this.promptLength() + this.inputBuffer.length;
+    this.updateCursorPosition();
   }
 
   private promptLength(): number {
@@ -485,22 +488,35 @@ export class DemoShell {
     return 'demo@tmuxy:'.length + displayCwd.length + '$ '.length;
   }
 
+  /** Recalculate cursorRow/cursorCol from cursorPos without touching the grid. */
+  private updateCursorPosition(): void {
+    const flat = this.promptLength() + this.cursorPos;
+    this.cursorRow = this.promptRow + Math.floor(flat / this.width);
+    this.cursorCol = flat % this.width;
+  }
+
   private redrawInput(): void {
-    // Clear from prompt start to end of line and rewrite
     const promptLen = this.promptLength();
-    const row = this.cursorRow;
-    // Clear the input area on current line
-    for (let c = promptLen; c < this.width; c++) {
-      if (this.grid[row]) this.grid[row][c] = { c: ' ' };
+    // Clear remainder of promptRow after the prompt
+    if (this.grid[this.promptRow]) {
+      for (let c = promptLen; c < this.width; c++) {
+        this.grid[this.promptRow][c] = { c: ' ' };
+      }
     }
-    // Write input buffer
+    // Clear all rows below promptRow (they're blank space below the cursor)
+    for (let r = this.promptRow + 1; r < this.height; r++) {
+      if (this.grid[r]) this.grid[r] = this.emptyLine();
+    }
+    // Write input chars with wrapping across multiple rows
     for (let i = 0; i < this.inputBuffer.length; i++) {
-      const col = promptLen + i;
-      if (col < this.width && this.grid[row]) {
+      const flat = promptLen + i;
+      const row = this.promptRow + Math.floor(flat / this.width);
+      const col = flat % this.width;
+      if (row < this.height && this.grid[row]) {
         this.grid[row][col] = { c: this.inputBuffer[i] };
       }
     }
-    this.cursorCol = promptLen + this.cursorPos;
+    this.updateCursorPosition();
   }
 
   private executeLine(line: string): CommandResult {
