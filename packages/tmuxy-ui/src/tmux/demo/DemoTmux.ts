@@ -723,7 +723,7 @@ export class DemoTmux {
 
     // Float windows use __float_N naming convention
     const usedIndices = new Set(this.windows.map((w) => w.index));
-    let index = 0;
+    let index = 1000;
     while (usedIndices.has(index)) index++;
 
     const window: FakeWindow = {
@@ -783,7 +783,7 @@ export class DemoTmux {
     // Create new pane in a hidden group window
     const groupWindowId = this.allocWindowId();
     const usedIndices = new Set(this.windows.map((w2) => w2.index));
-    let index = 0;
+    let index = 1000;
     while (usedIndices.has(index)) index++;
 
     const newPane: FakePane = {
