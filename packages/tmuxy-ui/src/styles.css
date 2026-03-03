@@ -749,6 +749,12 @@
   padding: 0 var(--spacing-lg);
 }
 
+@media (pointer: coarse) {
+  .statusline-hints {
+    display: none;
+  }
+}
+
 .statusline-hints kbd {
   font-weight: bold;
   color: #000;
