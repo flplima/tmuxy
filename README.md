@@ -5,6 +5,8 @@
 
 The missing tmux GUI you didn't know you needed.
 
+![tmuxy](https://github.com/user-attachments/assets/1e65bc85-8f6a-4771-95e3-83684531d879)
+
 ## why?
 
 tmux is the best tool for agent-driven development, but it lacks a good UX.
