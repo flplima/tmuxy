@@ -55,17 +55,52 @@ async function createFloat(ctx, paneId) {
 }
 
 async function waitForFloatModal(page, timeout = 10000) {
-  await page.waitForSelector('.modal-container', { timeout });
+  await page.waitForSelector('.float-container', { timeout });
 }
 
 async function getFloatModalInfo(page) {
   return await page.evaluate(() => {
-    const modals = document.querySelectorAll('.modal-container');
-    return Array.from(modals).map((modal) => ({
-      hasHeader: modal.querySelector('.modal-header') !== null,
-      hasCloseButton: modal.querySelector('.modal-close') !== null,
-      hasTerminal: modal.querySelector('.terminal-container') !== null,
+    const floats = document.querySelectorAll('.float-container');
+    return Array.from(floats).map((float) => ({
+      hasHeader: float.querySelector('.pane-header') !== null,
+      hasCloseButton: float.querySelector('.pane-header-close') !== null,
+      hasTerminal: float.querySelector('.terminal-container') !== null,
     }));
+  });
+}
+
+/**
+ * Check for unexpected pixel-level overlap between tiled pane elements.
+ * Returns overlaps exceeding 1 charHeight vertically — anything more than the
+ * separator-row-as-header design allows is a regression (e.g., the padBottom bug).
+ *
+ * By design, vertically adjacent panes share exactly 1 charHeight of overlap:
+ * the bottom pane's header occupies the tmux separator row, which is also the
+ * bottom pixel row of the top pane's div. This is expected and excluded.
+ */
+async function getPaneOverlaps(page) {
+  return await page.evaluate(() => {
+    const snap = window.app?.getSnapshot();
+    const charHeight = snap?.context?.charHeight ?? 24;
+    const items = document.querySelectorAll('.pane-layout-item');
+    const panes = Array.from(items).map(el => {
+      const r = el.getBoundingClientRect();
+      return { pid: el.dataset.paneId || '?', top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    });
+    const overlaps = [];
+    for (let i = 0; i < panes.length; i++) {
+      for (let j = i + 1; j < panes.length; j++) {
+        const a = panes[i], b = panes[j];
+        const overlapV = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        const overlapH = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        // Allow up to charHeight vertical overlap (by-design separator sharing).
+        // Only flag overlaps GREATER than charHeight, which indicate a real bug.
+        if (overlapV > charHeight && overlapH > 2) {
+          overlaps.push({ a: a.pid, b: b.pid, overlapV: Math.round(overlapV), overlapH: Math.round(overlapH) });
+        }
+      }
+    }
+    return overlaps;
   });
 }
 
@@ -189,6 +224,10 @@ describe('Scenario 4: Window Lifecycle', () => {
     expect(tiledPanes.length).toBe(4);
     const areas = tiledPanes.map(p => p.width * p.height);
     expect(Math.max(...areas) / Math.min(...areas)).toBeLessThan(2);
+
+    // Verify no pane overlap (regression for vertical padding bug)
+    const overlaps = await getPaneOverlaps(ctx.page);
+    expect(overlaps).toEqual([]);
   }, 180000);
 });
 
@@ -295,7 +334,7 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 2: Float modal appears
     await waitForFloatModal(ctx.page);
-    const backdrop = await ctx.page.$('.modal-backdrop');
+    const backdrop = await ctx.page.$('.float-overlay');
     expect(backdrop).not.toBeNull();
 
     // Step 3: Modal has header and close button
@@ -308,14 +347,14 @@ describe('Scenario 6: Floating Panes', () => {
     // Step 4: Tiled pane count reduced
     await waitForPaneCount(ctx.page, 1);
 
-    // Step 5: Close button removes float
-    await ctx.page.click('.modal-close');
+    // Step 5: Close button removes float (target the close button inside the float, not a tiled pane)
+    await ctx.page.click('.float-container .pane-header-close');
     await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.modal-container').length === 0,
+      () => document.querySelectorAll('.float-container').length === 0,
       { timeout: 10000, polling: 100 }
     );
-    let modals = await ctx.page.$$('.modal-container');
-    expect(modals.length).toBe(0);
+    let floats = await ctx.page.$$('.float-container');
+    expect(floats.length).toBe(0);
     windows = await ctx.session.getWindowInfo();
     expect(windows.find(w => w.name === `__float_${paneNum}`)).toBeUndefined();
 
@@ -330,15 +369,15 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 7: Backdrop click closes float
     // Click far from center to avoid hitting the centered float modal
-    const newBackdrop = await ctx.page.$('.modal-backdrop');
+    const newBackdrop = await ctx.page.$('.float-overlay');
     const box = await newBackdrop.boundingBox();
     await ctx.page.mouse.click(box.x + 5, box.y + 5);
     await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.modal-container').length === 0,
+      () => document.querySelectorAll('.float-container').length === 0,
       { timeout: 10000, polling: 100 }
     );
-    modals = await ctx.page.$$('.modal-container');
-    expect(modals.length).toBe(0);
+    floats = await ctx.page.$$('.float-container');
+    expect(floats.length).toBe(0);
   }, 180000);
 });
 
@@ -369,7 +408,7 @@ describe('Scenario 11: Status Bar', () => {
     expect(barInfo.isVisible).toBe(true);
 
     // Step 2: Window tab present
-    const tab = await ctx.page.$('.tab');
+    const tab = await ctx.page.$('.tab-name');
     expect(tab).not.toBeNull();
 
     // Step 3: Session name visible
@@ -386,28 +425,27 @@ describe('Scenario 11: Status Bar', () => {
     expect(await ctx.session.getWindowCount()).toBe(2);
 
     // Step 5: Active tab distinct styling
-    const activeTab = await ctx.page.$('.tab-active');
+    const activeTab = await ctx.page.$('.tab-name-active');
     expect(activeTab).not.toBeNull();
 
     // Step 6: Click inactive tab to switch
     await waitForWindowCount(ctx.page, 2, 10000);
-    const allTabs = await ctx.page.$$('.tab:not(.tab-add)');
+    const allTabs = await ctx.page.$$('.tab-name');
     expect(allTabs.length).toBe(2);
     let inactiveTab = null;
     for (const t of allTabs) {
-      const isActive = await t.evaluate(el => el.classList.contains('tab-active'));
+      const isActive = await t.evaluate(el => el.classList.contains('tab-name-active'));
       if (!isActive) { inactiveTab = t; break; }
     }
     expect(inactiveTab).not.toBeNull();
-    const tabButton = await inactiveTab.$('.tab-button');
-    await tabButton.click();
+    await inactiveTab.click();
     await delay(DELAYS.SYNC);
 
     // Step 7: Rename window
     await renameWindowKeyboard(ctx.page, 'RENAMED_WINDOW');
     await delay(DELAYS.SYNC);
     const tabText = await ctx.page.evaluate(() => {
-      const tabs = document.querySelectorAll('.tab:not(.tab-add)');
+      const tabs = document.querySelectorAll('.tab-name');
       return Array.from(tabs).map(t => t.textContent).join(' ');
     });
     expect(tabText).toContain('RENAMED_WINDOW');

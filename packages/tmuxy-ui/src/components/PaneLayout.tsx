@@ -50,9 +50,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [dragOffsetX, dragOffsetY],
   );
 
-  // Padding to cover tmux separator gaps between adjacent panes
+  // Padding to cover the tmux separator column between horizontally-adjacent panes
   const hPadding = Math.round(charWidth / 2);
-  const vPadding = Math.round(charHeight / 2);
 
   // Center the pane grid in the container (no padding needed — edge panes don't extend outward)
   const centeringOffset = useMemo(() => {
@@ -98,22 +97,21 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
       const headerY = Math.max(0, pane.y - 1);
-      // Only extend padding toward interior neighbors, not beyond grid edges
+      // Extend horizontally into the tmux separator column between adjacent panes.
+      // Vertical: no extension needed — the separator row IS the next pane's header.
       const onLeft = pane.x === 0;
       const onRight = pane.x + pane.width >= totalWidth;
-      const onBottom = pane.y + pane.height >= totalHeight;
       const padLeft = onLeft ? 0 : hPadding;
       const padRight = onRight ? 0 : hPadding;
-      const padBottom = onBottom ? 0 : vPadding * 2;
       return {
         position: 'absolute',
         left: Math.round(centeringOffset.x + pane.x * charWidth) - padLeft,
         top: centeringOffset.y + headerY * charHeight,
         width: Math.ceil(pane.width * charWidth) + padLeft + padRight,
-        height: (pane.height + 1) * charHeight + padBottom,
+        height: (pane.height + 1) * charHeight,
       };
     },
-    [charWidth, charHeight, centeringOffset, hPadding, vPadding, totalWidth, totalHeight],
+    [charWidth, charHeight, centeringOffset, hPadding, totalWidth, totalHeight],
   );
 
   const getPaneClassName = useCallback(
@@ -183,7 +181,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         (() => {
           const gl = dropTarget.x === 0 ? 0 : hPadding;
           const gr = dropTarget.x + dropTarget.width >= totalWidth ? 0 : hPadding;
-          const gb = dropTarget.y + dropTarget.height >= totalHeight ? 0 : vPadding * 2;
           return (
             <div
               className="pane-drag-ghost"
@@ -192,7 +189,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
                 left: centeringOffset.x + dropTarget.x * charWidth - gl,
                 top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
                 width: dropTarget.width * charWidth + gl + gr,
-                height: (dropTarget.height + 1) * charHeight + gb,
+                height: (dropTarget.height + 1) * charHeight,
               }}
             />
           );

@@ -480,7 +480,10 @@ export const selectPaneById = createMemoizedSelectorWithArg(
   }),
   (context: AppMachineContext, paneId: string): TmuxPane | undefined => {
     const previewPanes = selectPreviewPanes(context);
-    return previewPanes.find((p) => p.tmuxId === paneId);
+    return (
+      previewPanes.find((p) => p.tmuxId === paneId) ??
+      context.panes.find((p) => p.tmuxId === paneId)
+    );
   },
 );
 
