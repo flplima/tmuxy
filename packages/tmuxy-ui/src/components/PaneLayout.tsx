@@ -109,7 +109,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         top: centeringOffset.y + headerY * charHeight,
         width: Math.ceil(pane.width * charWidth) + padLeft + padRight,
         height: (pane.height + 1) * charHeight,
-      };
+        '--pane-h-padding-left': `${padLeft}px`,
+        '--pane-h-padding-right': `${padRight}px`,
+      } as React.CSSProperties;
     },
     [charWidth, charHeight, centeringOffset, hPadding, totalWidth, totalHeight],
   );
@@ -128,10 +130,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   if (visiblePanes.length === 1) {
     const pane = visiblePanes[0];
     return (
-      <div
-        className={`pane-layout${!enableAnimations ? ' pane-layout-no-animations' : ''}`}
-        style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}
-      >
+      <div className={`pane-layout${!enableAnimations ? ' pane-layout-no-animations' : ''}`}>
         <div
           className="pane-layout-item pane-active"
           data-pane-id={pane.tmuxId}
@@ -147,7 +146,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     <div
       ref={containerRef}
       className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing ? 'pane-layout-resizing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
-      style={{ '--pane-h-padding': `${hPadding}px` } as React.CSSProperties}
     >
       {visiblePanes.map((pane) => {
         const isDraggedPane = pane.tmuxId === draggedPaneId;

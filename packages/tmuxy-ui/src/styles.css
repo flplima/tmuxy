@@ -204,8 +204,9 @@
 }
 
 .pane-content {
-  /* Horizontal padding set via CSS variable to cover tmux divider gap */
-  padding: 0 var(--pane-h-padding, 0);
+  /* Horizontal padding: matches the pane extension into the tmux separator column.
+     Left/right are set independently per pane so the terminal content fills its exact width. */
+  padding: 0 var(--pane-h-padding-right, 0) 0 var(--pane-h-padding-left, 0);
   flex: 1;
   position: relative;
   box-sizing: border-box;

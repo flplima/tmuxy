@@ -23,7 +23,7 @@ export default function Home() {
           tmuxy
         </h1>
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          is the missing tmux GUI you didn&apos;t know you needed.
+          The missing tmux GUI you didn&apos;t know you needed
         </p>
         <a
           href="https://github.com/flplima/tmuxy"
