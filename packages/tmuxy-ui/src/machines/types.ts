@@ -379,6 +379,15 @@ export type ClearStatusMessageEvent = { type: 'CLEAR_STATUS_MESSAGE' };
 export type AppFocusEvent = { type: 'APP_FOCUS' };
 export type AppBlurEvent = { type: 'APP_BLUR' };
 
+// Session events
+export type SwitchSessionEvent = { type: 'SWITCH_SESSION'; sessionName: string };
+export type OpenSessionFloatEvent = { type: 'OPEN_SESSION_FLOAT' };
+export type OpenConnectFloatEvent = { type: 'OPEN_CONNECT_FLOAT' };
+export type SessionSwitchRequestedEvent = {
+  type: 'SESSION_SWITCH_REQUESTED';
+  sessionName: string;
+};
+
 // Theme events
 export type SetThemeEvent = { type: 'SET_THEME'; name: string };
 export type SetThemeModeEvent = { type: 'SET_THEME_MODE'; mode: 'dark' | 'light' };
@@ -450,7 +459,11 @@ export type AppMachineEvent =
   | ThemeSettingsReceivedEvent
   | ThemesListReceivedEvent
   | AppFocusEvent
-  | AppBlurEvent;
+  | AppBlurEvent
+  | SwitchSessionEvent
+  | OpenSessionFloatEvent
+  | OpenConnectFloatEvent
+  | SessionSwitchRequestedEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

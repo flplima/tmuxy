@@ -26,6 +26,14 @@ function getSessionFromUrl(): string {
   return params.get('session') || 'tmuxy';
 }
 
+/** Override for session name (set by switchSession) */
+let sessionOverride: string | null = null;
+
+/** Get effective session name (override or URL param) */
+function getEffectiveSession(): string {
+  return sessionOverride || getSessionFromUrl();
+}
+
 /**
  * HTTP Adapter using SSE for server->client push and POST for client->server commands
  */
@@ -56,7 +64,7 @@ export class HttpAdapter implements TmuxAdapter {
     this.intentionalDisconnect = false;
 
     return new Promise((resolve, reject) => {
-      const session = getSessionFromUrl();
+      const session = getEffectiveSession();
       const protocol = window.location.protocol;
       const host = window.location.host || 'localhost:3853';
       const eventsUrl = `${protocol}//${host}/events?session=${encodeURIComponent(session)}`;
@@ -206,7 +214,7 @@ export class HttpAdapter implements TmuxAdapter {
       return;
     }
 
-    const session = getSessionFromUrl();
+    const session = getEffectiveSession();
     const protocol = window.location.protocol;
     const host = window.location.host || 'localhost:3853';
     const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
@@ -235,7 +243,7 @@ export class HttpAdapter implements TmuxAdapter {
       await this.connect();
     }
 
-    const session = getSessionFromUrl();
+    const session = getEffectiveSession();
     const protocol = window.location.protocol;
     const host = window.location.host || 'localhost:3853';
     const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
@@ -281,6 +289,22 @@ export class HttpAdapter implements TmuxAdapter {
   onKeyBindings(listener: KeyBindingsListener): () => void {
     this.keyBindingsListeners.add(listener);
     return () => this.keyBindingsListeners.delete(listener);
+  }
+
+  async switchSession(newSession: string): Promise<void> {
+    sessionOverride = newSession;
+    this.currentState = null;
+
+    // Close current connection without marking as intentional disconnect
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+    this.connected = false;
+    this.connectionId = 0;
+
+    // Reconnect to new session
+    await this.connect();
   }
 
   private attemptReconnect(): void {

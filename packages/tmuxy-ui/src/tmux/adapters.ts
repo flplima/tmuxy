@@ -195,6 +195,11 @@ export class TauriAdapter implements TmuxAdapter {
     this.reconnectionListeners.forEach((listener) => listener(reconnecting, attempt));
   }
 
+  async switchSession(newSession: string): Promise<void> {
+    // For Tauri, use switch-client to change the tmux session
+    await this.invoke<void>('run_tmux_command', { command: `switch-client -t ${newSession}` });
+  }
+
   private notifyKeyBindings(keybindings: KeyBindings) {
     this.keyBindingsListeners.forEach((listener) => listener(keybindings));
   }
@@ -204,7 +209,7 @@ export class TauriAdapter implements TmuxAdapter {
 // Factory
 // ============================================
 
-function isTauri(): boolean {
+export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI__' in window;
 }
 

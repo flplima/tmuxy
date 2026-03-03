@@ -16,9 +16,65 @@
 .statusbar-inner {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   height: 100%;
-  gap: var(--spacing-xl);
   width: 100%;
+}
+
+/* Left section: menu + hints */
+.statusbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+/* Center section: tabs */
+.statusbar-center {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Right section: host + session */
+.statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Keybinding hints */
+.statusbar-hints {
+  color: var(--text-subtle);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.statusbar-hints kbd {
+  font-weight: bold;
+  color: var(--text-secondary);
+  font-family: inherit;
+}
+
+/* Host and session labels */
+.statusbar-host,
+.statusbar-session {
+  color: var(--text-muted);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.statusbar-host:hover,
+.statusbar-session:hover {
+  color: var(--text-secondary);
+  background-color: var(--bg-medium);
 }
 
 /* Tab list */
