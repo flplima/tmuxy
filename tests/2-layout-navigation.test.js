@@ -16,6 +16,7 @@ const {
   typeInTerminal,
   pressEnter,
   waitForTerminalText,
+  TMUXY_CLI,
   splitPaneKeyboard,
   navigatePaneKeyboard,
   createWindowKeyboard,
@@ -488,7 +489,7 @@ describe('Scenario 22: Float CLI Workflow', () => {
     await runCommand(ctx.page, 'echo BG_PRE_FLOAT', 'BG_PRE_FLOAT');
 
     // Step 2: Open interactive float via CLI (non-blocking in interactive mode)
-    await typeInTerminal(ctx.page, 'tmuxy pane float');
+    await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
     await pressEnter(ctx.page);
     await delay(DELAYS.SYNC);
 
@@ -588,7 +589,7 @@ describe('Scenario 22: Float CLI Workflow', () => {
     );
 
     // Run the fzf workflow: shell blocks on `tmux wait-for` until float closes, then echoes result
-    await typeInTerminal(ctx.page, `FILE=$(tmuxy pane float fzf); echo "FZF_RESULT:$FILE"`);
+    await typeInTerminal(ctx.page, `FILE=$(${TMUXY_CLI} pane float fzf); echo "FZF_RESULT:$FILE"`);
     await pressEnter(ctx.page);
 
     // Wait for fzf float to appear (fzf is running inside)
