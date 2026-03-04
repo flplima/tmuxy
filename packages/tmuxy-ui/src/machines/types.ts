@@ -120,6 +120,8 @@ export interface AppMachineContext {
   lastUpdateTime: number;
   /** Float pane positions and states (keyed by pane ID) */
   floatPanes: Record<string, FloatPaneState>;
+  /** Pane ID of the currently focused float (keyboard routes here instead of session) */
+  focusedFloatPaneId: string | null;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /** Keybindings received from the server */

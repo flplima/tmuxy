@@ -21,7 +21,8 @@ export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
   | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
   | { type: 'UPDATE_COPY_MODE'; active: boolean; paneId: string | null }
-  | { type: 'UPDATE_ENABLED'; enabled: boolean };
+  | { type: 'UPDATE_ENABLED'; enabled: boolean }
+  | { type: 'UPDATE_FOCUSED_FLOAT'; paneId: string | null };
 
 export interface KeyboardActorInput {
   parent: AnyActorRef;
@@ -105,6 +106,7 @@ function escapeLiteralText(text: string): string {
 export function createKeyboardActor() {
   return fromCallback<KeyboardActorEvent, KeyboardActorInput>(({ input, receive }) => {
     let sessionName = 'tmuxy';
+    let focusedFloatPaneId: string | null = null;
     let enabled = true;
     let isComposing = false;
     let inPrefixMode = false;
@@ -130,9 +132,10 @@ export function createKeyboardActor() {
       ? setupMobileKeyboard((text) => {
           if (!enabled) return;
           const escaped = escapeLiteralText(text);
+          const mobileTarget = focusedFloatPaneId ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
-            command: `send-keys -t ${sessionName} -l ${escaped}`,
+            command: `send-keys -t ${mobileTarget} -l ${escaped}`,
           });
         })
       : null;
@@ -260,9 +263,10 @@ export function createKeyboardActor() {
         if (inPrefixMode) {
           // Double prefix sends literal prefix key to the shell
           resetPrefixMode();
+          const prefixTarget = focusedFloatPaneId ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
-            command: `send-keys -t ${sessionName} ${prefixKey}`,
+            command: `send-keys -t ${prefixTarget} ${prefixKey}`,
           });
         } else {
           // Enter prefix mode
@@ -359,13 +363,16 @@ export function createKeyboardActor() {
       }
 
       // Normal key handling - send via send-keys
+      // When a float is focused, target it by pane ID directly to avoid switching
+      // the active tmux window (which would hide background panes).
+      const target = focusedFloatPaneId ?? sessionName;
       // Use literal mode (-l) for single printable chars to avoid tmux syntax interpretation
       let command: string;
       if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
         const escaped = escapeLiteralText(event.key);
-        command = `send-keys -t ${sessionName} -l ${escaped}`;
+        command = `send-keys -t ${target} -l ${escaped}`;
       } else {
-        command = `send-keys -t ${sessionName} ${formattedKey}`;
+        command = `send-keys -t ${target} ${formattedKey}`;
       }
       input.parent.send({
         type: 'SEND_TMUX_COMMAND',
@@ -415,17 +422,18 @@ export function createKeyboardActor() {
       const lines = text.split('\n');
       const commands: string[] = [];
 
+      const pasteTarget = focusedFloatPaneId ?? sessionName;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (line.length > 0) {
           // Chunk long lines
           for (let j = 0; j < line.length; j += PASTE_CHUNK_SIZE) {
             const chunk = line.slice(j, j + PASTE_CHUNK_SIZE);
-            commands.push(`send-keys -t ${sessionName} -l ${escapeLiteralText(chunk)}`);
+            commands.push(`send-keys -t ${pasteTarget} -l ${escapeLiteralText(chunk)}`);
           }
         }
         if (i < lines.length - 1) {
-          commands.push(`send-keys -t ${sessionName} Enter`);
+          commands.push(`send-keys -t ${pasteTarget} Enter`);
         }
       }
 
@@ -467,6 +475,8 @@ export function createKeyboardActor() {
         copyModeActive = event.active;
       } else if (event.type === 'UPDATE_ENABLED') {
         enabled = event.enabled;
+      } else if (event.type === 'UPDATE_FOCUSED_FLOAT') {
+        focusedFloatPaneId = event.paneId;
       }
     });
 

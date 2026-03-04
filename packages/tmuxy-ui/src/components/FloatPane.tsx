@@ -29,6 +29,8 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const pane = useAppSelector((ctx) =>
     ctx.panes.find((p: TmuxPane) => p.tmuxId === floatState.paneId),
   );
+  const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
+  const isFocused = focusedFloatPaneId === floatState.paneId;
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
   const cursorBlink = useAppSelector(selectCursorBlink);
@@ -76,7 +78,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
             content={pane.content}
             cursorX={pane.cursorX}
             cursorY={pane.cursorY}
-            isActive={pane.active}
+            isActive={isFocused}
             blink={cursorBlink}
             height={terminalRows}
             inMode={pane.inMode}
