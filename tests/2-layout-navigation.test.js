@@ -4,6 +4,8 @@
  * Window lifecycle, pane groups, floating panes, and status bar.
  */
 
+const fs = require('fs');
+
 const {
   createTestContext,
   delay,
@@ -11,6 +13,9 @@ const {
   runCommand,
   waitForPaneCount,
   waitForWindowCount,
+  typeInTerminal,
+  pressEnter,
+  waitForTerminalText,
   splitPaneKeyboard,
   navigatePaneKeyboard,
   createWindowKeyboard,
@@ -459,5 +464,150 @@ describe('Scenario 11: Status Bar', () => {
       await waitForWindowCount(ctx.page, 1);
     }
     expect(await ctx.session.getWindowCount()).toBe(1);
+  }, 180000);
+});
+
+// ==================== Scenario 22: Float CLI Workflow ====================
+
+describe('Scenario 22: Float CLI Workflow', () => {
+  const ctx = createTestContext({ snapshot: true });
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Float CLI: create → auto-focus → header structure → background visible/updated → input isolation → close → fzf workflow', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Record background pane ID before float creation
+    const bgPaneId = await ctx.session.getActivePaneId();
+    expect(bgPaneId).toMatch(/^%\d+$/);
+
+    // Step 1: Verify background pane is operational
+    await runCommand(ctx.page, 'echo BG_PRE_FLOAT', 'BG_PRE_FLOAT');
+
+    // Step 2: Open interactive float via CLI (non-blocking in interactive mode)
+    await typeInTerminal(ctx.page, 'tmuxy pane float');
+    await pressEnter(ctx.page);
+    await delay(DELAYS.SYNC);
+
+    // Step 3: Float modal appears
+    await waitForFloatModal(ctx.page);
+
+    // Step 4: Float header has close button but NO group-add (+) button
+    const floatHeaderInfo = await ctx.page.evaluate(() => {
+      const float = document.querySelector('.float-container');
+      if (!float) return null;
+      return {
+        hasHeader: float.querySelector('.pane-header') !== null,
+        hasCloseButton: float.querySelector('.pane-header-close') !== null,
+        hasGroupAddButton: float.querySelector('.pane-tab-add') !== null,
+      };
+    });
+    expect(floatHeaderInfo).not.toBeNull();
+    expect(floatHeaderInfo.hasHeader).toBe(true);
+    expect(floatHeaderInfo.hasCloseButton).toBe(true);
+    expect(floatHeaderInfo.hasGroupAddButton).toBe(false);
+
+    // Step 5: XState auto-focus — focusedFloatPaneId is set to the float's pane ID
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const id = await ctx.page.evaluate(() =>
+          window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+        );
+        return id !== null && id !== undefined;
+      },
+      5000,
+      'focusedFloatPaneId to be set after float appears',
+    );
+    const focusedFloatId = await ctx.page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+    );
+    expect(focusedFloatId).toMatch(/^%\d+$/);
+
+    // Step 6: Background tiled pane still visible while float is open
+    const tiledPaneCount = await ctx.page.evaluate(() =>
+      document.querySelectorAll('.pane-layout-item').length,
+    );
+    expect(tiledPaneCount).toBe(1);
+    const tiledPaneVisible = await ctx.page.evaluate(() => {
+      const item = document.querySelector('.pane-layout-item');
+      return item ? item.getBoundingClientRect().height > 0 : false;
+    });
+    expect(tiledPaneVisible).toBe(true);
+
+    // Step 7: Background pane receives tmux updates while float is open
+    // Use send-keys targeting the background pane directly (bypasses float routing)
+    await ctx.session.runCommand(`send-keys -t ${bgPaneId} 'echo BG_WHILE_FLOAT' Enter`);
+    // waitForTerminalText reads all [role="log"] elements — BG_WHILE_FLOAT appears in background pane
+    await waitForTerminalText(ctx.page, 'BG_WHILE_FLOAT', 10000);
+
+    // Step 8: Input isolation — keyboard goes to float, not background pane
+    // Type WITHOUT re-clicking to preserve focusedFloatPaneId routing
+    const ISOLATION_TOKEN = 'FLOATISO7Z3Q';
+    await ctx.page.keyboard.type(ISOLATION_TOKEN);
+    await delay(DELAYS.SYNC);
+
+    // Background pane should NOT contain the isolation token
+    const bgContent = await ctx.page.evaluate((id) => {
+      const el = document.querySelector(`[data-pane-id="${id}"]`);
+      return el?.querySelector('[role="log"]')?.textContent || '';
+    }, bgPaneId);
+    expect(bgContent).not.toContain(ISOLATION_TOKEN);
+
+    // Float pane should contain the isolation token (bash readline echoes typed chars)
+    const floatContent = await ctx.page.evaluate(() => {
+      const float = document.querySelector('.float-container');
+      return float?.querySelector('[role="log"]')?.textContent || '';
+    });
+    expect(floatContent).toContain(ISOLATION_TOKEN);
+
+    // Step 9: Close float — focusedFloatPaneId is cleared
+    await ctx.page.click('.float-container .pane-header-close');
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.float-container').length === 0,
+      { timeout: 10000, polling: 100 },
+    );
+    const focusedAfterClose = await ctx.page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+    );
+    expect(focusedAfterClose).toBeNull();
+
+    // Step 10: fzf workflow — float opens fzf, user selects an item, result returned to shell
+    // Create a wrapper script so fzf knows what to list (path has no spaces for clean arg passing)
+    const fzfListScript = '/tmp/fzf-e2e-list.sh';
+    const fzfTargetFile = '/tmp/fzf-e2e-target.txt';
+    fs.writeFileSync(fzfListScript, `#!/bin/sh\necho ${fzfTargetFile}\n`);
+    fs.chmodSync(fzfListScript, 0o755);
+
+    // Set FZF_DEFAULT_COMMAND in the tmux session env — inherited by the float pane's shell
+    await ctx.session._exec(
+      `set-environment -t ${ctx.session.name} FZF_DEFAULT_COMMAND ${fzfListScript}`,
+    );
+
+    // Run the fzf workflow: shell blocks on `tmux wait-for` until float closes, then echoes result
+    await typeInTerminal(ctx.page, `FILE=$(tmuxy pane float fzf); echo "FZF_RESULT:$FILE"`);
+    await pressEnter(ctx.page);
+
+    // Wait for fzf float to appear (fzf is running inside)
+    await waitForFloatModal(ctx.page);
+    await delay(DELAYS.LONG); // Let fzf render its TUI before pressing Enter
+
+    // Press Enter — routes to float via focusedFloatPaneId — selects first fzf item
+    await ctx.page.keyboard.press('Enter');
+
+    // Float auto-closes after fzf exits and float-create.sh kills the float window
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.float-container').length === 0,
+      { timeout: 15000, polling: 100 },
+    );
+
+    // Background shell echoes the selected file path
+    await waitForTerminalText(ctx.page, `FZF_RESULT:${fzfTargetFile}`, 15000);
+
+    // Cleanup
+    fs.unlinkSync(fzfListScript);
   }, 180000);
 });
