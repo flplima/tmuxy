@@ -215,6 +215,7 @@ export const appMachine = setup({
     lastUpdateTime: 0,
     // Float pane state
     floatPanes: {},
+    focusedFloatPaneId: null,
     // Animation settings — start disabled to prevent flash on initial load.
     // Enabled after first TMUX_STATE_UPDATE settles (see idle state handler).
     enableAnimations: false,
@@ -547,6 +548,7 @@ export const appMachine = setup({
             panes: [],
             windows: [],
             floatPanes: {},
+            focusedFloatPaneId: null,
             paneGroups: {},
             activeWindowId: null,
             activePaneId: null,
@@ -778,6 +780,31 @@ export const appMachine = setup({
               const newFloatCount = Object.keys(floatPanes).length;
               if (prevFloatCount > 0 && newFloatCount < prevFloatCount) {
                 enqueue(sendTo('tmux', { type: 'CHECK_SESSION_SWITCH' as const }));
+              }
+
+              // Auto-focus float management:
+              // - When a new float appears, auto-focus it (topmost = last in list)
+              // - When floats disappear, update focused float or clear it
+              const newFloatIds = Object.keys(floatPanes);
+              const prevFloatIds = Object.keys(context.floatPanes);
+              const addedFloatIds = newFloatIds.filter((id) => !prevFloatIds.includes(id));
+              let newFocusedFloat = context.focusedFloatPaneId;
+              if (addedFloatIds.length > 0) {
+                // New float(s) appeared — focus the topmost one
+                newFocusedFloat = newFloatIds[newFloatIds.length - 1];
+              } else if (newFocusedFloat && !floatPanes[newFocusedFloat]) {
+                // The focused float was removed — focus the new topmost, or clear
+                newFocusedFloat =
+                  newFloatIds.length > 0 ? newFloatIds[newFloatIds.length - 1] : null;
+              }
+              if (newFocusedFloat !== context.focusedFloatPaneId) {
+                enqueue(assign({ focusedFloatPaneId: newFocusedFloat }));
+                enqueue(
+                  sendTo('keyboard', {
+                    type: 'UPDATE_FOCUSED_FLOAT' as const,
+                    paneId: newFocusedFloat,
+                  }),
+                );
               }
 
               // Detect new panes for enter animation
@@ -1251,10 +1278,36 @@ export const appMachine = setup({
 
         // Pane Operations
         FOCUS_PANE: {
-          actions: sendTo('tmux', ({ event }) => ({
-            type: 'SEND_COMMAND' as const,
-            command: `select-pane -t ${event.paneId}`,
-          })),
+          actions: enqueueActions(({ event, context, enqueue }) => {
+            if (context.floatPanes[event.paneId]) {
+              // Float pane: update focus tracking only — never call select-pane for float
+              // panes as it would switch the active tmux window and hide background panes.
+              enqueue(assign({ focusedFloatPaneId: event.paneId }));
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_FOCUSED_FLOAT' as const,
+                  paneId: event.paneId,
+                }),
+              );
+            } else {
+              // Regular pane: clear float focus and select the pane normally
+              if (context.focusedFloatPaneId) {
+                enqueue(assign({ focusedFloatPaneId: null }));
+                enqueue(
+                  sendTo('keyboard', {
+                    type: 'UPDATE_FOCUSED_FLOAT' as const,
+                    paneId: null,
+                  }),
+                );
+              }
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `select-pane -t ${event.paneId}`,
+                }),
+              );
+            }
+          }),
         },
         SEND_COMMAND: {
           actions: enqueueActions(({ event, context, enqueue }) => {
@@ -1331,10 +1384,29 @@ export const appMachine = setup({
           ],
         },
         CLOSE_FLOAT: {
-          actions: sendTo('tmux', ({ event }) => ({
-            type: 'SEND_COMMAND' as const,
-            command: `kill-pane -t ${event.paneId}`,
-          })),
+          actions: enqueueActions(({ event, context, enqueue }) => {
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `kill-pane -t ${event.paneId}`,
+              }),
+            );
+            if (context.focusedFloatPaneId === event.paneId) {
+              // Focus the next remaining float, or clear float focus
+              const remaining = Object.values(context.floatPanes).filter(
+                (f) => f.paneId !== event.paneId,
+              );
+              const nextFocused =
+                remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
+              enqueue(assign({ focusedFloatPaneId: nextFocused }));
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_FOCUSED_FLOAT' as const,
+                  paneId: nextFocused,
+                }),
+              );
+            }
+          }),
         },
         CLOSE_TOP_FLOAT: {
           actions: enqueueActions(({ context, enqueue }) => {
@@ -1345,6 +1417,17 @@ export const appMachine = setup({
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
                 command: `kill-pane -t ${topFloat.paneId}`,
+              }),
+            );
+            // Clear float focus or focus the next float below
+            const remaining = floats.slice(0, -1);
+            const nextFocused =
+              remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
+            enqueue(assign({ focusedFloatPaneId: nextFocused }));
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_FOCUSED_FLOAT' as const,
+                paneId: nextFocused,
               }),
             );
           }),
