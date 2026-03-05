@@ -117,6 +117,7 @@ export class DemoAdapter implements TmuxAdapter {
 
   constructor(options?: DemoAdapterOptions) {
     this.tmux = new DemoTmux();
+    this.tmux.setOnAsyncUpdate(() => this.emitState());
     this.initCommands = options?.initCommands ?? [];
     this.savedInitCommands = [...this.initCommands];
   }
@@ -171,6 +172,7 @@ export class DemoAdapter implements TmuxAdapter {
           this.firstSizeHandled = true;
           if (cols !== this.initCols || rows !== this.initRows) {
             this.tmux = new DemoTmux();
+            this.tmux.setOnAsyncUpdate(() => this.emitState());
             this.tmux.init(cols, rows);
             for (const cmd of this.savedInitCommands) {
               this.executeCommand(cmd);
