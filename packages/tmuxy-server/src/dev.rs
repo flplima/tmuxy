@@ -56,6 +56,22 @@ impl ViteChild {
     }
 }
 
+/// Hop-by-hop headers that must not be forwarded by a proxy.
+const HOP_BY_HOP: &[&str] = &[
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+];
+
+fn is_hop_by_hop(name: &str) -> bool {
+    HOP_BY_HOP.contains(&name.to_ascii_lowercase().as_str())
+}
+
 async fn proxy_to_port(port: u16, req: Request) -> Response {
     let client = reqwest::Client::new();
 
@@ -66,6 +82,9 @@ async fn proxy_to_port(port: u16, req: Request) -> Response {
 
     let mut headers = reqwest::header::HeaderMap::new();
     for (name, value) in req.headers() {
+        if is_hop_by_hop(name.as_str()) {
+            continue;
+        }
         if let Ok(name) = reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()) {
             if let Ok(value) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
                 headers.insert(name, value);
@@ -97,6 +116,9 @@ async fn proxy_to_port(port: u16, req: Request) -> Response {
             let mut response_builder = Response::builder().status(status);
 
             for (name, value) in resp.headers() {
+                if is_hop_by_hop(name.as_str()) {
+                    continue;
+                }
                 if let Ok(name) = axum::http::HeaderName::from_bytes(name.as_str().as_bytes()) {
                     if let Ok(value) = axum::http::HeaderValue::from_bytes(value.as_bytes()) {
                         response_builder = response_builder.header(name, value);
