@@ -92,6 +92,45 @@ function getAnsi256Color(index: number): string {
 }
 
 /**
+ * Compute a numeric key for grouping cells by style.
+ * Uses a FNV-1a-inspired hash of the style properties to avoid JSON.stringify.
+ */
+function styleKey(s: CellStyle | undefined): number {
+  if (!s) return 0;
+  let h = 0x811c9dc5; // FNV offset basis
+  // fg
+  if (s.fg !== undefined) {
+    if (typeof s.fg === 'number') {
+      h = (h ^ (s.fg + 256)) * 0x01000193;
+    } else {
+      h = (h ^ (s.fg.r + 65536)) * 0x01000193;
+      h = (h ^ (s.fg.g + 65792)) * 0x01000193;
+      h = (h ^ (s.fg.b + 66048)) * 0x01000193;
+    }
+  }
+  // bg
+  if (s.bg !== undefined) {
+    if (typeof s.bg === 'number') {
+      h = (h ^ (s.bg + 512)) * 0x01000193;
+    } else {
+      h = (h ^ (s.bg.r + 66304)) * 0x01000193;
+      h = (h ^ (s.bg.g + 66560)) * 0x01000193;
+      h = (h ^ (s.bg.b + 66816)) * 0x01000193;
+    }
+  }
+  if (s.bold) h = (h ^ 1) * 0x01000193;
+  if (s.italic) h = (h ^ 2) * 0x01000193;
+  if (s.underline) h = (h ^ 4) * 0x01000193;
+  if (s.inverse) h = (h ^ 8) * 0x01000193;
+  if (s.url) {
+    for (let i = 0; i < s.url.length; i++) {
+      h = (h ^ s.url.charCodeAt(i)) * 0x01000193;
+    }
+  }
+  return h | 0;
+}
+
+/**
  * Build CSS style from CellStyle
  */
 function buildCellStyle(style: CellStyle): CSSProperties {
@@ -189,6 +228,7 @@ export const TerminalLine = memo(
         style: CellStyle | undefined;
         startIdx: number;
         selected: boolean;
+        sk: number;
       } | null = null;
 
       const flushGroup = () => {
@@ -286,19 +326,16 @@ export const TerminalLine = memo(
 
       for (let i = 0; i < line.length; i++) {
         const cell = line[i];
-        const cellStyleKey = cell.s ? JSON.stringify(cell.s) : '';
+        const cellSK = styleKey(cell.s);
         const selected = isCellSelected(i);
 
         if (!currentGroup) {
-          currentGroup = { cells: [cell], style: cell.s, startIdx: i, selected };
+          currentGroup = { cells: [cell], style: cell.s, startIdx: i, selected, sk: cellSK };
+        } else if (cellSK === currentGroup.sk && selected === currentGroup.selected) {
+          currentGroup.cells.push(cell);
         } else {
-          const currentStyleKey = currentGroup.style ? JSON.stringify(currentGroup.style) : '';
-          if (cellStyleKey === currentStyleKey && selected === currentGroup.selected) {
-            currentGroup.cells.push(cell);
-          } else {
-            flushGroup();
-            currentGroup = { cells: [cell], style: cell.s, startIdx: i, selected };
-          }
+          flushGroup();
+          currentGroup = { cells: [cell], style: cell.s, startIdx: i, selected, sk: cellSK };
         }
       }
 

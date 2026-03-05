@@ -60,38 +60,41 @@ describe('Terminal', () => {
     expect(lines?.length).toBe(5);
   });
 
-  it('sets cursor data attributes', () => {
-    const content = createContent(['test']);
-    render(<Terminal content={content} cursorX={5} cursorY={3} />);
+  it('renders cursor at correct position', () => {
+    const content = createContent(['test line here']);
+    render(<Terminal content={content} cursorX={5} cursorY={0} isActive={true} />);
 
-    const terminal = screen.getByTestId('terminal');
-    expect(terminal).toHaveAttribute('data-cursor-x', '5');
-    expect(terminal).toHaveAttribute('data-cursor-y', '3');
+    const cursor = document.querySelector('.terminal-cursor');
+    expect(cursor).toBeInTheDocument();
+    expect(cursor).toHaveAttribute('data-cursor-x', '5');
+    expect(cursor).toHaveAttribute('data-cursor-y', '0');
   });
 
   it('uses copy mode cursor position when in copy mode', () => {
-    const content = createContent(['test']);
+    const content = createContent(['test line here that is long enough']);
     render(
       <Terminal
         content={content}
         cursorX={1}
-        cursorY={2}
+        cursorY={0}
         inMode={true}
         copyCursorX={10}
-        copyCursorY={5}
+        copyCursorY={0}
+        isActive={true}
       />,
     );
 
-    const terminal = screen.getByTestId('terminal');
-    expect(terminal).toHaveAttribute('data-cursor-x', '10');
-    expect(terminal).toHaveAttribute('data-cursor-y', '5');
+    const cursor = document.querySelector('.terminal-cursor');
+    expect(cursor).toBeInTheDocument();
+    expect(cursor).toHaveAttribute('data-cursor-x', '10');
+    expect(cursor).toHaveAttribute('data-cursor-y', '0');
   });
 
-  it('sets aria-label from first line content', () => {
+  it('sets aria-live to off to avoid flooding screen readers', () => {
     const content = createContent(['Hello World', 'Line 2']);
     render(<Terminal content={content} />);
 
     const terminal = screen.getByTestId('terminal');
-    expect(terminal).toHaveAttribute('aria-label', expect.stringContaining('Hello World'));
+    expect(terminal).toHaveAttribute('aria-live', 'off');
   });
 });

@@ -11,7 +11,6 @@ import type { PaneContent, CellLine } from '../tmux/types';
 
 interface TerminalProps {
   content: PaneContent;
-  paneId?: number;
   cursorX?: number;
   cursorY?: number;
   isActive?: boolean;
@@ -126,25 +125,8 @@ export const Terminal: React.FC<TerminalProps> = ({
     return result.slice(0, height);
   }, [content, height]);
 
-  // Extract first line for accessibility (plain text)
-  const firstLineText = useMemo(() => {
-    if (content.length === 0) return '';
-    return content[0]
-      .map((cell) => cell.c)
-      .join('')
-      .trim();
-  }, [content]);
-
   return (
-    <div
-      className="terminal-container"
-      data-testid="terminal"
-      data-cursor-x={effectiveCursorX}
-      data-cursor-y={effectiveCursorY}
-      role="log"
-      aria-label={`Terminal output: ${firstLineText.slice(0, 50)}${firstLineText.length > 50 ? '...' : ''}`}
-      aria-live="polite"
-    >
+    <div className="terminal-container" data-testid="terminal" role="log" aria-live="off">
       <pre className="terminal-content" aria-hidden="true">
         {lines.map((line, lineIndex) => (
           <TerminalLine

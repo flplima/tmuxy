@@ -55,6 +55,10 @@ export class HttpAdapter implements TmuxAdapter {
   // Delta protocol state
   private currentState: ServerState | null = null;
 
+  // Microtask batching: coalesce multiple SSE updates from the same event loop turn
+  private pendingState: ServerState | null = null;
+  private microtaskScheduled = false;
+
   // Keyboard batching
   private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
 
@@ -100,7 +104,7 @@ export class HttpAdapter implements TmuxAdapter {
           const newState = handleStateUpdate(update, this.currentState);
           if (newState) {
             this.currentState = newState;
-            this.notifyStateChange(newState);
+            this.scheduleStateNotify(newState);
           }
         } catch (e) {
           console.error('Failed to parse state-update:', e);
@@ -162,6 +166,9 @@ export class HttpAdapter implements TmuxAdapter {
     }
 
     this.keyBatcher.destroy();
+
+    this.pendingState = null;
+    this.microtaskScheduled = false;
 
     if (this.eventSource) {
       this.eventSource.close();
@@ -329,6 +336,25 @@ export class HttpAdapter implements TmuxAdapter {
         // Will trigger onerror which calls attemptReconnect again
       });
     }, delay);
+  }
+
+  /**
+   * Coalesce rapid SSE updates via microtask.
+   * Multiple state-update events arriving within the same event loop turn
+   * (SSE fires them synchronously in sequence) are collapsed so React
+   * processes only the latest state once, without adding frame delay.
+   */
+  private scheduleStateNotify(state: ServerState): void {
+    this.pendingState = state;
+    if (!this.microtaskScheduled) {
+      this.microtaskScheduled = true;
+      queueMicrotask(() => {
+        this.microtaskScheduled = false;
+        const s = this.pendingState;
+        this.pendingState = null;
+        if (s) this.notifyStateChange(s);
+      });
+    }
   }
 
   private notifyStateChange(state: ServerState): void {

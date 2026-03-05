@@ -6,6 +6,8 @@ import type {
   PaneDelta,
   WindowDelta,
   StateUpdate,
+  CellLine,
+  PaneContent,
 } from './types';
 
 /**
@@ -109,11 +111,73 @@ export function applyDelta(state: ServerState, delta: ServerDelta): ServerState 
   return newState;
 }
 
+/**
+ * Compare two cell lines for deep equality.
+ * Returns true if both lines have the same characters and styles.
+ */
+function cellLinesEqual(a: CellLine, b: CellLine): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const ca = a[i],
+      cb = b[i];
+    if (ca.c !== cb.c) return false;
+    if (ca.s === cb.s) continue;
+    if (!ca.s || !cb.s) return false;
+    if (
+      ca.s.fg !== cb.s.fg ||
+      ca.s.bg !== cb.s.bg ||
+      ca.s.bold !== cb.s.bold ||
+      ca.s.italic !== cb.s.italic ||
+      ca.s.underline !== cb.s.underline ||
+      ca.s.inverse !== cb.s.inverse ||
+      ca.s.url !== cb.s.url
+    ) {
+      // Deep-compare fg/bg when they are RGB objects
+      if (typeof ca.s.fg === 'object' && typeof cb.s.fg === 'object') {
+        if (ca.s.fg.r !== cb.s.fg.r || ca.s.fg.g !== cb.s.fg.g || ca.s.fg.b !== cb.s.fg.b)
+          return false;
+      } else if (ca.s.fg !== cb.s.fg) return false;
+      if (typeof ca.s.bg === 'object' && typeof cb.s.bg === 'object') {
+        if (ca.s.bg.r !== cb.s.bg.r || ca.s.bg.g !== cb.s.bg.g || ca.s.bg.b !== cb.s.bg.b)
+          return false;
+      } else if (ca.s.bg !== cb.s.bg) return false;
+      if (
+        ca.s.bold !== cb.s.bold ||
+        ca.s.italic !== cb.s.italic ||
+        ca.s.underline !== cb.s.underline ||
+        ca.s.inverse !== cb.s.inverse ||
+        ca.s.url !== cb.s.url
+      )
+        return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Apply new content with structural sharing: reuse old line references
+ * for lines that haven't changed so React.memo can skip re-renders.
+ */
+function mergeContent(oldContent: PaneContent, newContent: PaneContent): PaneContent {
+  if (oldContent.length !== newContent.length) return newContent;
+  let anyDifferent = false;
+  const merged: CellLine[] = new Array(newContent.length);
+  for (let i = 0; i < newContent.length; i++) {
+    if (oldContent[i] === newContent[i] || cellLinesEqual(oldContent[i], newContent[i])) {
+      merged[i] = oldContent[i];
+    } else {
+      merged[i] = newContent[i];
+      anyDifferent = true;
+    }
+  }
+  return anyDifferent ? merged : oldContent;
+}
+
 function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
   return {
     ...pane,
     ...(delta.window_id !== undefined && { window_id: delta.window_id }),
-    ...(delta.content !== undefined && { content: delta.content }),
+    ...(delta.content !== undefined && { content: mergeContent(pane.content, delta.content) }),
     ...(delta.cursor_x !== undefined && { cursor_x: delta.cursor_x }),
     ...(delta.cursor_y !== undefined && { cursor_y: delta.cursor_y }),
     ...(delta.width !== undefined && { width: delta.width }),
