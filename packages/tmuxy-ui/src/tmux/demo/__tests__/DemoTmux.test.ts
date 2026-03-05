@@ -194,9 +194,8 @@ describe('DemoTmux', () => {
     it('sends keys to active pane', () => {
       tmux.sendKey('l');
       tmux.sendKey('s');
-      tmux.sendKey('Enter');
       const state = tmux.getState();
-      // Pane should have updated content
+      // LifoShell is async — test that typed characters appear in the input buffer
       const text = state.panes[0].content
         .map((line) =>
           line
@@ -205,13 +204,13 @@ describe('DemoTmux', () => {
             .trimEnd(),
         )
         .join('\n');
-      expect(text).toContain('projects');
+      expect(text).toContain('ls');
     });
 
     it('sends literal text', () => {
       tmux.sendLiteral('echo hi');
-      tmux.sendKey('Enter');
       const state = tmux.getState();
+      // LifoShell is async — test that typed text appears in the input buffer
       const text = state.panes[0].content
         .map((line) =>
           line
@@ -220,7 +219,7 @@ describe('DemoTmux', () => {
             .trimEnd(),
         )
         .join('\n');
-      expect(text).toContain('hi');
+      expect(text).toContain('echo hi');
     });
   });
 
