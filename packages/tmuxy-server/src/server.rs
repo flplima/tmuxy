@@ -50,7 +50,7 @@ pub async fn run(args: ServerArgs) {
     }
 }
 
-/// Start the development server with Vite proxy
+/// Start the development server with Vite and demo proxies
 async fn start_dev_server() {
     let state = Arc::new(AppState::new());
 
@@ -58,10 +58,30 @@ async fn start_dev_server() {
         "[dev] Starting Vite dev server on port {}...",
         dev::VITE_PORT
     );
-    let vite_child = dev::spawn_vite_dev_server().await;
+    let vite_child = dev::spawn_dev_server("vite", "tmuxy-ui", &[]).await;
+
+    println!(
+        "[dev] Starting demo dev server on port {}...",
+        dev::DEMO_PORT
+    );
+    let demo_child = dev::spawn_dev_server(
+        "demo",
+        "tmuxy-demo",
+        &["--", "--port", "9002", "--hostname", "0.0.0.0"],
+    )
+    .await;
+
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     let app = crate::state::api_routes()
+        .route(
+            "/demo",
+            axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
+        )
+        .route(
+            "/demo/*path",
+            axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
+        )
         .fallback_service(tower::service_fn(|req: Request| async move {
             Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
         }))
@@ -71,14 +91,15 @@ async fn start_dev_server() {
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     println!("tmuxy dev server running at http://localhost:{}", port);
     println!(
-        "[dev] Vite HMR and static files proxied from port {}",
-        dev::VITE_PORT
+        "[dev] Vite proxied from port {}, demo proxied from port {}",
+        dev::VITE_PORT,
+        dev::DEMO_PORT
     );
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(vite_child))
+        .with_graceful_shutdown(shutdown_signal(vec![vite_child, demo_child]))
         .await
         .unwrap();
 }
@@ -102,7 +123,7 @@ async fn start_server(port: u16, host: String) {
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(None))
+        .with_graceful_shutdown(shutdown_signal(vec![]))
         .await
         .unwrap();
 
@@ -233,7 +254,7 @@ fn server_status() {
     }
 }
 
-async fn shutdown_signal(vite_child: Option<dev::ViteChild>) {
+async fn shutdown_signal(children: Vec<Option<dev::ViteChild>>) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -258,7 +279,7 @@ async fn shutdown_signal(vite_child: Option<dev::ViteChild>) {
 
     println!("\nShutting down...");
 
-    if let Some(child) = vite_child {
+    for child in children.into_iter().flatten() {
         child.kill();
     }
 }

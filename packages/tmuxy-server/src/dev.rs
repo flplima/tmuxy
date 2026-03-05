@@ -6,7 +6,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 /// Port for Vite dev server
-pub const VITE_PORT: u16 = 1420;
+pub const VITE_PORT: u16 = 9001;
+
+/// Port for Next.js demo dev server
+pub const DEMO_PORT: u16 = 9002;
 
 /// Find an available port starting from 9000, incrementing until one is free.
 /// Override with PORT env var.
@@ -24,7 +27,7 @@ pub fn get_port() -> u16 {
     9000
 }
 
-/// Handle to Vite child process for cleanup
+/// Handle to a dev child process for cleanup
 #[cfg(unix)]
 pub struct ViteChild {
     pgid: i32,
@@ -36,7 +39,7 @@ impl ViteChild {
         unsafe {
             libc::killpg(self.pgid, libc::SIGTERM);
         }
-        println!("[dev] Vite process group killed");
+        println!("[dev] Process group killed");
     }
 }
 
@@ -49,17 +52,17 @@ pub struct ViteChild {
 impl ViteChild {
     pub fn kill(mut self) {
         let _ = self.child.start_kill();
-        println!("[dev] Vite process killed");
+        println!("[dev] Process killed");
     }
 }
 
-pub async fn proxy_to_vite(req: Request) -> Response {
+async fn proxy_to_port(port: u16, req: Request) -> Response {
     let client = reqwest::Client::new();
 
     let uri = req.uri();
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
 
-    let vite_url = format!("http://localhost:{}{}", VITE_PORT, path_and_query);
+    let target_url = format!("http://localhost:{}{}", port, path_and_query);
 
     let mut headers = reqwest::header::HeaderMap::new();
     for (name, value) in req.headers() {
@@ -82,7 +85,7 @@ pub async fn proxy_to_vite(req: Request) -> Response {
     };
 
     match client
-        .request(method, &vite_url)
+        .request(method, &target_url)
         .headers(headers)
         .send()
         .await
@@ -116,13 +119,28 @@ pub async fn proxy_to_vite(req: Request) -> Response {
     }
 }
 
-pub async fn spawn_vite_dev_server() -> Option<ViteChild> {
+pub async fn proxy_to_vite(req: Request) -> Response {
+    proxy_to_port(VITE_PORT, req).await
+}
+
+pub async fn proxy_to_demo(req: Request) -> Response {
+    proxy_to_port(DEMO_PORT, req).await
+}
+
+pub async fn spawn_dev_server(
+    label: &str,
+    npm_workspace: &str,
+    extra_args: &[&str],
+) -> Option<ViteChild> {
     let workspace_root = crate::state::find_workspace_root();
+
+    let mut args = vec!["run", "dev", "-w", npm_workspace];
+    args.extend_from_slice(extra_args);
 
     #[cfg(unix)]
     let mut cmd = {
         let mut cmd = Command::new("npm");
-        cmd.args(["run", "dev", "-w", "tmuxy-ui"])
+        cmd.args(&args)
             .current_dir(&workspace_root)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -138,7 +156,7 @@ pub async fn spawn_vite_dev_server() -> Option<ViteChild> {
     #[cfg(not(unix))]
     let mut cmd = {
         let mut cmd = Command::new("npm");
-        cmd.args(["run", "dev", "-w", "tmuxy-ui"])
+        cmd.args(&args)
             .current_dir(&workspace_root)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -148,7 +166,7 @@ pub async fn spawn_vite_dev_server() -> Option<ViteChild> {
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
-            eprintln!("Failed to spawn Vite dev server: {}", e);
+            eprintln!("Failed to spawn {} dev server: {}", label, e);
             return None;
         }
     };
@@ -156,35 +174,38 @@ pub async fn spawn_vite_dev_server() -> Option<ViteChild> {
     #[cfg(unix)]
     let pid = child.id().unwrap_or(0) as i32;
 
+    let label_out = label.to_string();
     if let Some(stdout) = child.stdout.take() {
         tokio::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                println!("[vite] {}", line);
+                println!("[{}] {}", label_out, line);
             }
         });
     }
 
+    let label_err = label.to_string();
     if let Some(stderr) = child.stderr.take() {
         tokio::spawn(async move {
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                eprintln!("[vite] {}", line);
+                eprintln!("[{}] {}", label_err, line);
             }
         });
     }
 
+    let label_wait = label.to_string();
     tokio::spawn(async move {
         match child.wait().await {
             Ok(status) => {
                 if !status.success() {
-                    eprintln!("[vite] Process exited with status: {}", status);
+                    eprintln!("[{}] Process exited with status: {}", label_wait, status);
                 }
             }
             Err(e) => {
-                eprintln!("[vite] Error waiting for process: {}", e);
+                eprintln!("[{}] Error waiting for process: {}", label_wait, e);
             }
         }
     });

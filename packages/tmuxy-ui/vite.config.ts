@@ -6,12 +6,12 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: {
-    port: 1420,
+    port: 9001,
     strictPort: true,
-    // When accessed through the Rust proxy (port 3853), HMR connects directly to Vite
+    // When accessed through the Rust proxy (port 9000), HMR connects directly to Vite
     hmr: {
-      port: 1420,
-      clientPort: 1420,
+      port: 9001,
+      clientPort: 9001,
     },
 },
   envPrefix: ['VITE_', 'TAURI_'],
