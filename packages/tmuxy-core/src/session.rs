@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// Get the path to the tmuxy config file.
-/// Checks: ~/.tmuxy.conf, then docker/.tmuxy.conf relative to working directory.
+/// Checks: ~/.tmuxy.conf, then .devcontainer/.tmuxy.conf relative to working directory.
 pub fn get_config_path() -> Option<PathBuf> {
     let home_config = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -11,10 +11,10 @@ pub fn get_config_path() -> Option<PathBuf> {
         return Some(home_config);
     }
 
-    // Check docker/.tmuxy.conf relative to working directory or ancestor
+    // Check .devcontainer/.tmuxy.conf relative to working directory or ancestor
     if let Ok(mut dir) = std::env::current_dir() {
         loop {
-            let docker_config = dir.join("docker/.tmuxy.conf");
+            let docker_config = dir.join(".devcontainer/.tmuxy.conf");
             if docker_config.exists() {
                 return Some(docker_config);
             }

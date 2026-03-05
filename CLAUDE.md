@@ -32,8 +32,7 @@ tmuxy/
 ├── tests/                    # E2E tests (Jest + Playwright)
 │   ├── helpers/              # One file per helper function
 │   └── *.test.js             # Test suites grouped by operation
-├── docs/                     # Project documentation
-└── docker/                   # Container config files (tmux, zsh)
+└── docs/                     # Project documentation
 ```
 
 ## CLI Usage
