@@ -33,7 +33,7 @@ tmuxy/
 │   ├── helpers/              # One file per helper function
 │   └── *.test.js             # Test suites grouped by operation
 ├── docs/                     # Project documentation
-└── docker/                   # Docker development environment
+└── docker/                   # Container config files (tmux, zsh)
 ```
 
 ## CLI Usage
