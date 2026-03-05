@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'packages/tmuxy-landing-page/**'
+      - 'packages/tmuxy-demo/**'
       - 'packages/tmuxy-ui/src/**'
       - '.github/workflows/landing-page.yml'
   workflow_dispatch:
@@ -33,12 +33,12 @@ jobs:
         run: npm install
 
       - name: Build landing page
-        run: npm run build -w tmuxy-landing-page
+        run: npm run build -w tmuxy-demo
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: packages/tmuxy-landing-page/out
+          path: packages/tmuxy-demo/out
 
   deploy:
     needs: build
