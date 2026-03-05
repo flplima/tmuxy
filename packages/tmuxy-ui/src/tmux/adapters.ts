@@ -11,6 +11,7 @@ import {
 } from './types';
 import { HttpAdapter } from './HttpAdapter';
 import { DemoAdapter } from './demo/DemoAdapter';
+import { WasmAdapter } from './WasmAdapter';
 import { handleStateUpdate } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
 
@@ -217,9 +218,16 @@ function isDemo(): boolean {
   return typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('demo');
 }
 
+function isWasm(): boolean {
+  return typeof window !== 'undefined' && new URL(window.location.href).searchParams.has('wasm');
+}
+
 export function createAdapter(): TmuxAdapter {
   if (isTauri()) {
     return new TauriAdapter();
+  }
+  if (isWasm()) {
+    return new WasmAdapter();
   }
   if (isDemo()) {
     return new DemoAdapter();

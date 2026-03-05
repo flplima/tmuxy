@@ -13,7 +13,12 @@ export default defineConfig({
       port: 9001,
       clientPort: 9001,
     },
-},
+    // Required for SharedArrayBuffer (used by @wasmer/sdk in ?wasm mode)
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
+  },
   envPrefix: ['VITE_', 'TAURI_'],
   test: {
     globals: true,
