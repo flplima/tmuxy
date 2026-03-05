@@ -1,9 +1,9 @@
 {
-  "name": "tmuxy-landing-page",
+  "name": "tmuxy-demo",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "predev": "bash ../../scripts/kill-port.sh ${PORT:-9000}",
+    "predev": "bash ../../scripts/kill-port.sh ${PORT:-9002}",
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
