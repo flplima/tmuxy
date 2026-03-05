@@ -1,6 +1,5 @@
 import type { ServerState, ServerPane, ServerWindow, PaneContent } from '../types';
-import { VirtualFS } from './virtualFs';
-import { DemoShell } from './DemoShell';
+import { LifoShell } from './LifoShell';
 
 // ============================================
 // Layout Tree
@@ -28,7 +27,7 @@ interface FakePane {
   id: string;
   numericId: number;
   windowId: string;
-  shell: DemoShell;
+  shell: LifoShell;
   command: string;
   title: string;
 }
@@ -55,15 +54,22 @@ export class DemoTmux {
   private nextWindowNum = 0;
   private totalWidth = 80;
   private totalHeight = 24;
-  private vfs: VirtualFS;
   private sessionName = 'demo';
+  private onAsyncUpdate?: () => void;
 
   // Zoom state
   private zoomedPaneId: string | null = null;
   private savedLayout: LayoutNode | null = null;
 
-  constructor() {
-    this.vfs = new VirtualFS();
+  setOnAsyncUpdate(cb: () => void): void {
+    this.onAsyncUpdate = cb;
+  }
+
+  private makeShell(width: number, height: number): LifoShell {
+    const shell = new LifoShell(width, height);
+    shell.setTmux(this);
+    shell.onUpdate = () => this.onAsyncUpdate?.();
+    return shell;
   }
 
   /** Initialize with one window and one pane. Writes welcome banner. */
@@ -74,8 +80,7 @@ export class DemoTmux {
     const paneId = this.allocPaneId();
     const windowId = this.allocWindowId();
 
-    const shell = new DemoShell(this.vfs, this.totalWidth, this.totalHeight);
-    shell.setTmux(this);
+    const shell = this.makeShell(this.totalWidth, this.totalHeight);
     shell.writeBanner();
     shell.writePrompt();
 
@@ -235,8 +240,7 @@ export class DemoTmux {
     const newW = direction === 'vertical' ? Math.floor(w / 2) : w;
     const newH = direction === 'horizontal' ? Math.floor(h / 2) : h;
 
-    const shell = new DemoShell(this.vfs, newW, newH);
-    shell.setTmux(this);
+    const shell = this.makeShell(newW, newH);
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -300,8 +304,7 @@ export class DemoTmux {
     const windowId = this.allocWindowId();
     const paneId = this.allocPaneId();
 
-    const shell = new DemoShell(this.vfs, this.totalWidth, this.totalHeight);
-    shell.setTmux(this);
+    const shell = this.makeShell(this.totalWidth, this.totalHeight);
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -708,8 +711,7 @@ export class DemoTmux {
     const floatW = Math.min(80, Math.floor(this.totalWidth * 0.75));
     const floatH = Math.min(20, Math.floor(this.totalHeight * 0.75));
 
-    const shell = new DemoShell(this.vfs, floatW, floatH);
-    shell.setTmux(this);
+    const shell = this.makeShell(floatW, floatH);
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -771,8 +773,7 @@ export class DemoTmux {
     const w = pos?.width ?? this.totalWidth;
     const h = pos?.height ?? this.totalHeight;
 
-    const shell = new DemoShell(this.vfs, w, h);
-    shell.setTmux(this);
+    const shell = this.makeShell(w, h);
     shell.writePrompt();
 
     // Find existing group for this pane
