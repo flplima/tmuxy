@@ -13,5 +13,4 @@ export { default as TmuxyApp } from './App';
 export type { RenderTabline } from './App';
 export { DemoAdapter } from './tmux/demo/DemoAdapter';
 export type { DemoAdapterOptions } from './tmux/demo/DemoAdapter';
-export { WasmAdapter } from './tmux/WasmAdapter';
 export type { TmuxAdapter } from './tmux/types';

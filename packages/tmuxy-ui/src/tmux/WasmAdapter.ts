@@ -127,7 +127,7 @@ export class WasmAdapter implements TmuxAdapter {
   async connect(): Promise<void> {
     try {
       const sdkUrl = 'https://unpkg.com/@wasmer/sdk@0.10.0/dist/index.mjs';
-      const sdk: WasmerSDK = await import(/* @vite-ignore */ /* webpackIgnore: true */ sdkUrl);
+      const sdk: WasmerSDK = await import(/* @vite-ignore */ sdkUrl);
 
       await sdk.init();
 
