@@ -146,18 +146,7 @@ pub async fn proxy_to_vite(req: Request) -> Response {
 }
 
 pub async fn proxy_to_demo(req: Request) -> Response {
-    let mut response = proxy_to_port(DEMO_PORT, req).await;
-    // SharedArrayBuffer (required by @wasmer/sdk) needs COOP/COEP on the page.
-    let headers = response.headers_mut();
-    headers.insert(
-        axum::http::HeaderName::from_static("cross-origin-opener-policy"),
-        axum::http::HeaderValue::from_static("same-origin"),
-    );
-    headers.insert(
-        axum::http::HeaderName::from_static("cross-origin-embedder-policy"),
-        axum::http::HeaderValue::from_static("require-corp"),
-    );
-    response
+    proxy_to_port(DEMO_PORT, req).await
 }
 
 pub async fn spawn_dev_server(
