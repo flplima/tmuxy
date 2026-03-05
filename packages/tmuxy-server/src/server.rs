@@ -79,7 +79,7 @@ async fn start_dev_server() {
             axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
         )
         .route(
-            "/demo/*path",
+            "/demo/{*path}",
             axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
         )
         .fallback_service(tower::service_fn(|req: Request| async move {

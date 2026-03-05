@@ -1977,6 +1977,17 @@ export const appMachine = setup({
 
             const update = context.pendingUpdate;
 
+            // Auto-focus float management: detect floats that appeared during animation
+            const prevFloatIds = Object.keys(context.floatPanes);
+            const newFloatIds = Object.keys(update.floatPanes ?? {});
+            const addedFloatIds = newFloatIds.filter((id) => !prevFloatIds.includes(id));
+            let newFocusedFloat = context.focusedFloatPaneId;
+            if (addedFloatIds.length > 0) {
+              newFocusedFloat = newFloatIds[newFloatIds.length - 1];
+            } else if (newFocusedFloat && !update.floatPanes?.[newFocusedFloat]) {
+              newFocusedFloat = newFloatIds.length > 0 ? newFloatIds[newFloatIds.length - 1] : null;
+            }
+
             enqueue(
               assign({
                 ...update,
@@ -1985,8 +1996,19 @@ export const appMachine = setup({
                   update.activePaneId !== context.activePaneId
                     ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
                     : context.paneActivationOrder,
+                ...(newFocusedFloat !== context.focusedFloatPaneId && {
+                  focusedFloatPaneId: newFocusedFloat,
+                }),
               }),
             );
+            if (newFocusedFloat !== context.focusedFloatPaneId) {
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_FOCUSED_FLOAT' as const,
+                  paneId: newFocusedFloat,
+                }),
+              );
+            }
             enqueue(
               sendTo('keyboard', {
                 type: 'UPDATE_SESSION' as const,
@@ -2004,6 +2026,17 @@ export const appMachine = setup({
 
             const update = context.pendingUpdate;
 
+            // Auto-focus float management: detect floats that appeared during animation
+            const prevFloatIds = Object.keys(context.floatPanes);
+            const newFloatIds = Object.keys(update.floatPanes ?? {});
+            const addedFloatIds = newFloatIds.filter((id) => !prevFloatIds.includes(id));
+            let newFocusedFloat = context.focusedFloatPaneId;
+            if (addedFloatIds.length > 0) {
+              newFocusedFloat = newFloatIds[newFloatIds.length - 1];
+            } else if (newFocusedFloat && !update.floatPanes?.[newFocusedFloat]) {
+              newFocusedFloat = newFloatIds.length > 0 ? newFloatIds[newFloatIds.length - 1] : null;
+            }
+
             enqueue(
               assign({
                 ...update,
@@ -2012,8 +2045,19 @@ export const appMachine = setup({
                   update.activePaneId !== context.activePaneId
                     ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
                     : context.paneActivationOrder,
+                ...(newFocusedFloat !== context.focusedFloatPaneId && {
+                  focusedFloatPaneId: newFocusedFloat,
+                }),
               }),
             );
+            if (newFocusedFloat !== context.focusedFloatPaneId) {
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_FOCUSED_FLOAT' as const,
+                  paneId: newFocusedFloat,
+                }),
+              );
+            }
             enqueue(
               sendTo('keyboard', {
                 type: 'UPDATE_SESSION' as const,

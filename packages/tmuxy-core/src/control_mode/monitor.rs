@@ -288,12 +288,32 @@ impl TmuxMonitor {
 
                             let result = self.aggregator.process_event(event);
 
-                            // After WindowAdd, request list-windows to get accurate
-                            // window indices (which differ from window IDs when base-index > 0).
+                            // After WindowAdd, refresh panes first then windows.
+                            // When break-pane creates a float window, LayoutChange on the
+                            // source window removes the pane from self.panes via reconciliation.
+                            // No LayoutChange fires for the new float window, so list-panes
+                            // must be sent first to restore the pane before list-windows
+                            // triggers state emission (where buildFloatPanesFromWindows runs).
                             if is_window_add {
-                                let cmd = "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@float_parent},#{@float_width},#{@float_height}'";
-                                if let Err(e) = self.connection.send_command(cmd).await {
-                                    emitter.emit_error(format!("Failed to refresh windows: {}", e));
+                                let cmds = vec![
+                                    concat!(
+                                        "list-panes -s -F '",
+                                        "#{pane_id},#{pane_index},",
+                                        "#{pane_left},#{pane_top},",
+                                        "#{pane_width},#{pane_height},",
+                                        "#{cursor_x},#{cursor_y},",
+                                        "#{pane_active},#{pane_current_command},#{pane_title},",
+                                        "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+                                        "#{scroll_position},",
+                                        "#{window_id},#{T:pane-border-format},",
+                                        "#{alternate_on},#{mouse_any_flag},",
+                                        "#{selection_present},",
+                                        "#{selection_start_x},#{selection_start_y},#{history_size}'"
+                                    ).to_string(),
+                                    "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@float_parent},#{@float_width},#{@float_height}'".to_string(),
+                                ];
+                                if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+                                    emitter.emit_error(format!("Failed to refresh state after window add: {}", e));
                                 }
                             }
 

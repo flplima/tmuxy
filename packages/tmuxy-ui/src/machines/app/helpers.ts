@@ -140,10 +140,8 @@ export function buildFloatPanesFromWindows(
     const pane = panes.find((p) => p.tmuxId === paneId);
     const existing = existingFloats[paneId];
 
-    if (existing) {
-      floatPanes[paneId] = existing;
-    } else if (pane) {
-      floatPanes[paneId] = {
+    if (pane) {
+      floatPanes[paneId] = existing ?? {
         paneId,
         width: Math.min(pane.width * charWidth, containerWidth - 200),
         height: Math.min(pane.height * charHeight, containerHeight - 200),

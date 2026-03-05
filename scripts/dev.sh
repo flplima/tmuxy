@@ -26,7 +26,7 @@ trap cleanup SIGINT SIGTERM
 
 echo "[dev] Starting development server with hot reload..."
 echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src"
-echo "[dev] Vite HMR is automatic via proxy to port 1420"
+echo "[dev] Vite proxied from port 9001, demo proxied from port 9002"
 echo ""
 
 # Kill any existing tmuxy session, then start the server with file watching

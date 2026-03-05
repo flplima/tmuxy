@@ -326,7 +326,11 @@ export function PaneHeader({
       )}
       <button
         className="pane-header-close"
-        onClick={isFloat ? onFloatClose : handleClosePane}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isFloat) onFloatClose?.();
+          else handleClosePane(e);
+        }}
         title="Close pane"
         aria-label="Close pane"
       >
