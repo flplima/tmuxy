@@ -574,9 +574,13 @@
   max-width: 150px;
 }
 
-/* Active tab title */
-.pane-tab-active .pane-tab-title {
+/* Active tab title and icon */
+.pane-tab-active .pane-tab-title,
+.pane-tab-active .pane-tab-icon {
   color: var(--accent-green);
+}
+
+.pane-tab-active .pane-tab-title {
   font-weight: 500;
 }
 
