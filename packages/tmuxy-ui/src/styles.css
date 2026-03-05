@@ -715,11 +715,22 @@ body {
   z-index: 1000;
 }
 
-/* Semi-transparent backdrop */
+/* Semi-transparent backdrop (default: dim) */
 .modal-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
+}
+
+/* Blur backdrop variant */
+.modal-backdrop-blur {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
+}
+
+/* No backdrop variant (transparent, still captures clicks) */
+.modal-backdrop-none {
+  background: transparent;
 }
 
 /* Modal container - centered via JS positioning */

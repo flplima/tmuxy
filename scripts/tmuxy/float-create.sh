@@ -21,28 +21,32 @@ source "$(dirname "$0")/_lib.sh"
 DRAWER=""
 WIDTH=""
 HEIGHT=""
+BG=""
+HIDE_HEADER=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --left)   DRAWER="left";   shift ;;
-    --right)  DRAWER="right";  shift ;;
-    --top)    DRAWER="top";    shift ;;
-    --bottom) DRAWER="bottom"; shift ;;
-    --width)  WIDTH="$2";      shift 2 ;;
-    --height) HEIGHT="$2";     shift 2 ;;
+    --left)         DRAWER="left";   shift ;;
+    --right)        DRAWER="right";  shift ;;
+    --top)          DRAWER="top";    shift ;;
+    --bottom)       DRAWER="bottom"; shift ;;
+    --width)        WIDTH="$2";      shift 2 ;;
+    --height)       HEIGHT="$2";     shift 2 ;;
+    --bg)           BG="$2";         shift 2 ;;
+    --hide-header)  HIDE_HEADER="1"; shift ;;
     --) shift; break ;;
     *) break ;;
   esac
 done
 
-# Build window name
+# Build window name with encoded options
 build_float_name() {
   local pane_id="$1"
   local pane_num="${pane_id#%}"
-  if [ -n "$DRAWER" ]; then
-    echo "__float_${pane_num}_drawer_${DRAWER}"
-  else
-    echo "__float_${pane_num}"
-  fi
+  local name="__float_${pane_num}"
+  [ -n "$DRAWER" ]      && name="${name}_drawer_${DRAWER}"
+  [ -n "$BG" ]          && name="${name}_bg_${BG}"
+  [ -n "$HIDE_HEADER" ] && name="${name}_noheader"
+  echo "$name"
 }
 
 if [ $# -eq 0 ]; then

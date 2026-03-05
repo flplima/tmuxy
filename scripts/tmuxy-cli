@@ -305,12 +305,14 @@ cmd_pane() {
 Usage: tmuxy pane float [options] [cmd args...]
 
 Options:
-  --left        Drawer docked to left edge
-  --right       Drawer docked to right edge
-  --top         Drawer docked to top edge
-  --bottom      Drawer docked to bottom edge
-  --width N     Width in columns (ignored for left/right drawers)
-  --height N    Height in rows (ignored for top/bottom drawers)
+  --left          Drawer docked to left edge
+  --right         Drawer docked to right edge
+  --top           Drawer docked to top edge
+  --bottom        Drawer docked to bottom edge
+  --width N       Width in columns (ignored for left/right drawers)
+  --height N      Height in rows (ignored for top/bottom drawers)
+  --bg MODE       Backdrop: dim (default), blur, none
+  --hide-header   Hide the title bar
 FEOF
           return ;;
       esac

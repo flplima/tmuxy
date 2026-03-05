@@ -3,6 +3,8 @@
  *
  * Regular float: centered on screen with backdrop
  * Drawer (--left/--right/--top/--bottom): slides from edge, full height or width
+ * Backdrop: --bg dim (default), blur, or none
+ * Header: hidden with --hide-header
  * Clicking backdrop, pressing Esc, or clicking × all close (kill) the float
  * Green border on all sides when active
  */
@@ -49,15 +51,13 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   if (!pane) return null;
 
   const title = pane.borderTitle || pane.tmuxId;
-  const { drawer } = floatState;
+  const { drawer, backdrop, hideHeader } = floatState;
+  const headerHeight = hideHeader ? 0 : 28;
 
   // Drawer mode: dock to edge with full span on the perpendicular axis
   if (drawer) {
-    const headerHeight = 28;
     const isHorizontal = drawer === 'left' || drawer === 'right';
 
-    // For horizontal drawers: width from floatState, height = full container
-    // For vertical drawers: height from floatState, width = full container
     const floatWidth = isHorizontal ? floatState.width : containerWidth;
     const floatHeight = isHorizontal ? containerHeight : floatState.height + headerHeight;
     const terminalHeight = floatHeight - headerHeight;
@@ -87,6 +87,8 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
         zIndex={zIndex}
         className={`drawer drawer-${drawer}`}
         containerStyle={containerStyle}
+        backdrop={backdrop}
+        hideHeader={hideHeader}
       >
         <div
           className="float-content"
@@ -111,7 +113,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   // Regular centered float
   const terminalRows = Math.floor(floatState.height / charHeight);
   const floatWidth = floatState.width;
-  const floatHeight = floatState.height + 28;
+  const floatHeight = floatState.height + headerHeight;
   const left = Math.max(0, (containerWidth - floatWidth) / 2);
   const top = Math.max(0, (containerHeight - floatHeight) / 2);
 
@@ -123,6 +125,8 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
       width={floatWidth}
       zIndex={zIndex}
       containerStyle={{ left, top }}
+      backdrop={backdrop}
+      hideHeader={hideHeader}
     >
       <div
         className="float-content"

@@ -12,6 +12,10 @@ interface ModalProps {
   closeOnEsc?: boolean;
   zIndex?: number;
   containerStyle?: React.CSSProperties;
+  /** Backdrop style: 'dim' (default), 'blur', or 'none' */
+  backdrop?: 'dim' | 'blur' | 'none';
+  /** Hide the header bar (title + close button) */
+  hideHeader?: boolean;
 }
 
 export function Modal({
@@ -25,6 +29,8 @@ export function Modal({
   closeOnEsc = true,
   zIndex = 1000,
   containerStyle,
+  backdrop = 'dim',
+  hideHeader = false,
 }: ModalProps) {
   const handleBackdropClick = useCallback(() => {
     if (closeOnBackdrop) onClose();
@@ -47,14 +53,23 @@ export function Modal({
 
   if (!open) return null;
 
+  const backdropClass =
+    backdrop === 'blur'
+      ? 'modal-backdrop modal-backdrop-blur'
+      : backdrop === 'none'
+        ? 'modal-backdrop modal-backdrop-none'
+        : 'modal-backdrop';
+
+  const showHeader = !hideHeader && title !== undefined;
+
   return createPortal(
     <div className={`modal-overlay${className ? ` ${className}` : ''}`} style={{ zIndex }}>
-      <div className="modal-backdrop" onClick={handleBackdropClick} />
+      <div className={backdropClass} onClick={handleBackdropClick} />
       <div
         className="modal-container"
         style={{ ...containerStyle, ...(width ? { width } : undefined) }}
       >
-        {title !== undefined && (
+        {showHeader && (
           <div className="modal-header">
             <span className="modal-title">{title}</span>
             <button className="modal-close" onClick={onClose} title="Close">
