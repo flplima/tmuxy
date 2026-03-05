@@ -576,7 +576,7 @@
 
 /* Active tab title */
 .pane-tab-active .pane-tab-title {
-  color: inherit;
+  color: var(--accent-green);
   font-weight: 500;
 }
 
