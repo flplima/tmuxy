@@ -786,6 +786,70 @@ body {
 }
 
 /* ============================================
+   Drawer - Edge-docked float with slide animation
+   ============================================ */
+
+/* Drawer container: no border-radius on docked edge */
+.drawer .modal-container {
+  border-radius: 0;
+  animation-duration: 200ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+
+.drawer-left .modal-container {
+  animation-name: slide-in-left;
+}
+
+.drawer-right .modal-container {
+  animation-name: slide-in-right;
+}
+
+.drawer-top .modal-container {
+  animation-name: slide-in-top;
+}
+
+.drawer-bottom .modal-container {
+  animation-name: slide-in-bottom;
+}
+
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-top {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* ============================================
    File Picker
    ============================================ */
 

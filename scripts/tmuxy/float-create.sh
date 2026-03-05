@@ -1,10 +1,15 @@
 #!/bin/bash
-# Create a new float pane
+# Create a new float pane (centered or drawer)
 #
-# Interactive mode (no args):
+# Options:
+#   --left|--right|--top|--bottom   Drawer mode (slides from edge)
+#   --width N                       Width in columns
+#   --height N                      Height in rows
+#
+# Interactive mode (no command args):
 #   Creates a float pane with an interactive shell, outputs pane ID to stdout.
 #
-# Command mode (with args):
+# Command mode (with args after options):
 #   Creates a float pane running the command, captures its stdout,
 #   waits for completion, auto-closes the float, and outputs the
 #   captured stdout. Enables: FILE=$(tmuxy float fzf) && nvim "$FILE"
@@ -12,10 +17,48 @@
 set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
 
+# Parse options
+DRAWER=""
+WIDTH=""
+HEIGHT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --left)   DRAWER="left";   shift ;;
+    --right)  DRAWER="right";  shift ;;
+    --top)    DRAWER="top";    shift ;;
+    --bottom) DRAWER="bottom"; shift ;;
+    --width)  WIDTH="$2";      shift 2 ;;
+    --height) HEIGHT="$2";     shift 2 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+# Build window name
+build_float_name() {
+  local pane_id="$1"
+  local pane_num="${pane_id#%}"
+  if [ -n "$DRAWER" ]; then
+    echo "__float_${pane_num}_drawer_${DRAWER}"
+  else
+    echo "__float_${pane_num}"
+  fi
+}
+
 if [ $# -eq 0 ]; then
   # Interactive mode: create float with shell, output pane ID
   NEW_PANE_ID=$(tmux split-window -dP -F '#{pane_id}')
-  tmux break-pane -d -s "$NEW_PANE_ID" -n "__float_temp"
+  FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
+  tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+
+  # Apply size if specified
+  if [ -n "$WIDTH" ]; then
+    tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+  fi
+  if [ -n "$HEIGHT" ]; then
+    tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+  fi
+
   refresh_panes
   echo "$NEW_PANE_ID"
 else
@@ -26,7 +69,17 @@ else
 
   NEW_PANE_ID=$(tmux split-window -dP -F '#{pane_id}' \
     "bash -c '${CMD} > \"${TMPFILE}\" 2>&1; tmux wait-for -S ${WAIT_CHAN}'")
-  tmux break-pane -d -s "$NEW_PANE_ID" -n "__float_temp"
+  FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
+  tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+
+  # Apply size if specified
+  if [ -n "$WIDTH" ]; then
+    tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+  fi
+  if [ -n "$HEIGHT" ]; then
+    tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+  fi
+
   refresh_panes
 
   # Wait for command to finish

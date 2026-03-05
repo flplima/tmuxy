@@ -301,7 +301,18 @@ cmd_pane() {
 
     float)
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane float [cmd args...]"; return ;;
+        --help|-h) cat <<'FEOF'
+Usage: tmuxy pane float [options] [cmd args...]
+
+Options:
+  --left        Drawer docked to left edge
+  --right       Drawer docked to right edge
+  --top         Drawer docked to top edge
+  --bottom      Drawer docked to bottom edge
+  --width N     Width in columns (ignored for left/right drawers)
+  --height N    Height in rows (ignored for top/bottom drawers)
+FEOF
+          return ;;
       esac
       exec bash "$SCRIPTS_DIR/float-create.sh" "$@"
       ;;

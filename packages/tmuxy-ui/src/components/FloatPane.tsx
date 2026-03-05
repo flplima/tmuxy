@@ -1,10 +1,10 @@
 /**
- * FloatPane - Simple centered floating pane with backdrop
+ * FloatPane - Centered floating pane or edge-docked drawer
  *
- * - Always centered on screen
- * - Clicking backdrop, pressing Esc, or clicking × all close (kill) the float
- * - No dragging, resizing, or grouping
- * - Green border on all sides when active
+ * Regular float: centered on screen with backdrop
+ * Drawer (--left/--right/--top/--bottom): slides from edge, full height or width
+ * Clicking backdrop, pressing Esc, or clicking × all close (kill) the float
+ * Green border on all sides when active
  */
 
 import React, { useCallback } from 'react';
@@ -49,8 +49,67 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   if (!pane) return null;
 
   const title = pane.borderTitle || pane.tmuxId;
-  const terminalRows = Math.floor(floatState.height / charHeight);
+  const { drawer } = floatState;
 
+  // Drawer mode: dock to edge with full span on the perpendicular axis
+  if (drawer) {
+    const headerHeight = 28;
+    const isHorizontal = drawer === 'left' || drawer === 'right';
+
+    // For horizontal drawers: width from floatState, height = full container
+    // For vertical drawers: height from floatState, width = full container
+    const floatWidth = isHorizontal ? floatState.width : containerWidth;
+    const floatHeight = isHorizontal ? containerHeight : floatState.height + headerHeight;
+    const terminalHeight = floatHeight - headerHeight;
+    const terminalRows = Math.floor(terminalHeight / charHeight);
+
+    const containerStyle: React.CSSProperties = {};
+    if (drawer === 'left') {
+      containerStyle.left = 0;
+      containerStyle.top = 0;
+    } else if (drawer === 'right') {
+      containerStyle.right = 0;
+      containerStyle.top = 0;
+    } else if (drawer === 'top') {
+      containerStyle.left = 0;
+      containerStyle.top = 0;
+    } else {
+      containerStyle.left = 0;
+      containerStyle.bottom = 0;
+    }
+
+    return (
+      <Modal
+        open={true}
+        onClose={handleClose}
+        title={title}
+        width={floatWidth}
+        zIndex={zIndex}
+        className={`drawer drawer-${drawer}`}
+        containerStyle={containerStyle}
+      >
+        <div
+          className="float-content"
+          style={{ width: floatWidth, height: terminalHeight }}
+          onClick={handleClick}
+        >
+          <Terminal
+            content={pane.content}
+            cursorX={pane.cursorX}
+            cursorY={pane.cursorY}
+            isActive={pane.active}
+            height={terminalRows}
+            inMode={pane.inMode}
+            copyCursorX={pane.copyCursorX}
+            copyCursorY={pane.copyCursorY}
+          />
+        </div>
+      </Modal>
+    );
+  }
+
+  // Regular centered float
+  const terminalRows = Math.floor(floatState.height / charHeight);
   const floatWidth = floatState.width;
   const floatHeight = floatState.height + 28;
   const left = Math.max(0, (containerWidth - floatWidth) / 2);

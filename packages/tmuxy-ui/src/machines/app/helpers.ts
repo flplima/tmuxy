@@ -110,12 +110,26 @@ export function buildGroupsFromWindows(
 
 /**
  * Build float pane states from windows.
- * Float windows have the pattern: __float_{pane_num}
+ * Float windows have the pattern: __float_{pane_num} or __float_{pane_num}_drawer_{direction}
  */
-function parseFloatWindowPaneId(windowName: string): string | null {
+
+import type { DrawerDirection, FloatPaneState } from '../types';
+
+interface ParsedFloatWindow {
+  paneId: string;
+  drawer?: DrawerDirection;
+}
+
+function parseFloatWindowPaneId(windowName: string): ParsedFloatWindow | null {
+  // Try drawer pattern first: __float_{num}_drawer_{direction}
+  const drawerMatch = windowName.match(/^__float_(\d+)_drawer_(left|right|top|bottom)$/);
+  if (drawerMatch) {
+    return { paneId: `%${drawerMatch[1]}`, drawer: drawerMatch[2] as DrawerDirection };
+  }
+  // Regular float: __float_{num} or __float_{title} (session/connect floats)
   const match = windowName.match(/^__float_(\d+)$/);
   if (match) {
-    return `%${match[1]}`;
+    return { paneId: `%${match[1]}` };
   }
   return null;
 }
@@ -123,30 +137,33 @@ function parseFloatWindowPaneId(windowName: string): string | null {
 export function buildFloatPanesFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
-  existingFloats: Record<string, { paneId: string; width: number; height: number }>,
+  existingFloats: Record<string, FloatPaneState>,
   containerWidth: number,
   containerHeight: number,
   charWidth: number,
   charHeight: number,
-): Record<string, { paneId: string; width: number; height: number }> {
-  const floatPanes: Record<string, { paneId: string; width: number; height: number }> = {};
+): Record<string, FloatPaneState> {
+  const floatPanes: Record<string, FloatPaneState> = {};
 
   for (const window of windows) {
     if (!window.isFloatWindow) continue;
 
-    const paneId = parseFloatWindowPaneId(window.name);
-    if (!paneId) continue;
+    const parsed = parseFloatWindowPaneId(window.name);
+    if (!parsed) continue;
 
+    const { paneId, drawer } = parsed;
     const pane = panes.find((p) => p.tmuxId === paneId);
     const existing = existingFloats[paneId];
 
     if (existing) {
-      floatPanes[paneId] = existing;
+      // Preserve existing state but update drawer direction (window may have been renamed)
+      floatPanes[paneId] = { ...existing, drawer };
     } else if (pane) {
       floatPanes[paneId] = {
         paneId,
         width: Math.min(pane.width * charWidth, containerWidth - 200),
         height: Math.min(pane.height * charHeight, containerHeight - 200),
+        drawer,
       };
     }
   }
