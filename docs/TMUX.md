@@ -110,7 +110,7 @@ This creates a new pane in the current window, then immediately breaks it into i
 For multi-client viewport sizing to work correctly, tmux needs:
 
 ```bash
-# ~/.tmux.conf or docker/.tmuxy.conf
+# ~/.tmux.conf or .devcontainer/.tmuxy.conf
 setw -g aggressive-resize off   # Don't auto-resize to largest client
 set -g window-size manual       # Manual control over window size
 ```

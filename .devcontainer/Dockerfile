@@ -103,7 +103,7 @@ ENV VISUAL=nvim
 
 # zsh with Pure prompt
 RUN git clone https://github.com/sindresorhus/pure.git /home/node/.zsh/pure
-COPY --chown=node:node docker/.zshrc /home/node/.zshrc
+COPY --chown=node:node .devcontainer/.zshrc /home/node/.zshrc
 
 # Add local bin, cargo, and npm global bin to profile (login shells, including non-interactive)
 RUN echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/node/.profile

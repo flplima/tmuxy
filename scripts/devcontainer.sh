@@ -99,8 +99,8 @@ echo "==> Dev server: http://localhost:$HOST_PORT"
 echo ""
 
 INIT_SCRIPT='
-    ln -sf /workspace/docker/.tmuxy.conf ~/.tmuxy.conf
-    ln -sf /workspace/docker/.tmux-dev.conf ~/.tmux.conf
+    ln -sf /workspace/.devcontainer/.tmuxy.conf ~/.tmuxy.conf
+    ln -sf /workspace/.devcontainer/.tmux-dev.conf ~/.tmux.conf
     gh auth setup-git 2>/dev/null
     git -C /workspace remote set-url origin "$(git -C /workspace remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
 '

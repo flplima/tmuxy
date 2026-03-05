@@ -15,7 +15,7 @@ services:
       # Project workspace
       - ..:/workspace
       # Container config files
-      - ../docker:/home/user/docker:ro
+      - ../.devcontainer:/home/user/.devcontainer:ro
       # Dotfiles scripts (tmux-run, etc.)
       - ~/dotfiles/scripts:/home/user/dotfiles/scripts:ro
       # Claude config (auth and settings - .claude.json has onboarding state)

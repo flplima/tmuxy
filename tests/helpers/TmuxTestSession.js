@@ -18,14 +18,14 @@ const { tmuxRun, tmuxQuery } = require('./cli');
 
 /**
  * Get the path to the tmuxy config file
- * Checks ~/.tmuxy.conf first, then falls back to docker/.tmuxy.conf
+ * Checks ~/.tmuxy.conf first, then falls back to .devcontainer/.tmuxy.conf
  */
 function getTmuxConfigPath() {
   const homeConfig = path.join(os.homedir(), '.tmuxy.conf');
   if (fs.existsSync(homeConfig)) {
     return homeConfig;
   }
-  const dockerConfig = path.join(WORKSPACE_ROOT, 'docker', '.tmuxy.conf');
+  const dockerConfig = path.join(WORKSPACE_ROOT, '.devcontainer', '.tmuxy.conf');
   if (fs.existsSync(dockerConfig)) {
     return dockerConfig;
   }
