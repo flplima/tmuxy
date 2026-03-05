@@ -1,6 +1,8 @@
 services:
   tmuxy-dev:
-    build: .
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
     image: tmuxy-dev
     network_mode: host
     init: true          # Proper init process to reap zombie processes
@@ -11,9 +13,9 @@ services:
     working_dir: /workspace
     volumes:
       # Project workspace
-      - .:/workspace
+      - ..:/workspace
       # Container config files
-      - ./docker:/home/user/docker:ro
+      - ../docker:/home/user/docker:ro
       # Dotfiles scripts (tmux-run, etc.)
       - ~/dotfiles/scripts:/home/user/dotfiles/scripts:ro
       # Claude config (auth and settings - .claude.json has onboarding state)
