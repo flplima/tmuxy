@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "predev": "bash ../../scripts/kill-port.sh ${PORT:-9002}",
+    "predev": "bash ../../scripts/kill-port.sh 9002",
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
