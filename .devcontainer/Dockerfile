@@ -11,7 +11,9 @@ ENV TZ="$TZ"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools
     less git procps sudo fzf zsh man-db unzip gnupg2 openssh-server \
-    nano vim neovim jq yq bc \
+    nano vim jq yq bc \
+    # LazyVim runtime deps (telescope file/text search)
+    ripgrep fd-find \
     # Build tools (tmux, native modules)
     build-essential pkg-config libssl-dev ca-certificates \
     libevent-dev libncurses-dev bison \
@@ -38,6 +40,16 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y gh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Neovim latest stable (Bookworm ships 0.7 which is too old for LazyVim — requires 0.9+)
+ARG LAZYGIT_VERSION=0.44.1
+RUN NVIM_ARCH=$(uname -m | sed 's/aarch64/arm64/') && \
+    curl -sL "https://github.com/neovim/neovim/releases/download/stable/nvim-linux-${NVIM_ARCH}.tar.gz" \
+    | tar xz -C /opt && \
+    ln -sf /opt/nvim-linux-${NVIM_ARCH}/bin/nvim /usr/local/bin/nvim && \
+    # lazygit (optional LazyVim integration)
+    curl -sL "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_$(uname -m | sed 's/aarch64/arm64/').tar.gz" \
+    | tar xz -C /usr/local/bin lazygit
 
 # Build tmux 3.5a from source
 # Debian ships 3.3a which crashes when external commands run while control mode is attached
@@ -86,8 +98,8 @@ USER node
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 ENV PATH=/home/node/.local/bin:$PATH:/usr/local/share/npm-global/bin
 ENV SHELL=/bin/zsh
-ENV EDITOR=nano
-ENV VISUAL=nano
+ENV EDITOR=nvim
+ENV VISUAL=nvim
 
 # zsh with Pure prompt
 RUN git clone https://github.com/sindresorhus/pure.git /home/node/.zsh/pure
@@ -98,6 +110,11 @@ RUN echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm
 
 # Claude Code (native installer)
 RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# LazyVim — bootstrap config then pre-install plugins headlessly
+RUN git clone https://github.com/LazyVim/starter ~/.config/nvim \
+    && rm -rf ~/.config/nvim/.git \
+    && nvim --headless "+Lazy! sync" +qa 2>&1
 
 # Global npm packages: pm2, agent-browser
 RUN npm install -g pm2 agent-browser \
