@@ -138,7 +138,9 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
         tabIndex={0}
         data-pane-id={pane.tmuxId}
       >
-        <PaneHeader paneId={floatState.paneId} isFloat onFloatClose={handleClose} />
+        {!hideHeader && (
+          <PaneHeader paneId={floatState.paneId} isFloat onFloatClose={handleClose} />
+        )}
         <div className="float-content" style={{ height: floatState.height }}>
           <Terminal
             content={pane.content}

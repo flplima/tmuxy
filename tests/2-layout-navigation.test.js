@@ -65,7 +65,7 @@ async function createFloat(ctx, paneId, { drawer = null, bg = null, hideHeader =
 }
 
 async function waitForFloatModal(page, timeout = 10000) {
-  await page.waitForSelector('.float-container', { timeout });
+  await page.waitForSelector('.modal-overlay', { timeout });
 }
 
 async function getFloatModalInfo(page) {
@@ -360,7 +360,7 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 2: Float modal appears
     await waitForFloatModal(ctx.page);
-    const backdrop = await ctx.page.$('.float-overlay');
+    const backdrop = await ctx.page.$('.modal-backdrop');
     expect(backdrop).not.toBeNull();
 
     // Step 3: Modal has header and close button
@@ -395,7 +395,7 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 7: Backdrop click closes float
     // Click far from center to avoid hitting the centered float modal
-    const newBackdrop = await ctx.page.$('.float-overlay');
+    const newBackdrop = await ctx.page.$('.modal-backdrop');
     const box = await newBackdrop.boundingBox();
     await ctx.page.mouse.click(box.x + 5, box.y + 5);
     await ctx.page.waitForFunction(

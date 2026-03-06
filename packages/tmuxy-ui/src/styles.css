@@ -906,18 +906,6 @@
    Float Pane Overlay
    ============================================ */
 
-.float-overlay {
-  position: absolute;
-  inset: 0;
-}
-
-.float-overlay::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-}
-
 .float-container {
   position: absolute;
   display: flex;
