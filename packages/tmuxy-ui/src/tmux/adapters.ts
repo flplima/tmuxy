@@ -210,7 +210,7 @@ export class TauriAdapter implements TmuxAdapter {
 // ============================================
 
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && '__TAURI__' in window;
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
 function isDemo(): boolean {

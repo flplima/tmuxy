@@ -25,6 +25,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 libfreetype6 libfontconfig1 libdbus-1-3 libnss3 \
     libnspr4 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libatspi2.0-0 \
     libcups2 libxshmfence1 libgbm1 \
+    # Tauri build deps (WebKitGTK) and E2E test deps (Xvfb, WebKitWebDriver)
+    libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+    libjavascriptcoregtk-4.1-dev librsvg2-dev \
+    webkit2gtk-driver xvfb x11-utils \
     && mkdir /run/sshd \
     && ssh-keygen -A \
     && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config \
@@ -64,7 +68,7 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal \
     && rustup component add rustfmt clippy \
-    && cargo install cargo-watch \
+    && cargo install cargo-watch tauri-driver \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
     && chown -R node:node /usr/local/cargo /usr/local/rustup
 

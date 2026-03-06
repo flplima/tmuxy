@@ -20,6 +20,7 @@
     "demo": "pm2 stop tmuxy-dev 2>/dev/null; bash scripts/kill-port.sh 9000; npm run build -w tmuxy-ui && npm run dev -w tmuxy-demo -- --port 9002 --hostname 0.0.0.0",
     "test": "npm run test -w tmuxy-ui",
     "test:e2e": "jest --runInBand",
+    "test:tauri": "NODE_OPTIONS='--experimental-vm-modules' jest --config tests/tauri/jest.config.js",
     "test:cli": "jest --config tests/cli/jest.config.js",
     "lint": "eslint tests/ && npm run lint -w tmuxy-ui",
     "lint:tests": "eslint tests/",
@@ -32,6 +33,10 @@
     "jest": "^29.7.0",
     "playwright": "^1.58.0",
     "pm2": "^6.0.14",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "webdriverio": "^9.24.0"
+  },
+  "dependencies": {
+    "web-haptics": "^0.0.6"
   }
 }

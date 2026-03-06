@@ -2,57 +2,31 @@
  * Helper functions for the app machine
  */
 
-import type { ServerState, ServerPane, ServerWindow } from '../../tmux/types';
+import type { ServerState } from '../../tmux/types';
 import type { TmuxPane, TmuxWindow } from '../types';
 import { isGroupWindow, parseGroupWindowName } from './groupState';
 
 /**
- * Convert ServerPane to TmuxPane (direct property mapping, no regex)
+ * Convert snake_case object keys to camelCase
  */
-function mapPane(p: ServerPane): TmuxPane {
-  return {
-    id: p.id,
-    tmuxId: p.tmux_id,
-    windowId: p.window_id,
-    content: p.content,
-    cursorX: p.cursor_x,
-    cursorY: p.cursor_y,
-    width: p.width,
-    height: p.height,
-    x: p.x,
-    y: p.y,
-    active: p.active,
-    command: p.command,
-    title: p.title,
-    borderTitle: p.border_title,
-    inMode: p.in_mode,
-    copyCursorX: p.copy_cursor_x,
-    copyCursorY: p.copy_cursor_y,
-    alternateOn: p.alternate_on ?? false,
-    mouseAnyFlag: p.mouse_any_flag ?? false,
-    paused: p.paused ?? false,
-    historySize: p.history_size ?? 0,
-    selectionPresent: p.selection_present ?? false,
-    selectionStartX: p.selection_start_x ?? 0,
-    selectionStartY: p.selection_start_y ?? 0,
-    cursorVisible: p.cursor_visible ?? true,
-  };
-}
-
-/**
- * Convert ServerWindow to TmuxWindow (direct property mapping, no regex)
- */
-function mapWindow(w: ServerWindow): TmuxWindow {
-  return {
-    id: w.id,
-    index: w.index,
-    name: w.name,
-    active: w.active,
-    isPaneGroupWindow: w.is_pane_group_window,
-    paneGroupPaneIds: w.pane_group_pane_ids ?? null,
-    isFloatWindow: w.is_float_window ?? false,
-    floatPaneId: w.float_pane_id ?? null,
-  };
+export function camelize<T>(obj: Record<string, unknown>): T {
+  const result: Record<string, unknown> = {};
+  for (const key in obj) {
+    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      result[camelKey] = value.map((item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? camelize(item as Record<string, unknown>)
+          : item,
+      );
+    } else if (value && typeof value === 'object') {
+      result[camelKey] = camelize(value as Record<string, unknown>);
+    } else {
+      result[camelKey] = value;
+    }
+  }
+  return result as T;
 }
 
 /**
@@ -72,8 +46,10 @@ export function transformServerState(payload: ServerState): {
     sessionName: payload.session_name,
     activeWindowId: payload.active_window_id,
     activePaneId: payload.active_pane_id,
-    panes: payload.panes.map(mapPane),
-    windows: payload.windows.map(mapWindow),
+    panes: payload.panes.map((p) => camelize<TmuxPane>(p as unknown as Record<string, unknown>)),
+    windows: payload.windows.map((w) =>
+      camelize<TmuxWindow>(w as unknown as Record<string, unknown>),
+    ),
     totalWidth: payload.total_width,
     totalHeight: payload.total_height,
     statusLine: payload.status_line,
