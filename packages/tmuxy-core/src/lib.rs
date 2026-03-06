@@ -260,6 +260,9 @@ pub struct TmuxPane {
     /// Selection start Y (visible-area-relative row, can be negative if off-screen)
     #[serde(default)]
     pub selection_start_y: i32,
+    /// Image placements on this pane's terminal grid
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<control_mode::images::ImagePlacement>,
 }
 
 /// A single tmux window (tab)
@@ -446,6 +449,9 @@ pub struct PaneDelta {
     /// Selection start Y (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection_start_y: Option<i32>,
+    /// Image placements (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<control_mode::images::ImagePlacement>>,
 }
 
 impl PaneDelta {
@@ -472,6 +478,7 @@ impl PaneDelta {
             && self.selection_present.is_none()
             && self.selection_start_x.is_none()
             && self.selection_start_y.is_none()
+            && self.images.is_none()
     }
 }
 
@@ -682,6 +689,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             selection_present: false,
             selection_start_x: 0,
             selection_start_y: 0,
+            images: Vec::new(),
         });
     }
 

@@ -27,11 +27,12 @@ use crate::state::{AppState, SessionConnections};
 /// Emitter that broadcasts state changes to SSE clients
 pub struct SseEmitter {
     tx: broadcast::Sender<String>,
+    app_state: Arc<AppState>,
 }
 
 impl SseEmitter {
-    pub fn new(tx: broadcast::Sender<String>) -> Self {
-        Self { tx }
+    pub fn new(tx: broadcast::Sender<String>, app_state: Arc<AppState>) -> Self {
+        Self { tx, app_state }
     }
 }
 
@@ -44,6 +45,20 @@ impl StateEmitter for SseEmitter {
     fn emit_error(&self, error: String) {
         let event = SseEvent::Error { message: error };
         let _ = self.tx.send(serde_json::to_string(&event).unwrap());
+    }
+
+    fn store_images(
+        &self,
+        pane_id: &str,
+        images: Vec<(u32, tmuxy_core::control_mode::StoredImage)>,
+    ) {
+        let pane_id = pane_id.to_string();
+        // Use try_write to avoid blocking the monitor loop; drop images if contended
+        if let Ok(mut guard) = self.app_state.image_store.try_write() {
+            for (id, img) in images {
+                guard.insert((pane_id.clone(), id), img);
+            }
+        }
     }
 }
 
@@ -1073,7 +1088,7 @@ async fn start_monitoring_control_mode(
     session: String,
     state: Arc<AppState>,
 ) {
-    let emitter = SseEmitter::new(tx.clone());
+    let emitter = SseEmitter::new(tx.clone(), Arc::clone(&state));
 
     let config = MonitorConfig {
         session: session.clone(),

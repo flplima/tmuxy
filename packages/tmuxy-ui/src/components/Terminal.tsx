@@ -7,7 +7,7 @@
 
 import { useMemo } from 'react';
 import { TerminalLine } from './TerminalLine';
-import type { PaneContent, CellLine } from '../tmux/types';
+import type { PaneContent, CellLine, ImagePlacement } from '../tmux/types';
 
 interface TerminalProps {
   content: PaneContent;
@@ -27,6 +27,10 @@ interface TerminalProps {
   selectionStartX?: number;
   /** Backend-provided selection start Y (authoritative, from tmux, visible-relative) */
   selectionStartY?: number;
+  /** Image placements on this pane */
+  images?: ImagePlacement[];
+  /** Pane tmux ID (e.g., "%0") for image URL construction */
+  paneId?: string;
 }
 
 // Empty line constant for padding
@@ -90,6 +94,8 @@ export const Terminal: React.FC<TerminalProps> = ({
   selectionStart,
   selectionStartX = 0,
   selectionStartY = 0,
+  images,
+  paneId,
 }) => {
   // Use copy mode cursor position when in copy mode
   const effectiveCursorX = inMode ? copyCursorX : cursorX;
@@ -144,6 +150,25 @@ export const Terminal: React.FC<TerminalProps> = ({
           />
         ))}
       </pre>
+      {images && images.length > 0 && paneId && (
+        <div className="terminal-images">
+          {images.map((img) => (
+            <img
+              key={img.id}
+              className="terminal-image"
+              src={`/api/images/${paneId.replace('%', '')}/${img.id}`}
+              alt=""
+              style={{
+                position: 'absolute',
+                top: `calc(${img.row} * var(--cell-height))`,
+                left: `calc(${img.col} * var(--cell-width))`,
+                width: `calc(${img.widthCells} * var(--cell-width))`,
+                height: `calc(${img.heightCells} * var(--cell-height))`,
+              }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

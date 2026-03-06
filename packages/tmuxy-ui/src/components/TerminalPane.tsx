@@ -369,6 +369,8 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
                   selectionStart={selectionStart}
                   selectionStartX={pane.selectionStartX}
                   selectionStartY={pane.selectionStartY}
+                  images={pane.images}
+                  paneId={pane.tmuxId}
                 />
               </div>
             )}

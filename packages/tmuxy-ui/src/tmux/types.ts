@@ -37,6 +37,18 @@ export interface TmuxPane {
   selectionStartX: number;
   /** Selection start Y (visible-area-relative row, can be negative), only meaningful when selectionPresent */
   selectionStartY: number;
+  /** Image placements on this pane's terminal grid */
+  images?: ImagePlacement[];
+}
+
+/** An image placement on the terminal grid */
+export interface ImagePlacement {
+  id: number;
+  row: number;
+  col: number;
+  widthCells: number;
+  heightCells: number;
+  protocol: 'iterm2' | 'kitty' | 'sixel';
 }
 
 export interface TmuxWindow {
@@ -158,6 +170,17 @@ export interface ServerPane {
   selection_present?: boolean;
   selection_start_x?: number;
   selection_start_y?: number;
+  images?: ServerImagePlacement[];
+}
+
+/** Image placement in snake_case from backend */
+export interface ServerImagePlacement {
+  id: number;
+  row: number;
+  col: number;
+  width_cells: number;
+  height_cells: number;
+  protocol: 'iterm2' | 'kitty' | 'sixel';
 }
 
 export interface ServerWindow {
@@ -209,6 +232,7 @@ export interface PaneDelta {
   selection_present?: boolean;
   selection_start_x?: number;
   selection_start_y?: number;
+  images?: ServerImagePlacement[];
 }
 
 export interface WindowDelta {

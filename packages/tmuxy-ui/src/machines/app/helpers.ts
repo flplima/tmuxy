@@ -14,7 +14,13 @@ export function camelize<T>(obj: Record<string, unknown>): T {
   for (const key in obj) {
     const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
     const value = obj[key];
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
+    if (Array.isArray(value)) {
+      result[camelKey] = value.map((item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? camelize(item as Record<string, unknown>)
+          : item,
+      );
+    } else if (value && typeof value === 'object') {
       result[camelKey] = camelize(value as Record<string, unknown>);
     } else {
       result[camelKey] = value;

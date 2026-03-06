@@ -241,6 +241,19 @@
   overflow: hidden;
   background-color: var(--term-background);
   user-select: none;
+  position: relative;
+}
+
+.terminal-images {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.terminal-image {
+  object-fit: contain;
+  image-rendering: auto;
 }
 
 .terminal-content {
