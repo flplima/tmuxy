@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::Query,
+    extract::{Path, Query, State},
     response::Response,
     routing::{get, post},
     Router,
@@ -8,7 +8,7 @@ use axum::{
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use tmuxy_core::control_mode::MonitorCommandSender;
+use tmuxy_core::control_mode::{MonitorCommandSender, StoredImage};
 use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
@@ -54,6 +54,8 @@ pub struct AppState {
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
     /// Counter for generating unique connection IDs
     pub next_conn_id: AtomicU64,
+    /// Shared image store: (pane_id, image_id) -> StoredImage
+    pub image_store: RwLock<HashMap<(String, u32), StoredImage>>,
 }
 
 impl Default for AppState {
@@ -61,6 +63,7 @@ impl Default for AppState {
         Self {
             sessions: RwLock::new(HashMap::new()),
             next_conn_id: AtomicU64::new(1),
+            image_store: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -81,6 +84,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/api/directory", get(directory_handler))
         .route("/api/file", get(file_handler))
         .route("/api/themes", get(themes_handler))
+        .route("/api/images/{pane_id}/{image_id}", get(image_handler))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -241,6 +245,29 @@ async fn snapshot_handler(Query(query): Query<SnapshotQuery>) -> Response {
                 .body(Body::from(json.to_string()))
                 .unwrap()
         }
+    }
+}
+
+async fn image_handler(
+    State(state): State<Arc<AppState>>,
+    Path((pane_id, image_id)): Path<(String, u32)>,
+) -> Response {
+    let store = state.image_store.read().await;
+    let key = (format!("%{}", pane_id), image_id);
+    match store.get(&key) {
+        Some(img) => Response::builder()
+            .status(axum::http::StatusCode::OK)
+            .header("Content-Type", &img.mime_type)
+            .header("Cache-Control", "public, max-age=3600")
+            .body(Body::from(img.data.clone()))
+            .unwrap(),
+        None => Response::builder()
+            .status(axum::http::StatusCode::NOT_FOUND)
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                serde_json::json!({ "error": "image not found" }).to_string(),
+            ))
+            .unwrap(),
     }
 }
 

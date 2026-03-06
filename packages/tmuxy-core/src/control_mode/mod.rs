@@ -12,6 +12,7 @@
 //! - `osc` - OSC (Operating System Command) sequence parser
 
 mod connection;
+pub mod images;
 mod monitor;
 mod octal;
 mod osc;
@@ -19,6 +20,7 @@ mod parser;
 mod state;
 
 pub use connection::ControlModeConnection;
+pub use images::{ImageParser, ImagePlacement, ImageProtocol, StoredImage};
 pub use monitor::{MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor};
 pub use octal::decode_octal;
 pub use osc::OscParser;

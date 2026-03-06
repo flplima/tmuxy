@@ -198,6 +198,7 @@ function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
     ...(delta.selection_present !== undefined && { selection_present: delta.selection_present }),
     ...(delta.selection_start_x !== undefined && { selection_start_x: delta.selection_start_x }),
     ...(delta.selection_start_y !== undefined && { selection_start_y: delta.selection_start_y }),
+    ...(delta.images !== undefined && { images: delta.images }),
   };
 }
 
