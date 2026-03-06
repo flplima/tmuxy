@@ -14,3 +14,28 @@ body {
   min-height: 100vh;
   box-sizing: border-box;
 }
+
+/* Window opacity: terminal backgrounds use alpha from --window-opacity.
+   Set by Tauri from @tmuxy-opacity in tmuxy.conf. Default: 1.0 (fully opaque). */
+:root {
+  --window-opacity: 1;
+}
+
+html[data-opacity] body,
+html[data-opacity] .pane-container,
+html[data-opacity] .loading,
+html[data-opacity] .error,
+html[data-opacity] .pane-scroll-container {
+  background-color: rgba(0, 0, 0, var(--window-opacity));
+}
+
+/* Vibrancy mode: fully transparent backgrounds so native glass effect shows through.
+   Activated by Tauri setting data-vibrancy on <html> when @tmuxy-vibrancy is set.
+   When both vibrancy and opacity are set, vibrancy wins for backgrounds. */
+html[data-vibrancy] body,
+html[data-vibrancy] .pane-container,
+html[data-vibrancy] .loading,
+html[data-vibrancy] .error,
+html[data-vibrancy] .pane-scroll-container {
+  background-color: transparent;
+}

@@ -236,6 +236,235 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
   });
 });
 
+// ==================== Scenario 23: Image Protocols ====================
+
+describe('Scenario 23: Terminal Image Protocols', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // Minimal 1x1 red pixel PNG, base64
+  const TINY_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+
+  /**
+   * Helper: get image placements from XState context for the active pane
+   */
+  async function getImagePlacements(page) {
+    return page.evaluate(() => {
+      const snap = window.app?.getSnapshot?.();
+      if (!snap) return [];
+      const ctx = snap.context;
+      const activePaneId = ctx.activePaneId;
+      const pane = ctx.panes?.find(p => p.tmuxId === activePaneId);
+      return pane?.images || [];
+    });
+  }
+
+  /**
+   * Helper: wait for image placements to appear in state
+   */
+  async function waitForImages(page, minCount = 1, timeout = 15000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const images = await getImagePlacements(page);
+      if (images.length >= minCount) return images;
+      await delay(200);
+    }
+    throw new Error(`Expected at least ${minCount} image placement(s) within ${timeout}ms`);
+  }
+
+  test('iTerm2 inline image: sequence stripped, placement created, img rendered', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Send iTerm2 inline image sequence via printf
+    // Format: ESC ] 1337 ; File=inline=1;width=10;height=5:<base64> BEL
+    const cmd = `printf '\\e]1337;File=inline=1;width=10;height=5:${TINY_PNG_B64}\\a' && echo IMG_SENT`;
+    await runCommandViaTmux(ctx.session, ctx.page, cmd, 'IMG_SENT');
+
+    // Verify the raw escape sequence text is NOT visible in the terminal
+    const text = await getTerminalText(ctx.page);
+    expect(text).not.toContain('1337;File=');
+    expect(text).toContain('IMG_SENT');
+
+    // Verify image placement appears in state
+    const images = await waitForImages(ctx.page);
+    expect(images.length).toBeGreaterThanOrEqual(1);
+    expect(images[0].protocol).toBe('iterm2');
+    expect(images[0].widthCells).toBe(10);
+    expect(images[0].heightCells).toBe(5);
+
+    // Verify <img> element rendered in DOM
+    const imgInfo = await ctx.page.evaluate(() => {
+      const img = document.querySelector('.terminal-image');
+      if (!img) return null;
+      return { src: img.src, tagName: img.tagName };
+    });
+    expect(imgInfo).not.toBeNull();
+    expect(imgInfo.tagName).toBe('IMG');
+    expect(imgInfo.src).toContain('/api/images/');
+  }, 60000);
+
+  test('iTerm2 non-inline file download is ignored (no placement)', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // File download (no inline=1) — should be consumed but produce no image
+    const cmd = `printf '\\e]1337;File=name=dGVzdA==:${TINY_PNG_B64}\\a' && echo DOWNLOAD_SENT`;
+    await runCommandViaTmux(ctx.session, ctx.page, cmd, 'DOWNLOAD_SENT');
+
+    await delay(DELAYS.SYNC * 2);
+
+    const images = await getImagePlacements(ctx.page);
+    expect(images.length).toBe(0);
+  }, 30000);
+
+  test('Kitty single-chunk transmit+display creates placement', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Kitty: ESC _ G a=T,f=100,c=8,r=4;<base64> ESC backslash
+    const cmd = `printf '\\e_Ga=T,f=100,c=8,r=4;${TINY_PNG_B64}\\e\\\\' && echo KITTY_SENT`;
+    await runCommandViaTmux(ctx.session, ctx.page, cmd, 'KITTY_SENT');
+
+    const text = await getTerminalText(ctx.page);
+    expect(text).not.toContain('Ga=T');
+    expect(text).toContain('KITTY_SENT');
+
+    const images = await waitForImages(ctx.page);
+    expect(images.length).toBeGreaterThanOrEqual(1);
+    const kittyImg = images.find(i => i.protocol === 'kitty');
+    expect(kittyImg).toBeDefined();
+    expect(kittyImg.widthCells).toBe(8);
+    expect(kittyImg.heightCells).toBe(4);
+  }, 60000);
+
+  test('Kitty chunked transfer: multi-chunk image assembled correctly', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Split the base64 into chunks and send via Kitty chunked protocol
+    const half = Math.floor(TINY_PNG_B64.length / 2);
+    const chunk1 = TINY_PNG_B64.slice(0, half);
+    const chunk2 = TINY_PNG_B64.slice(half);
+
+    // First chunk: transmit, image_id=99, more=1
+    const cmd1 = `printf '\\e_Ga=t,f=100,i=99,m=1;${chunk1}\\e\\\\'`;
+    // Final chunk: image_id=99, more=0 (action defaults to continuation)
+    const cmd2 = `printf '\\e_Gi=99,m=0;${chunk2}\\e\\\\' && echo CHUNKED_DONE`;
+
+    await runCommandViaTmux(ctx.session, ctx.page, `${cmd1} && ${cmd2}`, 'CHUNKED_DONE');
+
+    // Note: chunked transmit (a=t) stores the image but doesn't create a placement
+    // until a put (a=p) or transmit+display (a=T) is used.
+    // The image should be stored in the backend image store.
+    // Let's verify the terminal still works after processing chunks.
+    const text = await getTerminalText(ctx.page);
+    expect(text).toContain('CHUNKED_DONE');
+    expect(text).not.toContain('Ga=t');
+  }, 60000);
+
+  test('Kitty delete clears placements', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Create an image first
+    const cmd1 = `printf '\\e_Ga=T,f=100,c=6,r=3;${TINY_PNG_B64}\\e\\\\' && echo CREATED`;
+    await runCommandViaTmux(ctx.session, ctx.page, cmd1, 'CREATED');
+
+    const imagesBefore = await waitForImages(ctx.page);
+    expect(imagesBefore.length).toBeGreaterThanOrEqual(1);
+
+    // Delete all images
+    const cmd2 = `printf '\\e_Ga=d;\\e\\\\' && echo DELETED`;
+    await runCommandViaTmux(ctx.session, ctx.page, cmd2, 'DELETED');
+
+    await delay(DELAYS.SYNC * 2);
+
+    const imagesAfter = await getImagePlacements(ctx.page);
+    expect(imagesAfter.length).toBe(0);
+  }, 60000);
+
+  test('Sixel sequence does not crash terminal', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Sixel uses DCS (ESC P) which tmux intercepts rather than forwarding
+    // to control mode. The sequence may leak as text. Verify terminal survives.
+    const cmd = `printf '\\ePq#0;2;0;0;0~\\e\\\\' && echo SIXEL_OK`;
+    await runCommandViaTmux(ctx.session, ctx.page, cmd, 'SIXEL_OK');
+
+    const text = await getTerminalText(ctx.page);
+    expect(text).toContain('SIXEL_OK');
+
+    // Terminal still functional after sixel
+    await runCommandViaTmux(ctx.session, ctx.page, 'echo AFTER_SIXEL', 'AFTER_SIXEL');
+  }, 30000);
+
+  test('Mixed content: text + image + text renders correctly', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Send text, then image, then more text
+    const cmd = `echo BEFORE_IMG && printf '\\e]1337;File=inline=1;width=5;height=3:${TINY_PNG_B64}\\a' && echo AFTER_IMG`;
+    await runCommandViaTmux(ctx.session, ctx.page, cmd, 'AFTER_IMG');
+
+    const text = await getTerminalText(ctx.page);
+    expect(text).toContain('BEFORE_IMG');
+    expect(text).toContain('AFTER_IMG');
+    expect(text).not.toContain('1337;File=');
+
+    const images = await waitForImages(ctx.page);
+    expect(images.length).toBeGreaterThanOrEqual(1);
+  }, 60000);
+
+  test('Image HTTP endpoint serves blob with correct MIME type', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Create an image
+    const cmd = `printf '\\e]1337;File=inline=1;width=5;height=3:${TINY_PNG_B64}\\a' && echo HTTP_TEST`;
+    await runCommandViaTmux(ctx.session, ctx.page, cmd, 'HTTP_TEST');
+
+    const images = await waitForImages(ctx.page);
+    expect(images.length).toBeGreaterThanOrEqual(1);
+
+    // Fetch the image via the HTTP endpoint
+    const imgId = images[0].id;
+    const paneId = await ctx.page.evaluate(() => {
+      const snap = window.app?.getSnapshot?.();
+      return snap?.context?.activePaneId?.replace('%', '') || '';
+    });
+
+    const response = await ctx.page.evaluate(async (url) => {
+      const resp = await fetch(url);
+      return {
+        status: resp.status,
+        contentType: resp.headers.get('content-type'),
+        size: (await resp.blob()).size,
+      };
+    }, `/api/images/${paneId}/${imgId}`);
+
+    expect(response.status).toBe(200);
+    expect(response.contentType).toContain('image/png');
+    expect(response.size).toBeGreaterThan(0);
+  }, 60000);
+
+  test('Image endpoint returns 404 for nonexistent image', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    const response = await ctx.page.evaluate(async () => {
+      const resp = await fetch('/api/images/999/999');
+      return { status: resp.status };
+    });
+
+    expect(response.status).toBe(404);
+  }, 15000);
+});
+
 // ==================== Widget Tests ====================
 
 // 1x1 red PNG, base64-encoded

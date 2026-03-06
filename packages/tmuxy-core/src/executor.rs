@@ -114,7 +114,11 @@ pub fn split_pane_vertical(session_name: &str) -> Result<(), String> {
 }
 
 pub fn new_window(session_name: &str) -> Result<(), String> {
-    execute_tmux_command(&["new-window", "-t", session_name])?;
+    // `new-window` (neww) crashes tmux 3.5a when control mode is attached.
+    // Use `split-window` + `break-pane -d` instead, which achieves the same
+    // result without crashing.
+    execute_tmux_command(&["split-window", "-t", session_name])?;
+    execute_tmux_command(&["break-pane", "-d"])?;
     Ok(())
 }
 

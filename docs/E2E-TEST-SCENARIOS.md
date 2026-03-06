@@ -2,7 +2,7 @@
 
 Comprehensive test scenarios for tmuxy, ordered from simplest to most complex within each category.
 
-**Current status:** 19 scenarios implemented across 5 test files. See [TESTS.md](TESTS.md) for the file-to-scenario mapping. Scenarios 1, 3, and 15 were removed (covered by other scenarios or unreliable). Scenarios 20 (Glitch Detection) and 21 (Touch Scrolling) were added after the original plan. Scenario 22 (Float CLI Workflow) covers float creation via CLI, auto-focus, input isolation, background pane visibility, and the fzf→result workflow.
+**Current status:** 20 scenarios implemented across 5 test files. See [TESTS.md](TESTS.md) for the file-to-scenario mapping. Scenarios 1, 3, and 15 were removed (covered by other scenarios or unreliable). Scenarios 20 (Glitch Detection) and 21 (Touch Scrolling) were added after the original plan. Scenario 22 (Float CLI Workflow) covers float creation via CLI, auto-focus, input isolation, background pane visibility, and the fzf→result workflow. Scenario 23 (Terminal Image Protocols) covers iTerm2, Kitty, and Sixel image protocol handling.
 
 ---
 

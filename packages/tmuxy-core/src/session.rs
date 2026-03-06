@@ -50,10 +50,19 @@ pub fn create_session(session_name: &str) -> Result<(), String> {
         args.insert(1, cs);
     }
 
-    Command::new("tmux")
+    let output = Command::new("tmux")
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to create session: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "tmux new-session failed (exit {}): {}",
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        ));
+    }
 
     Ok(())
 }

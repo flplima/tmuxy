@@ -58,6 +58,8 @@ pub struct ProcessEventResult {
     pub panes_needing_refresh: Vec<String>,
     /// Type of change that occurred (for smart update strategies)
     pub change_type: ChangeType,
+    /// Newly decoded images: (pane_id, vec of (image_id, StoredImage))
+    pub new_images: Vec<(String, Vec<(u32, super::images::StoredImage)>)>,
 }
 
 /// State of a single pane with terminal emulation
@@ -76,6 +78,12 @@ pub struct PaneState {
 
     /// OSC sequence parser for hyperlinks and clipboard
     pub osc_parser: super::osc::OscParser,
+
+    /// Image protocol parser (iTerm2, Kitty, Sixel)
+    pub image_parser: super::images::ImageParser,
+
+    /// Stored images keyed by image ID (for HTTP retrieval)
+    pub image_store: HashMap<u32, super::images::StoredImage>,
 
     /// Raw output buffer (for rich content like images)
     pub raw_buffer: Vec<u8>,
@@ -135,10 +143,6 @@ pub struct PaneState {
     /// History size (number of lines scrolled off the top)
     pub history_size: u64,
 
-    /// Whether the cursor is visible (DECTCEM: CSI ?25h / CSI ?25l)
-    /// Applications like neovim hide the cursor during redraws to prevent jumping.
-    pub cursor_visible: bool,
-
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
     pub copy_mode_content: Option<PaneContent>,
 }
@@ -154,6 +158,8 @@ impl PaneState {
             window_id: String::new(),
             terminal: vt100::Parser::new(h, w, 0),
             osc_parser: super::osc::OscParser::new(),
+            image_parser: super::images::ImageParser::new(),
+            image_store: HashMap::new(),
             raw_buffer: Vec::new(),
             x: 0,
             y: 0,
@@ -176,7 +182,6 @@ impl PaneState {
             selection_start_x: 0,
             selection_start_y: 0,
             history_size: 0,
-            cursor_visible: true,
             copy_mode_content: None,
         }
     }
@@ -192,9 +197,15 @@ impl PaneState {
             self.raw_buffer = self.raw_buffer[start..].to_vec();
         }
 
-        // Process through OSC parser to extract hyperlinks/clipboard
+        // Process through image parser to extract image sequences
+        let image_result = self.image_parser.process(content);
+        for (id, stored) in image_result.new_images {
+            self.image_store.insert(id, stored);
+        }
+
+        // Process remaining bytes through OSC parser to extract hyperlinks/clipboard
         // Returns content with OSC sequences stripped for vt100
-        let processed = self.osc_parser.process(content);
+        let processed = self.osc_parser.process(&image_result.clean_bytes);
 
         // Process through terminal emulator
         safe_process(&mut self.terminal, &processed);
@@ -207,7 +218,11 @@ impl PaneState {
             self.terminal.screen().mouse_protocol_mode(),
             vt100::MouseProtocolMode::None
         );
-        self.cursor_visible = !self.terminal.screen().hide_cursor();
+
+        // Update image parser cursor position from vt100 state
+        let screen = self.terminal.screen();
+        let (row, col) = screen.cursor_position();
+        self.image_parser.update_cursor(row, col);
     }
 
     /// Reset terminal and process capture-pane output.
@@ -219,6 +234,7 @@ impl PaneState {
         let h = (self.height as u16).max(1);
         self.terminal = vt100::Parser::new(h, w, 0);
         self.raw_buffer.clear();
+        self.image_parser.reset();
 
         // Strip trailing newline to prevent scroll when content exactly fills terminal.
         // capture-pane output typically ends with \n, but processing this final newline
@@ -262,6 +278,7 @@ impl PaneState {
             let h = (height as u16).max(1);
             self.terminal = vt100::Parser::new(h, w, 0);
             self.raw_buffer.clear();
+            self.image_parser.reset();
             true
         } else {
             false
@@ -358,7 +375,7 @@ impl PaneState {
             selection_present: self.selection_present,
             selection_start_x: sel_start_x,
             selection_start_y: sel_start_y,
-            cursor_visible: self.cursor_visible,
+            images: self.image_parser.placements.clone(),
         }
     }
 }
@@ -825,7 +842,12 @@ impl StateAggregator {
     pub fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
         match event {
             ControlModeEvent::Output { pane_id, content } => {
-                let changed = self.handle_output(&pane_id, &content);
+                let (changed, new_imgs) = self.handle_output(&pane_id, &content);
+                let new_images = if new_imgs.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![(pane_id.clone(), new_imgs)]
+                };
                 ProcessEventResult {
                     state_changed: changed,
                     panes_needing_refresh: Vec::new(),
@@ -836,13 +858,19 @@ impl StateAggregator {
                     } else {
                         ChangeType::None
                     },
+                    new_images,
                 }
             }
 
             ControlModeEvent::ExtendedOutput {
                 pane_id, content, ..
             } => {
-                let changed = self.handle_output(&pane_id, &content);
+                let (changed, new_imgs) = self.handle_output(&pane_id, &content);
+                let new_images = if new_imgs.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![(pane_id.clone(), new_imgs)]
+                };
                 ProcessEventResult {
                     state_changed: changed,
                     panes_needing_refresh: Vec::new(),
@@ -853,6 +881,7 @@ impl StateAggregator {
                     } else {
                         ChangeType::None
                     },
+                    new_images,
                 }
             }
 
@@ -884,6 +913,7 @@ impl StateAggregator {
                     state_changed: !self.suppress_window_emissions,
                     panes_needing_refresh: resized_panes,
                     change_type: ChangeType::PaneLayout,
+                    ..Default::default()
                 }
             }
 
@@ -1029,7 +1059,8 @@ impl StateAggregator {
                 ProcessEventResult {
                     state_changed: true,
                     panes_needing_refresh: resized_panes,
-                    change_type: ChangeType::Full, // Command responses may update many things
+                    change_type: ChangeType::Full, // Command responses may update many things,
+                    ..Default::default()
                 }
             }
 
@@ -1141,19 +1172,31 @@ impl StateAggregator {
         }
     }
 
-    fn handle_output(&mut self, pane_id: &str, content: &[u8]) -> bool {
+    fn handle_output(
+        &mut self,
+        pane_id: &str,
+        content: &[u8],
+    ) -> (bool, Vec<(u32, super::images::StoredImage)>) {
         // Only process output for panes we know about from list-panes.
         // This prevents creating panes from other tmux sessions.
         // Panes are added via parse_list_panes_line() which sets window_id.
         if let Some(pane) = self.panes.get_mut(pane_id) {
             // Only process if pane has a valid window_id (was seen in list-panes)
             if !pane.window_id.is_empty() {
+                let store_before: Vec<u32> = pane.image_store.keys().copied().collect();
                 pane.process_output(content);
-                return true;
+                // Collect newly added images
+                let new_imgs: Vec<(u32, super::images::StoredImage)> = pane
+                    .image_store
+                    .iter()
+                    .filter(|(id, _)| !store_before.contains(id))
+                    .map(|(id, img)| (*id, img.clone()))
+                    .collect();
+                return (true, new_imgs);
             }
         }
         // Ignore output from unknown panes (likely from other sessions)
-        false
+        (false, Vec::new())
     }
 
     /// Handle layout change and return list of pane IDs that need content refresh.
@@ -1750,8 +1793,8 @@ impl StateAggregator {
         if prev.selection_start_y != curr.selection_start_y {
             delta.selection_start_y = Some(curr.selection_start_y);
         }
-        if prev.cursor_visible != curr.cursor_visible {
-            delta.cursor_visible = Some(curr.cursor_visible);
+        if prev.images != curr.images {
+            delta.images = Some(curr.images.clone());
         }
         delta
     }

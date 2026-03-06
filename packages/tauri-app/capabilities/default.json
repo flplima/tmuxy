@@ -1,0 +1,11 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for tmuxy desktop app",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit"
+  ]
+}

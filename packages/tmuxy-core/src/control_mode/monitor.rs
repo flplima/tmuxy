@@ -35,6 +35,10 @@ pub trait StateEmitter: Send + Sync {
 
     /// Called when an error occurs
     fn emit_error(&self, error: String);
+
+    /// Called when new images are decoded from terminal output.
+    /// Default implementation discards images (for emitters that don't need them).
+    fn store_images(&self, _pane_id: &str, _images: Vec<(u32, super::images::StoredImage)>) {}
 }
 
 /// Configuration for TmuxMonitor
@@ -287,6 +291,13 @@ impl TmuxMonitor {
                             }
 
                             let result = self.aggregator.process_event(event);
+
+                            // Forward newly decoded images to the emitter for HTTP retrieval
+                            for (pane_id, images) in &result.new_images {
+                                if !images.is_empty() {
+                                    emitter.store_images(pane_id, images.clone());
+                                }
+                            }
 
                             // After WindowAdd, refresh panes first then windows.
                             // When break-pane creates a float window, LayoutChange on the

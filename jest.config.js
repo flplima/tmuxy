@@ -3,7 +3,7 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/tests'],
   testMatch: ['**/?(*.)test.js'],
-  testPathIgnorePatterns: ['/node_modules/', 'tests/cli/'],
+  testPathIgnorePatterns: ['/node_modules/', 'tests/cli/', 'tests/tauri/'],
   testTimeout: 240000,
   verbose: true,
   transformIgnorePatterns: [],

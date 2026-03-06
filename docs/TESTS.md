@@ -47,13 +47,13 @@ tests/
 
 ### Test Suites
 
-18 scenarios organized across 5 thematic test files. Each file creates isolated tmux sessions per `describe` block:
+20 scenarios organized across 5 thematic test files. Each file creates isolated tmux sessions per `describe` block:
 
 | File | Scenarios | Coverage |
 |------|-----------|----------|
 | `1-input-interaction` | 2, 7, 8, 9, 10, 21 | Keyboard, mouse click/scroll, mouse drag/SGR, copy mode, touch |
 | `2-layout-navigation` | 4, 5, 6, 11 | Window lifecycle, pane groups, floating panes, status bar |
-| `3-rendering-protocols` | 14, 16, widgets | OSC 8/52, unicode, box drawing, image/markdown widgets |
+| `3-rendering-protocols` | 14, 16, 23, widgets | OSC 8/52, unicode, box drawing, image protocols, image/markdown widgets |
 | `4-session-connectivity` | 12, 13 | Session reconnect, multi-client |
 | `5-stress-stability` | 17, 18, 19, 20 | Large output perf, rapid operations, complex workflow, glitch detection |
 
