@@ -1,7 +1,7 @@
 /**
  * Library entry point for consuming tmuxy-ui as a dependency.
  *
- * Re-exports the public API under names used by the landing page
+ * Re-exports the public API under names used by the demo site
  * and other external consumers.
  */
 

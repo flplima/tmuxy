@@ -33,7 +33,7 @@ Tauri IPC has lower latency than HTTP since communication is in-process. The Tau
 
 Both transports implement the `TmuxAdapter` interface defined in `tmuxy-ui/src/tmux/types.ts`. Key methods: `connect()`, `disconnect()`, `isConnected()`, `isReconnecting()`, `invoke<T>(cmd, args?)`, `onStateChange(listener)`, `onError(listener)`, `onConnectionInfo(listener)`, `onReconnection(listener)`, `onKeyBindings(listener)`.
 
-The `tmuxActor` XState actor uses whichever adapter is injected, making the frontend transport-agnostic. A third adapter, `DemoAdapter`, exists for the in-browser demo on the landing page — it simulates a tmux backend entirely in the browser.
+The `tmuxActor` XState actor uses whichever adapter is injected, making the frontend transport-agnostic. A third adapter, `DemoAdapter`, exists for the in-browser demo — it simulates a tmux backend entirely in the browser.
 
 ## Connection Lifecycle (Web)
 

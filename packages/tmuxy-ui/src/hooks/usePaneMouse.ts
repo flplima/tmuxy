@@ -371,7 +371,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       // When forwardScrollToParent is enabled and the pane has no scrollback,
-      // let the event bubble to the parent (e.g. landing page scroll).
+      // let the event bubble to the parent (e.g. demo page scroll).
       if (
         forwardScrollToParent &&
         historySize === 0 &&

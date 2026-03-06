@@ -32,8 +32,10 @@ src-tauri/target
 # Environment
 .env
 
-# Claude local instructions (user-specific, not checked in)
+# Claude Code (user-specific, not checked in)
 CLAUDE.local.md
+.claude/
+.agents/
 
 # BDG session files
 .bdg/

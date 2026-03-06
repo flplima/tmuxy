@@ -24,7 +24,7 @@ tmuxy/
 │   ├── tmuxy-server/         # Rust: server (SSE, HTTP, embedded frontend, dev mode)
 │   ├── tmuxy-ui/             # React/Vite frontend
 │   │   └── src/tmux/demo/    # In-browser demo engine (DemoAdapter, DemoTmux, DemoShell)
-│   ├── tmuxy-landing-page/   # Next.js landing page (static export → GitHub Pages)
+│   ├── tmuxy-demo/           # Next.js demo site (static export → GitHub Pages)
 │   └── tauri-app/            # Tauri desktop app wrapper
 ├── scripts/
 │   ├── tmuxy-cli              # Shell dispatcher (symlinked as ~/.local/bin/tmuxy)

@@ -1,4 +1,4 @@
-name: Deploy Landing Page
+name: Deploy Demo
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
     paths:
       - 'packages/tmuxy-demo/**'
       - 'packages/tmuxy-ui/src/**'
-      - '.github/workflows/landing-page.yml'
+      - '.github/workflows/deploy-demo.yml'
   workflow_dispatch:
 
 permissions:
@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build landing page
+      - name: Build demo
         run: npm run build -w tmuxy-demo
 
       - name: Upload artifact

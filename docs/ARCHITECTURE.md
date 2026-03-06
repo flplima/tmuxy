@@ -33,7 +33,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 **tmuxy-server** — Axum HTTP server providing SSE streaming, HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and session tokens. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
 
-**tmuxy-ui** — React frontend using XState for all state management. Communicates with the backend via an adapter pattern (`TmuxAdapter` interface). Includes an in-browser demo engine (`DemoAdapter`, `DemoTmux`, `DemoShell`) for the landing page. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
+**tmuxy-ui** — React frontend using XState for all state management. Communicates with the backend via an adapter pattern (`TmuxAdapter` interface). Includes an in-browser demo engine (`DemoAdapter`, `DemoTmux`, `DemoShell`) for the demo site. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
 
 **tauri-app** — Optional desktop wrapper using Tauri. Communicates via native IPC instead of HTTP, offering lower latency. Currently single-client only (no multi-client support). See [DATA-FLOW.md](DATA-FLOW.md) for the Tauri data flow.
 
