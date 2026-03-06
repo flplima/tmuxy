@@ -9,13 +9,11 @@
  * 3. Default: renders tmux status line with ANSI colors
  */
 
-import { useMemo, useRef, useEffect, useCallback } from 'react';
-import Anser from 'anser';
+import { useRef, useEffect, useCallback } from 'react';
 import {
   useAppSelector,
   useAppSend,
   useAppConfig,
-  selectStatusLine,
   selectCommandMode,
   selectStatusMessage,
   selectGridDimensions,
@@ -23,7 +21,6 @@ import {
   selectKeyBindings,
   selectPrefixActive,
 } from '../machines/AppContext';
-import { buildAnsiStyle } from '../utils/ansiStyles';
 import { formatPrefixKey } from './menus/keybindingLabel';
 import { isTauri } from '../tmux/adapters';
 import type { KeyBindings } from '../machines/types';
@@ -152,7 +149,6 @@ function CommandModeInput({
 }
 
 export function TmuxStatusBar() {
-  const content = useAppSelector(selectStatusLine);
   const commandMode = useAppSelector(selectCommandMode);
   const statusMessage = useAppSelector(selectStatusMessage);
   const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
@@ -163,20 +159,6 @@ export function TmuxStatusBar() {
   const { isDemo } = useAppConfig();
 
   const gridPixelWidth = totalWidth * charWidth;
-
-  const renderedContent = useMemo(() => {
-    if (!content) return null;
-
-    const parsed = Anser.ansiToJson(content, { use_classes: false });
-    return parsed.map((part, index) => {
-      const style = buildAnsiStyle(part);
-      return (
-        <span key={index} style={style}>
-          {part.content}
-        </span>
-      );
-    });
-  }, [content]);
 
   // Command mode: full-width input replaces everything
   if (commandMode) {
@@ -208,12 +190,11 @@ export function TmuxStatusBar() {
 
   const handleSessionClick = isDemo ? undefined : () => send({ type: 'OPEN_SESSION_FLOAT' });
 
-  // Status message: replaces the center area.
-  // In demo mode, skip the ANSI status line — it duplicates the right-column session info.
+  // Center area: only show status messages (temporary display-message output).
+  // The tmux status line content is not displayed — we use hardcoded hints (left)
+  // and hostname/session (right) instead.
   const centerContent = statusMessage ? (
     <pre className="tmux-status-bar-content tmux-status-message">{statusMessage.text}</pre>
-  ) : content && !isDemo ? (
-    <pre className="tmux-status-bar-content">{renderedContent}</pre>
   ) : null;
 
   return (

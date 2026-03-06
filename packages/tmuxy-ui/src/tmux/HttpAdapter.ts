@@ -55,9 +55,11 @@ export class HttpAdapter implements TmuxAdapter {
   // Delta protocol state
   private currentState: ServerState | null = null;
 
-  // Microtask batching: coalesce multiple SSE updates from the same event loop turn
+  // rAF batching: coalesce SSE updates within a single display frame.
+  // This prevents "painting" artifacts during full-screen redraws (neovim, etc.)
+  // where multiple intermediate states arrive within one frame interval.
   private pendingState: ServerState | null = null;
-  private microtaskScheduled = false;
+  private rafScheduled = false;
 
   // Keyboard batching
   private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
@@ -168,7 +170,7 @@ export class HttpAdapter implements TmuxAdapter {
     this.keyBatcher.destroy();
 
     this.pendingState = null;
-    this.microtaskScheduled = false;
+    this.rafScheduled = false;
 
     if (this.eventSource) {
       this.eventSource.close();
@@ -339,17 +341,17 @@ export class HttpAdapter implements TmuxAdapter {
   }
 
   /**
-   * Coalesce rapid SSE updates via microtask.
-   * Multiple state-update events arriving within the same event loop turn
-   * (SSE fires them synchronously in sequence) are collapsed so React
-   * processes only the latest state once, without adding frame delay.
+   * Coalesce SSE updates within a single display frame via requestAnimationFrame.
+   * During full-screen redraws (neovim, etc.), the backend emits multiple partial
+   * states within one 16.67ms display frame. rAF batching ensures only the final
+   * (most complete) state is rendered, eliminating the visible "painting" effect.
    */
   private scheduleStateNotify(state: ServerState): void {
     this.pendingState = state;
-    if (!this.microtaskScheduled) {
-      this.microtaskScheduled = true;
-      queueMicrotask(() => {
-        this.microtaskScheduled = false;
+    if (!this.rafScheduled) {
+      this.rafScheduled = true;
+      requestAnimationFrame(() => {
+        this.rafScheduled = false;
         const s = this.pendingState;
         this.pendingState = null;
         if (s) this.notifyStateChange(s);

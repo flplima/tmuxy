@@ -24,53 +24,37 @@ import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/
 function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   const { panes, resize, drag, charWidth, charHeight, activeWindowId, activePaneId } = context;
 
-  // Filter to only panes in the active window
-  let activePanes = activeWindowId ? panes.filter((p) => p.windowId === activeWindowId) : panes;
-
-  // Update the `active` property based on context.activePaneId
-  // This ensures optimistic active pane changes are reflected in the UI
-  activePanes = activePanes.map((pane) => {
-    const shouldBeActive = pane.tmuxId === activePaneId;
-    if (pane.active !== shouldBeActive) {
-      return { ...pane, active: shouldBeActive };
-    }
-    return pane;
-  });
-
-  // During group switch: override target pane dimensions to prevent flicker
-  // from intermediate server states that arrive before the swap fully settles
   const dimOverride = context.groupSwitchDimOverride;
-  if (dimOverride && Date.now() - dimOverride.timestamp < 500) {
-    activePanes = activePanes.map((pane) => {
-      if (pane.tmuxId === dimOverride.paneId) {
-        return {
-          ...pane,
-          x: dimOverride.x,
-          y: dimOverride.y,
-          width: dimOverride.width,
-          height: dimOverride.height,
-        };
-      }
-      return pane;
-    });
-  }
+  const applyDimOverride = dimOverride && Date.now() - dimOverride.timestamp < 500;
 
-  // During drag: keep dragged pane at its original position
-  // This prevents visual jumps when server state updates during real-time swaps
-  if (drag) {
-    const { draggedPaneId, originalX, originalY, originalWidth, originalHeight } = drag;
-    activePanes = activePanes.map((pane) => {
-      if (pane.tmuxId === draggedPaneId) {
-        return {
-          ...pane,
-          x: originalX,
-          y: originalY,
-          width: originalWidth,
-          height: originalHeight,
-        };
+  // Single pass: filter to active window + apply active/dimOverride/drag transforms
+  const activePanes: TmuxPane[] = [];
+  for (const pane of panes) {
+    if (activeWindowId && pane.windowId !== activeWindowId) continue;
+
+    let result = pane;
+    const shouldBeActive = pane.tmuxId === activePaneId;
+    const needsActiveUpdate = pane.active !== shouldBeActive;
+    const needsDimOverride = applyDimOverride && pane.tmuxId === dimOverride!.paneId;
+    const needsDragOverride = drag && pane.tmuxId === drag.draggedPaneId;
+
+    if (needsActiveUpdate || needsDimOverride || needsDragOverride) {
+      result = { ...pane };
+      if (needsActiveUpdate) result.active = shouldBeActive;
+      if (needsDimOverride) {
+        result.x = dimOverride!.x;
+        result.y = dimOverride!.y;
+        result.width = dimOverride!.width;
+        result.height = dimOverride!.height;
       }
-      return pane;
-    });
+      if (needsDragOverride) {
+        result.x = drag!.originalX;
+        result.y = drag!.originalY;
+        result.width = drag!.originalWidth;
+        result.height = drag!.originalHeight;
+      }
+    }
+    activePanes.push(result);
   }
 
   // If not resizing, return (potentially drag-adjusted) panes
@@ -468,6 +452,30 @@ export function selectStatusLine(context: AppMachineContext): string {
 /**
  * Select a single pane by ID from preview panes (includes resize preview)
  */
+/**
+ * Memoized Map for O(1) pane lookup from preview panes.
+ */
+const selectPreviewPaneMap = createMemoizedSelector(
+  (ctx: AppMachineContext) => ({
+    panes: ctx.panes,
+    resize: ctx.resize,
+    drag: ctx.drag,
+    charWidth: ctx.charWidth,
+    charHeight: ctx.charHeight,
+    activeWindowId: ctx.activeWindowId,
+    activePaneId: ctx.activePaneId,
+    groupSwitchDimOverride: ctx.groupSwitchDimOverride,
+  }),
+  (context: AppMachineContext): Map<string, TmuxPane> => {
+    const previewPanes = selectPreviewPanes(context);
+    const map = new Map<string, TmuxPane>();
+    for (const pane of previewPanes) {
+      map.set(pane.tmuxId, pane);
+    }
+    return map;
+  },
+);
+
 export const selectPaneById = createMemoizedSelectorWithArg(
   (ctx: AppMachineContext, _paneId: string) => ({
     panes: ctx.panes,
@@ -479,11 +487,8 @@ export const selectPaneById = createMemoizedSelectorWithArg(
     activePaneId: ctx.activePaneId,
   }),
   (context: AppMachineContext, paneId: string): TmuxPane | undefined => {
-    const previewPanes = selectPreviewPanes(context);
-    return (
-      previewPanes.find((p) => p.tmuxId === paneId) ??
-      context.panes.find((p) => p.tmuxId === paneId)
-    );
+    const paneMap = selectPreviewPaneMap(context);
+    return paneMap.get(paneId) ?? context.panes.find((p) => p.tmuxId === paneId);
   },
 );
 

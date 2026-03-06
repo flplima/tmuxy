@@ -25,6 +25,8 @@ const {
   enterCopyModeKeyboard,
   pasteText,
   DELAYS,
+  assertContentMatch,
+  assertSpacing,
 } = require('./helpers');
 
 const MOUSE_CAPTURE_SCRIPT = path.join(__dirname, 'helpers', 'mouse-capture.py');
@@ -186,6 +188,7 @@ describe('Scenario 2: Keyboard Basics', () => {
   test('Type → backspace → Tab → Ctrl+C → Ctrl+D → arrow-up history', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
+    await assertContentMatch(ctx.page, 'Scenario 2 setup');
 
     // Step 1: Basic typing
     await runCommand(ctx.page, 'echo hello123', 'hello123');
@@ -236,6 +239,7 @@ describe('Scenario 2: Keyboard Basics', () => {
     await delay(DELAYS.LONG);
     const text = await getTerminalText(ctx.page);
     expect(text.split('history_test_123').length).toBeGreaterThan(2);
+    await assertContentMatch(ctx.page, 'Scenario 2 end');
   }, 180000);
 });
 
@@ -251,6 +255,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
   test('Click focus → scroll enters copy mode → ScrollbackTerminal renders → exit q → user-select none → double-click word select → drag no browser selection', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
+    await assertContentMatch(ctx.page, 'Scenario 7 setup');
 
     // Step 1: Click in terminal area doesn't lose focus
     await focusPage(ctx.page);
@@ -323,6 +328,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
       await delay(DELAYS.SYNC);
     }
     await runCommand(ctx.page, 'echo AFTER_DRAG_OK', 'AFTER_DRAG_OK');
+    await assertContentMatch(ctx.page, 'Scenario 7 end');
   }, 180000);
 });
 
@@ -341,6 +347,8 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     // Step 1: Drag horizontal divider
     await ctx.setupTwoPanes('horizontal');
     await waitForPaneCount(ctx.page, 2);
+    await assertContentMatch(ctx.page, 'Scenario 8 setup');
+    await assertSpacing(ctx.page);
     let panesBefore = await ctx.session.getPaneInfo();
     await resizePaneKeyboard(ctx.page, 'D', 5);
     await delay(DELAYS.SYNC);
@@ -415,12 +423,13 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     const rClickX = capture3.contentBox.x + 50;
     const rClickY = capture3.contentBox.y + 50;
     await ctx.page.mouse.click(rClickX, rClickY, { button: 'right' });
-    events = await readMouseEvents(2);
+    events = await readMouseEvents(1);
     const rPress = events.find(e => e.type === 'press');
     expect(rPress).toBeDefined();
     expect(rPress.btn).toBe(2);
 
     await stopMouseCapture(ctx);
+    await assertContentMatch(ctx.page, 'Scenario 8 end');
   }, 180000);
 });
 
@@ -440,6 +449,7 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     // Generate scrollback content
     await runCommand(ctx.page, 'seq 1 200', '200');
     await focusPage(ctx.page);
+    await assertContentMatch(ctx.page, 'Scenario 9 setup');
 
     // Step 1: Enter copy mode (keyboard: prefix+[)
     const csEntry = await enterCopyModeAndWait(ctx.page);
@@ -574,6 +584,8 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     // Clean exit
     await ctx.page.keyboard.press('q');
     await waitForCopyMode(ctx.page, false);
+    await delay(DELAYS.SYNC);
+    await assertContentMatch(ctx.page, 'Scenario 9 end');
   }, 180000);
 });
 
@@ -593,6 +605,7 @@ describe('Scenario 10: Copy Mode Select & Yank', () => {
     // Step 1: Generate scrollback content with identifiable lines
     await runCommand(ctx.page, 'seq 1 200', '200');
     await focusPage(ctx.page);
+    await assertContentMatch(ctx.page, 'Scenario 10 setup');
 
     // Step 2: Enter copy mode via keyboard (prefix+[)
     const csEntry = await enterCopyModeAndWait(ctx.page);
@@ -635,6 +648,7 @@ describe('Scenario 10: Copy Mode Select & Yank', () => {
 
     // Step 9: Verify terminal is functional after yank
     await runCommand(ctx.page, 'echo "YANK_OK"', 'YANK_OK');
+    await assertContentMatch(ctx.page, 'Scenario 10 end');
   }, 180000);
 });
 
@@ -650,6 +664,7 @@ describe('Scenario 21: Touch Scrolling', () => {
   test('Touch scroll: CSS prevention → normal shell → alternate screen → multi-pane isolation', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
+    await assertContentMatch(ctx.page, 'Scenario 21 setup');
 
     // Step 1: Verify touch-action: none is set on pane-wrapper
     const touchAction = await ctx.page.evaluate(() => {
@@ -790,5 +805,8 @@ describe('Scenario 21: Touch Scrolling', () => {
     // Both panes should still exist
     const finalPaneCount = await getUIPaneCount(ctx.page);
     expect(finalPaneCount).toBe(2);
+    await delay(DELAYS.SYNC);
+    await assertContentMatch(ctx.page, 'Scenario 21 end');
+    await assertSpacing(ctx.page);
   }, 180000);
 });

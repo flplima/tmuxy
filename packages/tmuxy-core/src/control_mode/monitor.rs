@@ -72,7 +72,7 @@ impl Default for MonitorConfig {
             session: String::new(),
             sync_interval: Duration::from_millis(500),
             create_session: false,
-            throttle_interval: Duration::from_millis(16), // ~60fps when throttling
+            throttle_interval: Duration::from_millis(32), // ~30fps during high throughput
             throttle_threshold: 20,                       // >20 events/100ms triggers throttle
             rate_window: Duration::from_millis(100),
             working_dir: None,
@@ -224,6 +224,8 @@ impl TmuxMonitor {
         let mut rate_window_start = Instant::now();
         let mut rate_event_count: u32 = 0;
         let throttle_enabled = !self.config.throttle_interval.is_zero();
+        // Hysteresis: enter throttle at threshold, exit at threshold/2
+        let mut in_throttle_mode = false;
 
         // Command-aware settling state
         // When a compound command (containing ";") is sent, we wait for the first
@@ -244,8 +246,6 @@ impl TmuxMonitor {
         loop {
             // Calculate throttle timeout (only used when in high-throughput mode)
             let throttle_sleep = if pending_output_emit && throttle_enabled {
-                // Check if we're in high-throughput mode
-                let in_throttle_mode = rate_event_count > self.config.throttle_threshold;
                 if in_throttle_mode {
                     let elapsed = last_output_emit.elapsed();
                     if elapsed >= self.config.throttle_interval {
@@ -379,15 +379,22 @@ impl TmuxMonitor {
                                     // Update rate tracking
                                     let now = Instant::now();
                                     if now.duration_since(rate_window_start) > self.config.rate_window {
-                                        // Reset window
+                                        // Reset window — apply hysteresis on exit
+                                        let exit_threshold = self.config.throttle_threshold / 2;
+                                        if in_throttle_mode && rate_event_count <= exit_threshold {
+                                            in_throttle_mode = false;
+                                        } else if !in_throttle_mode && rate_event_count > self.config.throttle_threshold {
+                                            in_throttle_mode = true;
+                                        }
                                         rate_window_start = now;
                                         rate_event_count = 1;
                                     } else {
                                         rate_event_count += 1;
+                                        // Enter throttle mode immediately when threshold exceeded
+                                        if !in_throttle_mode && rate_event_count > self.config.throttle_threshold {
+                                            in_throttle_mode = true;
+                                        }
                                     }
-
-                                    // Determine if we're in high-throughput mode
-                                    let in_throttle_mode = rate_event_count > self.config.throttle_threshold;
 
                                     if in_throttle_mode {
                                         // High throughput: throttle at 16ms interval

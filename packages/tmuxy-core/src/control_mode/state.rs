@@ -135,6 +135,10 @@ pub struct PaneState {
     /// History size (number of lines scrolled off the top)
     pub history_size: u64,
 
+    /// Whether the cursor is visible (DECTCEM: CSI ?25h / CSI ?25l)
+    /// Applications like neovim hide the cursor during redraws to prevent jumping.
+    pub cursor_visible: bool,
+
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
     pub copy_mode_content: Option<PaneContent>,
 }
@@ -172,6 +176,7 @@ impl PaneState {
             selection_start_x: 0,
             selection_start_y: 0,
             history_size: 0,
+            cursor_visible: true,
             copy_mode_content: None,
         }
     }
@@ -202,6 +207,7 @@ impl PaneState {
             self.terminal.screen().mouse_protocol_mode(),
             vt100::MouseProtocolMode::None
         );
+        self.cursor_visible = !self.terminal.screen().hide_cursor();
     }
 
     /// Reset terminal and process capture-pane output.
@@ -352,6 +358,7 @@ impl PaneState {
             selection_present: self.selection_present,
             selection_start_x: sel_start_x,
             selection_start_y: sel_start_y,
+            cursor_visible: self.cursor_visible,
         }
     }
 }
@@ -1742,6 +1749,9 @@ impl StateAggregator {
         }
         if prev.selection_start_y != curr.selection_start_y {
             delta.selection_start_y = Some(curr.selection_start_y);
+        }
+        if prev.cursor_visible != curr.cursor_visible {
+            delta.cursor_visible = Some(curr.cursor_visible);
         }
         delta
     }

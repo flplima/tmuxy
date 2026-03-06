@@ -12,7 +12,7 @@
 export const CHAR_HEIGHT = 21;
 
 // Minimum padding around the pane container
-export const CONTAINER_PADDING = 0;
+export const CONTAINER_PADDING = 8;
 
 // Pane header height = exactly 1 char height so header consumes exactly 1 terminal row
 export const PANE_HEADER_HEIGHT = CHAR_HEIGHT;

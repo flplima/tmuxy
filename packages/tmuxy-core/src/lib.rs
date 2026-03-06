@@ -260,6 +260,13 @@ pub struct TmuxPane {
     /// Selection start Y (visible-area-relative row, can be negative if off-screen)
     #[serde(default)]
     pub selection_start_y: i32,
+    /// Whether the cursor is visible (DECTCEM)
+    #[serde(default = "default_true")]
+    pub cursor_visible: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// A single tmux window (tab)
@@ -446,6 +453,9 @@ pub struct PaneDelta {
     /// Selection start Y (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection_start_y: Option<i32>,
+    /// Cursor visibility (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor_visible: Option<bool>,
 }
 
 impl PaneDelta {
@@ -472,6 +482,7 @@ impl PaneDelta {
             && self.selection_present.is_none()
             && self.selection_start_x.is_none()
             && self.selection_start_y.is_none()
+            && self.cursor_visible.is_none()
     }
 }
 
@@ -682,6 +693,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             selection_present: false,
             selection_start_x: 0,
             selection_start_y: 0,
+            cursor_visible: true,
         });
     }
 

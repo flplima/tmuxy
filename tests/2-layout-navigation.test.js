@@ -65,16 +65,16 @@ async function createFloat(ctx, paneId, { drawer = null, bg = null, hideHeader =
 }
 
 async function waitForFloatModal(page, timeout = 10000) {
-  await page.waitForSelector('.float-container', { timeout });
+  await page.waitForSelector('.modal-overlay', { timeout });
 }
 
 async function getFloatModalInfo(page) {
   return await page.evaluate(() => {
-    const floats = document.querySelectorAll('.float-container');
-    return Array.from(floats).map((float) => ({
-      hasHeader: float.querySelector('.pane-header') !== null,
-      hasCloseButton: float.querySelector('.pane-header-close') !== null,
-      hasTerminal: float.querySelector('.terminal-container') !== null,
+    const modals = document.querySelectorAll('.modal-overlay');
+    return Array.from(modals).map((modal) => ({
+      hasHeader: modal.querySelector('.pane-header') !== null || modal.querySelector('.modal-header') !== null,
+      hasCloseButton: modal.querySelector('.pane-header-close') !== null || modal.querySelector('.modal-close') !== null,
+      hasTerminal: modal.querySelector('.terminal-container') !== null,
     }));
   });
 }
@@ -92,20 +92,22 @@ async function getPaneOverlaps(page) {
   return await page.evaluate(() => {
     const snap = window.app?.getSnapshot();
     const charHeight = snap?.context?.charHeight ?? 24;
+    const charWidth = snap?.context?.charWidth ?? 9;
     const items = document.querySelectorAll('.pane-layout-item');
     const panes = Array.from(items).map(el => {
       const r = el.getBoundingClientRect();
       return { pid: el.dataset.paneId || '?', top: r.top, bottom: r.bottom, left: r.left, right: r.right };
     });
     const overlaps = [];
+    // By design, adjacent panes share overlap in the separator region:
+    // - Vertically: up to charHeight (separator row shared as header)
+    // - Horizontally: up to charWidth (separator column, each pane extends hPadding into it)
     for (let i = 0; i < panes.length; i++) {
       for (let j = i + 1; j < panes.length; j++) {
         const a = panes[i], b = panes[j];
         const overlapV = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
         const overlapH = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        // Allow up to charHeight vertical overlap (by-design separator sharing).
-        // Only flag overlaps GREATER than charHeight, which indicate a real bug.
-        if (overlapV > charHeight && overlapH > 2) {
+        if (overlapV > charHeight && overlapH > charWidth) {
           overlaps.push({ a: a.pid, b: b.pid, overlapV: Math.round(overlapV), overlapH: Math.round(overlapH) });
         }
       }
@@ -360,7 +362,7 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 2: Float modal appears
     await waitForFloatModal(ctx.page);
-    const backdrop = await ctx.page.$('.float-overlay');
+    const backdrop = await ctx.page.$('.modal-backdrop');
     expect(backdrop).not.toBeNull();
 
     // Step 3: Modal has header and close button
@@ -374,12 +376,12 @@ describe('Scenario 6: Floating Panes', () => {
     await waitForPaneCount(ctx.page, 1);
 
     // Step 5: Close button removes float (target the close button inside the float, not a tiled pane)
-    await ctx.page.click('.float-container .pane-header-close');
+    await ctx.page.click('.modal-overlay .pane-header-close');
     await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.float-container').length === 0,
+      () => document.querySelectorAll('.modal-overlay').length === 0,
       { timeout: 10000, polling: 100 }
     );
-    let floats = await ctx.page.$$('.float-container');
+    let floats = await ctx.page.$$('.modal-overlay');
     expect(floats.length).toBe(0);
     windows = await ctx.session.getWindowInfo();
     expect(windows.find(w => w.name === `__float_${paneNum}`)).toBeUndefined();
@@ -395,14 +397,14 @@ describe('Scenario 6: Floating Panes', () => {
 
     // Step 7: Backdrop click closes float
     // Click far from center to avoid hitting the centered float modal
-    const newBackdrop = await ctx.page.$('.float-overlay');
+    const newBackdrop = await ctx.page.$('.modal-backdrop');
     const box = await newBackdrop.boundingBox();
     await ctx.page.mouse.click(box.x + 5, box.y + 5);
     await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.float-container').length === 0,
+      () => document.querySelectorAll('.modal-overlay').length === 0,
       { timeout: 10000, polling: 100 }
     );
-    floats = await ctx.page.$$('.float-container');
+    floats = await ctx.page.$$('.modal-overlay');
     expect(floats.length).toBe(0);
   }, 180000);
 });
@@ -735,7 +737,7 @@ describe('Scenario 22: Float CLI Workflow', () => {
 
     // Step 4: Float header has close button but NO group-add (+) button
     const floatHeaderInfo = await ctx.page.evaluate(() => {
-      const float = document.querySelector('.float-container');
+      const float = document.querySelector('.modal-overlay .float-container') || document.querySelector('.modal-overlay .modal-container');
       if (!float) return null;
       return {
         hasHeader: float.querySelector('.pane-header') !== null,
@@ -797,15 +799,15 @@ describe('Scenario 22: Float CLI Workflow', () => {
 
     // Float pane should contain the isolation token (bash readline echoes typed chars)
     const floatContent = await ctx.page.evaluate(() => {
-      const float = document.querySelector('.float-container');
+      const float = document.querySelector('.modal-overlay .float-container') || document.querySelector('.modal-overlay .modal-container');
       return float?.querySelector('[role="log"]')?.textContent || '';
     });
     expect(floatContent).toContain(ISOLATION_TOKEN);
 
     // Step 9: Close float — focusedFloatPaneId is cleared
-    await ctx.page.click('.float-container .pane-header-close');
+    await ctx.page.click('.modal-overlay .pane-header-close');
     await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.float-container').length === 0,
+      () => document.querySelectorAll('.modal-overlay').length === 0,
       { timeout: 10000, polling: 100 },
     );
     const focusedAfterClose = await ctx.page.evaluate(() =>
@@ -838,7 +840,7 @@ describe('Scenario 22: Float CLI Workflow', () => {
 
     // Float auto-closes after fzf exits and float-create.sh kills the float window
     await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.float-container').length === 0,
+      () => document.querySelectorAll('.modal-overlay').length === 0,
       { timeout: 15000, polling: 100 },
     );
 

@@ -40,6 +40,18 @@ export function createSizeActor(measureFn: MeasureFn) {
     let charWidth = measureFn();
     input.parent.send({ type: 'SET_CHAR_SIZE', charWidth, charHeight: CHAR_HEIGHT });
 
+    // Re-measure after fonts finish loading (initial measurement may use fallback font)
+    document.fonts.ready.then(() => {
+      const newWidth = measureFn();
+      if (newWidth !== charWidth) {
+        charWidth = newWidth;
+        input.parent.send({ type: 'SET_CHAR_SIZE', charWidth, charHeight: CHAR_HEIGHT });
+        lastCols = 0;
+        lastRows = 0;
+        updateTargetSize();
+      }
+    });
+
     // Calculate and send target size using container dimensions if available
     const updateTargetSize = () => {
       const { cols, rows } = calculateTargetSize(charWidth, containerWidth, containerHeight);

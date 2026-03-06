@@ -66,8 +66,7 @@ function getTabText(pane: TmuxPane, titleOverride?: string, widgetName?: string)
   if (pane.inMode) return '[COPY]';
   if (titleOverride) return titleOverride;
   if (widgetName) return pane.title || pane.command || pane.tmuxId;
-  if (pane.command) return pane.title || pane.command;
-  return pane.tmuxId;
+  return pane.borderTitle?.trim() || pane.command || pane.title || pane.tmuxId;
 }
 
 /** Minimum pixels of movement before a mousedown becomes a drag */

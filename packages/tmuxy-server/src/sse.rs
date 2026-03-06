@@ -1079,7 +1079,7 @@ async fn start_monitoring_control_mode(
         session: session.clone(),
         sync_interval: Duration::from_millis(500),
         create_session: true,
-        throttle_interval: Duration::from_millis(16),
+        throttle_interval: Duration::from_millis(32),
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),
         working_dir: Some(crate::state::find_workspace_root()),

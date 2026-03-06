@@ -1,14 +1,16 @@
 /**
  * ScrollbackTerminal - Virtual-scrolling terminal renderer for copy mode scrollback
  *
- * Renders loaded scrollback content as positioned <pre> blocks inside Pane's
+ * Renders loaded scrollback content as a positioned <pre> block inside Pane's
  * shared scroll container. Only visible AND loaded lines are rendered.
+ * Uses imperative DOM updates (same as Terminal) for consistent performance.
  * Selection is computed client-side from cursor/anchor positions.
  */
 
-import { useMemo } from 'react';
-import { TerminalLine } from './TerminalLine';
+import { useRef, useLayoutEffect, useMemo } from 'react';
+import { Cursor } from './Cursor';
 import { useAppSelector, selectCharSize } from '../machines/AppContext';
+import { renderLineToDOM } from './terminalRendering';
 import type { CopyModeState, CellLine } from '../tmux/types';
 
 interface ScrollbackTerminalProps {
@@ -54,9 +56,16 @@ function computeScrollbackSelection(
 }
 
 export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
-  const { charHeight } = useAppSelector(selectCharSize);
+  const { charWidth, charHeight } = useAppSelector(selectCharSize);
+  const preRef = useRef<HTMLPreElement>(null);
+  const prevLinesRef = useRef<
+    Map<
+      number,
+      { line: CellLine; selRange: ReturnType<ReturnType<typeof computeScrollbackSelection>> }
+    >
+  >(new Map());
 
-  const { totalLines, scrollTop, height, width, cursorRow, cursorCol, lines } = copyState;
+  const { totalLines, scrollTop, height, cursorRow, cursorCol, lines } = copyState;
 
   const getSelectionRange = useMemo(
     () => computeScrollbackSelection(copyState),
@@ -72,45 +81,103 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
   // Visible line range
   const visibleStart = scrollTop;
   const visibleEnd = Math.min(totalLines - 1, scrollTop + height - 1);
-
-  // Build visible lines
-  const visibleLines: Array<{ absoluteRow: number; line: CellLine }> = [];
-  for (let row = visibleStart; row <= visibleEnd; row++) {
-    const line = lines.get(row);
-    visibleLines.push({ absoluteRow: row, line: line ?? EMPTY_LINE });
-  }
+  const visibleCount = visibleEnd - visibleStart + 1;
 
   const isCursorVisible = cursorRow >= visibleStart && cursorRow <= visibleEnd;
 
+  // Imperative DOM update
+  useLayoutEffect(() => {
+    const pre = preRef.current;
+    if (!pre) return;
+
+    const children = pre.children;
+    const prevMap = prevLinesRef.current;
+
+    // Ensure correct number of line divs
+    if (children.length !== visibleCount) {
+      pre.textContent = '';
+      prevMap.clear();
+      for (let i = 0; i < visibleCount; i++) {
+        const div = document.createElement('div');
+        div.className = 'terminal-line';
+        const row = visibleStart + i;
+        const line = lines.get(row) ?? EMPTY_LINE;
+        const selRange = getSelectionRange(row);
+        renderLineToDOM(div, line, selRange);
+        pre.appendChild(div);
+        prevMap.set(row, { line, selRange });
+      }
+    } else {
+      // Incremental update
+      const newPrevMap = new Map<
+        number,
+        { line: CellLine; selRange: ReturnType<ReturnType<typeof computeScrollbackSelection>> }
+      >();
+      for (let i = 0; i < visibleCount; i++) {
+        const row = visibleStart + i;
+        const line = lines.get(row) ?? EMPTY_LINE;
+        const selRange = getSelectionRange(row);
+        const prev = prevMap.get(row);
+
+        const lineChanged = !prev || prev.line !== line;
+        const selChanged =
+          !prev ||
+          (selRange !== prev.selRange &&
+            (selRange === null ||
+              prev.selRange === null ||
+              selRange?.startCol !== prev.selRange?.startCol ||
+              selRange?.endCol !== prev.selRange?.endCol));
+
+        if (lineChanged || selChanged) {
+          const div = children[i] as HTMLDivElement;
+          renderLineToDOM(div, line, selRange);
+        }
+        newPrevMap.set(row, { line, selRange });
+      }
+      prevLinesRef.current = newPrevMap;
+    }
+  }, [visibleStart, visibleCount, lines, getSelectionRange]);
+
+  // Cursor character
+  const cursorChar = useMemo(() => {
+    if (!isCursorVisible) return ' ';
+    const line = lines.get(cursorRow);
+    if (!line || cursorCol >= line.length) return ' ';
+    return line[cursorCol].c;
+  }, [isCursorVisible, lines, cursorRow, cursorCol]);
+
+  // Cursor position relative to the <pre> block (not absolute row)
+  const cursorRelY = cursorRow - visibleStart;
+
   return (
-    <>
+    <div
+      style={{
+        position: 'absolute',
+        top: visibleStart * charHeight,
+        left: 0,
+        right: 0,
+      }}
+    >
       <pre
         className="terminal-content"
         aria-hidden="true"
         data-testid="scrollback-terminal"
         data-copy-mode="true"
-        style={{
-          position: 'absolute',
-          top: visibleStart * charHeight,
-          left: 0,
-          right: 0,
-        }}
-      >
-        {visibleLines.map(({ absoluteRow, line }) => (
-          <TerminalLine
-            key={absoluteRow}
-            line={line}
-            lineIndex={absoluteRow}
-            cursorX={cursorCol}
-            cursorY={cursorRow}
-            showCursor={isCursorVisible}
-            inMode={true}
-            isActive={true}
-            selectionRange={getSelectionRange(absoluteRow)}
-            width={width}
-          />
-        ))}
-      </pre>
-    </>
+        ref={preRef}
+        style={{ position: 'relative' }}
+      />
+      {isCursorVisible && (
+        <Cursor
+          x={cursorCol}
+          y={cursorRelY}
+          char={cursorChar}
+          copyMode={true}
+          active={true}
+          mode="block"
+          charWidth={charWidth}
+          charHeight={charHeight}
+        />
+      )}
+    </div>
   );
 }

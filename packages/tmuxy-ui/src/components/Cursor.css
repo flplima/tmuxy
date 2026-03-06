@@ -3,6 +3,17 @@
   color: var(--cursor-text);
 }
 
+/* Overlay mode: absolutely positioned over terminal content */
+.terminal-cursor-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
+  white-space: pre;
+}
+
 .terminal-cursor-blink {
   animation: cursor-blink 1s step-end infinite;
 }

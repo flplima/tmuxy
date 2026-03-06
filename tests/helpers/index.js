@@ -15,6 +15,7 @@ const TmuxTestSession = require('./TmuxTestSession');
 const { GlitchDetector, OPERATION_THRESHOLDS } = require('./glitch-detector');
 const consistency = require('./consistency');
 const cli = require('./cli');
+const { assertContentMatch, assertSpacing } = require('./content-match');
 
 // ==================== Known Limitations Registry ====================
 
@@ -128,4 +129,8 @@ module.exports = {
 
   // CLI helpers
   ...cli,
+
+  // Content-match assertions
+  assertContentMatch,
+  assertSpacing,
 };

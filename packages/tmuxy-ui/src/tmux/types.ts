@@ -37,6 +37,8 @@ export interface TmuxPane {
   selectionStartX: number;
   /** Selection start Y (visible-area-relative row, can be negative), only meaningful when selectionPresent */
   selectionStartY: number;
+  /** Whether the cursor is visible (DECTCEM - hidden during full-screen redraws) */
+  cursorVisible: boolean;
 }
 
 export interface TmuxWindow {
@@ -158,6 +160,7 @@ export interface ServerPane {
   selection_present?: boolean;
   selection_start_x?: number;
   selection_start_y?: number;
+  cursor_visible?: boolean;
 }
 
 export interface ServerWindow {
@@ -209,6 +212,7 @@ export interface PaneDelta {
   selection_present?: boolean;
   selection_start_x?: number;
   selection_start_y?: number;
+  cursor_visible?: boolean;
 }
 
 export interface WindowDelta {

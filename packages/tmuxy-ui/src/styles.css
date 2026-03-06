@@ -167,6 +167,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 8px;
 }
 
 .pane-container {
@@ -236,6 +237,7 @@
    ============================================ */
 
 .terminal-container {
+  position: relative;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -257,7 +259,15 @@
 
 .terminal-line {
   height: var(--line-height-terminal);
-  min-height: var(--line-height-terminal);
+  line-height: inherit;
+  /* Flex ensures child spans stretch to full line height,
+     eliminating sub-pixel gaps between span backgrounds */
+  display: flex;
+  white-space: pre;
+}
+
+.terminal-line > span {
+  line-height: inherit;
 }
 
 .pane-scroll-container {
@@ -355,9 +365,8 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  outline: none;
   border-radius: 0;
-  border: 1px solid var(--border-medium);
+  outline: 1px solid var(--border-medium);
   /* Animate position/size changes for swaps and resizes */
   transition:
     left var(--transition-layout),
@@ -375,19 +384,18 @@
 
 /* Active pane: green border */
 .pane-layout-item.pane-active {
-  border-color: var(--term-green);
+  outline-color: var(--term-green);
 }
 
 /* Copy mode: bright green border */
 .pane-layout-item.pane-active.pane-copy-mode {
-  border-color: var(--term-bright-green);
+  outline-color: var(--term-bright-green);
 }
 
 .pane-layout-item.pane-dragging {
   z-index: var(--z-dragging);
   opacity: 0.85;
   box-shadow: var(--shadow-lg);
-  outline: none;
   transition: none;
 }
 

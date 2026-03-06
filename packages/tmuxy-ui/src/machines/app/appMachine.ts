@@ -58,7 +58,7 @@ import {
   loadCursorBlinkFromStorage,
   saveCursorBlinkToStorage,
 } from '../../utils/fontSizeManager';
-import type { CopyModeState, CellLine } from '../../tmux/types';
+import type { CopyModeState, CellLine, ServerState } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
@@ -70,6 +70,22 @@ import type { SizeActorEvent } from '../actors/sizeActor';
 // after client-side exit (tmux takes time to process -X cancel)
 const copyModeExitTimes = new Map<string, number>();
 const COPY_MODE_REENTRY_COOLDOWN = 2000;
+
+/**
+ * Cache transformServerState per event to avoid redundant calls.
+ * The guard and action both need the transformed state for the same event.
+ */
+const transformCache = new WeakMap<object, ReturnType<typeof transformServerState>>();
+function getCachedTransform(event: {
+  state: ServerState;
+}): ReturnType<typeof transformServerState> {
+  let cached = transformCache.get(event);
+  if (!cached) {
+    cached = transformServerState(event.state);
+    transformCache.set(event, cached);
+  }
+  return cached;
+}
 
 /** Move a pane ID to the front of the MRU list */
 function updateActivationOrder(order: string[], paneId: string | null): string[] {
@@ -650,7 +666,7 @@ export const appMachine = setup({
             // If panes were removed, transition to removingPane state for exit animation
             // Skip if server reports 0 panes — that's a spurious intermediate state
             guard: ({ event, context }) => {
-              const transformed = transformServerState(event.state);
+              const transformed = getCachedTransform(event);
               if (transformed.panes.length === 0) return false;
               const currentPaneIds = context.panes.map((p) => p.tmuxId);
               const newPaneIds = transformed.panes.map((p) => p.tmuxId);
@@ -659,7 +675,7 @@ export const appMachine = setup({
             },
             target: 'removingPane',
             actions: enqueueActions(({ event, context, enqueue }) => {
-              const transformed = transformServerState(event.state);
+              const transformed = getCachedTransform(event);
 
               const paneGroups = buildGroupsFromWindows(
                 transformed.windows,
@@ -710,7 +726,7 @@ export const appMachine = setup({
           {
             // Normal update without pane removal
             actions: enqueueActions(({ event, context, enqueue }) => {
-              const transformed = transformServerState(event.state);
+              const transformed = getCachedTransform(event);
 
               // Skip spurious empty-pane states from the server
               if (transformed.panes.length === 0) return;
@@ -757,23 +773,34 @@ export const appMachine = setup({
                 }
               }
 
-              // Build pane groups from window names (single source of truth)
-              const paneGroups = buildGroupsFromWindows(
-                transformed.windows,
-                transformed.panes,
-                transformed.activeWindowId,
-              );
+              // Skip heavy structural computations when only content changed.
+              // Compare pane count, window count, active window, and window names.
+              // Content-only deltas only change pane content/cursor, not structure.
+              const structurallyChanged =
+                transformed.panes.length !== context.panes.length ||
+                transformed.activeWindowId !== context.activeWindowId ||
+                transformed.windows.length !== context.windows.length ||
+                transformed.windows.some((w, i) => w.name !== context.windows[i]?.name);
 
-              // Build float panes from windows with __float_ naming pattern
-              const floatPanes = buildFloatPanesFromWindows(
-                transformed.windows,
-                transformed.panes,
-                context.floatPanes,
-                context.containerWidth,
-                context.containerHeight,
-                context.charWidth,
-                context.charHeight,
-              );
+              const paneGroups = structurallyChanged
+                ? buildGroupsFromWindows(
+                    transformed.windows,
+                    transformed.panes,
+                    transformed.activeWindowId,
+                  )
+                : context.paneGroups;
+
+              const floatPanes = structurallyChanged
+                ? buildFloatPanesFromWindows(
+                    transformed.windows,
+                    transformed.panes,
+                    context.floatPanes,
+                    context.containerWidth,
+                    context.containerHeight,
+                    context.charWidth,
+                    context.charHeight,
+                  )
+                : context.floatPanes;
 
               // Detect float removal — check for session switch env var
               const prevFloatCount = Object.keys(context.floatPanes).length;
@@ -2069,7 +2096,7 @@ export const appMachine = setup({
         // Queue any new state updates that arrive during animation
         TMUX_STATE_UPDATE: {
           actions: enqueueActions(({ event, context, enqueue }) => {
-            const transformed = transformServerState(event.state);
+            const transformed = getCachedTransform(event);
 
             // Skip spurious empty-pane states from the server
             if (transformed.panes.length === 0) return;
