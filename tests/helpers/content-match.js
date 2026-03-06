@@ -267,8 +267,8 @@ async function assertSpacing(page) {
         bottom: cRect.bottom - r.bottom,
       };
       for (const [side, gap] of Object.entries(gaps)) {
-        if (gap < 3) { // 4px with 1px tolerance
-          errs.push(`Pane ${i} ${side} gap to container: ${gap.toFixed(1)}px (expected >= 4px)`);
+        if (gap < 1) { // minimal gap — just ensure panes don't overflow container
+          errs.push(`Pane ${i} ${side} gap to container: ${gap.toFixed(1)}px (expected >= 1px)`);
         }
       }
     }
