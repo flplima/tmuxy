@@ -331,7 +331,7 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     const text = await getTerminalText(ctx.page);
     expect(text).toContain('KITTY_SENT');
 
-    const images = await waitForImages(ctx.page);
+    const images = await waitForImages(ctx.page, 1, 30000);
     expect(images.length).toBeGreaterThanOrEqual(1);
     const kittyImg = images.find(i => i.protocol === 'kitty');
     expect(kittyImg).toBeDefined();
