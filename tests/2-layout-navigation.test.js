@@ -53,9 +53,13 @@ async function waitForCondition(page, fn, timeout = 10000, description = 'condit
 
 // ==================== Float Helpers ====================
 
-async function createFloat(ctx, paneId) {
+async function createFloat(ctx, paneId, { drawer = null, bg = null, hideHeader = false } = {}) {
   const paneNum = paneId.replace('%', '');
-  await ctx.session._exec(`break-pane -d -s ${paneId} -n "__float_${paneNum}"`);
+  let name = `__float_${paneNum}`;
+  if (drawer) name += `_drawer_${drawer}`;
+  if (bg) name += `_bg_${bg}`;
+  if (hideHeader) name += '_noheader';
+  await ctx.session._exec(`break-pane -d -s ${paneId} -n "${name}"`);
   await delay(DELAYS.SYNC);
   await delay(DELAYS.SYNC);
 }
@@ -107,6 +111,22 @@ async function getPaneOverlaps(page) {
       }
     }
     return overlaps;
+  });
+}
+
+async function getDrawerInfo(page) {
+  return await page.evaluate(() => {
+    const overlay = document.querySelector('.modal-overlay');
+    if (!overlay) return null;
+    const classes = overlay.className;
+    const isDrawer = classes.includes('drawer');
+    const direction = ['left', 'right', 'top', 'bottom'].find(d =>
+      classes.includes(`drawer-${d}`)
+    );
+    const container = overlay.querySelector('.modal-container');
+    if (!container) return null;
+    const rect = container.getBoundingClientRect();
+    return { isDrawer, direction: direction || null, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } };
   });
 }
 
@@ -387,6 +407,223 @@ describe('Scenario 6: Floating Panes', () => {
   }, 180000);
 });
 
+// ==================== Scenario 6b: Drawer Floats ====================
+
+describe('Scenario 6b: Drawer Floats', () => {
+  const ctx = createTestContext({ snapshot: true });
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Left drawer → slides from left → close → right drawer → top drawer → bottom drawer', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupTwoPanes('horizontal');
+
+    // Step 1: Create left drawer
+    let activePaneId = await ctx.session.getActivePaneId();
+    let paneNum = activePaneId.replace('%', '');
+    await createFloat(ctx, activePaneId, { drawer: 'left' });
+    let windows = await ctx.session.getWindowInfo({ includeFloats: true });
+    expect(windows.find(w => w.name === `__float_${paneNum}_drawer_left`)).toBeDefined();
+
+    // Step 2: Drawer modal appears with drawer classes
+    await waitForFloatModal(ctx.page);
+    let drawerInfo = await getDrawerInfo(ctx.page);
+    expect(drawerInfo).not.toBeNull();
+    expect(drawerInfo.isDrawer).toBe(true);
+    expect(drawerInfo.direction).toBe('left');
+
+    // Step 3: Left drawer is positioned at left edge (x ~= 0)
+    expect(drawerInfo.rect.x).toBeLessThan(10);
+
+    // Step 4: Close via close button
+    await ctx.page.click('.modal-close');
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.modal-container').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
+
+    // Step 5: Create right drawer (need to split again)
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await delay(DELAYS.SYNC);
+    await waitForPaneCount(ctx.page, 2);
+    activePaneId = await ctx.session.getActivePaneId();
+    paneNum = activePaneId.replace('%', '');
+    await createFloat(ctx, activePaneId, { drawer: 'right' });
+    await waitForFloatModal(ctx.page);
+    drawerInfo = await getDrawerInfo(ctx.page);
+    expect(drawerInfo.isDrawer).toBe(true);
+    expect(drawerInfo.direction).toBe('right');
+
+    // Right drawer is positioned at right edge
+    const viewportWidth = await ctx.page.evaluate(() => window.innerWidth);
+    expect(drawerInfo.rect.x + drawerInfo.rect.width).toBeGreaterThan(viewportWidth - 10);
+
+    // Close
+    await ctx.page.click('.modal-close');
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.modal-container').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
+
+    // Step 6: Create top drawer
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await delay(DELAYS.SYNC);
+    await waitForPaneCount(ctx.page, 2);
+    activePaneId = await ctx.session.getActivePaneId();
+    paneNum = activePaneId.replace('%', '');
+    await createFloat(ctx, activePaneId, { drawer: 'top' });
+    await waitForFloatModal(ctx.page);
+    drawerInfo = await getDrawerInfo(ctx.page);
+    expect(drawerInfo.isDrawer).toBe(true);
+    expect(drawerInfo.direction).toBe('top');
+
+    // Top drawer is positioned at top edge (y ~= 0)
+    expect(drawerInfo.rect.y).toBeLessThan(10);
+
+    // Close
+    await ctx.page.click('.modal-close');
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.modal-container').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
+
+    // Step 7: Create bottom drawer
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await delay(DELAYS.SYNC);
+    await waitForPaneCount(ctx.page, 2);
+    activePaneId = await ctx.session.getActivePaneId();
+    paneNum = activePaneId.replace('%', '');
+    await createFloat(ctx, activePaneId, { drawer: 'bottom' });
+    await waitForFloatModal(ctx.page);
+    drawerInfo = await getDrawerInfo(ctx.page);
+    expect(drawerInfo.isDrawer).toBe(true);
+    expect(drawerInfo.direction).toBe('bottom');
+
+    // Bottom drawer is positioned at bottom edge
+    const viewportHeight = await ctx.page.evaluate(() => window.innerHeight);
+    expect(drawerInfo.rect.y + drawerInfo.rect.height).toBeGreaterThan(viewportHeight - 10);
+
+    // Close via backdrop
+    const backdrop = await ctx.page.$('.modal-backdrop');
+    const box = await backdrop.boundingBox();
+    // Click a corner away from the drawer
+    await ctx.page.mouse.click(box.x + box.width / 2, box.y + 5);
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.modal-container').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
+  }, 180000);
+});
+
+// ==================== Scenario 6c: Float Backdrop & Header Options ====================
+
+describe('Scenario 6c: Float Backdrop & Header Options', () => {
+  const ctx = createTestContext({ snapshot: true });
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Blur backdrop → no backdrop → hide header → combined options', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupTwoPanes('horizontal');
+
+    // Step 1: Float with blur backdrop
+    let activePaneId = await ctx.session.getActivePaneId();
+    await createFloat(ctx, activePaneId, { bg: 'blur' });
+    await waitForFloatModal(ctx.page);
+    let hasBlur = await ctx.page.evaluate(() => {
+      const backdrop = document.querySelector('.modal-backdrop');
+      return backdrop && backdrop.classList.contains('modal-backdrop-blur');
+    });
+    expect(hasBlur).toBe(true);
+
+    // Has header by default
+    let modalInfo = await getFloatModalInfo(ctx.page);
+    expect(modalInfo[0].hasHeader).toBe(true);
+
+    // Close
+    await ctx.page.click('.modal-close');
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.modal-container').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
+
+    // Step 2: Float with no backdrop
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await delay(DELAYS.SYNC);
+    await waitForPaneCount(ctx.page, 2);
+    activePaneId = await ctx.session.getActivePaneId();
+    await createFloat(ctx, activePaneId, { bg: 'none' });
+    await waitForFloatModal(ctx.page);
+    let hasNone = await ctx.page.evaluate(() => {
+      const backdrop = document.querySelector('.modal-backdrop');
+      return backdrop && backdrop.classList.contains('modal-backdrop-none');
+    });
+    expect(hasNone).toBe(true);
+
+    // Close via Esc
+    await ctx.page.keyboard.press('Escape');
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.modal-container').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
+
+    // Step 3: Float with hidden header
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await delay(DELAYS.SYNC);
+    await waitForPaneCount(ctx.page, 2);
+    activePaneId = await ctx.session.getActivePaneId();
+    await createFloat(ctx, activePaneId, { hideHeader: true });
+    await waitForFloatModal(ctx.page);
+    modalInfo = await getFloatModalInfo(ctx.page);
+    expect(modalInfo[0].hasHeader).toBe(false);
+    expect(modalInfo[0].hasTerminal).toBe(true);
+
+    // Close via backdrop click (no close button since no header)
+    const backdrop = await ctx.page.$('.modal-backdrop');
+    const box = await backdrop.boundingBox();
+    await ctx.page.mouse.click(box.x + 5, box.y + 5);
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.modal-container').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
+
+    // Step 4: Combined: drawer + blur + hide header
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await delay(DELAYS.SYNC);
+    await waitForPaneCount(ctx.page, 2);
+    activePaneId = await ctx.session.getActivePaneId();
+    await createFloat(ctx, activePaneId, { drawer: 'right', bg: 'blur', hideHeader: true });
+    await waitForFloatModal(ctx.page);
+
+    let combined = await ctx.page.evaluate(() => {
+      const overlay = document.querySelector('.modal-overlay');
+      const backdrop = document.querySelector('.modal-backdrop');
+      const header = document.querySelector('.modal-header');
+      return {
+        isDrawer: overlay && overlay.classList.contains('drawer'),
+        isRight: overlay && overlay.classList.contains('drawer-right'),
+        isBlur: backdrop && backdrop.classList.contains('modal-backdrop-blur'),
+        hasHeader: header !== null,
+      };
+    });
+    expect(combined.isDrawer).toBe(true);
+    expect(combined.isRight).toBe(true);
+    expect(combined.isBlur).toBe(true);
+    expect(combined.hasHeader).toBe(false);
+
+    // Close via Esc
+    await ctx.page.keyboard.press('Escape');
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.modal-container').length === 0,
+      { timeout: 10000, polling: 100 }
+    );
+  }, 180000);
+});
+
 // ==================== Scenario 11: Status Bar ====================
 
 describe('Scenario 11: Status Bar', () => {
@@ -436,7 +673,7 @@ describe('Scenario 11: Status Bar', () => {
 
     // Step 6: Click inactive tab to switch
     await waitForWindowCount(ctx.page, 2, 10000);
-    const allTabs = await ctx.page.$$('.tab-name');
+    const allTabs = await ctx.page.$$('.tab-name:not(.tab-add)');
     expect(allTabs.length).toBe(2);
     let inactiveTab = null;
     for (const t of allTabs) {
@@ -451,7 +688,7 @@ describe('Scenario 11: Status Bar', () => {
     await renameWindowKeyboard(ctx.page, 'RENAMED_WINDOW');
     await delay(DELAYS.SYNC);
     const tabText = await ctx.page.evaluate(() => {
-      const tabs = document.querySelectorAll('.tab-name');
+      const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
       return Array.from(tabs).map(t => t.textContent).join(' ');
     });
     expect(tabText).toContain('RENAMED_WINDOW');

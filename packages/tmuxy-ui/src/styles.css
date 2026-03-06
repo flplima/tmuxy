@@ -817,11 +817,22 @@
   z-index: 1000;
 }
 
-/* Semi-transparent backdrop */
+/* Semi-transparent backdrop (default: dim) */
 .modal-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
+}
+
+/* Blur backdrop variant */
+.modal-backdrop-blur {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
+}
+
+/* No backdrop variant (transparent, still captures clicks) */
+.modal-backdrop-none {
+  background: transparent;
 }
 
 /* Modal container - centered via JS positioning */
@@ -909,6 +920,70 @@
   overflow: hidden;
   background: var(--bg-black);
   box-sizing: border-box;
+}
+
+/* ============================================
+   Drawer - Edge-docked float with slide animation
+   ============================================ */
+
+/* Drawer container: no border-radius on docked edge */
+.drawer .modal-container {
+  border-radius: 0;
+  animation-duration: 200ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+
+.drawer-left .modal-container {
+  animation-name: slide-in-left;
+}
+
+.drawer-right .modal-container {
+  animation-name: slide-in-right;
+}
+
+.drawer-top .modal-container {
+  animation-name: slide-in-top;
+}
+
+.drawer-bottom .modal-container {
+  animation-name: slide-in-bottom;
+}
+
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-top {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 /* ============================================

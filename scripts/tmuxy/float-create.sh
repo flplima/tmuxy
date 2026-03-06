@@ -1,19 +1,58 @@
 #!/bin/bash
-# Create a new float pane
+# Create a new float pane (centered or drawer)
+#
+# Options:
+#   --left|--right|--top|--bottom   Drawer mode (slides from edge)
+#   --width N                       Width in columns
+#   --height N                      Height in rows
+#   --bg dim|blur|none              Backdrop style
+#   --hide-header                   Hide the header bar
 #
 # Float-inside-float mode (called from within a __float_* window):
 #   Runs the command directly in the current float pane (reuses the same slot).
 #
-# Interactive mode (no args, not in a float):
+# Interactive mode (no command args):
 #   Creates a float pane with an interactive shell, outputs pane ID to stdout.
 #
-# Command mode (with args, not in a float):
+# Command mode (with args after options):
 #   Creates a float pane running the command, captures its stdout,
 #   waits for completion, auto-closes the float, and outputs the
 #   captured stdout. Enables: FILE=$(tmuxy float fzf) && nvim "$FILE"
 
 set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
+
+# Parse options
+DRAWER=""
+WIDTH=""
+HEIGHT=""
+BG=""
+HIDE_HEADER=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --left)         DRAWER="left";   shift ;;
+    --right)        DRAWER="right";  shift ;;
+    --top)          DRAWER="top";    shift ;;
+    --bottom)       DRAWER="bottom"; shift ;;
+    --width)        WIDTH="$2";      shift 2 ;;
+    --height)       HEIGHT="$2";     shift 2 ;;
+    --bg)           BG="$2";         shift 2 ;;
+    --hide-header)  HIDE_HEADER="1"; shift ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+# Build window name with encoded options
+build_float_name() {
+  local pane_id="$1"
+  local pane_num="${pane_id#%}"
+  local name="__float_${pane_num}"
+  [ -n "$DRAWER" ]      && name="${name}_drawer_${DRAWER}"
+  [ -n "$BG" ]          && name="${name}_bg_${BG}"
+  [ -n "$HIDE_HEADER" ] && name="${name}_noheader"
+  echo "$name"
+}
 
 # Detect if we're already inside a float pane
 CURRENT_WINDOW=$(tmux display-message -p '#{window_name}')
@@ -33,8 +72,17 @@ fi
 if [ $# -eq 0 ]; then
   # Interactive mode: create float with shell, output pane ID
   NEW_PANE_ID=$(tmux split-window -dP -F '#{pane_id}')
-  PANE_NUM="${NEW_PANE_ID#%}"
-  tmux break-pane -d -s "$NEW_PANE_ID" -n "__float_${PANE_NUM}"
+  FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
+  tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+
+  # Apply size if specified
+  if [ -n "$WIDTH" ]; then
+    tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+  fi
+  if [ -n "$HEIGHT" ]; then
+    tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+  fi
+
   refresh_panes
   echo "$NEW_PANE_ID"
 else
@@ -46,9 +94,18 @@ else
   # Do NOT redirect stderr — TUI apps (fzf, vim, etc.) draw their interface to
   # stderr/tty. Only redirect stdout to the capture file.
   NEW_PANE_ID=$(tmux split-window -dP -F '#{pane_id}' \
-    "bash -c '${CMD} > \"${TMPFILE}\"; tmux wait-for -S ${WAIT_CHAN}'")
-  PANE_NUM="${NEW_PANE_ID#%}"
-  tmux break-pane -d -s "$NEW_PANE_ID" -n "__float_${PANE_NUM}"
+    "bash -c '${CMD} > \"${TMPFILE}\" 2>&1; tmux wait-for -S ${WAIT_CHAN}'")
+  FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
+  tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+
+  # Apply size if specified
+  if [ -n "$WIDTH" ]; then
+    tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+  fi
+  if [ -n "$HEIGHT" ]; then
+    tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+  fi
+
   refresh_panes
 
   # Wait for command to finish

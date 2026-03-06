@@ -110,41 +110,69 @@ export function buildGroupsFromWindows(
 
 /**
  * Build float pane states from windows.
- * Float windows have the pattern: __float_{pane_num}
+ * Float windows have the pattern: __float_{pane_num} or __float_{pane_num}_drawer_{direction}
  */
-function parseFloatWindowPaneId(windowName: string): string | null {
-  const match = windowName.match(/^__float_(\d+)$/);
-  if (match) {
-    return `%${match[1]}`;
-  }
-  return null;
+
+import type { DrawerDirection, FloatBackdrop, FloatPaneState } from '../types';
+
+interface ParsedFloatWindow {
+  paneId: string;
+  drawer?: DrawerDirection;
+  backdrop?: FloatBackdrop;
+  hideHeader?: boolean;
+}
+
+function parseFloatWindowPaneId(windowName: string): ParsedFloatWindow | null {
+  // Match: __float_{num} with optional suffixes _drawer_{dir}, _bg_{type}, _noheader
+  const baseMatch = windowName.match(/^__float_(\d+)/);
+  if (!baseMatch) return null;
+
+  const result: ParsedFloatWindow = { paneId: `%${baseMatch[1]}` };
+  const rest = windowName.slice(baseMatch[0].length);
+
+  const drawerMatch = rest.match(/_drawer_(left|right|top|bottom)/);
+  if (drawerMatch) result.drawer = drawerMatch[1] as DrawerDirection;
+
+  const bgMatch = rest.match(/_bg_(dim|blur|none)/);
+  if (bgMatch) result.backdrop = bgMatch[1] as FloatBackdrop;
+
+  if (rest.includes('_noheader')) result.hideHeader = true;
+
+  return result;
 }
 
 export function buildFloatPanesFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
-  existingFloats: Record<string, { paneId: string; width: number; height: number }>,
+  existingFloats: Record<string, FloatPaneState>,
   containerWidth: number,
   containerHeight: number,
   charWidth: number,
   charHeight: number,
-): Record<string, { paneId: string; width: number; height: number }> {
-  const floatPanes: Record<string, { paneId: string; width: number; height: number }> = {};
+): Record<string, FloatPaneState> {
+  const floatPanes: Record<string, FloatPaneState> = {};
 
   for (const window of windows) {
     if (!window.isFloatWindow) continue;
 
-    const paneId = parseFloatWindowPaneId(window.name);
-    if (!paneId) continue;
+    const parsed = parseFloatWindowPaneId(window.name);
+    if (!parsed) continue;
 
+    const { paneId, drawer, backdrop, hideHeader } = parsed;
     const pane = panes.find((p) => p.tmuxId === paneId);
     const existing = existingFloats[paneId];
 
-    if (pane) {
-      floatPanes[paneId] = existing ?? {
+    if (existing) {
+      // Preserve existing dimensions but update flags from window name
+      floatPanes[paneId] = { ...existing, drawer, backdrop, hideHeader };
+    } else if (pane) {
+      floatPanes[paneId] = {
         paneId,
         width: Math.min(pane.width * charWidth, containerWidth - 200),
         height: Math.min(pane.height * charHeight, containerHeight - 200),
+        drawer,
+        backdrop,
+        hideHeader,
       };
     }
   }

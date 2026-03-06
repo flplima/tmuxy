@@ -26,6 +26,12 @@ export interface PaneGroup {
   paneIds: string[]; // Tab order - active pane is derived from which pane is in activeWindowId
 }
 
+/** Drawer direction for float panes docked to an edge */
+export type DrawerDirection = 'left' | 'right' | 'top' | 'bottom';
+
+/** Backdrop style for float panes */
+export type FloatBackdrop = 'dim' | 'blur' | 'none';
+
 /** Float pane state */
 export interface FloatPaneState {
   /** Pane ID (e.g., "%5") */
@@ -33,6 +39,12 @@ export interface FloatPaneState {
   /** Size in pixels */
   width: number;
   height: number;
+  /** If set, float is a drawer docked to this edge */
+  drawer?: DrawerDirection;
+  /** Backdrop style (default: dim) */
+  backdrop?: FloatBackdrop;
+  /** Whether to hide the header bar */
+  hideHeader?: boolean;
 }
 
 /** Drag operation state */

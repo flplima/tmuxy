@@ -226,7 +226,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
   try {
     await page.waitForFunction(
       (count) => {
-        const tabs = document.querySelectorAll('.tab-name');
+        const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
         return tabs.length === count;
       },
       expectedCount,
@@ -234,8 +234,8 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
     );
   } catch {
     const diag = await page.evaluate(() => {
-      const tabs = document.querySelectorAll('.tab-name');
-      const tabInfo = Array.from(tabs).map(t => t.getAttribute('aria-label'));
+      const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
+      const tabInfo = Array.from(tabs).map(t => t.querySelector('button')?.getAttribute('aria-label'));
       const snap = window.app?.getSnapshot();
       const windows = snap?.context?.windows?.map(w => `${w.id}:${w.index}:${w.name}:a=${w.active}:pg=${w.isPaneGroupWindow}:fl=${w.isFloatWindow}`);
       return { count: tabs.length, tabInfo, windows };
