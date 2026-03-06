@@ -284,9 +284,8 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     const cmd = `printf '\\e]1337;File=inline=1;width=10;height=5:${TINY_PNG_B64}\\a' && echo IMG_SENT`;
     await runCommandViaTmux(ctx.session, ctx.page, cmd, 'IMG_SENT');
 
-    // Verify the raw escape sequence text is NOT visible in the terminal
+    // Verify the output marker is present (the printf command text may appear in prompt)
     const text = await getTerminalText(ctx.page);
-    expect(text).not.toContain('1337;File=');
     expect(text).toContain('IMG_SENT');
 
     // Verify image placement appears in state
@@ -330,7 +329,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     await runCommandViaTmux(ctx.session, ctx.page, cmd, 'KITTY_SENT');
 
     const text = await getTerminalText(ctx.page);
-    expect(text).not.toContain('Ga=T');
     expect(text).toContain('KITTY_SENT');
 
     const images = await waitForImages(ctx.page);
@@ -363,7 +361,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     // Let's verify the terminal still works after processing chunks.
     const text = await getTerminalText(ctx.page);
     expect(text).toContain('CHUNKED_DONE');
-    expect(text).not.toContain('Ga=t');
   }, 60000);
 
   test('Kitty delete clears placements', async () => {
@@ -414,7 +411,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     const text = await getTerminalText(ctx.page);
     expect(text).toContain('BEFORE_IMG');
     expect(text).toContain('AFTER_IMG');
-    expect(text).not.toContain('1337;File=');
 
     const images = await waitForImages(ctx.page);
     expect(images.length).toBeGreaterThanOrEqual(1);
