@@ -94,6 +94,9 @@ jobs:
           cd .. && rm -rf tmux-3.5a
           tmux -V
 
+      - name: Install fzf
+        run: sudo apt-get install -y --no-install-recommends fzf
+
       - name: Install npm dependencies
         run: npm install
 
