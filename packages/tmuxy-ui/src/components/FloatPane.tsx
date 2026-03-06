@@ -35,7 +35,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   );
   const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
   const isFocused = focusedFloatPaneId === floatState.paneId;
-  const { charWidth, charHeight } = useAppSelector(selectCharSize);
+  const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
   const cursorBlink = useAppSelector(selectCursorBlink);
 
@@ -107,7 +107,6 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
             inMode={pane.inMode}
             copyCursorX={pane.copyCursorX}
             copyCursorY={pane.copyCursorY}
-            charWidth={charWidth}
           />
         </div>
       </Modal>
@@ -153,7 +152,6 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
             inMode={pane.inMode}
             copyCursorX={pane.copyCursorX}
             copyCursorY={pane.copyCursorY}
-            charWidth={charWidth}
           />
         </div>
       </div>

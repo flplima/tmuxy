@@ -243,7 +243,10 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest('.pane-header')) return;
-      if (pane?.mouseAnyFlag) return;
+      if (pane?.mouseAnyFlag) {
+        e.preventDefault();
+        return;
+      }
 
       e.preventDefault();
 

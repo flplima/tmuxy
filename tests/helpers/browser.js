@@ -156,7 +156,7 @@ async function focusPage(page) {
   try {
     await page.locator('[role="log"]').first().click({ timeout: 5000 });
   } catch {
-    await page.click('body');
+    await page.click('body', { timeout: 5000 });
   }
   await delay(DELAYS.MEDIUM);
 }

@@ -62,7 +62,7 @@ describe('Terminal', () => {
 
   it('renders cursor at correct position', () => {
     const content = createContent(['test line here']);
-    render(<Terminal content={content} cursorX={5} cursorY={0} isActive={true} charWidth={9} />);
+    render(<Terminal content={content} cursorX={5} cursorY={0} isActive={true} />);
 
     const cursor = document.querySelector('.terminal-cursor');
     expect(cursor).toBeInTheDocument();
@@ -81,7 +81,6 @@ describe('Terminal', () => {
         copyCursorX={10}
         copyCursorY={0}
         isActive={true}
-        charWidth={9}
       />,
     );
 
