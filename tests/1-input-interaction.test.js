@@ -26,7 +26,7 @@ const {
   pasteText,
   DELAYS,
   assertContentMatch,
-  assertSpacing,
+  assertLayoutInvariants,
 } = require('./helpers');
 
 const MOUSE_CAPTURE_SCRIPT = path.join(__dirname, 'helpers', 'mouse-capture.py');
@@ -296,6 +296,7 @@ describe('Scenario 1: General Layout', () => {
       expect(rect.height).toBeGreaterThan(50);
     }
 
+    await assertLayoutInvariants(ctx.page, { label: 'Scenario 1 end' });
     await assertContentMatch(ctx.page, 'Scenario 1 end');
   }, 180000);
 });
@@ -472,7 +473,7 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     await ctx.setupTwoPanes('horizontal');
     await waitForPaneCount(ctx.page, 2);
     await assertContentMatch(ctx.page, 'Scenario 8 setup');
-    await assertSpacing(ctx.page);
+    await assertLayoutInvariants(ctx.page);
     let panesBefore = await ctx.session.getPaneInfo();
     await resizePaneKeyboard(ctx.page, 'D', 5);
     await delay(DELAYS.SYNC);
@@ -539,13 +540,26 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     for (const evt of scrollUps) expect(evt.btn).toBe(64);
     for (const evt of scrollDowns) expect(evt.btn).toBe(65);
 
-    // Step 5: SGR right-click — use the same capture session.
-    const rClickX = contentBox.x + 50;
-    const rClickY = contentBox.y + 50;
-    await ctx.page.mouse.click(rClickX, rClickY, { button: 'right' });
-    await delay(DELAYS.SYNC);
-    // Read all events and look for a right-click press (btn=2) anywhere
-    const allEvents = await readMouseEvents(0, 10000);
+    // Step 5: SGR right-click — dispatch mousedown event directly on the terminal content
+    // because Playwright's right-click in headless Chrome doesn't reliably trigger
+    // the React onMouseDown handler for button=2.
+    const eventsBefore = await readMouseEvents(0, 1000);
+    await ctx.page.evaluate(() => {
+      const content = document.querySelector('.terminal-content');
+      if (!content) return;
+      const rect = content.getBoundingClientRect();
+      const clientX = rect.left + 50;
+      const clientY = rect.top + 50;
+      content.dispatchEvent(new MouseEvent('mousedown', {
+        button: 2,
+        clientX,
+        clientY,
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+    // Wait for at least 1 new event (the right-click press)
+    const allEvents = await readMouseEvents(eventsBefore.length + 1, 10000);
     const rPress = allEvents.find(e => e.type === 'press' && e.btn === 2);
     expect(rPress).toBeDefined();
     expect(rPress.btn).toBe(2);
@@ -929,6 +943,51 @@ describe('Scenario 21: Touch Scrolling', () => {
     expect(finalPaneCount).toBe(2);
     await delay(DELAYS.SYNC);
     await assertContentMatch(ctx.page, 'Scenario 21 end');
-    await assertSpacing(ctx.page);
+    await assertLayoutInvariants(ctx.page);
+  }, 180000);
+});
+
+// ==================== Scenario 23: Multi-Viewport Layout ====================
+
+describe('Scenario 23: Multi-Viewport Layout', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('3 panes → layout invariants at 3 viewport sizes', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Create 3-pane layout: vertical split + horizontal split
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2, 10000);
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await waitForPaneCount(ctx.page, 3, 10000);
+    await delay(DELAYS.SYNC);
+
+    // Verify invariants at default size first (before any viewport changes)
+    await assertLayoutInvariants(ctx.page, { label: 'viewport default (1280x720)' });
+
+    const viewports = [
+      { width: 800, height: 600, label: 'small' },
+      { width: 1920, height: 1080, label: 'large' },
+    ];
+
+    for (const vp of viewports) {
+      await ctx.page.setViewportSize({ width: vp.width, height: vp.height });
+      // Wait for resize to propagate through: browser → SSE → server → tmux → SSE → browser
+      await delay(DELAYS.SYNC * 2);
+
+      // Wait for pane count to still be 3 after resize
+      await waitForPaneCount(ctx.page, 3, 10000);
+
+      await assertLayoutInvariants(ctx.page, { label: `viewport ${vp.label} (${vp.width}x${vp.height})` });
+    }
+
+    // Restore default viewport
+    await ctx.page.setViewportSize({ width: 1280, height: 720 });
+    await delay(DELAYS.SYNC);
   }, 180000);
 });

@@ -17,6 +17,7 @@ const {
   verifyRoundTrip,
   getBrowser,
   TmuxTestSession,
+  assertLayoutInvariants,
   DELAYS,
   TMUXY_URL,
 } = require('./helpers');
@@ -83,6 +84,9 @@ describe('Scenario 12: Session Reconnect', () => {
     await waitForPaneCount(ctx.page, 6);
     const uiCount = await getUIPaneCount(ctx.page);
     expect(uiCount).toBe(6);
+
+    // Step 7: Layout invariants on 6-pane layout
+    await assertLayoutInvariants(ctx.page, { label: 'Scenario 12 6-pane' });
   }, 180000);
 });
 

@@ -37,6 +37,8 @@ const {
   waitForGroupTabs,
   isHeaderGrouped,
   getGroupTabInfo,
+  assertLayoutInvariants,
+  assertContentMatch,
   DELAYS,
 } = require('./helpers');
 
@@ -79,42 +81,6 @@ async function getFloatModalInfo(page) {
   });
 }
 
-/**
- * Check for unexpected pixel-level overlap between tiled pane elements.
- * Returns overlaps exceeding 1 charHeight vertically — anything more than the
- * separator-row-as-header design allows is a regression (e.g., the padBottom bug).
- *
- * By design, vertically adjacent panes share exactly 1 charHeight of overlap:
- * the bottom pane's header occupies the tmux separator row, which is also the
- * bottom pixel row of the top pane's div. This is expected and excluded.
- */
-async function getPaneOverlaps(page) {
-  return await page.evaluate(() => {
-    const snap = window.app?.getSnapshot();
-    const charHeight = snap?.context?.charHeight ?? 24;
-    const charWidth = snap?.context?.charWidth ?? 9;
-    const items = document.querySelectorAll('.pane-layout-item');
-    const panes = Array.from(items).map(el => {
-      const r = el.getBoundingClientRect();
-      return { pid: el.dataset.paneId || '?', top: r.top, bottom: r.bottom, left: r.left, right: r.right };
-    });
-    const overlaps = [];
-    // By design, adjacent panes share overlap in the separator region:
-    // - Vertically: up to charHeight (separator row shared as header)
-    // - Horizontally: up to charWidth (separator column, each pane extends hPadding into it)
-    for (let i = 0; i < panes.length; i++) {
-      for (let j = i + 1; j < panes.length; j++) {
-        const a = panes[i], b = panes[j];
-        const overlapV = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-        const overlapH = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        if (overlapV > charHeight && overlapH > charWidth) {
-          overlaps.push({ a: a.pid, b: b.pid, overlapV: Math.round(overlapV), overlapH: Math.round(overlapH) });
-        }
-      }
-    }
-    return overlaps;
-  });
-}
 
 async function getDrawerInfo(page) {
   return await page.evaluate(() => {
@@ -253,9 +219,11 @@ describe('Scenario 4: Window Lifecycle', () => {
     const areas = tiledPanes.map(p => p.width * p.height);
     expect(Math.max(...areas) / Math.min(...areas)).toBeLessThan(2);
 
-    // Verify no pane overlap (regression for vertical padding bug)
-    const overlaps = await getPaneOverlaps(ctx.page);
-    expect(overlaps).toEqual([]);
+    // Wait for layout to fully settle (layout change triggers resize round-trip)
+    await delay(DELAYS.SYNC);
+
+    // Verify layout invariants (overlap, centering, padding, headers, dimensions)
+    await assertLayoutInvariants(ctx.page, { label: 'Scenario 4 tiled layout' });
   }, 180000);
 });
 
@@ -268,9 +236,12 @@ describe('Scenario 5: Pane Groups', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Header → add button → create group → switch tabs → add 3rd → close tab → content verify → ungroup', async () => {
+  test('Header → add button → create group → switch tabs → identity verify → add 3rd → close tab → ungroup', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
+
+    // Layout invariants on initial single pane
+    await assertLayoutInvariants(ctx.page, { label: 'Scenario 5 initial' });
 
     // Step 1: Header element exists
     const header = await ctx.page.$('.pane-tab');
@@ -280,7 +251,13 @@ describe('Scenario 5: Pane Groups', () => {
     const addButton = await ctx.page.$('.pane-tab-add');
     expect(addButton).not.toBeNull();
 
-    // Step 3: Create group
+    // Step 3: Record original (ALPHA) pane ID
+    const alphaPaneId = await ctx.page.evaluate(() => {
+      return window.app?.getSnapshot()?.context?.activePaneId || null;
+    });
+    expect(alphaPaneId).not.toBeNull();
+
+    // Step 4: Create group
     expect(await isHeaderGrouped(ctx.page)).toBe(false);
     await clickPaneGroupAdd(ctx.page);
     await waitForGroupTabs(ctx.page, 2);
@@ -289,46 +266,56 @@ describe('Scenario 5: Pane Groups', () => {
     expect(tabs.length).toBe(2);
     expect(tabs.filter(t => t.active).length).toBe(1);
 
-    // Step 4: Run command in visible pane, switch tabs, verify content
-    await focusPage(ctx.page);
-
-    for (let i = 0; i < 50; i++) {
-      const hasContent = await ctx.page.evaluate(() => {
-        const paneWrappers = document.querySelectorAll('.pane-wrapper');
-        for (const pw of paneWrappers) {
-          const style = getComputedStyle(pw);
-          if (style.display === 'none') continue;
-          const log = pw.querySelector('[role="log"]');
-          if (log && log.textContent.length > 0) return true;
-        }
-        return false;
-      });
-      if (hasContent) break;
-      await delay(DELAYS.MEDIUM);
-    }
+    // Step 5: Record the new (BETA) pane ID — it should be different from ALPHA
     await delay(DELAYS.SYNC);
-    await runCommand(ctx.page, 'echo "MARKER_BETA"', 'MARKER_BETA', 15000);
+    const betaPaneId = await ctx.page.evaluate(() => {
+      return window.app?.getSnapshot()?.context?.activePaneId || null;
+    });
+    expect(betaPaneId).not.toBeNull();
+    expect(betaPaneId).not.toBe(alphaPaneId);
 
+    // Step 6: Switch to original pane tab, verify pane identity via ID
     const inactiveIdx = tabs.findIndex(t => !t.active);
     await clickGroupTab(ctx.page, inactiveIdx);
     await waitForGroupTabs(ctx.page, 2);
     await delay(DELAYS.SYNC);
 
-    // Should not see MARKER_BETA (switched to original pane with different content)
     tabs = await getGroupTabInfo(ctx.page);
     expect(tabs.filter(t => t.active).length).toBe(1);
 
-    // Step 5: Add 3rd tab
+    const afterSwitchId = await ctx.page.evaluate(() => {
+      return window.app?.getSnapshot()?.context?.activePaneId || null;
+    });
+    expect(afterSwitchId).toBe(alphaPaneId);
+
+    // Step 7: Switch back to BETA pane and verify identity
+    const betaIdx = tabs.findIndex(t => t.active); // currently on ALPHA's tab
+    const otherIdx = betaIdx === 0 ? 1 : 0;
+    await clickGroupTab(ctx.page, otherIdx);
+    await delay(DELAYS.SYNC);
+
+    const afterSwitch2Id = await ctx.page.evaluate(() => {
+      return window.app?.getSnapshot()?.context?.activePaneId || null;
+    });
+    expect(afterSwitch2Id).toBe(betaPaneId);
+
+    // Step 8: Verify tab highlight matches active pane
+    const tabsAfterSwitch = await getGroupTabInfo(ctx.page);
+    const selectedTab = tabsAfterSwitch.find(t => t.active);
+    expect(selectedTab).toBeDefined();
+    expect(selectedTab.index).toBe(otherIdx);
+
+    // Step 9: Add 3rd tab
     await clickGroupTabAdd(ctx.page);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
-    // Step 6: Close a tab (last non-active one)
+    // Step 10: Close a tab (last non-active one)
     await clickGroupTabClose(ctx.page, 2);
     await waitForGroupTabs(ctx.page, 2);
     expect(await getGroupTabCount(ctx.page)).toBe(2);
 
-    // Step 7: Close remaining extra tab → revert to regular header
+    // Step 11: Close remaining extra tab → revert to regular header
     await clickGroupTabClose(ctx.page, 1);
     await waitForCondition(ctx.page, async () => {
       return !(await isHeaderGrouped(ctx.page));

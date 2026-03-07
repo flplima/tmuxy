@@ -100,7 +100,8 @@ echo ""
 
 INIT_SCRIPT='
     ln -sf /workspace/.devcontainer/.tmuxy.conf ~/.tmuxy.conf
-    ln -sf /workspace/.devcontainer/.tmux-dev.conf ~/.tmux.conf
+    mkdir -p ~/.local/bin
+    ln -sf /workspace/scripts/tmuxy-cli ~/.local/bin/tmuxy
     gh auth setup-git 2>/dev/null
     git -C /workspace remote set-url origin "$(git -C /workspace remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
 '

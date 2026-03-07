@@ -15,7 +15,8 @@ const TmuxTestSession = require('./TmuxTestSession');
 const { GlitchDetector, OPERATION_THRESHOLDS } = require('./glitch-detector');
 const consistency = require('./consistency');
 const cli = require('./cli');
-const { assertContentMatch, assertSpacing } = require('./content-match');
+const { assertContentMatch } = require('./content-match');
+const { assertLayoutInvariants } = require('./layout');
 
 // ==================== Known Limitations Registry ====================
 
@@ -132,5 +133,7 @@ module.exports = {
 
   // Content-match assertions
   assertContentMatch,
-  assertSpacing,
+
+  // Layout invariant assertions
+  assertLayoutInvariants,
 };
