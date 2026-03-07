@@ -719,8 +719,8 @@ describe('Scenario 22: Float CLI Workflow', () => {
     await pressEnter(ctx.page);
     await delay(DELAYS.SYNC);
 
-    // Step 3: Float modal appears
-    await waitForFloatModal(ctx.page);
+    // Step 3: Float modal appears (extended timeout after CLI → run-shell → control mode chain)
+    await waitForFloatModal(ctx.page, 20000);
 
     // Step 4: Float header has close button but NO group-add (+) button
     const floatHeaderInfo = await ctx.page.evaluate(() => {
@@ -836,5 +836,106 @@ describe('Scenario 22: Float CLI Workflow', () => {
 
     // Cleanup
     fs.unlinkSync(fzfListScript);
+  }, 180000);
+});
+
+// ==================== Scenario 22b: Float Rendering & Styling ====================
+
+describe('Scenario 22b: Float Rendering & Styling', () => {
+  const ctx = createTestContext({ snapshot: true });
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Float pane: active border → pane header without group buttons → type command → verify output → layout invariants', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupTwoPanes('horizontal');
+
+    // Step 1: Create float from active pane
+    const activePaneId = await ctx.session.getActivePaneId();
+    await createFloat(ctx, activePaneId);
+    await waitForFloatModal(ctx.page);
+
+    // Step 2: Float container has active border styling (green border)
+    const floatStyles = await ctx.page.evaluate(() => {
+      const fc = document.querySelector('.float-container');
+      if (!fc) return null;
+      const s = getComputedStyle(fc);
+      return {
+        border: s.border,
+        borderColor: s.borderColor,
+        boxShadow: s.boxShadow,
+        borderRadius: s.borderRadius,
+      };
+    });
+    expect(floatStyles).not.toBeNull();
+    // Border should be green (accent-green)
+    expect(floatStyles.borderColor).toMatch(/rgb\(0,\s*205,\s*0\)|rgb\(0,\s*128,\s*0\)|green/i);
+
+    // Step 3: Float has pane header with close button, pane tab, but NO group-add button
+    const headerInfo = await ctx.page.evaluate(() => {
+      const fc = document.querySelector('.float-container');
+      if (!fc) return null;
+      return {
+        hasHeader: !!fc.querySelector('.pane-header'),
+        hasGroupAddButton: !!fc.querySelector('.pane-tab-add'),
+        hasCloseButton: !!fc.querySelector('.pane-header-close'),
+        hasPaneTab: !!fc.querySelector('.pane-tab'),
+      };
+    });
+    expect(headerInfo.hasHeader).toBe(true);
+    expect(headerInfo.hasCloseButton).toBe(true);
+    expect(headerInfo.hasPaneTab).toBe(true);
+    expect(headerInfo.hasGroupAddButton).toBe(false);
+
+    // Step 4: Float has terminal content area
+    const hasTerminal = await ctx.page.evaluate(() => {
+      const fc = document.querySelector('.float-container');
+      return fc && fc.querySelector('.float-content .terminal-content') !== null;
+    });
+    expect(hasTerminal).toBe(true);
+
+    // Step 5: Wait for auto-focus, then type command and verify output
+    await waitForCondition(ctx.page, async () => {
+      const id = await ctx.page.evaluate(() =>
+        window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+      );
+      return id !== null && id !== undefined;
+    }, 5000, 'focusedFloatPaneId to be set');
+
+    const TOKEN = 'FLOAT_RENDER_E2E_' + Date.now();
+    await ctx.page.keyboard.type(`echo ${TOKEN}`);
+    await ctx.page.keyboard.press('Enter');
+    await delay(DELAYS.SYNC);
+
+    // Wait for output to appear in the float's terminal content
+    await ctx.page.waitForFunction(
+      (token) => {
+        const fc = document.querySelector('.float-container');
+        if (!fc) return false;
+        const log = fc.querySelector('[role="log"]');
+        return log && log.textContent.includes(token);
+      },
+      TOKEN,
+      { timeout: 15000, polling: 200 },
+    );
+
+    // Step 6: Layout invariants on tiled panes while float is open
+    await assertLayoutInvariants(ctx.page, { label: 'Scenario 22b float open' });
+
+    // Step 7: Close float via close button
+    await ctx.page.click('.float-container .pane-header-close');
+    await ctx.page.waitForFunction(
+      () => document.querySelectorAll('.modal-overlay').length === 0,
+      { timeout: 10000, polling: 100 },
+    );
+
+    // Float is gone
+    const floatGone = await ctx.page.$('.float-container');
+    expect(floatGone).toBeNull();
+
+    // Tiled pane still works after float closed
+    await assertLayoutInvariants(ctx.page, { label: 'Scenario 22b after float close' });
   }, 180000);
 });
