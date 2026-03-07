@@ -7,6 +7,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useMemo, ReactNode } from 'react';
+import { CONTAINER_PADDING } from '../constants/layout';
 import { ResizeDividers } from './ResizeDividers';
 import {
   useAppSelector,
@@ -53,13 +54,17 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // Padding to cover the tmux separator column between horizontally-adjacent panes
   const hPadding = Math.round(charWidth / 2);
 
-  // Center the pane grid in the container (no padding needed — edge panes don't extend outward)
+  // Center the pane grid in the container.
+  // containerWidth/Height are content-box (from ResizeObserver), but absolute positioning
+  // references the padding box. Add CONTAINER_PADDING to account for the CSS padding.
   const centeringOffset = useMemo(() => {
     const paneContentWidth = totalWidth * charWidth;
     const paneContentHeight = totalHeight * charHeight;
+    const paddingBoxWidth = containerWidth + 2 * CONTAINER_PADDING;
+    const paddingBoxHeight = containerHeight + 2 * CONTAINER_PADDING;
     return {
-      x: Math.max(0, (containerWidth - paneContentWidth) / 2),
-      y: Math.max(0, (containerHeight - paneContentHeight) / 2),
+      x: Math.max(CONTAINER_PADDING, (paddingBoxWidth - paneContentWidth) / 2),
+      y: Math.max(CONTAINER_PADDING, (paddingBoxHeight - paneContentHeight) / 2),
     };
   }, [totalWidth, totalHeight, charWidth, charHeight, containerWidth, containerHeight]);
 
@@ -102,20 +107,17 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       const onRight = pane.x + pane.width >= totalWidth;
       const padLeft = onLeft ? 0 : hPadding;
       const padRight = onRight ? 0 : hPadding;
-      // Extend vertically into the tmux separator row below the pane.
-      // In DemoTmux panes start at y=1 (one header row above), so the separator
-      // between stacked panes is not covered by either pane div — extend downward
-      // by charHeight to close that gap. In real tmux panes start at y=0, where
-      // the by-design charHeight overlap between adjacent panes already covers the
-      // separator, so no extra extension is needed (it would double the overlap).
-      const onBottom = pane.y + pane.height >= totalHeight;
-      const padBottom = pane.y > 0 && !onBottom ? charHeight : 0;
+      // With pane-border-status top, the layout height for y=0 panes already
+      // includes the border-title row. For y>0 panes, the border-title sits in
+      // the separator row at y-1, which is NOT included in the layout height,
+      // so we add 1 extra row for the header.
+      const heightRows = pane.y > 0 ? pane.height + 1 : pane.height;
       return {
         position: 'absolute',
         left: Math.round(centeringOffset.x + pane.x * charWidth) - padLeft,
         top: centeringOffset.y + headerY * charHeight,
-        width: Math.ceil(pane.width * charWidth) + padLeft + padRight,
-        height: (pane.height + 1) * charHeight + padBottom,
+        width: Math.round(pane.width * charWidth) + padLeft + padRight,
+        height: heightRows * charHeight,
         '--pane-h-padding-left': `${padLeft}px`,
         '--pane-h-padding-right': `${padRight}px`,
       } as React.CSSProperties;
@@ -194,7 +196,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
                 left: centeringOffset.x + dropTarget.x * charWidth - gl,
                 top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
                 width: dropTarget.width * charWidth + gl + gr,
-                height: (dropTarget.height + 1) * charHeight,
+                height: (dropTarget.y > 0 ? dropTarget.height + 1 : dropTarget.height) * charHeight,
               }}
             />
           );

@@ -23,6 +23,7 @@ const {
   selectWindowKeyboard,
   killPaneKeyboard,
   resizePaneKeyboard,
+  assertLayoutInvariants,
   GlitchDetector,
   DELAYS,
 } = require('./helpers');
@@ -144,6 +145,9 @@ describe('Scenario 18: Rapid Operations', () => {
     expect(await ctx.session.getPaneCount()).toBe(6);
     const sizeResult = await verifyDomSizes(ctx.page);
     expect(sizeResult.valid).toBe(true);
+
+    // Layout invariants on 6-pane grid
+    await assertLayoutInvariants(ctx.page, { label: 'Scenario 18 6-pane grid' });
 
     // Kill back to 1 pane for next steps
     for (let i = 0; i < 5; i++) {

@@ -30,7 +30,8 @@ export function findSwapTarget(
     const left = centerOffsetX + pane.x * charWidth - insetX;
     const top = centerOffsetY + headerY * charHeight - PANE_INSET_Y;
     const right = left + pane.width * charWidth + 2 * insetX;
-    const bottom = top + (pane.height + 1) * charHeight + 2 * PANE_INSET_Y;
+    const heightRows = pane.y > 0 ? pane.height + 1 : pane.height;
+    const bottom = top + heightRows * charHeight + 2 * PANE_INSET_Y;
 
     if (mouseX >= left && mouseX < right && mouseY >= top && mouseY < bottom) {
       return pane.tmuxId;
