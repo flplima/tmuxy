@@ -279,6 +279,21 @@ impl TmuxMonitor {
                             // Track last event time for idle-based heartbeat
                             last_event_at = tokio::time::Instant::now();
 
+                            // Guard: suppress %session-changed events for other
+                            // sessions. Creating a new tmux session (even from a
+                            // separate process) fires %session-changed on ALL control
+                            // mode clients. Suppress these to prevent the aggregator
+                            // from updating session_name and emitting cross-session state.
+                            if let ControlModeEvent::SessionChanged { ref session_name, .. } = event {
+                                if !self.config.session.is_empty() && *session_name != self.config.session {
+                                    eprintln!(
+                                        "[monitor] Suppressing SessionChanged to '{}' (expected '{}')",
+                                        session_name, self.config.session
+                                    );
+                                    continue;
+                                }
+                            }
+
                             // Detect events that need follow-up commands
                             let is_window_add = matches!(&event, ControlModeEvent::WindowAdd { .. });
 

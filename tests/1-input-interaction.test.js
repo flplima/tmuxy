@@ -76,10 +76,10 @@ async function readMouseEvents(minCount = 1, timeout = 5000) {
   while (Date.now() - start < timeout) {
     try {
       const content = fs.readFileSync(MOUSE_LOG, 'utf-8');
-      const lines = content.trim().split('\n').filter(l => l && l !== 'READY');
+      const lines = content.trim().split('\n').map(l => l.trim()).filter(l => l && l !== 'READY');
       events = lines.map(line => {
         const parts = line.split(':');
-        const type = parts[0];
+        const type = parts[0].trim();
         const props = {};
         for (let i = 1; i < parts.length; i++) {
           const [k, v] = parts[i].split('=');
@@ -175,6 +175,130 @@ async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepD
   });
   await cdp.detach();
 }
+
+// ==================== Scenario 1: General Layout ====================
+
+describe('Scenario 1: General Layout', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Split vertical → split horizontal → 3 panes with correct sizes and positions', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Step 1: Split vertical (prefix + %) → 2 panes side by side
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2, 10000);
+    await delay(DELAYS.SYNC);
+
+    // Step 2: Split horizontal (prefix + ") → 3 panes
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await waitForPaneCount(ctx.page, 3, 10000);
+    await delay(DELAYS.SYNC);
+
+    // Step 3: Assert exactly 3 panes
+    const paneCount = await getUIPaneCount(ctx.page);
+    expect(paneCount).toBe(3);
+
+    // Step 4: Read layout data from XState and compute expected positions
+    const layoutData = await ctx.page.evaluate(() => {
+      const snap = window.app?.getSnapshot();
+      if (!snap?.context) return null;
+      const c = snap.context;
+      const visiblePanes = (c.panes || []).filter(p => p.windowId === c.activeWindowId);
+      return {
+        charWidth: c.charWidth,
+        charHeight: c.charHeight,
+        totalWidth: c.totalWidth,
+        totalHeight: c.totalHeight,
+        containerWidth: c.containerWidth,
+        containerHeight: c.containerHeight,
+        panes: visiblePanes.map(p => ({
+          id: p.tmuxId,
+          x: p.x,
+          y: p.y,
+          width: p.width,
+          height: p.height,
+        })),
+      };
+    });
+    expect(layoutData).not.toBeNull();
+    expect(layoutData.panes.length).toBe(3);
+
+    const { charWidth, charHeight, totalWidth, totalHeight } = layoutData;
+
+    // Step 5: Read DOM bounding rects and verify pane layout structure
+    const actualRects = await ctx.page.evaluate(() => {
+      const items = document.querySelectorAll('.pane-layout-item[data-pane-id]');
+      const container = document.querySelector('.pane-container');
+      if (!container) return null;
+      const cRect = container.getBoundingClientRect();
+      return Array.from(items).map(el => {
+        const r = el.getBoundingClientRect();
+        return {
+          id: el.getAttribute('data-pane-id'),
+          left: r.left - cRect.left,
+          top: r.top - cRect.top,
+          width: r.width,
+          height: r.height,
+        };
+      });
+    });
+    expect(actualRects).not.toBeNull();
+    expect(actualRects.length).toBe(3);
+
+    // Step 6: Verify pane layout structure
+    // Sort panes by position for spatial checks
+    const sorted = actualRects.slice().sort((a, b) => a.left - b.left || a.top - b.top);
+
+    // Vertical split creates 2 columns, horizontal split creates 2 rows in one column.
+    // Result: one column has 1 pane, the other has 2 stacked panes.
+
+    // Verify 2 distinct left edges (two columns)
+    const leftEdges = [...new Set(sorted.map(r => Math.round(r.left)))];
+    expect(leftEdges.length).toBe(2);
+
+    // Group by column
+    const col1 = sorted.filter(r => Math.round(r.left) === leftEdges[0]);
+    const col2 = sorted.filter(r => Math.round(r.left) === leftEdges[1]);
+    // One column has 1 pane, the other has 2 (order depends on which pane had focus)
+    const singleCol = col1.length === 1 ? col1 : col2;
+    const splitCol = col1.length === 2 ? col1 : col2;
+    expect(singleCol.length).toBe(1);
+    expect(splitCol.length).toBe(2);
+
+    // Split column panes should be stacked vertically (same left, different top)
+    expect(Math.abs(splitCol[0].left - splitCol[1].left)).toBeLessThanOrEqual(2);
+    expect(splitCol[0].top).not.toBe(splitCol[1].top);
+
+    // Pane widths should correspond to tmux char-cell widths
+    const tolerance = 2;
+    for (const pane of layoutData.panes) {
+      const hPadding = Math.round(charWidth / 2);
+      const onLeft = pane.x === 0;
+      const onRight = pane.x + pane.width >= totalWidth;
+      const padLeft = onLeft ? 0 : hPadding;
+      const padRight = onRight ? 0 : hPadding;
+      const expectedWidth = Math.ceil(pane.width * charWidth) + padLeft + padRight;
+      const actual = actualRects.find(a => a.id === pane.id);
+      expect(actual).toBeDefined();
+      if (actual) {
+        expect(Math.abs(actual.width - expectedWidth)).toBeLessThanOrEqual(tolerance);
+      }
+    }
+
+    // All panes should have non-zero dimensions
+    for (const rect of actualRects) {
+      expect(rect.width).toBeGreaterThan(50);
+      expect(rect.height).toBeGreaterThan(50);
+    }
+
+    await assertContentMatch(ctx.page, 'Scenario 1 end');
+  }, 180000);
+});
 
 // ==================== Scenario 2: Keyboard Basics ====================
 
@@ -415,16 +539,14 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     for (const evt of scrollUps) expect(evt.btn).toBe(64);
     for (const evt of scrollDowns) expect(evt.btn).toBe(65);
 
-    // Step 5: SGR right-click - stop and restart for clean slate
-    await stopMouseCapture(ctx);
-    await delay(DELAYS.LONG);
-    const capture3 = await startMouseCapture(ctx);
-
-    const rClickX = capture3.contentBox.x + 50;
-    const rClickY = capture3.contentBox.y + 50;
+    // Step 5: SGR right-click — use the same capture session.
+    const rClickX = contentBox.x + 50;
+    const rClickY = contentBox.y + 50;
     await ctx.page.mouse.click(rClickX, rClickY, { button: 'right' });
-    events = await readMouseEvents(1);
-    const rPress = events.find(e => e.type === 'press');
+    await delay(DELAYS.SYNC);
+    // Read all events and look for a right-click press (btn=2) anywhere
+    const allEvents = await readMouseEvents(0, 10000);
+    const rPress = allEvents.find(e => e.type === 'press' && e.btn === 2);
     expect(rPress).toBeDefined();
     expect(rPress.btn).toBe(2);
 

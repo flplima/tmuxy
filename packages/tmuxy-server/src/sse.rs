@@ -132,68 +132,10 @@ pub async fn sse_handler(
     // Generate unique connection ID
     let conn_id = state.next_conn_id.fetch_add(1, Ordering::SeqCst);
 
-    // Create the session if it doesn't exist, routing through an existing control mode
-    // connection to avoid spawning external tmux processes (which crash tmux 3.5a).
-    {
-        let sessions = state.sessions.read().await;
-        // Find any monitor with an open command channel to route through.
-        // Only filter out closed channels (dead monitors) — monitors in the
-        // grace period (no connections but channel still open) are still usable.
-        let existing_tx = sessions.values().find_map(|s| {
-            s.monitor_command_tx
-                .as_ref()
-                .filter(|tx| !tx.is_closed())
-                .cloned()
-        });
-        drop(sessions);
-
-        if let Some(tx) = existing_tx {
-            // Check if session exists using external command (safe on tmux 3.5a)
-            let exists = std::process::Command::new("tmux")
-                .args(["has-session", "-t", &session])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
-
-            if !exists {
-                // Create the session through the existing control mode connection
-                let cmd = format!("new-session -d -s {}", session);
-                if let Err(e) = tx.send(MonitorCommand::RunCommand { command: cmd }).await {
-                    eprintln!(
-                        "[sse] Failed to create session '{}' via control mode: {}, cleaning up stale entries",
-                        session, e
-                    );
-                    // The monitor is dead — clean up stale session entries so the new
-                    // monitor can start fresh without conflicting with a zombie.
-                    let mut sessions = state.sessions.write().await;
-                    let stale_keys: Vec<String> = sessions
-                        .iter()
-                        .filter(|(_, s)| {
-                            s.connections.is_empty()
-                                && s.monitor_command_tx
-                                    .as_ref()
-                                    .map(|t| t.is_closed())
-                                    .unwrap_or(true)
-                        })
-                        .map(|(k, _)| k.clone())
-                        .collect();
-                    for key in &stale_keys {
-                        eprintln!("[sse] Removing stale session entry '{}'", key);
-                        sessions.remove(key);
-                    }
-                    drop(sessions);
-                    // Wait for any lingering monitor processes to fully exit
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-                } else {
-                    // Brief delay for tmux to process the new-session command
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-                }
-            }
-        }
-        // If no existing monitor, TmuxMonitor::connect() with create_session=true
-        // will handle session creation by spawning tmux -CC new-session (safe when
-        // no other control mode client is attached).
-    }
+    // Session creation is handled by TmuxMonitor::connect() with create_session=true.
+    // It spawns `tmux -CC new-session -s <name>` which safely creates a new session
+    // with its own control mode connection, without routing through an existing monitor
+    // (which would trigger %session-changed and contaminate the original session's state).
 
     // Register connection and get/create shared session resources
     let session_rx = {
