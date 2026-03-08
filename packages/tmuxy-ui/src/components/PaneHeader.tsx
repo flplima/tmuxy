@@ -55,14 +55,13 @@ function getProcessIcon(command: string): string {
 }
 
 function getTabIcon(pane: TmuxPane, widgetName?: string): string | null {
-  if (pane.inMode) return null;
   if (widgetName && WIDGET_ICONS[widgetName]) return WIDGET_ICONS[widgetName];
   if (pane.command) return getProcessIcon(pane.command);
   return null;
 }
 
 function getTabText(pane: TmuxPane, titleOverride?: string, widgetName?: string): string {
-  if (pane.inMode) return '[COPY]';
+  if (pane.inMode) return '[COPY MODE]';
   if (titleOverride) return titleOverride;
   if (widgetName) return pane.title || pane.command || pane.borderTitle || 'shell';
   // Prefer command (pane_current_command), then borderTitle (evaluated pane-border-format),
