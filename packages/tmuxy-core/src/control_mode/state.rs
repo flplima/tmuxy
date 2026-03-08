@@ -390,8 +390,8 @@ impl PaneState {
         self.copy_mode_content = Some(extract_cells_from_screen(temp_terminal.screen()));
     }
 
-    /// Convert to TmuxPane struct
-    pub fn to_tmux_pane(&mut self) -> TmuxPane {
+    /// Build TmuxPane struct (uses &mut self for content caching)
+    pub fn build_tmux_pane(&mut self) -> TmuxPane {
         // Use vt100 emulator cursor for immediate feedback on output events.
         // The vt100 cursor is updated on every %output event, while tmux_cursor_x/y
         // are only updated on periodic list-panes responses (every 500ms).
@@ -1978,7 +1978,7 @@ impl StateAggregator {
 
         let panes: Vec<TmuxPane> = matching_pane_ids
             .iter()
-            .filter_map(|id| self.panes.get_mut(id).map(|p| p.to_tmux_pane()))
+            .filter_map(|id| self.panes.get_mut(id).map(|p| p.build_tmux_pane()))
             .collect();
 
         let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
