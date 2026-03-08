@@ -418,6 +418,7 @@ export function applySplitPrediction(
     selectionPresent: false,
     selectionStartX: 0,
     selectionStartY: 0,
+    cursorShape: 0,
   };
 
   return [...result, newPane];

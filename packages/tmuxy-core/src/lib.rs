@@ -263,6 +263,9 @@ pub struct TmuxPane {
     /// Image placements on this pane's terminal grid
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<control_mode::images::ImagePlacement>,
+    /// Cursor shape from DECSCUSR: 0/1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar
+    #[serde(default)]
+    pub cursor_shape: u8,
 }
 
 /// A single tmux window (tab)
@@ -452,6 +455,9 @@ pub struct PaneDelta {
     /// Image placements (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<control_mode::images::ImagePlacement>>,
+    /// Cursor shape (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor_shape: Option<u8>,
 }
 
 impl PaneDelta {
@@ -479,6 +485,7 @@ impl PaneDelta {
             && self.selection_start_x.is_none()
             && self.selection_start_y.is_none()
             && self.images.is_none()
+            && self.cursor_shape.is_none()
     }
 }
 
@@ -690,6 +697,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             selection_start_x: 0,
             selection_start_y: 0,
             images: Vec::new(),
+            cursor_shape: 0,
         });
     }
 
