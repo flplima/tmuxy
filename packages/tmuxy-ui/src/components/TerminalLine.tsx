@@ -8,7 +8,7 @@
  * - Cursor X position changes (when cursor is on this line)
  */
 
-import { memo, CSSProperties } from 'react';
+import { memo, useMemo, useCallback, CSSProperties } from 'react';
 import { Cursor } from './Cursor';
 import type { CursorMode } from './Cursor';
 import type { CellLine, TerminalCell, CellColor, CellStyle } from '../tmux/types';
@@ -224,20 +224,26 @@ export const TerminalLine = memo(
       return idx >= selectionRange.startCol && idx <= selectionRange.endCol;
     };
 
-    // Group consecutive cells with same style for efficiency
-    const renderCells = (): React.ReactNode[] => {
-      const spans: React.ReactNode[] = [];
+    // Memoize URL detection: only re-runs when line reference changes
+    // mergeContent() preserves line identity for unchanged lines → cache hits
+    const autoUrls = useMemo(() => {
+      const text = line.map((c) => c.c).join('');
+      return detectUrls(text);
+    }, [line]);
 
-      // Auto-detect URLs in line text (skip if cells already have OSC 8 urls)
-      const lineText = line.map((c) => c.c).join('');
-      const autoUrls = detectUrls(lineText);
-      // Build a per-cell URL index (-1 = no URL, 0+ = which autoUrl)
-      const urlIdx = (i: number): number => {
+    const urlIdx = useCallback(
+      (i: number): number => {
         for (let u = 0; u < autoUrls.length; u++) {
           if (i >= autoUrls[u].start && i < autoUrls[u].end) return u;
         }
         return -1;
-      };
+      },
+      [autoUrls],
+    );
+
+    // Group consecutive cells with same style for efficiency
+    const renderCells = (): React.ReactNode[] => {
+      const spans: React.ReactNode[] = [];
 
       let currentGroup: {
         cells: TerminalCell[];
@@ -430,6 +436,8 @@ export const TerminalLine = memo(
     if (nextHasCursor) {
       if (prevProps.inMode !== nextProps.inMode) return false;
       if (prevProps.isActive !== nextProps.isActive) return false;
+      if (prevProps.blink !== nextProps.blink) return false;
+      if (prevProps.cursorMode !== nextProps.cursorMode) return false;
     }
 
     // No relevant changes, skip re-render

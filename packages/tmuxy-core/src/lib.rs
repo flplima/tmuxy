@@ -394,9 +394,10 @@ pub struct PaneDelta {
     /// Window ID (only if changed, e.g. after swap-pane across windows)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_id: Option<String>,
-    /// Content (only if changed) - structured cells or ANSI strings
+    /// Content (only changed lines) - line index → line content
+    /// Only lines that differ from the previous state are included.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<PaneContent>,
+    pub content: Option<std::collections::HashMap<usize, TerminalLine>>,
     /// Cursor position (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor_x: Option<u32>,

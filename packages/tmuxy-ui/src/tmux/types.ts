@@ -214,7 +214,8 @@ export interface ServerState {
 
 export interface PaneDelta {
   window_id?: string;
-  content?: PaneContent;
+  /** Sparse line updates: line index → cells (only changed lines) */
+  content?: Record<number, CellLine>;
   cursor_x?: number;
   cursor_y?: number;
   width?: number;

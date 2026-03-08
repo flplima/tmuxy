@@ -183,6 +183,12 @@ pub struct PaneState {
     /// Cursor shape set by DECSCUSR escape sequence
     /// 0=block, 1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar
     pub cursor_shape: u8,
+
+    /// Whether terminal content has changed since last extraction
+    content_dirty: bool,
+
+    /// Cached extracted content (avoids re-extracting when content hasn't changed)
+    cached_content: Option<PaneContent>,
 }
 
 impl PaneState {
@@ -222,11 +228,15 @@ impl PaneState {
             history_size: 0,
             copy_mode_content: None,
             cursor_shape: 0,
+            content_dirty: true,
+            cached_content: None,
         }
     }
 
     /// Process new output for this pane (appends to existing buffer)
     pub fn process_output(&mut self, content: &[u8]) {
+        self.content_dirty = true;
+
         // Store raw content for rich content parsing
         self.raw_buffer.extend(content);
 
@@ -273,6 +283,9 @@ impl PaneState {
     /// capture-pane returns plain text with ANSI colors but no cursor positioning,
     /// so we need to reset to top-left before processing.
     pub fn reset_and_process_capture(&mut self, content: &[u8]) {
+        self.content_dirty = true;
+        self.cached_content = None;
+
         // Create fresh terminal to clear all state
         let w = (self.width as u16).max(1);
         let h = (self.height as u16).max(1);
@@ -313,6 +326,8 @@ impl PaneState {
         if self.width != width || self.height != height {
             self.width = width;
             self.height = height;
+            self.content_dirty = true;
+            self.cached_content = None;
             // Create a new terminal parser with the new dimensions.
             // This clears the old content which is necessary because after a resize
             // (e.g., after split-pane), the old content is no longer valid.
@@ -329,9 +344,18 @@ impl PaneState {
         }
     }
 
-    /// Get the rendered screen content as structured cells
-    pub fn get_content(&self) -> PaneContent {
-        extract_cells_with_urls(self.terminal.screen(), Some(&self.osc_parser))
+    /// Get the rendered screen content as structured cells.
+    /// Uses cached content when terminal hasn't changed since last extraction.
+    pub fn get_content(&mut self) -> PaneContent {
+        if !self.content_dirty {
+            if let Some(ref cached) = self.cached_content {
+                return cached.clone();
+            }
+        }
+        let content = extract_cells_with_urls(self.terminal.screen(), Some(&self.osc_parser));
+        self.cached_content = Some(content.clone());
+        self.content_dirty = false;
+        content
     }
 
     /// Process capture-pane output during copy mode.
@@ -367,7 +391,7 @@ impl PaneState {
     }
 
     /// Convert to TmuxPane struct
-    pub fn to_tmux_pane(&self) -> TmuxPane {
+    pub fn to_tmux_pane(&mut self) -> TmuxPane {
         // Use vt100 emulator cursor for immediate feedback on output events.
         // The vt100 cursor is updated on every %output event, while tmux_cursor_x/y
         // are only updated on periodic list-panes responses (every 500ms).
@@ -1778,8 +1802,21 @@ impl StateAggregator {
         if prev.window_id != curr.window_id {
             delta.window_id = Some(curr.window_id.clone());
         }
-        if prev.content != curr.content {
-            delta.content = Some(curr.content.clone());
+        // Line-level content diff: only include changed lines
+        {
+            let mut changed_lines: std::collections::HashMap<usize, crate::TerminalLine> =
+                std::collections::HashMap::new();
+            let max_lines = curr.content.len().max(prev.content.len());
+            for i in 0..max_lines {
+                let prev_line = prev.content.get(i);
+                let curr_line = curr.content.get(i);
+                if prev_line != curr_line {
+                    changed_lines.insert(i, curr_line.cloned().unwrap_or_default());
+                }
+            }
+            if !changed_lines.is_empty() {
+                delta.content = Some(changed_lines);
+            }
         }
         if prev.cursor_x != curr.cursor_x {
             delta.cursor_x = Some(curr.cursor_x);
@@ -1923,21 +1960,25 @@ impl StateAggregator {
             })
             .collect();
 
-        let panes: Vec<TmuxPane> = self
+        // Collect matching pane IDs first (need &self for filter, then &mut self for to_tmux_pane)
+        let matching_pane_ids: Vec<String> = self
             .panes
             .values()
             .filter(|p| {
-                // Only include panes that belong to a window we know about
                 if p.window_id.is_empty() {
                     return false;
                 }
-                // Include panes from active window, valid pane group windows, OR float windows
                 let is_active_window = active_window.map(|w| p.window_id == *w).unwrap_or(false);
                 let is_valid_pane_group_window = valid_pane_group_windows.contains(&p.window_id);
                 let is_float_window = float_windows.contains(&p.window_id);
                 is_active_window || is_valid_pane_group_window || is_float_window
             })
-            .map(|p| p.to_tmux_pane())
+            .map(|p| p.id.clone())
+            .collect();
+
+        let panes: Vec<TmuxPane> = matching_pane_ids
+            .iter()
+            .filter_map(|id| self.panes.get_mut(id).map(|p| p.to_tmux_pane()))
             .collect();
 
         let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
