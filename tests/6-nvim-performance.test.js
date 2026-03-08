@@ -58,30 +58,36 @@ describe('Nvim Performance & Correctness', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Create a test file
-    await typeInTerminal(ctx.page, 'echo "Hello from nvim test" > /tmp/nvim-test.txt');
+    // Create a test file with unique content
+    const fileContent = 'NVIM_TEST_CONTENT_ABC123';
+    await typeInTerminal(ctx.page, `echo "${fileContent}" > /tmp/nvim-test.txt`);
     await pressEnter(ctx.page);
     await delay(DELAYS.LONG);
 
-    // Open nvim with the file
-    await typeInTerminal(ctx.page, 'nvim /tmp/nvim-test.txt');
+    // Open nvim with no swap file and minimal config
+    await typeInTerminal(ctx.page, 'nvim --clean -n /tmp/nvim-test.txt');
     await pressEnter(ctx.page);
-    await waitForTerminalText(ctx.page, 'Hello from nvim test', 15000);
+    await waitForTerminalText(ctx.page, fileContent, 15000);
 
     // Verify normal mode: cursor should be block
     await waitForCursorClass(ctx.page, 'terminal-cursor-block');
 
-    // Enter insert mode (press 'i')
-    await ctx.page.keyboard.press('i');
-    await delay(DELAYS.LONG);
+    // Enter insert mode: type 'A' to append text (uses 'A' which is more reliable
+    // than 'i' since it doesn't depend on cursor position)
+    await ctx.page.keyboard.press('A');
+    await delay(1500);
 
-    // Verify insert mode: cursor should be bar
-    await waitForCursorClass(ctx.page, 'terminal-cursor-bar');
-
-    // Type some text
-    const insertedText = 'INSERTED_TEXT';
-    await ctx.page.keyboard.type(insertedText, { delay: 30 });
+    // Type some text to verify we're in insert mode
+    const insertedText = 'AAABBBCCC';
+    for (const ch of insertedText) {
+      await ctx.page.keyboard.type(ch);
+      await delay(50);
+    }
     await waitForTerminalText(ctx.page, insertedText, 10000);
+
+    // Verify insert mode: cursor should be bar (DECSCUSR 5)
+    // nvim --clean sets guicursor to ver25 for insert mode
+    await waitForCursorClass(ctx.page, 'terminal-cursor-bar');
 
     // Return to normal mode (Escape)
     await ctx.page.keyboard.press('Escape');
@@ -90,15 +96,14 @@ describe('Nvim Performance & Correctness', () => {
     // Verify cursor is back to block
     await waitForCursorClass(ctx.page, 'terminal-cursor-block');
 
-    // Exit nvim (:q!)
-    await ctx.page.keyboard.type(':q!', { delay: 30 });
+    // Exit nvim (:q!) — use keyboard directly in normal mode
+    await ctx.page.keyboard.type(':q!', { delay: 50 });
     await ctx.page.keyboard.press('Enter');
-    await delay(DELAYS.LONG);
+    await delay(2000);
 
-    // Verify shell prompt returns (look for $ or common prompt chars)
+    // After exiting nvim, the terminal leaves alternate screen mode.
+    // Verify the inserted text is no longer visible (nvim discarded changes).
     const text = await getTerminalText(ctx.page);
-    // After exiting nvim, the terminal should show the shell prompt
-    // (the inserted text should NOT persist since we used :q!)
     expect(text).not.toContain(insertedText);
   }, 60000);
 
@@ -106,10 +111,10 @@ describe('Nvim Performance & Correctness', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Create a test file and open it in nvim
-    await typeInTerminal(ctx.page, 'nvim /tmp/nvim-perf.txt');
+    // Create a test file and open it in nvim with minimal config
+    await typeInTerminal(ctx.page, 'nvim --clean -n /tmp/nvim-perf.txt');
     await pressEnter(ctx.page);
-    await delay(2000); // Wait for nvim to fully load
+    await delay(3000); // Wait for nvim to fully load
 
     // Enter insert mode
     await ctx.page.keyboard.press('i');
@@ -123,13 +128,12 @@ describe('Nvim Performance & Correctness', () => {
     await waitForTerminalText(ctx.page, 'lazy dog', 10000);
 
     // Generous threshold: typing + round-trip should complete within 5s
-    // The typeWithTiming itself is fast, but we also verify the text appeared
     expect(typeTime).toBeLessThan(5000);
 
     // Exit nvim
     await ctx.page.keyboard.press('Escape');
     await delay(DELAYS.SHORT);
-    await ctx.page.keyboard.type(':q!', { delay: 30 });
+    await ctx.page.keyboard.type(':q!', { delay: 50 });
     await ctx.page.keyboard.press('Enter');
     await delay(DELAYS.LONG);
   }, 60000);
@@ -138,22 +142,23 @@ describe('Nvim Performance & Correctness', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Generate a ~500 line file
+    // Generate a 500-line file with unique prefix per line
     await typeInTerminal(
       ctx.page,
-      'seq 1 500 | awk \'{print NR": The quick brown fox jumps over the lazy dog"}\' > /tmp/nvim-scroll.txt',
+      "seq 1 500 | awk '{printf \"LINE%03d quick brown fox\\n\", NR}' > /tmp/nvim-scroll.txt",
     );
     await pressEnter(ctx.page);
     await delay(DELAYS.LONG);
 
-    // Open in nvim
-    await typeInTerminal(ctx.page, 'nvim /tmp/nvim-scroll.txt');
+    // Open in nvim with minimal config
+    await typeInTerminal(ctx.page, 'nvim --clean -n /tmp/nvim-scroll.txt');
     await pressEnter(ctx.page);
-    await waitForTerminalText(ctx.page, '1: The quick brown fox', 15000);
+    // Wait for first line (LINE001) to appear
+    await waitForTerminalText(ctx.page, 'LINE001', 15000);
 
     // Page down (Ctrl+D) multiple times and measure
     const scrollDownTime = await measureTime(async () => {
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 10; i++) {
         await ctx.page.keyboard.down('Control');
         await ctx.page.keyboard.press('d');
         await ctx.page.keyboard.up('Control');
@@ -161,14 +166,17 @@ describe('Nvim Performance & Correctness', () => {
       }
     });
 
-    // Verify we scrolled (should see higher line numbers)
+    // Wait for content to settle after scrolling
+    await delay(500);
+
+    // Verify we scrolled: LINE001 should no longer be visible
+    // Use exact prefix to avoid substring matches (LINE001 won't match LINE100 etc.)
     const afterDown = await getTerminalText(ctx.page);
-    // After 5 Ctrl+D presses, we should be well past line 1
-    expect(afterDown).not.toContain('1: The quick brown fox');
+    expect(afterDown).not.toContain('LINE001');
 
     // Page up (Ctrl+U) back
     const scrollUpTime = await measureTime(async () => {
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 10; i++) {
         await ctx.page.keyboard.down('Control');
         await ctx.page.keyboard.press('u');
         await ctx.page.keyboard.up('Control');
@@ -176,16 +184,16 @@ describe('Nvim Performance & Correctness', () => {
       }
     });
 
-    // Verify we scrolled back
-    await waitForTerminalText(ctx.page, '1: The quick brown fox', 5000);
+    // Verify we scrolled back to the top
+    await waitForTerminalText(ctx.page, 'LINE001', 5000);
 
-    // Generous thresholds: 5 scroll ops + 200ms delay each = ~1s minimum
-    // Allow up to 8s for each direction (includes rendering + network)
-    expect(scrollDownTime).toBeLessThan(8000);
-    expect(scrollUpTime).toBeLessThan(8000);
+    // Generous thresholds: 10 scroll ops + 200ms delay each = ~2s minimum
+    // Allow up to 10s for each direction (includes rendering + network)
+    expect(scrollDownTime).toBeLessThan(10000);
+    expect(scrollUpTime).toBeLessThan(10000);
 
     // Exit nvim
-    await ctx.page.keyboard.type(':q!', { delay: 30 });
+    await ctx.page.keyboard.type(':q!', { delay: 50 });
     await ctx.page.keyboard.press('Enter');
     await delay(DELAYS.LONG);
   }, 60000);
