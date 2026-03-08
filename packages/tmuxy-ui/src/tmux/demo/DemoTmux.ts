@@ -55,6 +55,7 @@ export class DemoTmux {
   private totalWidth = 80;
   private totalHeight = 24;
   private sessionName = 'demo';
+  private copyModePanes = new Set<string>();
   private onAsyncUpdate?: () => void;
 
   // Zoom state
@@ -163,7 +164,7 @@ export class DemoTmux {
         command: pane.command,
         title: pane.title,
         border_title: '',
-        in_mode: false,
+        in_mode: this.copyModePanes.has(pane.id),
         copy_cursor_x: 0,
         copy_cursor_y: 0,
         history_size: pane.shell.getHistorySize(),
@@ -269,6 +270,14 @@ export class DemoTmux {
     this.activePaneId = paneId;
     this.applyLayout(window);
     return paneId;
+  }
+
+  enterCopyMode(paneId: string): void {
+    this.copyModePanes.add(paneId);
+  }
+
+  exitCopyMode(paneId: string): void {
+    this.copyModePanes.delete(paneId);
   }
 
   killPane(paneId?: string): boolean {

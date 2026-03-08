@@ -20,6 +20,7 @@ import {
   selectSessionName,
   selectKeyBindings,
   selectPrefixActive,
+  selectActivePaneCopyMode,
 } from '../machines/AppContext';
 import { formatPrefixKey } from './menus/keybindingLabel';
 import { isTauri } from '../tmux/adapters';
@@ -101,6 +102,27 @@ function StatusLineHints({
   );
 }
 
+const COPY_MODE_HINTS = [
+  { key: 'hjkl', label: 'nav' },
+  { key: 'v', label: 'select' },
+  { key: 'y', label: 'copy' },
+  { key: 'esc', label: 'quit' },
+];
+
+function CopyModeHints() {
+  return (
+    <span className="statusline-hints">
+      <span className="statusline-copy-mode-label">[COPY]</span>
+      {COPY_MODE_HINTS.map(({ key, label }) => (
+        <span key={key}>
+          <Separator />
+          <Key>{key}</Key> <span className="statusline-hint-desc">{label}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function CommandModeInput({
   prompt,
   input,
@@ -157,6 +179,7 @@ export function TmuxStatusBar() {
   const sessionName = useAppSelector(selectSessionName);
   const keybindings = useAppSelector(selectKeyBindings);
   const prefixActive = useAppSelector(selectPrefixActive);
+  const inCopyMode = useAppSelector(selectActivePaneCopyMode);
   const send = useAppSend();
   const { isDemo } = useAppConfig();
 
@@ -206,7 +229,11 @@ export function TmuxStatusBar() {
         style={gridPixelWidth > 0 ? { width: gridPixelWidth, margin: '0 auto' } : undefined}
       >
         <div className="tmux-statusline-left">
-          <StatusLineHints keybindings={keybindings} prefixActive={prefixActive} />
+          {inCopyMode ? (
+            <CopyModeHints />
+          ) : (
+            <StatusLineHints keybindings={keybindings} prefixActive={prefixActive} />
+          )}
         </div>
         <div className="tmux-statusline-center">{centerContent}</div>
         <div className="tmux-statusline-right">

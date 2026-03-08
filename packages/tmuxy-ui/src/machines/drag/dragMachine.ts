@@ -20,6 +20,7 @@ import type {
 } from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { findSwapTarget } from './helpers';
+import { haptics } from '../../utils/haptics';
 
 export const dragMachine = setup({
   types: {
@@ -35,17 +36,38 @@ export const dragMachine = setup({
       drag: context.drag,
     })),
     notifyCompleted: sendParent({ type: 'DRAG_COMPLETED' as const }),
+    hapticSwap: () => haptics.trigger('selection'),
   },
   actors: {
     pointerTracker: fromCallback(({ sendBack }) => {
+      // Fire start haptic in event handler context (required for navigator.vibrate)
+      haptics.trigger('medium');
       const onMove = (e: MouseEvent) =>
         sendBack({ type: 'DRAG_MOVE', clientX: e.clientX, clientY: e.clientY });
-      const onUp = () => sendBack({ type: 'DRAG_END' });
+      const onUp = () => {
+        haptics.trigger('success');
+        sendBack({ type: 'DRAG_END' });
+      };
+      const onTouchMove = (e: TouchEvent) => {
+        e.preventDefault();
+        const t = e.touches[0];
+        sendBack({ type: 'DRAG_MOVE', clientX: t.clientX, clientY: t.clientY });
+      };
+      const onTouchEnd = () => {
+        haptics.trigger('success');
+        sendBack({ type: 'DRAG_END' });
+      };
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchmove', onTouchMove, { passive: false });
+      window.addEventListener('touchend', onTouchEnd);
+      window.addEventListener('touchcancel', onTouchEnd);
       return () => {
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('touchmove', onTouchMove);
+        window.removeEventListener('touchend', onTouchEnd);
+        window.removeEventListener('touchcancel', onTouchEnd);
       };
     }),
   },
@@ -207,6 +229,7 @@ export const dragMachine = setup({
                     command: `swap-pane -d -s ${context.drag!.draggedPaneId} -t ${targetPaneId}`,
                   }),
                 );
+                enqueue('hapticSwap');
               }
             }
 

@@ -1,17 +1,17 @@
 /* ============================================
-   AppMenu - Dark theme overrides for @szhsin/react-menu
+   AppMenu - Theme overrides for @szhsin/react-menu
    ============================================ */
 
 /* Menu container */
 .szh-menu {
-  background-color: var(--term-black);
-  border: 1px solid var(--term-white);
+  background-color: var(--bg-dark);
+  border: 1px solid var(--border-medium);
   border-radius: 0;
   padding: 0;
   box-shadow: none;
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
-  color: var(--term-white);
+  color: var(--text-primary);
   min-width: 200px;
   z-index: 10000;
 }
@@ -21,26 +21,26 @@
   display: flex;
   align-items: center;
   padding: 4px 12px;
-  color: var(--term-white);
+  color: var(--text-primary);
   border-radius: 0;
   cursor: default;
 }
 
 .szh-menu__item:hover,
 .szh-menu__item--hover {
-  background-color: var(--term-white);
-  color: var(--term-black);
+  background-color: var(--bg-highlight);
+  color: var(--text-primary);
 }
 
 .szh-menu__item--disabled {
-  color: var(--term-bright-black);
+  color: var(--text-muted);
   opacity: 0.5;
 }
 
 .szh-menu__item--disabled:hover,
 .szh-menu__item--disabled.szh-menu__item--hover {
   background-color: transparent;
-  color: var(--term-bright-black);
+  color: var(--text-muted);
 }
 
 /* Submenu arrow */
@@ -55,7 +55,7 @@
 /* Divider */
 .szh-menu__divider {
   height: 1px;
-  background-color: var(--term-bright-black);
+  background-color: var(--border-medium);
   margin: 0;
 }
 
@@ -63,14 +63,14 @@
 .menu-keybinding {
   margin-left: auto;
   padding-left: 24px;
-  color: var(--term-bright-black);
+  color: var(--text-muted);
   font-size: 11px;
   white-space: nowrap;
 }
 
 .szh-menu__item:hover .menu-keybinding,
 .szh-menu__item--hover .menu-keybinding {
-  color: var(--term-black);
+  color: var(--text-primary);
 }
 
 /* Menu button (hamburger) */

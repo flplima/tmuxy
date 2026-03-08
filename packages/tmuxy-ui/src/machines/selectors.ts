@@ -590,6 +590,14 @@ export function selectPrefixActive(context: AppMachineContext): boolean {
   return context.prefixActive;
 }
 
+export function selectActivePaneCopyMode(context: AppMachineContext): boolean {
+  if (!context.activePaneId) return false;
+  const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
+  if (pane?.inMode) return true;
+  if (context.copyModeStates[context.activePaneId]) return true;
+  return false;
+}
+
 // ============================================
 // Theme Selectors
 // ============================================

@@ -60,7 +60,7 @@ const NYAN_CAT_IMAGE = [
   'raw/nyan-cat.gif',
 ].join('\n');
 
-const INIT_COMMANDS = [
+const INIT_COMMANDS_DESKTOP = [
   // Tab 1: welcome (3-pane layout)
   'rename-window welcome',
   'split-window -h',          // %1 (right)
@@ -85,8 +85,35 @@ const INIT_COMMANDS = [
   'select-window -t @0',      // back to welcome tab
 ];
 
+const INIT_COMMANDS_MOBILE = [
+  // Tab 1: welcome (stacked panes for narrow screens)
+  'rename-window welcome',
+  'split-window -v',          // %1 (bottom)
+  'select-pane -t %0',        // select top pane
+  // Tab 2: features (same 3-pane layout as desktop)
+  'new-window',               // @1 with %2
+  'rename-window features',
+  'split-window -h',          // %3 (right)
+  'select-pane -t %2',        // select left
+  'split-window -v',          // %4 (bottom-left)
+  `write-widget %4 image ${NYAN_CAT_IMAGE}`,
+  `write-widget %3 markdown ${MARKDOWN_CONTENT}`,
+  // Top-left pane (%2): pane group with 2 panes running cat
+  'select-pane -t %2',
+  'send-keys -t %2 -l cat ~/pane-group-1.txt',
+  'send-keys -t %2 Enter',
+  'tmuxy-pane-group-add',     // creates %5, swaps into view; %2 goes to group
+  'send-keys -l cat ~/pane-group-2.txt',
+  'send-keys Enter',
+  'tmuxy-pane-group-next',
+  'select-window -t @0',      // back to welcome tab
+];
+
 export default function TmuxyDemoInner() {
-  const adapter = useMemo(() => new DemoAdapter({ initCommands: INIT_COMMANDS }), []);
+  const adapter = useMemo(() => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+    return new DemoAdapter({ initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP });
+  }, []);
 
   return (
     <div style={{ height: 500, position: 'relative', display: 'flex', flexDirection: 'column' }}>

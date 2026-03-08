@@ -86,6 +86,7 @@ export {
   selectCommandMode,
   selectStatusMessage,
   selectPrefixActive,
+  selectActivePaneCopyMode,
   selectThemeName,
   selectThemeMode,
   selectAvailableThemes,
