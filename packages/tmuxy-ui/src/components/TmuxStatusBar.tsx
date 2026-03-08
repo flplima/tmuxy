@@ -112,7 +112,7 @@ const COPY_MODE_HINTS = [
 function CopyModeHints() {
   return (
     <span className="statusline-hints">
-      <span className="statusline-copy-mode-label">[COPY]</span>
+      <span className="statusline-copy-mode-label">[COPY MODE]</span>
       {COPY_MODE_HINTS.map(({ key, label }) => (
         <span key={key}>
           <Separator />

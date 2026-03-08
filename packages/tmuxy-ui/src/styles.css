@@ -842,7 +842,10 @@
 }
 
 .statusline-copy-mode-label {
-  color: var(--accent-yellow, #e5c07b);
+  background: #000;
+  color: #0f0;
+  padding: 0 3px;
+  border-radius: 2px;
   font-weight: bold;
 }
 
