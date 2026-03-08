@@ -248,7 +248,9 @@ impl TmuxMonitor {
         let _settling_await_timeout = Duration::from_millis(2000);
 
         loop {
-            // Calculate throttle timeout (only used when in high-throughput mode)
+            // Calculate throttle timeout
+            // High throughput: use configured throttle_interval (e.g. 32ms)
+            // Low throughput: use 4ms debounce to batch rapid %output bursts
             let throttle_sleep = if pending_output_emit && throttle_enabled {
                 if in_throttle_mode {
                     let elapsed = last_output_emit.elapsed();
@@ -258,8 +260,14 @@ impl TmuxMonitor {
                         self.config.throttle_interval - elapsed
                     }
                 } else {
-                    // Low throughput - emit immediately
-                    Duration::ZERO
+                    // Low throughput: 4ms debounce
+                    let low_debounce = Duration::from_millis(4);
+                    let elapsed = last_output_emit.elapsed();
+                    if elapsed >= low_debounce {
+                        Duration::ZERO
+                    } else {
+                        low_debounce - elapsed
+                    }
                 }
             } else {
                 Duration::from_secs(3600) // Effectively infinite
@@ -433,12 +441,9 @@ impl TmuxMonitor {
                                             pending_output_emit = false;
                                         }
                                     } else {
-                                        // Low throughput (typing): emit immediately for low latency
-                                        if let Some(update) = self.aggregator.to_state_update() {
-                                            emitter.emit_state(update);
-                                        }
-                                        last_output_emit = Instant::now();
-                                        pending_output_emit = false;
+                                        // Low throughput (typing): use short debounce (4ms) to
+                                        // batch rapid %output bursts within a single frame
+                                        pending_output_emit = true;
                                     }
                                 } else {
                                     // Non-output changes always emit immediately

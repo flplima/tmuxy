@@ -155,29 +155,46 @@ function cellLinesEqual(a: CellLine, b: CellLine): boolean {
 }
 
 /**
- * Apply new content with structural sharing: reuse old line references
- * for lines that haven't changed so React.memo can skip re-renders.
+ * Merge sparse line updates into existing content.
+ * delta.content is Record<number, CellLine> — only changed line indices.
  */
-function mergeContent(oldContent: PaneContent, newContent: PaneContent): PaneContent {
-  if (oldContent.length !== newContent.length) return newContent;
-  let anyDifferent = false;
-  const merged: CellLine[] = new Array(newContent.length);
-  for (let i = 0; i < newContent.length; i++) {
-    if (oldContent[i] === newContent[i] || cellLinesEqual(oldContent[i], newContent[i])) {
+function mergeSparseContent(
+  oldContent: PaneContent,
+  changes: Record<number, CellLine>,
+): PaneContent {
+  // Find the max line index to determine new content length
+  let maxIdx = oldContent.length - 1;
+  for (const key of Object.keys(changes)) {
+    const idx = Number(key);
+    if (idx > maxIdx) maxIdx = idx;
+  }
+  const newLength = maxIdx + 1;
+  const merged: CellLine[] = new Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const changedLine = changes[i];
+    if (changedLine !== undefined) {
+      // Check if line is actually unchanged (preserve identity for React.memo)
+      if (i < oldContent.length && cellLinesEqual(oldContent[i], changedLine)) {
+        merged[i] = oldContent[i];
+      } else {
+        merged[i] = changedLine;
+      }
+    } else if (i < oldContent.length) {
       merged[i] = oldContent[i];
     } else {
-      merged[i] = newContent[i];
-      anyDifferent = true;
+      merged[i] = [];
     }
   }
-  return anyDifferent ? merged : oldContent;
+  return merged;
 }
 
 function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
   return {
     ...pane,
     ...(delta.window_id !== undefined && { window_id: delta.window_id }),
-    ...(delta.content !== undefined && { content: mergeContent(pane.content, delta.content) }),
+    ...(delta.content !== undefined && {
+      content: mergeSparseContent(pane.content, delta.content),
+    }),
     ...(delta.cursor_x !== undefined && { cursor_x: delta.cursor_x }),
     ...(delta.cursor_y !== undefined && { cursor_y: delta.cursor_y }),
     ...(delta.width !== undefined && { width: delta.width }),
