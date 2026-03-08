@@ -39,25 +39,31 @@ describe('Scenario 12: Session Reconnect', () => {
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await delay(DELAYS.SYNC);
     await waitForPaneCount(ctx.page, 2);
-    // Wait for XState to reflect
-    const pollStart = Date.now();
-    while (Date.now() - pollStart < 5000) {
-      const stateCount = await ctx.page.evaluate(() => {
+    // Wait for XState to reflect 2 panes
+    await ctx.page.waitForFunction(
+      () => {
         const snap = window.app?.getSnapshot?.();
         const panes = snap?.context?.panes || [];
         const awId = snap?.context?.activeWindowId;
-        return panes.filter(p => p.windowId === awId).length;
-      });
-      if (stateCount === 2) break;
-      await delay(DELAYS.SHORT);
-    }
+        return panes.filter(p => p.windowId === awId).length === 2;
+      },
+      { timeout: 5000, polling: 100 },
+    );
 
-    // Step 2: Reload
+    // Step 2: Reload — wait for both DOM and XState hydration
     await ctx.page.reload({ waitUntil: 'domcontentloaded' });
     await ctx.page.waitForSelector('[role="log"]', { timeout: 15000 });
+    // Wait for XState machine to hydrate with pane data
+    await ctx.page.waitForFunction(
+      () => {
+        const snap = window.app?.getSnapshot?.();
+        return snap?.context?.panes?.length > 0;
+      },
+      { timeout: 15000, polling: 100 },
+    );
     ctx.session.setPage(ctx.page);
     await waitForSessionReady(ctx.page, ctx.session.name, 15000);
-    await delay(DELAYS.SYNC * 2);
+    await delay(DELAYS.SYNC);
 
     // Step 3: Verify preserved
     expect(await ctx.session.getPaneCount()).toBe(2);

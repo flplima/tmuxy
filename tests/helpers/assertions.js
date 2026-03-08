@@ -104,46 +104,6 @@ async function getUISnapshot(page) {
 }
 
 /**
- * Get tmux state snapshot for consistency verification
- */
-function getTmuxSnapshot(session) {
-  const panes = session.getPaneInfo();
-  const windows = session.getWindowInfo();
-  const activePaneId = session.getActivePaneId();
-  const currentWindowIndex = session.getCurrentWindowIndex();
-
-  // Capture content for each pane
-  const terminalContent = {};
-  for (const pane of panes) {
-    try {
-      const content = session.runCommand(`capture-pane -t ${pane.id} -p`);
-      terminalContent[pane.id] = content.trim();
-    } catch {
-      terminalContent[pane.id] = '';
-    }
-  }
-
-  return {
-    panes: panes.map(p => ({
-      id: p.id,
-      x: p.x,
-      y: p.y,
-      width: p.width,
-      height: p.height,
-      active: p.active,
-    })),
-    windows: windows.map(w => ({
-      index: w.index,
-      name: w.name,
-      active: w.active,
-    })),
-    activePaneId,
-    activeWindowIndex: parseInt(currentWindowIndex, 10),
-    terminalContent,
-  };
-}
-
-/**
  * Verify mouse drag resulted in expected change
  */
 async function verifyMouseDragEffect(page, beforeState, afterAction, expectedChange) {
@@ -184,6 +144,5 @@ async function verifyMouseDragEffect(page, beforeState, afterAction, expectedCha
 module.exports = {
   verifyLayoutChanged,
   getUISnapshot,
-  getTmuxSnapshot,
   verifyMouseDragEffect,
 };

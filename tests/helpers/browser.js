@@ -262,14 +262,10 @@ async function waitForPaneCount(page, expectedCount, timeout = 3000) {
       expectedCount,
       { timeout, polling: 50 }
     );
+    return true;
   } catch {
-    // Timeout - log warning but don't fail
-    const actualCount = await page.evaluate(() => {
-      const paneIds = document.querySelectorAll('[data-pane-id]');
-      const logs = document.querySelectorAll('[role="log"]');
-      return Math.max(paneIds.length, logs.length);
-    });
-    // Expected pane count not reached within timeout
+    // Timeout — non-throwing, callers check the return value
+    return false;
   }
 }
 

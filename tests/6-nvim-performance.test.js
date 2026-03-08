@@ -34,20 +34,25 @@ afterEach(ctx.afterEach, ctx.hookTimeout);
  */
 async function waitForCursorClass(page, expectedClass, timeout = 10000) {
   const start = Date.now();
+  // First ensure the cursor element exists at all
+  let cursorFound = false;
   while (Date.now() - start < timeout) {
-    const hasClass = await page.evaluate((cls) => {
+    const result = await page.evaluate((cls) => {
       const cursor = document.querySelector('.terminal-cursor');
-      return cursor ? cursor.classList.contains(cls) : false;
+      if (!cursor) return { exists: false, hasClass: false };
+      return { exists: true, hasClass: cursor.classList.contains(cls) };
     }, expectedClass);
-    if (hasClass) return true;
+    if (result.exists) cursorFound = true;
+    if (result.hasClass) return true;
     await delay(100);
   }
   const actual = await page.evaluate(() => {
     const cursor = document.querySelector('.terminal-cursor');
     return cursor ? cursor.className : 'no cursor element';
   });
+  const hint = cursorFound ? '' : ' (cursor element never appeared in DOM)';
   throw new Error(
-    `Timeout waiting for cursor class "${expectedClass}" (${timeout}ms). Actual: "${actual}"`,
+    `Timeout waiting for cursor class "${expectedClass}" (${timeout}ms). Actual: "${actual}"${hint}`,
   );
 }
 

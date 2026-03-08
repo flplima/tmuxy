@@ -17,6 +17,8 @@ const consistency = require('./consistency');
 const cli = require('./cli');
 const { assertContentMatch } = require('./content-match');
 const { assertLayoutInvariants } = require('./layout');
+const copyMode = require('./copy-mode');
+const mouseCapture = require('./mouse-capture');
 
 // ==================== Known Limitations Registry ====================
 
@@ -136,4 +138,10 @@ module.exports = {
 
   // Layout invariant assertions
   assertLayoutInvariants,
+
+  // Copy mode helpers
+  ...copyMode,
+
+  // Mouse capture helpers
+  ...mouseCapture,
 };

@@ -14,10 +14,6 @@ const {
   typeInTerminal,
   pressEnter,
   noteKnownLimitation,
-  navigateToSession,
-  waitForSessionReady,
-  focusPage,
-  TmuxTestSession,
   DELAYS,
   TMUXY_URL,
 } = require('./helpers');
@@ -472,14 +468,19 @@ const BLUE_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf
 // 1x1 green PNG, base64-encoded
 const GREEN_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
-/** Send a command to the pane via tmux send-keys (no Terminal text wait) */
-async function sendCommand(session, command) {
+/**
+ * Send a command to the pane via tmux send-keys (no terminal text wait).
+ * Thin wrapper for widget tests that don't need output verification.
+ */
+async function sendWidgetCommand(session, command) {
   await session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
   await session.runCommand(`send-keys -t ${session.name} Enter`);
 }
 
-/** Wait for a CSS selector to appear in the page */
-function waitForSelector(page, selector, timeout = 10000) {
+/**
+ * Wait for a CSS selector to appear in the page.
+ */
+function waitForDomSelector(page, selector, timeout = 10000) {
   return page.waitForFunction(
     (sel) => document.querySelector(sel) !== null,
     selector,
@@ -491,102 +492,39 @@ function waitForSelector(page, selector, timeout = 10000) {
 const TMUXY_WIDGET = path.resolve(__dirname, '..', 'scripts/tmuxy/tmuxy-widget');
 
 describe('Category 17: Widgets', () => {
-  jest.setTimeout(60000);
-
-  let browser;
-  let serverAvailable = false;
-  let browserAvailable = false;
-
-  let page;
-  let session;
-
-  beforeAll(async () => {
-    const { waitForServer, getBrowser } = require('./helpers');
-    try {
-      await waitForServer(TMUXY_URL, 10000);
-      serverAvailable = true;
-    } catch {
-      return;
-    }
-
-    try {
-      browser = await getBrowser();
-      browserAvailable = true;
-    } catch {
-      return;
-    }
-  });
-
-  afterAll(async () => {
-    // No helperPage to close
-  });
-
-  beforeEach(async () => {
-    if (!serverAvailable || !browserAvailable) return;
-
-    session = new TmuxTestSession();
-    session.created = true;
-
-    // Open page — the server will auto-create the tmux session
-    page = await browser.newPage();
-  });
-
-  afterEach(async () => {
-    if (session) {
-      try {
-        await session.destroy();
-      } catch { /* ignore */ }
-    }
-    if (page) {
-      await page.close().catch(() => {});
-      page = null;
-      await delay(4000); // Wait for server cleanup
-    }
-    session = null;
-  });
-
-  function skipIfNotReady() {
-    if (!serverAvailable || !browserAvailable || !page || !session) {
-      return true;
-    }
-    return false;
-  }
-
-  async function setupPage() {
-    await navigateToSession(page, session.name);
-    await waitForSessionReady(page, session.name);
-    session.setPage(page);
-    await session.sourceConfig();
-    await focusPage(page);
-  }
+  const wCtx = createTestContext();
+  beforeAll(wCtx.beforeAll, wCtx.hookTimeout);
+  afterAll(wCtx.afterAll);
+  beforeEach(wCtx.beforeEach);
+  afterEach(wCtx.afterEach, wCtx.hookTimeout);
 
   // ====================
   // 17.1 Image Widget
   // ====================
   describe('17.1 Image Widget', () => {
     test('Renders image, has pane header, no Terminal element', async () => {
-      if (skipIfNotReady()) return;
-      await setupPage();
+      if (wCtx.skipIfNotReady()) return;
+      await wCtx.setupPage();
 
-      await sendCommand(session, `(echo "${RED_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
+      await sendWidgetCommand(wCtx.session, `(echo "${RED_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
 
       await delay(2000);
-      await waitForSelector(page, '.widget-image', 30000);
+      await waitForDomSelector(wCtx.page, '.widget-image', 30000);
 
-      const src = await page.evaluate(() => {
+      const src = await wCtx.page.evaluate(() => {
         const img = document.querySelector('.widget-image img');
         return img ? img.getAttribute('src') : null;
       });
       expect(src).toContain('data:image/png;base64,');
 
-      const hasPaneHeader = await page.evaluate(() => {
+      const hasPaneHeader = await wCtx.page.evaluate(() => {
         const wrapper = document.querySelector('[data-pane-id]');
         if (!wrapper) return false;
         return wrapper.querySelector('.pane-tab, .pane-tabs') !== null;
       });
       expect(hasPaneHeader).toBe(true);
 
-      const hasTerminal = await page.evaluate(() => {
+      const hasTerminal = await wCtx.page.evaluate(() => {
         const wrapper = document.querySelector('[data-pane-id]');
         if (!wrapper) return true;
         return wrapper.querySelector('[role="log"]') !== null;
@@ -600,20 +538,20 @@ describe('Category 17: Widgets', () => {
   // ====================
   describe('17.2 Image Widget Animation', () => {
     test('Cycles through 3 base64 image frames', async () => {
-      if (skipIfNotReady()) return;
-      await setupPage();
+      if (wCtx.skipIfNotReady()) return;
+      await wCtx.setupPage();
 
-      await sendCommand(session, `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
+      await sendWidgetCommand(wCtx.session, `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
 
-      await waitForSelector(page, '.widget-image', 30000);
+      await waitForDomSelector(wCtx.page, '.widget-image', 30000);
 
       const greenSignature = GREEN_PNG.slice(-30);
-      await page.waitForFunction((sig) => {
+      await wCtx.page.waitForFunction((sig) => {
         const img = document.querySelector('.widget-image img');
         return img && img.src && img.src.includes(sig);
       }, greenSignature, { timeout: 30000, polling: 300 });
 
-      const finalSrc = await page.evaluate(() => {
+      const finalSrc = await wCtx.page.evaluate(() => {
         const img = document.querySelector('.widget-image img');
         return img ? img.src : null;
       });
@@ -626,37 +564,37 @@ describe('Category 17: Widgets', () => {
   // ====================
   describe('17.3 Widget Detection Edge Cases', () => {
     test('Normal pane without marker renders Terminal', async () => {
-      if (skipIfNotReady()) return;
-      await setupPage();
+      if (wCtx.skipIfNotReady()) return;
+      await wCtx.setupPage();
 
-      await sendCommand(session, 'echo "hello world"');
-      await waitForTerminalText(page, 'hello world');
+      await sendWidgetCommand(wCtx.session, 'echo "hello world"');
+      await waitForTerminalText(wCtx.page, 'hello world');
 
-      const hasTerminal = await page.evaluate(() =>
+      const hasTerminal = await wCtx.page.evaluate(() =>
         document.querySelector('[role="log"]') !== null
       );
       expect(hasTerminal).toBe(true);
 
-      const hasWidget = await page.evaluate(() =>
+      const hasWidget = await wCtx.page.evaluate(() =>
         document.querySelector('.widget-image') !== null
       );
       expect(hasWidget).toBe(false);
     });
 
     test('Unregistered widget name falls back to Terminal', async () => {
-      if (skipIfNotReady()) return;
-      await setupPage();
+      if (wCtx.skipIfNotReady()) return;
+      await wCtx.setupPage();
 
-      await sendCommand(session, `echo "test" | ${TMUXY_WIDGET} nonexistent_xyz`);
+      await sendWidgetCommand(wCtx.session, `echo "test" | ${TMUXY_WIDGET} nonexistent_xyz`);
 
       await delay(2000);
 
-      const hasTerminal = await page.evaluate(() =>
+      const hasTerminal = await wCtx.page.evaluate(() =>
         document.querySelector('[role="log"]') !== null
       );
       expect(hasTerminal).toBe(true);
 
-      const hasWidget = await page.evaluate(() =>
+      const hasWidget = await wCtx.page.evaluate(() =>
         document.querySelector('.widget-image') !== null
       );
       expect(hasWidget).toBe(false);

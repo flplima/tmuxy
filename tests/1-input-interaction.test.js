@@ -5,8 +5,6 @@
  * copy mode search/yank, and touch scrolling.
  */
 
-const fs = require('fs');
-const path = require('path');
 const {
   createTestContext,
   delay,
@@ -23,131 +21,18 @@ const {
   navigatePaneKeyboard,
   killPaneKeyboard,
   resizePaneKeyboard,
-  enterCopyModeKeyboard,
   pasteText,
   DELAYS,
   assertContentMatch,
   assertLayoutInvariants,
+  getCopyModeState,
+  waitForCopyMode,
+  enterCopyModeAndWait,
+  startMouseCapture,
+  readMouseEvents,
+  stopMouseCapture,
+  ensureMouseCaptureStopped,
 } = require('./helpers');
-
-const MOUSE_CAPTURE_SCRIPT = path.join(__dirname, 'helpers', 'mouse-capture.py');
-const MOUSE_LOG = '/tmp/mouse-events.log';
-
-// ==================== SGR Mouse Helpers ====================
-
-async function startMouseCapture(ctx) {
-  try { fs.unlinkSync(MOUSE_LOG); } catch {}
-  await typeInTerminal(ctx.page, `python3 ${MOUSE_CAPTURE_SCRIPT}`);
-  await pressEnter(ctx.page);
-  const readyStart = Date.now();
-  let ready = false;
-  while (!ready && Date.now() - readyStart < 10000) {
-    const text = await ctx.page.evaluate(() => {
-      const el = document.querySelector('[role="log"]');
-      return el ? el.textContent : '';
-    });
-    if (text.includes('READY')) ready = true;
-    else await delay(DELAYS.MEDIUM);
-  }
-  expect(ready).toBe(true);
-  const flagStart = Date.now();
-  let flagSet = false;
-  while (!flagSet && Date.now() - flagStart < 10000) {
-    flagSet = await ctx.page.evaluate(() => !!document.querySelector('[data-mouse-any-flag="true"]'));
-    if (!flagSet) await delay(DELAYS.MEDIUM);
-  }
-  expect(flagSet).toBe(true);
-  const contentBox = await ctx.page.evaluate(() => {
-    const el = document.querySelector('.pane-content');
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { x: r.x, y: r.y, width: r.width, height: r.height };
-  });
-  expect(contentBox).not.toBeNull();
-  const charSize = await ctx.page.evaluate(() => {
-    const snap = window.app.getSnapshot();
-    return { charWidth: snap.context.charWidth, charHeight: snap.context.charHeight };
-  });
-  return { contentBox, charSize };
-}
-
-async function readMouseEvents(minCount = 1, timeout = 5000) {
-  const start = Date.now();
-  let events = [];
-  while (Date.now() - start < timeout) {
-    try {
-      const content = fs.readFileSync(MOUSE_LOG, 'utf-8');
-      const lines = content.trim().split('\n').map(l => l.trim()).filter(l => l && l !== 'READY');
-      events = lines.map(line => {
-        const parts = line.split(':');
-        const type = parts[0].trim();
-        const props = {};
-        for (let i = 1; i < parts.length; i++) {
-          const [k, v] = parts[i].split('=');
-          props[k] = parseInt(v, 10);
-        }
-        return { type, ...props };
-      });
-      if (events.length >= minCount) return events;
-    } catch {}
-    await delay(DELAYS.SHORT);
-  }
-  return events;
-}
-
-function expectedSgrCoord(pixel, origin, cellSize) {
-  return Math.max(0, Math.floor((pixel - origin) / cellSize)) + 1;
-}
-
-async function stopMouseCapture(ctx) {
-  await ctx.page.keyboard.press('q');
-  await delay(DELAYS.LONG);
-}
-
-// ==================== Copy Mode Helpers ====================
-
-async function getCopyModeState(page) {
-  return page.evaluate(() => {
-    const snap = window.app?.getSnapshot();
-    if (!snap?.context) return null;
-    const paneId = snap.context.activePaneId;
-    if (!paneId) return null;
-    const cs = snap.context.copyModeStates[paneId];
-    if (!cs) return null;
-    return {
-      active: true,
-      cursorRow: cs.cursorRow,
-      cursorCol: cs.cursorCol,
-      scrollTop: cs.scrollTop,
-      totalLines: cs.totalLines,
-      height: cs.height,
-      width: cs.width,
-      selectionMode: cs.selectionMode,
-      selectionAnchor: cs.selectionAnchor,
-    };
-  });
-}
-
-async function waitForCopyMode(page, active, timeout = 15000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const cs = await getCopyModeState(page);
-    if (active && cs?.active) return cs;
-    if (!active && !cs?.active) return null;
-    await delay(100);
-  }
-  throw new Error(`Copy mode did not become ${active ? 'active' : 'inactive'} within ${timeout}ms`);
-}
-
-/**
- * Enter copy mode via keyboard (prefix + [).
- * Uses the existing enterCopyModeKeyboard helper which reads the actual
- * prefix key from XState (Ctrl+a per tmuxy.conf).
- */
-async function enterCopyModeAndWait(page, timeout = 15000) {
-  await enterCopyModeKeyboard(page);
-  return await waitForCopyMode(page, true, timeout);
-}
 
 // ==================== Touch Scroll Helpers ====================
 
@@ -465,7 +350,10 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
   beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
   beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
+  afterEach(async () => {
+    await ensureMouseCaptureStopped(ctx);
+    await ctx.afterEach();
+  }, ctx.hookTimeout);
 
   test('Drag H divider → drag V divider → SGR click → SGR wheel → SGR right-click', async () => {
     if (ctx.skipIfNotReady()) return;

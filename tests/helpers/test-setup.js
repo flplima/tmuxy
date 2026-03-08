@@ -331,5 +331,4 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
 
 module.exports = {
   createTestContext,
-  assertSnapshotsMatch: assertStateMatches,
 };

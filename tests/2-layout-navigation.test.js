@@ -724,6 +724,7 @@ describe('Scenario 22: Float fzf Workflow', () => {
     await waitForTerminalText(ctx.page, `FZF_RESULT:${fzfTargetFile}`, 15000);
 
     // Cleanup
-    fs.unlinkSync(fzfListScript);
+    try { fs.unlinkSync(fzfListScript); } catch {}
+    try { fs.unlinkSync(fzfTargetFile); } catch {}
   }, 180000);
 });
