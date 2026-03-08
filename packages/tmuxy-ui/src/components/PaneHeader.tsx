@@ -13,10 +13,10 @@ import type { TmuxPane } from '../tmux/types';
 import { haptics } from '../utils/haptics';
 
 const PROCESS_ICONS: Record<string, string> = {
-  zsh: '\uf120', // >_ nf-fa-terminal
-  bash: '\uf120', // >_ nf-fa-terminal
-  fish: '\uf120', // >_ nf-fa-terminal
-  sh: '\uf120', // >_ nf-fa-terminal
+  zsh: '\ue795', //  nf-custom-terminal
+  bash: '\ue795', //  nf-custom-terminal
+  fish: '\ue795', //  nf-custom-terminal
+  sh: '\ue795', //  nf-custom-terminal
   vi: '\ue62b', //  nf-seti-vim
   vim: '\ue62b', //  nf-seti-vim
   nvim: '\ue62b', //  nf-seti-vim
@@ -27,7 +27,7 @@ const PROCESS_ICONS: Record<string, string> = {
   cargo: '\ue7a8', //  nf-dev-rust
   rustc: '\ue7a8', //  nf-dev-rust
   git: '\ue702', //  nf-dev-git
-  ssh: '\uf489', //  nf-oct-terminal
+  ssh: '\uf489', //  nf-oct-server
   htop: '\uf080', //  nf-fa-bar_chart
   top: '\uf080', //  nf-fa-bar_chart
   man: '\uf02d', //  nf-fa-book
@@ -38,7 +38,7 @@ const PROCESS_ICONS: Record<string, string> = {
   go: '\ue626', //  nf-seti-go
   lua: '\ue620', //  nf-seti-lua
   ruby: '\ue739', //  nf-dev-ruby
-  tmux: '\uf489', //  nf-oct-terminal
+  tmux: '\ue795', //  nf-custom-terminal
 };
 
 const WIDGET_ICONS: Record<string, string> = {
@@ -46,7 +46,7 @@ const WIDGET_ICONS: Record<string, string> = {
   image: '\uf03e', //  nf-fa-image
 };
 
-const DEFAULT_ICON = '\uf489'; //  nf-oct-terminal
+const DEFAULT_ICON = '\ue795'; //  nf-custom-terminal
 
 function getProcessIcon(command: string): string {
   const name = command.toLowerCase();
@@ -65,8 +65,10 @@ function getTabIcon(pane: TmuxPane, widgetName?: string): string | null {
 function getTabText(pane: TmuxPane, titleOverride?: string, widgetName?: string): string {
   if (pane.inMode) return '[COPY]';
   if (titleOverride) return titleOverride;
-  if (widgetName) return pane.title || pane.command || pane.tmuxId;
-  return pane.borderTitle?.trim() || pane.command || pane.title || pane.tmuxId;
+  if (widgetName) return pane.title || pane.command || pane.borderTitle || 'shell';
+  // Prefer command (pane_current_command), then borderTitle (evaluated pane-border-format),
+  // then title (pane_title set by OSC 0/2), then fallback to 'shell'
+  return pane.command || pane.borderTitle || pane.title || 'shell';
 }
 
 /** Minimum pixels of movement before a mousedown becomes a drag */
@@ -78,6 +80,7 @@ const PaneTab = memo(function PaneTab({
   isActivePane,
   titleOverride,
   widgetName,
+  isFloat,
   onClick,
   onContextMenu,
   onIconClick,
@@ -87,6 +90,7 @@ const PaneTab = memo(function PaneTab({
   isActivePane: boolean;
   titleOverride?: string;
   widgetName?: string;
+  isFloat?: boolean;
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onIconClick: (e: React.MouseEvent) => void;
@@ -105,13 +109,17 @@ const PaneTab = memo(function PaneTab({
     >
       {icon && (
         <span
-          className="pane-tab-icon"
-          onClick={(e) => {
-            e.stopPropagation();
-            onIconClick(e);
-          }}
-          role="button"
-          aria-label="Pane menu"
+          className={`pane-tab-icon${isFloat ? ' pane-tab-icon-static' : ''}`}
+          onClick={
+            isFloat
+              ? undefined
+              : (e) => {
+                  e.stopPropagation();
+                  onIconClick(e);
+                }
+          }
+          role={isFloat ? undefined : 'button'}
+          aria-label={isFloat ? undefined : 'Pane menu'}
         >
           {icon}
         </span>
@@ -306,6 +314,7 @@ export function PaneHeader({
               isActivePane={isActivePane}
               titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
               widgetName={tabPane.tmuxId === paneId ? widgetName : undefined}
+              isFloat={isFloat}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
               onIconClick={(e) => handleIconClick(e, tabPane.tmuxId)}

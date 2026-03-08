@@ -312,6 +312,24 @@
   color: var(--link-active);
 }
 
+/* Auto-detected URLs (not OSC 8) */
+.terminal-autolink {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--link-color);
+  color: inherit;
+  cursor: pointer;
+}
+
+.terminal-autolink:hover {
+  color: var(--link-hover);
+  text-decoration-color: var(--link-hover);
+  text-decoration-style: solid;
+}
+
+.terminal-autolink:active {
+  color: var(--link-active);
+}
+
 /* ============================================
    Cursor
    ============================================ */
@@ -581,9 +599,14 @@
     opacity var(--transition-fast);
 }
 
-.pane-tab-icon:hover {
+.pane-tab-icon:not(.pane-tab-icon-static):hover {
   background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
   opacity: 1;
+  cursor: pointer;
+}
+
+.pane-tab-icon-static {
+  cursor: default;
 }
 
 .pane-tab-title {
@@ -914,14 +937,22 @@
    Float Pane Overlay
    ============================================ */
 
+/* Float modal container — green border + shadow on the outer modal-container
+   so overflow:hidden doesn't clip borders */
+.float-modal .modal-container {
+  border: 1px solid var(--accent-green);
+  box-shadow:
+    var(--shadow-lg),
+    0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: float-appear 200ms ease-out both;
+}
+
 .float-container {
-  position: absolute;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-md);
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
-  border: 1px solid var(--accent-green);
+  width: 100%;
+  height: 100%;
 }
 
 .float-content {
@@ -929,6 +960,17 @@
   overflow: hidden;
   background: var(--bg-black);
   box-sizing: border-box;
+}
+
+@keyframes float-appear {
+  from {
+    opacity: 0;
+    transform: scaleY(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
 }
 
 /* ============================================

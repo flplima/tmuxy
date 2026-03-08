@@ -9,7 +9,7 @@ function DemoTabline({ children }: { children: React.ReactNode }) {
   const appFocused = useAppFocused();
   return (
     <>
-      <div className="flex items-center gap-1.5 shrink-0" style={{ paddingLeft: 12, paddingRight: 4 }}>
+      <div className="flex items-center gap-1.5 shrink-0" style={{ paddingRight: 4 }}>
         <span className={`h-3 w-3 rounded-full ${appFocused ? 'bg-red-500' : 'bg-gray-500'}`} />
         <span className={`h-3 w-3 rounded-full ${appFocused ? 'bg-yellow-500' : 'bg-gray-500'}`} />
         <span className={`h-3 w-3 rounded-full ${appFocused ? 'bg-green-500' : 'bg-gray-500'}`} />

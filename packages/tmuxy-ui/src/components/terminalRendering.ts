@@ -6,6 +6,7 @@
  */
 
 import type { CellLine, CellStyle, CellColor } from '../tmux/types';
+import { detectUrls } from '../utils/urlDetect';
 
 // ============================================
 // Color conversion
@@ -217,26 +218,58 @@ export function renderLineToDOM(
   const lineBg = detectLineBg(line);
   if (lineBg) el.style.backgroundColor = lineBg;
 
+  // Auto-detect URLs in line text
+  const lineText = lineSliceText(line, 0, line.length);
+  const autoUrls = detectUrls(lineText);
+  const urlIdxOf = (i: number): number => {
+    for (let u = 0; u < autoUrls.length; u++) {
+      if (i >= autoUrls[u].start && i < autoUrls[u].end) return u;
+    }
+    return -1;
+  };
+
   let groupStart = 0;
   let groupStyle = line[0].s;
   let groupSelected = selRange ? 0 >= selRange.startCol && 0 <= selRange.endCol : false;
+  let groupUrlIdx = line[0].s?.url ? -1 : urlIdxOf(0);
 
   const flush = (end: number) => {
     const text = lineSliceText(line, groupStart, end);
-    const span = document.createElement('span');
-    applyStyleToElement(span, groupStyle, groupSelected);
-    span.textContent = text;
-    el.appendChild(span);
+    const oscUrl = groupStyle?.url;
+    const autoUrl = !oscUrl && groupUrlIdx >= 0 ? autoUrls[groupUrlIdx].url : undefined;
+    const linkUrl = oscUrl || autoUrl;
+
+    if (linkUrl) {
+      const a = document.createElement('a');
+      a.href = linkUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.className = oscUrl ? 'terminal-hyperlink' : 'terminal-autolink';
+      applyStyleToElement(a, groupStyle, groupSelected);
+      a.textContent = text;
+      el.appendChild(a);
+    } else {
+      const span = document.createElement('span');
+      applyStyleToElement(span, groupStyle, groupSelected);
+      span.textContent = text;
+      el.appendChild(span);
+    }
   };
 
   for (let i = 1; i < line.length; i++) {
     const cell = line[i];
     const selected = selRange ? i >= selRange.startCol && i <= selRange.endCol : false;
-    if (!stylesMatch(cell.s, groupStyle) || selected !== groupSelected) {
+    const cellUrlIdx = cell.s?.url ? -1 : urlIdxOf(i);
+    if (
+      !stylesMatch(cell.s, groupStyle) ||
+      selected !== groupSelected ||
+      cellUrlIdx !== groupUrlIdx
+    ) {
       flush(i);
       groupStart = i;
       groupStyle = cell.s;
       groupSelected = selected;
+      groupUrlIdx = cellUrlIdx;
     }
   }
   flush(line.length);

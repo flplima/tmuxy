@@ -77,6 +77,21 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   ctx.beforeEach = async () => {
     if (!ctx.browserAvailable || !ctx.browser) return;
 
+    // Ensure tmux server is alive. Stress tests can crash tmux 3.5a;
+    // starting a throwaway session recovers the server for the next test.
+    try {
+      require('child_process').execSync('tmux has-session 2>/dev/null', { timeout: 5000 });
+    } catch {
+      try {
+        require('child_process').execSync('tmux new-session -d -s _warmup && tmux kill-session -t _warmup', {
+          timeout: 10000,
+          encoding: 'utf-8',
+        });
+      } catch {
+        // tmux binary missing or other fatal error — let subsequent steps fail naturally
+      }
+    }
+
     // Create TmuxTestSession (just marks it ready — actual tmux session
     // is created by the web server when the browser navigates to the URL)
     ctx.session = new TmuxTestSession();

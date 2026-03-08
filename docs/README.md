@@ -38,8 +38,7 @@ This directory contains architectural and design documentation for the tmuxy pro
 
 | Document | What it covers | When to read it |
 |----------|---------------|-----------------|
-| [TESTS.md](TESTS.md) | Test framework (Jest + Playwright), running tests, test structure, helpers, debugging, rules | Writing or debugging tests |
-| [E2E-TEST-SCENARIOS.md](E2E-TEST-SCENARIOS.md) | Full list of 18 implemented E2E test scenarios with descriptions and expected behaviors | Planning new tests or understanding existing coverage |
+| [TESTS.md](TESTS.md) | Testing guidelines and principles for all test types | Writing or debugging tests |
 
 ### Protocols & Rendering
 

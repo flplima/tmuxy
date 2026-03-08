@@ -11,6 +11,7 @@
 import { memo, CSSProperties } from 'react';
 import { Cursor } from './Cursor';
 import type { CellLine, TerminalCell, CellColor, CellStyle } from '../tmux/types';
+import { detectUrls } from '../utils/urlDetect';
 
 /**
  * Standard 16 terminal colors mapped to CSS theme variables.
@@ -223,12 +224,25 @@ export const TerminalLine = memo(
     // Group consecutive cells with same style for efficiency
     const renderCells = (): React.ReactNode[] => {
       const spans: React.ReactNode[] = [];
+
+      // Auto-detect URLs in line text (skip if cells already have OSC 8 urls)
+      const lineText = line.map((c) => c.c).join('');
+      const autoUrls = detectUrls(lineText);
+      // Build a per-cell URL index (-1 = no URL, 0+ = which autoUrl)
+      const urlIdx = (i: number): number => {
+        for (let u = 0; u < autoUrls.length; u++) {
+          if (i >= autoUrls[u].start && i < autoUrls[u].end) return u;
+        }
+        return -1;
+      };
+
       let currentGroup: {
         cells: TerminalCell[];
         style: CellStyle | undefined;
         startIdx: number;
         selected: boolean;
         sk: number;
+        autoUrlIdx: number;
       } | null = null;
 
       const flushGroup = () => {
@@ -237,7 +251,14 @@ export const TerminalLine = memo(
         const text = currentGroup.cells.map((c) => c.c).join('');
         let style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
         const startIdx = currentGroup.startIdx;
-        const url = currentGroup.style?.url;
+        // OSC 8 explicit URL takes priority over auto-detected
+        const oscUrl = currentGroup.style?.url;
+        const autoUrl =
+          !oscUrl && currentGroup.autoUrlIdx >= 0
+            ? autoUrls[currentGroup.autoUrlIdx].url
+            : undefined;
+        const linkUrl = oscUrl || autoUrl;
+        const linkClass = oscUrl ? 'terminal-hyperlink' : autoUrl ? 'terminal-autolink' : undefined;
 
         // Apply selection highlight — override fg/bg via inline style
         const selectedClass = currentGroup.selected ? 'terminal-selected' : undefined;
@@ -270,18 +291,16 @@ export const TerminalLine = memo(
               </>
             );
 
-            // Wrap in anchor if URL present
-            if (url) {
+            if (linkUrl) {
+              const cls = [linkClass, selectedClass].filter(Boolean).join(' ');
               spans.push(
                 <a
                   key={spans.length}
-                  href={url}
+                  href={linkUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={style}
-                  className={
-                    selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'
-                  }
+                  className={cls}
                 >
                   {content}
                 </a>,
@@ -298,18 +317,16 @@ export const TerminalLine = memo(
           }
         }
 
-        // Wrap in anchor if URL present
-        if (url) {
+        if (linkUrl) {
+          const cls = [linkClass, selectedClass].filter(Boolean).join(' ');
           spans.push(
             <a
               key={spans.length}
-              href={url}
+              href={linkUrl}
               target="_blank"
               rel="noopener noreferrer"
               style={style}
-              className={
-                selectedClass ? `terminal-hyperlink ${selectedClass}` : 'terminal-hyperlink'
-              }
+              className={cls}
             >
               {text}
             </a>,
@@ -328,14 +345,33 @@ export const TerminalLine = memo(
         const cell = line[i];
         const cellSK = styleKey(cell.s);
         const selected = isCellSelected(i);
+        const cellUrlIdx = cell.s?.url ? -1 : urlIdx(i); // skip auto-detect if OSC 8
 
         if (!currentGroup) {
-          currentGroup = { cells: [cell], style: cell.s, startIdx: i, selected, sk: cellSK };
-        } else if (cellSK === currentGroup.sk && selected === currentGroup.selected) {
+          currentGroup = {
+            cells: [cell],
+            style: cell.s,
+            startIdx: i,
+            selected,
+            sk: cellSK,
+            autoUrlIdx: cellUrlIdx,
+          };
+        } else if (
+          cellSK === currentGroup.sk &&
+          selected === currentGroup.selected &&
+          cellUrlIdx === currentGroup.autoUrlIdx
+        ) {
           currentGroup.cells.push(cell);
         } else {
           flushGroup();
-          currentGroup = { cells: [cell], style: cell.s, startIdx: i, selected, sk: cellSK };
+          currentGroup = {
+            cells: [cell],
+            style: cell.s,
+            startIdx: i,
+            selected,
+            sk: cellSK,
+            autoUrlIdx: cellUrlIdx,
+          };
         }
       }
 

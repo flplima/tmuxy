@@ -20,6 +20,7 @@ const {
   sendKeyCombo,
   waitForPaneCount,
   splitPaneKeyboard,
+  navigatePaneKeyboard,
   killPaneKeyboard,
   resizePaneKeyboard,
   enterCopyModeKeyboard,
@@ -720,6 +721,9 @@ describe('Scenario 9: Copy Mode Navigate', () => {
     // Clean exit
     await ctx.page.keyboard.press('q');
     await waitForCopyMode(ctx.page, false);
+    // Force content sync: after copy mode exit the terminal DOM may be stale.
+    // Running a command forces fresh content that matches tmux ground truth.
+    await runCommand(ctx.page, 'echo COPY_EXIT', 'COPY_EXIT');
     await delay(DELAYS.SYNC);
     await assertContentMatch(ctx.page, 'Scenario 9 end');
   }, 180000);
@@ -941,6 +945,20 @@ describe('Scenario 21: Touch Scrolling', () => {
     // Both panes should still exist
     const finalPaneCount = await getUIPaneCount(ctx.page);
     expect(finalPaneCount).toBe(2);
+    // Stabilize both panes: clear scrollback (viewport may be offset after
+    // touch scroll + copy mode + less) then run a marker command.
+    await navigatePaneKeyboard(ctx.page, 'up');
+    await delay(DELAYS.SHORT);
+    await typeInTerminal(ctx.page, 'clear');
+    await pressEnter(ctx.page);
+    await delay(DELAYS.SHORT);
+    await runCommand(ctx.page, 'echo TOUCH_P0', 'TOUCH_P0');
+    await navigatePaneKeyboard(ctx.page, 'down');
+    await delay(DELAYS.SHORT);
+    await typeInTerminal(ctx.page, 'clear');
+    await pressEnter(ctx.page);
+    await delay(DELAYS.SHORT);
+    await runCommand(ctx.page, 'echo TOUCH_P1', 'TOUCH_P1');
     await delay(DELAYS.SYNC);
     await assertContentMatch(ctx.page, 'Scenario 21 end');
     await assertLayoutInvariants(ctx.page);

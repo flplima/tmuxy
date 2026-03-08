@@ -18,7 +18,7 @@ use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig, StateEmitter, Tmux
 use tmuxy_core::{executor, StateUpdate};
 use tokio::sync::broadcast;
 
-use crate::state::{AppState, SessionConnections};
+use crate::state::{find_workspace_root, AppState, SessionConnections};
 
 // ============================================
 // SSE State Emitter (Adapter Pattern)
@@ -715,6 +715,41 @@ async fn handle_command(
                     .map_err(|e| format!("Failed to set theme mode: {}", e))?;
             }
             Ok(serde_json::json!(null))
+        }
+        "get_themes_list" => {
+            // Read available theme CSS files from the themes directory
+            let workspace_root = find_workspace_root();
+            let themes_dir = workspace_root.join("packages/tmuxy-ui/public/themes");
+            let mut names: Vec<String> = std::fs::read_dir(&themes_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|entry| {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    name.strip_suffix(".css").map(|n| n.to_string())
+                })
+                .collect();
+            names.sort();
+
+            let themes: Vec<serde_json::Value> = names
+                .into_iter()
+                .map(|name| {
+                    let display_name = name
+                        .split('-')
+                        .map(|word| {
+                            let mut chars = word.chars();
+                            match chars.next() {
+                                None => String::new(),
+                                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    serde_json::json!({ "name": name, "displayName": display_name })
+                })
+                .collect();
+
+            Ok(serde_json::json!(themes))
         }
         "set_theme_mode" => {
             let mode = args.get("mode").and_then(|v| v.as_str()).unwrap_or("dark");

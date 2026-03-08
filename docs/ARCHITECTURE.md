@@ -119,7 +119,6 @@ packages/
 | [TMUX.md](TMUX.md) | Control mode routing, version-specific bugs, workarounds |
 | [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation |
 | [SECURITY.md](SECURITY.md) | Security risks, mitigations, deployment warnings |
-| [TESTS.md](TESTS.md) | Test framework, running tests, conventions |
-| [E2E-TEST-SCENARIOS.md](E2E-TEST-SCENARIOS.md) | Comprehensive test coverage planning |
+| [TESTS.md](TESTS.md) | Testing guidelines and principles |
 | [NON-GOALS.md](NON-GOALS.md) | What tmuxy intentionally does NOT do |
 | [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image/OSC protocol support |

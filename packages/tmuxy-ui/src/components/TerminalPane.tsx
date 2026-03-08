@@ -42,6 +42,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const isSinglePane = useIsSinglePane();
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const cursorBlink = useAppSelector(selectCursorBlink);
+  const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -361,7 +362,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
                   content={pane.content}
                   cursorX={pane.cursorX}
                   cursorY={pane.cursorY}
-                  isActive={pane.active && isInActiveWindow}
+                  isActive={pane.active && isInActiveWindow && !focusedFloatPaneId}
                   blink={cursorBlink}
                   width={pane.width}
                   height={pane.height}

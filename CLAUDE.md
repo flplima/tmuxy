@@ -10,8 +10,7 @@ See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for SSE/HTTP protocol, Tauri IPC, and
 See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs, and workarounds.
 See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side copy mode architecture.
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
-See [docs/TESTS.md](docs/TESTS.md) for running and writing E2E tests.
-See [docs/E2E-TEST-SCENARIOS.md](docs/E2E-TEST-SCENARIOS.md) for comprehensive test coverage planning.
+See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 
@@ -128,13 +127,18 @@ Use short command forms: `splitw`, `selectp`, `killp`, `resizep`, etc. **Excepti
 
 Use `adapter.invoke('run_tmux_command', { command: '...' })` for all tmux operations from the frontend. See `tmuxy-ui/src/tmux/adapters.ts` for the adapter implementations and [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for the SSE/HTTP protocol details.
 
-## E2E Test Conventions
+## Test Guidelines
 
-- Tests use `createTestContext()` from `tests/helpers/test-setup.js` for shared setup/teardown.
+**Read [docs/TESTS.md](docs/TESTS.md) before writing, reviewing, or modifying any test.** Every time you touch test code, check your work against those guidelines. Flag any test that violates them — even pre-existing tests. If you see a test asserting DOM state without visual verification, or using adapter calls instead of user paths, call it out and suggest a fix.
+
+Key rules:
+
+- **Test what the user sees, not what the DOM contains.** An element in the DOM but clipped by `overflow: hidden` is not visible. Always verify bounding rects, not just element existence or `textContent`.
+- **Use real user paths.** If a user creates a float by typing `tmuxy pane float`, the test should type that command — not call `_exec('break-pane')`. Adapter calls skip the entire chain where bugs live.
+- **One feature, one test.** Cover create → verify visible → interact → close in a single test. Do not split into separate "check state" and "check DOM" tests.
+- **Never install Playwright browsers** (`npx playwright install`). Tests connect to Chrome via CDP on port 9222.
 - All E2E tests run **sequentially** (`maxWorkers: 1`) — they share one tmux server.
-- Tests interact with the **browser UI** (keyboard events, page queries), not tmux directly. State assertions read from the XState machine context via `page.evaluate()`.
 - Copy mode is a client-side reimplementation — test it via browser keyboard events and `getCopyModeState()`, not `send-keys -X` tmux commands.
-- Never install Playwright browsers (`npx playwright install`). Tests connect to Chrome via CDP on port 9222, or use the pre-installed Chromium in `~/.cache/ms-playwright/`.
 
 ## Testing & Bug Fixes (Critical)
 

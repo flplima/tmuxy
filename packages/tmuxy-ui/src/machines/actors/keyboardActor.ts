@@ -255,6 +255,12 @@ export function createKeyboardActor() {
 
       event.preventDefault();
 
+      // Escape closes the focused float instead of being sent to tmux
+      if (event.key === 'Escape' && focusedFloatPaneId) {
+        input.parent.send({ type: 'CLOSE_FLOAT', paneId: focusedFloatPaneId });
+        return;
+      }
+
       // Format the key to check against bindings
       const formattedKey = formatTmuxKey(event);
 

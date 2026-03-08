@@ -43,6 +43,19 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Apply default dimensions based on mode
+if [ -z "$WIDTH" ] && [ -z "$HEIGHT" ]; then
+  case "$DRAWER" in
+    left|right)  WIDTH=60 ;;
+    top|bottom)  HEIGHT=40 ;;
+    *)           WIDTH=60; HEIGHT=40 ;;
+  esac
+elif [ -z "$WIDTH" ] && [ -n "$DRAWER" ]; then
+  case "$DRAWER" in left|right) WIDTH=60 ;; esac
+elif [ -z "$HEIGHT" ] && [ -n "$DRAWER" ]; then
+  case "$DRAWER" in top|bottom) HEIGHT=40 ;; esac
+fi
+
 # Build window name with encoded options
 build_float_name() {
   local pane_id="$1"
@@ -94,7 +107,7 @@ else
   # Do NOT redirect stderr — TUI apps (fzf, vim, etc.) draw their interface to
   # stderr/tty. Only redirect stdout to the capture file.
   NEW_PANE_ID=$(tmux split-window -dP -F '#{pane_id}' \
-    "bash -c '${CMD} > \"${TMPFILE}\" 2>&1; tmux wait-for -S ${WAIT_CHAN}'")
+    "bash -c '${CMD} > \"${TMPFILE}\"; tmux wait-for -S ${WAIT_CHAN}'")
   FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
   tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
 

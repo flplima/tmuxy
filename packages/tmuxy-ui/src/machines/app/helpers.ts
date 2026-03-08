@@ -172,10 +172,20 @@ export function buildFloatPanesFromWindows(
       // Preserve existing dimensions but update flags from window name
       floatPanes[paneId] = { ...existing, drawer, backdrop, hideHeader };
     } else if (pane) {
+      // Default dimensions: use the pane's actual size (set by float-create.sh
+      // via resize-pane). Cap to leave margin around the container edges.
+      const isHorizontalDrawer = drawer === 'left' || drawer === 'right';
+      const isVerticalDrawer = drawer === 'top' || drawer === 'bottom';
+      const defaultWidth = isVerticalDrawer
+        ? containerWidth
+        : Math.min(pane.width * charWidth, containerWidth - 100);
+      const defaultHeight = isHorizontalDrawer
+        ? containerHeight
+        : Math.min(pane.height * charHeight, containerHeight - 100);
       floatPanes[paneId] = {
         paneId,
-        width: Math.min(pane.width * charWidth, containerWidth - 200),
-        height: Math.min(pane.height * charHeight, containerHeight - 200),
+        width: defaultWidth,
+        height: defaultHeight,
         drawer,
         backdrop,
         hideHeader,

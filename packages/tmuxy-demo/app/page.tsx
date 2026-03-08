@@ -30,7 +30,7 @@ export default function Home() {
           target="_blank"
           rel="noopener noreferrer"
           className="landing-github-link text-sm"
-          style={{ color: 'var(--text-primary)' }}
+          style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
         >
           <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span> {'\uF08E'}
         </a>
@@ -52,13 +52,12 @@ export default function Home() {
           No. The best terminal emulator already exists: <b>It&apos;s tmux.</b>
         </p>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          tmux already solved terminal emulation, multiplexing, persistent sessions. It has a
-          client-server architecture battle-tested for over 15 years. It plays nicely with AI agents
-          and it is the glue to connect all terminal apps in this TUI renaissance we&apos;re living through.
+          tmux already solved terminal emulation, multiplexing and persistent sessions more than a decade ago.
+          It plays nicely with AI agents and it's the perfect glue connecting terminal apps in this TUI renaissance we&apos;re living through.
         </p>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          So... what is missing? Well... If you&apos;ve tried to use tmux for more than a few minutes,
-          you already know the answer.
+          So... what is missing? Well... If you&apos;ve tried to use tmux without memorizing all the
+          keybindings and commands, you already know the answer.
         </p>
 
         <h2
@@ -68,22 +67,32 @@ export default function Home() {
           so, what is tmuxy?
         </h2>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          tmuxy is a GUI for tmux.
+          <strong>tmuxy is a GUI for tmux.</strong>
         </p>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          Every pane is an actual tmux pane. Using a Rust backend, it connects to tmux through
-          control mode (tmux -CC) and streams state updates to a React frontend via SSE (or Tauri
-          IPC, on the desktop app version).
+          The <b>desktop app</b> attaches to your local tmux server — or to a remote one via SSH.
+          It&apos;s like attaching to tmux from a normal terminal emulator, but now we are wrapping
+          tmux itself instead: every UI pane is an actual tmux pane.
         </p>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          Open the tmuxy desktop app and it attaches to your local tmux server. Need to connect to
-          a VM? No problem. It can talk with your server&apos;s tmux via ssh.
-          Want to vibe code from your phone? Just start the tmuxy web server and access it from
-          your mobile browser. No additional app needed.
+          The <b>web server mode</b> exposes the same UI as a web app, so you can access it from
+          anywhere — including your mobile phone browser. No additional app needed.
         </p>
         <p className="mb-3" style={{ lineHeight: '1.7' }}>
-          You don&apos;t need a new IDE. You already know the workflow to get your stuff done.
-          tmuxy just gives you a better view into it.
+          Here&apos;s how it works: A Rust backend connects to tmux through{' '}
+          <a
+            href="https://github.com/tmux/tmux/wiki/Control-Mode"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="landing-github-link"
+            style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+          >
+            <span style={{ textDecoration: 'underline' }}>control mode</span> {'\uF08E'}
+          </a>
+          {' '}and streams state updates to a React frontend via SSE (or Tauri IPC, on the desktop
+          app version). Being web-based allows it to support all kinds of fancy stuff like image
+          rendering, markdown previews, pane groups and floating panes, while under the
+          hood <strong>it&apos;s still tmux</strong>.
         </p>
 
         <h2
@@ -104,7 +113,7 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
             className="landing-github-link"
-            style={{ color: 'var(--text-primary)' }}
+            style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
           >
             <span style={{ textDecoration: 'underline' }}>{'\uF09B'} GitHub</span> {'\uF08E'}
           </a>
@@ -114,7 +123,7 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
             className="landing-github-link"
-            style={{ color: 'var(--text-primary)' }}
+            style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
           >
             <span style={{ textDecoration: 'underline' }}>DeepWiki</span> {'\uF08E'}
           </a>
@@ -124,7 +133,7 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
             className="landing-github-link"
-            style={{ color: 'var(--text-primary)' }}
+            style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
           >
             <span style={{ textDecoration: 'underline' }}>share it on X</span> {'\uF08E'}
           </a>.

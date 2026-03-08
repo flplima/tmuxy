@@ -665,13 +665,18 @@ export const appMachine = setup({
           {
             // If panes were removed, transition to removingPane state for exit animation
             // Skip if server reports 0 panes — that's a spurious intermediate state
+            // Skip if only float panes were removed — floats are rendered via FloatContainer
+            // not PaneLayout, so the leave animation doesn't apply and just adds latency
             guard: ({ event, context }) => {
               const transformed = getCachedTransform(event);
               if (transformed.panes.length === 0) return false;
               const currentPaneIds = context.panes.map((p) => p.tmuxId);
               const newPaneIds = transformed.panes.map((p) => p.tmuxId);
               const removedPanes = currentPaneIds.filter((id) => !newPaneIds.includes(id));
-              return removedPanes.length > 0;
+              if (removedPanes.length === 0) return false;
+              // Skip animation if only float panes were removed
+              const hasNonFloatRemoval = removedPanes.some((id) => !context.floatPanes[id]);
+              return hasNonFloatRemoval;
             },
             target: 'removingPane',
             actions: enqueueActions(({ event, context, enqueue }) => {
@@ -819,6 +824,10 @@ export const appMachine = setup({
               if (addedFloatIds.length > 0) {
                 // New float(s) appeared — focus the topmost one
                 newFocusedFloat = newFloatIds[newFloatIds.length - 1];
+                // Suppress layout animation: the split-window → break-pane
+                // workaround creates a momentary extra pane in the active window
+                // before it becomes a float. Disabling animation prevents the blink.
+                enqueue(assign({ enableAnimations: false }));
               } else if (newFocusedFloat && !floatPanes[newFocusedFloat]) {
                 // The focused float was removed — focus the new topmost, or clear
                 newFocusedFloat =
@@ -1418,11 +1427,12 @@ export const appMachine = setup({
                 command: `kill-pane -t ${event.paneId}`,
               }),
             );
+            // Optimistically remove the float immediately (don't wait for state update)
+            const { [event.paneId]: _, ...remainingFloats } = context.floatPanes;
+            enqueue(assign({ floatPanes: remainingFloats }));
             if (context.focusedFloatPaneId === event.paneId) {
               // Focus the next remaining float, or clear float focus
-              const remaining = Object.values(context.floatPanes).filter(
-                (f) => f.paneId !== event.paneId,
-              );
+              const remaining = Object.values(remainingFloats);
               const nextFocused =
                 remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
               enqueue(assign({ focusedFloatPaneId: nextFocused }));
@@ -1446,8 +1456,11 @@ export const appMachine = setup({
                 command: `kill-pane -t ${topFloat.paneId}`,
               }),
             );
+            // Optimistically remove the float immediately
+            const { [topFloat.paneId]: _, ...remainingFloats } = context.floatPanes;
+            enqueue(assign({ floatPanes: remainingFloats }));
             // Clear float focus or focus the next float below
-            const remaining = floats.slice(0, -1);
+            const remaining = Object.values(remainingFloats);
             const nextFocused =
               remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
             enqueue(assign({ focusedFloatPaneId: nextFocused }));

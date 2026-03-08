@@ -165,10 +165,6 @@ export function AppMenu() {
       </SubMenu>
 
       <SubMenu label="Help">
-        <MenuItem onClick={() => handleAction('help-keybindings')}>
-          Show Key Bindings
-          <KeyLabel keybindings={keybindings} command="list-keys" />
-        </MenuItem>
         <MenuItem onClick={() => handleAction('help-github')}>
           Tmuxy on GitHub<span className="menu-external">{'\u2197'}</span>
         </MenuItem>

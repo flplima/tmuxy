@@ -43,6 +43,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const enableAnimations = useAppSelector(selectEnableAnimations);
   const groupSwitchPanes = useAppSelector(selectGroupSwitchPaneIds);
 
+  const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
   const isDragging = useIsDragging();
   const isResizing = useIsResizing();
 
@@ -128,20 +129,22 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const getPaneClassName = useCallback(
     (pane: TmuxPane): string => {
       const classes = ['pane-layout-item'];
-      classes.push(pane.active ? 'pane-active' : 'pane-inactive');
+      const isActive = pane.active && !focusedFloatPaneId;
+      classes.push(isActive ? 'pane-active' : 'pane-inactive');
       if (pane.tmuxId === draggedPaneId) classes.push('pane-dragging');
       return classes.join(' ');
     },
-    [draggedPaneId],
+    [draggedPaneId, focusedFloatPaneId],
   );
 
   // Single pane shortcut
   if (visiblePanes.length === 1) {
     const pane = visiblePanes[0];
+    const singlePaneClass = focusedFloatPaneId ? 'pane-inactive' : 'pane-active';
     return (
       <div className={`pane-layout${!enableAnimations ? ' pane-layout-no-animations' : ''}`}>
         <div
-          className="pane-layout-item pane-active"
+          className={`pane-layout-item ${singlePaneClass}`}
           data-pane-id={pane.tmuxId}
           style={getPaneStyle(pane)}
         >

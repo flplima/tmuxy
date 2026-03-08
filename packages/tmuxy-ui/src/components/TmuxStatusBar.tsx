@@ -73,7 +73,9 @@ function StatusLineHints({
   }
 
   const hasNav = ['C-h', 'C-j', 'C-k', 'C-l'].some((key) =>
-    keybindings.root_bindings.some((b) => b.key === key && b.command.includes('tmuxy-nav')),
+    keybindings.root_bindings.some(
+      (b) => b.key === key && (b.command.includes('tmuxy-nav') || b.command.includes('tmuxy/nav')),
+    ),
   );
 
   const hasTabs = keybindings.root_bindings.some(

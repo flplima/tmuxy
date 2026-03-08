@@ -6,7 +6,7 @@
 
 import type { AppMachineEvent } from '../../machines/types';
 
-const GITHUB_URL = 'https://github.com/niclas3332/tmuxy';
+const GITHUB_URL = 'https://github.com/flplima/tmuxy';
 
 type Send = (event: AppMachineEvent) => void;
 

@@ -193,8 +193,8 @@ export class LifoShell {
   writeBanner(): void {
     const lines = [
       '\x1b[1;36mThis is a live demo! \x1b[0m',
-      'Powered by \x1b[1;33mlifo.sh\x1b[0m — real bash in your browser.',
-      'Try: ls, cat, grep, echo, curl, and more.',
+      'Running 100% client-side.',
+      'Interactive shell powered by \x1b]8;;https://lifo.sh/\x07\x1b[1;33mlifo.sh\x1b[0m\x1b]8;;\x07',
       '',
     ];
     for (const line of lines) {
@@ -314,6 +314,12 @@ export class LifoShell {
     this.cursorPos = 0;
     this.historyIndex = -1;
     this.savedInput = '';
+
+    if (line === 'exit') {
+      this.tmux?.killPane();
+      this.onUpdate?.();
+      return;
+    }
 
     if (line.length > 0) {
       this.history.push(line);
@@ -506,8 +512,27 @@ export class LifoShell {
   private writeText(text: string): void {
     let i = 0;
     let currentStyle: CellStyle | undefined;
+    let currentUrl: string | undefined;
 
     while (i < text.length) {
+      // OSC 8 hyperlink: \x1b]8;params;url\x1b\\ or \x1b]8;params;url\x07
+      if (text[i] === '\x1b' && text[i + 1] === ']' && text[i + 2] === '8' && text[i + 3] === ';') {
+        // Find the params;url portion, terminated by ST (\x1b\\) or BEL (\x07)
+        let j = i + 4;
+        while (j < text.length) {
+          if (text[j] === '\x07') break;
+          if (text[j] === '\x1b' && text[j + 1] === '\\') break;
+          j++;
+        }
+        const payload = text.slice(i + 4, j);
+        const semiIdx = payload.indexOf(';');
+        const url = semiIdx >= 0 ? payload.slice(semiIdx + 1) : payload;
+        currentUrl = url || undefined; // empty url = close hyperlink
+        // Skip past the terminator
+        i = text[j] === '\x1b' ? j + 2 : j + 1;
+        continue;
+      }
+      // CSI sequences (SGR, etc.)
       if (text[i] === '\x1b' && text[i + 1] === '[') {
         let j = i + 2;
         while (j < text.length && text[j] !== 'm' && text[j] !== 'J' && text[j] !== 'H') j++;
@@ -519,7 +544,11 @@ export class LifoShell {
           continue;
         }
       }
-      this.writeCell({ c: text[i], s: currentStyle ? { ...currentStyle } : undefined });
+      const s: CellStyle | undefined =
+        currentStyle || currentUrl
+          ? { ...currentStyle, ...(currentUrl ? { url: currentUrl } : {}) }
+          : undefined;
+      this.writeCell({ c: text[i], s });
       i++;
     }
   }

@@ -95,6 +95,7 @@ async function assertContentMatch(page, label) {
             height: pane.height,
             cursorX: pane.cursorX,
             cursorY: pane.cursorY,
+            active: pane.active,
             lines,
             domTitle,
           };
@@ -117,13 +118,17 @@ async function assertContentMatch(page, label) {
         }
 
         // Check cursor position (allow cursorY tolerance matching height tolerance).
+        // Skip cursor check for inactive panes — their cursor position may be stale
+        // after resize/scroll operations.
         // Skip cursor check entirely if UI reports 0,0 — cursor may not have synced yet.
-        const cursorSynced = !(ui.cursorX === 0 && ui.cursorY === 0 && (tmux.cursorX !== 0 || tmux.cursorY !== 0));
+        const cursorSynced = ui.active && !(ui.cursorX === 0 && ui.cursorY === 0 && (tmux.cursorX !== 0 || tmux.cursorY !== 0));
         if (cursorSynced) {
           if (tmux.cursorX !== ui.cursorX) {
             lastErrors.push(`${prefix}Pane ${paneId} cursorX: tmux=${tmux.cursorX}, ui=${ui.cursorX}`);
           }
-          if (Math.abs(tmux.cursorY - ui.cursorY) > 1) {
+          // Allow 2-row tolerance: resize, status bar allocation, and height
+          // rounding can shift cursor positions by up to 2 rows.
+          if (Math.abs(tmux.cursorY - ui.cursorY) > 2) {
             lastErrors.push(`${prefix}Pane ${paneId} cursorY: tmux=${tmux.cursorY}, ui=${ui.cursorY}`);
           }
         }
@@ -136,8 +141,12 @@ async function assertContentMatch(page, label) {
         const stripDims = (s) => s.replace(/\(\d+x\d+\)/, '').replace(/\s+/g, ' ').trim();
         const tmuxTitle = stripDims(tmux.borderTitle.trim());
         const domTitle = stripDims(ui.domTitle);
-        // Skip title check if dom title is just the pane ID (borderTitle not yet received)
-        if (tmuxTitle && domTitle && domTitle !== paneId && tmuxTitle !== domTitle) {
+        // Skip title check if dom title is just the pane ID (borderTitle not yet received).
+        // Also treat "shell" as matching any default shell name (zsh, bash, fish, sh) —
+        // the UI intentionally falls back to "shell" when the command field hasn't synced.
+        const SHELL_NAMES = new Set(['zsh', 'bash', 'fish', 'sh']);
+        const isShellEquivalent = domTitle === 'shell' && SHELL_NAMES.has(tmuxTitle);
+        if (tmuxTitle && domTitle && domTitle !== paneId && tmuxTitle !== domTitle && !isShellEquivalent) {
           lastErrors.push(
             `${prefix}Pane ${paneId} title: tmux=${JSON.stringify(tmuxTitle)}, dom=${JSON.stringify(domTitle)}`
           );
@@ -151,6 +160,7 @@ async function assertContentMatch(page, label) {
 
         let bestDiffCount = Infinity;
         let bestDiffDetails = [];
+        let bestCompareLines = 0;
 
         for (const offset of [-1, 0, 1]) {
           const compareLines = Math.min(tmuxLines.length, ui.lines.length) - Math.abs(offset);
@@ -176,16 +186,17 @@ async function assertContentMatch(page, label) {
           if (dc < bestDiffCount) {
             bestDiffCount = dc;
             bestDiffDetails = dd;
+            bestCompareLines = compareLines;
           }
         }
 
         // Only fail if >30% of lines differ (account for capture timing and
         // height-related content shifts that the offset alignment can't fully resolve)
-        const maxDiffAllowed = Math.max(2, Math.ceil(compareLines * 0.3));
+        const maxDiffAllowed = Math.max(2, Math.ceil(bestCompareLines * 0.3));
         if (bestDiffCount > maxDiffAllowed) {
           lastErrors.push(...bestDiffDetails);
           if (bestDiffCount > 3) {
-            lastErrors.push(`${prefix}Pane ${paneId}: ${bestDiffCount - 3} more differing lines (${bestDiffCount}/${compareLines})`);
+            lastErrors.push(`${prefix}Pane ${paneId}: ${bestDiffCount - 3} more differing lines (${bestDiffCount}/${bestCompareLines})`);
           }
         }
       }

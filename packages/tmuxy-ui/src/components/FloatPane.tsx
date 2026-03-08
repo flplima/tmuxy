@@ -53,7 +53,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
 
   if (!pane) return null;
 
-  const title = pane.borderTitle || pane.tmuxId;
+  const title = pane.command || pane.borderTitle || pane.title || 'shell';
   const { drawer, backdrop, hideHeader } = floatState;
   const headerHeight = hideHeader ? 0 : 28;
 
@@ -92,6 +92,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
         containerStyle={containerStyle}
         backdrop={backdrop}
         hideHeader={hideHeader}
+        closeOnEsc={false}
       >
         <div
           className="float-content"
@@ -102,7 +103,8 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
             content={pane.content}
             cursorX={pane.cursorX}
             cursorY={pane.cursorY}
-            isActive={pane.active}
+            isActive={isFocused}
+            blink={cursorBlink}
             height={terminalRows}
             inMode={pane.inMode}
             copyCursorX={pane.copyCursorX}
@@ -127,13 +129,14 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
       title={title}
       width={floatWidth}
       zIndex={zIndex}
-      containerStyle={{ left, top }}
+      className="float-modal"
+      containerStyle={{ left, top, width: floatWidth, height: floatHeight }}
       backdrop={backdrop}
-      hideHeader={hideHeader}
+      hideHeader
+      closeOnEsc={false}
     >
       <div
         className="float-container"
-        style={{ left, top, width: floatWidth, height: floatHeight }}
         onClick={handleClick}
         tabIndex={0}
         data-pane-id={pane.tmuxId}

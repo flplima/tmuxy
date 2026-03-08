@@ -80,7 +80,8 @@ export class DemoTmux {
     const paneId = this.allocPaneId();
     const windowId = this.allocWindowId();
 
-    const shell = this.makeShell(this.totalWidth, this.totalHeight);
+    // Subtract 1 row for header (pane-border-status top occupies row 0)
+    const shell = this.makeShell(this.totalWidth, Math.max(this.totalHeight - 1, 1));
     shell.writeBanner();
     shell.writePrompt();
 
@@ -154,6 +155,7 @@ export class DemoTmux {
         cursor_x: pane.shell.getCursorX(),
         cursor_y: pane.shell.getCursorY(),
         width: pos?.width ?? this.totalWidth,
+        // computePositions already returns content-only height (header row excluded).
         height: pos?.height ?? this.totalHeight,
         x: pos?.x ?? 0,
         y: pos?.y ?? 0,
@@ -231,7 +233,7 @@ export class DemoTmux {
     const parentWidth = this.totalWidth;
     const parentHeight = this.totalHeight;
 
-    // Compute current active pane dimensions
+    // Compute current active pane content dimensions (subtract header for y=0 panes)
     const positions = this.computePositions(window.layout, 0, 0, parentWidth, parentHeight);
     const activePos = positions.find((p) => p.paneId === this.activePaneId);
     const w = activePos?.width ?? parentWidth;
@@ -304,7 +306,8 @@ export class DemoTmux {
     const windowId = this.allocWindowId();
     const paneId = this.allocPaneId();
 
-    const shell = this.makeShell(this.totalWidth, this.totalHeight);
+    // Subtract 1 row for header (pane-border-status top occupies row 0)
+    const shell = this.makeShell(this.totalWidth, Math.max(this.totalHeight - 1, 1));
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -1088,6 +1091,8 @@ export class DemoTmux {
     const pane = this.panes.get(paneId);
     if (!pane) return;
     pane.shell.writeWidgetContent(widgetName, lines);
+    pane.title = widgetName;
+    pane.command = widgetName;
   }
 
   renameWindow(windowId: string, name: string): boolean {
@@ -1162,9 +1167,13 @@ export class DemoTmux {
     height: number,
   ): Array<{ paneId: string; x: number; y: number; width: number; height: number }> {
     if (node.type === 'leaf') {
-      // Reserve 1 row for the pane header (like tmux pane-border-status top).
-      // The UI positions the header at pane.y - 1, so y+1 keeps the header at row y.
-      return [{ paneId: node.paneId, x, y: y + 1, width, height: Math.max(height - 1, 1) }];
+      if (y === 0) {
+        // Top of grid: header occupies row 0, content starts at row 1.
+        // Report y=1, height=height-1 (content rows only) — matches real tmux.
+        return [{ paneId: node.paneId, x, y: 1, width, height: Math.max(height - 1, 1) }];
+      }
+      // Below a separator: header sits in separator row at y-1 (no adjustment needed).
+      return [{ paneId: node.paneId, x, y, width, height }];
     }
 
     if (node.direction === 'vertical') {

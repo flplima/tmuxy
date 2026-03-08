@@ -352,7 +352,16 @@ export function getActiveIndexInGroup(context: AppMachineContext, group: PaneGro
  * For groups, only the pane in the active window is visible.
  */
 function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
-  const previewPanes = selectPreviewPanes(context);
+  let previewPanes = selectPreviewPanes(context);
+
+  // Filter out panes that belong to float windows (prevents split blink
+  // when float-create.sh does split-window + break-pane — briefly the new
+  // pane exists in the current window before being moved)
+  const floatPaneIds = context.floatPanes;
+  if (Object.keys(floatPaneIds).length > 0) {
+    previewPanes = previewPanes.filter((p) => !floatPaneIds[p.tmuxId]);
+  }
+
   const groupsArray = Object.values(context.paneGroups);
 
   if (groupsArray.length === 0) return previewPanes;
@@ -385,6 +394,7 @@ export const selectVisiblePanes = createMemoizedSelector(
     charHeight: ctx.charHeight,
     activeWindowId: ctx.activeWindowId,
     activePaneId: ctx.activePaneId,
+    floatPanes: ctx.floatPanes,
   }),
   selectVisiblePanesUncached,
 );
