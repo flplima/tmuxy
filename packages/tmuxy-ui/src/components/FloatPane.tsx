@@ -109,6 +109,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
             inMode={pane.inMode}
             copyCursorX={pane.copyCursorX}
             copyCursorY={pane.copyCursorY}
+            cursorShape={pane.cursorShape}
           />
         </div>
       </Modal>
@@ -155,6 +156,7 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
             inMode={pane.inMode}
             copyCursorX={pane.copyCursorX}
             copyCursorY={pane.copyCursorY}
+            cursorShape={pane.cursorShape}
           />
         </div>
       </div>

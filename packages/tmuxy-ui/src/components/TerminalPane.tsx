@@ -375,6 +375,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
                   selectionStartY={pane.selectionStartY}
                   images={pane.images}
                   paneId={pane.tmuxId}
+                  cursorShape={pane.cursorShape}
                 />
               </div>
             )}

@@ -25,6 +25,40 @@ fn safe_process(terminal: &mut vt100::Parser, data: &[u8]) {
     }
 }
 
+/// Extract DECSCUSR (Set Cursor Style) from raw terminal output.
+/// Format: ESC [ Ps SP q  where Ps is 0-6.
+/// Updates `shape` with the last DECSCUSR value found in the data.
+fn extract_cursor_shape(data: &[u8], shape: &mut u8) {
+    // Scan for pattern: 0x1b '[' <digits> ' ' 'q'
+    let len = data.len();
+    let mut i = 0;
+    while i < len {
+        if data[i] == 0x1b && i + 1 < len && data[i + 1] == b'[' {
+            // Start of CSI sequence
+            let mut j = i + 2;
+            // Parse digits
+            let digit_start = j;
+            while j < len && data[j].is_ascii_digit() {
+                j += 1;
+            }
+            // Check for SP q suffix
+            if j + 1 < len && data[j] == b' ' && data[j + 1] == b'q' && j > digit_start {
+                if let Ok(ps) = std::str::from_utf8(&data[digit_start..j])
+                    .unwrap_or("")
+                    .parse::<u8>()
+                {
+                    if ps <= 6 {
+                        *shape = ps;
+                    }
+                }
+                i = j + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+}
+
 /// Type of change that occurred
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ChangeType {
@@ -145,6 +179,10 @@ pub struct PaneState {
 
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
     pub copy_mode_content: Option<PaneContent>,
+
+    /// Cursor shape set by DECSCUSR escape sequence
+    /// 0=block, 1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar
+    pub cursor_shape: u8,
 }
 
 impl PaneState {
@@ -183,6 +221,7 @@ impl PaneState {
             selection_start_y: 0,
             history_size: 0,
             copy_mode_content: None,
+            cursor_shape: 0,
         }
     }
 
@@ -196,6 +235,11 @@ impl PaneState {
             let start = self.raw_buffer.len() - 65536;
             self.raw_buffer = self.raw_buffer[start..].to_vec();
         }
+
+        // Extract DECSCUSR (Set Cursor Style) before other processing.
+        // Format: CSI Ps SP q  (e.g., \x1b[5 q for blinking bar)
+        // We scan for the last occurrence since only the final state matters.
+        extract_cursor_shape(content, &mut self.cursor_shape);
 
         // Process through image parser to extract image sequences
         let image_result = self.image_parser.process(content);
@@ -376,6 +420,7 @@ impl PaneState {
             selection_start_x: sel_start_x,
             selection_start_y: sel_start_y,
             images: self.image_parser.placements.clone(),
+            cursor_shape: self.cursor_shape,
         }
     }
 }
@@ -1795,6 +1840,9 @@ impl StateAggregator {
         }
         if prev.images != curr.images {
             delta.images = Some(curr.images.clone());
+        }
+        if prev.cursor_shape != curr.cursor_shape {
+            delta.cursor_shape = Some(curr.cursor_shape);
         }
         delta
     }

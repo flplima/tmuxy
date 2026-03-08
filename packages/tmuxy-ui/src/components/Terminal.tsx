@@ -7,6 +7,8 @@
 
 import { useMemo } from 'react';
 import { TerminalLine } from './TerminalLine';
+import { cursorShapeToMode } from '../utils/cursorShape';
+import type { CursorMode } from './Cursor';
 import type { PaneContent, CellLine, ImagePlacement } from '../tmux/types';
 
 interface TerminalProps {
@@ -31,6 +33,8 @@ interface TerminalProps {
   images?: ImagePlacement[];
   /** Pane tmux ID (e.g., "%0") for image URL construction */
   paneId?: string;
+  /** Cursor shape from DECSCUSR (0-6) */
+  cursorShape?: number;
 }
 
 // Empty line constant for padding
@@ -96,11 +100,17 @@ export const Terminal: React.FC<TerminalProps> = ({
   selectionStartY = 0,
   images,
   paneId,
+  cursorShape = 0,
 }) => {
   // Use copy mode cursor position when in copy mode
   const effectiveCursorX = inMode ? copyCursorX : cursorX;
   const effectiveCursorY = inMode ? copyCursorY : cursorY;
   const showCursor = isActive || inMode;
+
+  // Derive cursor mode and blink from DECSCUSR shape
+  const cursorStyle = useMemo(() => cursorShapeToMode(cursorShape), [cursorShape]);
+  const effectiveBlink = blink !== undefined ? blink : cursorStyle.blink;
+  const cursorMode = inMode ? ('block' as CursorMode) : cursorStyle.mode;
 
   // Resolve selection start: mouse drag (optimistic) takes priority, then backend (authoritative)
   const effectiveSelectionStart = useMemo(() => {
@@ -144,7 +154,8 @@ export const Terminal: React.FC<TerminalProps> = ({
             showCursor={showCursor}
             inMode={inMode}
             isActive={isActive}
-            blink={blink}
+            blink={effectiveBlink}
+            cursorMode={cursorMode}
             selectionRange={getSelectionRange(lineIndex)}
             width={width}
           />

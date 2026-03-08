@@ -10,6 +10,7 @@
 
 import { memo, CSSProperties } from 'react';
 import { Cursor } from './Cursor';
+import type { CursorMode } from './Cursor';
 import type { CellLine, TerminalCell, CellColor, CellStyle } from '../tmux/types';
 import { detectUrls } from '../utils/urlDetect';
 
@@ -172,6 +173,7 @@ export interface TerminalLineProps {
   inMode: boolean;
   isActive: boolean;
   blink?: boolean;
+  cursorMode?: CursorMode;
   selectionRange?: { startCol: number; endCol: number } | null;
   /** Terminal width in columns (needed to pad selection highlight beyond line content) */
   width: number;
@@ -187,6 +189,7 @@ export const TerminalLine = memo(
     inMode,
     isActive,
     blink,
+    cursorMode = 'block',
     selectionRange,
     width: _width,
   }: TerminalLineProps) {
@@ -207,7 +210,7 @@ export const TerminalLine = memo(
               copyMode={inMode}
               active={isActive}
               blink={blink}
-              mode="block"
+              mode={cursorMode}
             />
           </>
         );
@@ -285,7 +288,7 @@ export const TerminalLine = memo(
                   copyMode={inMode}
                   active={isActive}
                   blink={blink}
-                  mode="block"
+                  mode={cursorMode}
                 />
                 {after}
               </>

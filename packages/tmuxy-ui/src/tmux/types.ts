@@ -39,6 +39,8 @@ export interface TmuxPane {
   selectionStartY: number;
   /** Image placements on this pane's terminal grid */
   images?: ImagePlacement[];
+  /** Cursor shape from DECSCUSR: 0/1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar */
+  cursorShape: number;
 }
 
 /** An image placement on the terminal grid */
@@ -171,6 +173,7 @@ export interface ServerPane {
   selection_start_x?: number;
   selection_start_y?: number;
   images?: ServerImagePlacement[];
+  cursor_shape?: number;
 }
 
 /** Image placement in snake_case from backend */
@@ -233,6 +236,7 @@ export interface PaneDelta {
   selection_start_x?: number;
   selection_start_y?: number;
   images?: ServerImagePlacement[];
+  cursor_shape?: number;
 }
 
 export interface WindowDelta {
