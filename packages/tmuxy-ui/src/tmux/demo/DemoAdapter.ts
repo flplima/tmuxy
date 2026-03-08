@@ -41,6 +41,7 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: 'r', command: 'source-file ~/.tmuxy.conf', description: 'Reload config' },
     { key: 'S', command: 'setw synchronize-panes', description: 'Sync panes' },
     { key: '=', command: 'tmuxy-pane-group-add', description: 'Add to pane group' },
+    { key: '[', command: 'copy-mode -t demo', description: 'Enter copy mode' },
     { key: 'Space', command: 'next-layout', description: 'Next layout' },
     { key: '>', command: 'swap-pane -D', description: 'Swap pane down' },
     { key: '<', command: 'swap-pane -U', description: 'Swap pane up' },
@@ -528,7 +529,24 @@ export class DemoAdapter implements TmuxAdapter {
         break;
       }
 
-      case 'copy-mode':
+      case 'copy-mode': {
+        // Enter copy mode on the target pane (or active pane)
+        let copyTarget: string | null = null;
+        for (let i = 1; i < parts.length; i++) {
+          if (parts[i] === '-t' && i + 1 < parts.length) {
+            const t = parts[i + 1];
+            if (t.startsWith('%')) copyTarget = t;
+          }
+        }
+        const paneId =
+          copyTarget ?? (this.tmux.getState() as { active_pane_id: string }).active_pane_id;
+        if (paneId) {
+          this.tmux.enterCopyMode(paneId);
+          this.emitState();
+        }
+        break;
+      }
+
       case 'resize-window':
         // Not supported in demo mode - silently ignore
         break;
@@ -547,22 +565,24 @@ export class DemoAdapter implements TmuxAdapter {
       if (args[i] === '-l') {
         literal = true;
       } else if (args[i] === '-t') {
-        i++; // skip target (session name)
+        i++;
+        if (i < args.length && args[i].startsWith('%')) {
+          targetPaneId = args[i];
+        }
       } else if (args[i] === '-X') {
-        // Copy mode command - ignore in demo
+        // Copy mode command — handle cancel to exit copy mode
+        const copyCmd = args.slice(i + 1).join(' ');
+        if (copyCmd === 'cancel') {
+          const paneId =
+            targetPaneId ?? (this.tmux.getState() as { active_pane_id: string }).active_pane_id;
+          if (paneId) {
+            this.tmux.exitCopyMode(paneId);
+            this.emitState();
+          }
+        }
         return;
       } else {
         keys.push(args[i]);
-      }
-    }
-
-    // Check if a pane ID was specified in target
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === '-t' && i + 1 < args.length) {
-        const target = args[i + 1];
-        if (target.startsWith('%')) {
-          targetPaneId = target;
-        }
       }
     }
 

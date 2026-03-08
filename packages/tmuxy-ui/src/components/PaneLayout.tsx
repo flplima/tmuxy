@@ -71,7 +71,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Handle global mouse events during drag/resize
+  // Handle global mouse/touch events during drag/resize
   useEffect(() => {
     if (!isDragging && !isResizing) return;
 
@@ -91,12 +91,31 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       }
     };
 
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      send({ type: 'DRAG_MOVE', clientX: t.clientX, clientY: t.clientY });
+    };
+
+    const handleTouchEnd = () => {
+      if (isDragging) {
+        send({ type: 'DRAG_END' });
+      }
+    };
+
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+    window.addEventListener('touchcancel', handleTouchEnd);
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
     };
   }, [isDragging, isResizing, send]);
 

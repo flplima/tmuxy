@@ -10,7 +10,6 @@ import { useRef, useEffect, useState, useCallback, memo } from 'react';
 import { useAppSend, usePane, usePaneGroup, useCopyModeState } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import type { TmuxPane } from '../tmux/types';
-import { haptics } from '../utils/haptics';
 
 const PROCESS_ICONS: Record<string, string> = {
   zsh: '\ue795', //  nf-custom-terminal
@@ -73,6 +72,12 @@ function getTabText(pane: TmuxPane, titleOverride?: string, widgetName?: string)
 
 /** Minimum pixels of movement before a mousedown becomes a drag */
 const DRAG_THRESHOLD = 5;
+
+/** Long-press duration in ms to initiate drag on touch devices */
+const LONG_PRESS_MS = 400;
+
+/** Maximum touch movement in px before cancelling long-press */
+const LONG_PRESS_MOVE_THRESHOLD = 10;
 
 const PaneTab = memo(function PaneTab({
   pane,
@@ -161,12 +166,21 @@ export function PaneHeader({
   const copyState = useCopyModeState(paneId);
   const tabsRef = useRef<HTMLDivElement>(null);
   const pendingDragRef = useRef<{ x: number; y: number } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
     y: 0,
     targetPaneId: '',
   });
+
+  // Cleanup long-press timer on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    };
+  }, []);
 
   // Scroll selected tab into view
   useEffect(() => {
@@ -265,8 +279,6 @@ export function PaneHeader({
         pendingDragRef.current = null;
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
-        haptics.trigger(10);
-        document.addEventListener('mouseup', () => haptics.trigger('success'), { once: true });
         const containerEl = (moveEvt.target as HTMLElement).closest('.pane-layout');
         const containerRect = containerEl?.getBoundingClientRect();
         send({
@@ -290,6 +302,76 @@ export function PaneHeader({
     document.addEventListener('mouseup', handleMouseUp);
   };
 
+  // Long-press touch to initiate drag on mobile
+  const handleHeaderTouchStart = (e: React.TouchEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'BUTTON') return;
+    if (target.classList.contains('pane-tab-icon')) return;
+
+    const touch = e.touches[0];
+    const startX = touch.clientX;
+    const startY = touch.clientY;
+    touchStartRef.current = { x: startX, y: startY };
+
+    // Capture DOM refs eagerly — React synthetic event is recycled after this handler returns
+    const headerEl = e.currentTarget as HTMLElement;
+
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      touchStartRef.current = null;
+
+      const containerEl = headerEl.closest('.pane-layout');
+      const containerRect = containerEl?.getBoundingClientRect();
+      send({
+        type: 'DRAG_START',
+        paneId: tmuxId,
+        startX,
+        startY,
+        containerLeft: containerRect?.left ?? 0,
+        containerTop: containerRect?.top ?? 0,
+      });
+    }, LONG_PRESS_MS);
+
+    const handleTouchMove = (moveEvt: TouchEvent) => {
+      if (!touchStartRef.current) {
+        // Drag already started — let pointerTracker handle it
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+        document.removeEventListener('touchcancel', handleTouchEnd);
+        return;
+      }
+      const t = moveEvt.touches[0];
+      const dx = Math.abs(t.clientX - touchStartRef.current.x);
+      const dy = Math.abs(t.clientY - touchStartRef.current.y);
+      if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+        // Finger moved too much — cancel long-press (user is scrolling)
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        touchStartRef.current = null;
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+        document.removeEventListener('touchcancel', handleTouchEnd);
+      }
+    };
+
+    const handleTouchEnd = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      touchStartRef.current = null;
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('touchcancel', handleTouchEnd);
+    };
+
+    document.addEventListener('touchmove', handleTouchMove, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd);
+    document.addEventListener('touchcancel', handleTouchEnd);
+  };
+
   const isInCopyMode = inMode || !!copyState;
   const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${isInCopyMode ? 'pane-header-copy-mode' : ''}`;
 
@@ -298,6 +380,7 @@ export function PaneHeader({
       className={headerClass}
       onDoubleClick={handleDoubleClick}
       onMouseDown={handleHeaderMouseDown}
+      onTouchStart={handleHeaderTouchStart}
       role="tablist"
       aria-label={`Pane tabs`}
     >

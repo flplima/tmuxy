@@ -12,28 +12,54 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center px-4 py-12">
+    <main className="flex min-h-screen flex-col items-center px-4 py-6 sm:py-12">
       <div
-        className={`mb-8 flex flex-col items-center gap-3 text-center ${fontsReady ? 'landing-fade-in' : 'landing-hidden'}`}
+        className={`mb-8 w-full max-w-3xl ${fontsReady ? 'landing-fade-in' : 'landing-hidden'}`}
       >
-        <h1
-          className="text-5xl font-bold tracking-tight"
-          style={{ color: 'var(--accent-green)' }}
-        >
-          tmuxy
-        </h1>
-        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          The missing tmux GUI you didn&apos;t know you needed
-        </p>
-        <a
-          href="https://github.com/flplima/tmuxy"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="landing-github-link text-sm"
-          style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
-        >
-          <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span> {'\uF08E'}
-        </a>
+        {/* Desktop: centered column layout */}
+        <div className="hidden sm:flex flex-col items-center gap-3 text-center">
+          <h1
+            className="text-5xl font-bold tracking-tight"
+            style={{ color: 'var(--accent-green)' }}
+          >
+            tmuxy
+          </h1>
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+            The missing tmux GUI you didn&apos;t know you needed
+          </p>
+          <a
+            href="https://github.com/flplima/tmuxy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="landing-github-link text-sm"
+            style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+          >
+            <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span> {'\uF08E'}
+          </a>
+        </div>
+        {/* Mobile: centered group — tmuxy | slogan/link */}
+        <div className="flex sm:hidden items-center justify-center gap-8">
+          <h1
+            className="text-4xl font-bold tracking-tight"
+            style={{ color: 'var(--accent-green)', flexShrink: 0 }}
+          >
+            tmuxy
+          </h1>
+          <div className="flex flex-col items-start gap-1" style={{ flexShrink: 1, minWidth: 0 }}>
+            <p className="text-sm" style={{ color: 'var(--text-muted)', textWrap: 'balance' }}>
+              The missing tmux GUI you didn&apos;t know you needed
+            </p>
+            <a
+              href="https://github.com/flplima/tmuxy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="landing-github-link text-sm"
+              style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+            >
+              <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span> {'\uF08E'}
+            </a>
+          </div>
+        </div>
       </div>
       <div className="w-full max-w-3xl">
         <MacWindow>
