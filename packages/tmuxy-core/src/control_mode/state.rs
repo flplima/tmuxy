@@ -1344,9 +1344,12 @@ impl StateAggregator {
                 // Existing pane: update geometry and window assignment
                 pane.x = lp.x;
                 pane.y = lp.y;
+                // Detect pane moving between windows (e.g., swap-pane during group switch).
+                // The pane's vt100 parser content may be stale — trigger a capture-pane refresh.
+                let moved_window = pane.window_id != window_id;
                 pane.window_id = window_id.to_string();
                 pane.index = lp.index;
-                if pane.resize(lp.width, lp.height) {
+                if pane.resize(lp.width, lp.height) || moved_window {
                     resized_panes.push(lp.id.clone());
                 }
             } else {
