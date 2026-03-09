@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@lifo-sh/core": "^0.5.0",
+    "@next/third-parties": "^16.1.6",
     "next": "^15",
     "react": "^19",
     "react-dom": "^19",
