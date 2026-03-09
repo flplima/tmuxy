@@ -3,7 +3,8 @@
 import { TmuxyProvider, TmuxyApp, DemoAdapter, useAppFocused, type RenderTabline } from 'tmuxy-ui';
 import 'tmuxy-ui/styles.css';
 import 'tmuxy-ui/fonts/nerd-font.css';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { trackEvent } from '@/lib/analytics';
 
 function DemoTabline({ children }: { children: React.ReactNode }) {
   const appFocused = useAppFocused();
@@ -115,8 +116,36 @@ export default function TmuxyDemoInner() {
     return new DemoAdapter({ initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP });
   }, []);
 
+  const interacted = useRef(false);
+  const lastWindowId = useRef<string | null>(null);
+
+  useEffect(() => {
+    return adapter.onStateChange((state) => {
+      const activeId = state.active_window_id;
+      if (lastWindowId.current !== null && activeId !== lastWindowId.current) {
+        const win = state.windows.find((w) => w.id === activeId);
+        if (win && !win.is_pane_group_window && !win.is_float_window) {
+          trackEvent({ name: 'demo_tab_switch', params: { tab_name: win.name } });
+        }
+      }
+      lastWindowId.current = activeId;
+    });
+  }, [adapter]);
+
   return (
-    <div style={{ height: 500, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{ height: 500, position: 'relative', display: 'flex', flexDirection: 'column' }}
+      onClick={(e) => {
+        if (!interacted.current) {
+          interacted.current = true;
+          trackEvent({ name: 'demo_interact' });
+        }
+        const target = e.target as HTMLElement;
+        if (target.closest('.pane-tab')) {
+          trackEvent({ name: 'demo_pane_group_click' });
+        }
+      }}
+    >
       <TmuxyProvider adapter={adapter} config={{ forwardScrollToParent: true, requireFocus: true, isDemo: true }}>
         <TmuxyApp renderTabline={renderTabline} />
       </TmuxyProvider>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { MacWindow } from '@/components/MacWindow';
 import { TmuxyDemo } from '@/components/TmuxyDemo';
+import { trackEvent } from '@/lib/analytics';
 
 export default function Home() {
   const [fontsReady, setFontsReady] = useState(false);
@@ -33,6 +34,7 @@ export default function Home() {
             rel="noopener noreferrer"
             className="landing-github-link text-sm"
             style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+            onClick={() => trackEvent({ name: 'github_click' })}
           >
             <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span> {'\uF08E'}
           </a>
@@ -55,6 +57,7 @@ export default function Home() {
               rel="noopener noreferrer"
               className="landing-github-link text-sm"
               style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+              onClick={() => trackEvent({ name: 'github_click' })}
             >
               <span style={{ textDecoration: 'underline' }}>{'\uF09B'} View on GitHub</span> {'\uF08E'}
             </a>
@@ -140,6 +143,7 @@ export default function Home() {
             rel="noopener noreferrer"
             className="landing-github-link"
             style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+            onClick={() => trackEvent({ name: 'github_click' })}
           >
             <span style={{ textDecoration: 'underline' }}>{'\uF09B'} GitHub</span> {'\uF08E'}
           </a>
@@ -150,6 +154,7 @@ export default function Home() {
             rel="noopener noreferrer"
             className="landing-github-link"
             style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+            onClick={() => trackEvent({ name: 'deepwiki_click' })}
           >
             <span style={{ textDecoration: 'underline' }}>DeepWiki</span> {'\uF08E'}
           </a>
@@ -160,6 +165,7 @@ export default function Home() {
             rel="noopener noreferrer"
             className="landing-github-link"
             style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+            onClick={() => trackEvent({ name: 'share_click' })}
           >
             <span style={{ textDecoration: 'underline' }}>share it on X</span> {'\uF08E'}
           </a>.
