@@ -11,6 +11,17 @@ import type {
 } from './types';
 
 /**
+ * Check if pane content is effectively empty (all lines are empty or whitespace-only).
+ * Used to detect panes awaiting capture-pane refresh after resize.
+ */
+function isPaneContentEmpty(content: PaneContent): boolean {
+  if (content.length === 0) return true;
+  return content.every(
+    (line) => line.length === 0 || line.every((cell) => !cell.c || cell.c === ' '),
+  );
+}
+
+/**
  * Handle a StateUpdate (full or delta), returning the new state.
  * Returns null if a delta arrives before any full state.
  */
@@ -19,6 +30,23 @@ export function handleStateUpdate(
   currentState: ServerState | null,
 ): ServerState | null {
   if (update.type === 'full') {
+    // When replacing existing state with a full update, preserve non-empty pane
+    // content that would be overwritten by empty content. This handles two cases:
+    // 1. Initial sync: get_initial_state captured real content, but the control mode
+    //    aggregator's first full emission has empty panes (captures not yet complete).
+    // 2. Layout changes: after pane resize, the vt100 parser is reset (empty), but
+    //    the capture-pane refill hasn't arrived yet.
+    if (currentState && currentState.panes.length > 0) {
+      const existingPaneMap = new Map(currentState.panes.map((p) => [p.tmux_id, p]));
+      const mergedPanes = update.state.panes.map((pane) => {
+        const existing = existingPaneMap.get(pane.tmux_id);
+        if (existing && isPaneContentEmpty(pane.content) && !isPaneContentEmpty(existing.content)) {
+          return { ...pane, content: existing.content };
+        }
+        return pane;
+      });
+      return { ...update.state, panes: mergedPanes };
+    }
     return update.state;
   }
 
@@ -189,12 +217,23 @@ function mergeSparseContent(
 }
 
 function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
+  // When content delta would result in all-empty content but existing content
+  // is non-empty, preserve existing content. This happens when a pane is resized
+  // (vt100 parser reset) but capture-pane refill hasn't arrived yet.
+  let mergedContent: PaneContent | undefined;
+  if (delta.content !== undefined) {
+    const candidate = mergeSparseContent(pane.content, delta.content);
+    if (isPaneContentEmpty(candidate) && !isPaneContentEmpty(pane.content)) {
+      mergedContent = pane.content;
+    } else {
+      mergedContent = candidate;
+    }
+  }
+
   return {
     ...pane,
     ...(delta.window_id !== undefined && { window_id: delta.window_id }),
-    ...(delta.content !== undefined && {
-      content: mergeSparseContent(pane.content, delta.content),
-    }),
+    ...(mergedContent !== undefined && { content: mergedContent }),
     ...(delta.cursor_x !== undefined && { cursor_x: delta.cursor_x }),
     ...(delta.cursor_y !== undefined && { cursor_y: delta.cursor_y }),
     ...(delta.width !== undefined && { width: delta.width }),

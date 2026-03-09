@@ -231,6 +231,12 @@ impl TmuxMonitor {
         // Hysteresis: enter throttle at threshold, exit at threshold/2
         let mut in_throttle_mode = false;
 
+        // Deferred metadata sync: after output events settle, query list-panes
+        // to refresh pane_current_command (e.g., when a program exits and the
+        // shell takes over, the group tab label should update promptly).
+        let mut metadata_sync_at: Option<tokio::time::Instant> = None;
+        let metadata_sync_delay = Duration::from_secs(2);
+
         // Command-aware settling state
         // When a compound command (containing ";") is sent, we wait for the first
         // window/layout event, then debounce until events settle before emitting
@@ -409,6 +415,12 @@ impl TmuxMonitor {
                                 // - High throughput (cat large_file): throttle at 16ms
                                 let is_output_event = matches!(result.change_type, ChangeType::PaneOutput { .. });
 
+                                // Schedule deferred metadata sync on output events
+                                // to refresh pane_current_command after programs exit
+                                if is_output_event {
+                                    metadata_sync_at = Some(tokio::time::Instant::now() + metadata_sync_delay);
+                                }
+
                                 if is_output_event && throttle_enabled {
                                     // Update rate tracking
                                     let now = Instant::now();
@@ -498,6 +510,28 @@ impl TmuxMonitor {
                     settling_awaiting_first_event = false;
                 }
 
+                // Deferred metadata sync: refresh pane commands after output settles
+                _ = tokio::time::sleep_until(metadata_sync_at.unwrap_or(tokio::time::Instant::now() + Duration::from_secs(3600))), if metadata_sync_at.is_some() => {
+                    metadata_sync_at = None;
+                    let cmd = concat!(
+                        "list-panes -s -F '",
+                        "#{pane_id},#{pane_index},",
+                        "#{pane_left},#{pane_top},",
+                        "#{pane_width},#{pane_height},",
+                        "#{cursor_x},#{cursor_y},",
+                        "#{pane_active},#{pane_current_command},#{pane_title},",
+                        "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+                        "#{scroll_position},",
+                        "#{window_id},#{T:pane-border-format},",
+                        "#{alternate_on},#{mouse_any_flag},",
+                        "#{selection_present},",
+                        "#{selection_start_x},#{selection_start_y},#{history_size}'"
+                    );
+                    if let Err(e) = self.connection.send_command(cmd).await {
+                        emitter.emit_error(format!("Failed to sync metadata: {}", e));
+                    }
+                }
+
                 // Event-driven sync: fast polling in copy mode, heartbeat when idle
                 _ = tokio::time::sleep_until(next_sync_at) => {
                     let in_copy_mode = self.aggregator.has_pane_in_copy_mode();
@@ -575,13 +609,27 @@ impl TmuxMonitor {
                     match cmd {
                         Some(MonitorCommand::ResizeWindow { cols, rows }) => {
                             eprintln!("[monitor] Processing ResizeWindow: {}x{}", cols, rows);
-                            // Resize the active window (window-size manual means only
-                            // resize-window changes size, no client size interference)
-                            let resize_cmd = format!("resizew -x {} -y {}", cols, rows);
-                            if let Err(e) = self.connection.send_command(&resize_cmd).await {
-                                emitter.emit_error(format!("Failed to resize window: {}", e));
+                            // Resize ALL windows in the session. With window-size manual,
+                            // each window tracks its own size independently. Without
+                            // resizing all windows, pre-existing or background windows
+                            // retain their old dimensions and don't fill the viewport.
+                            let window_ids = self.aggregator.window_ids();
+                            if window_ids.is_empty() {
+                                // No windows known yet (initial sync), resize current window
+                                let resize_cmd = format!("resizew -x {} -y {}", cols, rows);
+                                if let Err(e) = self.connection.send_command(&resize_cmd).await {
+                                    emitter.emit_error(format!("Failed to resize window: {}", e));
+                                } else {
+                                    eprintln!("[monitor] Sent resize command: {}", resize_cmd);
+                                }
                             } else {
-                                eprintln!("[monitor] Sent resize command: {}", resize_cmd);
+                                let cmds: Vec<String> = window_ids.iter()
+                                    .map(|wid| format!("resizew -t {} -x {} -y {}", wid, cols, rows))
+                                    .collect();
+                                eprintln!("[monitor] Resizing {} windows", cmds.len());
+                                if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+                                    emitter.emit_error(format!("Failed to resize windows: {}", e));
+                                }
                             }
                         }
                         Some(MonitorCommand::RunCommand { command }) => {

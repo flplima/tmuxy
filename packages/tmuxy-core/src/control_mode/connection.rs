@@ -3,6 +3,7 @@
 //! Handles spawning the `tmux -CC` process and communicating with it.
 
 use super::parser::{ControlModeEvent, Parser};
+use crate::session;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -174,9 +175,12 @@ impl ControlModeConnection {
     ) -> Result<Self, String> {
         // Use `script` to provide a PTY for tmux -CC
         // Set PTY size via stty to avoid tiny default dimensions in background processes.
+        let config_flag = session::get_config_path()
+            .map(|p| format!(" -f '{}'", p.to_string_lossy()))
+            .unwrap_or_default();
         let tmux_cmd = format!(
-            "stty cols {} rows {} 2>/dev/null; tmux -CC new-session -s {}",
-            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, session_name
+            "stty cols {} rows {} 2>/dev/null; tmux -CC{} new-session -s {}",
+            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, config_flag, session_name
         );
         let mut cmd = Command::new("script");
         cmd.args(["-q", "/dev/null", "-c", &tmux_cmd])

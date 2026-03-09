@@ -756,6 +756,7 @@ impl StateAggregator {
             default_width: 80,
             default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
+
             cached_status_line: String::new(),
             status_line_dirty: true, // Fetch on first state request
             prev_state: None,
@@ -775,6 +776,7 @@ impl StateAggregator {
             default_width: 80,
             default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
+
             cached_status_line: String::new(),
             status_line_dirty: true, // Fetch on first state request
             prev_state: None,
@@ -881,6 +883,11 @@ impl StateAggregator {
         for pane_id in pane_ids {
             self.pending_captures.push_back(pane_id.clone());
         }
+    }
+
+    /// Get the list of window IDs
+    pub fn window_ids(&self) -> Vec<String> {
+        self.windows.keys().cloned().collect()
     }
 
     /// Check if any pane is currently in copy mode

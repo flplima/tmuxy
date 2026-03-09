@@ -52,6 +52,7 @@ pub async fn run(args: ServerArgs) {
 
 /// Start the development server with Vite and demo proxies
 async fn start_dev_server() {
+    tmuxy_core::session::ensure_config();
     let state = Arc::new(AppState::new());
 
     println!(
@@ -107,6 +108,7 @@ async fn start_dev_server() {
 /// Start the production server with embedded frontend assets
 async fn start_server(port: u16, host: String) {
     write_pid_file();
+    tmuxy_core::session::ensure_config();
 
     let state = Arc::new(AppState::new());
 

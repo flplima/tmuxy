@@ -109,19 +109,22 @@ export function WindowTabs() {
 
   return (
     <div className="tab-list">
-      {visibleWindows.map((window) => (
-        <span
-          key={window.id}
-          className={`tab-name ${window.active ? 'tab-name-active' : ''}`}
-          onClick={() => handleWindowClick(window.index)}
-          onContextMenu={(e) => handleContextMenu(e, window.index)}
-          role="tab"
-          aria-selected={window.active}
-          aria-label={`Tab ${window.index}: ${window.name}${window.active ? ' (active)' : ''}`}
-        >
-          {window.index}:{window.name || `Tab ${window.index}`}
-        </span>
-      ))}
+      {visibleWindows.map((window, idx) => {
+        const visualIndex = idx + 1;
+        return (
+          <span
+            key={window.id}
+            className={`tab-name ${window.active ? 'tab-name-active' : ''}`}
+            onClick={() => handleWindowClick(window.index)}
+            onContextMenu={(e) => handleContextMenu(e, window.index)}
+            role="tab"
+            aria-selected={window.active}
+            aria-label={`Tab ${visualIndex}: ${window.name}${window.active ? ' (active)' : ''}`}
+          >
+            {visualIndex}:{window.name || `Tab ${visualIndex}`}
+          </span>
+        );
+      })}
       <button
         className="tab-add"
         onClick={handleNewWindow}

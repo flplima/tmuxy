@@ -1,9 +1,25 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Default tmuxy configuration content.
+/// Embedded at compile time from .devcontainer/.tmuxy.conf.
+const DEFAULT_CONFIG: &str = include_str!("../../../.devcontainer/.tmuxy.conf");
+
 /// Get the path to the tmuxy config file.
-/// Checks: ~/.tmuxy.conf, then .devcontainer/.tmuxy.conf relative to working directory.
+/// Checks: ~/.config/tmuxy/tmuxy.conf, ~/.tmuxy.conf, then .devcontainer/.tmuxy.conf.
 pub fn get_config_path() -> Option<PathBuf> {
+    // XDG-style config location
+    let xdg_config = dirs::config_dir()
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".config")
+        })
+        .join("tmuxy/tmuxy.conf");
+    if xdg_config.exists() {
+        return Some(xdg_config);
+    }
+
     let home_config = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".tmuxy.conf");
@@ -25,6 +41,40 @@ pub fn get_config_path() -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Ensure the default config exists at ~/.config/tmuxy/tmuxy.conf.
+/// Creates the directory and file with defaults if they don't exist.
+/// Returns the path to the config file.
+pub fn ensure_config() -> PathBuf {
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".config")
+        })
+        .join("tmuxy");
+    let config_path = config_dir.join("tmuxy.conf");
+
+    if !config_path.exists() {
+        if let Err(e) = std::fs::create_dir_all(&config_dir) {
+            eprintln!(
+                "Warning: could not create config dir {:?}: {}",
+                config_dir, e
+            );
+            return config_path;
+        }
+        if let Err(e) = std::fs::write(&config_path, DEFAULT_CONFIG) {
+            eprintln!(
+                "Warning: could not write default config to {:?}: {}",
+                config_path, e
+            );
+        } else {
+            eprintln!("Created default config at {:?}", config_path);
+        }
+    }
+
+    config_path
 }
 
 pub fn session_exists(session_name: &str) -> Result<bool, String> {
