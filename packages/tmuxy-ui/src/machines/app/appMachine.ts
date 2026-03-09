@@ -1106,6 +1106,21 @@ export const appMachine = setup({
               }
             }
 
+            // Intercept select-window -t <N> from Ctrl+number keybindings.
+            // Remap the visual tab index to the actual tmux window index,
+            // since pane group windows consume intermediate indices.
+            const selectWindowMatch = command.match(/^select-window\s+-t\s+(\d+)$/);
+            if (selectWindowMatch) {
+              const targetIndex = parseInt(selectWindowMatch[1], 10);
+              const visibleWindows = context.windows.filter(
+                (w) => !w.isPaneGroupWindow && !w.isFloatWindow,
+              );
+              const targetWindow = visibleWindows.find((_, i) => i + 1 === targetIndex);
+              if (targetWindow) {
+                command = `select-window -t ${targetWindow.index}`;
+              }
+            }
+
             // Don't apply optimistic updates for swap commands during drag
             // The drag machine already handles swaps optimistically
             const isDragging = context.drag !== null;

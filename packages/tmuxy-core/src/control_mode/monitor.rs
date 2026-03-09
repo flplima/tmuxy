@@ -235,7 +235,7 @@ impl TmuxMonitor {
         // to refresh pane_current_command (e.g., when a program exits and the
         // shell takes over, the group tab label should update promptly).
         let mut metadata_sync_at: Option<tokio::time::Instant> = None;
-        let metadata_sync_delay = Duration::from_secs(2);
+        let metadata_sync_delay = Duration::from_millis(500);
 
         // Command-aware settling state
         // When a compound command (containing ";") is sent, we wait for the first
