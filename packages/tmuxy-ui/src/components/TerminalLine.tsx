@@ -199,10 +199,10 @@ export const TerminalLine = memo(
     // Render end-of-line cursor if cursor position exceeds line length
     const renderEndOfLineCursor = (): React.ReactNode => {
       if (isCursorLine && cursorX >= lineLength) {
-        const padding = ' '.repeat(cursorX - lineLength);
+        const padCount = cursorX - lineLength;
         return (
           <>
-            {padding}
+            {padCount > 0 && <span>{' '.repeat(padCount)}</span>}
             <Cursor
               x={cursorX}
               y={cursorY}

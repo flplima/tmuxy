@@ -550,15 +550,52 @@ export class DemoTmux {
     const paneIds = this.collectLeafIds(window.layout);
     if (paneIds.length <= 1) return;
 
-    const layouts = [
-      (ids: string[]) => this.buildEvenHorizontal(ids),
-      (ids: string[]) => this.buildEvenVertical(ids),
-      (ids: string[]) => this.buildTiled(ids),
-    ];
-
-    window.layoutCycle = (window.layoutCycle + 1) % layouts.length;
-    window.layout = layouts[window.layoutCycle](paneIds);
+    const layoutNames = this.layoutNames;
+    window.layoutCycle = (window.layoutCycle + 1) % layoutNames.length;
+    window.layout = this.buildNamedLayout(layoutNames[window.layoutCycle], paneIds);
     this.applyLayout(window);
+  }
+
+  /** Apply a named layout (even-horizontal, even-vertical, main-horizontal, main-vertical, tiled) */
+  selectLayout(name: string): void {
+    if (this.zoomedPaneId) return;
+    const window = this.getActiveWindow();
+    if (!window) return;
+
+    const paneIds = this.collectLeafIds(window.layout);
+    if (paneIds.length <= 1) return;
+
+    const idx = this.layoutNames.indexOf(name);
+    if (idx === -1) return;
+
+    window.layoutCycle = idx;
+    window.layout = this.buildNamedLayout(name, paneIds);
+    this.applyLayout(window);
+  }
+
+  private readonly layoutNames = [
+    'even-horizontal',
+    'even-vertical',
+    'main-horizontal',
+    'main-vertical',
+    'tiled',
+  ];
+
+  private buildNamedLayout(name: string, paneIds: string[]): LayoutNode {
+    switch (name) {
+      case 'even-horizontal':
+        return this.buildEvenHorizontal(paneIds);
+      case 'even-vertical':
+        return this.buildEvenVertical(paneIds);
+      case 'main-horizontal':
+        return this.buildMainHorizontal(paneIds);
+      case 'main-vertical':
+        return this.buildMainVertical(paneIds);
+      case 'tiled':
+        return this.buildTiled(paneIds);
+      default:
+        return this.buildTiled(paneIds);
+    }
   }
 
   // ============================================
@@ -1055,6 +1092,22 @@ export class DemoTmux {
   /** All panes stacked (horizontal splits) */
   private buildEvenVertical(paneIds: string[]): LayoutNode {
     return this.buildBalancedTree(paneIds, 'horizontal');
+  }
+
+  /** One big pane on top, rest equally distributed below */
+  private buildMainHorizontal(paneIds: string[]): LayoutNode {
+    if (paneIds.length <= 1) return { type: 'leaf', paneId: paneIds[0] };
+    const main: LayoutNode = { type: 'leaf', paneId: paneIds[0] };
+    const rest = this.buildBalancedTree(paneIds.slice(1), 'vertical');
+    return { type: 'split', direction: 'horizontal', ratio: 0.6, children: [main, rest] };
+  }
+
+  /** One big pane on left, rest equally distributed to the right */
+  private buildMainVertical(paneIds: string[]): LayoutNode {
+    if (paneIds.length <= 1) return { type: 'leaf', paneId: paneIds[0] };
+    const main: LayoutNode = { type: 'leaf', paneId: paneIds[0] };
+    const rest = this.buildBalancedTree(paneIds.slice(1), 'horizontal');
+    return { type: 'split', direction: 'vertical', ratio: 0.6, children: [main, rest] };
   }
 
   /** Grid layout: rows × cols */

@@ -457,6 +457,13 @@ export class DemoAdapter implements TmuxAdapter {
         this.tmux.nextLayout();
         break;
 
+      case 'select-layout':
+      case 'selectl': {
+        const layoutName = parts[1];
+        if (layoutName) this.tmux.selectLayout(layoutName);
+        break;
+      }
+
       case 'swap-pane':
       case 'swapp': {
         let src = '';

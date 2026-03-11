@@ -62,19 +62,25 @@ parse_group_panes() {
   echo "$result"
 }
 
-# Find which pane from a list is in the active window
+# Find which pane from a list is in a visible (non-group, non-float) window.
+# The tmux "active" window can itself be a group window after a swap-pane,
+# so we check against all visible windows rather than just the active one.
 # Args: paneId1 paneId2 ...
-# Output: the pane ID in the active window, or empty string
+# Output: the pane ID in a visible window, or empty string
 find_visible_pane_from_list() {
-  local active_win
-  active_win=$(tmux display-message -p '#{window_id}')
+  local visible_wins
+  visible_wins=$(tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
+    if [[ "$wname" != __group_* ]] && [[ "$wname" != __float_* ]]; then
+      echo "$wid"
+    fi
+  done)
   local pane_list
   pane_list=$(tmux list-panes -s -F '#{pane_id},#{window_id}')
 
   for pid in "$@"; do
     local win_id
     win_id=$(echo "$pane_list" | grep "^${pid}," | cut -d',' -f2)
-    if [ "$win_id" = "$active_win" ]; then
+    if echo "$visible_wins" | grep -qx "$win_id"; then
       echo "$pid"
       return
     fi

@@ -159,6 +159,11 @@ impl TmuxMonitor {
             self.connection.send_command(&cmd).await?;
         }
 
+        // Enforce critical settings on the current session regardless of config.
+        // These are invariants the frontend depends on — if any are wrong, layout
+        // breaks (missing rows), input fails, or content is corrupted.
+        self.enforce_settings().await?;
+
         // Enable flow control (tmux 3.2+)
         // pause-after=5 means pause output if client is 5+ seconds behind
         // This prevents unbounded memory growth during heavy output
@@ -192,6 +197,50 @@ impl TmuxMonitor {
         // Capture current content of each pane
         // We'll do this after we receive the list-panes response
         // to know which panes exist
+
+        Ok(())
+    }
+
+    /// Enforce critical tmux settings that the frontend depends on.
+    ///
+    /// Sends `set` commands directly to the attached tmux session so they take
+    /// effect immediately, regardless of what the user's config file contains.
+    /// This does NOT modify any config file on disk.
+    async fn enforce_settings(&mut self) -> Result<(), String> {
+        let settings = [
+            // CRITICAL: PaneLayout assumes border-status top — without it,
+            // y=0 panes lose 1 row of content (the header steals from terminal area).
+            ("pane-border-status", "top"),
+            // Blank border format so the row is visually empty behind PaneHeader.
+            ("pane-border-format", " "),
+            // tmuxy manages window sizing via resize-window commands from the UI.
+            ("window-size", "manual"),
+            // Mouse support for click-to-focus, scrolling, and selection.
+            ("mouse", "on"),
+            // Focus events for applications like vim/neovim.
+            ("focus-events", "on"),
+            // Allow OSC passthrough for hyperlinks, images, and other sequences.
+            ("allow-passthrough", "on"),
+            // Allow applications to set pane title via OSC 0/2.
+            ("allow-rename", "on"),
+            ("set-titles", "on"),
+        ];
+
+        for (key, value) in &settings {
+            let cmd = format!("set -g {} '{}'", key, value);
+            self.connection.send_command(&cmd).await?;
+        }
+
+        // Window-level settings (setw -g)
+        let window_settings = [
+            // Disable aggressive-resize — tmuxy manages sizing.
+            ("aggressive-resize", "off"),
+        ];
+
+        for (key, value) in &window_settings {
+            let cmd = format!("setw -g {} {}", key, value);
+            self.connection.send_command(&cmd).await?;
+        }
 
         Ok(())
     }
@@ -359,12 +408,34 @@ impl TmuxMonitor {
 
                             // Request content refresh for resized panes (batched for efficiency)
                             if !result.panes_needing_refresh.is_empty() {
-                                // Build batch of capture-pane commands
-                                let commands: Vec<String> = result
-                                    .panes_needing_refresh
-                                    .iter()
-                                    .map(|pane_id| format!("capture-pane -t {} -p -e", pane_id))
-                                    .collect();
+                                // Send list-panes FIRST to get updated cursor positions.
+                                // After a layout change, tmux adjusts cursor positions for
+                                // reflowed content but our tmux_cursor_x/y still holds stale
+                                // pre-resize values. The list-panes response will update them
+                                // before capture-pane responses arrive (tmux processes commands
+                                // in order), so the cursor repositioning after capture uses
+                                // the correct coordinates.
+                                let mut commands: Vec<String> = vec![
+                                    concat!(
+                                        "list-panes -s -F '",
+                                        "#{pane_id},#{pane_index},",
+                                        "#{pane_left},#{pane_top},",
+                                        "#{pane_width},#{pane_height},",
+                                        "#{cursor_x},#{cursor_y},",
+                                        "#{pane_active},#{pane_current_command},#{pane_title},",
+                                        "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+                                        "#{scroll_position},",
+                                        "#{window_id},#{T:pane-border-format},",
+                                        "#{alternate_on},#{mouse_any_flag},",
+                                        "#{selection_present},",
+                                        "#{selection_start_x},#{selection_start_y},#{history_size}'"
+                                    ).to_string(),
+                                ];
+                                commands.extend(
+                                    result.panes_needing_refresh
+                                        .iter()
+                                        .map(|pane_id| format!("capture-pane -t {} -p -e", pane_id))
+                                );
 
                                 // Queue the pane IDs first (before sending commands)
                                 // so they're ready when responses arrive

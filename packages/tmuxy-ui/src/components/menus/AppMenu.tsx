@@ -150,10 +150,15 @@ export function AppMenu() {
           Zoom Pane
           <KeyLabel keybindings={keybindings} command="resize-pane -Z" />
         </MenuItem>
-        <MenuItem onClick={() => handleAction('view-next-layout')}>
-          Next Layout
-          <KeyLabel keybindings={keybindings} command="next-layout" />
+        <MenuItem onClick={() => handleAction('view-layout-even-horizontal')}>
+          Even Horizontal
         </MenuItem>
+        <MenuItem onClick={() => handleAction('view-layout-even-vertical')}>Even Vertical</MenuItem>
+        <MenuItem onClick={() => handleAction('view-layout-main-horizontal')}>
+          Main Horizontal
+        </MenuItem>
+        <MenuItem onClick={() => handleAction('view-layout-main-vertical')}>Main Vertical</MenuItem>
+        <MenuItem onClick={() => handleAction('view-layout-tiled')}>Tiled</MenuItem>
         <MenuDivider />
         <MenuItem onClick={() => send({ type: 'INCREASE_FONT_SIZE' })}>Make Text Bigger</MenuItem>
         <MenuItem onClick={() => send({ type: 'DECREASE_FONT_SIZE' })}>Make Text Smaller</MenuItem>

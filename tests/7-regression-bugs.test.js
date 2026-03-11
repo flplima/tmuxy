@@ -180,24 +180,26 @@ describe('Scenario: Pane group tab label updates on process exit', () => {
     await ctx.page.keyboard.up('Control');
 
     // Step 5: Wait for the tab label to update (should show shell, not "sleep")
+    // Metadata sync polls every 2s; after Ctrl+C the process exit + next poll
+    // cycle can take up to 6s in CI, so use 10s timeout.
     await waitForCondition(ctx.page, async () => {
       const info = await getGroupTabInfo(ctx.page);
       const tab = info.find(t => t.active);
       return tab && !tab.title.includes('sleep');
-    }, 5000, 'group tab to update after process exit');
+    }, 10000, 'group tab to update after process exit');
   });
 });
 
 // ==================== Scenario: Pane border artifacts suppressed ====================
 
-describe('Scenario: Pane border artifacts suppressed', () => {
+describe('Scenario: Pane border-status enforced to top', () => {
   const ctx = createTestContext();
   beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll, ctx.hookTimeout);
   beforeEach(ctx.beforeEach, ctx.hookTimeout);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('pane-border-status is off in tmux config', async () => {
+  test('pane-border-status is top after server connection', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -215,14 +217,13 @@ describe('Scenario: Pane border artifacts suppressed', () => {
       return resp.ok;
     });
 
-    // The config should set pane-border-status to off
-    // We verify by checking the config was sourced correctly
-    // (display-message through control mode returns async, so we check the config file)
+    // The config and enforce_settings() should set pane-border-status to top.
+    // PaneLayout relies on this — with it off, y=0 panes lose 1 row of content.
     const { execSync } = require('child_process');
     const status = execSync('tmux show-options -gv pane-border-status 2>/dev/null || echo "off"', {
       encoding: 'utf-8',
       timeout: 5000,
     }).trim();
-    expect(status).toBe('off');
+    expect(status).toBe('top');
   });
 });

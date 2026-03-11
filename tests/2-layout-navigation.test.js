@@ -308,13 +308,51 @@ describe('Scenario 5: Pane Groups', () => {
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 
+    // Step 9a: Record GAMMA pane ID (the newly added 3rd tab, which is now active)
+    await delay(DELAYS.SYNC);
+    const gammaPaneId = await ctx.page.evaluate(() => {
+      return window.app?.getSnapshot()?.context?.activePaneId || null;
+    });
+    expect(gammaPaneId).not.toBeNull();
+    expect(gammaPaneId).not.toBe(alphaPaneId);
+    expect(gammaPaneId).not.toBe(betaPaneId);
+
+    // Step 9b: Switch to first tab (ALPHA) with 3 tabs — this is the scenario
+    // that triggers the bug where a pane escapes the group window when the
+    // active tmux window is itself a group window.
+    tabs = await getGroupTabInfo(ctx.page);
+    const firstInactiveIdx = tabs.findIndex(t => !t.active);
+    await clickGroupTab(ctx.page, firstInactiveIdx);
+    await delay(DELAYS.SYNC);
+    await waitForGroupTabs(ctx.page, 3);
+    expect(await getGroupTabCount(ctx.page)).toBe(3);
+
+    // Step 9c: Switch to another inactive tab with 3 tabs
+    tabs = await getGroupTabInfo(ctx.page);
+    const secondInactiveIdx = tabs.findIndex(t => !t.active);
+    await clickGroupTab(ctx.page, secondInactiveIdx);
+    await delay(DELAYS.SYNC);
+    await waitForGroupTabs(ctx.page, 3);
+    expect(await getGroupTabCount(ctx.page)).toBe(3);
+
+    // Step 9d: Switch one more time — cycle through all 3 tabs
+    tabs = await getGroupTabInfo(ctx.page);
+    const thirdInactiveIdx = tabs.findIndex(t => !t.active);
+    await clickGroupTab(ctx.page, thirdInactiveIdx);
+    await delay(DELAYS.SYNC);
+    await waitForGroupTabs(ctx.page, 3);
+    expect(await getGroupTabCount(ctx.page)).toBe(3);
+
     // Step 10: Close a tab (last non-active one)
     await clickGroupTabClose(ctx.page, 2);
     await waitForGroupTabs(ctx.page, 2);
     expect(await getGroupTabCount(ctx.page)).toBe(2);
 
     // Step 11: Close remaining extra tab → revert to regular header
-    await clickGroupTabClose(ctx.page, 1);
+    // Close the non-active tab (find it dynamically since index may vary)
+    tabs = await getGroupTabInfo(ctx.page);
+    const nonActiveIdx = tabs.findIndex(t => !t.active);
+    await clickGroupTabClose(ctx.page, nonActiveIdx >= 0 ? nonActiveIdx : 1);
     await waitForCondition(ctx.page, async () => {
       return !(await isHeaderGrouped(ctx.page));
     }, 10000, 'header to revert to ungrouped');

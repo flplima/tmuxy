@@ -40,8 +40,8 @@ CLAUDE.local.md
 # BDG session files
 .bdg/
 
-# Test snapshots
-snapshots/
+# Jest snapshots (auto-generated)
+__snapshots__/
 
 # Next.js
 .next/

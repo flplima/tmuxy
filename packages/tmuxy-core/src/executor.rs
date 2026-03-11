@@ -747,6 +747,7 @@ pub fn run_tmux_command_for_session(session_name: &str, cmd: &str) -> Result<Str
         "last-pane",
         "next-layout",
         "previous-layout",
+        "select-layout",
         "rotate-window",
         "break-pane",
         "join-pane",
@@ -995,7 +996,7 @@ pub fn execute_prefix_binding(session_name: &str, key: &str) -> Result<(), Strin
                 match cmd {
                     "select-pane" | "split-window" | "new-window" | "kill-pane" | "next-window"
                     | "previous-window" | "select-window" | "resize-pane" | "break-pane"
-                    | "next-layout" | "last-pane" => {
+                    | "next-layout" | "select-layout" | "last-pane" => {
                         // Check if -t is already specified
                         if !args.contains(&"-t") {
                             args.push("-t");

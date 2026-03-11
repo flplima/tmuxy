@@ -110,8 +110,20 @@ export function executeMenuAction(send: Send, actionId: string): void {
     case 'view-zoom':
       send({ type: 'SEND_COMMAND', command: 'resize-pane -Z' });
       break;
-    case 'view-next-layout':
-      send({ type: 'SEND_COMMAND', command: 'next-layout' });
+    case 'view-layout-even-horizontal':
+      send({ type: 'SEND_COMMAND', command: 'select-layout even-horizontal' });
+      break;
+    case 'view-layout-even-vertical':
+      send({ type: 'SEND_COMMAND', command: 'select-layout even-vertical' });
+      break;
+    case 'view-layout-main-horizontal':
+      send({ type: 'SEND_COMMAND', command: 'select-layout main-horizontal' });
+      break;
+    case 'view-layout-main-vertical':
+      send({ type: 'SEND_COMMAND', command: 'select-layout main-vertical' });
+      break;
+    case 'view-layout-tiled':
+      send({ type: 'SEND_COMMAND', command: 'select-layout tiled' });
       break;
 
     // Help actions

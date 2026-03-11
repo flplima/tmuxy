@@ -1253,6 +1253,15 @@ impl StateAggregator {
         pane_id: &str,
         content: &[u8],
     ) -> (bool, Vec<(u32, super::images::StoredImage)>) {
+        // Suppress %output events for panes with a pending capture-pane.
+        // When a resize triggers capture-pane, the shell also gets SIGWINCH and
+        // redraws its prompt via %output. This %output arrives before the capture
+        // response. Processing it would create a duplicate since capture-pane does
+        // a full vt100 reset and reprocesses all content.
+        if self.pending_captures.contains(&pane_id.to_string()) {
+            return (false, Vec::new());
+        }
+
         // Only process output for panes we know about from list-panes.
         // This prevents creating panes from other tmux sessions.
         // Panes are added via parse_list_panes_line() which sets window_id.
