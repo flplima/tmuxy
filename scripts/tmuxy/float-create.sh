@@ -101,6 +101,7 @@ if [ $# -eq 0 ]; then
 else
   # Command mode: run interactive command in float, capture stdout, auto-close
   TMPFILE=$(mktemp /tmp/tmuxy-float-out.XXXXXX)
+  trap 'rm -f "$TMPFILE"' EXIT
   WAIT_CHAN="float-done-$$"
   CMD="$*"
 
@@ -133,5 +134,4 @@ else
 
   # Output captured stdout
   cat "$TMPFILE"
-  rm -f "$TMPFILE"
 fi
