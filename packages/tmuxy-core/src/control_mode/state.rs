@@ -744,6 +744,12 @@ pub struct StateAggregator {
     /// events still emit immediately. Used during command-aware settling
     /// to batch intermediate states from compound commands (e.g., splitw ; breakp).
     suppress_window_emissions: bool,
+
+    /// Count of stale %output events to suppress per pane after resize captures.
+    /// Each resize triggers SIGWINCH → shell redraw → %output that arrives AFTER
+    /// the capture-pane response. The counter tracks how many such stale events
+    /// to drop for each pane.
+    post_capture_suppress: HashMap<String, u32>,
 }
 
 impl StateAggregator {
@@ -763,6 +769,7 @@ impl StateAggregator {
             delta_seq: 0,
             popup: None,
             suppress_window_emissions: false,
+            post_capture_suppress: HashMap::new(),
         }
     }
 
@@ -783,6 +790,7 @@ impl StateAggregator {
             delta_seq: 0,
             popup: None,
             suppress_window_emissions: false,
+            post_capture_suppress: HashMap::new(),
         }
     }
 
@@ -882,6 +890,19 @@ impl StateAggregator {
     pub fn queue_captures(&mut self, pane_ids: &[String]) {
         for pane_id in pane_ids {
             self.pending_captures.push_back(pane_id.clone());
+        }
+    }
+
+    /// Queue captures that are known to be resize-triggered.
+    /// After these captures complete, the next %output for each pane is
+    /// suppressed (it's the stale SIGWINCH redraw from the resize).
+    pub fn queue_resize_captures(&mut self, pane_ids: &[String]) {
+        for pane_id in pane_ids {
+            self.pending_captures.push_back(pane_id.clone());
+            *self
+                .post_capture_suppress
+                .entry(pane_id.clone())
+                .or_insert(0) += 1;
         }
     }
 
@@ -1258,7 +1279,19 @@ impl StateAggregator {
         // redraws its prompt via %output. This %output arrives before the capture
         // response. Processing it would create a duplicate since capture-pane does
         // a full vt100 reset and reprocesses all content.
-        if self.pending_captures.contains(&pane_id.to_string()) {
+        let pane_id_str = pane_id.to_string();
+        if self.pending_captures.contains(&pane_id_str) {
+            return (false, Vec::new());
+        }
+        // Suppress ONE %output after a capture completes. The SIGWINCH redraw
+        // from the resize that triggered the capture can arrive AFTER the capture
+        // response (the capture response is synchronous via CC, but SIGWINCH is
+        // asynchronous from the PTY). Drop this stale redraw.
+        if let Some(count) = self.post_capture_suppress.get_mut(&pane_id_str) {
+            *count -= 1;
+            if *count == 0 {
+                self.post_capture_suppress.remove(&pane_id_str);
+            }
             return (false, Vec::new());
         }
 

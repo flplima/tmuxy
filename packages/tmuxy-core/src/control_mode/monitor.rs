@@ -39,6 +39,10 @@ pub trait StateEmitter: Send + Sync {
     /// Called when new images are decoded from terminal output.
     /// Default implementation discards images (for emitters that don't need them).
     fn store_images(&self, _pane_id: &str, _images: Vec<(u32, super::images::StoredImage)>) {}
+
+    /// Called after initial state sync completes (config sourced, settings enforced).
+    /// Default implementation does nothing.
+    fn on_initial_sync_complete(&self) {}
 }
 
 /// Configuration for TmuxMonitor
@@ -105,15 +109,21 @@ pub struct TmuxMonitor {
 
     /// Channel for receiving commands from external code
     command_rx: mpsc::Receiver<MonitorCommand>,
+
+    /// Count of pending resize commands sent. When >0, the next PaneLayout
+    /// changes are resize-triggered (SIGWINCH may produce stale %output).
+    pending_resize_count: u32,
 }
 
 impl TmuxMonitor {
     /// Connect to a tmux session in control mode.
     /// Returns the monitor and a sender for sending commands to it.
     pub async fn connect(config: MonitorConfig) -> Result<(Self, MonitorCommandSender), String> {
-        // First try to attach to existing session
-        // If that fails and create_session is true, create a new session
-        let connection =
+        // Serialize session creation + CC attachment to prevent concurrent operations
+        // that crash tmux 3.5a. The lock covers both new-session and CC attach so that
+        // only one monitor at a time is spawning control mode processes.
+        let connection = {
+            let _lock = super::connection::session_creation_lock().await;
             match ControlModeConnection::connect(&config.session, config.working_dir.as_deref())
                 .await
             {
@@ -126,7 +136,8 @@ impl TmuxMonitor {
                     .await?
                 }
                 Err(e) => return Err(e),
-            };
+            }
+        };
 
         let (command_tx, command_rx) = mpsc::channel(32);
 
@@ -136,6 +147,7 @@ impl TmuxMonitor {
                 aggregator: StateAggregator::new(),
                 config,
                 command_rx,
+                pending_resize_count: 0,
             },
             command_tx,
         ))
@@ -143,6 +155,13 @@ impl TmuxMonitor {
 
     /// Synchronize initial state by querying tmux.
     pub async fn sync_initial_state(&mut self) -> Result<(), String> {
+        // Set window-size to manual BEFORE resizing, so the resize doesn't
+        // trigger SIGWINCH to the shell (which causes prompt redraw %output
+        // that races with our capture-pane responses).
+        self.connection
+            .send_command("set window-size manual")
+            .await?;
+
         // Resize the window to the initial size to ensure panes aren't tiny.
         // When running in a background process (pm2), the PTY may start small.
         // The browser will send a proper resize once it connects.
@@ -213,8 +232,6 @@ impl TmuxMonitor {
             ("pane-border-status", "top"),
             // Blank border format so the row is visually empty behind PaneHeader.
             ("pane-border-format", " "),
-            // tmuxy manages window sizing via resize-window commands from the UI.
-            ("window-size", "manual"),
             // Mouse support for click-to-focus, scrolling, and selection.
             ("mouse", "on"),
             // Focus events for applications like vim/neovim.
@@ -227,9 +244,15 @@ impl TmuxMonitor {
         ];
 
         for (key, value) in &settings {
-            let cmd = format!("set -g {} '{}'", key, value);
+            // Session-level (not -g) to avoid a tmux 3.5a bug where global
+            // settings + control mode + new-session -d crashes the server.
+            // Each session's monitor enforces its own settings on connect.
+            let cmd = format!("set {} '{}'", key, value);
             self.connection.send_command(&cmd).await?;
         }
+
+        // window-size manual is set earlier in sync_initial_state() before resizew,
+        // so that the resize doesn't trigger SIGWINCH prompt redraws.
 
         // Window-level settings (setw -g)
         let window_settings = [
@@ -238,7 +261,8 @@ impl TmuxMonitor {
         ];
 
         for (key, value) in &window_settings {
-            let cmd = format!("setw -g {} {}", key, value);
+            // Session-level to avoid tmux 3.5a global+CC crash.
+            let cmd = format!("setw {} {}", key, value);
             self.connection.send_command(&cmd).await?;
         }
 
@@ -255,6 +279,10 @@ impl TmuxMonitor {
             emitter.emit_error(format!("Failed to sync initial state: {}", e));
             return;
         }
+
+        // Notify emitter that initial sync (including config sourcing) is done.
+        // SseEmitter uses this to broadcast keybindings with correct prefix key.
+        emitter.on_initial_sync_complete();
 
         // Event-driven sync: only poll when idle (no events in 10s) or in copy mode.
         // Copy mode needs fast polling (50ms) for cursor position updates.
@@ -335,6 +363,7 @@ impl TmuxMonitor {
                     match event {
                         Some(ControlModeEvent::Exit { reason }) => {
                             let msg = reason.unwrap_or_else(|| "disconnected".to_string());
+                            eprintln!("[monitor] CC Exit event: {}", msg);
                             emitter.emit_error(format!("Control mode exited: {}", msg));
                             break;
                         }
@@ -438,8 +467,18 @@ impl TmuxMonitor {
                                 );
 
                                 // Queue the pane IDs first (before sending commands)
-                                // so they're ready when responses arrive
-                                self.aggregator.queue_captures(&result.panes_needing_refresh);
+                                // so they're ready when responses arrive.
+                                // Only use resize-aware queuing when the layout change
+                                // was triggered by a browser resize (resizew command).
+                                // Layout changes from split-window, break-pane, etc. don't
+                                // cause SIGWINCH stale %output, so their output should NOT
+                                // be suppressed.
+                                if self.pending_resize_count > 0 && matches!(result.change_type, super::ChangeType::PaneLayout) {
+                                    self.pending_resize_count -= 1;
+                                    self.aggregator.queue_resize_captures(&result.panes_needing_refresh);
+                                } else {
+                                    self.aggregator.queue_captures(&result.panes_needing_refresh);
+                                }
 
                                 // Send all commands with single flush
                                 if let Err(e) = self.connection.send_commands_batch(&commands).await {
@@ -691,6 +730,7 @@ impl TmuxMonitor {
                                 if let Err(e) = self.connection.send_command(&resize_cmd).await {
                                     emitter.emit_error(format!("Failed to resize window: {}", e));
                                 } else {
+                                    self.pending_resize_count += 1;
                                     eprintln!("[monitor] Sent resize command: {}", resize_cmd);
                                 }
                             } else {
@@ -700,6 +740,8 @@ impl TmuxMonitor {
                                 eprintln!("[monitor] Resizing {} windows", cmds.len());
                                 if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                                     emitter.emit_error(format!("Failed to resize windows: {}", e));
+                                } else {
+                                    self.pending_resize_count += 1;
                                 }
                             }
                         }

@@ -217,13 +217,16 @@ describe('Scenario: Pane border-status enforced to top', () => {
       return resp.ok;
     });
 
-    // The config and enforce_settings() should set pane-border-status to top.
+    // enforce_settings() sets pane-border-status at session level (not global).
     // PaneLayout relies on this — with it off, y=0 panes lose 1 row of content.
+    const sessionName = await ctx.page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.sessionName || ''
+    );
     const { execSync } = require('child_process');
-    const status = execSync('tmux show-options -gv pane-border-status 2>/dev/null || echo "off"', {
-      encoding: 'utf-8',
-      timeout: 5000,
-    }).trim();
+    const status = execSync(
+      `tmux show-options -t ${sessionName} -v pane-border-status 2>/dev/null || echo "off"`,
+      { encoding: 'utf-8', timeout: 5000 }
+    ).trim();
     expect(status).toBe('top');
   });
 });

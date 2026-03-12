@@ -65,17 +65,11 @@ async function clickGroupTabClose(page, index) {
   const tabs = await page.$$('.pane-tabs .pane-tab');
   if (index >= tabs.length) throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
   await tabs[index].click({ button: 'right' });
-  await delay(DELAYS.SHORT);
-  // Click "Close Pane" from the context menu
-  const menuItems = await page.$$('[role="menuitem"]');
-  let closeItem = null;
-  for (const item of menuItems) {
-    const text = await item.textContent();
-    if (text.includes('Close Pane')) {
-      closeItem = item;
-      break;
-    }
-  }
+  // Wait for a visible "Close Pane" menu item
+  const closeItem = await page.waitForSelector(
+    '[role="menuitem"] >> text=Close Pane',
+    { state: 'visible', timeout: 5000 },
+  );
   if (!closeItem) throw new Error('Close Pane menu item not found in context menu');
   await closeItem.click();
   await delay(DELAYS.SYNC);

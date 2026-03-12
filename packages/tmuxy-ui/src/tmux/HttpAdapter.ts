@@ -135,7 +135,13 @@ export class HttpAdapter implements TmuxAdapter {
 
       this.eventSource.onerror = () => {
         if (!this.connected) {
-          // Connection failed to establish
+          // Connection failed to establish — close the EventSource to prevent
+          // the browser's built-in auto-reconnection from creating a storm of
+          // server-side connections and monitor spawns.
+          if (this.eventSource) {
+            this.eventSource.close();
+            this.eventSource = null;
+          }
           this.notifyError('Failed to connect to SSE');
           reject(new Error('Failed to connect to SSE'));
           return;

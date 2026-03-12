@@ -19,7 +19,7 @@ mod osc;
 mod parser;
 mod state;
 
-pub use connection::ControlModeConnection;
+pub use connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 pub use images::{ImageParser, ImagePlacement, ImageProtocol, StoredImage};
 pub use monitor::{MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor};
 pub use octal::decode_octal;

@@ -20,6 +20,17 @@ let _weStartedServer = false;
 let _serverPid = null;
 
 beforeAll(async () => {
+  // Ensure tmux server stays alive between tests. When tests destroy their
+  // sessions via kill-session, the tmux server exits if no sessions remain.
+  // This keepalive session prevents that crash.
+  try {
+    execSync('tmux has-session -t _keepalive 2>/dev/null || tmux new-session -d -s _keepalive', {
+      timeout: 5000,
+    });
+  } catch {
+    // tmux server may not be running yet — it will be started by the web server
+  }
+
   // Auto-start production server if not running
   let serverRunning = false;
   try {
@@ -36,9 +47,11 @@ beforeAll(async () => {
       execSync('cargo build --release -p tmuxy-server', { cwd: WORKSPACE_ROOT, stdio: 'inherit' });
       console.warn('[setup] Starting production server...');
       const { spawn } = require('child_process');
+      const fs = require('fs');
+      const serverStderr = fs.openSync('/tmp/tmuxy-server-stderr.log', 'w');
       const server = spawn('./target/release/tmuxy-server', [], {
         cwd: WORKSPACE_ROOT,
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', serverStderr],
         detached: true,
       });
       server.unref();
@@ -49,6 +62,16 @@ beforeAll(async () => {
       console.error('[setup] Failed to start server:', error.message);
       throw error;
     }
+  }
+
+  // Ensure keepalive session exists now that the server (and tmux) is running.
+  // This prevents the tmux server from exiting when test sessions are destroyed.
+  try {
+    execSync('tmux has-session -t _keepalive 2>/dev/null || tmux new-session -d -s _keepalive', {
+      timeout: 5000,
+    });
+  } catch {
+    // Best effort
   }
 
   // Cold-start warmup: open a browser page to trigger SSE init and server warmup
@@ -75,6 +98,7 @@ beforeAll(async () => {
     }
 
     await page.close().catch(() => {});
+    await context.close().catch(() => {});
     await delay(2000); // Let server clean up
   } catch {
     // Warmup failure is non-fatal
@@ -82,6 +106,13 @@ beforeAll(async () => {
 }, 180000);
 
 afterAll(async () => {
+  // Clean up keepalive session
+  try {
+    execSync('tmux kill-session -t _keepalive 2>/dev/null', { timeout: 5000 });
+  } catch {
+    // Best effort
+  }
+
   if (_weStartedServer && _serverPid) {
     try {
       process.kill(_serverPid);

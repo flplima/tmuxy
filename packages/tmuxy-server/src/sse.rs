@@ -47,6 +47,17 @@ impl StateEmitter for SseEmitter {
         let _ = self.tx.send(serde_json::to_string(&event).unwrap());
     }
 
+    fn on_initial_sync_complete(&self) {
+        // Broadcast keybindings now that config has been sourced and settings enforced.
+        let keybindings = KeyBindings {
+            prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
+            prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
+            root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
+        };
+        let kb_event = SseEvent::KeyBindings(keybindings);
+        let _ = self.tx.send(serde_json::to_string(&kb_event).unwrap());
+    }
+
     fn store_images(
         &self,
         pane_id: &str,
@@ -227,7 +238,10 @@ pub async fn sse_handler(
             .event("connection-info")
             .data(serde_json::to_string(&conn_info).unwrap()));
 
-        // Send keybindings to each new client (loaded from tmux config)
+        // Send keybindings to each new SSE client. For reconnecting clients
+        // (monitor already running, config already sourced), this is the only
+        // chance to receive them. The monitor also broadcasts updated keybindings
+        // via on_initial_sync_complete() after sourcing config for the first time.
         let keybindings = KeyBindings {
             prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
             prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
@@ -1137,6 +1151,87 @@ async fn start_monitoring_control_mode(
             } else {
                 // Session exists, just attach
                 connect_config.create_session = false;
+            }
+        }
+
+        // If this session doesn't exist and needs creation, try to route the
+        // `new-session -d` through an existing monitor's CC connection. Running
+        // external `tmux new-session -d` while a CC client is attached crashes
+        // tmux 3.5a. Routing through CC avoids this.
+        if connect_config.create_session {
+            let session_exists = std::process::Command::new("tmux")
+                .args(["has-session", "-t", &session])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            if !session_exists {
+                // Find an existing running monitor to route through
+                let existing_tx = {
+                    let sessions = state.sessions.read().await;
+                    sessions
+                        .iter()
+                        .find(|(name, conns)| {
+                            *name != &session && conns.monitor_command_tx.is_some()
+                        })
+                        .map(|(name, conns)| {
+                            (name.clone(), conns.monitor_command_tx.clone().unwrap())
+                        })
+                };
+
+                if let Some((via_session, tx)) = existing_tx {
+                    let working_dir = connect_config
+                        .working_dir
+                        .as_ref()
+                        .map(|d| format!(" -c '{}'", d.display()))
+                        .unwrap_or_default();
+                    let create_cmd = format!(
+                        "new-session -d -s {} -x {} -y {}{}",
+                        session,
+                        tmuxy_core::control_mode::INITIAL_PTY_COLS,
+                        tmuxy_core::control_mode::INITIAL_PTY_ROWS,
+                        working_dir
+                    );
+                    eprintln!(
+                        "[monitor] Creating session '{}' via existing CC client for '{}'",
+                        session, via_session
+                    );
+                    let _ = tx
+                        .send(tmuxy_core::control_mode::MonitorCommand::RunCommand {
+                            command: create_cmd,
+                        })
+                        .await;
+                    // Wait for the session to actually exist before attaching CC.
+                    // The RunCommand is async — it goes through the monitor's event
+                    // loop and then tmux processes it. Poll has-session to confirm.
+                    let mut created = false;
+                    for _ in 0..50 {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        let exists = std::process::Command::new("tmux")
+                            .args(["has-session", "-t", &session])
+                            .output()
+                            .map(|o| o.status.success())
+                            .unwrap_or(false);
+                        if exists {
+                            created = true;
+                            eprintln!(
+                                "[monitor] Session '{}' created successfully via CC",
+                                session
+                            );
+                            break;
+                        }
+                    }
+                    if created {
+                        // Session exists, just attach (no creation needed)
+                        connect_config.create_session = false;
+                    } else {
+                        eprintln!(
+                            "[monitor] Session '{}' creation via CC timed out, falling back to direct creation",
+                            session
+                        );
+                        // Fall through with create_session still true
+                    }
+                }
             }
         }
 

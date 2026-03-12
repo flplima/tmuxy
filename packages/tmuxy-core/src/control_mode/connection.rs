@@ -8,7 +8,18 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
+
+/// Global mutex to serialize tmux session creation and control mode attachment.
+/// Prevents concurrent `new-session -d` + CC attach operations that crash tmux 3.5a.
+static SESSION_CREATION_LOCK: std::sync::LazyLock<Mutex<()>> =
+    std::sync::LazyLock::new(|| Mutex::new(()));
+
+/// Acquire the session creation lock.
+/// Hold this across the entire connect/new_session + CC attachment sequence.
+pub async fn session_creation_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    SESSION_CREATION_LOCK.lock().await
+}
 
 /// Default initial PTY size (cols x rows) for the `script` wrapper.
 /// Large enough to avoid tiny panes that crash vt100, but will be resized
@@ -167,65 +178,50 @@ impl ControlModeConnection {
 
     /// Create a new control mode session.
     ///
-    /// This spawns `tmux -CC new-session -s <session>` wrapped in `script`
-    /// to provide a PTY (required for tmux control mode).
+    /// First creates the session via regular `tmux new-session -d`, then
+    /// attaches in control mode via `connect()`. This two-step approach
+    /// avoids a tmux 3.5a bug where `tmux -CC new-session` crashes the
+    /// server when another control mode client is already attached.
     pub async fn new_session(
         session_name: &str,
         working_dir: Option<&std::path::Path>,
     ) -> Result<Self, String> {
-        // Use `script` to provide a PTY for tmux -CC
-        // Set PTY size via stty to avoid tiny default dimensions in background processes.
-        let config_flag = session::get_config_path()
-            .map(|p| format!(" -f '{}'", p.to_string_lossy()))
-            .unwrap_or_default();
-        let tmux_cmd = format!(
-            "stty cols {} rows {} 2>/dev/null; tmux -CC{} new-session -s {}",
-            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, config_flag, session_name
-        );
-        let mut cmd = Command::new("script");
-        cmd.args(["-q", "/dev/null", "-c", &tmux_cmd])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        // Step 1: Create the session as a detached regular session.
+        // WARNING: On tmux 3.5a, this crashes the server if another CC client
+        // is attached. The server (sse.rs) routes creation through an existing
+        // CC client when possible. This path is the fallback when no CC client
+        // is running (e.g., first session creation).
+        let mut create_cmd = std::process::Command::new("tmux");
+        if let Some(config_path) = session::get_config_path() {
+            create_cmd.args(["-f", &config_path.to_string_lossy().to_string()]);
+        }
+        create_cmd.args([
+            "new-session",
+            "-d",
+            "-s",
+            session_name,
+            "-x",
+            &INITIAL_PTY_COLS.to_string(),
+            "-y",
+            &INITIAL_PTY_ROWS.to_string(),
+        ]);
         if let Some(dir) = working_dir {
-            cmd.current_dir(dir);
+            create_cmd.arg("-c").arg(dir);
         }
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
-
-        let stdin = child.stdin.take().ok_or("Failed to get stdin handle")?;
-        let stdout = child.stdout.take().ok_or("Failed to get stdout handle")?;
-
-        let (tx, rx) = mpsc::channel(1000);
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        spawn_parser_task(stdout, tx, ready_tx);
-
-        // Wait for the parser to confirm the connection is alive
-        match tokio::time::timeout(Duration::from_secs(10), ready_rx).await {
-            Ok(Ok(())) => {}
-            Ok(Err(_)) => {
-                let _ = child.kill().await;
-                return Err(format!(
-                    "Control mode connection died immediately for session '{}'",
-                    session_name
-                ));
-            }
-            Err(_) => {
-                let _ = child.kill().await;
-                return Err(format!(
-                    "Control mode connection timed out for session '{}'",
-                    session_name
-                ));
-            }
+        let output = create_cmd
+            .output()
+            .map_err(|e| format!("Failed to create tmux session: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!(
+                "Failed to create tmux session '{}': {}",
+                session_name,
+                stderr.trim()
+            ));
         }
 
-        Ok(Self {
-            child,
-            stdin,
-            event_rx: rx,
-            command_counter: 0,
-        })
+        // Step 2: Attach in control mode
+        Self::connect(session_name, working_dir).await
     }
 
     /// Send a tmux command through control mode.

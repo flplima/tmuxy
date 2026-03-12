@@ -29,8 +29,12 @@ echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src"
 echo "[dev] Vite proxied from port 9001, demo proxied from port 9002"
 echo ""
 
-# Kill any existing tmuxy session, then start the server with file watching
+# Kill any existing tmuxy session, then start the server with file watching.
+# Ensure the tmux server stays alive between sessions by creating a
+# persistent _keepalive session. This prevents the server from exiting
+# when all user/test sessions are destroyed.
 tmux kill-session -t tmuxy 2>/dev/null || true
+tmux has-session -t _keepalive 2>/dev/null || tmux new-session -d -s _keepalive
 exec cargo watch \
     -w packages/tmuxy-core/src \
     -w packages/tmuxy-server/src \

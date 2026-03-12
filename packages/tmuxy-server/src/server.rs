@@ -97,7 +97,7 @@ async fn start_dev_server() {
         dev::DEMO_PORT
     );
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = bind_with_retry(addr, 5).await;
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(vec![vite_child, demo_child]))
@@ -122,7 +122,7 @@ async fn start_server(port: u16, host: String) {
 
     println!("tmuxy server running at http://{}:{}", host, port);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = bind_with_retry(addr, 5).await;
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(vec![]))
@@ -254,6 +254,29 @@ fn server_status() {
         }
         None => println!("Server is not running"),
     }
+}
+
+/// Bind to addr, retrying up to `max_retries` times with 1s delay if port is in use.
+async fn bind_with_retry(addr: std::net::SocketAddr, max_retries: u32) -> tokio::net::TcpListener {
+    for attempt in 0..=max_retries {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => return listener,
+            Err(e) if attempt < max_retries => {
+                eprintln!(
+                    "[server] Port {} in use, retrying in 1s ({}/{}): {}",
+                    addr.port(),
+                    attempt + 1,
+                    max_retries,
+                    e
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            Err(e) => {
+                panic!("Failed to bind to {}: {}", addr, e);
+            }
+        }
+    }
+    unreachable!()
 }
 
 async fn shutdown_signal(children: Vec<Option<dev::ViteChild>>) {

@@ -30,8 +30,15 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
   const isSinglePane = visiblePanes.length <= 1;
 
   const handleAction = (actionId: string) => {
-    send({ type: 'FOCUS_PANE', paneId });
-    executeMenuAction(send, actionId);
+    if (actionId === 'pane-close') {
+      // Route through group-aware CLOSE_PANE instead of raw kill-pane.
+      // Don't FOCUS_PANE first — that would switch to a hidden group window
+      // and confuse the close script's visibility logic.
+      send({ type: 'CLOSE_PANE', paneId });
+    } else {
+      send({ type: 'FOCUS_PANE', paneId });
+      executeMenuAction(send, actionId);
+    }
     onClose();
   };
 

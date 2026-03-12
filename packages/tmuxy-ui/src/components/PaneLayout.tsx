@@ -63,8 +63,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     const paneContentHeight = totalHeight * charHeight;
     const paddingBoxWidth = containerWidth + 2 * CONTAINER_PADDING;
     const paddingBoxHeight = containerHeight + 2 * CONTAINER_PADDING;
+    // Clamp x so content never overflows the right padding edge.
+    // This handles transient states where tmux totalWidth > targetCols.
+    const idealX = (paddingBoxWidth - paneContentWidth) / 2;
+    const maxX = paddingBoxWidth - CONTAINER_PADDING - paneContentWidth;
     return {
-      x: Math.max(CONTAINER_PADDING, (paddingBoxWidth - paneContentWidth) / 2),
+      x: Math.max(CONTAINER_PADDING, Math.min(idealX, maxX)),
       y: Math.max(CONTAINER_PADDING, (paddingBoxHeight - paneContentHeight) / 2),
     };
   }, [totalWidth, totalHeight, charWidth, charHeight, containerWidth, containerHeight]);
