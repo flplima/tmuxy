@@ -9,7 +9,7 @@
  * - Shift+click always focuses the pane regardless of mouse mode
  */
 
-import { useCallback, useRef, useState, type RefObject } from 'react';
+import { useCallback, useRef, useState, useEffect, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 import { sendScrollLines } from './scrollUtils';
 import { haptics } from '../utils/haptics';
@@ -80,6 +80,11 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
   const autoScrollColRef = useRef(0);
   // Document-level mouseup listener ref (for cleanup when mouse released outside pane)
   const documentMouseUpRef = useRef<(() => void) | null>(null);
+  const pendingTimers = useRef<number[]>([]);
+  useEffect(() => {
+    const timers = pendingTimers;
+    return () => timers.current.forEach(clearTimeout);
+  }, []);
 
   // Clear selection start when copy mode exits
   if (!inMode && !copyModeActive && selectionStart) {
@@ -285,7 +290,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
 
         // We'll set selection after copy mode state is initialized
         // For now, use a small delay for state to propagate
-        setTimeout(() => {
+        const t = window.setTimeout(() => {
           send({
             type: 'COPY_MODE_SELECTION_START',
             paneId,
@@ -294,6 +299,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
             col: start.x,
           });
         }, 50);
+        pendingTimers.current.push(t);
         lastCellRef.current = { ...start };
       }
 
@@ -438,9 +444,10 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       if (!copyModeActive) {
         send({ type: 'ENTER_COPY_MODE', paneId });
         // Delay word select until copy mode state is initialized
-        setTimeout(() => {
+        const t = window.setTimeout(() => {
           send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
         }, 100);
+        pendingTimers.current.push(t);
       } else {
         send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
       }

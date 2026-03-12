@@ -75,6 +75,13 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const scrollIndicatorRef = useRef<HTMLDivElement | null>(null);
   const scrollIndicatorTimer = useRef<number | null>(null);
 
+  // Context menu timeout refs (cleaned on unmount to prevent stale state updates)
+  const contextMenuTimers = useRef<number[]>([]);
+  useEffect(() => {
+    const timers = contextMenuTimers;
+    return () => timers.current.forEach(clearTimeout);
+  }, []);
+
   const flashScrollIndicator = useCallback(() => {
     const el = scrollIndicatorRef.current;
     if (!el) return;
@@ -272,7 +279,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       } else if (!copyState) {
         // Not in copy mode — enter copy mode, select word, then show menu
         send({ type: 'ENTER_COPY_MODE', paneId });
-        setTimeout(() => {
+        const t1 = window.setTimeout(() => {
           send({
             type: 'COPY_MODE_WORD_SELECT',
             paneId,
@@ -280,8 +287,10 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
             col: cellCol,
             broad: true,
           });
-          setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
+          const t2 = window.setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
+          contextMenuTimers.current.push(t2);
         }, 100);
+        contextMenuTimers.current.push(t1);
       } else {
         // In copy mode but no selection — select word, then show menu
         send({
@@ -291,7 +300,8 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
           col: cellCol,
           broad: true,
         });
-        setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
+        const t = window.setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
+        contextMenuTimers.current.push(t);
       }
     },
     [
