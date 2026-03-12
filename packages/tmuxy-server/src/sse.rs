@@ -38,6 +38,14 @@ impl SseEmitter {
 
 impl StateEmitter for SseEmitter {
     fn emit_state(&self, update: StateUpdate) {
+        // Garbage-collect orphaned images when we have a full state snapshot
+        if let StateUpdate::Full { ref state } = update {
+            let active_pane_ids: std::collections::HashSet<&str> =
+                state.panes.iter().map(|p| p.tmux_id.as_str()).collect();
+            if let Ok(mut guard) = self.app_state.image_store.try_write() {
+                guard.retain(|(pane_id, _), _| active_pane_ids.contains(pane_id.as_str()));
+            }
+        }
         let event = SseEvent::StateUpdate(Box::new(update));
         let _ = self.tx.send(serde_json::to_string(&event).unwrap());
     }
