@@ -90,21 +90,15 @@ beforeAll(async () => {
       // Warmup session readiness is best-effort
     }
 
-    // Close the page FIRST so the server's CC connection shuts down cleanly.
-    // Do NOT kill the warmup session via `tmux kill-session` subprocess —
-    // running external tmux commands while CC is attached crashes tmux 3.5a.
+    // Close the page so the server's CC connection shuts down cleanly.
+    // Do NOT kill the warmup session via subprocess — running external tmux
+    // commands while ANY CC client is attached crashes tmux 3.5a. The orphaned
+    // session is harmless and gets cleaned up when the tmux server resets or
+    // the _keepalive session is killed in afterAll.
     await page.close().catch(() => {});
     await context.close().catch(() => {});
     // Wait for server's 2s grace period + CC cleanup
     await delay(4000);
-
-    // Now safe to kill the orphaned session (CC is detached)
-    try {
-      tmuxQuery(`kill-session -t ${warmupSession}`);
-    } catch {
-      // Best effort — session may already be gone
-    }
-    await delay(1000);
   } catch {
     // Warmup failure is non-fatal
   }
