@@ -41,7 +41,12 @@ export function handleStateUpdate(
       const mergedPanes = update.state.panes.map((pane) => {
         const existing = existingPaneMap.get(pane.tmux_id);
         if (existing && isPaneContentEmpty(pane.content) && !isPaneContentEmpty(existing.content)) {
-          return { ...pane, content: existing.content };
+          return {
+            ...pane,
+            content: existing.content,
+            cursor_x: existing.cursor_x,
+            cursor_y: existing.cursor_y,
+          };
         }
         return pane;
       });
