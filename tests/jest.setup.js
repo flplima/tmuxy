@@ -10,11 +10,8 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Cold-start warmup: absorb first-run latency (browser launch, server SSE init,
-// control mode attachment) so Scenario 1 doesn't bear the cost.
-const { getBrowser, waitForServer, navigateToSession, waitForSessionReady, delay } = require('./helpers/browser');
+const { waitForServer } = require('./helpers/browser');
 const { TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
-const { tmuxQuery } = require('./helpers/cli');
 
 let _weStartedServer = false;
 let _serverPid = null;
@@ -74,34 +71,12 @@ beforeAll(async () => {
     // Best effort
   }
 
-  // Cold-start warmup: open a browser page to trigger SSE init and server warmup
-  try {
-    await waitForServer(TMUXY_URL, 15000);
-    const browser = await getBrowser();
-    const context = await browser._browser.newContext({ viewport: { width: 1280, height: 720 } });
-    const page = await context.newPage();
-
-    const warmupSession = `warmup_${Date.now()}`;
-    await navigateToSession(page, warmupSession);
-
-    try {
-      await waitForSessionReady(page, warmupSession);
-    } catch {
-      // Warmup session readiness is best-effort
-    }
-
-    // Close the page so the server's CC connection shuts down cleanly.
-    // Do NOT kill the warmup session via subprocess — running external tmux
-    // commands while ANY CC client is attached crashes tmux 3.5a. The orphaned
-    // session is harmless and gets cleaned up when the tmux server resets or
-    // the _keepalive session is killed in afterAll.
-    await page.close().catch(() => {});
-    await context.close().catch(() => {});
-    // Wait for server's 2s grace period + CC cleanup
-    await delay(4000);
-  } catch {
-    // Warmup failure is non-fatal
-  }
+  // No warmup session — previous warmup approach created a browser page +
+  // CC connection that raced with the first real test's CC connection. The
+  // warmup's CC cleanup (grace period + detach) didn't always finish before
+  // the next test's monitor ran `tmux has-session` subprocess, which crashes
+  // tmux 3.5a when ANY CC client is still attached. Tests handle cold-start
+  // latency with their own waitForFunction/waitForSessionReady timeouts.
 }, 180000);
 
 afterAll(async () => {
