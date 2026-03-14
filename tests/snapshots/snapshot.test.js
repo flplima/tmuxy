@@ -42,11 +42,17 @@ beforeAll(async () => {
   });
 
   // Wait for pane content to arrive (especially important for new pages in CI
-  // where the server needs to start a session and stream initial content)
+  // where the server needs to start a session and stream initial content).
+  // Content is TerminalCell[][] where each cell has .c for the character.
   await page.waitForFunction(() => {
     const ctx = window.app?.getSnapshot()?.context;
     if (!ctx?.panes?.length) return false;
-    return ctx.panes.some(p => p.content && p.content.some(line => line.length > 0));
+    return ctx.panes.some(p =>
+      p.content && Array.isArray(p.content) &&
+      p.content.some(line =>
+        Array.isArray(line) && line.some(cell => cell && cell.c && cell.c.trim())
+      )
+    );
   }, { timeout: 15000 });
 
   // Let state settle
