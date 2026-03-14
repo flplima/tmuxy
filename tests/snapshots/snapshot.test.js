@@ -32,6 +32,14 @@ beforeAll(async () => {
   } else {
     // No existing page — open a new one (CI environment)
     page = await browser.newPage();
+    // Log browser console for CI debugging
+    page.on('console', msg => {
+      const type = msg.type();
+      if (type === 'error' || type === 'warn' || msg.text().includes('[HttpAdapter]')) {
+        console.warn(`[browser:${type}] ${msg.text()}`);
+      }
+    });
+    page.on('pageerror', err => console.warn(`[browser:pageerror] ${err.message}`));
     await page.goto(TMUXY_URL);
     ownedPage = true;
   }
@@ -39,21 +47,38 @@ beforeAll(async () => {
   // Wait for XState to be ready with panes and content.
   // In CI (new page), the server needs to start a session, connect control mode,
   // and stream initial content via SSE — this can take several seconds.
-  await page.waitForFunction(() => {
-    const ctx = window.app?.getSnapshot()?.context;
-    if (!ctx?.connected || !ctx?.panes?.length) return false;
-    // Wait for ALL visible panes to have non-trivial content (shell prompt visible).
-    // During rapid resize, capture-pane resets vt100 state; wait for the content
-    // pipeline to deliver the full capture response for every pane.
-    const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
-    return visiblePanes.every(p => {
-      if (!p.content || !Array.isArray(p.content)) return false;
-      const text = p.content.map(line =>
-        Array.isArray(line) ? line.map(cell => cell?.c || '').join('') : ''
-      ).join('');
-      return text.trim().length > 0;
-    });
-  }, undefined, { timeout: 60000 });
+  try {
+    await page.waitForFunction(() => {
+      const ctx = window.app?.getSnapshot()?.context;
+      if (!ctx?.connected || !ctx?.panes?.length) return false;
+      // Wait for ALL visible panes to have non-trivial content (shell prompt visible).
+      // During rapid resize, capture-pane resets vt100 state; wait for the content
+      // pipeline to deliver the full capture response for every pane.
+      const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
+      return visiblePanes.every(p => {
+        if (!p.content || !Array.isArray(p.content)) return false;
+        const text = p.content.map(line =>
+          Array.isArray(line) ? line.map(cell => cell?.c || '').join('') : ''
+        ).join('');
+        return text.trim().length > 0;
+      });
+    }, undefined, { timeout: 60000 });
+  } catch (e) {
+    // Dump browser state for debugging CI failures
+    const state = await page.evaluate(() => {
+      const ctx = window.app?.getSnapshot()?.context;
+      return {
+        hasApp: !!window.app,
+        connected: ctx?.connected,
+        error: ctx?.error,
+        paneCount: ctx?.panes?.length,
+        sessionName: ctx?.sessionName,
+        reconnecting: ctx?.reconnecting,
+      };
+    }).catch(() => 'evaluate failed');
+    console.error('[snapshot:beforeAll] waitForFunction failed. Browser state:', JSON.stringify(state));
+    throw e;
+  }
 
   // Let state settle (longer for new pages in CI to ensure content arrives).
   // Also verify the shell prompt is visible in the DOM — a prompt character
