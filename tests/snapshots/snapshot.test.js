@@ -67,6 +67,11 @@ beforeAll(async () => {
     // Dump browser state for debugging CI failures
     const state = await page.evaluate(() => {
       const ctx = window.app?.getSnapshot()?.context;
+      const pane = ctx?.panes?.[0];
+      const contentSample = pane?.content?.slice(0, 3)?.map(line => {
+        if (!line || !Array.isArray(line)) return String(line);
+        return line.slice(0, 20).map(cell => cell?.c || '').join('');
+      });
       return {
         hasApp: !!window.app,
         connected: ctx?.connected,
@@ -74,6 +79,12 @@ beforeAll(async () => {
         paneCount: ctx?.panes?.length,
         sessionName: ctx?.sessionName,
         reconnecting: ctx?.reconnecting,
+        activeWindowId: ctx?.activeWindowId,
+        pane0windowId: pane?.windowId,
+        pane0contentLength: pane?.content?.length,
+        pane0contentIsArray: Array.isArray(pane?.content),
+        pane0firstLine: contentSample?.[0],
+        pane0contentSample: contentSample,
       };
     }).catch(() => 'evaluate failed');
     console.error('[snapshot:beforeAll] waitForFunction failed. Browser state:', JSON.stringify(state));
