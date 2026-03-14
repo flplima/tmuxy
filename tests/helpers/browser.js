@@ -137,15 +137,46 @@ async function verifyRoundTrip(page, sessionName, timeout = 20000) {
   // Wait for marker to appear in the DOM — this is the definitive readiness gate.
   // If this fails, the full pipeline (CLI → tmux → SSE → DOM)
   // is not working and the test cannot proceed.
-  await page.waitForFunction(
-    (m) => {
+  try {
+    await page.waitForFunction(
+      (m) => {
+        const logs = document.querySelectorAll('[role="log"]');
+        const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+        return content.includes(m);
+      },
+      marker,
+      { timeout, polling: 100 }
+    );
+  } catch (err) {
+    // Dump diagnostic state before rethrowing
+    const diag = await page.evaluate(() => {
       const logs = document.querySelectorAll('[role="log"]');
-      const content = Array.from(logs).map(l => l.textContent || '').join('\n');
-      return content.includes(m);
-    },
-    marker,
-    { timeout, polling: 100 }
-  );
+      const domContent = Array.from(logs).map(l => l.textContent || '').join('\n');
+      const snap = window.app?.getSnapshot?.();
+      const ctx = snap?.context;
+      return {
+        domContentLen: domContent.length,
+        domContentPreview: domContent.slice(0, 200),
+        hasApp: !!window.app,
+        connected: ctx?.connected,
+        paneCount: ctx?.panes?.length,
+        paneContentLens: ctx?.panes?.map(p => {
+          const lines = p.content || [];
+          const totalChars = lines.reduce((sum, line) =>
+            sum + (line || []).reduce((s, cell) => s + (cell?.c?.trim() ? 1 : 0), 0), 0);
+          return totalChars;
+        }),
+      };
+    }).catch(() => ({ error: 'evaluate failed' }));
+    console.error(`[verifyRoundTrip] FAILED for marker "${marker}"`);
+    console.error(`[verifyRoundTrip] Diagnostic:`, JSON.stringify(diag));
+    // Also check tmux side
+    try {
+      const tmuxContent = tmuxQuery(`capture-pane -t ${sessionName} -p`);
+      console.error(`[verifyRoundTrip] tmux capture-pane (${tmuxContent.length} chars):`, tmuxContent.slice(0, 200));
+    } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 /**

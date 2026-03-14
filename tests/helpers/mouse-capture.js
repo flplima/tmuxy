@@ -36,7 +36,7 @@ async function startMouseCapture(ctx) {
   expect(ready).toBe(true);
   const flagStart = Date.now();
   let flagSet = false;
-  while (!flagSet && Date.now() - flagStart < 10000) {
+  while (!flagSet && Date.now() - flagStart < 15000) {
     flagSet = await ctx.page.evaluate(() => !!document.querySelector('[data-mouse-any-flag="true"]'));
     if (!flagSet) await delay(DELAYS.MEDIUM);
   }

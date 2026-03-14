@@ -192,8 +192,9 @@ impl ControlModeConnection {
         // CC client when possible. This path is the fallback when no CC client
         // is running (e.g., first session creation).
         let mut create_cmd = std::process::Command::new("tmux");
-        if let Some(config_path) = session::get_config_path() {
-            create_cmd.args(["-f", &config_path.to_string_lossy().to_string()]);
+        if let Some(ref config_path) = session::get_config_path() {
+            let config = config_path.to_string_lossy();
+            create_cmd.args(["-f", config.as_ref()]);
         }
         create_cmd.args([
             "new-session",

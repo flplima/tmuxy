@@ -744,12 +744,6 @@ pub struct StateAggregator {
     /// events still emit immediately. Used during command-aware settling
     /// to batch intermediate states from compound commands (e.g., splitw ; breakp).
     suppress_window_emissions: bool,
-
-    /// Count of stale %output events to suppress per pane after resize captures.
-    /// Each resize triggers SIGWINCH → shell redraw → %output that arrives AFTER
-    /// the capture-pane response. The counter tracks how many such stale events
-    /// to drop for each pane.
-    post_capture_suppress: HashMap<String, u32>,
 }
 
 impl StateAggregator {
@@ -769,7 +763,6 @@ impl StateAggregator {
             delta_seq: 0,
             popup: None,
             suppress_window_emissions: false,
-            post_capture_suppress: HashMap::new(),
         }
     }
 
@@ -790,7 +783,6 @@ impl StateAggregator {
             delta_seq: 0,
             popup: None,
             suppress_window_emissions: false,
-            post_capture_suppress: HashMap::new(),
         }
     }
 
@@ -887,23 +879,35 @@ impl StateAggregator {
     /// Pane IDs are queued in the order the commands were sent (FIFO).
     /// We use FIFO because we can't reliably match command numbers when
     /// attaching to an existing session (tmux's counter may be different).
-    pub fn queue_captures(&mut self, pane_ids: &[String]) {
+    /// Queue capture-pane commands and return only pane IDs that were actually
+    /// queued (not already pending). The caller should only send capture commands
+    /// for returned IDs to keep the queue and tmux commands in sync.
+    pub fn queue_captures(&mut self, pane_ids: &[String]) -> Vec<String> {
+        let mut queued = Vec::new();
         for pane_id in pane_ids {
-            self.pending_captures.push_back(pane_id.clone());
+            if !self.pending_captures.contains(pane_id) {
+                self.pending_captures.push_back(pane_id.clone());
+                queued.push(pane_id.clone());
+            }
         }
+        queued
     }
 
     /// Queue captures that are known to be resize-triggered.
-    /// After these captures complete, the next %output for each pane is
-    /// suppressed (it's the stale SIGWINCH redraw from the resize).
-    pub fn queue_resize_captures(&mut self, pane_ids: &[String]) {
+    /// Unlike `queue_captures`, these are triggered by resize layout changes.
+    /// Previously suppressed the next %output after capture, but that caused
+    /// legitimate output to be silently dropped when `pending_resize_count`
+    /// leaked across unrelated layout changes (e.g. pane kills).
+    /// Queue resize-triggered captures. Returns only newly queued pane IDs.
+    pub fn queue_resize_captures(&mut self, pane_ids: &[String]) -> Vec<String> {
+        let mut queued = Vec::new();
         for pane_id in pane_ids {
-            self.pending_captures.push_back(pane_id.clone());
-            *self
-                .post_capture_suppress
-                .entry(pane_id.clone())
-                .or_insert(0) += 1;
+            if !self.pending_captures.contains(pane_id) {
+                self.pending_captures.push_back(pane_id.clone());
+                queued.push(pane_id.clone());
+            }
         }
+        queued
     }
 
     /// Get the list of window IDs
@@ -1033,6 +1037,8 @@ impl StateAggregator {
             ControlModeEvent::WindowClose { window_id } => {
                 self.windows.remove(&window_id);
                 self.panes.retain(|_, p| p.window_id != window_id);
+                self.pending_captures
+                    .retain(|id| self.panes.contains_key(id));
                 self.status_line_dirty = true;
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,
@@ -1112,37 +1118,47 @@ impl StateAggregator {
                 //
                 // Note: We use FIFO because tmux command numbers can't be reliably
                 // tracked when attaching to an existing session.
-                if !self.pending_captures.is_empty() && success {
-                    // Check if this looks like capture-pane output
-                    let is_capture_output = self.looks_like_capture_output(&output);
+                if !self.pending_captures.is_empty() {
+                    if !success {
+                        // Command failed — pop the pending capture to avoid blocking
+                        // all future %output events for this pane indefinitely.
+                        let pane_id = self.pending_captures.pop_front();
+                        eprintln!(
+                            "[state] Capture command failed, popping pending capture: {:?}",
+                            pane_id
+                        );
+                    } else {
+                        // Check if this looks like capture-pane output
+                        let is_capture_output = self.looks_like_capture_output(&output);
 
-                    if is_capture_output {
-                        if let Some(pane_id) = self.pending_captures.pop_front() {
-                            if let Some(pane) = self.panes.get_mut(&pane_id) {
-                                if pane.in_mode {
-                                    // In copy mode: process into separate copy_mode_content
-                                    // to avoid corrupting the main terminal state
-                                    pane.process_copy_mode_capture(output.as_bytes());
-                                } else {
-                                    // Normal mode: reset and reprocess the main terminal
-                                    pane.reset_and_process_capture(output.as_bytes());
+                        if is_capture_output {
+                            if let Some(pane_id) = self.pending_captures.pop_front() {
+                                if let Some(pane) = self.panes.get_mut(&pane_id) {
+                                    if pane.in_mode {
+                                        // In copy mode: process into separate copy_mode_content
+                                        // to avoid corrupting the main terminal state
+                                        pane.process_copy_mode_capture(output.as_bytes());
+                                    } else {
+                                        // Normal mode: reset and reprocess the main terminal
+                                        pane.reset_and_process_capture(output.as_bytes());
 
-                                    // After processing capture output, the vt100 cursor is at the end
-                                    // of the content (last row). Reposition it to tmux's actual cursor
-                                    // position so subsequent %output events render correctly.
-                                    let cursor_seq = format!(
-                                        "\x1b[{};{}H",
-                                        pane.tmux_cursor_y + 1,
-                                        pane.tmux_cursor_x + 1
-                                    );
-                                    safe_process(&mut pane.terminal, cursor_seq.as_bytes());
+                                        // After processing capture output, the vt100 cursor
+                                        // is at the end of the content (last row). Reposition
+                                        // it to tmux's actual cursor position.
+                                        let cursor_seq = format!(
+                                            "\x1b[{};{}H",
+                                            pane.tmux_cursor_y + 1,
+                                            pane.tmux_cursor_x + 1
+                                        );
+                                        safe_process(&mut pane.terminal, cursor_seq.as_bytes());
+                                    }
                                 }
+                                return ProcessEventResult {
+                                    state_changed: true,
+                                    change_type: ChangeType::PaneOutput { pane_id },
+                                    ..Default::default()
+                                };
                             }
-                            return ProcessEventResult {
-                                state_changed: true,
-                                change_type: ChangeType::PaneOutput { pane_id },
-                                ..Default::default()
-                            };
                         }
                     }
                 }
@@ -1274,27 +1290,6 @@ impl StateAggregator {
         pane_id: &str,
         content: &[u8],
     ) -> (bool, Vec<(u32, super::images::StoredImage)>) {
-        // Suppress %output events for panes with a pending capture-pane.
-        // When a resize triggers capture-pane, the shell also gets SIGWINCH and
-        // redraws its prompt via %output. This %output arrives before the capture
-        // response. Processing it would create a duplicate since capture-pane does
-        // a full vt100 reset and reprocesses all content.
-        let pane_id_str = pane_id.to_string();
-        if self.pending_captures.contains(&pane_id_str) {
-            return (false, Vec::new());
-        }
-        // Suppress ONE %output after a capture completes. The SIGWINCH redraw
-        // from the resize that triggered the capture can arrive AFTER the capture
-        // response (the capture response is synchronous via CC, but SIGWINCH is
-        // asynchronous from the PTY). Drop this stale redraw.
-        if let Some(count) = self.post_capture_suppress.get_mut(&pane_id_str) {
-            *count -= 1;
-            if *count == 0 {
-                self.post_capture_suppress.remove(&pane_id_str);
-            }
-            return (false, Vec::new());
-        }
-
         // Only process output for panes we know about from list-panes.
         // This prevents creating panes from other tmux sessions.
         // Panes are added via parse_list_panes_line() which sets window_id.
@@ -1415,6 +1410,12 @@ impl StateAggregator {
             }
         });
 
+        // Remove pending captures for panes that no longer exist.
+        // Dead pane entries in the FIFO queue corrupt capture matching
+        // (a response for pane A would incorrectly dequeue dead pane B).
+        self.pending_captures
+            .retain(|id| self.panes.contains_key(id));
+
         resized_panes
     }
 
@@ -1455,6 +1456,9 @@ impl StateAggregator {
                 // (they were deleted)
                 false
             });
+            // Clean up pending captures for removed panes
+            self.pending_captures
+                .retain(|id| self.panes.contains_key(id));
         }
 
         // Try to parse as list-windows output

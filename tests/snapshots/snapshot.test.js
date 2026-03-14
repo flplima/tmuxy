@@ -41,16 +41,47 @@ beforeAll(async () => {
   // and stream initial content via SSE — this can take several seconds.
   await page.waitForFunction(() => {
     const ctx = window.app?.getSnapshot()?.context;
-    return ctx?.connected && ctx?.panes?.length > 0;
+    if (!ctx?.connected || !ctx?.panes?.length) return false;
+    // Wait for ALL visible panes to have non-trivial content (shell prompt visible).
+    // During rapid resize, capture-pane resets vt100 state; wait for the content
+    // pipeline to deliver the full capture response for every pane.
+    const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
+    return visiblePanes.every(p => {
+      if (!p.content || !Array.isArray(p.content)) return false;
+      const text = p.content.map(line =>
+        Array.isArray(line) ? line.map(cell => cell?.c || '').join('') : ''
+      ).join('');
+      return text.trim().length > 0;
+    });
   }, { timeout: 30000 });
 
-  // Let state settle (longer for new pages in CI to ensure content arrives)
-  await delay(ownedPage ? DELAYS.SYNC * 3 : DELAYS.SYNC);
+  // Let state settle (longer for new pages in CI to ensure content arrives).
+  // Also verify the shell prompt is visible in the DOM — a prompt character
+  // confirms the full content pipeline (capture → vt100 → SSE → XState → React).
+  await delay(ownedPage ? DELAYS.SYNC * 2 : DELAYS.SYNC);
+  if (ownedPage) {
+    try {
+      await page.waitForFunction(() => {
+        const logs = document.querySelectorAll('[role="log"]');
+        const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+        return content.includes('❯') || content.includes('$') || content.includes('#');
+      }, { timeout: 15000, polling: 200 });
+    } catch {
+      // If prompt never appears, proceed anyway — the test will fail with a useful diff
+    }
+    await delay(DELAYS.SYNC);
+  }
 });
 
 afterAll(async () => {
   // Only close the page if we created it (don't close the user's tab)
-  if (ownedPage && page?._context) await page._context.close();
+  if (ownedPage && page?._context) {
+    await page._context.close();
+    // Wait for the server's 2s grace period to complete so the monitor
+    // and CC connection for this session are fully cleaned up before
+    // the next jest run (E2E tests) starts.
+    await delay(3000);
+  }
 });
 
 /**

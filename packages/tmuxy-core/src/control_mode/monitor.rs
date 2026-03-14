@@ -444,6 +444,19 @@ impl TmuxMonitor {
                                 // before capture-pane responses arrive (tmux processes commands
                                 // in order), so the cursor repositioning after capture uses
                                 // the correct coordinates.
+                                // Queue pane IDs first (before sending commands)
+                                // so they're ready when responses arrive.
+                                // Only queue panes that don't already have pending captures —
+                                // this prevents the queue from growing unboundedly during rapid
+                                // resize/layout changes and keeps queue entries in sync with
+                                // the capture commands actually sent.
+                                let queued_panes = if self.pending_resize_count > 0 && matches!(result.change_type, super::ChangeType::PaneLayout) {
+                                    self.pending_resize_count -= 1;
+                                    self.aggregator.queue_resize_captures(&result.panes_needing_refresh)
+                                } else {
+                                    self.aggregator.queue_captures(&result.panes_needing_refresh)
+                                };
+
                                 let mut commands: Vec<String> = vec![
                                     concat!(
                                         "list-panes -s -F '",
@@ -460,25 +473,12 @@ impl TmuxMonitor {
                                         "#{selection_start_x},#{selection_start_y},#{history_size}'"
                                     ).to_string(),
                                 ];
+                                // Only send capture commands for panes that were actually queued
                                 commands.extend(
-                                    result.panes_needing_refresh
+                                    queued_panes
                                         .iter()
                                         .map(|pane_id| format!("capture-pane -t {} -p -e", pane_id))
                                 );
-
-                                // Queue the pane IDs first (before sending commands)
-                                // so they're ready when responses arrive.
-                                // Only use resize-aware queuing when the layout change
-                                // was triggered by a browser resize (resizew command).
-                                // Layout changes from split-window, break-pane, etc. don't
-                                // cause SIGWINCH stale %output, so their output should NOT
-                                // be suppressed.
-                                if self.pending_resize_count > 0 && matches!(result.change_type, super::ChangeType::PaneLayout) {
-                                    self.pending_resize_count -= 1;
-                                    self.aggregator.queue_resize_captures(&result.panes_needing_refresh);
-                                } else {
-                                    self.aggregator.queue_captures(&result.panes_needing_refresh);
-                                }
 
                                 // Send all commands with single flush
                                 if let Err(e) = self.connection.send_commands_batch(&commands).await {
@@ -677,7 +677,7 @@ impl TmuxMonitor {
                                 cmds.push(format!("capture-pane -t {} -p -e", pane_id));
                             }
                         }
-                        self.aggregator.queue_captures(&copy_pane_ids);
+                        let _ = self.aggregator.queue_captures(&copy_pane_ids);
                         if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                             emitter.emit_error(format!("Failed to sync copy mode: {}", e));
                         }
