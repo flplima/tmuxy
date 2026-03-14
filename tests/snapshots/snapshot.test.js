@@ -44,51 +44,55 @@ beforeAll(async () => {
     ownedPage = true;
   }
 
-  // Wait for XState to be ready with panes and content.
-  // In CI (new page), the server needs to start a session, connect control mode,
-  // and stream initial content via SSE — this can take several seconds.
-  try {
-    await page.waitForFunction(() => {
-      const ctx = window.app?.getSnapshot()?.context;
-      if (!ctx?.connected || !ctx?.panes?.length) return false;
-      // Wait for ALL visible panes to have non-trivial content (shell prompt visible).
-      // During rapid resize, capture-pane resets vt100 state; wait for the content
-      // pipeline to deliver the full capture response for every pane.
-      const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
-      return visiblePanes.every(p => {
-        if (!p.content || !Array.isArray(p.content)) return false;
-        const text = p.content.map(line =>
-          Array.isArray(line) ? line.map(cell => cell?.c || '').join('') : ''
-        ).join('');
-        return text.trim().length > 0;
-      });
-    }, undefined, { timeout: 60000 });
-  } catch (e) {
-    // Dump browser state for debugging CI failures
-    const state = await page.evaluate(() => {
-      const ctx = window.app?.getSnapshot()?.context;
-      const pane = ctx?.panes?.[0];
-      const contentSample = pane?.content?.slice(0, 3)?.map(line => {
-        if (!line || !Array.isArray(line)) return String(line);
-        return line.slice(0, 20).map(cell => cell?.c || '').join('');
-      });
-      return {
-        hasApp: !!window.app,
-        connected: ctx?.connected,
-        error: ctx?.error,
-        paneCount: ctx?.panes?.length,
-        sessionName: ctx?.sessionName,
-        reconnecting: ctx?.reconnecting,
-        activeWindowId: ctx?.activeWindowId,
-        pane0windowId: pane?.windowId,
-        pane0contentLength: pane?.content?.length,
-        pane0contentIsArray: Array.isArray(pane?.content),
-        pane0firstLine: contentSample?.[0],
-        pane0contentSample: contentSample,
-      };
-    }).catch(() => 'evaluate failed');
-    console.error('[snapshot:beforeAll] waitForFunction failed. Browser state:', JSON.stringify(state));
-    throw e;
+  // Wait for XState to be ready with panes and non-empty content.
+  // In CI, the first SSE connection can silently die (server detects client
+  // disconnect before content arrives). If that happens, reload the page to
+  // establish a fresh SSE connection and retry.
+  const maxPageAttempts = ownedPage ? 3 : 1;
+  for (let pageAttempt = 0; pageAttempt < maxPageAttempts; pageAttempt++) {
+    try {
+      await page.waitForFunction(() => {
+        const ctx = window.app?.getSnapshot()?.context;
+        if (!ctx?.connected || !ctx?.panes?.length) return false;
+        const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
+        return visiblePanes.every(p => {
+          if (!p.content || !Array.isArray(p.content)) return false;
+          const text = p.content.map(line =>
+            Array.isArray(line) ? line.map(cell => cell?.c || '').join('') : ''
+          ).join('');
+          return text.trim().length > 0;
+        });
+      }, undefined, { timeout: 20000 });
+      break; // Content arrived — proceed
+    } catch (e) {
+      if (pageAttempt < maxPageAttempts - 1) {
+        console.warn(`[snapshot:beforeAll] Attempt ${pageAttempt + 1}: content empty, reloading page`);
+        await page.reload({ waitUntil: 'load' });
+        continue;
+      }
+      // Final attempt failed — dump state and throw
+      const state = await page.evaluate(() => {
+        const ctx = window.app?.getSnapshot()?.context;
+        const pane = ctx?.panes?.[0];
+        const contentSample = pane?.content?.slice(0, 3)?.map(line => {
+          if (!line || !Array.isArray(line)) return String(line);
+          return line.slice(0, 20).map(cell => cell?.c || '').join('');
+        });
+        return {
+          hasApp: !!window.app,
+          connected: ctx?.connected,
+          error: ctx?.error,
+          paneCount: ctx?.panes?.length,
+          sessionName: ctx?.sessionName,
+          activeWindowId: ctx?.activeWindowId,
+          pane0windowId: pane?.windowId,
+          pane0contentLength: pane?.content?.length,
+          pane0contentSample: contentSample,
+        };
+      }).catch(() => 'evaluate failed');
+      console.error('[snapshot:beforeAll] waitForFunction failed. Browser state:', JSON.stringify(state));
+      throw e;
+    }
   }
 
   // Let state settle (longer for new pages in CI to ensure content arrives).
@@ -101,7 +105,7 @@ beforeAll(async () => {
         const logs = document.querySelectorAll('[role="log"]');
         const content = Array.from(logs).map(l => l.textContent || '').join('\n');
         return content.includes('❯') || content.includes('$') || content.includes('#');
-      }, { timeout: 15000, polling: 200 });
+      }, undefined, { timeout: 15000, polling: 200 });
     } catch {
       // If prompt never appears, proceed anyway — the test will fail with a useful diff
     }
