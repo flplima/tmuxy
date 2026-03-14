@@ -1668,7 +1668,27 @@ impl StateAggregator {
     /// Returns Delta with only changed fields on subsequent calls.
     /// Returns None when nothing has changed (empty delta).
     pub fn to_state_update(&mut self) -> Option<crate::StateUpdate> {
-        let current = self.to_tmux_state();
+        let mut current = self.to_tmux_state();
+
+        // Preserve previous content for panes with pending captures.
+        // After resize, pane.resize() clears the VT100 parser but capture-pane
+        // hasn't arrived yet. Without this, to_tmux_state() extracts empty/truncated
+        // content from the cleared parser and emits it to the frontend.
+        if !self.pending_captures.is_empty() {
+            if let Some(ref prev) = self.prev_state {
+                let prev_panes: std::collections::HashMap<&str, &crate::TmuxPane> =
+                    prev.panes.iter().map(|p| (p.tmux_id.as_str(), p)).collect();
+                for pane in &mut current.panes {
+                    if self.pending_captures.contains(&pane.tmux_id) {
+                        if let Some(prev_pane) = prev_panes.get(pane.tmux_id.as_str()) {
+                            pane.content = prev_pane.content.clone();
+                            pane.cursor_x = prev_pane.cursor_x;
+                            pane.cursor_y = prev_pane.cursor_y;
+                        }
+                    }
+                }
+            }
+        }
 
         // First state or no previous state - send full
         let prev = match &self.prev_state {
