@@ -36,27 +36,16 @@ beforeAll(async () => {
     ownedPage = true;
   }
 
-  // Wait for XState to be ready
-  await page.waitForFunction(() => window.app?.getSnapshot()?.context, {
-    timeout: 15000,
-  });
-
-  // Wait for pane content to arrive (especially important for new pages in CI
-  // where the server needs to start a session and stream initial content).
-  // Content is TerminalCell[][] where each cell has .c for the character.
+  // Wait for XState to be ready with panes and content.
+  // In CI (new page), the server needs to start a session, connect control mode,
+  // and stream initial content via SSE — this can take several seconds.
   await page.waitForFunction(() => {
     const ctx = window.app?.getSnapshot()?.context;
-    if (!ctx?.panes?.length) return false;
-    return ctx.panes.some(p =>
-      p.content && Array.isArray(p.content) &&
-      p.content.some(line =>
-        Array.isArray(line) && line.some(cell => cell && cell.c && cell.c.trim())
-      )
-    );
-  }, { timeout: 15000 });
+    return ctx?.connected && ctx?.panes?.length > 0;
+  }, { timeout: 30000 });
 
-  // Let state settle
-  await delay(DELAYS.SYNC);
+  // Let state settle (longer for new pages in CI to ensure content arrives)
+  await delay(ownedPage ? DELAYS.SYNC * 3 : DELAYS.SYNC);
 });
 
 afterAll(async () => {
