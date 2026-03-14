@@ -53,7 +53,7 @@ beforeAll(async () => {
       ).join('');
       return text.trim().length > 0;
     });
-  }, { timeout: 60000 });
+  }, undefined, { timeout: 60000 });
 
   // Let state settle (longer for new pages in CI to ensure content arrives).
   // Also verify the shell prompt is visible in the DOM — a prompt character

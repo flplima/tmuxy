@@ -17,17 +17,6 @@ let _weStartedServer = false;
 let _serverPid = null;
 
 beforeAll(async () => {
-  // Ensure tmux server stays alive between tests. When tests destroy their
-  // sessions via kill-session, the tmux server exits if no sessions remain.
-  // This keepalive session prevents that crash.
-  try {
-    execSync('tmux has-session -t _keepalive 2>/dev/null || tmux new-session -d -s _keepalive', {
-      timeout: 5000,
-    });
-  } catch {
-    // tmux server may not be running yet — it will be started by the web server
-  }
-
   // Auto-start production server if not running
   let serverRunning = false;
   try {
@@ -61,32 +50,17 @@ beforeAll(async () => {
     }
   }
 
-  // Ensure keepalive session exists now that the server (and tmux) is running.
-  // This prevents the tmux server from exiting when test sessions are destroyed.
-  try {
-    execSync('tmux has-session -t _keepalive 2>/dev/null || tmux new-session -d -s _keepalive', {
-      timeout: 5000,
-    });
-  } catch {
-    // Best effort
-  }
+  // No keepalive session — the server's monitor loop handles tmux server
+  // restarts by recreating sessions with create_session=true. A subprocess
+  // `tmux new-session` to create _keepalive races with the server's CC
+  // connection and can cause SessionsChanged/UnlinkedWindowClose events
+  // that crash the monitor.
 
-  // No warmup session — previous warmup approach created a browser page +
-  // CC connection that raced with the first real test's CC connection. The
-  // warmup's CC cleanup (grace period + detach) didn't always finish before
-  // the next test's monitor ran `tmux has-session` subprocess, which crashes
-  // tmux 3.5a when ANY CC client is still attached. Tests handle cold-start
-  // latency with their own waitForFunction/waitForSessionReady timeouts.
+  // No warmup session — previous approach created a browser page + CC
+  // connection that raced with the first real test's CC connection.
 }, 180000);
 
 afterAll(async () => {
-  // Clean up keepalive session
-  try {
-    execSync('tmux kill-session -t _keepalive 2>/dev/null', { timeout: 5000 });
-  } catch {
-    // Best effort
-  }
-
   if (_weStartedServer && _serverPid) {
     try {
       process.kill(_serverPid);
