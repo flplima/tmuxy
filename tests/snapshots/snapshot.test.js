@@ -77,12 +77,14 @@ function findExistingTmuxyPage(browser) {
 // ==================== Structural Checks (1–15) ====================
 
 test('structural snapshot: UI matches tmux state', async () => {
-  const maxRetries = 3;
+  const maxRetries = 5;
   let result;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    // Allow extra time between retries for async state (e.g., zsh git prompt)
-    if (attempt > 0) await delay(DELAYS.SYNC * 2);
+    // Allow extra time between retries for content to arrive via SSE.
+    // In CI, the server creates a fresh session and content delivery can
+    // take several seconds through the control mode → VtEmulator pipeline.
+    if (attempt > 0) await delay(DELAYS.SYNC * 3);
 
     const sessionName = await page.evaluate(
       () => window.app?.getSnapshot()?.context?.sessionName
