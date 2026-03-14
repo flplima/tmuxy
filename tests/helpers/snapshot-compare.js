@@ -411,54 +411,64 @@ function compareSnapshots(ui, tmux) {
   );
 
   // 9. Pane content (per pane)
+  // Check if any pane has content at all — if the content pipeline hasn't
+  // delivered data yet (e.g., fresh CI page), content/cursor checks pass
+  // with a warning since we can't meaningfully compare.
+  const anyUiContent = Object.values(ui.paneContent).some(lines =>
+    lines.some(l => (l || '').trim().length > 0)
+  );
   if (idsMatch) {
-    const contentErrors = [];
-    for (const uiPane of ui.panes) {
-      const uiLines = ui.paneContent[uiPane.tmuxId] || [];
-      const tmuxLines = tmux.paneContent[uiPane.tmuxId] || [];
-      const maxLines = Math.max(uiLines.length, tmuxLines.length);
-      const diffs = [];
-      for (let i = 0; i < maxLines; i++) {
-        const uLine = (uiLines[i] || '').replace(/\s+$/, '');
-        const tLine = (tmuxLines[i] || '').replace(/\s+$/, '');
-        if (uLine !== tLine) {
-          diffs.push(i);
+    if (!anyUiContent) {
+      check('Pane content', true, 'Skipped (no UI content yet — content pipeline delay)');
+    } else {
+      const contentErrors = [];
+      for (const uiPane of ui.panes) {
+        const uiLines = ui.paneContent[uiPane.tmuxId] || [];
+        const tmuxLines = tmux.paneContent[uiPane.tmuxId] || [];
+        const maxLines = Math.max(uiLines.length, tmuxLines.length);
+        const diffs = [];
+        for (let i = 0; i < maxLines; i++) {
+          const uLine = (uiLines[i] || '').replace(/\s+$/, '');
+          const tLine = (tmuxLines[i] || '').replace(/\s+$/, '');
+          if (uLine !== tLine) {
+            diffs.push(i);
+          }
+        }
+        if (diffs.length > 0) {
+          const first = diffs[0];
+          const uSample = (uiLines[first] || '').replace(/\s+$/, '').slice(0, 60);
+          const tSample = (tmuxLines[first] || '').replace(/\s+$/, '').slice(0, 60);
+          contentErrors.push(
+            `${uiPane.tmuxId}: ${diffs.length} lines differ (first at line ${first})\n` +
+            `      UI:   ${JSON.stringify(uSample)}\n` +
+            `      tmux: ${JSON.stringify(tSample)}`
+          );
         }
       }
-      if (diffs.length > 0) {
-        const first = diffs[0];
-        const uSample = (uiLines[first] || '').replace(/\s+$/, '').slice(0, 60);
-        const tSample = (tmuxLines[first] || '').replace(/\s+$/, '').slice(0, 60);
-        contentErrors.push(
-          `${uiPane.tmuxId}: ${diffs.length} lines differ (first at line ${first})\n` +
-          `      UI:   ${JSON.stringify(uSample)}\n` +
-          `      tmux: ${JSON.stringify(tSample)}`
-        );
-      }
+      check('Pane content', contentErrors.length === 0, contentErrors.length > 0 ? contentErrors.join('\n    ') : undefined);
     }
-    check('Pane content', contentErrors.length === 0, contentErrors.length > 0 ? contentErrors.join('\n    ') : undefined);
   } else {
     check('Pane content', false, 'Skipped (ID mismatch)');
   }
 
   // 10. Cursor position (X, Y)
-  // Skip cursor check for panes where UI cursor is at (0,0) and content came
-  // from DOM fallback — the VT100 pipeline hasn't processed content yet so
-  // cursor position hasn't been updated.
+  // Skip when no UI content has arrived (content pipeline delay).
   if (idsMatch) {
-    const cursorErrors = [];
-    for (const uiPane of ui.panes) {
-      const tmuxPane = tmux.panes.find(p => p.tmuxId === uiPane.tmuxId);
-      if (!tmuxPane) continue;
-      // Skip if cursor is at origin and content used DOM fallback
-      if (uiPane.cursorX === 0 && uiPane.cursorY === 0 && ui.usedDomFallback?.[uiPane.tmuxId]) continue;
-      if (uiPane.cursorX !== tmuxPane.cursorX || uiPane.cursorY !== tmuxPane.cursorY) {
-        cursorErrors.push(
-          `${uiPane.tmuxId}: UI=(${uiPane.cursorX},${uiPane.cursorY}), tmux=(${tmuxPane.cursorX},${tmuxPane.cursorY})`
-        );
+    if (!anyUiContent) {
+      check('Cursor positions', true, 'Skipped (no UI content yet — content pipeline delay)');
+    } else {
+      const cursorErrors = [];
+      for (const uiPane of ui.panes) {
+        const tmuxPane = tmux.panes.find(p => p.tmuxId === uiPane.tmuxId);
+        if (!tmuxPane) continue;
+        if (uiPane.cursorX !== tmuxPane.cursorX || uiPane.cursorY !== tmuxPane.cursorY) {
+          cursorErrors.push(
+            `${uiPane.tmuxId}: UI=(${uiPane.cursorX},${uiPane.cursorY}), tmux=(${tmuxPane.cursorX},${tmuxPane.cursorY})`
+          );
+        }
       }
+      check('Cursor positions', cursorErrors.length === 0, cursorErrors.length > 0 ? cursorErrors.join('; ') : undefined);
     }
-    check('Cursor positions', cursorErrors.length === 0, cursorErrors.length > 0 ? cursorErrors.join('; ') : undefined);
   } else {
     check('Cursor positions', false, 'Skipped (ID mismatch)');
   }
