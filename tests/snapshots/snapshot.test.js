@@ -40,6 +40,15 @@ beforeAll(async () => {
   await page.waitForFunction(() => window.app?.getSnapshot()?.context, {
     timeout: 15000,
   });
+
+  // Wait for pane content to arrive (especially important for new pages in CI
+  // where the server needs to start a session and stream initial content)
+  await page.waitForFunction(() => {
+    const ctx = window.app?.getSnapshot()?.context;
+    if (!ctx?.panes?.length) return false;
+    return ctx.panes.some(p => p.content && p.content.some(line => line.length > 0));
+  }, { timeout: 15000 });
+
   // Let state settle
   await delay(DELAYS.SYNC);
 });
