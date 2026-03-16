@@ -127,7 +127,7 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
  * and waits for it to appear. This ensures the entire data path is working
  * before the test proceeds.
  */
-async function verifyRoundTrip(page, sessionName, timeout = 20000) {
+async function verifyRoundTrip(page, sessionName, timeout = 5000) {
   // Wait for terminal content to stabilize — verifies the SSE pipeline is
   // delivering tmux pane content to the DOM. Checks that the shell prompt
   // is visible and the XState machine is connected.

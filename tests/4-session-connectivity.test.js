@@ -8,7 +8,6 @@ const {
   createTestContext,
   delay,
   focusPage,
-  runCommand,
   getUIPaneCount,
   waitForPaneCount,
   splitPaneKeyboard,
