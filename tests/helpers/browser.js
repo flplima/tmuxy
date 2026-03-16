@@ -141,6 +141,11 @@ async function verifyRoundTrip(page, sessionName, timeout = 20000) {
   }
   await delay(200);
   await page.keyboard.type(`echo ${marker}`, { delay: 5 });
+  // Wait for key batcher to flush the typed chars before sending Enter.
+  // The batcher batches send-keys -l commands and flushes them asynchronously.
+  // Without this delay, the Enter HTTP request can arrive before the text
+  // on slow CI, causing Enter to fire on an empty line.
+  await delay(500);
   await page.keyboard.press('Enter');
 
   // Wait for marker to appear in the DOM — this is the definitive readiness gate.
