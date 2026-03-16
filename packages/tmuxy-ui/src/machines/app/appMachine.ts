@@ -984,6 +984,12 @@ export const appMachine = setup({
                   sessionName: transformed.sessionName,
                 }),
               );
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_ACTIVE_PANE' as const,
+                  paneId: effectiveActivePaneId,
+                }),
+              );
 
               // NOTE: Do NOT sync panes to drag machine during drag.
               // The drag machine maintains its own optimistic pane positions after
@@ -1192,6 +1198,17 @@ export const appMachine = setup({
                       : ctx.paneActivationOrder,
                 })),
               );
+
+              // Immediately notify keyboard actor of new active pane so input
+              // targets the correct pane before tmux processes the command.
+              if (newActivePaneId !== context.activePaneId) {
+                enqueue(
+                  sendTo('keyboard', {
+                    type: 'UPDATE_ACTIVE_PANE' as const,
+                    paneId: newActivePaneId,
+                  }),
+                );
+              }
             }
 
             // Always send the command to tmux
@@ -2070,6 +2087,12 @@ export const appMachine = setup({
                 sessionName: update.sessionName,
               }),
             );
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_ACTIVE_PANE' as const,
+                paneId: update.activePaneId,
+              }),
+            );
           }),
         },
       },
@@ -2117,6 +2140,12 @@ export const appMachine = setup({
               sendTo('keyboard', {
                 type: 'UPDATE_SESSION' as const,
                 sessionName: update.sessionName,
+              }),
+            );
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_ACTIVE_PANE' as const,
+                paneId: update.activePaneId,
               }),
             );
           }),

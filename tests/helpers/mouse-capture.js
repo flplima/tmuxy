@@ -7,7 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { delay } = require('./browser');
+const { delay, focusPage } = require('./browser');
 const { DELAYS } = require('./config');
 const { typeInTerminal, pressEnter } = require('./ui');
 
@@ -21,17 +21,19 @@ const MOUSE_LOG = '/tmp/mouse-events.log';
  */
 async function startMouseCapture(ctx) {
   try { fs.unlinkSync(MOUSE_LOG); } catch {}
+  await focusPage(ctx.page);
   await typeInTerminal(ctx.page, `python3 ${MOUSE_CAPTURE_SCRIPT}`);
   await pressEnter(ctx.page);
+  // Wait for READY signal — check the log file (more reliable than DOM text
+  // since raw mode output may not render immediately in the terminal).
   const readyStart = Date.now();
   let ready = false;
-  while (!ready && Date.now() - readyStart < 10000) {
-    const text = await ctx.page.evaluate(() => {
-      const el = document.querySelector('[role="log"]');
-      return el ? el.textContent : '';
-    });
-    if (text.includes('READY')) ready = true;
-    else await delay(DELAYS.MEDIUM);
+  while (!ready && Date.now() - readyStart < 15000) {
+    try {
+      const logContent = fs.readFileSync(MOUSE_LOG, 'utf-8');
+      if (logContent.includes('READY')) ready = true;
+    } catch {}
+    if (!ready) await delay(DELAYS.MEDIUM);
   }
   expect(ready).toBe(true);
   const flagStart = Date.now();
@@ -96,6 +98,17 @@ function expectedSgrCoord(pixel, origin, cellSize) {
 async function stopMouseCapture(ctx) {
   await ctx.page.keyboard.press('q');
   await delay(DELAYS.LONG);
+  // Wait for mouse tracking flag to clear in the UI before proceeding.
+  // The python script disables mouse modes on exit, but the UI needs time
+  // to receive the updated pane state from the server.
+  const flagStart = Date.now();
+  while (Date.now() - flagStart < 5000) {
+    const hasFlag = await ctx.page.evaluate(
+      () => !!document.querySelector('[data-mouse-any-flag="true"]'),
+    );
+    if (!hasFlag) break;
+    await delay(DELAYS.MEDIUM);
+  }
 }
 
 /**

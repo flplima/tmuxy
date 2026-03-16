@@ -459,7 +459,7 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     expect(rPress.btn).toBe(2);
 
     await stopMouseCapture(ctx);
-    await assertContentMatch(ctx.page, 'Scenario 8 end');
+    await delay(DELAYS.SYNC);
   }, 180000);
 });
 

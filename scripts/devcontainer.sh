@@ -13,6 +13,12 @@
 #   npm run devcontainer:build        # Build image only
 #   npm run yolo-mode                  # Shell + Claude Code in YOLO mode
 #
+# Flags:
+#   --build          Build image only, then exit
+#   --cmd "..."      Run a custom command instead of an interactive shell
+#   --name SUFFIX    Append SUFFIX to container name (for multiple instances
+#                    from the same directory, e.g. QA agents)
+#
 
 set -e
 
@@ -31,13 +37,20 @@ CONTAINER_NAME="${DIR_NAME//[^a-zA-Z0-9_.-]/-}"
 # Build image
 # ---------------------------------------------------------------------------
 CONTAINER_CMD=""
+OVERRIDE_NAME=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --build) BUILD_ONLY=1; shift ;;
         --cmd)   CONTAINER_CMD="$2"; shift 2 ;;
+        --name)  OVERRIDE_NAME="$2"; shift 2 ;;
         *)       shift ;;
     esac
 done
+
+# Append override name for unique container instances from the same directory
+if [ -n "$OVERRIDE_NAME" ]; then
+    CONTAINER_NAME="${CONTAINER_NAME}-${OVERRIDE_NAME}"
+fi
 
 if [ "$BUILD_ONLY" = 1 ] || ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
     echo "Building devcontainer image..."
@@ -55,7 +68,7 @@ docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 # Each worktree gets a unique, stable port derived from its absolute path
 # via cksum. The modulo ensures the result is in the 10000-20000 range.
 # ---------------------------------------------------------------------------
-HOST_PORT=$(echo -n "$PWD" | cksum | awk '{print 10000 + ($1 % 10001)}')
+HOST_PORT=$(echo -n "$CONTAINER_NAME" | cksum | awk '{print 10000 + ($1 % 10001)}')
 
 # ---------------------------------------------------------------------------
 # Assemble volume mounts
@@ -112,12 +125,13 @@ exec docker run -it --rm \
     --memory=6g \
     --shm-size=1g \
     --pids-limit=50000 \
+    --add-host host.docker.internal:host-gateway \
     -p "$HOST_PORT:9000" \
     "${MOUNTS[@]}" \
     -e PORT=9000 \
     -e HOST_PORT="$HOST_PORT" \
     -e CONTAINER_NAME="$CONTAINER_NAME" \
-    -e CHROME_CDP_URL=http://localhost:9222 \
+    -e CHROME_CDP_URL=http://host.docker.internal:9222 \
     -e TMUX_SESSION=dev \
     -w /workspace \
     -u node \

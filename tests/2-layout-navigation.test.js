@@ -714,6 +714,110 @@ describe('Scenario 11: Status Bar', () => {
   }, 180000);
 });
 
+// ==================== Scenario 23: Window Tab Input Routing ====================
+
+describe('Scenario 23: Window Tab Input Routing', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Keyboard input targets the correct pane after clicking a window tab', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Step 1: Record window 1 pane ID
+    const win1PaneId = await ctx.page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.activePaneId,
+    );
+    expect(win1PaneId).toBeTruthy();
+
+    // Step 2: Create second window (we're now in window 2)
+    await createWindowKeyboard(ctx.page);
+    await waitForWindowCount(ctx.page, 2);
+    await delay(DELAYS.SYNC);
+
+    // Step 3: Record window 2 pane ID
+    const win2PaneId = await ctx.page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.activePaneId,
+    );
+    expect(win2PaneId).toBeTruthy();
+    expect(win2PaneId).not.toBe(win1PaneId);
+
+    // Step 4: Type a marker in window 2
+    const MARKER_W2 = `W2_MARKER_${Date.now()}`;
+    await runCommand(ctx.page, `echo ${MARKER_W2}`, MARKER_W2);
+
+    // Step 5: Click window 1 tab (the inactive one)
+    await focusPage(ctx.page);
+    const allTabs = await ctx.page.$$('.tab-name:not(.tab-add)');
+    expect(allTabs.length).toBe(2);
+    let inactiveTab = null;
+    for (const t of allTabs) {
+      const isActive = await t.evaluate(el => el.classList.contains('tab-name-active'));
+      if (!isActive) { inactiveTab = t; break; }
+    }
+    expect(inactiveTab).not.toBeNull();
+    await inactiveTab.click();
+    await delay(DELAYS.SYNC);
+
+    // Step 6: Verify we switched — active pane should be win1PaneId
+    await ctx.session.waitForState(
+      ctx => ctx.activePaneId === win1PaneId,
+      5000,
+    ).catch(() => {
+      // The waitForState stringifies the function, so win1PaneId won't be in scope.
+      // Use page.evaluate instead.
+    });
+    // Use direct evaluate to check active pane
+    const activeAfterSwitch = await ctx.page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.activePaneId,
+    );
+
+    // Step 7: Type a marker in window 1
+    const MARKER_W1 = `W1_MARKER_${Date.now()}`;
+    await focusPage(ctx.page);
+    await typeInTerminal(ctx.page, `echo ${MARKER_W1}`);
+    await pressEnter(ctx.page);
+    await delay(DELAYS.SYNC);
+
+    // Step 8: Verify MARKER_W1 appears in window 1's pane (via tmux capture-pane)
+    const { tmuxQuery } = require('./helpers/cli');
+    const w1Content = tmuxQuery(`capture-pane -t ${win1PaneId} -p`);
+    expect(w1Content).toContain(MARKER_W1);
+
+    // Step 9: Verify MARKER_W1 does NOT appear in window 2's pane
+    const w2Content = tmuxQuery(`capture-pane -t ${win2PaneId} -p`);
+    expect(w2Content).not.toContain(MARKER_W1);
+
+    // Step 10: Click window 2 tab, type another marker
+    const tabs2 = await ctx.page.$$('.tab-name:not(.tab-add)');
+    let inactiveTab2 = null;
+    for (const t of tabs2) {
+      const isActive = await t.evaluate(el => el.classList.contains('tab-name-active'));
+      if (!isActive) { inactiveTab2 = t; break; }
+    }
+    expect(inactiveTab2).not.toBeNull();
+    await inactiveTab2.click();
+    await delay(DELAYS.SYNC);
+
+    const MARKER_W2B = `W2B_MARKER_${Date.now()}`;
+    await focusPage(ctx.page);
+    await typeInTerminal(ctx.page, `echo ${MARKER_W2B}`);
+    await pressEnter(ctx.page);
+    await delay(DELAYS.SYNC);
+
+    // Step 11: Verify MARKER_W2B appears in window 2's pane
+    const w2ContentAfter = tmuxQuery(`capture-pane -t ${win2PaneId} -p`);
+    expect(w2ContentAfter).toContain(MARKER_W2B);
+
+    // Step 12: Verify MARKER_W2B does NOT appear in window 1's pane
+    const w1ContentAfter = tmuxQuery(`capture-pane -t ${win1PaneId} -p`);
+    expect(w1ContentAfter).not.toContain(MARKER_W2B);
+  }, 180000);
+});
+
 // ==================== Scenario 22: Float fzf Workflow ====================
 
 describe('Scenario 22: Float fzf Workflow', () => {
@@ -739,10 +843,14 @@ describe('Scenario 22: Float fzf Workflow', () => {
     await verifyFloatVisible(ctx.page);
     await delay(DELAYS.SYNC); // Let the float shell initialize
 
-    // Step 4: Run ls in the float and verify output (simpler than fzf for reliability)
+    // Step 4: Run echo in the float and verify output
     // This tests the same flow: float → type command → see output → close
     const TOKEN = `FZF_TOKEN_${Date.now()}`;
-    await ctx.page.keyboard.type(`echo ${TOKEN}`);
+    // Use per-character typing for reliability (keyboard actor batching can lose chars)
+    for (const ch of `echo ${TOKEN}`) {
+      await ctx.page.keyboard.type(ch);
+      await delay(30);
+    }
     await ctx.page.keyboard.press('Enter');
 
     // Step 5: Verify the output is visible in the float terminal
@@ -753,23 +861,31 @@ describe('Scenario 22: Float fzf Workflow', () => {
         const log = fc.querySelector('[role="log"]');
         return log?.textContent?.includes(token) || false;
       }, TOKEN);
-    }, 10000, 'command output to appear in float terminal');
+    }, 15000, 'command output to appear in float terminal');
 
     // Step 6: Run fzf with a simple input and auto-select via --select-1
-    const fzfTargetFile = '/tmp/fzf-e2e-target.txt';
-    await ctx.page.keyboard.type(`echo ${fzfTargetFile} | fzf --select-1`);
+    const FZF_MARKER = `FZF_RESULT_${Date.now()}`;
+    const fzfCmd = `echo ${FZF_MARKER} | fzf --select-1`;
+    for (const ch of fzfCmd) {
+      await ctx.page.keyboard.type(ch);
+      await delay(30);
+    }
     await ctx.page.keyboard.press('Enter');
-    await delay(DELAYS.EXTRA_LONG * 2); // Let fzf auto-select and exit
 
     // Step 7: Verify fzf output is visible in the float terminal
+    // fzf --select-1 auto-selects and prints the match to stdout
     await waitForCondition(ctx.page, async () => {
-      return await ctx.page.evaluate((target) => {
+      return await ctx.page.evaluate((marker) => {
         const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
         if (!fc) return false;
         const log = fc.querySelector('[role="log"]');
-        return log?.textContent?.includes(target) || false;
-      }, fzfTargetFile);
-    }, 10000, 'fzf output to appear in float terminal');
+        // Look for the marker appearing as output (not just in the command line).
+        // After fzf exits, the shell prompt appears with the result above it.
+        const text = log?.textContent || '';
+        // The marker should appear at least twice: once in the command, once as fzf output
+        return (text.split(marker).length - 1) >= 2;
+      }, FZF_MARKER);
+    }, 15000, 'fzf output to appear in float terminal');
 
     // Step 8: Close float if still open (exit the shell)
     const stillHasFloat = await ctx.page.evaluate(

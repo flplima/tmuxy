@@ -19,6 +19,7 @@ import { setupMobileKeyboard, getMobileInput, isTouchDevice } from '../../utils/
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
+  | { type: 'UPDATE_ACTIVE_PANE'; paneId: string | null }
   | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
   | { type: 'UPDATE_COPY_MODE'; active: boolean; paneId: string | null }
   | { type: 'UPDATE_ENABLED'; enabled: boolean }
@@ -106,6 +107,7 @@ function escapeLiteralText(text: string): string {
 export function createKeyboardActor() {
   return fromCallback<KeyboardActorEvent, KeyboardActorInput>(({ input, receive }) => {
     let sessionName = 'tmuxy';
+    let activePaneId: string | null = null;
     let focusedFloatPaneId: string | null = null;
     let enabled = true;
     let isComposing = false;
@@ -132,7 +134,7 @@ export function createKeyboardActor() {
       ? setupMobileKeyboard((text) => {
           if (!enabled) return;
           const escaped = escapeLiteralText(text);
-          const mobileTarget = focusedFloatPaneId ?? sessionName;
+          const mobileTarget = focusedFloatPaneId ?? activePaneId ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${mobileTarget} -l ${escaped}`,
@@ -269,7 +271,7 @@ export function createKeyboardActor() {
         if (inPrefixMode) {
           // Double prefix sends literal prefix key to the shell
           resetPrefixMode();
-          const prefixTarget = focusedFloatPaneId ?? sessionName;
+          const prefixTarget = focusedFloatPaneId ?? activePaneId ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${prefixTarget} ${prefixKey}`,
@@ -369,9 +371,10 @@ export function createKeyboardActor() {
       }
 
       // Normal key handling - send via send-keys
-      // When a float is focused, target it by pane ID directly to avoid switching
-      // the active tmux window (which would hide background panes).
-      const target = focusedFloatPaneId ?? sessionName;
+      // Target priority: focused float > active pane ID > session name
+      // Using activePaneId ensures input reaches the correct pane immediately
+      // after an optimistic tab switch (before tmux processes select-window).
+      const target = focusedFloatPaneId ?? activePaneId ?? sessionName;
       // Use literal mode (-l) for single printable chars to avoid tmux syntax interpretation
       let command: string;
       if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
@@ -409,7 +412,7 @@ export function createKeyboardActor() {
         const escaped = escapeLiteralText(composedText);
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
-          command: `send-keys -t ${sessionName} -l ${escaped}`,
+          command: `send-keys -t ${activePaneId ?? sessionName} -l ${escaped}`,
         });
       }
     };
@@ -428,7 +431,7 @@ export function createKeyboardActor() {
       const lines = text.split('\n');
       const commands: string[] = [];
 
-      const pasteTarget = focusedFloatPaneId ?? sessionName;
+      const pasteTarget = focusedFloatPaneId ?? activePaneId ?? sessionName;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (line.length > 0) {
@@ -472,6 +475,8 @@ export function createKeyboardActor() {
     receive((event) => {
       if (event.type === 'UPDATE_SESSION') {
         sessionName = event.sessionName;
+      } else if (event.type === 'UPDATE_ACTIVE_PANE') {
+        activePaneId = event.paneId;
       } else if (event.type === 'UPDATE_KEYBINDINGS') {
         const kb = event.keybindings;
         prefixKey = kb.prefix_key;
