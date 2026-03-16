@@ -130,23 +130,25 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
 async function verifyRoundTrip(page, sessionName, timeout = 20000) {
   const marker = `READY_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  // Send marker through the browser keyboard → keyboard actor → server → tmux.
-  // This is a true end-to-end round-trip test. External tmux subprocess calls
-  // (both direct and via run-shell) crash or disrupt the control mode connection
-  // in tmux 3.5a, so we type through the browser instead.
-  try {
-    await page.locator('[role="log"]').first().click({ timeout: 5000 });
-  } catch {
-    await page.click('body', { timeout: 5000 });
-  }
-  await delay(200);
-  await page.keyboard.type(`echo ${marker}`, { delay: 5 });
-  // Wait for key batcher to flush the typed chars before sending Enter.
-  // The batcher batches send-keys -l commands and flushes them asynchronously.
-  // Without this delay, the Enter HTTP request can arrive before the text
-  // on slow CI, causing Enter to fire on an empty line.
-  await delay(500);
-  await page.keyboard.press('Enter');
+  // Send marker via HTTP POST to the server's commands endpoint.
+  // This routes through control mode stdin (the safe path), bypassing both
+  // external tmux subprocess calls (which crash tmux 3.5a) and the browser
+  // keyboard actor (which has key batcher ordering issues on slow CI).
+  const serverUrl = TMUXY_URL.replace(/\/$/, '');
+  await page.evaluate(async ({ url, session, marker: m }) => {
+    const endpoint = `${url}/commands?session=${encodeURIComponent(session)}`;
+    const headers = { 'Content-Type': 'application/json' };
+    // Send text
+    await fetch(endpoint, {
+      method: 'POST', headers,
+      body: JSON.stringify({ cmd: 'run_tmux_command', args: { command: `send-keys -l "echo ${m}"` } }),
+    });
+    // Send Enter
+    await fetch(endpoint, {
+      method: 'POST', headers,
+      body: JSON.stringify({ cmd: 'run_tmux_command', args: { command: 'send-keys Enter' } }),
+    });
+  }, { url: serverUrl, session: sessionName, marker });
 
   // Wait for marker to appear in the DOM — this is the definitive readiness gate.
   // If this fails, the full pipeline (CLI → tmux → SSE → DOM)
