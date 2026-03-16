@@ -134,8 +134,9 @@ async function verifyRoundTrip(page, sessionName, timeout = 20000) {
   // Must use tmuxRun (not tmuxQuery) because send-keys is a mutating command
   // that crashes tmux 3.5a when run as an external subprocess while control
   // mode is attached.
-  tmuxRun(`send-keys -t ${sessionName} -l 'echo ${marker}'`);
-  tmuxRun(`send-keys -t ${sessionName} Enter`);
+  // Use key names (Space, Enter) instead of -l flag to avoid quoting issues
+  // through the double-shell-escaping in run_safe (tmuxy run → run-shell).
+  tmuxRun(`send-keys -t ${sessionName} echo Space ${marker} Enter`);
 
   // Wait for marker to appear in the DOM — this is the definitive readiness gate.
   // If this fails, the full pipeline (CLI → tmux → SSE → DOM)
