@@ -100,6 +100,25 @@ async function waitForTerminalText(page, text, timeout = 15000) {
 }
 
 /**
+ * Wait for a shell prompt to appear in the terminal.
+ * Matches common prompt characters: $ # % > ❯
+ */
+async function waitForShellPrompt(page, timeout = 10000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const found = await page.evaluate(() => {
+      const logs = document.querySelectorAll('[role="log"]');
+      const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+      return content.length > 5 && /[$#%>❯]/.test(content);
+    });
+    if (found) return await getTerminalText(page);
+    await delay(100);
+  }
+  const content = await getTerminalText(page);
+  throw new Error(`Timeout waiting for shell prompt (${timeout}ms). Content (${content.length} chars): "${content.slice(0, 200)}"`);
+}
+
+/**
  * Get terminal text content for a specific pane by ID
  */
 async function getPaneText(page, paneId) {
@@ -354,6 +373,7 @@ module.exports = {
   getUIPaneInfo,
   getTerminalText,
   waitForTerminalText,
+  waitForShellPrompt,
   getPaneText,
   uiContainsText,
   runCommand,

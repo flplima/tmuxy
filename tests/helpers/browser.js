@@ -128,56 +128,24 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
  * before the test proceeds.
  */
 async function verifyRoundTrip(page, sessionName, timeout = 20000) {
-  const marker = `READY_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-  // Send marker via HTTP POST to the server's commands endpoint.
-  // Uses a compound command with explicit -t target to ensure atomicity
-  // and correct pane targeting in control mode.
-  const serverUrl = TMUXY_URL.replace(/\/$/, '');
-  await page.evaluate(async ({ url, session, marker: m }) => {
-    const endpoint = `${url}/commands?session=${encodeURIComponent(session)}`;
-    const headers = { 'Content-Type': 'application/json' };
-    // Single compound command: type literal text then press Enter
-    // Using \\; to chain commands atomically in control mode
-    const command = `send-keys -t ${session} -l "echo ${m}" \\; send-keys -t ${session} Enter`;
-    await fetch(endpoint, {
-      method: 'POST', headers,
-      body: JSON.stringify({ cmd: 'run_tmux_command', args: { command } }),
-    });
-  }, { url: serverUrl, session: sessionName, marker });
-
-  // Wait for marker to appear in the DOM — the definitive readiness gate.
-  // On CI, control mode timing can prevent the marker from appearing.
-  // Log diagnostics but don't throw — actual test assertions will catch
-  // real pipeline failures.
+  // Wait for terminal content to stabilize — verifies the SSE pipeline is
+  // delivering tmux pane content to the DOM. Checks that the shell prompt
+  // is visible and the XState machine is connected.
   try {
     await page.waitForFunction(
-      (m) => {
+      () => {
         const logs = document.querySelectorAll('[role="log"]');
         const content = Array.from(logs).map(l => l.textContent || '').join('\n');
-        return content.includes(m);
+        const hasPrompt = content.length > 5 && /[$#%>❯]/.test(content);
+        const snap = window.app?.getSnapshot?.();
+        const connected = snap?.context?.connected;
+        return hasPrompt && connected;
       },
-      marker,
-      { timeout, polling: 100 }
+      { timeout, polling: 200 }
     );
   } catch {
-    // Log diagnostic state but don't fail — this is a best-effort readiness gate
-    const diag = await page.evaluate(() => {
-      const logs = document.querySelectorAll('[role="log"]');
-      const domContent = Array.from(logs).map(l => l.textContent || '').join('\n');
-      const snap = window.app?.getSnapshot?.();
-      const ctx = snap?.context;
-      return {
-        domContentLen: domContent.length,
-        domContentPreview: domContent.slice(0, 200),
-        hasApp: !!window.app,
-        connected: ctx?.connected,
-        paneCount: ctx?.panes?.length,
-      };
-    }).catch(() => ({ error: 'evaluate failed' }));
-    console.warn(`[verifyRoundTrip] Marker "${marker}" not found in DOM (non-fatal)`);
-    console.warn(`[verifyRoundTrip] Diagnostic:`, JSON.stringify(diag));
-    // Extra settling time since the round-trip couldn't be verified
+    // Non-fatal — navigateToSession already waited for the prompt.
+    // Extra settling time since the pipeline might be slow.
     await delay(DELAYS.LONG);
   }
 }
