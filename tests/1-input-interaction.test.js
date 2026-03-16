@@ -399,7 +399,7 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     // The keyboard actor won't route input until activePaneId matches.
     // After killing a pane, the surviving pane's content is reset by
     // capture-pane. Wait for the prompt to render before typing.
-    await waitForTerminalText(ctx.page, '❯', 10000);
+    await waitForTerminalText(ctx.page, '$', 10000);
 
     // Step 3: SGR click
     const { contentBox, charSize } = await startMouseCapture(ctx);
