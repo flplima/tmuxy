@@ -6,7 +6,7 @@
 
 const { chromium } = require('playwright');
 const { CDP_PORT, TMUXY_URL, DELAYS } = require('./config');
-const { tmuxQuery, tmuxRun } = require('./cli');
+const { tmuxQuery } = require('./cli');
 
 /**
  * Helper to wait for a given time
@@ -130,15 +130,18 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
 async function verifyRoundTrip(page, sessionName, timeout = 20000) {
   const marker = `READY_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  // Send marker through tmuxy CLI → tmux run-shell → shell.
-  // Must use tmuxRun (not tmuxQuery) because send-keys is a mutating command
-  // that crashes tmux 3.5a when run as an external subprocess while control
-  // mode is attached.
-  // Split into two calls: text + Enter separately. A single send-keys call
-  // with key names (echo Space MARKER Enter) can drop the Enter key on CI
-  // due to run-shell buffering. Two calls are reliable.
-  tmuxRun(`send-keys -t ${sessionName} echo Space ${marker}`);
-  tmuxRun(`send-keys -t ${sessionName} Enter`);
+  // Send marker through the browser keyboard → keyboard actor → server → tmux.
+  // This is a true end-to-end round-trip test. External tmux subprocess calls
+  // (both direct and via run-shell) crash or disrupt the control mode connection
+  // in tmux 3.5a, so we type through the browser instead.
+  try {
+    await page.locator('[role="log"]').first().click({ timeout: 5000 });
+  } catch {
+    await page.click('body', { timeout: 5000 });
+  }
+  await delay(200);
+  await page.keyboard.type(`echo ${marker}`, { delay: 5 });
+  await page.keyboard.press('Enter');
 
   // Wait for marker to appear in the DOM — this is the definitive readiness gate.
   // If this fails, the full pipeline (CLI → tmux → SSE → DOM)
