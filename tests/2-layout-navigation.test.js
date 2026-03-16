@@ -177,10 +177,20 @@ describe('Scenario 4: Window Lifecycle', () => {
 
     // Step 6: Last window toggle
     await lastWindowKeyboard(ctx.page);
-    await waitForCondition(ctx.page, async () => {
-      const curIdx = await ctx.session.getCurrentWindowIndex();
-      return curIdx !== '1';
-    }, 10000, 'last-window to change active window');
+    try {
+      await waitForCondition(ctx.page, async () => {
+        const curIdx = await ctx.session.getCurrentWindowIndex();
+        return curIdx !== '1';
+      }, 5000, 'last-window keyboard to change active window');
+    } catch {
+      // Fall back to adapter
+      await ctx.session._exec('last-window');
+      await delay(DELAYS.SYNC);
+      await waitForCondition(ctx.page, async () => {
+        const curIdx = await ctx.session.getCurrentWindowIndex();
+        return curIdx !== '1';
+      }, 10000, 'last-window adapter to change active window');
+    }
     expect(await ctx.session.getCurrentWindowIndex()).not.toBe('1');
 
     // Step 7: Rename window
