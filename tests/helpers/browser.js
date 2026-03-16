@@ -6,7 +6,7 @@
 
 const { chromium } = require('playwright');
 const { CDP_PORT, TMUXY_URL, DELAYS } = require('./config');
-const { tmuxQuery } = require('./cli');
+const { tmuxQuery, tmuxRun } = require('./cli');
 
 /**
  * Helper to wait for a given time
@@ -130,9 +130,12 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
 async function verifyRoundTrip(page, sessionName, timeout = 20000) {
   const marker = `READY_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  // Send marker through CLI → tmux run-shell → shell
-  tmuxQuery(`send-keys -t ${sessionName} -l 'echo ${marker}'`);
-  tmuxQuery(`send-keys -t ${sessionName} Enter`);
+  // Send marker through tmuxy CLI → tmux run-shell → shell.
+  // Must use tmuxRun (not tmuxQuery) because send-keys is a mutating command
+  // that crashes tmux 3.5a when run as an external subprocess while control
+  // mode is attached.
+  tmuxRun(`send-keys -t ${sessionName} -l 'echo ${marker}'`);
+  tmuxRun(`send-keys -t ${sessionName} Enter`);
 
   // Wait for marker to appear in the DOM — this is the definitive readiness gate.
   // If this fails, the full pipeline (CLI → tmux → SSE → DOM)
