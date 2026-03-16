@@ -39,6 +39,7 @@ const {
   getGroupTabInfo,
   assertLayoutInvariants,
   assertContentMatch,
+  waitForShellPrompt,
   DELAYS,
 } = require('./helpers');
 
@@ -478,7 +479,22 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       expect(iconIsStatic.hasButtonRole).toBe(false);
     }
 
-    // Step 7: Type command in float and verify output is VISUALLY present
+    // Step 7: Wait for float pane content, then type command
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        return await ctx.page.evaluate(() => {
+          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          if (!fc) return false;
+          const log = fc.querySelector('[role="log"]');
+          if (!log) return false;
+          const content = log.textContent || '';
+          return content.length > 5 && /[$#%>❯]/.test(content);
+        });
+      },
+      15000,
+      'float pane shell prompt to render',
+    );
     const TOKEN = 'FLOAT_VIS_' + Date.now();
     await ctx.page.keyboard.type(`echo ${TOKEN}`);
     await ctx.page.keyboard.press('Enter');
@@ -747,6 +763,8 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     await createWindowKeyboard(ctx.page);
     await waitForWindowCount(ctx.page, 2);
     await delay(DELAYS.SYNC);
+    // Wait for new pane content to render via SSE
+    await waitForShellPrompt(ctx.page, 15000);
 
     // Step 3: Record window 2 pane ID
     const win2PaneId = await ctx.page.evaluate(() =>
@@ -848,10 +866,24 @@ describe('Scenario 22: Float fzf Workflow', () => {
     await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
     await pressEnter(ctx.page);
 
-    // Step 3: Float appears
+    // Step 3: Float appears — wait for float content to render
     await waitForFloatModal(ctx.page, 20000);
     await verifyFloatVisible(ctx.page);
-    await delay(DELAYS.SYNC); // Let the float shell initialize
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        return await ctx.page.evaluate(() => {
+          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          if (!fc) return false;
+          const log = fc.querySelector('[role="log"]');
+          if (!log) return false;
+          const content = log.textContent || '';
+          return content.length > 5 && /[$#%>❯]/.test(content);
+        });
+      },
+      15000,
+      'float pane shell prompt to render',
+    );
 
     // Step 4: Run echo in the float and verify output
     // This tests the same flow: float → type command → see output → close
