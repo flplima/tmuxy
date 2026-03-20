@@ -393,8 +393,17 @@ impl TmuxMonitor {
                                 }
                             }
 
-                            // Detect events that need follow-up commands
-                            let is_window_add = matches!(&event, ControlModeEvent::WindowAdd { .. });
+                            // Detect events that need follow-up commands.
+                            // UnlinkedWindowAdd must also trigger refresh because break-pane
+                            // (used as new-window workaround for tmux 3.5a) emits
+                            // %unlinked-window-add for windows created in the current session.
+                            // The list-windows response will include the window if it belongs
+                            // to our session, and ignore it otherwise.
+                            let is_window_add = matches!(
+                                &event,
+                                ControlModeEvent::WindowAdd { .. }
+                                    | ControlModeEvent::UnlinkedWindowAdd { .. }
+                            );
 
                             // Log structural events (skip high-frequency %output)
                             match &event {
