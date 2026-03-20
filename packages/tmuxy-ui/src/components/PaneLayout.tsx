@@ -160,23 +160,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [draggedPaneId, focusedFloatPaneId],
   );
 
-  // Single pane shortcut
-  if (visiblePanes.length === 1) {
-    const pane = visiblePanes[0];
-    const singlePaneClass = focusedFloatPaneId ? 'pane-inactive' : 'pane-active';
-    return (
-      <div className={`pane-layout${!enableAnimations ? ' pane-layout-no-animations' : ''}`}>
-        <div
-          className={`pane-layout-item ${singlePaneClass}`}
-          data-pane-id={pane.tmuxId}
-          style={getPaneStyle(pane)}
-        >
-          {children(pane)}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
       ref={containerRef}
