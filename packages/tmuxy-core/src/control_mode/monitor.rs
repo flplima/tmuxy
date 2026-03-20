@@ -314,6 +314,13 @@ impl TmuxMonitor {
         let mut metadata_sync_at: Option<tokio::time::Instant> = None;
         let metadata_sync_delay = Duration::from_millis(500);
 
+        // Layout change debounce: coalesce rapid %layout-change events
+        // (e.g., zoom-out fires 6+ layout changes in quick succession).
+        // First layout event emits immediately; subsequent ones within
+        // the debounce window are deferred until events settle.
+        let mut pending_layout_emit = false;
+        let layout_debounce = Duration::from_millis(16);
+
         // Command-aware settling state
         // When a compound command (containing ";") is sent, we wait for the first
         // window/layout event, then debounce until events settle before emitting
@@ -567,13 +574,18 @@ impl TmuxMonitor {
                                         // batch rapid %output bursts within a single frame
                                         pending_output_emit = true;
                                     }
+                                } else if matches!(result.change_type, ChangeType::PaneLayout) {
+                                    // Layout changes (e.g., zoom-out) can fire in rapid
+                                    // succession. Debounce to emit only the final state.
+                                    pending_layout_emit = true;
                                 } else {
-                                    // Non-output changes always emit immediately
+                                    // Non-output, non-layout changes always emit immediately
                                     if let Some(update) = self.aggregator.to_state_update() {
                                         emitter.emit_state(update);
                                     }
                                     last_output_emit = Instant::now();
                                     pending_output_emit = false;
+                                    pending_layout_emit = false;
                                 }
                             }
                         }
@@ -592,6 +604,15 @@ impl TmuxMonitor {
                     }
                     last_output_emit = Instant::now();
                     pending_output_emit = false;
+                }
+
+                // Layout debounce timer - coalesce rapid layout changes (zoom-out)
+                _ = tokio::time::sleep(layout_debounce), if pending_layout_emit => {
+                    if let Some(update) = self.aggregator.to_state_update() {
+                        emitter.emit_state(update);
+                    }
+                    last_output_emit = Instant::now();
+                    pending_layout_emit = false;
                 }
 
                 // Settling timer - emit consolidated state after compound command events settle
