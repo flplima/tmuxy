@@ -119,7 +119,7 @@ export function ResizeDividers({
     merged.forEach((seg, idx) => {
       dividerElements.push(
         <div
-          key={`h-${yPos}-${idx}`}
+          key={`h-${seg.paneId}-${idx}`}
           className="resize-divider resize-divider-h"
           style={{
             left: centeringOffset.x + seg.start * charWidth,
@@ -153,7 +153,7 @@ export function ResizeDividers({
       const headerY = Math.max(0, seg.start - 1);
       dividerElements.push(
         <div
-          key={`v-${xPos}-${idx}`}
+          key={`v-${seg.paneId}-${idx}`}
           className="resize-divider resize-divider-v"
           style={{
             left: centeringOffset.x + xPos * charWidth + charWidth / 2 - DIVIDER_THICKNESS / 2,
