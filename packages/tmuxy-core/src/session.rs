@@ -1,6 +1,27 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Create a `Command` for tmux that respects the `TMUX_SOCKET` environment variable.
+/// When `TMUX_SOCKET` is set, adds `-L <socket>` to connect to the named tmux server.
+pub fn tmux_command() -> Command {
+    let mut cmd = Command::new("tmux");
+    if let Ok(socket) = std::env::var("TMUX_SOCKET") {
+        if !socket.is_empty() {
+            cmd.args(["-L", &socket]);
+        }
+    }
+    cmd
+}
+
+/// Build the tmux shell command string with socket flag for use in shell invocations.
+/// Returns e.g. "tmux -L tmuxy-dev" or just "tmux" if no socket is set.
+pub fn tmux_bin() -> String {
+    match std::env::var("TMUX_SOCKET") {
+        Ok(socket) if !socket.is_empty() => format!("tmux -L {}", socket),
+        _ => "tmux".to_string(),
+    }
+}
+
 /// Default tmuxy configuration content.
 /// Embedded at compile time from .devcontainer/.tmuxy.conf.
 const DEFAULT_CONFIG: &str = include_str!("../../../.devcontainer/.tmuxy.conf");
@@ -78,7 +99,7 @@ pub fn ensure_config() -> PathBuf {
 }
 
 pub fn session_exists(session_name: &str) -> Result<bool, String> {
-    let output = Command::new("tmux")
+    let output = tmux_command()
         .args(["has-session", "-t", session_name])
         .output()
         .map_err(|e| format!("Failed to check session: {}", e))?;
@@ -100,7 +121,7 @@ pub fn create_session(session_name: &str) -> Result<(), String> {
         args.insert(1, cs);
     }
 
-    let output = Command::new("tmux")
+    let output = tmux_command()
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to create session: {}", e))?;
@@ -124,7 +145,7 @@ pub fn source_config(_session_name: &str) -> Result<(), String> {
     };
 
     let config_str = config_path.to_string_lossy().to_string();
-    Command::new("tmux")
+    tmux_command()
         .args(["source-file", &config_str])
         .output()
         .map_err(|e| format!("Failed to source config: {}", e))?;
@@ -143,7 +164,7 @@ pub fn create_or_attach(session_name: &str) -> Result<(), String> {
 }
 
 pub fn kill_session(session_name: &str) -> Result<(), String> {
-    Command::new("tmux")
+    tmux_command()
         .args(["kill-session", "-t", session_name])
         .output()
         .map_err(|e| format!("Failed to kill session: {}", e))?;

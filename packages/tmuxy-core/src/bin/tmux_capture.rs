@@ -11,11 +11,10 @@ use std::env;
 use std::ffi::CString;
 use std::fs;
 use std::os::fd::AsRawFd;
-use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn get_session_dimensions(session: &str) -> Result<(u16, u16), String> {
-    let output = Command::new("tmux")
+    let output = tmuxy_core::session::tmux_command()
         .args([
             "display-message",
             "-t",
@@ -108,14 +107,20 @@ fn capture_tmux_session(session: &str, timeout_ms: u64) -> Result<Vec<u8>, Strin
 
             // Exec tmux attach in read-only mode with UTF-8 forced
             let tmux = CString::new("tmux").unwrap();
-            let args = [
-                CString::new("tmux").unwrap(),
+            let mut args = vec![CString::new("tmux").unwrap()];
+            if let Ok(socket) = env::var("TMUX_SOCKET") {
+                if !socket.is_empty() {
+                    args.push(CString::new("-L").unwrap());
+                    args.push(CString::new(socket).unwrap());
+                }
+            }
+            args.extend([
                 CString::new("-u").unwrap(), // Force UTF-8 mode
                 CString::new("attach-session").unwrap(),
                 CString::new("-r").unwrap(),
                 CString::new("-t").unwrap(),
                 CString::new(session).unwrap(),
-            ];
+            ]);
             let args_ref: Vec<&std::ffi::CStr> = args.iter().map(|s| s.as_c_str()).collect();
 
             execvp(&tmux, &args_ref).ok();
@@ -225,7 +230,7 @@ fn main() {
     let timeout_ms: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(100);
 
     // Check if session exists
-    let check = Command::new("tmux")
+    let check = tmuxy_core::session::tmux_command()
         .args(["has-session", "-t", session])
         .status();
 

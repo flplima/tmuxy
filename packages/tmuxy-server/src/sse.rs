@@ -1135,7 +1135,7 @@ async fn start_monitoring_control_mode(
         // create_session=true to recreate it.
         let mut connect_config = config.clone();
         if !is_first_connect {
-            let session_exists = std::process::Command::new("tmux")
+            let session_exists = tmuxy_core::session::tmux_command()
                 .args(["has-session", "-t", &session])
                 .output()
                 .map(|o| o.status.success())
@@ -1167,7 +1167,7 @@ async fn start_monitoring_control_mode(
         // external `tmux new-session -d` while a CC client is attached crashes
         // tmux 3.5a. Routing through CC avoids this.
         if connect_config.create_session {
-            let session_exists = std::process::Command::new("tmux")
+            let session_exists = tmuxy_core::session::tmux_command()
                 .args(["has-session", "-t", &session])
                 .output()
                 .map(|o| o.status.success())
@@ -1215,7 +1215,7 @@ async fn start_monitoring_control_mode(
                     let mut created = false;
                     for _ in 0..50 {
                         tokio::time::sleep(Duration::from_millis(100)).await;
-                        let exists = std::process::Command::new("tmux")
+                        let exists = tmuxy_core::session::tmux_command()
                             .args(["has-session", "-t", &session])
                             .output()
                             .map(|o| o.status.success())

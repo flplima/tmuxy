@@ -34,7 +34,7 @@ pub struct WindowInfo {
 }
 
 pub fn execute_tmux_command(args: &[&str]) -> Result<String, String> {
-    let output = Command::new("tmux")
+    let output = crate::session::tmux_command()
         .args(args)
         .output()
         .map_err(|e| format!("Failed to execute tmux: {}", e))?;

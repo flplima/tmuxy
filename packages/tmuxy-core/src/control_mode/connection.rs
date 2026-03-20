@@ -108,7 +108,7 @@ impl ControlModeConnection {
         // First check if the session exists to avoid spawning control mode processes
         // that wait indefinitely for a non-existent session. This prevents a race condition
         // in tmux 3.3a where multiple waiting control mode clients crash the server.
-        let check = std::process::Command::new("tmux")
+        let check = crate::session::tmux_command()
             .args(["has-session", "-t", session_name])
             .output()
             .map_err(|e| format!("Failed to check session: {}", e))?;
@@ -121,9 +121,10 @@ impl ControlModeConnection {
         // Without a PTY, tmux fails with "tcgetattr failed: Inappropriate ioctl for device"
         // Set PTY size via stty before starting tmux to avoid tiny default dimensions
         // when running in a background process (e.g., pm2) with no real terminal.
+        let tmux_bin = crate::session::tmux_bin();
         let tmux_cmd = format!(
-            "stty cols {} rows {} 2>/dev/null; tmux -CC attach-session -t {}",
-            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, session_name
+            "stty cols {} rows {} 2>/dev/null; {} -CC attach-session -t {}",
+            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, tmux_bin, session_name
         );
         let mut cmd = Command::new("script");
         cmd.args(["-q", "/dev/null", "-c", &tmux_cmd])
@@ -191,7 +192,7 @@ impl ControlModeConnection {
         // is attached. The server (sse.rs) routes creation through an existing
         // CC client when possible. This path is the fallback when no CC client
         // is running (e.g., first session creation).
-        let mut create_cmd = std::process::Command::new("tmux");
+        let mut create_cmd = session::tmux_command();
         if let Some(ref config_path) = session::get_config_path() {
             let config = config_path.to_string_lossy();
             create_cmd.args(["-f", config.as_ref()]);
