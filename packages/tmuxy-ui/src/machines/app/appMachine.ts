@@ -241,6 +241,9 @@ export const appMachine = setup({
     copyModeStates: {},
     // Optimistic updates (just track the operation for logging/debugging)
     optimisticOperation: null,
+    // Timestamp of last layout command — used to suppress transient active pane
+    // changes during layout recomputation (tmux briefly reports different active pane)
+    lastLayoutCommandTime: 0,
     // Pane activation order (MRU first) — used for navigation tie-breaking
     paneActivationOrder: [] as string[],
     // Dimension override during group switch (prevents intermediate state flicker)
@@ -955,8 +958,18 @@ export const appMachine = setup({
               }
 
               // Preserve activePaneId during transient states (e.g., pane-group-add
-              // sends null activePaneId between break-pane and swap-pane)
-              const effectiveActivePaneId = transformed.activePaneId ?? context.activePaneId;
+              // sends null activePaneId between break-pane and swap-pane).
+              // Also preserve during layout transitions — tmux briefly reports a
+              // different active pane during layout recomputation, causing class churn.
+              const isLayoutTransition =
+                context.lastLayoutCommandTime > 0 &&
+                Date.now() - context.lastLayoutCommandTime < 500 &&
+                context.activePaneId !== null &&
+                transformed.activePaneId !== null &&
+                transformed.panes.some((p) => p.tmuxId === context.activePaneId);
+              const effectiveActivePaneId = isLayoutTransition
+                ? context.activePaneId
+                : (transformed.activePaneId ?? context.activePaneId);
 
               enqueue(
                 assign(({ context: ctx }) => ({
@@ -1185,6 +1198,14 @@ export const appMachine = setup({
                 }
               }
 
+              // Suppress layout animations during split/new-window: the placeholder
+              // pane key changes to the real tmux ID when server state arrives,
+              // causing React to unmount/remount. Disabling animations prevents
+              // the visible flicker. Re-enabled by the TMUX_STATE_UPDATE handler.
+              const suppressAnimations =
+                prediction.prediction.type === 'split' ||
+                prediction.prediction.type === 'new-window';
+
               enqueue(
                 assign(({ context: ctx }) => ({
                   optimisticOperation: prediction,
@@ -1192,6 +1213,7 @@ export const appMachine = setup({
                   windows: newWindows,
                   activePaneId: newActivePaneId,
                   activeWindowId: newActiveWindowId,
+                  enableAnimations: suppressAnimations ? false : ctx.enableAnimations,
                   paneActivationOrder:
                     newActivePaneId !== ctx.activePaneId
                       ? updateActivationOrder(ctx.paneActivationOrder, newActivePaneId)
@@ -1209,6 +1231,11 @@ export const appMachine = setup({
                   }),
                 );
               }
+            }
+
+            // Track layout commands to suppress transient active pane changes
+            if (/^(next-layout|previous-layout|select-layout|selectl)\b/.test(command)) {
+              enqueue(assign({ lastLayoutCommandTime: Date.now() }));
             }
 
             // Always send the command to tmux

@@ -228,7 +228,8 @@ function extractTmuxState(sessionName) {
     const { execSync } = require('child_process');
     const paneContent = {};
     for (const pane of panes) {
-      const raw = execSync(`tmux capture-pane -t ${pane.tmuxId} -p`, {
+      const socketFlag = process.env.TMUX_SOCKET ? `-L ${process.env.TMUX_SOCKET} ` : '';
+      const raw = execSync(`tmux ${socketFlag}capture-pane -t ${pane.tmuxId} -p`, {
         encoding: 'utf-8',
         timeout: 30000,
       });
