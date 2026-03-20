@@ -36,7 +36,8 @@ function tmuxRun(command) {
  * @returns {string} Trimmed stdout
  */
 function tmuxQuery(command) {
-  return execSync(`tmux ${command}`, {
+  const socketFlag = process.env.TMUX_SOCKET ? `-L ${process.env.TMUX_SOCKET} ` : '';
+  return execSync(`tmux ${socketFlag}${command}`, {
     encoding: 'utf-8',
     timeout: 30000,
   }).trim();
