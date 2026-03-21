@@ -168,8 +168,10 @@ export function buildFloatPanesFromWindows(
     const pane = panes.find((p) => p.tmuxId === paneId);
     const existing = existingFloats[paneId];
 
-    if (existing) {
+    if (existing && pane) {
       // Preserve existing dimensions but update flags from window name
+      // Require pane to still exist — if killed externally, the window may
+      // linger briefly after the pane is removed from the pane list
       floatPanes[paneId] = { ...existing, drawer, backdrop, hideHeader };
     } else if (pane) {
       // Default dimensions: use the pane's actual size (set by float-create.sh
