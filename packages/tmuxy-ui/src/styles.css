@@ -534,6 +534,7 @@
   align-items: center;
   height: var(--pane-header-height);
   margin-top: 0;
+  margin-bottom: 4px;
   background-color: color-mix(
     in srgb,
     color-mix(in hsl, var(--term-bright-black), gray 50%) 20%,
