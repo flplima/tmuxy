@@ -155,34 +155,27 @@ function cellLinesEqual(a: CellLine, b: CellLine): boolean {
       cb = b[i];
     if (ca.c !== cb.c) return false;
     if (ca.s === cb.s) continue;
+    // Treat null and undefined as equivalent (both mean "no style")
+    if (!ca.s && !cb.s) continue;
     if (!ca.s || !cb.s) return false;
-    if (
-      ca.s.fg !== cb.s.fg ||
-      ca.s.bg !== cb.s.bg ||
-      ca.s.bold !== cb.s.bold ||
-      ca.s.italic !== cb.s.italic ||
-      ca.s.underline !== cb.s.underline ||
-      ca.s.inverse !== cb.s.inverse ||
-      ca.s.url !== cb.s.url
-    ) {
-      // Deep-compare fg/bg when they are RGB objects
-      if (typeof ca.s.fg === 'object' && typeof cb.s.fg === 'object') {
-        if (ca.s.fg.r !== cb.s.fg.r || ca.s.fg.g !== cb.s.fg.g || ca.s.fg.b !== cb.s.fg.b)
-          return false;
-      } else if (ca.s.fg !== cb.s.fg) return false;
-      if (typeof ca.s.bg === 'object' && typeof cb.s.bg === 'object') {
-        if (ca.s.bg.r !== cb.s.bg.r || ca.s.bg.g !== cb.s.bg.g || ca.s.bg.b !== cb.s.bg.b)
-          return false;
-      } else if (ca.s.bg !== cb.s.bg) return false;
-      if (
-        ca.s.bold !== cb.s.bold ||
-        ca.s.italic !== cb.s.italic ||
-        ca.s.underline !== cb.s.underline ||
-        ca.s.inverse !== cb.s.inverse ||
-        ca.s.url !== cb.s.url
-      )
+    // Deep-compare fg/bg with RGB object support
+    if (typeof ca.s.fg === 'object' && typeof cb.s.fg === 'object') {
+      if (ca.s.fg.r !== cb.s.fg.r || ca.s.fg.g !== cb.s.fg.g || ca.s.fg.b !== cb.s.fg.b)
         return false;
-    }
+    } else if (ca.s.fg !== cb.s.fg) return false;
+    if (typeof ca.s.bg === 'object' && typeof cb.s.bg === 'object') {
+      if (ca.s.bg.r !== cb.s.bg.r || ca.s.bg.g !== cb.s.bg.g || ca.s.bg.b !== cb.s.bg.b)
+        return false;
+    } else if (ca.s.bg !== cb.s.bg) return false;
+    // Normalize boolean fields: undefined and false are equivalent
+    if (
+      (ca.s.bold ?? false) !== (cb.s.bold ?? false) ||
+      (ca.s.italic ?? false) !== (cb.s.italic ?? false) ||
+      (ca.s.underline ?? false) !== (cb.s.underline ?? false) ||
+      (ca.s.inverse ?? false) !== (cb.s.inverse ?? false) ||
+      ca.s.url !== cb.s.url
+    )
+      return false;
   }
   return true;
 }
