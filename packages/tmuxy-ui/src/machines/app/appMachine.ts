@@ -789,7 +789,11 @@ export const appMachine = setup({
                 transformed.panes.length !== context.panes.length ||
                 transformed.activeWindowId !== context.activeWindowId ||
                 transformed.windows.length !== context.windows.length ||
-                transformed.windows.some((w, i) => w.name !== context.windows[i]?.name);
+                transformed.windows.some((w, i) => w.name !== context.windows[i]?.name) ||
+                transformed.panes.some(
+                  (p) =>
+                    p.windowId !== context.panes.find((cp) => cp.tmuxId === p.tmuxId)?.windowId,
+                );
 
               const paneGroups = structurallyChanged
                 ? buildGroupsFromWindows(
