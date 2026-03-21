@@ -1096,6 +1096,15 @@ export const appMachine = setup({
               }
             }
 
+            // Intercept copy-mode — activate client-side copy mode
+            if (command.match(/^copy-mode\b/)) {
+              const paneId = context.activePaneId;
+              if (paneId) {
+                enqueue.raise({ type: 'ENTER_COPY_MODE', paneId });
+              }
+              return;
+            }
+
             // Intercept command-prompt — enter client-side command mode
             if (command.match(/^command-prompt\b/)) {
               const parsed = parseCommandPrompt(command, context);
@@ -1407,6 +1416,15 @@ export const appMachine = setup({
         SEND_COMMAND: {
           actions: enqueueActions(({ event, context, enqueue }) => {
             const command = event.command;
+
+            // Intercept copy-mode — activate client-side copy mode
+            if (command.match(/^copy-mode\b/)) {
+              const paneId = context.activePaneId;
+              if (paneId) {
+                enqueue.raise({ type: 'ENTER_COPY_MODE', paneId });
+              }
+              return;
+            }
 
             // Intercept command-prompt — enter client-side command mode
             if (command.match(/^command-prompt\b/)) {
