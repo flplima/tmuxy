@@ -117,7 +117,7 @@ export const resizeMachine = setup({
           actions: [assign({ resize: null }), 'notifyStateUpdate'],
         },
         RESIZE_MOVE: {
-          actions: enqueueActions(({ context, event, enqueue, self }) => {
+          actions: enqueueActions(({ context, event, enqueue }) => {
             if (!context.resize) return;
 
             const { charWidth, charHeight } = context;
@@ -135,6 +135,9 @@ export const resizeMachine = setup({
             const needsCommand =
               ((handle === 'e' || handle === 'w') && colsChanged) ||
               ((handle === 's' || handle === 'n') && rowsChanged);
+
+            // Track the new lastSentDelta for this event
+            let newLastSentDelta = lastSentDelta;
 
             if (needsCommand) {
               const incrementalCols = deltaCols - lastSentDelta.cols;
@@ -163,10 +166,13 @@ export const resizeMachine = setup({
               }
 
               if (commands.length > 0) {
-                const command = commands.join(' \\; ');
-                // Simple throttle: always send immediately via internal event
-                // The SEND_RESIZE_COMMAND handler will update lastSentDelta
-                self.send({ type: 'SEND_RESIZE_COMMAND', command, deltaCols, deltaRows });
+                enqueue(
+                  sendParent({
+                    type: 'SEND_TMUX_COMMAND' as const,
+                    command: commands.join(' \\; '),
+                  }),
+                );
+                newLastSentDelta = { cols: deltaCols, rows: deltaRows };
               }
             }
 
@@ -175,35 +181,10 @@ export const resizeMachine = setup({
               ...context.resize,
               pixelDelta: { x: pixelDeltaX, y: pixelDeltaY },
               delta: { cols: deltaCols, rows: deltaRows },
+              lastSentDelta: newLastSentDelta,
             };
             enqueue(assign({ resize: newResize }));
             enqueue(sendParent({ type: 'RESIZE_STATE_UPDATE' as const, resize: newResize }));
-          }),
-        },
-        SEND_RESIZE_COMMAND: {
-          actions: enqueueActions(({ context, event, enqueue }) => {
-            const e = event as {
-              type: 'SEND_RESIZE_COMMAND';
-              command: string;
-              deltaCols: number;
-              deltaRows: number;
-            };
-            enqueue(
-              sendParent({
-                type: 'SEND_TMUX_COMMAND' as const,
-                command: e.command,
-              }),
-            );
-            if (context.resize) {
-              enqueue(
-                assign({
-                  resize: {
-                    ...context.resize,
-                    lastSentDelta: { cols: e.deltaCols, rows: e.deltaRows },
-                  },
-                }),
-              );
-            }
           }),
         },
         RESIZE_END: {
