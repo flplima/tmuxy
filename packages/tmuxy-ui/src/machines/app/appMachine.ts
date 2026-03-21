@@ -220,6 +220,7 @@ export const appMachine = setup({
     targetRows: DEFAULT_ROWS,
     drag: null,
     resize: null,
+    resizeActive: false,
     charWidth: DEFAULT_CHAR_WIDTH,
     charHeight: DEFAULT_CHAR_HEIGHT,
     connectionId: null,
@@ -995,8 +996,10 @@ export const appMachine = setup({
                   lastUpdateTime: Date.now(),
                   // Clear optimistic tracking - server state overwrites any predictions
                   optimisticOperation: null,
-                  // Clear held resize preview — server pane sizes are now authoritative
-                  resize: null,
+                  // Clear held resize preview only after resize drag ends.
+                  // During active resize, keep the preview to avoid size jumps
+                  // from intermediate %layout-change events.
+                  resize: ctx.resizeActive ? ctx.resize : null,
                   groupSwitchDimOverride: groupSwitchOverride,
                   // Track pane activation order (MRU) for navigation prediction
                   paneActivationOrder:
@@ -1368,6 +1371,7 @@ export const appMachine = setup({
         RESIZE_STATE_UPDATE: {
           actions: assign(({ event }) => ({
             resize: event.resize,
+            resizeActive: event.resize !== null,
           })),
         },
         RESIZE_COMPLETED: {
@@ -1376,6 +1380,7 @@ export const appMachine = setup({
           // snap-back glitch when releasing the resize divider.
           // Timeout fallback: clear after 2s in case server update is delayed.
           actions: enqueueActions(({ enqueue }) => {
+            enqueue(assign({ resizeActive: false }));
             enqueue(({ self }) => {
               setTimeout(() => {
                 const snap = self.getSnapshot();
@@ -1387,7 +1392,11 @@ export const appMachine = setup({
           }),
         },
         RESIZE_ERROR: {
-          actions: assign(({ event }) => ({ error: event.error, resize: null })),
+          actions: assign(({ event }) => ({
+            error: event.error,
+            resize: null,
+            resizeActive: false,
+          })),
         },
 
         // Animation events

@@ -115,6 +115,7 @@ export interface AppMachineContext {
   targetRows: number;
   drag: DragState | null;
   resize: ResizeState | null;
+  resizeActive: boolean;
   charWidth: number;
   charHeight: number;
   /** Connection ID assigned by the server */
@@ -176,6 +177,8 @@ export interface AppMachineContext {
   baseFontSize: number;
   /** Whether the cursor blinks */
   cursorBlink: boolean;
+  /** Timestamp of last layout command (for debouncing rapid layout changes) */
+  lastLayoutCommandTime: number;
 }
 
 // ============================================
