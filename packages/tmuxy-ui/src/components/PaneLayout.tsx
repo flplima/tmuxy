@@ -36,7 +36,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const visiblePanes = useAppSelector(selectVisiblePanes);
   const draggedPaneId = useAppSelector(selectDraggedPaneId);
   const dropTarget = useAppSelector(selectDropTarget);
-  const { charWidth, charHeight, totalWidth, totalHeight } = useAppSelector(selectGridDimensions);
+  const {
+    charWidth,
+    charHeight,
+    totalWidth: serverTotalWidth,
+    totalHeight: serverTotalHeight,
+  } = useAppSelector(selectGridDimensions);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
   const dragOffsetX = useAppSelector(selectDragOffsetX);
   const dragOffsetY = useAppSelector(selectDragOffsetY);
@@ -51,6 +56,20 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     () => ({ x: dragOffsetX, y: dragOffsetY }),
     [dragOffsetX, dragOffsetY],
   );
+
+  // Derive grid dimensions from visible panes only.
+  // The server's totalWidth/totalHeight includes group/float window panes whose
+  // coordinates are in independent layouts — using them for centering causes the
+  // active window grid to appear off-center.
+  const { totalWidth, totalHeight } = useMemo(() => {
+    if (visiblePanes.length === 0) {
+      return { totalWidth: serverTotalWidth, totalHeight: serverTotalHeight };
+    }
+    return {
+      totalWidth: Math.max(...visiblePanes.map((p) => p.x + p.width)),
+      totalHeight: Math.max(...visiblePanes.map((p) => p.y + p.height)),
+    };
+  }, [visiblePanes, serverTotalWidth, serverTotalHeight]);
 
   // Padding to cover the tmux separator column between horizontally-adjacent panes
   const hPadding = Math.round(charWidth / 2);
