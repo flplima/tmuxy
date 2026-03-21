@@ -798,7 +798,7 @@ export const appMachine = setup({
                   )
                 : context.paneGroups;
 
-              const floatPanes = structurallyChanged
+              let floatPanes = structurallyChanged
                 ? buildFloatPanesFromWindows(
                     transformed.windows,
                     transformed.panes,
@@ -809,6 +809,20 @@ export const appMachine = setup({
                     context.charHeight,
                   )
                 : context.floatPanes;
+
+              // Prune dead floats: if a float's pane no longer exists in the
+              // updated pane list, remove it. Handles external kills where the
+              // __float_ window disappears via %unlinked-window-close.
+              const currentPaneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
+              const deadFloatIds = Object.keys(floatPanes).filter(
+                (id) => !currentPaneIdSet.has(id),
+              );
+              if (deadFloatIds.length > 0) {
+                floatPanes = { ...floatPanes };
+                for (const id of deadFloatIds) {
+                  delete floatPanes[id];
+                }
+              }
 
               // Detect float removal — check for session switch env var
               const prevFloatCount = Object.keys(context.floatPanes).length;

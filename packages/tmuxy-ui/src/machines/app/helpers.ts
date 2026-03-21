@@ -47,9 +47,9 @@ export function transformServerState(payload: ServerState): {
     activeWindowId: payload.active_window_id,
     activePaneId: payload.active_pane_id,
     panes: payload.panes.map((p) => camelize<TmuxPane>(p as unknown as Record<string, unknown>)),
-    windows: payload.windows.map((w) =>
-      camelize<TmuxWindow>(w as unknown as Record<string, unknown>),
-    ),
+    windows: payload.windows
+      .map((w) => camelize<TmuxWindow>(w as unknown as Record<string, unknown>))
+      .sort((a, b) => a.index - b.index),
     totalWidth: payload.total_width,
     totalHeight: payload.total_height,
     statusLine: payload.status_line,
