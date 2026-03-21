@@ -530,7 +530,7 @@ async fn handle_command(
                 "|" => format!("splitw -t {} -h", session),
                 "z" => format!("resizep -t {} -Z", session),
                 "x" => format!("killp -t {}", session),
-                "o" => format!("selectp -t {} -t :.+", session),
+                "o" => format!("selectp -t {}:.+", session),
                 ";" => format!("selectp -t {} -l", session),
                 "!" => format!("breakp -t {}", session),
                 // Arrow navigation
