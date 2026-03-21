@@ -229,7 +229,8 @@ export function handleCopyModeKey(
         break;
       }
 
-      // Selection
+      // Selection (Space starts char selection, matching tmux vi copy mode)
+      case ' ':
       case 'v':
         if (selectionMode === 'char') {
           newSelectionMode = null;

@@ -84,7 +84,7 @@ When copy mode is **inactive**, keys pass through to tmux normally.
 ### Selection
 | Key | Action |
 |-----|--------|
-| `v` | Toggle char selection mode |
+| `Space` / `v` | Toggle char selection mode |
 | `V` | Toggle line selection mode |
 
 ### Yank / Exit
