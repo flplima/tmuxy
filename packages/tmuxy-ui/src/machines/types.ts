@@ -243,8 +243,7 @@ export type ResizeMachineEvent =
   | { type: 'RESIZE_MOVE'; clientX: number; clientY: number }
   | { type: 'RESIZE_END' }
   | { type: 'RESIZE_CANCEL' }
-  | KeyPressEvent
-  | { type: 'SEND_RESIZE_COMMAND'; command: string; deltaCols: number; deltaRows: number };
+  | KeyPressEvent;
 
 // ============================================
 // Child Machine → Parent Events
