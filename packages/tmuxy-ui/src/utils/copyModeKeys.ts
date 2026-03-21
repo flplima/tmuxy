@@ -32,14 +32,6 @@ function getLineLength(lines: Map<number, CellLine>, row: number): number {
   return text.trimEnd().length;
 }
 
-/** Find last row with non-empty content */
-function findLastContentRow(lines: Map<number, CellLine>, totalLines: number): number {
-  for (let r = totalLines - 1; r >= 0; r--) {
-    if (getLineLength(lines, r) > 0) return r;
-  }
-  return 0;
-}
-
 /** Find next word start position */
 function findNextWord(
   lines: Map<number, CellLine>,
@@ -303,11 +295,11 @@ export function handleCopyModeKey(
     }
   }
 
-  // Clamp cursor to content boundaries
-  const lastContentRow = findLastContentRow(lines, totalLines);
-  newRow = Math.max(0, Math.min(lastContentRow, newRow));
-  const lineLen = getLineLength(lines, newRow);
-  newCol = Math.max(0, lineLen > 0 ? Math.min(lineLen - 1, newCol) : 0);
+  // Clamp cursor to terminal bounds (matching real tmux copy mode behavior).
+  // Row/column clamping uses the full terminal dimensions, not content boundaries,
+  // so the cursor can move freely across empty lines and trailing whitespace.
+  newRow = Math.max(0, Math.min(totalLines - 1, newRow));
+  newCol = Math.max(0, Math.min(width - 1, newCol));
 
   // Auto-scroll to keep cursor visible
   if (newRow < newScrollTop) {
