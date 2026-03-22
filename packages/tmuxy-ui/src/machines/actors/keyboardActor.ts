@@ -321,8 +321,9 @@ export function createKeyboardActor() {
 
         const bindingCommand = prefixBindings.get(bindingKey);
         if (bindingCommand) {
-          // Replace session placeholder in command
-          const command = bindingCommand.replace(/-t \S+/, `-t ${sessionName}`);
+          // Prepend session name to -t targets so commands are session-scoped.
+          // Preserves relative targets like :.+ (next pane) and :=0 (window 0).
+          const command = bindingCommand.replace(/-t (\S+)/, `-t ${sessionName}$1`);
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command,
