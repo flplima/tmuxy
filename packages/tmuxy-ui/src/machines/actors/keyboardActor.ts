@@ -181,18 +181,6 @@ export function createKeyboardActor() {
         return;
       }
 
-      // On mobile, printable character keydowns from the hidden input are handled
-      // by the `input` event in mobileKeyboard.ts to avoid double-sending.
-      if (
-        event.target === getMobileInput() &&
-        event.key.length === 1 &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.metaKey
-      ) {
-        return;
-      }
-
       // Let browser handle dead keys (diacritic composition)
       if (event.key === 'Dead') return;
 
@@ -225,7 +213,9 @@ export function createKeyboardActor() {
         return;
       }
 
-      // Client-side copy mode: intercept all keys
+      // Client-side copy mode: intercept all keys (must be checked before the
+      // mobile input guard so that Space and other single-char keys reach copy
+      // mode on touch-capable devices where the hidden input may have focus)
       if (copyModeActive) {
         event.preventDefault();
         // For yank key (y), copy to clipboard via native copy event
@@ -252,6 +242,18 @@ export function createKeyboardActor() {
           ctrlKey: event.ctrlKey,
           shiftKey: event.shiftKey,
         });
+        return;
+      }
+
+      // On mobile, printable character keydowns from the hidden input are handled
+      // by the `input` event in mobileKeyboard.ts to avoid double-sending.
+      if (
+        event.target === getMobileInput() &&
+        event.key.length === 1 &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey
+      ) {
         return;
       }
 
