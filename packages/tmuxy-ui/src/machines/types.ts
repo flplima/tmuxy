@@ -179,6 +179,8 @@ export interface AppMachineContext {
   cursorBlink: boolean;
   /** Timestamp of last layout command (for debouncing rapid layout changes) */
   lastLayoutCommandTime: number;
+  /** Temporarily suppress layout transitions (e.g., command-based resize) */
+  suppressLayoutTransition: boolean;
 }
 
 // ============================================
@@ -395,6 +397,7 @@ export type CopyModeWordSelectEvent = {
 
 // Group switch detection event (fired internally when switch detected in state update)
 export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
+export type ClearLayoutTransitionSuppressionEvent = { type: 'CLEAR_LAYOUT_TRANSITION_SUPPRESSION' };
 export type EnableAnimationsEvent = { type: 'ENABLE_ANIMATIONS' };
 
 // Command mode events
@@ -482,6 +485,7 @@ export type AppMachineEvent =
   | CopyModeKeyEvent
   | CopyModeWordSelectEvent
   | ClearGroupSwitchOverrideEvent
+  | ClearLayoutTransitionSuppressionEvent
   | EnableAnimationsEvent
   | ClosePaneEvent
   | TabClickEvent

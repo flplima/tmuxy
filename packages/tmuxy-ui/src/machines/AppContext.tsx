@@ -79,6 +79,7 @@ export {
   selectStatusLine,
   selectContainerSize,
   selectEnableAnimations,
+  selectSuppressLayoutTransition,
   selectHasOptimisticOperation,
   selectGroupSwitchPaneIds,
   selectSessionName,

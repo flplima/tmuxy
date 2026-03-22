@@ -245,6 +245,8 @@ export const appMachine = setup({
     // Timestamp of last layout command — used to suppress transient active pane
     // changes during layout recomputation (tmux briefly reports different active pane)
     lastLayoutCommandTime: 0,
+    // Suppress layout transitions during command-based resizes
+    suppressLayoutTransition: false,
     // Pane activation order (MRU first) — used for navigation tie-breaking
     paneActivationOrder: [] as string[],
     // Dimension override during group switch (prevents intermediate state flicker)
@@ -989,6 +991,31 @@ export const appMachine = setup({
               const effectiveActivePaneId = isLayoutTransition
                 ? context.activePaneId
                 : (transformed.activePaneId ?? context.activePaneId);
+
+              // Detect pane dimension changes from command-based resize
+              // (not drag-resize, which uses resizeActive). Suppress CSS
+              // transitions so dimensions snap instantly without visual jumps.
+              const hasDimensionChange =
+                !context.resizeActive &&
+                transformed.panes.some((newPane) => {
+                  const oldPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
+                  return (
+                    oldPane &&
+                    (oldPane.x !== newPane.x ||
+                      oldPane.y !== newPane.y ||
+                      oldPane.width !== newPane.width ||
+                      oldPane.height !== newPane.height)
+                  );
+                });
+
+              if (hasDimensionChange) {
+                enqueue(assign({ suppressLayoutTransition: true }));
+                enqueue(({ self }) => {
+                  setTimeout(() => {
+                    self.send({ type: 'CLEAR_LAYOUT_TRANSITION_SUPPRESSION' });
+                  }, 50);
+                });
+              }
 
               enqueue(
                 assign(({ context: ctx }) => ({
@@ -2106,6 +2133,10 @@ export const appMachine = setup({
         // Clear group switch override (fired 750ms after group switch detection)
         CLEAR_GROUP_SWITCH_OVERRIDE: {
           actions: assign({ groupSwitchDimOverride: null }),
+        },
+        // Clear layout transition suppression (fired after command-based resize settles)
+        CLEAR_LAYOUT_TRANSITION_SUPPRESSION: {
+          actions: assign({ suppressLayoutTransition: false }),
         },
       },
     },

@@ -22,6 +22,7 @@ import {
   selectContainerSize,
   selectDropTarget,
   selectEnableAnimations,
+  selectSuppressLayoutTransition,
   selectGroupSwitchPaneIds,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
@@ -46,6 +47,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const dragOffsetX = useAppSelector(selectDragOffsetX);
   const dragOffsetY = useAppSelector(selectDragOffsetY);
   const enableAnimations = useAppSelector(selectEnableAnimations);
+  const suppressLayoutTransition = useAppSelector(selectSuppressLayoutTransition);
   const groupSwitchPanes = useAppSelector(selectGroupSwitchPaneIds);
 
   const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
@@ -182,7 +184,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   return (
     <div
       ref={containerRef}
-      className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing ? 'pane-layout-resizing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
+      className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing || suppressLayoutTransition ? 'pane-layout-resizing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
     >
       {visiblePanes.map((pane) => {
         const isDraggedPane = pane.tmuxId === draggedPaneId;

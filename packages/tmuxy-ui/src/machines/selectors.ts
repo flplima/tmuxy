@@ -562,6 +562,13 @@ export function selectEnableAnimations(context: AppMachineContext): boolean {
   return context.enableAnimations;
 }
 
+/**
+ * Select whether layout transitions should be suppressed (command-based resize)
+ */
+export function selectSuppressLayoutTransition(context: AppMachineContext): boolean {
+  return context.suppressLayoutTransition;
+}
+
 // ============================================
 // Optimistic Update Selectors
 // ============================================
