@@ -78,9 +78,11 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
     ],
   );
 
-  // Visible line range
-  const visibleStart = scrollTop;
-  const visibleEnd = Math.min(totalLines - 1, scrollTop + height - 1);
+  // Visible line range with overscan buffer (1 screen above + 1 screen below)
+  const renderStart = Math.max(0, scrollTop - height);
+  const renderEnd = Math.min(totalLines - 1, scrollTop + 2 * height - 1);
+  const visibleStart = renderStart;
+  const visibleEnd = renderEnd;
   const visibleCount = visibleEnd - visibleStart + 1;
 
   const isCursorVisible = cursorRow >= visibleStart && cursorRow <= visibleEnd;
@@ -147,13 +149,13 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
   }, [isCursorVisible, lines, cursorRow, cursorCol]);
 
   // Cursor position relative to the <pre> block (not absolute row)
-  const cursorRelY = cursorRow - visibleStart;
+  const cursorRelY = cursorRow - renderStart;
 
   return (
     <div
       style={{
         position: 'absolute',
-        top: visibleStart * charHeight,
+        top: renderStart * charHeight,
         left: 0,
         right: 0,
       }}
