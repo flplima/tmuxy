@@ -20,6 +20,7 @@ import type {
   NavigateCommand,
   SwapCommand,
   SelectPaneCommand,
+  RelativePaneCommand,
   NewWindowCommand,
   SelectWindowCommand,
 } from './commandParser';
@@ -64,6 +65,8 @@ export function calculatePrediction(
       return calculateSwapPrediction(parsed, panes, command);
     case 'select-pane':
       return calculateSelectPanePrediction(parsed, panes, activePaneId!, command);
+    case 'relative-pane':
+      return calculateRelativePanePrediction(parsed, panes, activePaneId!, activeWindowId, command);
     case 'new-window':
       return calculateNewWindowPrediction(parsed, windows, command);
     case 'select-window':
@@ -360,6 +363,52 @@ function calculateSelectPanePrediction(
       direction: 'L', // Direction doesn't matter for direct selection
       fromPaneId: activePaneId,
       toPaneId: parsed.paneId,
+    },
+  };
+}
+
+/**
+ * Calculate relative pane prediction (next/previous pane cycling).
+ * Matches tmux's :.+ (next pane) and :.- (previous pane) targets.
+ * Panes are sorted by pane index within the active window.
+ */
+function calculateRelativePanePrediction(
+  parsed: RelativePaneCommand,
+  panes: TmuxPane[],
+  activePaneId: string,
+  activeWindowId: string | null,
+  command: string,
+): OptimisticOperation | null {
+  // Filter to panes in the active window and sort by pane index
+  const windowPanes = panes
+    .filter((p) => p.windowId === activeWindowId)
+    .sort((a, b) => a.id - b.id);
+
+  if (windowPanes.length <= 1) return null;
+
+  const currentIdx = windowPanes.findIndex((p) => p.tmuxId === activePaneId);
+  if (currentIdx < 0) return null;
+
+  let targetIdx: number;
+  if (parsed.direction === 'next') {
+    targetIdx = (currentIdx + 1) % windowPanes.length;
+  } else {
+    targetIdx = (currentIdx - 1 + windowPanes.length) % windowPanes.length;
+  }
+
+  const targetPane = windowPanes[targetIdx];
+  if (targetPane.tmuxId === activePaneId) return null;
+
+  return {
+    id: generateOptimisticId(),
+    type: 'navigate',
+    command,
+    timestamp: Date.now(),
+    prediction: {
+      type: 'navigate',
+      direction: parsed.direction === 'next' ? 'R' : 'L',
+      fromPaneId: activePaneId,
+      toPaneId: targetPane.tmuxId,
     },
   };
 }
