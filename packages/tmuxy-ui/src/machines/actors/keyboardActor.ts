@@ -269,7 +269,10 @@ export function createKeyboardActor() {
       const formattedKey = formatTmuxKey(event);
 
       // Check for prefix key (dynamic, from server)
-      if (formattedKey === prefixKey) {
+      // Ignore auto-repeated prefix key events — holding Ctrl+A too long
+      // would trigger the "double prefix" handler, resetting prefix mode
+      // before the user can press the binding key.
+      if (formattedKey === prefixKey && !event.repeat) {
         if (inPrefixMode) {
           // Double prefix sends literal prefix key to the shell
           resetPrefixMode();
