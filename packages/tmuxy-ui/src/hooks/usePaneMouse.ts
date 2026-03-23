@@ -388,11 +388,9 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      e.preventDefault();
-
       // Alternate screen (vim, less) and mouse tracking need line-quantized input.
-      // Everything else proxies raw pixel deltas for native-feel scroll.
       if (alternateOn || mouseAnyFlag) {
+        e.preventDefault();
         wheelRemainder.current += e.deltaY;
         const lines = Math.trunc(wheelRemainder.current / charHeight);
         if (lines === 0) return;
@@ -411,12 +409,25 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      // Default: proxy raw pixel delta to the scroll container.
-      // The container's onScroll handler detects scroll-away-from-bottom
-      // and enters copy mode. In copy mode, onScroll forwards to state machine.
-      if (scrollRef.current) {
-        scrollRef.current.scrollTop += e.deltaY;
+      // Copy mode: let the browser scroll natively (no preventDefault).
+      // The container's onScroll handler forwards position to state machine.
+      if (copyModeActive) {
+        return;
       }
+
+      // Normal mode: scroll up with history enters copy mode directly
+      if (historySize > 0 && e.deltaY < 0) {
+        e.preventDefault();
+        wheelRemainder.current += e.deltaY;
+        const lines = Math.trunc(wheelRemainder.current / charHeight);
+        if (lines === 0) return;
+        wheelRemainder.current -= lines * charHeight;
+        send({ type: 'ENTER_COPY_MODE', paneId, scrollLines: lines });
+        return;
+      }
+
+      // Normal mode scroll down: nothing to do
+      e.preventDefault();
     },
     [
       send,

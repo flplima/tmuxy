@@ -680,8 +680,12 @@ export const appMachine = setup({
               const newPaneIds = transformed.panes.map((p) => p.tmuxId);
               const removedPanes = currentPaneIds.filter((id) => !newPaneIds.includes(id));
               if (removedPanes.length === 0) return false;
-              // Skip animation if only float panes were removed
-              const hasNonFloatRemoval = removedPanes.some((id) => !context.floatPanes[id]);
+              // Skip animation if only float or optimistic placeholder panes were removed.
+              // Placeholders (__placeholder_*) are never real tmux panes — they should be
+              // silently replaced by server state, not animated out.
+              const hasNonFloatRemoval = removedPanes.some(
+                (id) => !context.floatPanes[id] && !id.startsWith('__placeholder_'),
+              );
               return hasNonFloatRemoval;
             },
             target: 'removingPane',
@@ -694,10 +698,13 @@ export const appMachine = setup({
                 transformed.activeWindowId,
               );
 
-              // Find removed panes
+              // Find removed panes (exclude optimistic placeholders — they were
+              // never real tmux panes and don't need exit animation)
               const currentPaneIds = context.panes.map((p) => p.tmuxId);
               const newPaneIds = transformed.panes.map((p) => p.tmuxId);
-              const removedPanes = currentPaneIds.filter((id) => !newPaneIds.includes(id));
+              const removedPanes = currentPaneIds.filter(
+                (id) => !newPaneIds.includes(id) && !id.startsWith('__placeholder_'),
+              );
 
               // Send leave animation event to animation actor (if spawned)
               enqueue(({ self }) => {
