@@ -84,20 +84,16 @@ const PaneTab = memo(function PaneTab({
   isActivePane,
   titleOverride,
   widgetName,
-  isFloat,
   onClick,
   onContextMenu,
-  onIconClick,
 }: {
   pane: TmuxPane;
   isSelectedTab: boolean;
   isActivePane: boolean;
   titleOverride?: string;
   widgetName?: string;
-  isFloat?: boolean;
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
-  onIconClick: (e: React.MouseEvent) => void;
 }) {
   const icon = getTabIcon(pane, widgetName);
   const text = getTabText(pane, titleOverride, widgetName);
@@ -111,23 +107,7 @@ const PaneTab = memo(function PaneTab({
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}
     >
-      {icon && (
-        <span
-          className={`pane-tab-icon${isFloat ? ' pane-tab-icon-static' : ''}`}
-          onClick={
-            isFloat
-              ? undefined
-              : (e) => {
-                  e.stopPropagation();
-                  onIconClick(e);
-                }
-          }
-          role={isFloat ? undefined : 'button'}
-          aria-label={isFloat ? undefined : 'Pane menu'}
-        >
-          {icon}
-        </span>
-      )}
+      {icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>}
       <span className="pane-tab-title">{text}</span>
     </div>
   );
@@ -201,17 +181,21 @@ export function PaneHeader({
     });
   }, []);
 
-  const handleIconClick = useCallback((e: React.MouseEvent, targetPaneId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setContextMenu({
-      visible: true,
-      x: rect.left,
-      y: rect.bottom + 2,
-      targetPaneId,
-    });
-  }, []);
+  const handleMenuClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const targetId = activePaneId ?? paneId;
+      setContextMenu({
+        visible: true,
+        x: rect.left,
+        y: rect.bottom + 2,
+        targetPaneId: targetId,
+      });
+    },
+    [activePaneId, paneId],
+  );
 
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => ({ ...prev, visible: false }));
@@ -228,16 +212,6 @@ export function PaneHeader({
     e.preventDefault();
     e.stopPropagation();
     send({ type: 'TAB_CLICK', paneId: clickedPaneId });
-  };
-
-  const handleAddPane = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    send({
-      type: 'SEND_TMUX_COMMAND',
-      command:
-        'run-shell "scripts/tmuxy/pane-group-add.sh #{pane_id} #{pane_width} #{pane_height}"',
-    });
   };
 
   const handleClosePane = (e: React.MouseEvent) => {
@@ -263,7 +237,6 @@ export function PaneHeader({
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.tagName === 'BUTTON') return;
-    if (target.classList.contains('pane-tab-icon')) return;
 
     pendingDragRef.current = { x: e.clientX, y: e.clientY };
 
@@ -305,7 +278,6 @@ export function PaneHeader({
   const handleHeaderTouchStart = (e: React.TouchEvent) => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'BUTTON') return;
-    if (target.classList.contains('pane-tab-icon')) return;
 
     const touch = e.touches[0];
     const startX = touch.clientX;
@@ -396,24 +368,20 @@ export function PaneHeader({
               isActivePane={isActivePane}
               titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
               widgetName={tabPane.tmuxId === paneId ? widgetName : undefined}
-              isFloat={isFloat}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
-              onIconClick={(e) => handleIconClick(e, tabPane.tmuxId)}
             />
           );
         })}
       </div>
-      {!isFloat && (
-        <button
-          className="pane-tab-add"
-          onClick={handleAddPane}
-          title="Add pane to group"
-          aria-label="Add pane to group"
-        >
-          +
-        </button>
-      )}
+      <button
+        className="pane-header-menu"
+        onClick={handleMenuClick}
+        title="Pane menu"
+        aria-label="Pane menu"
+      >
+        ⋮
+      </button>
       <button
         className="pane-header-close"
         onClick={(e) => {
