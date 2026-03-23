@@ -808,18 +808,23 @@ export const appMachine = setup({
               // Prune stale groups: if a group references pane IDs that no longer
               // exist in the updated pane list, remove those IDs. Drop groups that
               // become empty or have only one pane (no longer a group).
-              if (!structurallyChanged && paneGroups.length > 0) {
+              if (!structurallyChanged && Object.keys(paneGroups).length > 0) {
                 const paneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
-                const pruned = paneGroups
-                  .map((g) => ({
-                    ...g,
-                    paneIds: g.paneIds.filter((id) => paneIdSet.has(id)),
-                  }))
-                  .filter((g) => g.paneIds.length >= 2);
-                if (
-                  pruned.length !== paneGroups.length ||
-                  pruned.some((g, i) => g !== paneGroups[i])
-                ) {
+                const pruned: typeof paneGroups = {};
+                let changed = false;
+                for (const [key, group] of Object.entries(paneGroups)) {
+                  const validIds = group.paneIds.filter((id) => paneIdSet.has(id));
+                  if (validIds.length >= 2) {
+                    pruned[key] =
+                      validIds.length === group.paneIds.length
+                        ? group
+                        : { ...group, paneIds: validIds };
+                    if (validIds.length !== group.paneIds.length) changed = true;
+                  } else {
+                    changed = true;
+                  }
+                }
+                if (changed) {
                   paneGroups = pruned;
                 }
               }

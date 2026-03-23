@@ -1018,10 +1018,28 @@ impl StateAggregator {
                 }
             }
 
-            // Unlinked window events are from OTHER sessions sharing the same
-            // tmux server — ignore them to avoid polluting this session's state.
-            ControlModeEvent::UnlinkedWindowAdd { .. }
-            | ControlModeEvent::UnlinkedWindowClose { .. } => ProcessEventResult::default(),
+            // Unlinked window add: from other sessions — ignore.
+            ControlModeEvent::UnlinkedWindowAdd { .. } => ProcessEventResult::default(),
+
+            // Unlinked window close: fires for non-current windows in ANY session.
+            // If the window exists in our state, it belongs to our session — remove it.
+            // If not, it's from another session — ignore.
+            ControlModeEvent::UnlinkedWindowClose { window_id } => {
+                if self.windows.contains_key(&window_id) {
+                    self.windows.remove(&window_id);
+                    self.panes.retain(|_, p| p.window_id != window_id);
+                    self.pending_captures
+                        .retain(|id| self.panes.contains_key(id));
+                    self.status_line_dirty = true;
+                    ProcessEventResult {
+                        state_changed: !self.suppress_window_emissions,
+                        change_type: ChangeType::Window,
+                        ..Default::default()
+                    }
+                } else {
+                    ProcessEventResult::default()
+                }
+            }
 
             ControlModeEvent::WindowAdd { window_id } => {
                 self.windows
