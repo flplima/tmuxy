@@ -10,6 +10,7 @@ export type ParsedCommand =
   | NavigateCommand
   | SwapCommand
   | SelectPaneCommand
+  | RelativePaneCommand
   | NewWindowCommand
   | SelectWindowCommand
   | null;
@@ -34,6 +35,11 @@ export interface SwapCommand {
 export interface SelectPaneCommand {
   type: 'select-pane';
   paneId: string;
+}
+
+export interface RelativePaneCommand {
+  type: 'relative-pane';
+  direction: 'next' | 'previous';
 }
 
 export interface NewWindowCommand {
@@ -98,6 +104,16 @@ export function parseCommand(command: string): ParsedCommand {
       type: 'swap',
       sourcePaneId: swapMatchReverse[3],
       targetPaneId: swapMatchReverse[2],
+    };
+  }
+
+  // Select pane by relative target: select-pane -t [session:]:.+ or :.−
+  // Matches targets like ":.+", "tmuxy:.+", "session:.-"
+  const relativePaneMatch = trimmed.match(/^(select-pane|selectp)\s+-t\s+(?:\S*:)?\.\s*(\+|-)\s*$/);
+  if (relativePaneMatch) {
+    return {
+      type: 'relative-pane',
+      direction: relativePaneMatch[2] === '+' ? 'next' : 'previous',
     };
   }
 
