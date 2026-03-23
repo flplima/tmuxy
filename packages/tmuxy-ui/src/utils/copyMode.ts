@@ -129,6 +129,21 @@ export function getNeededChunk(
   chunkSize: number = 200,
 ): { start: number; end: number } | null {
   const THRESHOLD = 50;
+  const viewStart = scrollTop;
+  const viewEnd = scrollTop + height - 1;
+
+  // Check if the current viewport is in an unloaded gap (e.g. user dragged
+  // scrollbar to middle). Load a chunk centered on the viewport.
+  if (!isViewportLoaded(loadedRanges, viewStart, viewEnd)) {
+    const center = Math.floor((viewStart + viewEnd) / 2);
+    const halfChunk = Math.floor(chunkSize / 2);
+    const newStart = Math.max(0, center - halfChunk);
+    const newEnd = Math.min(totalLines - 1, center + halfChunk);
+    return {
+      start: newStart - historySize,
+      end: newEnd - historySize,
+    };
+  }
 
   // Check if we're near the top of loaded content
   if (loadedRanges.length > 0) {
@@ -157,4 +172,21 @@ export function getNeededChunk(
   }
 
   return null;
+}
+
+/** Check if the entire viewport range [viewStart, viewEnd] is covered by loaded ranges */
+function isViewportLoaded(
+  loadedRanges: Array<[number, number]>,
+  viewStart: number,
+  viewEnd: number,
+): boolean {
+  if (loadedRanges.length === 0) return false;
+  // Walk through sorted ranges and check full coverage
+  let cursor = viewStart;
+  for (const [start, end] of loadedRanges) {
+    if (start > cursor) return false; // gap before this range
+    if (end >= viewEnd) return true; // this range covers the rest
+    if (end >= cursor) cursor = end + 1; // advance past this range
+  }
+  return cursor > viewEnd;
 }

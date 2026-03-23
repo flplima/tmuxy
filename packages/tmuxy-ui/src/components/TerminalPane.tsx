@@ -57,7 +57,11 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   } | null>(null);
   const historySize = pane?.historySize ?? 0;
   const paneHeight = pane?.height ?? 24;
-  const totalHeight = (historySize + paneHeight) * charHeight;
+  // In copy mode, use copyState.totalLines for scroll container height so it
+  // stays consistent with the copy mode content bounds. The live pane historySize
+  // can diverge from copyState.historySize when new output arrives after entering
+  // copy mode, causing scroll position / content misalignment.
+  const totalHeight = (copyState ? copyState.totalLines : historySize + paneHeight) * charHeight;
 
   // Track whether we're programmatically setting scroll to suppress onScroll feedback
   const suppressScrollRef = useRef(false);
