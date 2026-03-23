@@ -797,13 +797,32 @@ export const appMachine = setup({
                     p.windowId !== context.panes.find((cp) => cp.tmuxId === p.tmuxId)?.windowId,
                 );
 
-              const paneGroups = structurallyChanged
+              let paneGroups = structurallyChanged
                 ? buildGroupsFromWindows(
                     transformed.windows,
                     transformed.panes,
                     transformed.activeWindowId,
                   )
                 : context.paneGroups;
+
+              // Prune stale groups: if a group references pane IDs that no longer
+              // exist in the updated pane list, remove those IDs. Drop groups that
+              // become empty or have only one pane (no longer a group).
+              if (!structurallyChanged && paneGroups.length > 0) {
+                const paneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
+                const pruned = paneGroups
+                  .map((g) => ({
+                    ...g,
+                    paneIds: g.paneIds.filter((id) => paneIdSet.has(id)),
+                  }))
+                  .filter((g) => g.paneIds.length >= 2);
+                if (
+                  pruned.length !== paneGroups.length ||
+                  pruned.some((g, i) => g !== paneGroups[i])
+                ) {
+                  paneGroups = pruned;
+                }
+              }
 
               let floatPanes = structurallyChanged
                 ? buildFloatPanesFromWindows(
@@ -1011,9 +1030,21 @@ export const appMachine = setup({
               if (hasDimensionChange) {
                 enqueue(assign({ suppressLayoutTransition: true }));
                 enqueue(({ self }) => {
-                  setTimeout(() => {
+                  if (
+                    (self as unknown as { _suppressTimer?: ReturnType<typeof setTimeout> })
+                      ._suppressTimer
+                  ) {
+                    clearTimeout(
+                      (self as unknown as { _suppressTimer?: ReturnType<typeof setTimeout> })
+                        ._suppressTimer,
+                    );
+                  }
+                  const timer = setTimeout(() => {
                     self.send({ type: 'CLEAR_LAYOUT_TRANSITION_SUPPRESSION' });
-                  }, 50);
+                  }, 150);
+                  (
+                    self as unknown as { _suppressTimer?: ReturnType<typeof setTimeout> }
+                  )._suppressTimer = timer;
                 });
               }
 
@@ -1458,12 +1489,17 @@ export const appMachine = setup({
                   }),
                 );
               }
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `select-pane -t ${event.paneId}`,
-                }),
-              );
+              // Only send select-pane if the pane isn't already active.
+              // Redundant select-pane commands race with relative-target
+              // operations like prefix+o (select-pane -t :.+).
+              if (event.paneId !== context.activePaneId) {
+                enqueue(
+                  sendTo('tmux', {
+                    type: 'SEND_COMMAND' as const,
+                    command: `select-pane -t ${event.paneId}`,
+                  }),
+                );
+              }
             }
           }),
         },
