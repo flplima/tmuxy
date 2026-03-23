@@ -1049,8 +1049,28 @@ pub fn get_prefix_bindings() -> Result<Vec<KeyBinding>, String> {
     for line in output.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
 
-        if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == "prefix" {
-            let bound_key = parts[3];
+        // tmux list-keys output format:
+        //   bind-key    -T prefix KEY command...
+        //   bind-key -r -T prefix KEY command...
+        // The -r flag shifts all subsequent indices by 1.
+        let (key_idx, cmd_idx) = if parts.len() >= 6
+            && parts[0] == "bind-key"
+            && parts[1] == "-r"
+            && parts[3] == "prefix"
+        {
+            (4, 5)
+        } else if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == "prefix" {
+            (3, 4)
+        } else {
+            continue;
+        };
+
+        if cmd_idx >= parts.len() {
+            continue;
+        }
+
+        {
+            let bound_key = parts[key_idx];
 
             // Unescape the key
             let key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
@@ -1060,10 +1080,10 @@ pub fn get_prefix_bindings() -> Result<Vec<KeyBinding>, String> {
             };
 
             // Get the command (everything after the key)
-            let command = parts[4..].join(" ");
+            let command = parts[cmd_idx..].join(" ");
 
             // Generate description based on command
-            let description = match parts[4] {
+            let description = match parts[cmd_idx] {
                 "split-window" => {
                     if command.contains("-h") {
                         "Split pane vertically".to_string()
@@ -1126,26 +1146,39 @@ pub fn get_root_bindings() -> Result<Vec<KeyBinding>, String> {
     for line in output.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
 
-        // Format: bind-key -T root C-h select-pane -L
-        if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == "root" {
-            let bound_key = parts[3];
-
-            // Unescape the key
-            let key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
-                bound_key[1..].to_string()
+        // Format: bind-key    -T root KEY command...
+        //     or: bind-key -r -T root KEY command...
+        let (key_idx, cmd_idx) =
+            if parts.len() >= 6 && parts[0] == "bind-key" && parts[1] == "-r" && parts[3] == "root"
+            {
+                (4, 5)
+            } else if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == "root" {
+                (3, 4)
             } else {
-                bound_key.to_string()
+                continue;
             };
 
-            // Get the command (everything after the key)
-            let command = parts[4..].join(" ");
-
-            bindings.push(KeyBinding {
-                key,
-                command,
-                description: String::new(),
-            });
+        if cmd_idx >= parts.len() {
+            continue;
         }
+
+        let bound_key = parts[key_idx];
+
+        // Unescape the key
+        let key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
+            bound_key[1..].to_string()
+        } else {
+            bound_key.to_string()
+        };
+
+        // Get the command (everything after the key)
+        let command = parts[cmd_idx..].join(" ");
+
+        bindings.push(KeyBinding {
+            key,
+            command,
+            description: String::new(),
+        });
     }
 
     Ok(bindings)
