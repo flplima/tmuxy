@@ -609,7 +609,7 @@
   color: var(--term-bright-white);
 }
 
-/* Pane tab icon - clickable, opens pane menu */
+/* Pane tab icon - purely decorative */
 .pane-tab-icon {
   display: flex;
   align-items: center;
@@ -621,18 +621,6 @@
   margin: 0 4px 0 0;
   border-radius: 0;
   opacity: 0.7;
-  transition:
-    background-color var(--transition-fast),
-    opacity var(--transition-fast);
-}
-
-.pane-tab-icon:not(.pane-tab-icon-static):hover {
-  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
-  opacity: 1;
-  cursor: pointer;
-}
-
-.pane-tab-icon-static {
   cursor: default;
 }
 
@@ -655,19 +643,19 @@
   font-weight: 500;
 }
 
-/* Pane add-to-group button */
-.pane-tab-add {
+/* Pane three-dot menu button */
+.pane-header-menu {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 16px;
   height: 16px;
-  margin: 0 2px;
+  margin: 0 2px 0 auto;
   padding: 0;
   background: transparent;
   border: none;
   color: var(--term-white);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
   opacity: 0.5;
   transition:
@@ -676,9 +664,10 @@
     background-color var(--transition-fast);
   flex-shrink: 0;
   z-index: 60;
+  cursor: pointer;
 }
 
-.pane-tab-add:hover {
+.pane-header-menu:hover {
   background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
   opacity: 1;
 }
@@ -690,7 +679,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  margin: 0 0 0 auto;
+  margin: 0 0 0 2px;
   padding: 0;
   background: transparent;
   border: none;
