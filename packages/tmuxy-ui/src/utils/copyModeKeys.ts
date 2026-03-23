@@ -252,10 +252,13 @@ export function handleCopyModeKey(
 
       // Yank
       case 'y':
-      case 'Enter':
         if (selectionMode) {
           action = 'yank';
         }
+        break;
+      // Enter = copy-selection-and-cancel: yank if selection active, else exit
+      case 'Enter':
+        action = selectionMode ? 'yank' : 'exit';
         break;
 
       // Go to top/bottom
