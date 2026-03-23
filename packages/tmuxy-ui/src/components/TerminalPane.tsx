@@ -152,6 +152,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       }
     } else {
       prevCopyScrollTopRef.current = null;
+      lastDomScrollTopRef.current = null;
     }
   });
 
@@ -163,6 +164,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     handleMouseLeave,
     handleWheel,
     handleDoubleClick,
+    handleTripleClick,
     selectionStart,
   } = usePaneMouse(send, {
     paneId,
@@ -334,7 +336,13 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       data-alternate-on={pane.alternateOn}
       data-mouse-any-flag={pane.mouseAnyFlag}
       tabIndex={0}
-      onMouseDown={handleMouseDown}
+      onMouseDown={(e) => {
+        if (e.detail >= 3 && e.button === 0) {
+          handleTripleClick(e);
+          return;
+        }
+        handleMouseDown(e);
+      }}
       onMouseUp={handleMouseUp}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}

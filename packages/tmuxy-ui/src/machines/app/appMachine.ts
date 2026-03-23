@@ -2000,6 +2000,29 @@ export const appMachine = setup({
             };
           }),
         },
+        COPY_MODE_LINE_SELECT: {
+          actions: assign(({ event, context }) => {
+            const existing = context.copyModeStates[event.paneId];
+            if (!existing) return {};
+
+            // Convert visible-relative row to absolute
+            const absoluteRow =
+              event.row < existing.height ? existing.scrollTop + event.row : event.row;
+
+            return {
+              copyModeStates: {
+                ...context.copyModeStates,
+                [event.paneId]: {
+                  ...existing,
+                  selectionMode: 'line' as const,
+                  selectionAnchor: { row: absoluteRow, col: 0 },
+                  cursorRow: absoluteRow,
+                  cursorCol: existing.width - 1,
+                },
+              },
+            };
+          }),
+        },
         COPY_MODE_SCROLL: {
           actions: enqueueActions(({ event, context, enqueue }) => {
             const existing = context.copyModeStates[event.paneId];

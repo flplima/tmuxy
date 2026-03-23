@@ -449,6 +449,8 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       const target = e.target as HTMLElement;
       if (target.closest('.pane-header')) return;
       if (mouseAnyFlag) return;
+      // Skip if this is actually a triple-click (detail >= 3) — handled in handleMouseDown
+      if (e.detail >= 3) return;
 
       const cell = pixelToCell(e);
 
@@ -466,6 +468,30 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell],
   );
 
+  // Handle triple-click for line selection (detected via click count in mousedown)
+  const handleTripleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.pane-header')) return;
+      if (mouseAnyFlag) return;
+
+      e.preventDefault();
+      const cell = pixelToCell(e);
+
+      if (!copyModeActive) {
+        send({ type: 'ENTER_COPY_MODE', paneId });
+        // Delay line select until copy mode state is initialized
+        const t = window.setTimeout(() => {
+          send({ type: 'COPY_MODE_LINE_SELECT', paneId, row: cell.y });
+        }, 100);
+        pendingTimers.current.push(t);
+      } else {
+        send({ type: 'COPY_MODE_LINE_SELECT', paneId, row: cell.y });
+      }
+    },
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell],
+  );
+
   return {
     handleMouseDown,
     handleMouseUp,
@@ -473,6 +499,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     handleMouseLeave,
     handleWheel,
     handleDoubleClick,
+    handleTripleClick,
     /** Selection start cell position for rendering selection overlay */
     selectionStart,
   };

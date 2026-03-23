@@ -394,6 +394,11 @@ export type CopyModeWordSelectEvent = {
   col: number;
   broad?: boolean;
 };
+export type CopyModeLineSelectEvent = {
+  type: 'COPY_MODE_LINE_SELECT';
+  paneId: string;
+  row: number;
+};
 
 // Group switch detection event (fired internally when switch detected in state update)
 export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
@@ -484,6 +489,7 @@ export type AppMachineEvent =
   | CopyModeYankEvent
   | CopyModeKeyEvent
   | CopyModeWordSelectEvent
+  | CopyModeLineSelectEvent
   | ClearGroupSwitchOverrideEvent
   | ClearLayoutTransitionSuppressionEvent
   | EnableAnimationsEvent
