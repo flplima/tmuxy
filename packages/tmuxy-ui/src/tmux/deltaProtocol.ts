@@ -11,6 +11,18 @@ import type {
 } from './types';
 
 /**
+ * Detect if a full state update represents a different session (kill+recreate).
+ * Returns true when either session name changed, or all window IDs are different
+ * (tmux assigns new window IDs on session creation, even if name is reused).
+ */
+function isSessionChanged(oldState: ServerState, newState: ServerState): boolean {
+  if (oldState.session_name !== newState.session_name) return true;
+  // If window IDs have zero overlap, it's a recreated session
+  const oldWindowIds = new Set(oldState.windows.map((w) => w.id));
+  return newState.windows.length > 0 && newState.windows.every((w) => !oldWindowIds.has(w.id));
+}
+
+/**
  * Check if pane content is effectively empty (all lines are empty or whitespace-only).
  * Used to detect panes awaiting capture-pane refresh after resize.
  */
@@ -36,7 +48,13 @@ export function handleStateUpdate(
     //    aggregator's first full emission has empty panes (captures not yet complete).
     // 2. Layout changes: after pane resize, the vt100 parser is reset (empty), but
     //    the capture-pane refill hasn't arrived yet.
-    if (currentState && currentState.panes.length > 0) {
+    //
+    // Skip content preservation when the session has changed (kill+recreate):
+    // pane IDs are reused across sessions, so old content would leak as ghost lines.
+    // Detect session change by: different session name, OR completely different set
+    // of window IDs (same name but recreated — tmux assigns new window IDs).
+    const sessionChanged = currentState !== null && isSessionChanged(currentState, update.state);
+    if (currentState && currentState.panes.length > 0 && !sessionChanged) {
       const existingPaneMap = new Map(currentState.panes.map((p) => [p.tmux_id, p]));
       const mergedPanes = update.state.panes.map((pane) => {
         const existing = existingPaneMap.get(pane.tmux_id);
