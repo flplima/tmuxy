@@ -218,8 +218,8 @@ export function createKeyboardActor() {
       // mode on touch-capable devices where the hidden input may have focus)
       if (copyModeActive) {
         event.preventDefault();
-        // For yank key (y), copy to clipboard via native copy event
-        if (event.key === 'y') {
+        // For yank keys (y, Enter), copy to clipboard via native copy event
+        if (event.key === 'y' || event.key === 'Enter') {
           try {
             const snapshot = input.parent.getSnapshot() as {
               context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };

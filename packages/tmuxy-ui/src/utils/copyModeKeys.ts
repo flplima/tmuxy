@@ -252,6 +252,7 @@ export function handleCopyModeKey(
 
       // Yank
       case 'y':
+      case 'Enter':
         if (selectionMode) {
           action = 'yank';
         }
