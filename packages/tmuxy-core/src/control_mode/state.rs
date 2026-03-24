@@ -184,6 +184,9 @@ pub struct PaneState {
     /// 0=block, 1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar
     pub cursor_shape: u8,
 
+    /// Whether the cursor is hidden (DECTCEM mode 25 off / ESC[?25l)
+    pub cursor_hidden: bool,
+
     /// Whether terminal content has changed since last extraction
     content_dirty: bool,
 
@@ -228,6 +231,7 @@ impl PaneState {
             history_size: 0,
             copy_mode_content: None,
             cursor_shape: 0,
+            cursor_hidden: false,
             content_dirty: true,
             cached_content: None,
         }
@@ -272,6 +276,7 @@ impl PaneState {
             self.terminal.screen().mouse_protocol_mode(),
             vt100::MouseProtocolMode::None
         );
+        self.cursor_hidden = self.terminal.screen().hide_cursor();
 
         // Update image parser cursor position from vt100 state
         let screen = self.terminal.screen();
@@ -445,6 +450,7 @@ impl PaneState {
             selection_start_y: sel_start_y,
             images: self.image_parser.placements.clone(),
             cursor_shape: self.cursor_shape,
+            cursor_hidden: self.cursor_hidden,
         }
     }
 }
@@ -1974,6 +1980,9 @@ impl StateAggregator {
         }
         if prev.cursor_shape != curr.cursor_shape {
             delta.cursor_shape = Some(curr.cursor_shape);
+        }
+        if prev.cursor_hidden != curr.cursor_hidden {
+            delta.cursor_hidden = Some(curr.cursor_hidden);
         }
         delta
     }
