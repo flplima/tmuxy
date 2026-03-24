@@ -390,8 +390,8 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
   // reconciliation. Without this, optimistic splits append the placeholder
   // at the end while the server may insert the new pane at a different
   // index, causing React to DOM-move existing panes (visible as flicker).
-  result.sort((a, b) => a.y - b.y || a.x - b.x);
-  return result;
+  // Spread first — result may alias the memoized selectPreviewPanes cache.
+  return [...result].sort((a, b) => a.y - b.y || a.x - b.x);
 }
 
 export const selectVisiblePanes = createMemoizedSelector(
