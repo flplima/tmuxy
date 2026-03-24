@@ -34,8 +34,12 @@ src-tauri/target
 
 # Claude Code (user-specific, not checked in)
 CLAUDE.local.md
-.claude/
-.agents/
+.claude/*
+# Track agent definitions, lib, and startup script
+!.claude/agents/
+!.claude/lib/
+!.claude/start.sh
+!.claude/README.md
 
 # BDG session files
 .bdg/
