@@ -1405,12 +1405,26 @@ impl StateAggregator {
                 // Existing pane: update geometry and window assignment
                 pane.x = lp.x;
                 pane.y = lp.y;
-                // Detect pane moving between windows (e.g., swap-pane during group switch).
-                // The pane's vt100 parser content may be stale — trigger a capture-pane refresh.
+                // Detect pane moving between windows (e.g., break-pane, swap-pane).
+                // Reset the VT100 parser immediately to clear stale content from the
+                // old window. Without this, %output events that arrive before the
+                // capture-pane response would build on top of the stale buffer.
                 let moved_window = pane.window_id != window_id;
                 pane.window_id = window_id.to_string();
                 pane.index = lp.index;
-                if pane.resize(lp.width, lp.height) || moved_window {
+                let was_resized = pane.resize(lp.width, lp.height);
+                if moved_window && !was_resized {
+                    // resize() already resets VT100 when dimensions change.
+                    // When only the window changed (same dimensions), reset manually.
+                    let w = (pane.width as u16).max(1);
+                    let h = (pane.height as u16).max(1);
+                    pane.terminal = vt100::Parser::new(h, w, 0);
+                    pane.raw_buffer.clear();
+                    pane.image_parser.reset();
+                    pane.content_dirty = true;
+                    pane.cached_content = None;
+                }
+                if was_resized || moved_window {
                     resized_panes.push(lp.id.clone());
                 }
             } else {
