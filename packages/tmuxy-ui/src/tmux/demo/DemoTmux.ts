@@ -169,6 +169,7 @@ export class DemoTmux {
         copy_cursor_y: 0,
         history_size: pane.shell.getHistorySize(),
         cursor_shape: 0,
+        cursor_hidden: false,
       });
     }
 

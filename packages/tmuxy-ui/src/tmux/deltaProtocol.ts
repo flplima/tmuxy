@@ -272,6 +272,7 @@ function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
     ...(delta.selection_start_y !== undefined && { selection_start_y: delta.selection_start_y }),
     ...(delta.images !== undefined && { images: delta.images }),
     ...(delta.cursor_shape !== undefined && { cursor_shape: delta.cursor_shape }),
+    ...(delta.cursor_hidden !== undefined && { cursor_hidden: delta.cursor_hidden }),
   };
 }
 

@@ -35,6 +35,8 @@ interface TerminalProps {
   paneId?: string;
   /** Cursor shape from DECSCUSR (0-6) */
   cursorShape?: number;
+  /** Whether the cursor is hidden (DECTCEM mode 25 off) */
+  cursorHidden?: boolean;
 }
 
 // Empty line constant for padding
@@ -101,11 +103,13 @@ export const Terminal: React.FC<TerminalProps> = ({
   images,
   paneId,
   cursorShape = 0,
+  cursorHidden = false,
 }) => {
   // Use copy mode cursor position when in copy mode
   const effectiveCursorX = inMode ? copyCursorX : cursorX;
   const effectiveCursorY = inMode ? copyCursorY : cursorY;
-  const showCursor = isActive || inMode;
+  // Hide cursor when application requests it (DECTCEM off), but always show in copy mode
+  const showCursor = (isActive && !cursorHidden) || inMode;
 
   // Derive cursor mode and blink from DECSCUSR shape
   const cursorStyle = useMemo(() => cursorShapeToMode(cursorShape), [cursorShape]);

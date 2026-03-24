@@ -389,6 +389,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
                   images={pane.images}
                   paneId={pane.tmuxId}
                   cursorShape={pane.cursorShape}
+                  cursorHidden={pane.cursorHidden}
                 />
               </div>
             )}
