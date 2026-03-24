@@ -66,7 +66,11 @@ export function calculatePrediction(
     case 'select-pane':
       return calculateSelectPanePrediction(parsed, panes, activePaneId!, command);
     case 'relative-pane':
-      return calculateRelativePanePrediction(parsed, panes, activePaneId!, activeWindowId, command);
+      // Don't apply optimistic predictions for relative pane cycling (:.+ / :.−).
+      // These commands are position-relative — any client/server mismatch in
+      // activePaneId causes predictions to diverge further with each invocation,
+      // leading to skipped panes and "stuck" focus.
+      return null;
     case 'new-window':
       return calculateNewWindowPrediction(parsed, windows, command);
     case 'select-window':
@@ -372,7 +376,7 @@ function calculateSelectPanePrediction(
  * Matches tmux's :.+ (next pane) and :.- (previous pane) targets.
  * Panes are sorted by pane index within the active window.
  */
-function calculateRelativePanePrediction(
+function _calculateRelativePanePrediction(
   parsed: RelativePaneCommand,
   panes: TmuxPane[],
   activePaneId: string,
