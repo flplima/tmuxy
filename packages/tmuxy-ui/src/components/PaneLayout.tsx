@@ -24,6 +24,7 @@ import {
   selectEnableAnimations,
   selectSuppressLayoutTransition,
   selectGroupSwitchPaneIds,
+  selectPaneKeyOverrides,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
 
@@ -49,6 +50,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const enableAnimations = useAppSelector(selectEnableAnimations);
   const suppressLayoutTransition = useAppSelector(selectSuppressLayoutTransition);
   const groupSwitchPanes = useAppSelector(selectGroupSwitchPaneIds);
+  const paneKeyOverrides = useAppSelector(selectPaneKeyOverrides);
 
   const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
   const isDragging = useIsDragging();
@@ -199,7 +201,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
         return (
           <AnimatedPaneWrapper
-            key={pane.tmuxId}
+            key={paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId}
             pane={pane}
             className={getPaneClassName(pane)}
             style={style}

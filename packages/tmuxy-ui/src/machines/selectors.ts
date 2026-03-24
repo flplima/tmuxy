@@ -569,6 +569,15 @@ export function selectSuppressLayoutTransition(context: AppMachineContext): bool
   return context.suppressLayoutTransition;
 }
 
+/**
+ * Select stable React key overrides for panes.
+ * Maps real pane tmuxId → placeholder ID it morphed from, so PaneLayout
+ * can reuse the placeholder's React key and avoid unmount/remount flicker.
+ */
+export function selectPaneKeyOverrides(context: AppMachineContext): Record<string, string> {
+  return context.paneKeyOverrides;
+}
+
 // ============================================
 // Optimistic Update Selectors
 // ============================================

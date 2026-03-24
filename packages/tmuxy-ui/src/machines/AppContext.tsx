@@ -80,6 +80,7 @@ export {
   selectContainerSize,
   selectEnableAnimations,
   selectSuppressLayoutTransition,
+  selectPaneKeyOverrides,
   selectHasOptimisticOperation,
   selectGroupSwitchPaneIds,
   selectSessionName,
