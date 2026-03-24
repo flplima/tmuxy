@@ -409,9 +409,15 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      // Copy mode: let the browser scroll natively (no preventDefault).
-      // The container's onScroll handler forwards position to state machine.
+      // Copy mode: manually forward wheel delta to the scroll container.
+      // The wrapper is non-scrollable, so native scroll won't reach the
+      // inner pane-scroll-container. Adjusting scrollTop fires the onScroll
+      // handler which sends COPY_MODE_SCROLL to the state machine.
       if (copyModeActive) {
+        e.preventDefault();
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop += e.deltaY;
+        }
         return;
       }
 

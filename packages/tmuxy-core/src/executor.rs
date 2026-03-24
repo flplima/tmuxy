@@ -1038,6 +1038,10 @@ pub struct KeyBinding {
     pub key: String,
     pub command: String,
     pub description: String,
+    /// Whether this binding has the `-r` (repeat) flag.
+    /// Repeat bindings auto-re-enter prefix mode after execution.
+    #[serde(default)]
+    pub repeat: bool,
 }
 
 /// Get all prefix key bindings from tmux
@@ -1053,14 +1057,14 @@ pub fn get_prefix_bindings() -> Result<Vec<KeyBinding>, String> {
         //   bind-key    -T prefix KEY command...
         //   bind-key -r -T prefix KEY command...
         // The -r flag shifts all subsequent indices by 1.
-        let (key_idx, cmd_idx) = if parts.len() >= 6
+        let (key_idx, cmd_idx, is_repeat) = if parts.len() >= 6
             && parts[0] == "bind-key"
             && parts[1] == "-r"
             && parts[3] == "prefix"
         {
-            (4, 5)
+            (4, 5, true)
         } else if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == "prefix" {
-            (3, 4)
+            (3, 4, false)
         } else {
             continue;
         };
@@ -1116,6 +1120,7 @@ pub fn get_prefix_bindings() -> Result<Vec<KeyBinding>, String> {
                 key,
                 command,
                 description,
+                repeat: is_repeat,
             });
         }
     }
@@ -1178,6 +1183,7 @@ pub fn get_root_bindings() -> Result<Vec<KeyBinding>, String> {
             key,
             command,
             description: String::new(),
+            repeat: false,
         });
     }
 

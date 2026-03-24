@@ -120,6 +120,7 @@ export function createKeyboardActor() {
     // Dynamic keybindings from server
     let prefixKey = 'C-a'; // Default, will be updated from server
     let prefixBindings: Map<string, string> = new Map();
+    let prefixRepeatKeys: Set<string> = new Set();
     let rootBindings: Map<string, string> = new Map();
 
     // Prefix key timeout (tmux default is 500ms, we use 8000ms so the hint is
@@ -299,7 +300,13 @@ export function createKeyboardActor() {
 
       // If in prefix mode, look up the binding
       if (inPrefixMode) {
-        resetPrefixMode();
+        // Clear the current prefix timeout but don't notify yet —
+        // we may re-enter prefix mode below for repeat bindings.
+        if (prefixTimeout) {
+          clearTimeout(prefixTimeout);
+          prefixTimeout = null;
+        }
+        inPrefixMode = false;
 
         // Determine the binding key — map DOM key values to tmux key names
         let bindingKey = KEY_MAP[event.key] ?? event.key;
@@ -332,6 +339,15 @@ export function createKeyboardActor() {
             command,
           });
 
+          // Re-enter prefix mode for repeat (-r) bindings, matching tmux behavior.
+          // This lets users press e.g. prefix+o o o to cycle panes without
+          // re-pressing the prefix key each time.
+          if (prefixRepeatKeys.has(bindingKey)) {
+            enterPrefixMode();
+          } else {
+            input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
+          }
+
           input.parent.send({
             type: 'KEY_PRESS',
             key: event.key,
@@ -344,6 +360,7 @@ export function createKeyboardActor() {
         }
 
         // Unknown binding - just ignore (like tmux does)
+        input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
         input.parent.send({
           type: 'KEY_PRESS',
           key: event.key,
@@ -487,6 +504,7 @@ export function createKeyboardActor() {
         const kb = event.keybindings;
         prefixKey = kb.prefix_key;
         prefixBindings = new Map(kb.prefix_bindings.map((b) => [b.key, b.command]));
+        prefixRepeatKeys = new Set(kb.prefix_bindings.filter((b) => b.repeat).map((b) => b.key));
         rootBindings = new Map(kb.root_bindings.map((b) => [b.key, b.command]));
       } else if (event.type === 'UPDATE_COPY_MODE') {
         copyModeActive = event.active;

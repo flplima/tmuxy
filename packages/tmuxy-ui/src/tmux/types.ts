@@ -297,6 +297,7 @@ export interface KeyBinding {
   key: string;
   command: string;
   description: string;
+  repeat?: boolean;
 }
 
 export interface KeyBindings {

@@ -1019,9 +1019,20 @@ export const appMachine = setup({
                 context.activePaneId !== null &&
                 transformed.activePaneId !== null &&
                 transformed.panes.some((p) => p.tmuxId === context.activePaneId);
-              const effectiveActivePaneId = isLayoutTransition
-                ? context.activePaneId
-                : (transformed.activePaneId ?? context.activePaneId);
+              // Preserve optimistic activePaneId when a navigation prediction is
+              // pending and the server hasn't confirmed the change yet. Without this,
+              // intermediate state updates (before tmux processes the command) roll
+              // back activePaneId, causing the next prefix+o to predict from a stale
+              // position while tmux has already advanced — resulting in a double-advance.
+              const isOptimisticNav =
+                context.optimisticOperation?.prediction.type === 'navigate' &&
+                context.activePaneId !== null &&
+                transformed.activePaneId !== context.activePaneId &&
+                transformed.panes.some((p) => p.tmuxId === context.activePaneId);
+              const effectiveActivePaneId =
+                isLayoutTransition || isOptimisticNav
+                  ? context.activePaneId
+                  : (transformed.activePaneId ?? context.activePaneId);
 
               // Detect pane dimension changes from command-based resize
               // (not drag-resize, which uses resizeActive). Suppress CSS
