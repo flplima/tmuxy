@@ -364,24 +364,34 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
 
   const groupsArray = Object.values(context.paneGroups);
 
-  if (groupsArray.length === 0) return previewPanes;
+  let result: TmuxPane[];
+  if (groupsArray.length === 0) {
+    result = previewPanes;
+  } else {
+    // Build a Set of hidden pane IDs for O(1) lookup
+    const hiddenPaneIds = new Set<string>();
 
-  // Build a Set of hidden pane IDs for O(1) lookup
-  const hiddenPaneIds = new Set<string>();
+    for (const group of groupsArray) {
+      // The active pane is whichever one is in the active window
+      const activePaneId = getActivePaneInGroup(context, group);
 
-  for (const group of groupsArray) {
-    // The active pane is whichever one is in the active window
-    const activePaneId = getActivePaneInGroup(context, group);
-
-    // Hide all group panes except the one in the active window
-    for (const paneId of group.paneIds) {
-      if (paneId !== activePaneId) {
-        hiddenPaneIds.add(paneId);
+      // Hide all group panes except the one in the active window
+      for (const paneId of group.paneIds) {
+        if (paneId !== activePaneId) {
+          hiddenPaneIds.add(paneId);
+        }
       }
     }
+
+    result = previewPanes.filter((pane) => !hiddenPaneIds.has(pane.tmuxId));
   }
 
-  return previewPanes.filter((pane) => !hiddenPaneIds.has(pane.tmuxId));
+  // Sort by grid position (top→bottom, left→right) for stable React key
+  // reconciliation. Without this, optimistic splits append the placeholder
+  // at the end while the server may insert the new pane at a different
+  // index, causing React to DOM-move existing panes (visible as flicker).
+  result.sort((a, b) => a.y - b.y || a.x - b.x);
+  return result;
 }
 
 export const selectVisiblePanes = createMemoizedSelector(

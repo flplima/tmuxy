@@ -203,24 +203,25 @@ function isPositionClose(actual: number, expected: number): boolean {
 }
 
 /**
- * Find the real server pane that matches a split prediction's placeholder.
- * Returns the real pane's tmuxId, or null if no match found.
- * Used to morph the placeholder into the real pane (stable React key).
+ * Find the real server pane that replaced a split placeholder.
+ *
+ * Uses set difference: any pane in serverPanes whose tmuxId is not in
+ * priorPaneIds (the real IDs that existed before the optimistic split).
+ * This is more robust than position matching, which breaks when tmux's
+ * layout algorithm produces slightly different coordinates.
+ *
+ * Returns the real pane's tmuxId, or null if no new pane appeared yet.
  */
 export function findMatchingRealPane(
-  prediction: SplitPrediction,
+  priorPaneIds: Set<string>,
   serverPanes: TmuxPane[],
 ): string | null {
-  const { newPane } = prediction;
-  const match = serverPanes.find(
-    (pane) =>
-      !pane.tmuxId.startsWith('__placeholder_') &&
-      isPositionClose(pane.x, newPane.x) &&
-      isPositionClose(pane.y, newPane.y) &&
-      isPositionClose(pane.width, newPane.width) &&
-      isPositionClose(pane.height, newPane.height),
-  );
-  return match?.tmuxId ?? null;
+  for (const pane of serverPanes) {
+    if (!priorPaneIds.has(pane.tmuxId) && !pane.tmuxId.startsWith('__placeholder_')) {
+      return pane.tmuxId;
+    }
+  }
+  return null;
 }
 
 /**

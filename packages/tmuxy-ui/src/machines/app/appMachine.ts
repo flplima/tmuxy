@@ -33,6 +33,7 @@ import {
   applySelectWindowPrediction,
   reconcileOptimisticUpdate,
   findMatchingRealPane,
+  isOperationStale,
 } from './optimistic';
 import {
   DEFAULT_SESSION_NAME,
@@ -781,6 +782,7 @@ export const appMachine = setup({
 
               // Reconcile optimistic updates if pending
               let newPaneKeyOverrides = context.paneKeyOverrides;
+              let clearOptimistic = false;
               if (context.optimisticOperation) {
                 const result = reconcileOptimisticUpdate(
                   context.optimisticOperation,
@@ -796,17 +798,31 @@ export const appMachine = setup({
 
                 // Morph split placeholder → real pane: assign a stable React key
                 // so PaneLayout doesn't unmount/remount (avoids 3-phase flicker).
-                if (context.optimisticOperation.prediction.type === 'split' && result.matched) {
+                // Use set difference (not position matching) to find the new pane.
+                if (context.optimisticOperation.prediction.type === 'split') {
                   const placeholderId =
                     context.optimisticOperation.prediction.newPane.placeholderId;
-                  const realId = findMatchingRealPane(
-                    context.optimisticOperation.prediction,
-                    transformed.panes,
+                  // Collect real pane IDs that existed before the optimistic split
+                  const priorPaneIds = new Set(
+                    context.panes
+                      .filter((p) => !p.tmuxId.startsWith('__placeholder_'))
+                      .map((p) => p.tmuxId),
                   );
+                  const realId = findMatchingRealPane(priorPaneIds, transformed.panes);
                   if (realId) {
                     newPaneKeyOverrides = { ...newPaneKeyOverrides, [realId]: placeholderId };
+                    clearOptimistic = true;
+                  } else {
+                    // Real pane hasn't appeared yet (content-only update arrived
+                    // before the split result). Keep optimisticOperation alive so
+                    // the next TMUX_STATE_UPDATE can morph the placeholder.
+                    clearOptimistic = isOperationStale(context.optimisticOperation);
                   }
+                } else {
+                  clearOptimistic = true;
                 }
+              } else {
+                clearOptimistic = true;
               }
 
               // Prune stale key overrides for panes that no longer exist
@@ -1098,8 +1114,9 @@ export const appMachine = setup({
                   floatPanes,
                   copyModeStates: updatedCopyModeStates,
                   lastUpdateTime: Date.now(),
-                  // Clear optimistic tracking - server state overwrites any predictions
-                  optimisticOperation: null,
+                  // Clear optimistic tracking when server confirms (or operation is stale).
+                  // Kept alive for split operations until the real pane appears.
+                  optimisticOperation: clearOptimistic ? null : ctx.optimisticOperation,
                   // Clear held resize preview only after resize drag ends.
                   // During active resize, keep the preview to avoid size jumps
                   // from intermediate %layout-change events.
