@@ -3,6 +3,12 @@
  *
  * Scans pane pairs to find shared edges (with 1-cell tmux divider gap),
  * merges overlapping segments, and renders invisible clickable dividers.
+ *
+ * Keys use sequential indices (divider-0, divider-1, ...) in a canonical
+ * sort order so React reconciles existing DOM nodes in-place across resize,
+ * layout cycle, and split/placeholder-swap operations. The total number of
+ * dividers is N-1 for N panes in standard tmux layouts, so the count (and
+ * therefore the keys) stays constant when only positions/orientations change.
  */
 
 import React from 'react';
@@ -21,6 +27,15 @@ interface DividerSegment {
   start: number; // left for horizontal, top for vertical
   end: number; // right for horizontal, bottom for vertical
   paneId: string; // pane to resize
+}
+
+/** A fully resolved divider with orientation and axis position */
+interface ResolvedDivider {
+  orientation: 'h' | 'v';
+  axisPos: number; // yPos for horizontal, xPos for vertical
+  start: number;
+  end: number;
+  paneId: string;
 }
 
 /** Merge adjacent/overlapping segments at a given divider position */
@@ -99,6 +114,52 @@ function collectDividerSegments(panes: TmuxPane[]) {
   return { horizontal, vertical };
 }
 
+/**
+ * Flatten horizontal/vertical maps into a single sorted list of dividers.
+ * Canonical sort: orientation (h before v), then axisPos, then start.
+ * This ensures stable sequential indices across renders when divider count
+ * stays constant (resize, layout cycle, placeholder swap).
+ */
+function resolveDividers(
+  horizontal: Map<number, DividerSegment[]>,
+  vertical: Map<number, DividerSegment[]>,
+): ResolvedDivider[] {
+  const dividers: ResolvedDivider[] = [];
+
+  horizontal.forEach((segments, axisPos) => {
+    for (const seg of mergeSegments(segments)) {
+      dividers.push({
+        orientation: 'h',
+        axisPos,
+        start: seg.start,
+        end: seg.end,
+        paneId: seg.paneId,
+      });
+    }
+  });
+
+  vertical.forEach((segments, axisPos) => {
+    for (const seg of mergeSegments(segments)) {
+      dividers.push({
+        orientation: 'v',
+        axisPos,
+        start: seg.start,
+        end: seg.end,
+        paneId: seg.paneId,
+      });
+    }
+  });
+
+  // Canonical sort for stable index assignment
+  dividers.sort((a, b) => {
+    if (a.orientation !== b.orientation) return a.orientation < b.orientation ? -1 : 1;
+    if (a.axisPos !== b.axisPos) return a.axisPos - b.axisPos;
+    return a.start - b.start;
+  });
+
+  return dividers;
+}
+
 /** Thickness of resize grab handles in pixels */
 const DIVIDER_THICKNESS = 8;
 
@@ -110,74 +171,66 @@ export function ResizeDividers({
 }: ResizeDividersProps) {
   const send = useAppSend();
   const { horizontal, vertical } = collectDividerSegments(panes);
-  const dividerElements: React.ReactElement[] = [];
+  const dividers = resolveDividers(horizontal, vertical);
 
-  // Horizontal dividers (between vertically stacked panes)
-  // Thin strip centered at the border between panes
-  horizontal.forEach((segments, yPos) => {
-    const merged = mergeSegments(segments);
-    merged.forEach((seg) => {
-      dividerElements.push(
-        <div
-          key={`h-${yPos}-${seg.start}-${seg.end}`}
-          className="resize-divider resize-divider-h"
-          style={{
-            left: centeringOffset.x + seg.start * charWidth,
-            top: centeringOffset.y + yPos * charHeight - DIVIDER_THICKNESS / 2,
-            width: (seg.end - seg.start) * charWidth,
-            height: DIVIDER_THICKNESS,
-          }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            haptics.trigger(10);
-            document.addEventListener('mouseup', () => haptics.trigger('success'), { once: true });
-            send({
-              type: 'RESIZE_START',
-              paneId: seg.paneId,
-              handle: 's',
-              startX: e.clientX,
-              startY: e.clientY,
-            });
-          }}
-        />,
-      );
-    });
-  });
-
-  // Vertical dividers (between horizontally adjacent panes)
-  // Thin strip centered at the border column
-  vertical.forEach((segments, xPos) => {
-    const merged = mergeSegments(segments);
-    merged.forEach((seg) => {
-      const headerY = Math.max(0, seg.start - 1);
-      dividerElements.push(
-        <div
-          key={`v-${xPos}-${seg.start}-${seg.end}`}
-          className="resize-divider resize-divider-v"
-          style={{
-            left: centeringOffset.x + xPos * charWidth + charWidth / 2 - DIVIDER_THICKNESS / 2,
-            top: centeringOffset.y + headerY * charHeight,
-            width: DIVIDER_THICKNESS,
-            height: (seg.end - headerY) * charHeight,
-          }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            haptics.trigger(10);
-            document.addEventListener('mouseup', () => haptics.trigger('success'), { once: true });
-            send({
-              type: 'RESIZE_START',
-              paneId: seg.paneId,
-              handle: 'e',
-              startX: e.clientX,
-              startY: e.clientY,
-            });
-          }}
-        />,
-      );
-    });
-  });
-
-  return <>{dividerElements}</>;
+  return (
+    <>
+      {dividers.map((div, idx) =>
+        div.orientation === 'h' ? (
+          <div
+            key={`divider-${idx}`}
+            className="resize-divider resize-divider-h"
+            style={{
+              left: centeringOffset.x + div.start * charWidth,
+              top: centeringOffset.y + div.axisPos * charHeight - DIVIDER_THICKNESS / 2,
+              width: (div.end - div.start) * charWidth,
+              height: DIVIDER_THICKNESS,
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              haptics.trigger(10);
+              document.addEventListener('mouseup', () => haptics.trigger('success'), {
+                once: true,
+              });
+              send({
+                type: 'RESIZE_START',
+                paneId: div.paneId,
+                handle: 's',
+                startX: e.clientX,
+                startY: e.clientY,
+              });
+            }}
+          />
+        ) : (
+          <div
+            key={`divider-${idx}`}
+            className="resize-divider resize-divider-v"
+            style={{
+              left:
+                centeringOffset.x + div.axisPos * charWidth + charWidth / 2 - DIVIDER_THICKNESS / 2,
+              top: centeringOffset.y + Math.max(0, div.start - 1) * charHeight,
+              width: DIVIDER_THICKNESS,
+              height: (div.end - Math.max(0, div.start - 1)) * charHeight,
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              haptics.trigger(10);
+              document.addEventListener('mouseup', () => haptics.trigger('success'), {
+                once: true,
+              });
+              send({
+                type: 'RESIZE_START',
+                paneId: div.paneId,
+                handle: 'e',
+                startX: e.clientX,
+                startY: e.clientY,
+              });
+            }}
+          />
+        ),
+      )}
+    </>
+  );
 }
