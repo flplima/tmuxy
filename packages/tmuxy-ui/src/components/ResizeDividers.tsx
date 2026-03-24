@@ -21,7 +21,6 @@ interface DividerSegment {
   start: number; // left for horizontal, top for vertical
   end: number; // right for horizontal, bottom for vertical
   paneId: string; // pane to resize
-  adjacentPaneIds: string[]; // pane(s) on the other side of the divider
 }
 
 /** Merge adjacent/overlapping segments at a given divider position */
@@ -37,7 +36,6 @@ function mergeSegments(segments: DividerSegment[]): DividerSegment[] {
     // Adjacent or overlapping (allow 1-cell gap for tmux divider)
     if (next.start <= current.end + 1) {
       current.end = Math.max(current.end, next.end);
-      current.adjacentPaneIds = [...current.adjacentPaneIds, ...next.adjacentPaneIds];
     } else {
       merged.push(current);
       current = { ...next };
@@ -70,17 +68,13 @@ function collectDividerSegments(panes: TmuxPane[]) {
         const left = Math.max(pane.x, other.x);
         const right = Math.min(pane.x + pane.width, other.x + other.width);
         if (!horizontal.has(yPos)) horizontal.set(yPos, []);
-        horizontal
-          .get(yPos)!
-          .push({ start: left, end: right, paneId: pane.tmuxId, adjacentPaneIds: [other.tmuxId] });
+        horizontal.get(yPos)!.push({ start: left, end: right, paneId: pane.tmuxId });
       } else if ((hGapBA === 1 || hGapBA === 2) && horizontallyOverlap) {
         const yPos = other.y + other.height;
         const left = Math.max(pane.x, other.x);
         const right = Math.min(pane.x + pane.width, other.x + other.width);
         if (!horizontal.has(yPos)) horizontal.set(yPos, []);
-        horizontal
-          .get(yPos)!
-          .push({ start: left, end: right, paneId: other.tmuxId, adjacentPaneIds: [pane.tmuxId] });
+        horizontal.get(yPos)!.push({ start: left, end: right, paneId: other.tmuxId });
       }
 
       // Vertical divider: panes share a vertical edge (with 1-cell tmux divider gap)
@@ -91,17 +85,13 @@ function collectDividerSegments(panes: TmuxPane[]) {
         const top = Math.max(pane.y, other.y);
         const bottom = Math.min(pane.y + pane.height, other.y + other.height);
         if (!vertical.has(xPos)) vertical.set(xPos, []);
-        vertical
-          .get(xPos)!
-          .push({ start: top, end: bottom, paneId: pane.tmuxId, adjacentPaneIds: [other.tmuxId] });
+        vertical.get(xPos)!.push({ start: top, end: bottom, paneId: pane.tmuxId });
       } else if (other.x + other.width + 1 === pane.x && verticallyOverlap) {
         const xPos = other.x + other.width;
         const top = Math.max(pane.y, other.y);
         const bottom = Math.min(pane.y + pane.height, other.y + other.height);
         if (!vertical.has(xPos)) vertical.set(xPos, []);
-        vertical
-          .get(xPos)!
-          .push({ start: top, end: bottom, paneId: other.tmuxId, adjacentPaneIds: [pane.tmuxId] });
+        vertical.get(xPos)!.push({ start: top, end: bottom, paneId: other.tmuxId });
       }
     }
   }
@@ -127,10 +117,9 @@ export function ResizeDividers({
   horizontal.forEach((segments, yPos) => {
     const merged = mergeSegments(segments);
     merged.forEach((seg) => {
-      const stableKey = `h-${[seg.paneId, ...seg.adjacentPaneIds].sort().join('-')}`;
       dividerElements.push(
         <div
-          key={stableKey}
+          key={`h-${yPos}-${seg.start}-${seg.end}`}
           className="resize-divider resize-divider-h"
           style={{
             left: centeringOffset.x + seg.start * charWidth,
@@ -162,10 +151,9 @@ export function ResizeDividers({
     const merged = mergeSegments(segments);
     merged.forEach((seg) => {
       const headerY = Math.max(0, seg.start - 1);
-      const stableKey = `v-${[seg.paneId, ...seg.adjacentPaneIds].sort().join('-')}`;
       dividerElements.push(
         <div
-          key={stableKey}
+          key={`v-${xPos}-${seg.start}-${seg.end}`}
           className="resize-divider resize-divider-v"
           style={{
             left: centeringOffset.x + xPos * charWidth + charWidth / 2 - DIVIDER_THICKNESS / 2,
