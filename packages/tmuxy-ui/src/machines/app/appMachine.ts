@@ -780,7 +780,25 @@ export const appMachine = setup({
                 transformed.activePaneId = context.activePaneId;
               }
 
-              // Reconcile optimistic updates if pending
+              // Reconcile optimistic updates if pending.
+              //
+              // Split anti-flicker strategy:
+              // The placeholder pane must keep its React key alive across ALL
+              // renders until the real pane arrives and can assume that key
+              // (via paneKeyOverrides). Two cases:
+              //
+              // Case A — intermediate update (real pane not yet in server state):
+              //   Inject the placeholder from context.panes back into
+              //   transformed.panes so its key survives in PaneLayout.
+              //
+              // Case B — real pane arrives:
+              //   Map realId → placeholderId in paneKeyOverrides. PaneLayout
+              //   renders the real pane with the placeholder's key. React sees
+              //   the same key → in-place update, no unmount/remount.
+              //
+              // The override persists for the lifetime of the pane (stale
+              // pruning removes it when the pane is killed). The tmuxId is
+              // NEVER changed — only the React key is overridden.
               let newPaneKeyOverrides = context.paneKeyOverrides;
               let clearOptimistic = false;
               if (context.optimisticOperation) {
@@ -796,9 +814,6 @@ export const appMachine = setup({
                   console.warn('[Optimistic] Rollback:', result.mismatchReason);
                 }
 
-                // Morph split placeholder → real pane: assign a stable React key
-                // so PaneLayout doesn't unmount/remount (avoids 3-phase flicker).
-                // Use set difference (not position matching) to find the new pane.
                 if (context.optimisticOperation.prediction.type === 'split') {
                   const placeholderId =
                     context.optimisticOperation.prediction.newPane.placeholderId;
@@ -810,12 +825,24 @@ export const appMachine = setup({
                   );
                   const realId = findMatchingRealPane(priorPaneIds, transformed.panes);
                   if (realId) {
-                    newPaneKeyOverrides = { ...newPaneKeyOverrides, [realId]: placeholderId };
+                    // Case B: real pane arrived. Map its React key to the
+                    // placeholder's key so PaneLayout updates in-place.
+                    newPaneKeyOverrides = {
+                      ...newPaneKeyOverrides,
+                      [realId]: placeholderId,
+                    };
                     clearOptimistic = true;
                   } else {
-                    // Real pane hasn't appeared yet (content-only update arrived
-                    // before the split result). Keep optimisticOperation alive so
-                    // the next TMUX_STATE_UPDATE can morph the placeholder.
+                    // Case A: real pane hasn't appeared yet. Inject the
+                    // placeholder back so its React key survives this render.
+                    const placeholder = context.panes.find((p) => p.tmuxId === placeholderId);
+                    if (placeholder) {
+                      transformed.panes = [...transformed.panes, placeholder];
+                      // Keep optimistic activePaneId on the placeholder
+                      if (context.activePaneId === placeholderId) {
+                        transformed.activePaneId = placeholderId;
+                      }
+                    }
                     clearOptimistic = isOperationStale(context.optimisticOperation);
                   }
                 } else {
