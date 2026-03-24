@@ -32,6 +32,7 @@ import {
   applyNewWindowPrediction,
   applySelectWindowPrediction,
   reconcileOptimisticUpdate,
+  findMatchingRealPane,
 } from './optimistic';
 import {
   DEFAULT_SESSION_NAME,
@@ -247,6 +248,8 @@ export const appMachine = setup({
     lastLayoutCommandTime: 0,
     // Suppress layout transitions during command-based resizes
     suppressLayoutTransition: false,
+    // Stable React key overrides: maps real pane tmuxId → placeholder ID it morphed from
+    paneKeyOverrides: {},
     // Pane activation order (MRU first) — used for navigation tie-breaking
     paneActivationOrder: [] as string[],
     // Dimension override during group switch (prevents intermediate state flicker)
@@ -777,6 +780,7 @@ export const appMachine = setup({
               }
 
               // Reconcile optimistic updates if pending
+              let newPaneKeyOverrides = context.paneKeyOverrides;
               if (context.optimisticOperation) {
                 const result = reconcileOptimisticUpdate(
                   context.optimisticOperation,
@@ -788,6 +792,32 @@ export const appMachine = setup({
 
                 if (!result.matched && result.mismatchReason) {
                   console.warn('[Optimistic] Rollback:', result.mismatchReason);
+                }
+
+                // Morph split placeholder → real pane: assign a stable React key
+                // so PaneLayout doesn't unmount/remount (avoids 3-phase flicker).
+                if (context.optimisticOperation.prediction.type === 'split' && result.matched) {
+                  const placeholderId =
+                    context.optimisticOperation.prediction.newPane.placeholderId;
+                  const realId = findMatchingRealPane(
+                    context.optimisticOperation.prediction,
+                    transformed.panes,
+                  );
+                  if (realId) {
+                    newPaneKeyOverrides = { ...newPaneKeyOverrides, [realId]: placeholderId };
+                  }
+                }
+              }
+
+              // Prune stale key overrides for panes that no longer exist
+              const transformedPaneIds = new Set(transformed.panes.map((p) => p.tmuxId));
+              const staleOverrideKeys = Object.keys(newPaneKeyOverrides).filter(
+                (id) => !transformedPaneIds.has(id),
+              );
+              if (staleOverrideKeys.length > 0) {
+                newPaneKeyOverrides = { ...newPaneKeyOverrides };
+                for (const key of staleOverrideKeys) {
+                  delete newPaneKeyOverrides[key];
                 }
               }
 
@@ -1075,6 +1105,8 @@ export const appMachine = setup({
                   // from intermediate %layout-change events.
                   resize: ctx.resizeActive ? ctx.resize : null,
                   groupSwitchDimOverride: groupSwitchOverride,
+                  // Stable React key overrides for morphed placeholders
+                  paneKeyOverrides: newPaneKeyOverrides,
                   // Track pane activation order (MRU) for navigation prediction
                   paneActivationOrder:
                     effectiveActivePaneId !== ctx.activePaneId

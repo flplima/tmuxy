@@ -24,5 +24,5 @@ export {
   applySelectWindowPrediction,
 } from './predictions';
 
-export { reconcileOptimisticUpdate, isOperationStale } from './reconcile';
+export { reconcileOptimisticUpdate, isOperationStale, findMatchingRealPane } from './reconcile';
 export type { ReconciliationResult } from './reconcile';

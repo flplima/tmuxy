@@ -181,6 +181,10 @@ export interface AppMachineContext {
   lastLayoutCommandTime: number;
   /** Temporarily suppress layout transitions (e.g., command-based resize) */
   suppressLayoutTransition: boolean;
+  /** Maps real pane tmuxId → stable React key (placeholder ID it morphed from).
+   *  Prevents unmount/remount flicker when optimistic placeholders are replaced
+   *  by server-confirmed panes. */
+  paneKeyOverrides: Record<string, string>;
 }
 
 // ============================================
