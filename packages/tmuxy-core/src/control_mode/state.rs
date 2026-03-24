@@ -750,6 +750,12 @@ pub struct StateAggregator {
     /// events still emit immediately. Used during command-aware settling
     /// to batch intermediate states from compound commands (e.g., splitw ; breakp).
     suppress_window_emissions: bool,
+
+    /// Panes whose VT100 was reset because they moved between windows
+    /// (e.g., break-pane). %output events are suppressed for these panes
+    /// until a capture-pane response arrives, preventing stale content from
+    /// the old window from accumulating in the reset buffer.
+    panes_moved_window: std::collections::HashSet<String>,
 }
 
 impl StateAggregator {
@@ -769,6 +775,7 @@ impl StateAggregator {
             delta_seq: 0,
             popup: None,
             suppress_window_emissions: false,
+            panes_moved_window: std::collections::HashSet::new(),
         }
     }
 
@@ -789,6 +796,7 @@ impl StateAggregator {
             delta_seq: 0,
             popup: None,
             suppress_window_emissions: false,
+            panes_moved_window: std::collections::HashSet::new(),
         }
     }
 
@@ -1177,6 +1185,8 @@ impl StateAggregator {
                                         safe_process(&mut pane.terminal, cursor_seq.as_bytes());
                                     }
                                 }
+                                // Capture arrived — clear window-move suppression
+                                self.panes_moved_window.remove(&pane_id);
                                 return ProcessEventResult {
                                     state_changed: true,
                                     change_type: ChangeType::PaneOutput { pane_id },
@@ -1318,6 +1328,13 @@ impl StateAggregator {
         // This prevents creating panes from other tmux sessions.
         // Panes are added via parse_list_panes_line() which sets window_id.
         if let Some(pane) = self.panes.get_mut(pane_id) {
+            // Suppress output for panes that recently moved between windows
+            // (e.g., break-pane). The VT100 was reset and a capture-pane is
+            // pending — processing %output now would accumulate stale content
+            // from the old window before the authoritative capture arrives.
+            if self.panes_moved_window.contains(pane_id) {
+                return (false, Vec::new());
+            }
             // Only process if pane has a valid window_id (was seen in list-panes)
             if !pane.window_id.is_empty() {
                 let store_before: Vec<u32> = pane.image_store.keys().copied().collect();
@@ -1423,6 +1440,11 @@ impl StateAggregator {
                     pane.image_parser.reset();
                     pane.content_dirty = true;
                     pane.cached_content = None;
+                }
+                if moved_window {
+                    // Track that this pane moved windows so handle_output()
+                    // suppresses stale %output until capture-pane arrives.
+                    self.panes_moved_window.insert(lp.id.clone());
                 }
                 if was_resized || moved_window {
                     resized_panes.push(lp.id.clone());
@@ -1722,6 +1744,13 @@ impl StateAggregator {
                     prev.panes.iter().map(|p| (p.tmux_id.as_str(), p)).collect();
                 for pane in &mut current.panes {
                     if self.pending_captures.contains(&pane.tmux_id) {
+                        // Don't preserve prev_state for panes that moved windows.
+                        // Their prev_state has stale content from the old window;
+                        // better to show the current (empty/reset) VT100 content
+                        // until the authoritative capture-pane response arrives.
+                        if self.panes_moved_window.contains(&pane.tmux_id) {
+                            continue;
+                        }
                         if let Some(prev_pane) = prev_panes.get(pane.tmux_id.as_str()) {
                             pane.content = prev_pane.content.clone();
                             pane.cursor_x = prev_pane.cursor_x;
@@ -2150,6 +2179,7 @@ impl StateAggregator {
         self.windows.clear();
         self.active_window_id = None;
         self.pending_captures.clear();
+        self.panes_moved_window.clear();
         self.cached_status_line.clear();
         self.status_line_dirty = true;
         self.popup = None;
