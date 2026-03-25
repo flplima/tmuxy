@@ -331,9 +331,9 @@ export function createKeyboardActor() {
 
         const bindingCommand = prefixBindings.get(bindingKey);
         if (bindingCommand) {
-          // Prepend session name to -t targets so commands are session-scoped.
-          // Preserves relative targets like :.+ (next pane) and :=0 (window 0).
-          const command = bindingCommand.replace(/-t (\S+)/, `-t ${sessionName}$1`);
+          // Send binding commands as-is — the control mode connection is already
+          // session-scoped, so all targets resolve correctly without a session prefix.
+          const command = bindingCommand;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command,
