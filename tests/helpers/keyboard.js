@@ -10,13 +10,18 @@ const { DELAYS } = require('./config');
 // ==================== Focus Helper ====================
 
 /**
- * Focus the terminal element, retrying if it's been detached by a React re-render.
+ * Focus the terminal element, clicking the ACTIVE pane's terminal.
+ * Clicking a non-active pane triggers FOCUS_PANE → select-pane, which
+ * races with subsequent prefix binding commands (e.g., prefix+o).
+ * Falls back to any terminal, then body, if the active selector fails.
  */
 async function focusTerminal(page) {
+  // Prefer the active pane's terminal to avoid changing the active pane
+  const activeSelector = '.pane-active [role="log"]';
   try {
-    await page.click('[role="log"]', { timeout: 2000 });
+    await page.click(activeSelector, { timeout: 2000 });
   } catch {
-    // Terminal may have been re-rendered; try again after a brief wait
+    // Active pane terminal may not exist yet; try any terminal
     await delay(100);
     try {
       await page.click('[role="log"]', { timeout: 2000 });
@@ -122,8 +127,9 @@ async function typeChar(page, char) {
  * Type text in terminal
  */
 async function typeInTerminal(page, text) {
-  // Click the terminal element directly for reliable focus (not body)
-  const terminal = await page.$('[role="log"]');
+  // Click the active pane's terminal for reliable focus.
+  // Using the first [role="log"] would change the active pane via FOCUS_PANE.
+  const terminal = await page.$('.pane-active [role="log"]') || await page.$('[role="log"]');
   if (terminal) {
     await terminal.click();
   } else {

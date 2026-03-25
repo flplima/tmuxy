@@ -11,7 +11,6 @@
  * therefore the keys) stays constant when only positions/orientations change.
  */
 
-import React from 'react';
 import { useAppSend } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
 import { haptics } from '../utils/haptics';

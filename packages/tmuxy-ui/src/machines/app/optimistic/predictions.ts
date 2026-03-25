@@ -376,7 +376,7 @@ function calculateSelectPanePrediction(
  * Matches tmux's :.+ (next pane) and :.- (previous pane) targets.
  * Panes are sorted by pane index within the active window.
  */
-function _calculateRelativePanePrediction(
+export function _calculateRelativePanePrediction(
   parsed: RelativePaneCommand,
   panes: TmuxPane[],
   activePaneId: string,
@@ -472,6 +472,7 @@ export function applySplitPrediction(
     selectionStartX: 0,
     selectionStartY: 0,
     cursorShape: 0,
+    cursorHidden: false,
   };
 
   return [...result, newPane];
