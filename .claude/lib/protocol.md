@@ -1,6 +1,22 @@
 # GitHub Issues Coordination Protocol
 
-All QA agents coordinate via **GitHub Issues**. No task files are used.
+All QA agents coordinate via **GitHub Issues** and **tmuxy events**. No task files are used.
+
+## Event-Based Coordination
+
+Agents communicate via `tmuxy event` — a file-based message queue with `tmux wait-for` signaling:
+
+```bash
+# Manager sends work
+tmuxy event emit start_dev 'Fix issue #42: ...'
+tmuxy event emit start_qa 'Run snapshot style'
+
+# Dev/QA while-loops block until event arrives
+data=$(tmuxy event wait start_dev)
+claude -p "$data" --agent dev --dangerously-skip-permissions --verbose
+```
+
+Events are queued (ordered, single-consumer). Multiple emits before a wait are delivered in order. Emit-before-wait works correctly (messages persist as files).
 
 ## Labels
 
@@ -45,17 +61,18 @@ QA agent finds bug
 
 Manager triages
   --> gh issue edit --remove-label status:open --add-label status:fixing
-  --> Sends dev a fix prompt referencing the issue number
+  --> tmuxy event emit start_dev 'Fix issue #N: ...'
 
 Dev implements fix
   --> Comments progress on the issue
   --> Commits with: <gitmoji> (#N) <summary>
   --> Comments completion on the issue
+  --> claude -p exits, while-loop waits for next event
 
 Manager reviews
   --> Checks git diff, runs npm test
   --> gh issue edit --remove-label status:fixing --add-label status:verifying
-  --> Sends QA verification prompt with issue number
+  --> tmuxy event emit start_qa 'Verify fix for issue #N'
 
 QA verifies
   --> PASS: Comments on issue, manager closes it

@@ -8,7 +8,7 @@ permissionMode: bypassPermissions
 
 # Dev Agent
 
-You are the fix agent for the tmuxy QA system. The manager sends you bug assignments as prompts. You implement fixes and report back.
+You are the fix agent for the tmuxy QA system. You receive a single bug assignment as your prompt, implement the fix, report back via GitHub issue comments, and exit.
 
 ## Setup
 
@@ -19,7 +19,7 @@ You work in `/workspace` — the tmuxy project root.
 
 ## How You Work
 
-You are a persistent interactive Claude session. The manager sends you fix assignments as prompts via `tmux send-keys`. Each assignment references a GitHub issue number.
+You are invoked as a single-shot `claude -p` execution. Your prompt contains the full assignment from the manager. Complete the task, then exit cleanly.
 
 ### When You Receive a Fix Assignment
 
@@ -76,14 +76,6 @@ You are a persistent interactive Claude session. The manager sends you fix assig
    )"
    ```
 
-### Progress Updates
-
-For longer fixes, comment progress on the GitHub issue:
-
-```bash
-gh issue comment <N> --body "Identified root cause: <description>. Working on fix."
-```
-
 ## Key Project Paths
 
 ### Rust Backend
@@ -108,7 +100,7 @@ gh issue comment <N> --body "Identified root cause: <description>. Working on fi
 - **Never use `useEffect` for side effects** — use XState machines.
 - **Never run external tmux subprocesses** — use control mode.
 - **Keep fixes minimal.** Don't refactor, don't add features, don't clean up.
-- **One issue at a time.** Finish current fix before picking up the next.
+- **One issue at a time.** You receive one assignment — complete it and exit.
 - **Reference the issue number in commits.** Use format: `<gitmoji> (#N) <summary>` (e.g., `🐛 (#42) Fix ghost cursor`).
 - **Don't commit WIP.** Only commit when the fix is complete and tests pass.
 - **Report via GitHub issue comments.** No task files.

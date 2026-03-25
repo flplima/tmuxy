@@ -1,24 +1,34 @@
 # QA Agent System
 
-Continuous QA for tmuxy using 3 Claude Code agents coordinated via GitHub Issues.
+Continuous QA for tmuxy using 3 Claude Code agents coordinated via `tmuxy event` and GitHub Issues.
 
 ## Architecture
 
 ### Agents
 
-Each agent is defined as a Claude agent markdown file in `.claude/agents/` and launched via `claude --agent <name>`.
-
 ```
-manager  <- coordinates everything, owns git + GitHub Issues
-  ├── dev  <- implements fixes, reports via issue comments
-  └── qa   <- runs QA checks, creates issues for bugs found
+manager  <- persistent Claude session, coordinates everything, owns git + GitHub Issues
+  ├── dev  <- event-driven while-loop: waits for event → claude -p → exit → repeat
+  └── qa   <- event-driven while-loop: waits for event → claude -p → exit → repeat
 ```
 
 | Agent | Role | Socket | Agent File | Communication |
 |-------|------|--------|------------|--------------|
-| **Manager** | Triages bugs, reviews fixes, manages git | prod | `.claude/agents/manager.md` | Sends prompts to dev/qa via `tmux send-keys` |
-| **Dev** | Implements bug fixes | dev | `.claude/agents/dev.md` | Persistent Claude session, receives prompts from manager |
-| **QA** | Runs test styles, files issues | prod | `.claude/agents/qa.md` | Persistent Claude session, receives prompts from manager |
+| **Manager** | Triages bugs, reviews fixes, manages git | prod | `.claude/agents/manager.md` | Emits events via `tmuxy event emit start_dev` / `start_qa` |
+| **Dev** | Implements bug fixes | dev | `.claude/agents/dev.md` | Blocks on `tmuxy event wait start_dev`, runs `claude -p` per task |
+| **QA** | Runs test styles, files issues | prod | `.claude/agents/qa.md` | Blocks on `tmuxy event wait start_qa`, runs `claude -p` per task |
+
+### Event System
+
+The `tmuxy event` commands provide a file-based message queue using `tmux wait-for` for signaling:
+
+```bash
+tmuxy event emit <name> <message>     # Publish (queued, ordered)
+tmuxy event wait <name>               # Block until message arrives
+tmuxy event list                      # Show pending events
+```
+
+Events are stored at `/tmp/tmuxy-events/<socket>/<name>/` as numbered message files. Queue semantics: ordered, single-consumer, consumed messages deleted.
 
 ### Dual Tmux Servers
 
@@ -46,9 +56,9 @@ Style definitions are in `.claude/agents/qa/styles/`.
 ```
 QA finds bug      --> QA creates GitHub Issue (status:open)
                       OR user creates issue manually
-Manager triages   --> assigns dev, adds status:fixing
+Manager triages   --> assigns dev via tmuxy event emit, adds status:fixing
 Dev implements    --> commits with <gitmoji> (#N) <summary>, comments on issue
-Manager reviews   --> sends QA verification, adds status:verifying
+Manager reviews   --> sends QA verification via tmuxy event emit, adds status:verifying
 QA verifies       --> PASS: manager closes issue
                       FAIL: manager adds status:rejected, reassigns dev
 ```
@@ -73,6 +83,10 @@ gh issue list --label qa-bug
 # Check agent sessions
 TMUX_SOCKET=tmuxy-prod tmux -L tmuxy-prod list-sessions
 TMUX_SOCKET=tmuxy-dev tmux -L tmuxy-dev list-sessions
+
+# Manually send work to agents
+TMUX_SOCKET=tmuxy-prod tmuxy event emit start_dev 'Fix issue #99: ...'
+TMUX_SOCKET=tmuxy-prod tmuxy event emit start_qa 'Run snapshot style'
 ```
 
 ## Directory Structure
@@ -81,9 +95,9 @@ TMUX_SOCKET=tmuxy-dev tmux -L tmuxy-dev list-sessions
 .claude/
 ├── start.sh                        # Launcher (pm2 servers + 3 agents + heartbeat)
 ├── agents/                         # Claude agent definitions (loaded via --agent flag)
-│   ├── manager.md                  # Manager agent
-│   ├── dev.md                      # Dev agent
-│   ├── qa.md                       # QA agent
+│   ├── manager.md                  # Manager agent (persistent)
+│   ├── dev.md                      # Dev agent (single-shot per event)
+│   ├── qa.md                       # QA agent (single-shot per event)
 │   └── qa/
 │       └── styles/                 # QA test style definitions
 │           ├── snapshot.md

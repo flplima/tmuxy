@@ -5,7 +5,7 @@
 #
 # 1. Starts prod server (port 9000, tmuxy-prod) and dev server (port 9001, tmuxy-dev) via pm2
 # 2. Ensures GitHub labels exist
-# 3. Launches 3 agents: manager, dev, qa
+# 3. Launches 3 agents: manager (persistent), dev/qa (event-driven while-loops)
 # 4. Tails pm2 logs (Ctrl+C to stop watching — servers keep running)
 #
 # To stop everything: pm2 stop all
@@ -55,6 +55,8 @@ pm2 stop tmuxy-prod  >/dev/null 2>&1 || true
 pm2 stop tmuxy-dev   >/dev/null 2>&1 || true
 pm2 delete tmuxy-prod >/dev/null 2>&1 || true
 pm2 delete tmuxy-dev  >/dev/null 2>&1 || true
+# Clean up stale event queues
+rm -rf /tmp/tmuxy-events/
 step_done "Cleaned up old processes"
 
 # --- Start servers (sequentially to avoid concurrent compilation OOM) ---
@@ -76,11 +78,6 @@ step_done "Prod server ready"
 
 # Dev server: reuse the release binary (no cargo-watch needed for agents)
 step_start "Starting dev server (port 9001)"
-pm2 start ./scripts/prod.sh --name tmuxy-dev --cwd "$WORKSPACE" --silent \
-  -- 2>/dev/null || true
-# Override: run release binary on dev socket/port
-pm2 stop tmuxy-dev >/dev/null 2>&1 || true
-pm2 delete tmuxy-dev >/dev/null 2>&1 || true
 pm2 start bash --name tmuxy-dev --cwd "$WORKSPACE" --silent -- -c '
   cd /workspace
   tmux -L tmuxy-dev has-session -t tmuxy 2>/dev/null \
@@ -110,45 +107,39 @@ for label in qa-bug status:open status:fixing status:verifying status:closed sta
 done
 step_done "GitHub labels synced"
 
-# --- Launch 3 persistent interactive Claude agent sessions ---
+# --- Launch 3 agents ---
 #
-# All agents run as `claude --agent <name> --dangerously-skip-permissions`.
-# The --agent flag loads the agent definition from .claude/agents/<name>.md,
-# which includes the system prompt, allowed tools, and permission mode.
-# start.sh sends the initial prompt to the manager via tmux send-keys.
-# The manager then sends prompts to dev/qa via tmux send-keys.
+# Dev and QA run event-driven while-loops: block on `tmuxy event wait`,
+# run `claude -p` for each task, then loop back.
+# Manager runs as a persistent interactive Claude session.
 
-# Launch a Claude agent in a pane
-launch_claude() {
-  local pane="$1" socket="$2" agent="$3"
-  tmux -L tmuxy-prod send-keys -t "$pane" \
-    "cd $WORKSPACE && TMUX_SOCKET=$socket claude --agent $agent --dangerously-skip-permissions" Enter
-}
-
-# Dev: create tab, launch persistent Claude
+# Dev: create tab, launch event-driven while-loop
 step_start "Launching dev agent"
 DEV_PANE=$(TMUX_SOCKET=tmuxy-prod tmuxy tab create dev 2>/dev/null || echo "")
 if [ -n "$DEV_PANE" ]; then
   tmux -L tmuxy-prod set-option -wt tmuxy:dev automatic-rename off 2>/dev/null || true
-  launch_claude "$DEV_PANE" "tmuxy-dev" "dev"
+  tmux -L tmuxy-prod send-keys -t "$DEV_PANE" \
+    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_dev); echo \"received task, starting claude...\"; cd /workspace && TMUX_SOCKET=tmuxy-dev claude -p \"\$data\" --agent dev --dangerously-skip-permissions --verbose; echo 'task complete, waiting for next...'; done" Enter
 fi
 step_done "Dev agent launched"
 
-# QA: create tab, launch persistent Claude
+# QA: create tab, launch event-driven while-loop
 step_start "Launching QA agent"
 QA_PANE=$(TMUX_SOCKET=tmuxy-prod tmuxy tab create qa 2>/dev/null || echo "")
 if [ -n "$QA_PANE" ]; then
   tmux -L tmuxy-prod set-option -wt tmuxy:qa automatic-rename off 2>/dev/null || true
-  launch_claude "$QA_PANE" "tmuxy-prod" "qa"
+  tmux -L tmuxy-prod send-keys -t "$QA_PANE" \
+    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_qa); echo \"received task, starting claude...\"; cd /workspace && TMUX_SOCKET=tmuxy-prod claude -p \"\$data\" --agent qa --dangerously-skip-permissions --verbose; echo 'task complete, waiting for next...'; done" Enter
 fi
 step_done "QA agent launched"
 
-# Manager: window 0, launch persistent Claude
+# Manager: window 0, launch persistent Claude session
 step_start "Launching manager agent"
 MANAGER_PANE=$(tmux -L tmuxy-prod list-panes -t tmuxy:0 -F '#{pane_id}' 2>/dev/null | head -1)
 tmux -L tmuxy-prod set-option -wt tmuxy:0 automatic-rename off 2>/dev/null || true
 tmux -L tmuxy-prod rename-window -t tmuxy:0 manager 2>/dev/null || true
-launch_claude "$MANAGER_PANE" "tmuxy-prod" "manager"
+tmux -L tmuxy-prod send-keys -t "$MANAGER_PANE" \
+  "cd $WORKSPACE && TMUX_SOCKET=tmuxy-prod claude --agent manager --dangerously-skip-permissions" Enter
 step_done "Manager agent launched"
 
 # Complete first-run onboarding if needed (runs claude -p once to initialize config)
@@ -156,37 +147,27 @@ step_start "Initializing Claude"
 claude --dangerously-skip-permissions -p 'echo initialized' >/dev/null 2>&1 || true
 step_done "Claude initialized"
 
-# Wait for Claude sessions to reach the folder trust prompt, then confirm
-step_start "Waiting for Claude sessions"
+# Wait for manager's Claude session to reach the folder trust prompt, then confirm
+step_start "Waiting for manager session"
 for attempt in $(seq 1 60); do
-  PROMPTS=0
-  for tab in manager dev qa; do
-    tmux -L tmuxy-prod capture-pane -t "tmuxy:$tab" -p 2>/dev/null | grep -q 'trust this folder' && PROMPTS=$((PROMPTS + 1))
-  done
-  if [ "$PROMPTS" -ge 3 ]; then
-    # Confirm folder trust in all panes
-    for tab in manager dev qa; do
-      tmux -L tmuxy-prod send-keys -t "tmuxy:$tab" Enter 2>/dev/null || true
-    done
+  if tmux -L tmuxy-prod capture-pane -t tmuxy:manager -p 2>/dev/null | grep -q 'trust this folder'; then
+    tmux -L tmuxy-prod send-keys -t tmuxy:manager Enter 2>/dev/null || true
     break
   fi
   sleep 2
 done
 # Wait for Claude to finish initializing after trust confirmation
 for attempt in $(seq 1 30); do
-  READY=0
-  for tab in manager dev qa; do
-    tmux -L tmuxy-prod capture-pane -t "tmuxy:$tab" -p 2>/dev/null | grep -q 'bypass permissions' && READY=$((READY + 1))
-  done
-  [ "$READY" -ge 3 ] && break
+  if tmux -L tmuxy-prod capture-pane -t tmuxy:manager -p 2>/dev/null | grep -q 'bypass permissions'; then
+    break
+  fi
   sleep 2
 done
-step_done "Claude sessions ready"
+step_done "Manager session ready"
 
-# Send initial prompt to manager (text and Enter must be separate send-keys calls)
-# The agent definition is already loaded via --agent flag, so just kick off the monitor loop.
+# Send initial prompt to manager
 step_start "Sending initial prompt to manager"
-tmux -L tmuxy-prod send-keys -t tmuxy:manager 'Start the monitor loop. Source .claude/lib/gh-issues.sh for issue helpers. Check open GitHub issues (gh_issues_open). Send QA the first style rotation (snapshot). Assign dev the highest-priority open issue if any.'
+tmux -L tmuxy-prod send-keys -t tmuxy:manager 'Start the monitor loop. Source .claude/lib/gh-issues.sh for issue helpers. Check open GitHub issues (gh_issues_open). Send QA the first style rotation (snapshot) via tmuxy event emit start_qa. Assign dev the highest-priority open issue via tmuxy event emit start_dev if any.'
 sleep 1
 tmux -L tmuxy-prod send-keys -t tmuxy:manager Enter
 step_done "Manager prompted"
@@ -212,7 +193,7 @@ printf "    prod  %s\n" "$PROD_LOCAL"
 printf "          %s\n" "$PROD_LAN"
 printf "    dev   %s\n" "$DEV_LOCAL"
 printf "          %s\n\n" "$DEV_LAN"
-printf "    agents: manager, dev, qa\n"
+printf "    agents: manager (persistent), dev/qa (event-driven)\n"
 printf "    pm2 stop all          — stop servers\n"
 printf "    gh issue list -l qa-bug\n\n"
 
@@ -228,7 +209,7 @@ while true; do
     # Build issue summary for the heartbeat prompt (script-level user filtering)
     source "$WORKSPACE/.claude/lib/gh-issues.sh"
     ISSUE_SUMMARY=$(gh_issues_summary 2>/dev/null || echo "Could not fetch issues.")
-    tmux -L tmuxy-prod send-keys -t tmuxy:manager "Continue the monitor loop. Check QA and dev status (capture-pane). If either is idle, assign work immediately. QA: send next style rotation. Dev: assign next open issue. Open issues: ${ISSUE_SUMMARY}. Never be idle."
+    tmux -L tmuxy-prod send-keys -t tmuxy:manager "Continue the monitor loop. Check QA and dev status (capture-pane). If either is idle, assign work immediately via tmuxy event emit. QA: send next style rotation. Dev: assign next open issue. Open issues: ${ISSUE_SUMMARY}. Never be idle."
     sleep 1
     tmux -L tmuxy-prod send-keys -t tmuxy:manager Enter
     printf "  \033[36m↻\033[0m Manager re-prompted at %s\n" "$(date +%H:%M:%S)"

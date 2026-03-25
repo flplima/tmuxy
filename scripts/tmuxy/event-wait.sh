@@ -1,0 +1,52 @@
+#!/bin/bash
+# tmuxy event wait — block until a message arrives on a named event queue
+#
+# Usage: tmuxy event wait <name>
+#
+# Prints the oldest unconsumed message to stdout, then exits.
+# If no message is pending, blocks until one is emitted.
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS_DIR/_lib.sh"
+
+NAME="${1:?Usage: tmuxy event wait <name>}"
+
+SOCKET="${TMUX_SOCKET:-default}"
+DIR="/tmp/tmuxy-events/$SOCKET/$NAME"
+mkdir -p "$DIR"
+
+while true; do
+  # Read cursor (last consumed sequence number)
+  CURSOR=$(cat "$DIR/cursor" 2>/dev/null || echo -1)
+
+  # Find the lowest msg.<N> where N > cursor
+  BEST=""
+  BEST_N=""
+  shopt -s nullglob
+  for f in "$DIR"/msg.[0-9]*; do
+    [ -f "$f" ] || continue
+    N="${f##*/msg.}"
+    # Skip tmp files
+    case "$N" in *.tmp) continue ;; esac
+    if [ "$N" -gt "$CURSOR" ]; then
+      if [ -z "$BEST_N" ] || [ "$N" -lt "$BEST_N" ]; then
+        BEST="$f"
+        BEST_N="$N"
+      fi
+    fi
+  done
+  shopt -u nullglob
+
+  if [ -n "$BEST" ]; then
+    # Found a pending message — consume it
+    cat "$BEST"
+    echo "$BEST_N" > "$DIR/cursor"
+    rm -f "$BEST"
+    exit 0
+  fi
+
+  # No pending message — block until signaled
+  _tmux wait-for "tmuxy_evt_${NAME}"
+done

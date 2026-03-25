@@ -16,9 +16,15 @@ SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
 # --- Helpers ---
 
+# Respect TMUX_SOCKET env var for named server sockets.
+# All tmux calls in this script go through this wrapper.
+if [ -n "${TMUX_SOCKET:-}" ]; then
+  tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
+fi
+
 # Run a mutating tmux command safely through run-shell
 run_safe() {
-  tmux run-shell "tmux $*"
+  tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} $*"
 }
 
 # Find tmuxy-server binary: PATH first, then cargo target directory
@@ -47,6 +53,7 @@ Commands:
   session     Manage sessions (switch, connect)
   nav         Navigate across groups, splits, and tabs
   widget      Display widgets (image, markdown)
+  event       Event queue for inter-agent coordination (emit, wait, list)
   run         Run any tmux command safely
   server      Production server operations
 
@@ -155,6 +162,23 @@ Examples:
   tmuxy run swap-pane -s %0 -t %1
   tmuxy run new-window              # intercepted → safe alternative
   tmuxy run send-keys -t %3 ls Enter
+EOF
+}
+
+usage_event() {
+  cat <<'EOF'
+Usage: tmuxy event <command> [args...]
+
+Commands:
+  emit <name> <msg|->   Publish a message (use - for stdin)
+  wait <name>           Block until a message arrives, print to stdout
+  list                  Show pending events across all channels
+
+Examples:
+  tmuxy event emit start_qa '{"issue": 42}'
+  echo "payload" | tmuxy event emit start_dev -
+  data=$(tmuxy event wait start_qa)
+  tmuxy event list
 EOF
 }
 
@@ -611,6 +635,52 @@ cmd_nav() {
   esac
 }
 
+# --- Event subcommands ---
+
+cmd_event() {
+  local sub="${1:-}"
+  shift 2>/dev/null || true
+
+  case "$sub" in
+    emit)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy event emit <name> <message|->"; return ;;
+        "") echo "Error: event name required" >&2; return 1 ;;
+      esac
+      exec bash "$SCRIPTS_DIR/event-emit.sh" "$@"
+      ;;
+
+    wait)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy event wait <name>"; return ;;
+        "") echo "Error: event name required" >&2; return 1 ;;
+      esac
+      exec bash "$SCRIPTS_DIR/event-wait.sh" "$@"
+      ;;
+
+    list)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy event list"; return ;;
+      esac
+      exec bash "$SCRIPTS_DIR/event-list.sh"
+      ;;
+
+    --help|-h)
+      usage_event
+      ;;
+
+    "")
+      usage_event
+      ;;
+
+    *)
+      echo "Unknown event command: $sub" >&2
+      usage_event >&2
+      return 1
+      ;;
+  esac
+}
+
 # --- Run escape hatch ---
 
 cmd_run() {
@@ -676,6 +746,10 @@ case "${1:-}" in
   widget)
     shift
     cmd_widget "$@"
+    ;;
+  event)
+    shift
+    cmd_event "$@"
     ;;
   run)
     shift

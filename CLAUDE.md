@@ -74,6 +74,11 @@ tmuxy widget image /path/to/img.png    # Display image widget
 tmuxy widget markdown README.md        # Display markdown widget
 echo "# Hello" | tmuxy widget markdown - # Markdown from stdin
 
+# Event queue (inter-agent coordination)
+tmuxy event emit <name> <msg|->        # Publish message (- for stdin)
+tmuxy event wait <name>                # Block until message arrives
+tmuxy event list                       # Show pending events
+
 # Escape hatch (routes safely through run-shell)
 tmuxy run swap-pane -s %0 -t %1       # Run any tmux command safely
 tmuxy run new-window                   # Intercepted → splitw+breakp

@@ -1,0 +1,40 @@
+#!/bin/bash
+# tmuxy event emit — publish a message to a named event queue
+#
+# Usage: tmuxy event emit <name> <message>
+#        echo "payload" | tmuxy event emit <name> -
+#
+# Storage: /tmp/tmuxy-events/<socket>/<name>/msg.<N>
+# Signal:  tmux wait-for -S tmuxy_evt_<name>
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS_DIR/_lib.sh"
+
+NAME="${1:?Usage: tmuxy event emit <name> <message|->}"
+shift
+MSG="${1:--}"
+
+# Read from stdin if "-"
+if [ "$MSG" = "-" ]; then
+  MSG="$(cat)"
+fi
+
+SOCKET="${TMUX_SOCKET:-default}"
+DIR="/tmp/tmuxy-events/$SOCKET/$NAME"
+mkdir -p "$DIR"
+
+# Atomically read+increment the sequence counter (flock for concurrency)
+exec 9>"$DIR/.lock"
+flock 9
+SEQ=$(cat "$DIR/next" 2>/dev/null || echo 0)
+echo $((SEQ + 1)) > "$DIR/next"
+exec 9>&-
+
+# Write payload atomically (tmp + mv)
+printf '%s' "$MSG" > "$DIR/msg.${SEQ}.tmp"
+mv "$DIR/msg.${SEQ}.tmp" "$DIR/msg.${SEQ}"
+
+# Signal any blocked waiter
+_tmux wait-for -S "tmuxy_evt_${NAME}" 2>/dev/null || true
