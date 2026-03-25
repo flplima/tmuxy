@@ -389,11 +389,12 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
   // Sort by tmuxId for stable DOM order. Panes are absolutely positioned so
   // DOM order has no visual effect, but a stable sort prevents React from
   // physically moving DOM nodes when positions change (layout cycle, resize).
-  // Previously sorted by grid position, which caused DOM remove+add on every
-  // layout transition. paneKeyOverrides handles split placeholder→real pane
-  // reconciliation regardless of array order.
+  // Uses code-point comparison (not localeCompare) because ICU collation
+  // sorts __placeholder_* before %NNN, but code-point order puts % (U+0025)
+  // before _ (U+005F). This keeps DOM order stable across the optimistic
+  // placeholder→real pane transition, preventing React from reordering nodes.
   // Spread first — result may alias the memoized selectPreviewPanes cache.
-  return [...result].sort((a, b) => a.tmuxId.localeCompare(b.tmuxId));
+  return [...result].sort((a, b) => (a.tmuxId < b.tmuxId ? -1 : a.tmuxId > b.tmuxId ? 1 : 0));
 }
 
 export const selectVisiblePanes = createMemoizedSelector(
