@@ -832,41 +832,19 @@ export const appMachine = setup({
                       [realId]: placeholderId,
                     };
                     clearOptimistic = true;
+                  } else if (isOperationStale(context.optimisticOperation)) {
+                    // Stale: clear optimistic and apply server state as-is.
+                    clearOptimistic = true;
                   } else {
-                    // Case A: real pane hasn't appeared yet. Inject the
-                    // placeholder back so its React key survives this render.
-                    const placeholder = context.panes.find((p) => p.tmuxId === placeholderId);
-                    if (placeholder) {
-                      // Also preserve the optimistic resized dimensions for
-                      // existing panes (e.g. the active pane that was halved).
-                      // Without this, the server's original dimensions are used
-                      // alongside the placeholder, causing the layout to bounce
-                      // (height: full → half → full → half for horizontal splits).
-                      const resizedPanes =
-                        context.optimisticOperation!.prediction.type === 'split'
-                          ? context.optimisticOperation!.prediction.resizedPanes
-                          : [];
-                      const resizedMap = new Map(resizedPanes.map((r) => [r.paneId, r]));
-                      transformed.panes = transformed.panes.map((p) => {
-                        const resized = resizedMap.get(p.tmuxId);
-                        if (resized) {
-                          return {
-                            ...p,
-                            x: resized.x,
-                            y: resized.y,
-                            width: resized.width,
-                            height: resized.height,
-                          };
-                        }
-                        return p;
-                      });
-                      transformed.panes = [...transformed.panes, placeholder];
-                      // Keep optimistic activePaneId on the placeholder
-                      if (context.activePaneId === placeholderId) {
-                        transformed.activePaneId = placeholderId;
-                      }
-                    }
-                    clearOptimistic = isOperationStale(context.optimisticOperation);
+                    // Case A: intermediate server update — real pane not yet present.
+                    // Skip this update entirely to prevent divider flicker. The server
+                    // sends an intermediate state with old pane dimensions (pre-split)
+                    // before the new pane appears. Applying that state causes the layout
+                    // to revert (divider removed, pane height restored to full), then
+                    // snap back when the final state arrives (~30ms later). By returning
+                    // early, the current optimistic context (placeholder + resized panes)
+                    // stays intact, eliminating the add→remove→add divider bounce.
+                    return;
                   }
                 } else {
                   clearOptimistic = true;
