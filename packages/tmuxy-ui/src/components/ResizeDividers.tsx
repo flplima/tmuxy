@@ -175,17 +175,33 @@ export function ResizeDividers({
 
   return (
     <>
-      {dividers.map((div, idx) =>
-        div.orientation === 'h' ? (
+      {dividers.map((div, idx) => {
+        const isH = div.orientation === 'h';
+        return (
           <div
             key={`divider-${idx}`}
-            className="resize-divider resize-divider-h"
-            style={{
-              left: centeringOffset.x + div.start * charWidth,
-              top: centeringOffset.y + div.axisPos * charHeight - DIVIDER_THICKNESS / 2,
-              width: (div.end - div.start) * charWidth,
-              height: DIVIDER_THICKNESS,
-            }}
+            className="resize-divider"
+            style={
+              isH
+                ? {
+                    cursor: 'ns-resize',
+                    left: centeringOffset.x + div.start * charWidth,
+                    top: centeringOffset.y + div.axisPos * charHeight - DIVIDER_THICKNESS / 2,
+                    width: (div.end - div.start) * charWidth,
+                    height: DIVIDER_THICKNESS,
+                  }
+                : {
+                    cursor: 'ew-resize',
+                    left:
+                      centeringOffset.x +
+                      div.axisPos * charWidth +
+                      charWidth / 2 -
+                      DIVIDER_THICKNESS / 2,
+                    top: centeringOffset.y + Math.max(0, div.start - 1) * charHeight,
+                    width: DIVIDER_THICKNESS,
+                    height: (div.end - Math.max(0, div.start - 1)) * charHeight,
+                  }
+            }
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -196,41 +212,14 @@ export function ResizeDividers({
               send({
                 type: 'RESIZE_START',
                 paneId: div.paneId,
-                handle: 's',
+                handle: isH ? 's' : 'e',
                 startX: e.clientX,
                 startY: e.clientY,
               });
             }}
           />
-        ) : (
-          <div
-            key={`divider-${idx}`}
-            className="resize-divider resize-divider-v"
-            style={{
-              left:
-                centeringOffset.x + div.axisPos * charWidth + charWidth / 2 - DIVIDER_THICKNESS / 2,
-              top: centeringOffset.y + Math.max(0, div.start - 1) * charHeight,
-              width: DIVIDER_THICKNESS,
-              height: (div.end - Math.max(0, div.start - 1)) * charHeight,
-            }}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              haptics.trigger(10);
-              document.addEventListener('mouseup', () => haptics.trigger('success'), {
-                once: true,
-              });
-              send({
-                type: 'RESIZE_START',
-                paneId: div.paneId,
-                handle: 'e',
-                startX: e.clientX,
-                startY: e.clientY,
-              });
-            }}
-          />
-        ),
-      )}
+        );
+      })}
     </>
   );
 }

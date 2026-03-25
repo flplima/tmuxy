@@ -1105,20 +1105,6 @@ export const appMachine = setup({
                 }
               }
 
-              // Preserve activePaneId during transient states (e.g., pane-group-add
-              // sends null activePaneId between break-pane and swap-pane).
-              // Also preserve during layout transitions — tmux briefly reports a
-              // different active pane during layout recomputation, causing class churn.
-              const isLayoutTransition =
-                context.lastLayoutCommandTime > 0 &&
-                Date.now() - context.lastLayoutCommandTime < 500 &&
-                context.activePaneId !== null &&
-                transformed.activePaneId !== null &&
-                transformed.panes.some((p) => p.tmuxId === context.activePaneId);
-              const effectiveActivePaneId = isLayoutTransition
-                ? context.activePaneId
-                : (transformed.activePaneId ?? context.activePaneId);
-
               // Detect pane dimension changes from command-based resize
               // (not drag-resize, which uses resizeActive). Suppress CSS
               // transitions so dimensions snap instantly without visual jumps.
@@ -1134,6 +1120,27 @@ export const appMachine = setup({
                       oldPane.height !== newPane.height)
                   );
                 });
+
+              // Preserve activePaneId during transient states (e.g., pane-group-add
+              // sends null activePaneId between break-pane and swap-pane).
+              // Also preserve during layout transitions — tmux briefly reports a
+              // different active pane during layout recomputation, causing class churn.
+              // Detect layout transitions both from explicit commands (lastLayoutCommandTime)
+              // and from state changes (same pane set with different dimensions).
+              const samePaneSet =
+                hasDimensionChange &&
+                transformed.panes.length === context.panes.length &&
+                transformed.panes.every((p) => context.panes.some((cp) => cp.tmuxId === p.tmuxId));
+              const isLayoutTransition =
+                context.activePaneId !== null &&
+                transformed.activePaneId !== null &&
+                transformed.panes.some((p) => p.tmuxId === context.activePaneId) &&
+                ((context.lastLayoutCommandTime > 0 &&
+                  Date.now() - context.lastLayoutCommandTime < 500) ||
+                  samePaneSet);
+              const effectiveActivePaneId = isLayoutTransition
+                ? context.activePaneId
+                : (transformed.activePaneId ?? context.activePaneId);
 
               if (hasDimensionChange) {
                 enqueue(assign({ suppressLayoutTransition: true }));

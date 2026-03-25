@@ -462,13 +462,7 @@
   transition: none;
 }
 
-.resize-divider-h {
-  cursor: ns-resize;
-}
-
-.resize-divider-v {
-  cursor: ew-resize;
-}
+/* Divider cursor set via inline style to avoid class mutations during layout cycling */
 
 .pane-layout-dragging,
 .pane-layout-resizing {
