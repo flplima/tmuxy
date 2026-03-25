@@ -334,14 +334,27 @@ impl PaneState {
             self.content_dirty = true;
             self.cached_content = None;
             // Create a new terminal parser with the new dimensions.
-            // This clears the old content which is necessary because after a resize
-            // (e.g., after split-pane), the old content is no longer valid.
-            // The monitor should issue capture-pane commands to refresh content.
             // Guard: vt100 panics on zero dimensions (subtract overflow in grid.rs)
             let w = (width as u16).max(1);
             let h = (height as u16).max(1);
             self.terminal = vt100::Parser::new(h, w, 0);
-            self.raw_buffer.clear();
+            // Replay raw_buffer to preserve %output content across resize.
+            //
+            // After %layout-change creates a new pane, %output events fill
+            // the VT100 parser. But the layout dimensions include the
+            // pane-border-status row while list-panes reports actual terminal
+            // dimensions (1 row shorter). When list-panes triggers resize(),
+            // the VT100 reset loses all %output content. Replaying the
+            // raw_buffer re-renders that content at the correct dimensions.
+            //
+            // Only replay small buffers (< 8KB) to avoid expensive reprocessing
+            // during large resize operations. For large buffers, the monitor's
+            // capture-pane cycle will restore content authoritatively.
+            if !self.raw_buffer.is_empty() && self.raw_buffer.len() < 8192 {
+                safe_process(&mut self.terminal, &self.raw_buffer);
+            } else {
+                self.raw_buffer.clear();
+            }
             self.image_parser.reset();
             true
         } else {
@@ -1458,6 +1471,12 @@ impl StateAggregator {
                 pane.y = lp.y;
                 pane.active = active_pane_id.as_ref() == Some(&lp.id);
                 self.panes.insert(lp.id.clone(), pane);
+                // Queue capture for new panes so their content is fetched
+                // authoritatively. Layout dimensions may include the
+                // pane-border-status row, causing a dimension mismatch with
+                // list-panes that triggers a VT100 reset. The capture ensures
+                // content is restored even if %output events are lost.
+                resized_panes.push(lp.id.clone());
             }
         }
 
