@@ -837,6 +837,29 @@ export const appMachine = setup({
                     // placeholder back so its React key survives this render.
                     const placeholder = context.panes.find((p) => p.tmuxId === placeholderId);
                     if (placeholder) {
+                      // Also preserve the optimistic resized dimensions for
+                      // existing panes (e.g. the active pane that was halved).
+                      // Without this, the server's original dimensions are used
+                      // alongside the placeholder, causing the layout to bounce
+                      // (height: full → half → full → half for horizontal splits).
+                      const resizedPanes =
+                        context.optimisticOperation!.prediction.type === 'split'
+                          ? context.optimisticOperation!.prediction.resizedPanes
+                          : [];
+                      const resizedMap = new Map(resizedPanes.map((r) => [r.paneId, r]));
+                      transformed.panes = transformed.panes.map((p) => {
+                        const resized = resizedMap.get(p.tmuxId);
+                        if (resized) {
+                          return {
+                            ...p,
+                            x: resized.x,
+                            y: resized.y,
+                            width: resized.width,
+                            height: resized.height,
+                          };
+                        }
+                        return p;
+                      });
                       transformed.panes = [...transformed.panes, placeholder];
                       // Keep optimistic activePaneId on the placeholder
                       if (context.activePaneId === placeholderId) {
