@@ -74,6 +74,21 @@ const copyModeExitTimes = new Map<string, number>();
 const COPY_MODE_REENTRY_COOLDOWN = 2000;
 
 /**
+ * Resolve relative window targets in tmux commands.
+ *
+ * With window-size manual, the control mode client's "current window"
+ * (referenced by "." in target specs like ":.+") can drift from the user's
+ * active window. This replaces the implicit "." with the explicit window ID
+ * so commands target the correct window regardless of CC client state.
+ */
+function resolveWindowTarget(command: string, activeWindowId: string | null): string {
+  if (activeWindowId && command.includes('-t :.')) {
+    return command.replace(/-t :\./, `-t ${activeWindowId}.`);
+  }
+  return command;
+}
+
+/**
  * Cache transformServerState per event to avoid redundant calls.
  * The guard and action both need the transformed state for the same event.
  */
@@ -1271,6 +1286,9 @@ export const appMachine = setup({
               }
             }
 
+            // Resolve relative window targets (see resolveWindowTarget docs)
+            command = resolveWindowTarget(command, context.activeWindowId);
+
             // Intercept copy-mode — activate client-side copy mode
             if (command.match(/^copy-mode\b/)) {
               const paneId = context.activePaneId;
@@ -1601,7 +1619,7 @@ export const appMachine = setup({
         },
         SEND_COMMAND: {
           actions: enqueueActions(({ event, context, enqueue }) => {
-            const command = event.command;
+            const command = resolveWindowTarget(event.command, context.activeWindowId);
 
             // Intercept copy-mode — activate client-side copy mode
             if (command.match(/^copy-mode\b/)) {
@@ -2446,15 +2464,15 @@ export const appMachine = setup({
         },
         // Still handle tmux commands during animation
         SEND_TMUX_COMMAND: {
-          actions: sendTo('tmux', ({ event }) => ({
+          actions: sendTo('tmux', ({ event, context }) => ({
             type: 'SEND_COMMAND' as const,
-            command: event.command,
+            command: resolveWindowTarget(event.command, context.activeWindowId),
           })),
         },
         SEND_COMMAND: {
-          actions: sendTo('tmux', ({ event }) => ({
+          actions: sendTo('tmux', ({ event, context }) => ({
             type: 'SEND_COMMAND' as const,
-            command: event.command,
+            command: resolveWindowTarget(event.command, context.activeWindowId),
           })),
         },
         COPY_SELECTION: {

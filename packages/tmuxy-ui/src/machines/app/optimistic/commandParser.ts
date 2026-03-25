@@ -108,8 +108,11 @@ export function parseCommand(command: string): ParsedCommand {
   }
 
   // Select pane by relative target: select-pane -t [session:]:.+ or :.−
-  // Matches targets like ":.+", "tmuxy:.+", "session:.-"
-  const relativePaneMatch = trimmed.match(/^(select-pane|selectp)\s+-t\s+(?:\S*:)?\.\s*(\+|-)\s*$/);
+  // Matches targets like ":.+", "tmuxy:.+", "session:.-", "@0.+", "@123.-"
+  // The @WINDOW.+/- form is used when the app machine resolves "." to the explicit window ID.
+  const relativePaneMatch = trimmed.match(
+    /^(select-pane|selectp)\s+-t\s+(?:(?:\S*:)?\.|@\d+\.)\s*(\+|-)\s*$/,
+  );
   if (relativePaneMatch) {
     return {
       type: 'relative-pane',
