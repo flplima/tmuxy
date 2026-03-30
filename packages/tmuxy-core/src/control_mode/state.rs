@@ -769,6 +769,12 @@ pub struct StateAggregator {
     /// until a capture-pane response arrives, preventing stale content from
     /// the old window from accumulating in the reset buffer.
     panes_moved_window: std::collections::HashSet<String>,
+
+    /// Buffered %output for panes not yet created in state.
+    /// When tmux splits a pane, %output for the new pane can arrive before
+    /// %layout-change creates the pane. This buffer holds that early output
+    /// so parse_layout() can replay it when the pane is created.
+    early_output: HashMap<String, Vec<u8>>,
 }
 
 impl StateAggregator {
@@ -789,6 +795,7 @@ impl StateAggregator {
             popup: None,
             suppress_window_emissions: false,
             panes_moved_window: std::collections::HashSet::new(),
+            early_output: HashMap::new(),
         }
     }
 
@@ -810,6 +817,7 @@ impl StateAggregator {
             popup: None,
             suppress_window_emissions: false,
             panes_moved_window: std::collections::HashSet::new(),
+            early_output: HashMap::new(),
         }
     }
 
@@ -1369,7 +1377,17 @@ impl StateAggregator {
                 return (true, new_imgs);
             }
         }
-        // Ignore output from unknown panes (likely from other sessions)
+        // Buffer output for panes not yet created in state.
+        // During split, %output can arrive before %layout-change creates the pane.
+        // Cap per-pane buffer and total entry count to prevent unbounded growth.
+        if self.early_output.len() < 32 || self.early_output.contains_key(pane_id) {
+            let buf = self.early_output.entry(pane_id.to_string()).or_default();
+            buf.extend(content);
+            if buf.len() > 8192 {
+                let start = buf.len() - 8192;
+                *buf = buf[start..].to_vec();
+            }
+        }
         (false, Vec::new())
     }
 
@@ -1477,6 +1495,11 @@ impl StateAggregator {
                 pane.x = lp.x;
                 pane.y = lp.y;
                 pane.active = active_pane_id.as_ref() == Some(&lp.id);
+                // Replay any %output that arrived before this pane was created.
+                // During split, %output often arrives before %layout-change.
+                if let Some(early) = self.early_output.remove(&lp.id) {
+                    pane.process_output(&early);
+                }
                 self.panes.insert(lp.id.clone(), pane);
                 // Queue capture for new panes so their content is fetched
                 // authoritatively. Layout dimensions may include the
@@ -1675,6 +1698,13 @@ impl StateAggregator {
             .panes
             .entry(pane_id_string.clone())
             .or_insert_with(|| PaneState::new(pane_id, width, height));
+
+        // Replay any early %output that arrived before this pane was created
+        if is_new_pane {
+            if let Some(early) = self.early_output.remove(&pane_id_string) {
+                pane.process_output(&early);
+            }
+        }
 
         pane.index = pane_index;
         pane.x = x;
