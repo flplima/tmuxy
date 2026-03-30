@@ -409,17 +409,19 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     // Step 3: Float modal appears (extended timeout for CLI → run-shell → control mode chain)
     await waitForFloatModal(ctx.page, 20000);
 
-    // Wait for float-create.sh to finish in background pane (prints pane ID + returns prompt).
-    // Without this, closing the float can race with resize-pane calls in the script.
+    // Wait for float-create.sh to finish in background pane.
+    // The script prints a pane ID (e.g. %15) then the shell prompt returns.
+    // Without this, closing the float can race with subprocess calls in the script.
     const { tmuxQuery } = require('./helpers/cli');
     await waitForCondition(
       ctx.page,
       async () => {
         const capture = tmuxQuery(`capture-pane -t ${bgPaneId} -p`);
-        return /[$#%>❯]\s*$/.test(capture.trim());
+        // Script finished when capture shows "pane float" output followed by a prompt
+        return /pane float[\s\S]*%\d+[\s\S]*[$#%>❯]\s*$/.test(capture.trim());
       },
-      10000,
-      'background pane shell prompt after float-create.sh',
+      15000,
+      'float-create.sh to finish (pane ID + prompt)',
     );
 
     // Step 4: Float is visually present with non-trivial dimensions
@@ -621,10 +623,10 @@ describe('Scenario 6b: Float Escape Close', () => {
       ctx.page,
       async () => {
         const capture = tmuxQuery(`capture-pane -t ${bgPaneId} -p`);
-        return /[$#%>❯]\s*$/.test(capture.trim());
+        return /pane float[\s\S]*%\d+[\s\S]*[$#%>❯]\s*$/.test(capture.trim());
       },
-      10000,
-      'background pane shell prompt after float-create.sh',
+      15000,
+      'float-create.sh to finish (pane ID + prompt)',
     );
 
     // Step 2: Float is visually present
@@ -690,10 +692,10 @@ describe('Scenario 6c: Float Backdrop Close', () => {
       ctx.page,
       async () => {
         const capture = tmuxQuery(`capture-pane -t ${bgPaneId} -p`);
-        return /[$#%>❯]\s*$/.test(capture.trim());
+        return /pane float[\s\S]*%\d+[\s\S]*[$#%>❯]\s*$/.test(capture.trim());
       },
-      10000,
-      'background pane shell prompt after float-create.sh',
+      15000,
+      'float-create.sh to finish (pane ID + prompt)',
     );
 
     // Step 2: Float is visually present
