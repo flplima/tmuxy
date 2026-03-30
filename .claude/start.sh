@@ -119,7 +119,7 @@ DEV_PANE=$(TMUX_SOCKET=tmuxy-prod tmuxy tab create dev 2>/dev/null || echo "")
 if [ -n "$DEV_PANE" ]; then
   tmux -L tmuxy-prod set-option -wt tmuxy:dev automatic-rename off 2>/dev/null || true
   tmux -L tmuxy-prod send-keys -t "$DEV_PANE" \
-    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_dev); echo \"received task, starting claude...\"; cd /workspace && TMUX_SOCKET=tmuxy-dev claude -p \"\$data\" --agent dev --dangerously-skip-permissions --verbose; echo 'task complete, waiting for next...'; done" Enter
+    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_dev); echo \"received task, starting claude...\"; cd /workspace && TMUX_SOCKET=tmuxy-dev claude -p \"\$data\" --agent dev --dangerously-skip-permissions --verbose --output-format stream-json | while IFS= read -r line; do echo \"\$line\" | yq -P; echo '---'; done; echo 'task complete, waiting for next...'; done" Enter
 fi
 step_done "Dev agent launched"
 
@@ -129,7 +129,7 @@ QA_PANE=$(TMUX_SOCKET=tmuxy-prod tmuxy tab create qa 2>/dev/null || echo "")
 if [ -n "$QA_PANE" ]; then
   tmux -L tmuxy-prod set-option -wt tmuxy:qa automatic-rename off 2>/dev/null || true
   tmux -L tmuxy-prod send-keys -t "$QA_PANE" \
-    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_qa); echo \"received task, starting claude...\"; cd /workspace && TMUX_SOCKET=tmuxy-prod claude -p \"\$data\" --agent qa --dangerously-skip-permissions --verbose; echo 'task complete, waiting for next...'; done" Enter
+    "cd $WORKSPACE && while true; do echo 'waiting for event...'; data=\$(TMUX_SOCKET=tmuxy-prod tmuxy event wait start_qa); echo \"received task, starting claude...\"; cd /workspace && TMUX_SOCKET=tmuxy-prod claude -p \"\$data\" --agent qa --dangerously-skip-permissions --verbose --output-format stream-json | while IFS= read -r line; do echo \"\$line\" | yq -P; echo '---'; done; echo 'task complete, waiting for next...'; done" Enter
 fi
 step_done "QA agent launched"
 

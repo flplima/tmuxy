@@ -11,7 +11,7 @@ ENV TZ="$TZ"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools
     less git procps sudo fzf zsh man-db unzip gnupg2 openssh-server \
-    nano vim jq yq bc \
+    nano vim jq bc \
     # LazyVim runtime deps (telescope file/text search)
     ripgrep fd-find \
     # Build tools (tmux, native modules)
@@ -95,6 +95,12 @@ RUN ARCH=$(dpkg --print-architecture) && \
     wget -q "https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
     dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
     rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
+
+# yq (mikefarah) for YAML processing — apt's yq is a jq wrapper, not the real thing
+ARG YQ_VERSION=v4.44.6
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget -q "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -O /usr/local/bin/yq && \
+    chmod +x /usr/local/bin/yq
 
 # Switch to non-root user
 USER node
