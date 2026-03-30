@@ -409,6 +409,19 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     // Step 3: Float modal appears (extended timeout for CLI → run-shell → control mode chain)
     await waitForFloatModal(ctx.page, 20000);
 
+    // Wait for float-create.sh to finish in background pane (prints pane ID + returns prompt).
+    // Without this, closing the float can race with resize-pane calls in the script.
+    const { tmuxQuery } = require('./helpers/cli');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const capture = tmuxQuery(`capture-pane -t ${bgPaneId} -p`);
+        return /[$#%>❯]\s*$/.test(capture.trim());
+      },
+      10000,
+      'background pane shell prompt after float-create.sh',
+    );
+
     // Step 4: Float is visually present with non-trivial dimensions
     const floatInfo = await verifyFloatVisible(ctx.page);
 
@@ -511,7 +524,6 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     await delay(DELAYS.SYNC);
 
     // Verify via tmux capture-pane (works even when DOM doesn't render)
-    const { tmuxQuery } = require('./helpers/cli');
     const floatCapture = tmuxQuery(`capture-pane -t ${focusedFloatId} -p`);
     expect(floatCapture).toContain(TOKEN);
 
@@ -595,10 +607,25 @@ describe('Scenario 6b: Float Escape Close', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
+    // Record background pane for prompt check
+    const bgPaneId = await ctx.session.getActivePaneId();
+
     // Step 1: Open float via CLI
     await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
     await pressEnter(ctx.page);
     await waitForFloatModal(ctx.page, 20000);
+
+    // Wait for float-create.sh to finish in background pane
+    const { tmuxQuery } = require('./helpers/cli');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const capture = tmuxQuery(`capture-pane -t ${bgPaneId} -p`);
+        return /[$#%>❯]\s*$/.test(capture.trim());
+      },
+      10000,
+      'background pane shell prompt after float-create.sh',
+    );
 
     // Step 2: Float is visually present
     await verifyFloatVisible(ctx.page);
@@ -649,10 +676,25 @@ describe('Scenario 6c: Float Backdrop Close', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
+    // Record background pane for prompt check
+    const bgPaneId = await ctx.session.getActivePaneId();
+
     // Step 1: Open float via CLI
     await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
     await pressEnter(ctx.page);
     await waitForFloatModal(ctx.page, 20000);
+
+    // Wait for float-create.sh to finish in background pane
+    const { tmuxQuery } = require('./helpers/cli');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const capture = tmuxQuery(`capture-pane -t ${bgPaneId} -p`);
+        return /[$#%>❯]\s*$/.test(capture.trim());
+      },
+      10000,
+      'background pane shell prompt after float-create.sh',
+    );
 
     // Step 2: Float is visually present
     await verifyFloatVisible(ctx.page);
