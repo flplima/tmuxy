@@ -381,7 +381,7 @@ cmd_pane_group() {
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane group close [%id]"; return ;;
       esac
-      local pane_id="${1:-#{pane_id}}"
+      local pane_id="${1:-"#{pane_id}"}"
       exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-close.sh' '$pane_id'"
       ;;
 
