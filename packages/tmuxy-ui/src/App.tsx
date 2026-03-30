@@ -72,18 +72,26 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // Ready when connected, have panes, AND container is measured
   const isReady = !isConnecting && panes.length > 0 && containerSize.width > 0;
 
+  // Once we've been ready, keep the pane layout mounted through transient
+  // empty-pane states (e.g., window create/switch/kill cycles where
+  // activeWindowId changes before new panes arrive). This prevents the
+  // layout from being unmounted and replaced with a loading div for ~55ms.
+  const hasBeenReadyRef = useRef(false);
+  if (isReady) hasBeenReadyRef.current = true;
+  const showLayout = isReady || hasBeenReadyRef.current;
+
   // Always render .app-container so containerRef is attached and ResizeObserver
   // starts measuring immediately, preventing a layout flash on first pane render.
   return (
     <div ref={appContainerRef} className="app-container">
       <StatusBar renderTabline={renderTabline} />
       <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
-        {error && !isReady ? (
+        {error && !showLayout ? (
           <div className="error" data-testid="error-display">
             <h2>Error</h2>
             <p>{error}</p>
           </div>
-        ) : !isReady ? (
+        ) : !showLayout ? (
           <div className="loading" data-testid="loading-display">
             <p>Connecting to tmux...</p>
           </div>
