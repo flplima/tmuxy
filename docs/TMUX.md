@@ -99,6 +99,20 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 **Known gap:** The Tauri desktop app (`tauri-app/src/commands.rs`) calls `executor::new_window()` which uses external `tmux new-window` without the `splitw ; breakp` workaround. This will crash tmux 3.5a when a control mode client is attached. The web server version (`tmuxy-server/src/sse.rs`) has the workaround but the Tauri code path bypasses it.
 
+## Targeting: Use Stable IDs, Not Indices
+
+Always target tmux objects by their **stable identifiers**, not by indices:
+
+| Object | Stable ID | Unstable Index | Example |
+|--------|-----------|----------------|---------|
+| Session | name | — | `-t mysession` |
+| Window | `@N` | `:N` | `-t @3` not `-t :3` |
+| Pane | `%N` | `.N` | `-t %5` not `-t .2` |
+
+Window indices (`:0`, `:1`, `:3`) can shift when windows are created or destroyed. Pane indices (`.0`, `.1`) are relative to the current window and change when panes are added/removed. Session names, window IDs (`@N`), and pane IDs (`%N`) are assigned by tmux at creation and never change.
+
+This matters especially in automation and tests where multiple operations happen in sequence — between a query and the next command, indices may have shifted.
+
 ## `%unlinked-window-close` Events
 
 **Behavior:** tmux fires `%unlinked-window-close` (instead of `%window-close`) for windows from **other sessions** sharing the same tmux server. The parser handles both event types (`parser.rs`), but `state.rs` intentionally **ignores** `UnlinkedWindowClose` events to avoid polluting the current session's state with events from other sessions.
