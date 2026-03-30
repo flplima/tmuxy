@@ -7,7 +7,6 @@
  */
 
 import React, { useCallback, useEffect, useRef, useMemo, ReactNode } from 'react';
-import { CONTAINER_PADDING } from '../constants/layout';
 import { ResizeDividers } from './ResizeDividers';
 import {
   useAppSelector,
@@ -79,20 +78,19 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const hPadding = Math.round(charWidth / 2);
 
   // Center the pane grid in the container.
-  // containerWidth/Height are content-box (from ResizeObserver), but absolute positioning
-  // references the padding box. Add CONTAINER_PADDING to account for the CSS padding.
+  // .pane-layout is inset by CONTAINER_PADDING (CSS), so its dimensions match
+  // containerWidth/Height (content-box from ResizeObserver). No padding-box
+  // arithmetic needed — pane positions are relative to the content area directly.
   const centeringOffset = useMemo(() => {
     const paneContentWidth = totalWidth * charWidth;
     const paneContentHeight = totalHeight * charHeight;
-    const paddingBoxWidth = containerWidth + 2 * CONTAINER_PADDING;
-    const paddingBoxHeight = containerHeight + 2 * CONTAINER_PADDING;
-    // Clamp x so content never overflows the right padding edge.
+    // Clamp x so content never overflows the right edge.
     // This handles transient states where tmux totalWidth > targetCols.
-    const idealX = (paddingBoxWidth - paneContentWidth) / 2;
-    const maxX = paddingBoxWidth - CONTAINER_PADDING - paneContentWidth;
+    const idealX = (containerWidth - paneContentWidth) / 2;
+    const maxX = containerWidth - paneContentWidth;
     return {
-      x: Math.max(CONTAINER_PADDING, Math.min(idealX, maxX)),
-      y: Math.max(CONTAINER_PADDING, (paddingBoxHeight - paneContentHeight) / 2),
+      x: Math.max(0, Math.min(idealX, maxX)),
+      y: Math.max(0, (containerHeight - paneContentHeight) / 2),
     };
   }, [totalWidth, totalHeight, charWidth, charHeight, containerWidth, containerHeight]);
 
