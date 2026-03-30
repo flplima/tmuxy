@@ -8,25 +8,27 @@ const { delay } = require('./browser');
 const { DELAYS } = require('./config');
 
 /**
- * Click the "add to group" button on the active pane header
+ * Click "Add Pane to Group" via the ⋮ menu on the active pane header
  */
 async function clickPaneGroupAdd(page) {
-  // Use Playwright's native click for better React event handling
-  const button = await page.$('.pane-tab-add');
-  if (!button) throw new Error('Pane group add button not found');
-  await button.click();
+  const menuBtn = await page.$('.pane-header-menu');
+  if (!menuBtn) throw new Error('Pane header menu button (⋮) not found');
+  await menuBtn.click();
+  await delay(DELAYS.SHORT);
+  const addItem = await page.waitForSelector(
+    '[role="menuitem"] >> text=Add Pane to Group',
+    { state: 'visible', timeout: 5000 },
+  );
+  if (!addItem) throw new Error('"Add Pane to Group" menu item not found');
+  await addItem.click();
   await delay(DELAYS.SYNC);
 }
 
 /**
- * Click the "+" button in a grouped pane's tab bar
+ * Click "Add Pane to Group" via the ⋮ menu (alias for clickPaneGroupAdd)
  */
 async function clickGroupTabAdd(page) {
-  // Use Playwright's native click for better React event handling
-  const button = await page.$('.pane-tab-add');
-  if (!button) throw new Error('Group tab add button not found');
-  await button.click();
-  await delay(DELAYS.SYNC);
+  await clickPaneGroupAdd(page);
 }
 
 /**

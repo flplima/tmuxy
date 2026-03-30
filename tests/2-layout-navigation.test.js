@@ -200,12 +200,15 @@ describe('Scenario 4: Window Lifecycle', () => {
     let windows = await ctx.session.getWindowInfo();
     expect(windows.find(w => w.name === 'MyRenamedWindow')).toBeDefined();
 
-    // Step 8: Close windows
+    // Step 8: Close windows until only 1 remains (use stable window IDs,
+    // not indices which can shift; adapter path avoids keyboard focus races)
     windows = await ctx.session.getWindowInfo();
-    const curIdx = await ctx.session.getCurrentWindowIndex();
+    const curWinIdx = await ctx.session.getCurrentWindowIndex();
     for (const w of windows) {
-      if (String(w.index) !== String(curIdx)) {
-        await tmuxCommandKeyboard(ctx.page, `kill-window -t :${w.index}`);
+      if (String(w.index) !== String(curWinIdx)) {
+        try {
+          await ctx.session._exec(`kill-window -t ${w.id}`);
+        } catch { /* window may already be gone */ }
         await delay(DELAYS.SHORT);
       }
     }
@@ -257,9 +260,9 @@ describe('Scenario 5: Pane Groups', () => {
     const header = await ctx.page.$('.pane-tab');
     expect(header).not.toBeNull();
 
-    // Step 2: Add button exists
-    const addButton = await ctx.page.$('.pane-tab-add');
-    expect(addButton).not.toBeNull();
+    // Step 2: Menu button exists (pane group add is via ⋮ menu)
+    const menuButton = await ctx.page.$('.pane-header-menu');
+    expect(menuButton).not.toBeNull();
 
     // Step 3: Record original (ALPHA) pane ID
     const alphaPaneId = await ctx.page.evaluate(() => {
@@ -288,7 +291,11 @@ describe('Scenario 5: Pane Groups', () => {
     const inactiveIdx = tabs.findIndex(t => !t.active);
     await clickGroupTab(ctx.page, inactiveIdx);
     await waitForGroupTabs(ctx.page, 2);
-    await delay(DELAYS.SYNC);
+    await waitForCondition(ctx.page, async () => {
+      const id = await ctx.page.evaluate(() =>
+        window.app?.getSnapshot()?.context?.activePaneId || null);
+      return id === alphaPaneId;
+    }, 10000, 'group tab switch to ALPHA pane');
 
     tabs = await getGroupTabInfo(ctx.page);
     expect(tabs.filter(t => t.active).length).toBe(1);
@@ -412,13 +419,13 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       return {
         hasHeader: !!fc.querySelector('.pane-header'),
         hasCloseButton: !!fc.querySelector('.pane-header-close'),
-        hasGroupAddButton: !!fc.querySelector('.pane-tab-add'),
+        hasMenuButton: !!fc.querySelector('.pane-header-menu'),
       };
     });
     expect(headerInfo).not.toBeNull();
     expect(headerInfo.hasHeader).toBe(true);
     expect(headerInfo.hasCloseButton).toBe(true);
-    expect(headerInfo.hasGroupAddButton).toBe(false);
+    expect(headerInfo.hasMenuButton).toBe(true);
 
     // Step 6: XState auto-focus — focusedFloatPaneId is set
     await waitForCondition(

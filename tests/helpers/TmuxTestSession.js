@@ -526,6 +526,7 @@ class TmuxTestSession {
         return state.windows
           .filter(w => (includeGroups || !w.isPaneGroupWindow) && (includeFloats || !w.isFloatWindow))
           .map(w => ({
+            id: w.id,
             index: w.index,
             name: w.name,
             active: w.active,
@@ -536,11 +537,12 @@ class TmuxTestSession {
       return [];
     }
     const result = this.runCommandSync(
-      `list-windows -t ${this.name} -F "#{window_index}|#{window_name}|#{window_active}"`
+      `list-windows -t ${this.name} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}"`
     );
     return result.split('\n').filter(line => line.trim()).map(line => {
-      const [index, name, active] = line.split('|');
+      const [id, index, name, active] = line.split('|');
       return {
+        id,
         index: parseInt(index, 10),
         name,
         active: active === '1',
