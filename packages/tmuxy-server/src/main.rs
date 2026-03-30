@@ -1,8 +1,5 @@
-mod dev;
-mod server;
-pub mod sse;
-pub mod state;
 use clap::Parser;
+use tmuxy_server::server;
 
 #[derive(Parser)]
 #[command(
