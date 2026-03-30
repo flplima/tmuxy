@@ -107,8 +107,8 @@ fi
 # ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
-echo "==> Container: $CONTAINER_NAME"
-echo "==> Dev server: http://localhost:$HOST_PORT"
+echo "==> Container:  $CONTAINER_NAME"
+echo "==> Port map:   localhost:$HOST_PORT -> container:9000"
 echo ""
 
 INIT_SCRIPT='
@@ -118,20 +118,33 @@ INIT_SCRIPT='
     gh auth setup-git 2>/dev/null
     git -C /workspace remote set-url origin "$(git -C /workspace remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
 '
+# Auto-start servers only for interactive shells (not when --cmd manages its own)
+if [ -z "$CONTAINER_CMD" ]; then
+    INIT_SCRIPT+='
+    pm2 start /workspace/scripts/prod.sh --name tmuxy-prod --cwd /workspace 2>/dev/null
+    TMUX_SOCKET=tmuxy-dev DEV_PORT=9001 pm2 start /workspace/scripts/dev.sh --name tmuxy-dev --cwd /workspace 2>/dev/null
+'
+fi
 
-exec docker run -it --rm \
+TTY_FLAG="-it"
+[ ! -t 0 ] && TTY_FLAG="-i"
+
+exec docker run $TTY_FLAG --rm \
     --name "$CONTAINER_NAME" \
     --init \
-    --memory=6g \
+    --memory=12g \
     --shm-size=1g \
     --pids-limit=50000 \
     --add-host host.docker.internal:host-gateway \
     -p "$HOST_PORT:9000" \
+    -p "$((HOST_PORT + 1)):9001" \
+    -p "$((HOST_PORT + 2)):9002" \
     "${MOUNTS[@]}" \
     -e PORT=9000 \
     -e HOST_PORT="$HOST_PORT" \
     -e CONTAINER_NAME="$CONTAINER_NAME" \
     -e CHROME_CDP_URL=http://host.docker.internal:9222 \
+    -e GH_TOKEN="${GH_TOKEN:-$(gh auth token 2>/dev/null || echo '')}" \
     -e TMUX_SESSION=dev \
     -w /workspace \
     -u node \

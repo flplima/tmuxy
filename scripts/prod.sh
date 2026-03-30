@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#
+# Production server (no hot reload, release build)
+#
+# Serves the pre-built frontend on the tmuxy-prod tmux socket.
+# Used by the QA agent system alongside the dev server.
+#
+# Usage:
+#   pm2 start ./scripts/prod.sh --name tmuxy-prod
+#
+
+set -e
+
+cd /workspace
+
+# Ensure tmuxy-prod tmux server has a session
+tmux -L tmuxy-prod has-session -t tmuxy 2>/dev/null \
+  || tmux -L tmuxy-prod new-session -d -s tmuxy -x 200 -y 50
+
+exec env TMUX_SOCKET=tmuxy-prod cargo run --release -p tmuxy-server -- --port 9000
