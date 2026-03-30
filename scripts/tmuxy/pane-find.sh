@@ -38,9 +38,9 @@ fi
 find_matches() {
   if $ALL; then
     # Find all panes with any @tmuxy_ctx_* option
-    tmux list-panes -s -F '#{pane_id}' | while read -r pid; do
+    _tmux list-panes -s -F '#{pane_id}' | while read -r pid; do
       local meta
-      meta=$(tmux show-options -p -t "$pid" 2>/dev/null | grep -c '^@tmuxy_ctx_' || true)
+      meta=$(_tmux show-options -p -t "$pid" 2>/dev/null | grep -c '^@tmuxy_ctx_' || true)
       if [ "$meta" -gt 0 ]; then
         echo "$pid"
       fi
@@ -62,7 +62,7 @@ find_matches() {
     fmt="${fmt},#{@tmuxy_ctx_${key}}"
   done
 
-  tmux list-panes -s -F "$fmt" | while IFS=',' read -r pid rest; do
+  _tmux list-panes -s -F "$fmt" | while IFS=',' read -r pid rest; do
     # Split rest into values
     local i=0
     local match=true
@@ -102,7 +102,7 @@ output_results() {
         meta_json="{}"
       fi
       local cmd
-      cmd=$(tmux display-message -t "$pid" -p '#{pane_current_command}' 2>/dev/null || echo "")
+      cmd=$(_tmux display-message -t "$pid" -p '#{pane_current_command}' 2>/dev/null || echo "")
       printf '%s{"id":"%s","command":"%s","meta":%s}' "$sep" "$pid" "$cmd" "$meta_json"
       sep=","
     done

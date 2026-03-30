@@ -75,7 +75,7 @@ for arg in "${ARGS[@]}"; do
     fi
   else
     validate_meta_key "$arg" || exit 1
-    local_val=$(tmux show-options -p "${TARGET_ARGS[@]}" -v "@tmuxy_ctx_${arg}" 2>/dev/null || true)
+    local_val=$(_tmux show-options -p "${TARGET_ARGS[@]}" -v "@tmuxy_ctx_${arg}" 2>/dev/null || true)
     if [ -n "$local_val" ]; then
       OUTPUT="${OUTPUT:+$OUTPUT }${arg}=${local_val}"
     fi

@@ -17,7 +17,7 @@ GROUP_NAME=$(find_group_for_pane "$CLOSE_PANE")
 
 # Not in a group - just kill the pane
 if [ -z "$GROUP_NAME" ]; then
-  tmux kill-pane -t "$CLOSE_PANE"
+  _tmux kill-pane -t "$CLOSE_PANE"
   refresh_panes
   exit 0
 fi
@@ -73,13 +73,13 @@ if [ "$IS_VISIBLE" = true ] && [ "$PANE_COUNT" -gt 1 ]; then
   NEXT_WIN=$(pane_window "$NEXT_PANE")
 
   # Swap the next pane into view, then kill the window that now holds the closing pane
-  tmux swap-pane -s "$CLOSE_PANE" -t "$NEXT_PANE" \; kill-window -t "$NEXT_WIN"
+  _tmux swap-pane -s "$CLOSE_PANE" -t "$NEXT_PANE" \; kill-window -t "$NEXT_WIN"
 elif [ "$CLOSE_WIN" != "$ACTIVE_WIN" ]; then
   # Pane is in a hidden group window - kill the window
-  tmux kill-window -t "$CLOSE_WIN"
+  _tmux kill-window -t "$CLOSE_WIN"
 else
   # Pane is in the active window (last in group) - kill pane
-  tmux kill-pane -t "$CLOSE_PANE"
+  _tmux kill-pane -t "$CLOSE_PANE"
 fi
 
 # Build remaining pane list (excluding closed pane)

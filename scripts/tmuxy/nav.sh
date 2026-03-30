@@ -16,21 +16,21 @@ PANE_ID="$2"
 nav_prev() {
   # Try last-pane (switches to last active pane in current window)
   local before after
-  before=$(tmux display-message -p '#{pane_id}')
-  tmux last-pane 2>/dev/null || true
-  after=$(tmux display-message -p '#{pane_id}')
+  before=$(_tmux display-message -p '#{pane_id}')
+  _tmux last-pane 2>/dev/null || true
+  after=$(_tmux display-message -p '#{pane_id}')
   if [ "$before" != "$after" ]; then
     refresh_panes
     return
   fi
   # Only 1 pane — try last-window
-  tmux last-window 2>/dev/null || true
+  _tmux last-window 2>/dev/null || true
   refresh_panes
 }
 
 nav_vertical() {
   local tmux_dir="$1"
-  tmux selectp "$tmux_dir"
+  _tmux selectp "$tmux_dir"
   refresh_panes
 }
 
@@ -88,7 +88,7 @@ nav_horizontal() {
   fi
 
   # Step 2: Try tmux directional select (no tab fallback)
-  tmux selectp "$tmux_dir" 2>/dev/null || true
+  _tmux selectp "$tmux_dir" 2>/dev/null || true
   refresh_panes
 }
 
