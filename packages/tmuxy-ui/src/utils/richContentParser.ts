@@ -4,7 +4,6 @@
  * Parses OSC sequences and image protocols from terminal output:
  * - OSC 8: Hyperlinks
  * - iTerm2 1337: Inline images
- * - Kitty Graphics Protocol (APC sequences)
  */
 
 // ============================================
@@ -27,7 +26,7 @@ export interface HyperlinkContent {
 
 export interface ImageContent {
   type: 'image';
-  protocol: 'iterm2' | 'kitty';
+  protocol: 'iterm2';
   data: string; // Base64 data or data URL
   width?: string;
   height?: string;
@@ -36,24 +35,6 @@ export interface ImageContent {
 }
 
 export type RichContent = TextContent | HyperlinkContent | ImageContent;
-
-// ============================================
-// Kitty Graphics State
-// ============================================
-
-interface KittyImageState {
-  id: number;
-  chunks: string[];
-  format?: number; // 24=RGB, 32=RGBA, 100=PNG
-  width?: number;
-  height?: number;
-  displayWidth?: number;
-  displayHeight?: number;
-}
-
-// Global state for Kitty images (since they can span multiple sequences)
-const kittyImages: Map<number, KittyImageState> = new Map();
-let kittyNextId = 1;
 
 // ============================================
 // Parser Functions
@@ -135,119 +116,6 @@ function parseIterm2Args(args: string): {
 }
 
 /**
- * Parse Kitty graphics control data
- */
-function parseKittyControl(control: string): Record<string, string | number> {
-  const result: Record<string, string | number> = {};
-  const pairs = control.split(',');
-
-  for (const pair of pairs) {
-    const eqIndex = pair.indexOf('=');
-    if (eqIndex === -1) continue;
-
-    const key = pair.slice(0, eqIndex);
-    const value = pair.slice(eqIndex + 1);
-
-    // Try to parse as number
-    const numValue = parseInt(value, 10);
-    result[key] = isNaN(numValue) ? value : numValue;
-  }
-
-  return result;
-}
-
-/**
- * Get MIME type from Kitty format code
- */
-function getKittyMimeType(format: number): string {
-  switch (format) {
-    case 100:
-      return 'image/png';
-    case 24:
-    case 32:
-      return 'image/raw'; // Raw RGB/RGBA - would need conversion
-    default:
-      return 'image/png';
-  }
-}
-
-/**
- * Process a Kitty graphics sequence and return an image if complete
- */
-function processKittySequence(
-  control: Record<string, string | number>,
-  payload: string,
-): ImageContent | null {
-  const action = (control.a as string) || 't'; // Default action is transmit
-  const imageId = (control.i as number) || kittyNextId++;
-  const more = control.m as number; // 1 = more chunks, 0 = final
-
-  if (action === 't' || action === 'T') {
-    // Transmit image data
-    let state = kittyImages.get(imageId);
-
-    if (!state) {
-      state = {
-        id: imageId,
-        chunks: [],
-        format: (control.f as number) || 32,
-        width: control.s as number,
-        height: control.v as number,
-        displayWidth: control.c as number,
-        displayHeight: control.r as number,
-      };
-      kittyImages.set(imageId, state);
-    }
-
-    if (payload) {
-      state.chunks.push(payload);
-    }
-
-    // If this is the final chunk (m=0 or m not specified with data)
-    if (more !== 1 && state.chunks.length > 0) {
-      const fullData = state.chunks.join('');
-      const mimeType = getKittyMimeType(state.format || 100);
-
-      // Clean up state
-      kittyImages.delete(imageId);
-
-      return {
-        type: 'image',
-        protocol: 'kitty',
-        data: `data:${mimeType};base64,${fullData}`,
-        width: state.displayWidth ? `${state.displayWidth}ch` : undefined,
-        height: state.displayHeight ? `${state.displayHeight}em` : undefined,
-      };
-    }
-  } else if (action === 'p') {
-    // Display a previously transmitted image
-    const state = kittyImages.get(imageId);
-    if (state && state.chunks.length > 0) {
-      const fullData = state.chunks.join('');
-      const mimeType = getKittyMimeType(state.format || 100);
-
-      return {
-        type: 'image',
-        protocol: 'kitty',
-        data: `data:${mimeType};base64,${fullData}`,
-        width: state.displayWidth ? `${state.displayWidth}ch` : undefined,
-        height: state.displayHeight ? `${state.displayHeight}em` : undefined,
-      };
-    }
-  } else if (action === 'd') {
-    // Delete image
-    if (imageId) {
-      kittyImages.delete(imageId);
-    } else {
-      // Delete all images
-      kittyImages.clear();
-    }
-  }
-
-  return null;
-}
-
-/**
  * Parse a single line of terminal output for rich content
  */
 export function parseRichContent(line: string): RichContent[] {
@@ -256,7 +124,7 @@ export function parseRichContent(line: string): RichContent[] {
 
   // Combine all patterns and process in order
   type Match = {
-    type: 'osc8' | 'iterm2' | 'kitty';
+    type: 'osc8' | 'iterm2';
     index: number;
     length: number;
     data: RegExpMatchArray;
@@ -282,17 +150,6 @@ export function parseRichContent(line: string): RichContent[] {
   while ((match = iterm2Regex.exec(line)) !== null) {
     matches.push({
       type: 'iterm2',
-      index: match.index,
-      length: match[0].length,
-      data: match,
-    });
-  }
-
-  // Find Kitty graphics
-  const kittyRegex = /\x1b_G([^;\x1b]*?)(?:;([^\x1b]*))?\x1b\\/g;
-  while ((match = kittyRegex.exec(line)) !== null) {
-    matches.push({
-      type: 'kitty',
       index: match.index,
       length: match[0].length,
       data: match,
@@ -363,16 +220,6 @@ export function parseRichContent(line: string): RichContent[] {
         }
         break;
       }
-
-      case 'kitty': {
-        const control = parseKittyControl(m.data[1] || '');
-        const payload = m.data[2] || '';
-        const image = processKittySequence(control, payload);
-        if (image) {
-          result.push(image);
-        }
-        break;
-      }
     }
 
     lastIndex = m.index + m.length;
@@ -401,8 +248,7 @@ export function hasRichContent(line: string): boolean {
   // Quick check for escape sequences that might contain rich content
   return (
     line.includes('\x1b]8;') || // OSC 8
-    line.includes('\x1b]1337;') || // iTerm2
-    line.includes('\x1b_G') // Kitty
+    line.includes('\x1b]1337;') // iTerm2
   );
 }
 
@@ -413,14 +259,5 @@ export function stripRichContent(line: string): string {
   return line
     .replace(/\x1b\]8;[^;]*;[^\x07\x1b]*?(?:\x07|\x1b\\)/g, '') // OSC 8 open
     .replace(/\x1b\]8;;(?:\x07|\x1b\\)/g, '') // OSC 8 close
-    .replace(/\x1b\]1337;File=[^:]*:[^\x07]*\x07/g, '') // iTerm2
-    .replace(/\x1b_G[^\x1b]*\x1b\\/g, ''); // Kitty
-}
-
-/**
- * Clear Kitty image cache (call on terminal reset)
- */
-export function clearKittyCache(): void {
-  kittyImages.clear();
-  kittyNextId = 1;
+    .replace(/\x1b\]1337;File=[^:]*:[^\x07]*\x07/g, ''); // iTerm2
 }

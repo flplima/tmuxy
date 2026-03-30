@@ -10,11 +10,10 @@ Since tmuxy captures terminal output before rendering in the browser, we can int
 
 | Protocol | Quality | Speed | Support | Notes |
 |----------|---------|-------|---------|-------|
-| **Kitty Graphics** | Excellent (full color) | Fast | kitty, Ghostty, WezTerm | Most modern, supports animations |
-| **iTerm2** | Excellent | Fast | iTerm2, WezTerm, many others | Simpler than Kitty, widely adopted |
+| **iTerm2** | Excellent | Fast | iTerm2, WezTerm, many others | Simpler protocol, widely adopted |
 | **Sixel** | Limited (palette-based, 0-100 color range) | Slower | Oldest, broadest support | tmux has `--enable-sixel` support |
 
-**Recommendation**: Support Kitty Graphics Protocol as primary (most capable) with iTerm2 as fallback (simpler, good compatibility). Sixel is primitive and wasteful compared to the others.
+**Recommendation**: Support iTerm2 as primary (simple, good compatibility). Sixel has broadest support but is primitive and wasteful.
 
 ## Protocol Specifications
 
@@ -73,44 +72,6 @@ ESC ] 1337 ; File=<args> : <base64 data> BEL
 
 **References:**
 - [iTerm2 Inline Images Documentation](https://iterm2.com/documentation-images.html)
-
-### 3. Kitty Graphics Protocol
-
-Most capable protocol with support for animations, image references, and efficient caching.
-
-**Format:**
-```
-ESC _ G <control_data> ; <base64_payload> ESC \
-```
-
-**Control Data Keys:**
-- `a` - Action: `t` (transmit), `p` (put/display), `d` (delete), `f` (frame), `a` (animate)
-- `f` - Format: `24` (RGB), `32` (RGBA), `100` (PNG)
-- `t` - Transmission: `d` (direct), `f` (file), `s` (shared memory)
-- `s` / `v` - Width/height in pixels
-- `c` / `r` - Width/height in cells
-- `x` / `y` - Offset within cell
-- `X` / `Y` - Position in cells
-- `i` - Image ID (for referencing)
-- `m` - More data: `1` (more chunks coming), `0` (final chunk)
-- `q` - Quiet mode: `1` (suppress responses), `2` (suppress errors)
-
-**Chunking:**
-Data must be chunked into max 4096 byte segments:
-```
-ESC_G a=t,f=100,i=1,m=1;<chunk1>ESC\
-ESC_G m=1;<chunk2>ESC\
-ESC_G m=0;<final_chunk>ESC\
-ESC_G a=p,i=1;ESC\
-```
-
-**Animation:**
-- `a=f` - Transmit animation frame
-- `a=a` - Control animation (start, stop, loop)
-
-**References:**
-- [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
-- [Kitty Protocol Extensions](https://sw.kovidgoyal.net/kitty/protocol-extensions/)
 
 ## Other Rich Rendering Opportunities
 
@@ -171,7 +132,6 @@ ESC ] 7 ; file://<hostname>/<path> ST
 ### Phase 1: Quick Wins
 1. **OSC 8 Hyperlinks** - Parse and render as `<a href>` (easy, high value)
 2. **iTerm2 inline images** - Simpler protocol, base64 → `<img src="data:...">`
-3. **Kitty Graphics** - Full implementation with chunking, IDs, animations
 
 ### Phase 2: Enhanced Features
 4. Desktop notifications (OSC 9/777)
@@ -192,7 +152,6 @@ ESC ] 7 ; file://<hostname>/<path> ST
 |---------|--------|----------------|-------|
 | **OSC 8 Hyperlinks** | ✅ Working | ✅ | Rust backend parses OSC 8 → `cell.style.url` → `TerminalLine.tsx` renders `<a>` tags. Requires `terminal-features "hyperlinks"` in tmux config |
 | **iTerm2 Images** | ❌ Inactive | ❌ | Frontend parser/renderer exist in `richContentParser.ts` and `RichContent.tsx` but are unused (dead code). `allow-passthrough` forwards to outer terminal, not captured |
-| **Kitty Graphics** | ❌ Inactive | ❌ | Frontend parser/renderer exist but are unused (dead code). kitten detects tmux incompatibility, falls back to Unicode |
 
 ### tmux Limitations
 
@@ -200,10 +159,9 @@ tmux's `allow-passthrough` mode forwards escape sequences to the outer terminal 
 
 1. **OSC 8 Hyperlinks** - Work because tmux has native support via `terminal-features "hyperlinks"`. These sequences are kept in the buffer and captured by `capture-pane -e`.
 
-2. **Image Protocols (iTerm2, Kitty)** - Don't work because:
+2. **Image Protocols (iTerm2, Sixel)** - Don't work because:
    - Passthrough sequences bypass the capture buffer entirely
    - `capture-pane` never sees them
-   - kitten icat detects tmux and falls back to Unicode placeholders
 
 ### Future Solutions for Images
 
@@ -224,12 +182,6 @@ ls --hyperlink=auto
 ```bash
 # Would work in direct terminal, not via tmux
 imgcat image.png
-```
-
-### Kitty Graphics (Not working via tmux)
-```bash
-# Would work in Kitty terminal, not via tmux
-kitty +kitten icat image.png
 ```
 
 ## Related

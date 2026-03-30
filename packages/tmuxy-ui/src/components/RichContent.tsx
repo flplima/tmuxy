@@ -4,7 +4,6 @@
  * Renders rich terminal content including:
  * - OSC 8 hyperlinks
  * - iTerm2 inline images
- * - Kitty Graphics Protocol images
  */
 
 import { useState, useCallback } from 'react';
