@@ -147,16 +147,18 @@ export const dragMachine = setup({
           actions: enqueueActions(({ context, event, enqueue }) => {
             if (!context.drag) return;
 
-            // Compute centering offset (must match PaneLayout's centering)
-            const PADDING = 8; // CONTAINER_PADDING
+            // Compute centering offset (must match PaneLayout's centering).
+            // .pane-layout is inset by CONTAINER_PADDING (CSS), so positions are
+            // relative to the content-box. No padding-box arithmetic needed.
             const totalW = Math.max(...context.panes.map((p) => p.x + p.width));
             const totalH = Math.max(...context.panes.map((p) => p.y + p.height));
-            const paddingBoxW = context.containerWidth + 2 * PADDING;
-            const paddingBoxH = context.containerHeight + 2 * PADDING;
-            const centerOffsetX = Math.max(PADDING, (paddingBoxW - totalW * context.charWidth) / 2);
+            const centerOffsetX = Math.max(
+              0,
+              (context.containerWidth - totalW * context.charWidth) / 2,
+            );
             const centerOffsetY = Math.max(
-              PADDING,
-              (paddingBoxH - totalH * context.charHeight) / 2,
+              0,
+              (context.containerHeight - totalH * context.charHeight) / 2,
             );
 
             // Use cursor position (container-relative) for hit-testing.
