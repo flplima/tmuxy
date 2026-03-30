@@ -1165,8 +1165,10 @@ impl StateAggregator {
                 // tracked when attaching to an existing session.
                 if !self.pending_captures.is_empty() {
                     if !success {
-                        // Command failed — pop the pending capture to avoid blocking
-                        // all future %output events for this pane indefinitely.
+                        // Command failed — pop the pending capture to consume
+                        // the FIFO slot (keeps queue aligned with tmux responses).
+                        // Dead pane IDs stay in the queue as placeholders for
+                        // in-flight capture commands; this correctly consumes them.
                         let pane_id = self.pending_captures.pop_front();
                         eprintln!(
                             "[state] Capture command failed, popping pending capture: {:?}",
@@ -1197,14 +1199,19 @@ impl StateAggregator {
                                         );
                                         safe_process(&mut pane.terminal, cursor_seq.as_bytes());
                                     }
+                                    // Capture arrived — clear window-move suppression
+                                    self.panes_moved_window.remove(&pane_id);
+                                    return ProcessEventResult {
+                                        state_changed: true,
+                                        change_type: ChangeType::PaneOutput { pane_id },
+                                        ..Default::default()
+                                    };
                                 }
-                                // Capture arrived — clear window-move suppression
+                                // Pane was killed after capture was sent — discard
+                                // the response. The FIFO slot is consumed, keeping
+                                // the queue aligned for subsequent captures.
                                 self.panes_moved_window.remove(&pane_id);
-                                return ProcessEventResult {
-                                    state_changed: true,
-                                    change_type: ChangeType::PaneOutput { pane_id },
-                                    ..Default::default()
-                                };
+                                return ProcessEventResult::default();
                             }
                         }
                     }
@@ -1489,11 +1496,12 @@ impl StateAggregator {
             }
         });
 
-        // Remove pending captures for panes that no longer exist.
-        // Dead pane entries in the FIFO queue corrupt capture matching
-        // (a response for pane A would incorrectly dequeue dead pane B).
-        self.pending_captures
-            .retain(|id| self.panes.contains_key(id));
+        // Do NOT remove dead pane IDs from pending_captures here.
+        // Capture commands were already sent to tmux for those panes, and
+        // tmux will respond in order. Keeping dead IDs as FIFO placeholders
+        // ensures responses for killed panes are correctly consumed (and
+        // discarded) rather than misaligning the queue and routing capture
+        // output to the wrong pane.
 
         resized_panes
     }
@@ -1535,9 +1543,9 @@ impl StateAggregator {
                 // (they were deleted)
                 false
             });
-            // Clean up pending captures for removed panes
-            self.pending_captures
-                .retain(|id| self.panes.contains_key(id));
+            // Do NOT remove dead pane IDs from pending_captures here.
+            // See comment in parse_layout() — dead entries serve as FIFO
+            // placeholders for in-flight capture responses from tmux.
         }
 
         // Try to parse as list-windows output
