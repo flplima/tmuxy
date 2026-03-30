@@ -83,15 +83,17 @@ if [[ "$CURRENT_WINDOW" == __float_* ]]; then
 fi
 
 if [ $# -eq 0 ]; then
-  # Interactive mode: create float with shell, output pane ID
-  NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}')
+  # Interactive mode: create float with shell, output pane ID.
+  #
+  # All _tmux calls use `timeout` because tmux 3.5a subprocess commands
+  # can hang when control mode is attached and processing concurrent events.
+  # The control mode state updates (split/break events) provide all the
+  # information the server needs — these subprocess calls are just for
+  # getting the pane ID and applying initial dimensions.
+  NEW_PANE_ID=$(timeout 5 _tmux split-window -dP -F '#{pane_id}')
   FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
-  _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+  timeout 5 _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
 
-  # Apply size if specified.
-  # Use timeout to prevent hangs if the pane is killed concurrently
-  # (tmux 3.5a can stall when a subprocess targets a recently-killed pane
-  # while control mode is processing the kill).
   if [ -n "$WIDTH" ]; then
     timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
   fi
@@ -109,12 +111,11 @@ else
 
   # Do NOT redirect stderr — TUI apps (fzf, vim, etc.) draw their interface to
   # stderr/tty. Only redirect stdout to the capture file.
-  NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}' \
+  NEW_PANE_ID=$(timeout 5 _tmux split-window -dP -F '#{pane_id}' \
     "bash -c '${CMD} > \"${TMPFILE}\"; tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} wait-for -S ${WAIT_CHAN}'")
   FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
-  _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+  timeout 5 _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
 
-  # Apply size if specified (with timeout — see interactive mode comment)
   if [ -n "$WIDTH" ]; then
     timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
   fi
