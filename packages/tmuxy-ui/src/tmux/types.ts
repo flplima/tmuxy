@@ -52,7 +52,7 @@ export interface ImagePlacement {
   col: number;
   widthCells: number;
   heightCells: number;
-  protocol: 'iterm2' | 'kitty' | 'sixel';
+  protocol: 'iterm2' | 'sixel';
 }
 
 export interface TmuxWindow {
@@ -186,7 +186,7 @@ export interface ServerImagePlacement {
   col: number;
   width_cells: number;
   height_cells: number;
-  protocol: 'iterm2' | 'kitty' | 'sixel';
+  protocol: 'iterm2' | 'sixel';
 }
 
 export interface ServerWindow {

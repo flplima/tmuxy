@@ -113,7 +113,7 @@ pub struct PaneState {
     /// OSC sequence parser for hyperlinks and clipboard
     pub osc_parser: super::osc::OscParser,
 
-    /// Image protocol parser (iTerm2, Kitty, Sixel)
+    /// Image protocol parser (iTerm2, Sixel)
     pub image_parser: super::images::ImageParser,
 
     /// Stored images keyed by image ID (for HTTP retrieval)

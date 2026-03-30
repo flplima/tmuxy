@@ -45,7 +45,7 @@ We do NOT implement browser-style find-in-page for terminal content. Users searc
 
 ### 5. Image Protocols
 
-We do NOT actively support iTerm2 or Kitty inline image protocols. Exploratory parser and renderer code exists in the frontend (`richContentParser.ts`, `RichContent.tsx`) but is currently unused — these components are not wired into the rendering pipeline. Full support would require a sideband channel to intercept image sequences before tmux strips them.
+We do NOT actively support iTerm2 inline image protocols. Exploratory parser and renderer code exists in the frontend (`richContentParser.ts`, `RichContent.tsx`) but is currently unused — these components are not wired into the rendering pipeline. Full support would require a sideband channel to intercept image sequences before tmux strips them.
 
 **Maybe later:** If demand exists and a sideband channel is implemented.
 

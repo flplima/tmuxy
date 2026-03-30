@@ -2,21 +2,18 @@
 //!
 //! Intercepts image sequences from raw terminal output before they reach vt100:
 //! - iTerm2: ESC ] 1337 ; File=<args> : <base64> BEL/ST
-//! - Kitty Graphics: ESC _ G <control> ; <payload> ESC \
 //! - Sixel: ESC P <params> q <data> ESC \  (future)
 //!
 //! Images are stored in an LRU cache keyed by (pane_id, image_id).
 //! The frontend fetches image blobs via a separate HTTP endpoint.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Image protocol that produced this image
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageProtocol {
     ITerm2,
-    Kitty,
     Sixel,
 }
 
@@ -53,33 +50,9 @@ pub struct ImageParser {
     next_id: u32,
     /// Active image placements on the current screen
     pub placements: Vec<ImagePlacement>,
-    /// Kitty chunked transfer buffer: image_id -> accumulated base64
-    kitty_chunks: HashMap<u32, Vec<u8>>,
-    /// Kitty pending control data for chunked transfers
-    kitty_pending_control: HashMap<u32, KittyControl>,
     /// Current cursor position (tracked for placement)
     cursor_row: u16,
     cursor_col: u16,
-}
-
-/// Parsed Kitty Graphics control data
-#[derive(Debug, Clone, Default)]
-struct KittyControl {
-    action: char,       // 't' transmit, 'p' put, 'd' delete, 'T' transmit+display
-    format: u32,        // 24=RGB, 32=RGBA, 100=PNG
-    transmission: char, // 'd' direct, 'f' file, 's' shared memory
-    width_px: u32,      // source width in pixels
-    height_px: u32,     // source height in pixels
-    width_cells: u32,   // display width in cells
-    height_cells: u32,  // display height in cells
-    image_id: u32,      // image ID for referencing
-    more: bool,         // m=1 means more chunks coming
-    quiet: u32,         // suppress responses
-    placement_id: u32,  // placement ID
-    x_offset: u32,      // offset within cell
-    y_offset: u32,
-    col: u32, // placement column
-    row: u32, // placement row
 }
 
 /// Result of processing raw output through the image parser
@@ -98,8 +71,6 @@ impl ImageParser {
     /// Reset state (e.g., on pane resize or full refresh)
     pub fn reset(&mut self) {
         self.placements.clear();
-        self.kitty_chunks.clear();
-        self.kitty_pending_control.clear();
         self.cursor_row = 0;
         self.cursor_col = 0;
     }
@@ -121,17 +92,6 @@ impl ImageParser {
             // iTerm2: ESC ] 1337 ; File= ...
             if i + 2 < content.len() && content[i] == 0x1B && content[i + 1] == b']' {
                 if let Some((consumed, image)) = self.try_parse_iterm2(&content[i..]) {
-                    if let Some((id, stored)) = image {
-                        new_images.push((id, stored));
-                    }
-                    i += consumed;
-                    continue;
-                }
-            }
-
-            // Kitty: ESC _ G ...
-            if i + 2 < content.len() && content[i] == 0x1B && content[i + 1] == b'_' {
-                if let Some((consumed, image)) = self.try_parse_kitty(&content[i..]) {
                     if let Some((id, stored)) = image {
                         new_images.push((id, stored));
                     }
@@ -262,242 +222,6 @@ impl ImageParser {
         Some((end, Some((id, stored))))
     }
 
-    /// Try to parse a Kitty Graphics Protocol sequence.
-    /// Format: ESC _ G <key=value,...> ; <base64_payload> ESC \
-    fn try_parse_kitty(&mut self, data: &[u8]) -> Option<(usize, Option<(u32, StoredImage)>)> {
-        // Must start with ESC _ G
-        if data.len() < 4 || data[0] != 0x1B || data[1] != b'_' || data[2] != b'G' {
-            return None;
-        }
-
-        // Find ESC \ terminator
-        let mut end = 3;
-        while end + 1 < data.len() {
-            if data[end] == 0x1B && data[end + 1] == b'\\' {
-                break;
-            }
-            end += 1;
-        }
-        if end + 1 >= data.len() {
-            return None; // Incomplete sequence
-        }
-        let consumed = end + 2; // include ESC \
-
-        // Content is between 'G' and ESC \
-        let content = &data[3..end];
-
-        // Split control;payload at semicolon
-        let (control_bytes, payload_bytes) =
-            if let Some(semi) = content.iter().position(|&b| b == b';') {
-                (&content[..semi], &content[semi + 1..])
-            } else {
-                (content, &[] as &[u8])
-            };
-
-        let control_str = String::from_utf8_lossy(control_bytes);
-        let control = parse_kitty_control(&control_str);
-
-        // Determine effective image ID
-        let image_id = if control.image_id > 0 {
-            control.image_id
-        } else if control.more || !self.kitty_chunks.is_empty() {
-            // Use a sentinel for anonymous chunked transfers
-            u32::MAX
-        } else {
-            let id = self.next_id;
-            self.next_id += 1;
-            id
-        };
-
-        match control.action {
-            't' | 'T' => {
-                // Transmit (+ optional display for 'T')
-                if control.more {
-                    // More chunks coming — accumulate
-                    let entry = self.kitty_chunks.entry(image_id).or_default();
-                    entry.extend_from_slice(payload_bytes);
-                    self.kitty_pending_control.insert(image_id, control);
-                    return Some((consumed, None));
-                }
-
-                // Final chunk (or single-chunk transfer)
-                let full_payload =
-                    if let Some(mut accumulated) = self.kitty_chunks.remove(&image_id) {
-                        accumulated.extend_from_slice(payload_bytes);
-                        accumulated
-                    } else {
-                        payload_bytes.to_vec()
-                    };
-
-                let final_control = self
-                    .kitty_pending_control
-                    .remove(&image_id)
-                    .unwrap_or(control.clone());
-
-                // Decode base64 payload
-                let decoded = base64_decode_simple(&String::from_utf8_lossy(&full_payload));
-                if decoded.is_empty() {
-                    return Some((consumed, None));
-                }
-
-                let mime_type = if final_control.format == 100 {
-                    "image/png".to_string()
-                } else {
-                    detect_mime_type(&decoded)
-                };
-
-                // Determine cell dimensions
-                let width_cells = if final_control.width_cells > 0 {
-                    final_control.width_cells as u16
-                } else if final_control.width_px > 0 {
-                    (final_control.width_px / 8).max(1) as u16
-                } else {
-                    40
-                };
-
-                let height_cells = if final_control.height_cells > 0 {
-                    final_control.height_cells as u16
-                } else if final_control.height_px > 0 {
-                    (final_control.height_px / 16).max(1) as u16
-                } else {
-                    20
-                };
-
-                let actual_id = if image_id == u32::MAX {
-                    let id = self.next_id;
-                    self.next_id += 1;
-                    id
-                } else {
-                    image_id
-                };
-
-                // For 'T' (transmit+display) or if no separate put action
-                if control.action == 'T' || final_control.action == 'T' {
-                    self.placements.push(ImagePlacement {
-                        id: actual_id,
-                        row: self.cursor_row,
-                        col: self.cursor_col,
-                        width_cells,
-                        height_cells,
-                        protocol: ImageProtocol::Kitty,
-                    });
-                }
-
-                let stored = StoredImage {
-                    data: decoded,
-                    mime_type,
-                };
-
-                Some((consumed, Some((actual_id, stored))))
-            }
-
-            'p' => {
-                // Put/display a previously transmitted image
-                let width_cells = if control.width_cells > 0 {
-                    control.width_cells as u16
-                } else {
-                    40
-                };
-                let height_cells = if control.height_cells > 0 {
-                    control.height_cells as u16
-                } else {
-                    20
-                };
-
-                self.placements.push(ImagePlacement {
-                    id: image_id,
-                    row: if control.row > 0 {
-                        control.row as u16
-                    } else {
-                        self.cursor_row
-                    },
-                    col: if control.col > 0 {
-                        control.col as u16
-                    } else {
-                        self.cursor_col
-                    },
-                    width_cells,
-                    height_cells,
-                    protocol: ImageProtocol::Kitty,
-                });
-
-                Some((consumed, None))
-            }
-
-            'd' => {
-                // Delete images
-                // For now, clear all placements (could be more granular)
-                self.placements.clear();
-                Some((consumed, None))
-            }
-
-            _ => {
-                // Continuation chunk (no action specified)
-                if control.more {
-                    let entry = self.kitty_chunks.entry(image_id).or_default();
-                    entry.extend_from_slice(payload_bytes);
-                    Some((consumed, None))
-                } else if let Some(mut accumulated) = self.kitty_chunks.remove(&image_id) {
-                    // Final continuation chunk
-                    accumulated.extend_from_slice(payload_bytes);
-
-                    let final_control = self
-                        .kitty_pending_control
-                        .remove(&image_id)
-                        .unwrap_or_default();
-
-                    let decoded = base64_decode_simple(&String::from_utf8_lossy(&accumulated));
-                    if decoded.is_empty() {
-                        return Some((consumed, None));
-                    }
-
-                    let mime_type = if final_control.format == 100 {
-                        "image/png".to_string()
-                    } else {
-                        detect_mime_type(&decoded)
-                    };
-
-                    let actual_id = if image_id == u32::MAX {
-                        let id = self.next_id;
-                        self.next_id += 1;
-                        id
-                    } else {
-                        image_id
-                    };
-
-                    let width_cells = if final_control.width_cells > 0 {
-                        final_control.width_cells as u16
-                    } else {
-                        40
-                    };
-                    let height_cells = if final_control.height_cells > 0 {
-                        final_control.height_cells as u16
-                    } else {
-                        20
-                    };
-
-                    self.placements.push(ImagePlacement {
-                        id: actual_id,
-                        row: self.cursor_row,
-                        col: self.cursor_col,
-                        width_cells,
-                        height_cells,
-                        protocol: ImageProtocol::Kitty,
-                    });
-
-                    let stored = StoredImage {
-                        data: decoded,
-                        mime_type,
-                    };
-
-                    Some((consumed, Some((actual_id, stored))))
-                } else {
-                    Some((consumed, None))
-                }
-            }
-        }
-    }
-
     /// Try to parse a Sixel sequence.
     /// Format: ESC P <params> q <sixel_data> ESC \
     fn try_parse_sixel(&mut self, data: &[u8]) -> Option<(usize, Option<(u32, StoredImage)>)> {
@@ -529,37 +253,6 @@ impl ImageParser {
         // For now, consume and discard. Future: convert sixel → PNG in Rust.
         Some((consumed, None))
     }
-}
-
-/// Parse Kitty control data string (key=value,key=value)
-fn parse_kitty_control(s: &str) -> KittyControl {
-    let mut ctrl = KittyControl::default();
-    for part in s.split(',') {
-        if let Some((key, val)) = part.split_once('=') {
-            match key {
-                "a" => ctrl.action = val.chars().next().unwrap_or('t'),
-                "f" => ctrl.format = val.parse().unwrap_or(32),
-                "t" => ctrl.transmission = val.chars().next().unwrap_or('d'),
-                "s" => ctrl.width_px = val.parse().unwrap_or(0),
-                "v" => ctrl.height_px = val.parse().unwrap_or(0),
-                "c" => ctrl.width_cells = val.parse().unwrap_or(0),
-                "r" => ctrl.height_cells = val.parse().unwrap_or(0),
-                "i" => ctrl.image_id = val.parse().unwrap_or(0),
-                "m" => ctrl.more = val == "1",
-                "q" => ctrl.quiet = val.parse().unwrap_or(0),
-                "p" => ctrl.placement_id = val.parse().unwrap_or(0),
-                "x" => ctrl.x_offset = val.parse().unwrap_or(0),
-                "y" => ctrl.y_offset = val.parse().unwrap_or(0),
-                "X" => ctrl.col = val.parse().unwrap_or(0),
-                "Y" => ctrl.row = val.parse().unwrap_or(0),
-                _ => {}
-            }
-        }
-    }
-    if ctrl.action == '\0' {
-        ctrl.action = 't'; // default action
-    }
-    ctrl
 }
 
 /// Find the end of an OSC sequence (BEL or ESC \)
@@ -661,58 +354,6 @@ mod tests {
         assert!(result.clean_bytes.is_empty());
         assert!(parser.placements.is_empty());
         assert!(result.new_images.is_empty());
-    }
-
-    #[test]
-    fn test_kitty_single_chunk() {
-        let mut parser = ImageParser::new();
-
-        // Single-chunk Kitty image (transmit+display)
-        let input = b"\x1b_Ga=T,f=100,s=100,v=50,c=10,r=5;iVBORw0KGgo=\x1b\\";
-        let result = parser.process(input);
-
-        assert!(result.clean_bytes.is_empty());
-        assert_eq!(parser.placements.len(), 1);
-        assert_eq!(parser.placements[0].width_cells, 10);
-        assert_eq!(parser.placements[0].height_cells, 5);
-        assert_eq!(parser.placements[0].protocol, ImageProtocol::Kitty);
-        assert_eq!(result.new_images.len(), 1);
-    }
-
-    #[test]
-    fn test_kitty_chunked() {
-        let mut parser = ImageParser::new();
-
-        // First chunk
-        let chunk1 = b"\x1b_Ga=t,f=100,i=42,m=1;iVBORw0K\x1b\\";
-        let result1 = parser.process(chunk1);
-        assert!(result1.new_images.is_empty()); // Not complete yet
-
-        // Middle chunk (continuation, no action)
-        let chunk2 = b"\x1b_Gi=42,m=1;Ggo=\x1b\\";
-        let result2 = parser.process(chunk2);
-        assert!(result2.new_images.is_empty());
-
-        // Final chunk
-        let chunk3 = b"\x1b_Gi=42,m=0;AAAA\x1b\\";
-        let result3 = parser.process(chunk3);
-        assert_eq!(result3.new_images.len(), 1);
-        assert_eq!(result3.new_images[0].0, 42); // image ID preserved
-    }
-
-    #[test]
-    fn test_kitty_delete() {
-        let mut parser = ImageParser::new();
-
-        // Add an image first
-        let input = b"\x1b_Ga=T,f=100,c=10,r=5;AAAA\x1b\\";
-        parser.process(input);
-        assert_eq!(parser.placements.len(), 1);
-
-        // Delete all
-        let delete = b"\x1b_Ga=d;\x1b\\";
-        parser.process(delete);
-        assert!(parser.placements.is_empty());
     }
 
     #[test]

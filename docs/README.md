@@ -44,7 +44,7 @@ This directory contains architectural and design documentation for the tmuxy pro
 
 | Document | What it covers | When to read it |
 |----------|---------------|-----------------|
-| [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image protocols (Kitty, iTerm2, Sixel), OSC sequences (hyperlinks, clipboard, notifications), current implementation status | Working on terminal rendering, OSC parsing, or considering rich content features |
+| [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image protocols (iTerm2, Sixel), OSC sequences (hyperlinks, clipboard, notifications), current implementation status | Working on terminal rendering, OSC parsing, or considering rich content features |
 
 ## Conventions
 
