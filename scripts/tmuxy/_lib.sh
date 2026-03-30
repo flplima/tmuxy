@@ -5,6 +5,22 @@
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Derive TMUX_SOCKET from TMUX env var if not already set.
+# Inside run-shell, TMUX is e.g. "/tmp/tmux-1000/tmuxy-dev,110,9" — extract
+# the socket name (basename of the path before the first comma).
+if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
+  _path="${TMUX%%,*}"
+  TMUX_SOCKET="$(basename "$_path")"
+  export TMUX_SOCKET
+fi
+
+# Wrap tmux to respect TMUX_SOCKET env var for named server sockets.
+# Using -L bypasses the TMUX env var, which returns corrupted list-windows
+# results inside run-shell (tmux 3.5a bug).
+_tmux() {
+  command tmux ${TMUX_SOCKET:+-L "$TMUX_SOCKET"} "$@"
+}
+
 # Build a group window name from a list of pane IDs
 # Args: paneId1 paneId2 ...
 # Output: __group_4-6-7 (strips % prefix, joins with -)
@@ -28,7 +44,7 @@ find_group_for_pane() {
   local pane_id="$1"
   local pane_num="${pane_id#%}"
 
-  tmux list-windows -F '#{window_name}' | while read -r wname; do
+  _tmux list-windows -F '#{window_name}' | while read -r wname; do
     if [[ "$wname" != __group_* ]]; then
       continue
     fi
@@ -69,13 +85,13 @@ parse_group_panes() {
 # Output: the pane ID in a visible window, or empty string
 find_visible_pane_from_list() {
   local visible_wins
-  visible_wins=$(tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
+  visible_wins=$(_tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
     if [[ "$wname" != __group_* ]] && [[ "$wname" != __float_* ]]; then
       echo "$wid"
     fi
   done)
   local pane_list
-  pane_list=$(tmux list-panes -s -F '#{pane_id},#{window_id}')
+  pane_list=$(_tmux list-panes -s -F '#{pane_id},#{window_id}')
 
   for pid in "$@"; do
     local win_id
@@ -93,26 +109,26 @@ find_visible_pane_from_list() {
 rename_group_windows() {
   local old_name="$1"
   local new_name="$2"
-  tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
+  _tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
     if [ "$wname" = "$old_name" ]; then
-      tmux rename-window -t "$wid" "$new_name"
+      _tmux rename-window -t "$wid" "$new_name"
     fi
   done
 }
 
 # Get active window ID
 active_window() {
-  tmux display-message -p '#{window_id}'
+  _tmux display-message -p '#{window_id}'
 }
 
 # Get a pane's window ID
 pane_window() {
-  tmux display-message -t "$1" -p '#{window_id}'
+  _tmux display-message -t "$1" -p '#{window_id}'
 }
 
 # List visible (non-group) window IDs, one per line
 list_visible_windows() {
-  tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
+  _tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
     if [[ "$wname" != __group_* ]]; then
       echo "$wid"
     fi
@@ -121,5 +137,5 @@ list_visible_windows() {
 
 # Force a list-panes refresh (so server pushes new state to clients)
 refresh_panes() {
-  tmux list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}' > /dev/null 2>&1
+  _tmux list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}' > /dev/null 2>&1
 }

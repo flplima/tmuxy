@@ -27,14 +27,14 @@ if [ -z "$VISIBLE_PANE" ] || [ "$VISIBLE_PANE" = "$TARGET_PANE" ]; then
 fi
 
 # Get visible pane dimensions
-VISIBLE_WIDTH=$(tmux display-message -t "$VISIBLE_PANE" -p '#{pane_width}')
-VISIBLE_HEIGHT=$(tmux display-message -t "$VISIBLE_PANE" -p '#{pane_height}')
+VISIBLE_WIDTH=$(_tmux display-message -t "$VISIBLE_PANE" -p '#{pane_width}')
+VISIBLE_HEIGHT=$(_tmux display-message -t "$VISIBLE_PANE" -p '#{pane_height}')
 
 # Get target pane's window
 TARGET_WIN=$(pane_window "$TARGET_PANE")
 
 # Resize target's window to match visible pane, then swap
-tmux resize-window -t "$TARGET_WIN" -x "$VISIBLE_WIDTH" -y "$VISIBLE_HEIGHT" \; \
+_tmux resize-window -t "$TARGET_WIN" -x "$VISIBLE_WIDTH" -y "$VISIBLE_HEIGHT" \; \
      swap-pane -s "$TARGET_PANE" -t "$VISIBLE_PANE"
 
 refresh_panes

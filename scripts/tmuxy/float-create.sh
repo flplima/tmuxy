@@ -68,7 +68,7 @@ build_float_name() {
 }
 
 # Detect if we're already inside a float pane
-CURRENT_WINDOW=$(tmux display-message -p '#{window_name}')
+CURRENT_WINDOW=$(_tmux display-message -p '#{window_name}')
 
 if [[ "$CURRENT_WINDOW" == __float_* ]]; then
   # Already in a float — reuse the current slot instead of creating a new one
@@ -84,16 +84,16 @@ fi
 
 if [ $# -eq 0 ]; then
   # Interactive mode: create float with shell, output pane ID
-  NEW_PANE_ID=$(tmux split-window -dP -F '#{pane_id}')
+  NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}')
   FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
-  tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+  _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
 
   # Apply size if specified
   if [ -n "$WIDTH" ]; then
-    tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+    _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
   fi
   if [ -n "$HEIGHT" ]; then
-    tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+    _tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
   fi
 
   refresh_panes
@@ -107,28 +107,28 @@ else
 
   # Do NOT redirect stderr — TUI apps (fzf, vim, etc.) draw their interface to
   # stderr/tty. Only redirect stdout to the capture file.
-  NEW_PANE_ID=$(tmux split-window -dP -F '#{pane_id}' \
-    "bash -c '${CMD} > \"${TMPFILE}\"; tmux wait-for -S ${WAIT_CHAN}'")
+  NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}' \
+    "bash -c '${CMD} > \"${TMPFILE}\"; tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} wait-for -S ${WAIT_CHAN}'")
   FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
-  tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+  _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
 
   # Apply size if specified
   if [ -n "$WIDTH" ]; then
-    tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+    _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
   fi
   if [ -n "$HEIGHT" ]; then
-    tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+    _tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
   fi
 
   refresh_panes
 
   # Wait for command to finish
-  tmux wait-for "$WAIT_CHAN"
+  _tmux wait-for "$WAIT_CHAN"
 
   # Auto-close the float window
-  WIN_ID=$(tmux display-message -t "$NEW_PANE_ID" -p '#{window_id}' 2>/dev/null || true)
+  WIN_ID=$(_tmux display-message -t "$NEW_PANE_ID" -p '#{window_id}' 2>/dev/null || true)
   if [ -n "$WIN_ID" ]; then
-    tmux kill-window -t "$WIN_ID" 2>/dev/null || true
+    _tmux kill-window -t "$WIN_ID" 2>/dev/null || true
   fi
   refresh_panes
 
