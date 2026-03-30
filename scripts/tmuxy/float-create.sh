@@ -88,15 +88,17 @@ if [ $# -eq 0 ]; then
   FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
   _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
 
-  # Apply size if specified
+  # Apply size if specified.
+  # Use timeout to prevent hangs if the pane is killed concurrently
+  # (tmux 3.5a can stall when a subprocess targets a recently-killed pane
+  # while control mode is processing the kill).
   if [ -n "$WIDTH" ]; then
-    _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+    timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
   fi
   if [ -n "$HEIGHT" ]; then
-    _tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+    timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
   fi
 
-  refresh_panes
   echo "$NEW_PANE_ID"
 else
   # Command mode: run interactive command in float, capture stdout, auto-close
@@ -112,15 +114,13 @@ else
   FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
   _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
 
-  # Apply size if specified
+  # Apply size if specified (with timeout — see interactive mode comment)
   if [ -n "$WIDTH" ]; then
-    _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+    timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
   fi
   if [ -n "$HEIGHT" ]; then
-    _tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+    timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
   fi
-
-  refresh_panes
 
   # Wait for command to finish
   _tmux wait-for "$WAIT_CHAN"
@@ -130,7 +130,6 @@ else
   if [ -n "$WIN_ID" ]; then
     _tmux kill-window -t "$WIN_ID" 2>/dev/null || true
   fi
-  refresh_panes
 
   # Output captured stdout
   cat "$TMPFILE"
