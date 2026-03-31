@@ -140,45 +140,13 @@ async function uiContainsText(page, text) {
 
 /**
  * Run a command in terminal and wait for expected output.
- * If browser keyboard events fail to reach tmux (CI focus issue), retries
- * by sending the command directly via tmux send-keys as a fallback.
- *
- * IMPORTANT: The output MUST appear in the DOM (via SSE state updates).
- * The tmux send-keys fallback only rescues keyboard delivery — it does NOT
- * bypass DOM verification. If the server drops output (e.g. panes_moved_window
- * suppression), the test must fail even though tmux has the content.
+ * Types via browser keyboard and verifies output appears in the DOM.
+ * No fallbacks — tests the real user path end-to-end.
  */
 async function runCommand(page, command, expectedOutput, timeout = 20000) {
   await typeInTerminal(page, command);
   await pressEnter(page);
-  try {
-    return await waitForTerminalText(page, expectedOutput, timeout);
-  } catch (domErr) {
-    // Fallback: browser keyboard events may not reach tmux on CI.
-    // Send the command directly via tmux send-keys, then STILL verify DOM.
-    const { tmuxQuery } = require('./cli');
-    const sessionName = await page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.sessionName,
-    );
-    if (!sessionName) throw domErr;
-    // Check if tmux already has the output (keyboard worked, DOM didn't update)
-    const alreadyInTmux = tmuxQuery(`capture-pane -t ${sessionName} -p`).includes(expectedOutput);
-    if (!alreadyInTmux) {
-      // Keyboard failed — retry via tmux send-keys
-      tmuxQuery(`send-keys -t ${sessionName} C-c`);
-      await delay(200);
-      tmuxQuery(`send-keys -t ${sessionName} '${command.replace(/'/g, "'\\''")}' Enter`);
-      // Wait for tmux to have the output
-      const start = Date.now();
-      while (Date.now() - start < timeout) {
-        if (tmuxQuery(`capture-pane -t ${sessionName} -p`).includes(expectedOutput)) break;
-        await delay(200);
-      }
-    }
-    // Command reached tmux. Now the output MUST appear in the DOM —
-    // if it doesn't, the rendering pipeline is broken.
-    return await waitForTerminalText(page, expectedOutput, 10000);
-  }
+  return await waitForTerminalText(page, expectedOutput, timeout);
 }
 
 /**
