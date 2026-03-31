@@ -118,6 +118,12 @@ describe('Scenario 4: Window Lifecycle', () => {
     await waitForWindowCount(ctx.page, initialCount + 1);
     expect(await ctx.session.getWindowCount()).toBe(initialCount + 1);
 
+    // Step 1b: Verify typing works in the new window.
+    // After create-window (split-window + break-pane), the pane moves to a
+    // new window. Output must not be dropped by the panes_moved_window flag.
+    const NEW_WIN_TOKEN = 'NEW_WIN_' + Date.now();
+    await runCommand(ctx.page, `echo ${NEW_WIN_TOKEN}`, NEW_WIN_TOKEN);
+
     // Step 2: Window tabs
     const windowInfo = await ctx.session.getWindowInfo();
     expect(windowInfo.length).toBe(2);

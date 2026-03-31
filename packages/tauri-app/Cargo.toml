@@ -5,6 +5,10 @@ edition.workspace = true
 authors.workspace = true
 description = "Tmuxy Tauri desktop application"
 
+[[bin]]
+name = "tmuxy"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
 

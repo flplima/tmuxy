@@ -81,10 +81,19 @@ describe('Scenario 1: General Layout', () => {
     await waitForPaneCount(ctx.page, 2, 10000);
     await delay(DELAYS.SYNC);
 
+    // Step 1b: Verify typing works in the new pane immediately after split.
+    // This catches output being dropped by panes_moved_window suppression.
+    const SPLIT_TOKEN = 'SPLIT_VIS_' + Date.now();
+    await runCommand(ctx.page, `echo ${SPLIT_TOKEN}`, SPLIT_TOKEN);
+
     // Step 2: Split horizontal (prefix + ") → 3 panes
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 3, 10000);
     await delay(DELAYS.SYNC);
+
+    // Step 2b: Verify typing works in this pane too
+    const SPLIT2_TOKEN = 'SPLIT2_VIS_' + Date.now();
+    await runCommand(ctx.page, `echo ${SPLIT2_TOKEN}`, SPLIT2_TOKEN);
 
     // Step 3: Assert exactly 3 panes
     const paneCount = await getUIPaneCount(ctx.page);
