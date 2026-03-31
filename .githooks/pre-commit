@@ -14,6 +14,15 @@ git add -u packages/tmuxy-ui/src
 echo "Linting tests (no skipped tests)..."
 npx eslint tests/
 
+echo "Checking ESLint config integrity..."
+# Prevent weakening ESLint rules: no-restricted-syntax must ban tmuxQuery/tmuxRun
+# in test interaction helpers (pane-ops.js, keyboard.js) and test files.
+if ! grep -q "tmuxQuery" eslint.config.mjs; then
+  echo "ERROR: eslint.config.mjs must ban tmuxQuery in test files."
+  echo "Tests must verify via DOM, not tmux CLI. See docs/TESTS.md."
+  exit 1
+fi
+
 echo "Running unit tests..."
 npm test -- --run
 

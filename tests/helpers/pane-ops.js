@@ -150,27 +150,6 @@ async function runCommand(page, command, expectedOutput, timeout = 20000) {
 }
 
 /**
- * Run a command in terminal with capture-pane fallback.
- * Falls back to tmux capture-pane verification when DOM doesn't update (CI SSE issue).
- * @param {string} sessionName - tmux session name for capture-pane fallback
- */
-async function runCommandResilient(page, sessionName, command, expectedOutput, timeout = 20000) {
-  const { tmuxQuery } = require('./cli');
-  await typeInTerminal(page, command);
-  await pressEnter(page);
-  try {
-    return await waitForTerminalText(page, expectedOutput, timeout);
-  } catch {
-    await delay(DELAYS.SYNC);
-    const captured = tmuxQuery(`capture-pane -t ${sessionName} -p`);
-    if (!captured.includes(expectedOutput)) {
-      throw new Error(`Command output "${expectedOutput}" not found in DOM or tmux capture-pane`);
-    }
-    return getTerminalText(page);
-  }
-}
-
-/**
  * Run a command and return terminal text after a delay (for commands without specific output)
  */
 async function runCommandWithDelay(page, command, delayMs = 1000) {
@@ -399,7 +378,6 @@ module.exports = {
   getPaneText,
   uiContainsText,
   runCommand,
-  runCommandResilient,
   runCommandWithDelay,
   // UI interactions
   clickPane,

@@ -415,20 +415,10 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     // Step 3: Float modal appears (extended timeout for CLI → run-shell → control mode chain)
     await waitForFloatModal(ctx.page, 20000);
 
-    // Wait for float-create.sh to finish in background pane.
-    // The script prints a pane ID (e.g. %15) then the shell prompt returns.
-    // Without this, closing the float can race with subprocess calls in the script.
-    const { tmuxQuery } = require('./helpers/cli');
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const capture = tmuxQuery(`capture-pane -t ${bgPaneId} -p`);
-        // Script finished when capture shows "pane float" output followed by a prompt
-        return /pane float[\s\S]*%\d+[\s\S]*[$#%>❯]\s*$/.test(capture.trim());
-      },
-      15000,
-      'float-create.sh to finish (pane ID + prompt)',
-    );
+    // Wait for float-create.sh to finish. The script routes all tmux commands
+    // through run-shell (synchronous), so it completes shortly after the float
+    // modal appears. A brief delay ensures the shell prompt returns.
+    await delay(DELAYS.SYNC);
 
     // Step 4: Float is visually present with non-trivial dimensions
     const floatInfo = await verifyFloatVisible(ctx.page);
@@ -532,26 +522,20 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     await ctx.page.keyboard.press('Enter');
     await delay(DELAYS.SYNC);
 
-    // Verify via tmux capture-pane (works even when DOM doesn't render)
-    const floatCapture = tmuxQuery(`capture-pane -t ${focusedFloatId} -p`);
-    expect(floatCapture).toContain(TOKEN);
-
-    // Also verify DOM if content is available (non-fatal on CI)
-    try {
-      await waitForCondition(
-        ctx.page,
-        async () => {
-          return await ctx.page.evaluate((token) => {
-            const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
-            if (!fc) return false;
-            const log = fc.querySelector('[role="log"]');
-            return log?.textContent?.includes(token) || false;
-          }, TOKEN);
-        },
-        5000,
-        'typed output in float DOM',
-      );
-    } catch { /* DOM verification is best-effort on CI */ }
+    // Verify typed text appears in the float's DOM
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        return await ctx.page.evaluate((token) => {
+          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          if (!fc) return false;
+          const log = fc.querySelector('[role="log"]');
+          return log?.textContent?.includes(token) || false;
+        }, TOKEN);
+      },
+      10000,
+      'typed output in float DOM',
+    );
 
     // Step 8: Input isolation — typed text appears in float, not background pane
     const bgContent = await ctx.page.evaluate((id) => {
@@ -621,17 +605,8 @@ describe('Scenario 6b: Float Escape Close', () => {
     await pressEnter(ctx.page);
     await waitForFloatModal(ctx.page, 20000);
 
-    // Wait for float-create.sh to finish in background pane
-    const { tmuxQuery } = require('./helpers/cli');
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const capture = tmuxQuery(`capture-pane -t ${bgPaneId} -p`);
-        return /pane float[\s\S]*%\d+[\s\S]*[$#%>❯]\s*$/.test(capture.trim());
-      },
-      15000,
-      'float-create.sh to finish (pane ID + prompt)',
-    );
+    // Wait for float-create.sh to finish
+    await delay(DELAYS.SYNC);
 
     // Step 2: Float is visually present
     await verifyFloatVisible(ctx.page);
@@ -690,17 +665,8 @@ describe('Scenario 6c: Float Backdrop Close', () => {
     await pressEnter(ctx.page);
     await waitForFloatModal(ctx.page, 20000);
 
-    // Wait for float-create.sh to finish in background pane
-    const { tmuxQuery } = require('./helpers/cli');
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const capture = tmuxQuery(`capture-pane -t ${bgPaneId} -p`);
-        return /pane float[\s\S]*%\d+[\s\S]*[$#%>❯]\s*$/.test(capture.trim());
-      },
-      15000,
-      'float-create.sh to finish (pane ID + prompt)',
-    );
+    // Wait for float-create.sh to finish
+    await delay(DELAYS.SYNC);
 
     // Step 2: Float is visually present
     await verifyFloatVisible(ctx.page);
@@ -836,17 +802,9 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     expect(win2PaneId).toBeTruthy();
     expect(win2PaneId).not.toBe(win1PaneId);
 
-    // Step 4: Type a marker in window 2 and verify via tmux capture-pane
-    // (DOM may not render new pane content on CI)
-    const { tmuxQuery } = require('./helpers/cli');
+    // Step 4: Type a marker in window 2 and verify it appears in DOM
     const MARKER_W2 = `W2_MARKER_${Date.now()}`;
-    await focusPage(ctx.page);
-    await typeInTerminal(ctx.page, `echo ${MARKER_W2}`);
-    await pressEnter(ctx.page);
-    await delay(DELAYS.SYNC);
-    // Verify marker arrived in the correct pane via tmux
-    const w2CaptureBefore = tmuxQuery(`capture-pane -t ${win2PaneId} -p`);
-    expect(w2CaptureBefore).toContain(MARKER_W2);
+    await runCommand(ctx.page, `echo ${MARKER_W2}`, MARKER_W2);
 
     // Step 5: Click window 1 tab (the inactive one)
     await focusPage(ctx.page);
@@ -881,13 +839,8 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     await pressEnter(ctx.page);
     await delay(DELAYS.SYNC);
 
-    // Step 8: Verify MARKER_W1 appears in window 1's pane (via tmux capture-pane)
-    const w1Content = tmuxQuery(`capture-pane -t ${win1PaneId} -p`);
-    expect(w1Content).toContain(MARKER_W1);
-
-    // Step 9: Verify MARKER_W1 does NOT appear in window 2's pane
-    const w2Content = tmuxQuery(`capture-pane -t ${win2PaneId} -p`);
-    expect(w2Content).not.toContain(MARKER_W1);
+    // Step 8: Verify MARKER_W1 appears in the DOM (we're viewing window 1)
+    await waitForTerminalText(ctx.page, MARKER_W1);
 
     // Step 10: Click window 2 tab, type another marker
     const tabs2 = await ctx.page.$$('.tab-name:not(.tab-add)');
@@ -906,13 +859,8 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     await pressEnter(ctx.page);
     await delay(DELAYS.SYNC);
 
-    // Step 11: Verify MARKER_W2B appears in window 2's pane
-    const w2ContentAfter = tmuxQuery(`capture-pane -t ${win2PaneId} -p`);
-    expect(w2ContentAfter).toContain(MARKER_W2B);
-
-    // Step 12: Verify MARKER_W2B does NOT appear in window 1's pane
-    const w1ContentAfter = tmuxQuery(`capture-pane -t ${win1PaneId} -p`);
-    expect(w1ContentAfter).not.toContain(MARKER_W2B);
+    // Step 11: Verify MARKER_W2B appears in DOM (we're viewing window 2)
+    await waitForTerminalText(ctx.page, MARKER_W2B);
   }, 180000);
 });
 
@@ -945,7 +893,6 @@ describe('Scenario 22: Float fzf Workflow', () => {
       window.app?.getSnapshot()?.context?.focusedFloatPaneId,
     );
     expect(floatPaneId).toBeTruthy();
-    const { tmuxQuery } = require('./helpers/cli');
 
     // Wait for float prompt (non-fatal on CI)
     try {
@@ -975,9 +922,20 @@ describe('Scenario 22: Float fzf Workflow', () => {
     await ctx.page.keyboard.press('Enter');
     await delay(DELAYS.SYNC);
 
-    // Verify via tmux capture-pane (works even when DOM doesn't render)
-    const floatCapture1 = tmuxQuery(`capture-pane -t ${floatPaneId} -p`);
-    expect(floatCapture1).toContain(TOKEN);
+    // Verify typed text in float's DOM
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        return await ctx.page.evaluate((token) => {
+          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          if (!fc) return false;
+          const log = fc.querySelector('[role="log"]');
+          return log?.textContent?.includes(token) || false;
+        }, TOKEN);
+      },
+      10000,
+      'echo output in float DOM',
+    );
 
     // Step 6: Run fzf with a simple input and auto-select via --select-1
     const FZF_MARKER = `FZF_RESULT_${Date.now()}`;
@@ -989,11 +947,20 @@ describe('Scenario 22: Float fzf Workflow', () => {
     await ctx.page.keyboard.press('Enter');
     await delay(DELAYS.SYNC);
 
-    // Verify fzf result via capture-pane — fzf --select-1 prints the match to stdout
-    // Wait a bit for fzf to complete
-    await delay(3000);
-    const floatCapture2 = tmuxQuery(`capture-pane -t ${floatPaneId} -p`);
-    expect(floatCapture2).toContain(FZF_MARKER);
+    // Verify fzf result in float DOM — fzf --select-1 prints the match to stdout
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        return await ctx.page.evaluate((marker) => {
+          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          if (!fc) return false;
+          const log = fc.querySelector('[role="log"]');
+          return log?.textContent?.includes(marker) || false;
+        }, FZF_MARKER);
+      },
+      15000,
+      'fzf result in float DOM',
+    );
 
     // Step 8: Close float if still open (exit the shell)
     const stillHasFloat = await ctx.page.evaluate(

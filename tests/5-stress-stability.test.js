@@ -9,7 +9,6 @@ const {
   createTestContext,
   delay,
   runCommand,
-  runCommandResilient,
   getUIPaneCount,
   sendKeyCombo,
   waitForPaneCount,
@@ -44,24 +43,24 @@ describe('Scenario 17: Large Output Perf', () => {
 
     // Step 1: Rapid output (yes | head -500)
     const start1 = Date.now();
-    await runCommandResilient(ctx.page, ctx.session.name, 'yes | head -500 && echo DONE_YES', 'DONE_YES', 20000);
+    await runCommand(ctx.page,'yes | head -500 && echo DONE_YES', 'DONE_YES', 20000);
     const elapsed1 = Date.now() - start1;
     expect(elapsed1).toBeLessThan(20000);
     expect(ctx.session.exists()).toBe(true);
 
     // Step 2: Large output (seq 1 2000)
     const start2 = Date.now();
-    await runCommandResilient(ctx.page, ctx.session.name, 'seq 1 2000 && echo SEQ_DONE', 'SEQ_DONE', 20000);
+    await runCommand(ctx.page,'seq 1 2000 && echo SEQ_DONE', 'SEQ_DONE', 20000);
     const elapsed2 = Date.now() - start2;
     expect(elapsed2).toBeLessThan(20000);
     expect(ctx.session.exists()).toBe(true);
 
     // Step 3: Large scrollback accumulation
-    await runCommandResilient(ctx.page, ctx.session.name, 'for i in $(seq 1 200); do echo "line_$i"; done && echo SCROLL_DONE', 'SCROLL_DONE', 15000);
+    await runCommand(ctx.page,'for i in $(seq 1 200); do echo "line_$i"; done && echo SCROLL_DONE', 'SCROLL_DONE', 15000);
     expect(ctx.session.exists()).toBe(true);
 
     // Step 4: Verify responsive
-    await runCommandResilient(ctx.page, ctx.session.name, 'echo "STILL_RESPONSIVE"', 'STILL_RESPONSIVE');
+    await runCommand(ctx.page,'echo "STILL_RESPONSIVE"', 'STILL_RESPONSIVE');
   }, 180000);
 });
 
@@ -233,7 +232,7 @@ describe('Scenario 19: Complex Workflow', () => {
     // Step 6: Send commands to verify panes alive
     await selectWindowKeyboard(ctx.page, windowInfo[0].index);
     await delay(DELAYS.LONG);
-    await runCommandResilient(ctx.page, ctx.session.name, 'echo "WIN1_OK"', 'WIN1_OK');
+    await runCommand(ctx.page,'echo "WIN1_OK"', 'WIN1_OK');
 
     // Step 7: Zoom and unzoom
     await toggleZoomKeyboard(ctx.page);
