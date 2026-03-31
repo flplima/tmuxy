@@ -85,20 +85,30 @@ fi
 if [ $# -eq 0 ]; then
   # Interactive mode: create float with shell, output pane ID.
   #
-  # All _tmux calls use `timeout` because tmux 3.5a subprocess commands
-  # can hang when control mode is attached and processing concurrent events.
-  # The control mode state updates (split/break events) provide all the
-  # information the server needs — these subprocess calls are just for
-  # getting the pane ID and applying initial dimensions.
-  NEW_PANE_ID=$(timeout 5 _tmux split-window -dP -F '#{pane_id}')
-  FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
-  timeout 5 _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+  # Route all mutating commands through run-shell to avoid hangs on tmux 3.5a.
+  # Direct subprocess calls can deadlock with control mode. We capture the
+  # pane ID via a temp file since run-shell can't return output.
+  TMPID=$(mktemp /tmp/tmuxy-float-id.XXXXXX)
+  trap 'rm -f "$TMPID"' EXIT
+  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} split-window -dP -F '#{pane_id}' > $TMPID"
+  NEW_PANE_ID=$(cat "$TMPID")
+  rm -f "$TMPID"
+  trap - EXIT
 
+  if [ -z "$NEW_PANE_ID" ]; then
+    echo "Error: failed to create float pane" >&2
+    exit 1
+  fi
+
+  FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
+  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} break-pane -d -s $NEW_PANE_ID -n $FLOAT_NAME"
+
+  # Apply size via run-shell (non-fatal if pane killed concurrently)
   if [ -n "$WIDTH" ]; then
-    timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+    _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -x $WIDTH 2>/dev/null || true" 2>/dev/null || true
   fi
   if [ -n "$HEIGHT" ]; then
-    timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+    _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -y $HEIGHT 2>/dev/null || true" 2>/dev/null || true
   fi
 
   echo "$NEW_PANE_ID"
@@ -111,16 +121,29 @@ else
 
   # Do NOT redirect stderr — TUI apps (fzf, vim, etc.) draw their interface to
   # stderr/tty. Only redirect stdout to the capture file.
-  NEW_PANE_ID=$(timeout 5 _tmux split-window -dP -F '#{pane_id}' \
-    "bash -c '${CMD} > \"${TMPFILE}\"; tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} wait-for -S ${WAIT_CHAN}'")
+  # Route through run-shell to avoid tmux 3.5a control mode hangs.
+  # Use a wrapper script to avoid complex escaping in split-window command.
+  WRAPPER=$(mktemp /tmp/tmuxy-float-cmd.XXXXXX)
+  TMPID=$(mktemp /tmp/tmuxy-float-id.XXXXXX)
+  trap 'rm -f "$TMPFILE" "$WRAPPER" "$TMPID"' EXIT
+  cat > "$WRAPPER" <<SCRIPT
+#!/bin/bash
+${CMD} > "${TMPFILE}"
+tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} wait-for -S ${WAIT_CHAN}
+SCRIPT
+  chmod +x "$WRAPPER"
+  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} split-window -dP -F '#{pane_id}' 'bash $WRAPPER' > $TMPID"
+  NEW_PANE_ID=$(cat "$TMPID")
+  rm -f "$TMPID"
+
   FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
-  timeout 5 _tmux break-pane -d -s "$NEW_PANE_ID" -n "$FLOAT_NAME"
+  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} break-pane -d -s $NEW_PANE_ID -n $FLOAT_NAME"
 
   if [ -n "$WIDTH" ]; then
-    timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
+    _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -x $WIDTH 2>/dev/null || true" 2>/dev/null || true
   fi
   if [ -n "$HEIGHT" ]; then
-    timeout 3 _tmux resize-pane -t "$NEW_PANE_ID" -y "$HEIGHT" 2>/dev/null || true
+    _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -y $HEIGHT 2>/dev/null || true" 2>/dev/null || true
   fi
 
   # Wait for command to finish
