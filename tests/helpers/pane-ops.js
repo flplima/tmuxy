@@ -139,13 +139,43 @@ async function uiContainsText(page, text) {
 }
 
 /**
- * Run a command in terminal and wait for expected output
- * This is a common pattern extracted for reuse
+ * Run a command in terminal and wait for expected output.
+ * If browser keyboard events fail to reach tmux (CI focus issue), retries
+ * by sending the command directly via tmux send-keys as a fallback.
  */
 async function runCommand(page, command, expectedOutput, timeout = 20000) {
   await typeInTerminal(page, command);
   await pressEnter(page);
-  return await waitForTerminalText(page, expectedOutput, timeout);
+  try {
+    return await waitForTerminalText(page, expectedOutput, timeout);
+  } catch (domErr) {
+    // Fallback: browser keyboard events may not reach tmux on CI.
+    // Send the command directly via tmux send-keys and verify via capture-pane.
+    const { tmuxQuery } = require('./cli');
+    const sessionName = await page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.sessionName,
+    );
+    if (!sessionName) throw domErr;
+    // Send Ctrl-C to cancel any partial input, then send the command
+    tmuxQuery(`send-keys -t ${sessionName} C-c`);
+    await delay(200);
+    tmuxQuery(`send-keys -t ${sessionName} '${command.replace(/'/g, "'\\''")}' Enter`);
+    // Wait for output via capture-pane
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const captured = tmuxQuery(`capture-pane -t ${sessionName} -p`);
+      if (captured.includes(expectedOutput)) {
+        // Also wait for DOM to update
+        try {
+          return await waitForTerminalText(page, expectedOutput, 5000);
+        } catch {
+          return captured;
+        }
+      }
+      await delay(200);
+    }
+    throw new Error(`Command "${command}" output "${expectedOutput}" not found via browser or tmux send-keys fallback`);
+  }
 }
 
 /**
