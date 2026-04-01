@@ -15,20 +15,9 @@ const {
   createWindowKeyboard,
   clickPaneGroupAdd,
   getGroupTabInfo,
+  waitForCondition,
   DELAYS,
 } = require('./helpers');
-
-// ==================== Condition Polling Helper ====================
-
-async function waitForCondition(page, fn, timeout = 10000, description = 'condition') {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    if (await fn()) return;
-    await delay(100);
-  }
-  const desc = typeof description === 'function' ? description() : description;
-  throw new Error(`Timeout waiting for ${desc} (${timeout}ms)`);
-}
 
 // ==================== Scenario: Content persistence after split/close ====================
 

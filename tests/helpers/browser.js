@@ -271,6 +271,23 @@ async function waitForPaneCount(page, expectedCount, timeout = 3000) {
   }
 }
 
+/**
+ * Poll a condition until it returns true or timeout.
+ * @param {Page} page - Playwright page (for context; not always used by fn)
+ * @param {Function} fn - Async function returning boolean
+ * @param {number} timeout - Max wait in ms
+ * @param {string|Function} description - Description for error message
+ */
+async function waitForCondition(page, fn, timeout = 10000, description = 'condition') {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (await fn()) return;
+    await delay(100);
+  }
+  const desc = typeof description === 'function' ? await description() : description;
+  throw new Error(`Timed out waiting for ${desc} (${timeout}ms)`);
+}
+
 module.exports = {
   delay,
   getBrowser,
@@ -281,4 +298,5 @@ module.exports = {
   waitForSessionReady,
   waitForWindowCount,
   waitForPaneCount,
+  waitForCondition,
 };
