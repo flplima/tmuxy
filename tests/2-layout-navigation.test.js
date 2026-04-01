@@ -447,24 +447,30 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     }
 
     // Step 7: Type command in float and verify output
-    // Wait for float pane content (non-fatal — CI SSE may not deliver new pane content)
-    try {
-      await waitForCondition(
-        ctx.page,
-        async () => {
-          return await ctx.page.evaluate(() => {
-            const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
-            if (!fc) return false;
-            const log = fc.querySelector('[role="log"]');
-            if (!log) return false;
-            const content = log.textContent || '';
-            return content.length > 5 && /[$#%>❯]/.test(content);
-          });
-        },
-        10000,
-        'float pane shell prompt to render',
-      );
-    } catch { /* CI may not render new pane content - continue with capture-pane verification */ }
+    // Wait for float pane shell prompt to render
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        return await ctx.page.evaluate(() => {
+          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          if (!fc) return false;
+          const log = fc.querySelector('[role="log"]');
+          if (!log) return false;
+          const content = log.textContent || '';
+          return content.length > 5 && /[$#%>❯]/.test(content);
+        });
+      },
+      15000,
+      'float pane shell prompt to render',
+    );
+    // Click the float's terminal to ensure keyboard focus targets the float pane
+    await ctx.page.evaluate(() => {
+      const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+      const log = fc?.querySelector('[role="log"]');
+      if (log) log.click();
+    });
+    await ctx.page.bringToFront();
+    await delay(DELAYS.MEDIUM);
     const TOKEN = 'FLOAT_VIS_' + Date.now();
     await ctx.page.keyboard.type(`echo ${TOKEN}`);
     await ctx.page.keyboard.press('Enter');
