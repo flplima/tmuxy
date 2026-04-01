@@ -867,9 +867,12 @@ impl StateAggregator {
     /// - list-windows: lines start with @window_id followed by comma-separated fields
     /// - capture-pane: terminal content with ANSI escapes, arbitrary text
     fn looks_like_capture_output(&self, output: &str) -> bool {
-        // Empty output is not capture output (could be from a command that produces no output)
+        // Empty output: if we have pending captures, this is likely capture-pane
+        // for a new pane that hasn't rendered content yet. Consuming the slot
+        // keeps the FIFO queue aligned. Without this, the queue gets stuck and
+        // all subsequent captures go to the wrong pane.
         if output.is_empty() {
-            return false;
+            return !self.pending_captures.is_empty();
         }
 
         // Check all non-empty lines
