@@ -29,6 +29,8 @@ async function focusTerminal(page) {
       await page.click('body').catch(() => {});
     }
   }
+  // Ensure CDP page has input focus (headless Chrome can lose it after DOM re-renders)
+  await page.bringToFront();
 }
 
 // ==================== Keyboard Input ====================
@@ -135,6 +137,10 @@ async function typeInTerminal(page, text) {
   } else {
     await page.click('body');
   }
+  // Ensure the CDP page has input focus. On headless Chrome, DOM re-renders
+  // (split-pane, new-window) can cause the page to lose keyboard focus.
+  // bringToFront() re-establishes it at the CDP level.
+  await page.bringToFront();
   await delay(DELAYS.MEDIUM);
   // Per-character typing with delay — the HttpAdapter batches literal
   // characters into a single send-keys -l command and serializes HTTP
