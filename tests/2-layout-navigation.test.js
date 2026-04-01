@@ -463,16 +463,16 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       15000,
       'float pane shell prompt to render',
     );
-    // Click the float's terminal to ensure keyboard focus targets the float pane
-    await ctx.page.evaluate(() => {
-      const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
-      const log = fc?.querySelector('[role="log"]');
-      if (log) log.click();
-    });
+    // Type directly — the keyboard actor routes to focusedFloatPaneId (verified above).
+    // Do NOT click the float's [role="log"] — it triggers FOCUS_PANE which
+    // selects the background pane, breaking input isolation.
     await ctx.page.bringToFront();
     await delay(DELAYS.MEDIUM);
     const TOKEN = 'FLOAT_VIS_' + Date.now();
-    await ctx.page.keyboard.type(`echo ${TOKEN}`);
+    for (const char of `echo ${TOKEN}`) {
+      await ctx.page.keyboard.type(char);
+      await delay(30);
+    }
     await ctx.page.keyboard.press('Enter');
     await delay(DELAYS.SYNC);
 
