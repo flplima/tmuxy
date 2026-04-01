@@ -13,7 +13,6 @@ const {
   runCommand,
   typeInTerminal,
   pressEnter,
-  noteKnownLimitation,
   DELAYS,
   TMUXY_URL,
 } = require('./helpers');
@@ -157,9 +156,7 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
         };
       });
 
-      if (!linkInfo.hasLinks) {
-        noteKnownLimitation('OSC8_CLICKABLE_LINKS');
-      }
+      // OSC 8 hyperlinks render as text; clickable links are a future enhancement
     });
 
     test('Multiple hyperlinks on same line render correctly', async () => {
@@ -390,12 +387,12 @@ const BLUE_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf
 const GREEN_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 /**
- * Send a command to the pane via tmux send-keys (no terminal text wait).
- * Thin wrapper for widget tests that don't need output verification.
+ * Type a command in the terminal via browser keyboard (no output wait).
+ * Uses the real user path: browser keyboard → tmux → SSE → DOM.
  */
-async function sendWidgetCommand(session, command) {
-  await session.runCommand(`send-keys -t ${session.name} -l '${command.replace(/'/g, "'\"'\"'")}'`);
-  await session.runCommand(`send-keys -t ${session.name} Enter`);
+async function sendWidgetCommand(page, command) {
+  await typeInTerminal(page, command);
+  await pressEnter(page);
 }
 
 /**
@@ -427,7 +424,7 @@ describe('Category 17: Widgets', () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
-      await sendWidgetCommand(wCtx.session, `(echo "${RED_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
+      await sendWidgetCommand(wCtx.page,`(echo "${RED_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
 
       await delay(2000);
       await waitForDomSelector(wCtx.page, '.widget-image', 30000);
@@ -462,7 +459,7 @@ describe('Category 17: Widgets', () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
-      await sendWidgetCommand(wCtx.session, `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
+      await sendWidgetCommand(wCtx.page,`(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
 
       await waitForDomSelector(wCtx.page, '.widget-image', 30000);
 
@@ -488,7 +485,7 @@ describe('Category 17: Widgets', () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
-      await sendWidgetCommand(wCtx.session, 'echo "hello world"');
+      await sendWidgetCommand(wCtx.page,'echo "hello world"');
       await waitForTerminalText(wCtx.page, 'hello world');
 
       const hasTerminal = await wCtx.page.evaluate(() =>
@@ -506,7 +503,7 @@ describe('Category 17: Widgets', () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
-      await sendWidgetCommand(wCtx.session, `echo "test" | ${TMUXY_WIDGET} nonexistent_xyz`);
+      await sendWidgetCommand(wCtx.page,`echo "test" | ${TMUXY_WIDGET} nonexistent_xyz`);
 
       await delay(2000);
 

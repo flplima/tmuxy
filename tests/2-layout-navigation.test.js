@@ -40,20 +40,9 @@ const {
   assertLayoutInvariants,
   assertContentMatch,
   waitForShellPrompt,
+  waitForCondition,
   DELAYS,
 } = require('./helpers');
-
-// ==================== Condition Polling Helper ====================
-
-async function waitForCondition(page, fn, timeout = 10000, description = 'condition') {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    if (await fn()) return;
-    await delay(100);
-  }
-  const desc = typeof description === 'function' ? await description() : description;
-  throw new Error(`Timed out waiting for ${desc} (${timeout}ms)`);
-}
 
 // ==================== Float Visual Verification Helper ====================
 
@@ -128,48 +117,21 @@ describe('Scenario 4: Window Lifecycle', () => {
     const windowInfo = await ctx.session.getWindowInfo();
     expect(windowInfo.length).toBe(2);
 
-    // Step 3: Next window (poll until window index changes)
+    // Step 3: Next window (keyboard only — no adapter fallback)
     const currentIndex = await ctx.session.getCurrentWindowIndex();
     await nextWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
-    let nextChanged = false;
-    try {
-      await waitForCondition(ctx.page, async () => {
-        const idx = await ctx.session.getCurrentWindowIndex();
-        return idx !== currentIndex;
-      }, 5000, 'next-window keyboard to change active window');
-      nextChanged = true;
-    } catch {
-      // Keyboard next-window may not work reliably; fall back to adapter
-      await ctx.session._exec('next-window');
-      await delay(DELAYS.SYNC);
-      await waitForCondition(ctx.page, async () => {
-        const idx = await ctx.session.getCurrentWindowIndex();
-        return idx !== currentIndex;
-      }, 10000, 'next-window adapter to change active window');
-      nextChanged = true;
-    }
-    expect(await ctx.session.getCurrentWindowIndex()).not.toBe(currentIndex);
+    await waitForCondition(ctx.page, async () => {
+      const idx = await ctx.session.getCurrentWindowIndex();
+      return idx !== currentIndex;
+    }, 10000, 'next-window keyboard to change active window');
 
-    // Step 4: Previous window (poll until window index changes)
+    // Step 4: Previous window (keyboard only)
     const idx = await ctx.session.getCurrentWindowIndex();
     await prevWindowKeyboard(ctx.page);
-    await delay(DELAYS.SYNC);
-    try {
-      await waitForCondition(ctx.page, async () => {
-        const curIdx = await ctx.session.getCurrentWindowIndex();
-        return curIdx !== idx;
-      }, 5000, 'prev-window keyboard to change active window');
-    } catch {
-      // Fall back to adapter
-      await ctx.session._exec('previous-window');
-      await delay(DELAYS.SYNC);
-      await waitForCondition(ctx.page, async () => {
-        const curIdx = await ctx.session.getCurrentWindowIndex();
-        return curIdx !== idx;
-      }, 10000, 'prev-window adapter to change active window');
-    }
-    expect(await ctx.session.getCurrentWindowIndex()).not.toBe(idx);
+    await waitForCondition(ctx.page, async () => {
+      const curIdx = await ctx.session.getCurrentWindowIndex();
+      return curIdx !== idx;
+    }, 10000, 'prev-window keyboard to change active window');
 
     // Step 5: Create 3rd window and select by number
     await createWindowKeyboard(ctx.page);
@@ -180,25 +142,13 @@ describe('Scenario 4: Window Lifecycle', () => {
       const curIdx = await ctx.session.getCurrentWindowIndex();
       return curIdx === '1';
     }, 10000, 'select-window -t :1 to activate window 1');
-    expect(await ctx.session.getCurrentWindowIndex()).toBe('1');
 
-    // Step 6: Last window toggle
+    // Step 6: Last window toggle (keyboard only)
     await lastWindowKeyboard(ctx.page);
-    try {
-      await waitForCondition(ctx.page, async () => {
-        const curIdx = await ctx.session.getCurrentWindowIndex();
-        return curIdx !== '1';
-      }, 5000, 'last-window keyboard to change active window');
-    } catch {
-      // Fall back to adapter
-      await ctx.session._exec('last-window');
-      await delay(DELAYS.SYNC);
-      await waitForCondition(ctx.page, async () => {
-        const curIdx = await ctx.session.getCurrentWindowIndex();
-        return curIdx !== '1';
-      }, 10000, 'last-window adapter to change active window');
-    }
-    expect(await ctx.session.getCurrentWindowIndex()).not.toBe('1');
+    await waitForCondition(ctx.page, async () => {
+      const curIdx = await ctx.session.getCurrentWindowIndex();
+      return curIdx !== '1';
+    }, 10000, 'last-window keyboard to change active window');
 
     // Step 7: Rename window
     await renameWindowKeyboard(ctx.page, 'MyRenamedWindow');
@@ -212,9 +162,7 @@ describe('Scenario 4: Window Lifecycle', () => {
     const curWinIdx = await ctx.session.getCurrentWindowIndex();
     for (const w of windows) {
       if (String(w.index) !== String(curWinIdx)) {
-        try {
-          await ctx.session._exec(`kill-window -t ${w.id}`);
-        } catch { /* window may already be gone */ }
+        await ctx.session._exec(`kill-window -t ${w.id}`);
         await delay(DELAYS.SHORT);
       }
     }

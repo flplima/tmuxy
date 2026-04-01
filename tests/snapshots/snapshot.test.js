@@ -148,32 +148,24 @@ function findExistingTmuxyPage(browser) {
 // ==================== Structural Checks (1–15) ====================
 
 test('structural snapshot: UI matches tmux state', async () => {
-  const maxRetries = 5;
-  let result;
+  // Single attempt with settle delay — no retries.
+  // If the snapshot doesn't match on first check, it's a real bug.
+  await delay(DELAYS.SYNC * 3);
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    // Allow extra time between retries for content to arrive via SSE.
-    // In CI, the server creates a fresh session and content delivery can
-    // take several seconds through the control mode → VtEmulator pipeline.
-    if (attempt > 0) await delay(DELAYS.SYNC * 3);
+  const sessionName = await page.evaluate(
+    () => window.app?.getSnapshot()?.context?.sessionName
+  );
+  expect(sessionName).toBeTruthy();
 
-    const sessionName = await page.evaluate(
-      () => window.app?.getSnapshot()?.context?.sessionName
-    );
-    expect(sessionName).toBeTruthy();
+  const [uiState, tmuxState] = await Promise.all([
+    extractUIState(page),
+    Promise.resolve(extractTmuxState(sessionName)),
+  ]);
 
-    const [uiState, tmuxState] = await Promise.all([
-      extractUIState(page),
-      Promise.resolve(extractTmuxState(sessionName)),
-    ]);
+  expect(uiState).not.toBeNull();
+  expect(tmuxState).not.toBeNull();
 
-    expect(uiState).not.toBeNull();
-    expect(tmuxState).not.toBeNull();
-
-    result = compareSnapshots(uiState, tmuxState);
-
-    if (result.pass) break;
-  }
+  const result = compareSnapshots(uiState, tmuxState);
 
   // Report all checks
   for (const check of result.checks) {
