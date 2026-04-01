@@ -463,11 +463,13 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       15000,
       'float pane shell prompt to render',
     );
-    // Type directly — the keyboard actor routes to focusedFloatPaneId (verified above).
+    // Type directly — the keyboard actor routes to focusedFloatPaneId.
     // Do NOT click the float's [role="log"] — it triggers FOCUS_PANE which
     // selects the background pane, breaking input isolation.
+    // Wait for the keyboard actor to receive the UPDATE_FOCUSED_FLOAT event
+    // (async message from XState, may lag behind context update).
+    await delay(DELAYS.SYNC);
     await ctx.page.bringToFront();
-    await delay(DELAYS.MEDIUM);
     const TOKEN = 'FLOAT_VIS_' + Date.now();
     for (const char of `echo ${TOKEN}`) {
       await ctx.page.keyboard.type(char);
