@@ -15,7 +15,7 @@ const { startXvfb } = require('./helpers/xvfb');
 const { startTauriDriver } = require('./helpers/tauri-driver');
 
 const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
-const TAURI_BINARY = path.join(WORKSPACE_ROOT, 'target/debug/tauri-app');
+const TAURI_BINARY = path.join(WORKSPACE_ROOT, 'target/debug/tmuxy');
 
 module.exports = async function globalSetup() {
   console.warn('\n[tauri-e2e] Starting global setup...');
