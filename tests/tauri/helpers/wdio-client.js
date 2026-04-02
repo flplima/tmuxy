@@ -11,7 +11,7 @@ const path = require('path');
 const { DRIVER_PORT } = require('./tauri-driver');
 
 const WORKSPACE_ROOT = path.resolve(__dirname, '../../..');
-const TAURI_BINARY = path.join(WORKSPACE_ROOT, 'target/debug/tauri-app');
+const TAURI_BINARY = path.join(WORKSPACE_ROOT, 'target/debug/tmuxy');
 
 // WebDriver Unicode key codes for special keys
 const KEYS = {
