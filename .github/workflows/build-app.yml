@@ -2,7 +2,7 @@ name: Build App
 
 on:
   push:
-    branches: [develop]
+    branches: [main]
     tags: ['v*']
 
 permissions:
