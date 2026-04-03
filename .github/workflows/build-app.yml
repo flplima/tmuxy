@@ -66,12 +66,34 @@ jobs:
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           args: ${{ matrix.args }}
 
-      - name: Upload artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: Upload Linux AppImage
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && matrix.platform == 'linux' }}
         uses: actions/upload-artifact@v4
         with:
-          name: tmuxy-${{ matrix.platform }}
-          path: |
-            target/release/bundle/**/*
-            target/universal-apple-darwin/release/bundle/**/*
+          name: tmuxy-linux-appimage
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+      - name: Upload Linux .deb
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && matrix.platform == 'linux' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmuxy-linux-deb
+          path: target/release/bundle/deb/*.deb
+          if-no-files-found: warn
+
+      - name: Upload macOS .dmg
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && matrix.platform == 'macos' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmuxy-macos
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+
+      - name: Upload Windows .msi
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && matrix.platform == 'windows' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmuxy-windows
+          path: target/release/bundle/msi/*.msi
           if-no-files-found: warn
