@@ -21,7 +21,7 @@ jobs:
             os: macos-latest
             args: '--target aarch64-apple-darwin'
           - platform: macos-intel
-            os: macos-13
+            os: macos-latest
             args: '--target x86_64-apple-darwin'
           - platform: windows
             os: windows-latest
