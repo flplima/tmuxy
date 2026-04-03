@@ -66,34 +66,30 @@ jobs:
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           args: ${{ matrix.args }}
 
-      - name: Upload Linux AppImage
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && matrix.platform == 'linux' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: tmuxy-linux-appimage
-          path: target/release/bundle/appimage/*.AppImage
-          if-no-files-found: warn
+      - name: Collect artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          case "${{ matrix.platform }}" in
+            linux)
+              cp target/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
+              cp target/release/bundle/deb/*.deb artifacts/ 2>/dev/null || true
+              ;;
+            macos)
+              cp target/universal-apple-darwin/release/bundle/dmg/*.dmg artifacts/ 2>/dev/null || true
+              ;;
+            windows)
+              cp target/release/bundle/msi/*.msi artifacts/ 2>/dev/null || true
+              cp target/release/bundle/nsis/*.exe artifacts/ 2>/dev/null || true
+              ;;
+          esac
+          ls -lh artifacts/
 
-      - name: Upload Linux .deb
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && matrix.platform == 'linux' }}
+      - name: Upload artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: tmuxy-linux-deb
-          path: target/release/bundle/deb/*.deb
-          if-no-files-found: warn
-
-      - name: Upload macOS .dmg
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && matrix.platform == 'macos' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: tmuxy-macos
-          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
-          if-no-files-found: warn
-
-      - name: Upload Windows .msi
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && matrix.platform == 'windows' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: tmuxy-windows
-          path: target/release/bundle/msi/*.msi
+          name: tmuxy-${{ matrix.platform }}
+          path: artifacts/*
           if-no-files-found: warn
