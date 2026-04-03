@@ -71,5 +71,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tmuxy-${{ matrix.platform }}
-          path: target/release/bundle/**/*
+          path: |
+            target/release/bundle/**/*
+            target/universal-apple-darwin/release/bundle/**/*
           if-no-files-found: warn
