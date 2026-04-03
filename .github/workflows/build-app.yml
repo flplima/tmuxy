@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     strategy:
@@ -52,6 +55,7 @@ jobs:
       - run: npm install
 
       - uses: tauri-apps/tauri-action@v0
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -62,3 +66,13 @@ jobs:
           releaseDraft: false
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           args: ${{ matrix.args }}
+
+      # Upload build artifacts for non-tagged pushes (workflow artifacts, 90-day TTL).
+      # Tagged pushes upload to GitHub Releases via tauri-action above.
+      - name: Upload artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmuxy-${{ matrix.platform }}
+          path: target/release/bundle/**/*
+          if-no-files-found: warn
