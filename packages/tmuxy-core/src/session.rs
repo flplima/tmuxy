@@ -1,10 +1,60 @@
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
+
+/// Resolved path to the tmux binary, cached after first lookup.
+static TMUX_PATH: OnceLock<String> = OnceLock::new();
+
+/// Find the tmux binary path.
+///
+/// macOS GUI apps (.app bundles) inherit a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`)
+/// that excludes Homebrew, MacPorts, and Nix paths. We check common locations explicitly
+/// so the Tauri desktop app works when launched from Finder/Spotlight.
+fn find_tmux() -> String {
+    // Explicit env override
+    if let Ok(path) = std::env::var("TMUX_BIN") {
+        if std::path::Path::new(&path).exists() {
+            return path;
+        }
+    }
+
+    // Try PATH first (works in terminals, CI, and Linux desktop)
+    if let Ok(output) = Command::new("which").arg("tmux").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+
+    // Common locations not in macOS GUI PATH
+    let candidates = [
+        "/opt/homebrew/bin/tmux", // Homebrew on Apple Silicon
+        "/usr/local/bin/tmux",    // Homebrew on Intel Mac / Linux manual install
+        "/usr/bin/tmux",          // System package (apt, yum)
+        "/run/current-system/sw/bin/tmux", // NixOS
+        "/nix/var/nix/profiles/default/bin/tmux", // Nix single-user
+    ];
+    for path in candidates {
+        if std::path::Path::new(path).exists() {
+            return path.to_string();
+        }
+    }
+
+    // Fallback — let the OS try to resolve it
+    "tmux".to_string()
+}
+
+/// Get the resolved tmux binary path (cached).
+pub fn tmux_path() -> &'static str {
+    TMUX_PATH.get_or_init(|| find_tmux())
+}
 
 /// Create a `Command` for tmux that respects the `TMUX_SOCKET` environment variable.
 /// When `TMUX_SOCKET` is set, adds `-L <socket>` to connect to the named tmux server.
 pub fn tmux_command() -> Command {
-    let mut cmd = Command::new("tmux");
+    let mut cmd = Command::new(tmux_path());
     if let Ok(socket) = std::env::var("TMUX_SOCKET") {
         if !socket.is_empty() {
             cmd.args(["-L", &socket]);
@@ -14,11 +64,12 @@ pub fn tmux_command() -> Command {
 }
 
 /// Build the tmux shell command string with socket flag for use in shell invocations.
-/// Returns e.g. "tmux -L tmuxy-dev" or just "tmux" if no socket is set.
+/// Returns e.g. "/opt/homebrew/bin/tmux -L tmuxy-dev" or just "/usr/bin/tmux".
 pub fn tmux_bin() -> String {
+    let bin = tmux_path();
     match std::env::var("TMUX_SOCKET") {
-        Ok(socket) if !socket.is_empty() => format!("tmux -L {}", socket),
-        _ => "tmux".to_string(),
+        Ok(socket) if !socket.is_empty() => format!("{} -L {}", bin, socket),
+        _ => bin.to_string(),
     }
 }
 
