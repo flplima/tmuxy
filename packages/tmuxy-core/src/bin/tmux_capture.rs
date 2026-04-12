@@ -106,8 +106,9 @@ fn capture_tmux_session(session: &str, timeout_ms: u64) -> Result<Vec<u8>, Strin
             env::set_var("LC_ALL", "en_US.UTF-8");
 
             // Exec tmux attach in read-only mode with UTF-8 forced
-            let tmux = CString::new("tmux").unwrap();
-            let mut args = vec![CString::new("tmux").unwrap()];
+            let tmux_path = tmuxy_core::session::tmux_path();
+            let tmux = CString::new(tmux_path).unwrap();
+            let mut args = vec![CString::new(tmux_path).unwrap()];
             if let Ok(socket) = env::var("TMUX_SOCKET") {
                 if !socket.is_empty() {
                     args.push(CString::new("-L").unwrap());

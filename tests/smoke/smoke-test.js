@@ -156,11 +156,18 @@ async function smokeTestMacOS() {
   const STARTUP_TIMEOUT = 30000;
   const COMMAND_TIMEOUT = 15000;
 
-  // Launch the binary in the background
+  // Launch the binary with a restricted PATH that mimics macOS GUI apps.
+  // Finder/Spotlight launches get only /usr/bin:/bin:/usr/sbin:/sbin —
+  // Homebrew (/opt/homebrew/bin, /usr/local/bin) is NOT included.
+  // The app must find tmux on its own despite this minimal PATH.
+  const guiPath = '/usr/bin:/bin:/usr/sbin:/sbin';
+  const guiEnv = { ...process.env, PATH: guiPath, TMUXY_SESSION: SESSION_NAME };
+  console.warn(`Launching with restricted PATH: ${guiPath}`);
+
   const child = spawn(BINARY_PATH, [], {
     stdio: 'ignore',
     detached: true,
-    env: { ...process.env, TMUXY_SESSION: SESSION_NAME },
+    env: guiEnv,
   });
   child.unref();
   console.warn(`App launched (pid ${child.pid})`);
