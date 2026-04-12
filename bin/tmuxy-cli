@@ -340,7 +340,7 @@ Options:
 FEOF
           return ;;
       esac
-      exec bash "$SCRIPTS_DIR/float-create.sh" "$@"
+      exec bash "$SCRIPTS_DIR/float-create" "$@"
       ;;
 
     group)
@@ -374,7 +374,7 @@ cmd_pane_group() {
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane group add"; return ;;
       esac
-      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-add.sh' #{pane_id} #{pane_width} #{pane_height}"
+      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-add' #{pane_id} #{pane_width} #{pane_height}"
       ;;
 
     close)
@@ -382,7 +382,7 @@ cmd_pane_group() {
         --help|-h) echo "Usage: tmuxy pane group close [%id]"; return ;;
       esac
       local pane_id="${1:-"#{pane_id}"}"
-      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-close.sh' '$pane_id'"
+      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-close' '$pane_id'"
       ;;
 
     switch)
@@ -390,21 +390,21 @@ cmd_pane_group() {
         --help|-h) echo "Usage: tmuxy pane group switch <%id>"; return ;;
       esac
       local pane_id="${1:?Usage: tmuxy pane group switch <pane_id>}"
-      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-switch.sh' '$pane_id'"
+      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-switch' '$pane_id'"
       ;;
 
     next)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane group next"; return ;;
       esac
-      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-next.sh' #{pane_id}"
+      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-next' #{pane_id}"
       ;;
 
     prev)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy pane group prev"; return ;;
       esac
-      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-prev.sh' #{pane_id}"
+      exec tmux run-shell "bash '$SCRIPTS_DIR/pane-group-prev' #{pane_id}"
       ;;
 
     --help|-h)
@@ -581,16 +581,16 @@ cmd_session() {
   case "$sub" in
     switch)
       case "${1:-}" in
-        --help|-h) exec bash "$SCRIPTS_DIR/session-switch.sh" --help ;;
+        --help|-h) exec bash "$SCRIPTS_DIR/session-switch" --help ;;
       esac
-      exec bash "$SCRIPTS_DIR/session-switch.sh" "$@"
+      exec bash "$SCRIPTS_DIR/session-switch" "$@"
       ;;
 
     connect)
       case "${1:-}" in
-        --help|-h) exec bash "$SCRIPTS_DIR/session-connect.sh" --help ;;
+        --help|-h) exec bash "$SCRIPTS_DIR/session-connect" --help ;;
       esac
-      exec bash "$SCRIPTS_DIR/session-connect.sh" "$@"
+      exec bash "$SCRIPTS_DIR/session-connect" "$@"
       ;;
 
     --help|-h)
@@ -616,10 +616,10 @@ cmd_nav() {
 
   case "$dir" in
     left|right|up|down|next)
-      exec tmux run-shell "bash '$SCRIPTS_DIR/nav.sh' $dir #{pane_id}"
+      exec tmux run-shell "bash '$SCRIPTS_DIR/nav' $dir #{pane_id}"
       ;;
     prev)
-      exec tmux run-shell "bash '$SCRIPTS_DIR/nav.sh' prev #{pane_id}"
+      exec tmux run-shell "bash '$SCRIPTS_DIR/nav' prev #{pane_id}"
       ;;
     --help|-h)
       usage_nav
@@ -647,7 +647,7 @@ cmd_event() {
         --help|-h) echo "Usage: tmuxy event emit <name> <message|->"; return ;;
         "") echo "Error: event name required" >&2; return 1 ;;
       esac
-      exec bash "$SCRIPTS_DIR/event-emit.sh" "$@"
+      exec bash "$SCRIPTS_DIR/event-emit" "$@"
       ;;
 
     wait)
@@ -655,14 +655,14 @@ cmd_event() {
         --help|-h) echo "Usage: tmuxy event wait <name>"; return ;;
         "") echo "Error: event name required" >&2; return 1 ;;
       esac
-      exec bash "$SCRIPTS_DIR/event-wait.sh" "$@"
+      exec bash "$SCRIPTS_DIR/event-wait" "$@"
       ;;
 
     list)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy event list"; return ;;
       esac
-      exec bash "$SCRIPTS_DIR/event-list.sh"
+      exec bash "$SCRIPTS_DIR/event-list"
       ;;
 
     --help|-h)

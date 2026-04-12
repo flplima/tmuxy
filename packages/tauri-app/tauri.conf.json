@@ -28,8 +28,8 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "../../scripts/tmuxy-cli",
-      "../../scripts/tmuxy/*"
+      "../../bin/tmuxy-cli",
+      "../../bin/tmuxy/*"
     ],
     "icon": [
       "icons/32x32.png",

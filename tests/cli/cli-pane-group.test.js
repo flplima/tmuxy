@@ -1,44 +1,44 @@
 const { runCLI } = require('./helpers/run-cli');
 const path = require('path');
 
-const SCRIPTS_DIR = path.resolve(__dirname, '../../scripts/tmuxy');
+const SCRIPTS_DIR = path.resolve(__dirname, '../../bin/tmuxy');
 
 describe('CLI pane group subcommands', () => {
   describe('pane group add', () => {
-    test('execs run-shell with pane-group-add.sh', () => {
+    test('execs run-shell with pane-group-add', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'add']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-add.sh');
+      expect(tmuxCalls[0].args[1]).toContain('pane-group-add');
       expect(tmuxCalls[0].args[1]).toContain('#{pane_id}');
     });
   });
 
   describe('pane group close', () => {
-    test('execs run-shell with pane-group-close.sh (no arg)', () => {
+    test('execs run-shell with pane-group-close (no arg)', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'close']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-close.sh');
+      expect(tmuxCalls[0].args[1]).toContain('pane-group-close');
       // Default pane_id is #{pane_id} when no arg given
       expect(tmuxCalls[0].args[1]).toContain('#{pane_id}');
     });
 
-    test('execs run-shell with pane-group-close.sh (specific pane)', () => {
+    test('execs run-shell with pane-group-close (specific pane)', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'close', '%5']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-close.sh');
+      expect(tmuxCalls[0].args[1]).toContain('pane-group-close');
       expect(tmuxCalls[0].args[1]).toContain('%5');
     });
   });
 
   describe('pane group switch', () => {
-    test('execs run-shell with pane-group-switch.sh', () => {
+    test('execs run-shell with pane-group-switch', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'switch', '%3']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-switch.sh');
+      expect(tmuxCalls[0].args[1]).toContain('pane-group-switch');
       expect(tmuxCalls[0].args[1]).toContain('%3');
     });
 
@@ -49,20 +49,20 @@ describe('CLI pane group subcommands', () => {
   });
 
   describe('pane group next', () => {
-    test('execs run-shell with pane-group-next.sh', () => {
+    test('execs run-shell with pane-group-next', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'next']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-next.sh');
+      expect(tmuxCalls[0].args[1]).toContain('pane-group-next');
     });
   });
 
   describe('pane group prev', () => {
-    test('execs run-shell with pane-group-prev.sh', () => {
+    test('execs run-shell with pane-group-prev', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'prev']);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('pane-group-prev.sh');
+      expect(tmuxCalls[0].args[1]).toContain('pane-group-prev');
     });
   });
 

@@ -87,8 +87,8 @@ You are invoked as a single-shot `claude -p` execution. Your prompt contains the
 - `packages/tmuxy-ui/src/tmux/adapters.ts` — Adapter implementations
 
 ### Shell Scripts
-- `scripts/tmuxy-cli` — CLI dispatcher
-- `scripts/tmuxy/` — Shell scripts for operations
+- `bin/tmuxy-cli` — CLI dispatcher
+- `bin/tmuxy/` — Shell scripts for operations
 
 ### Test Helpers
 - `tests/helpers/` — All E2E test helpers

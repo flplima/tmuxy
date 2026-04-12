@@ -3836,11 +3836,14 @@ dependencies = [
 name = "tauri-app"
 version = "1.0.0"
 dependencies = [
+ "clap",
+ "nix",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tmuxy-core",
+ "tmuxy-server",
  "tokio",
 ]
 

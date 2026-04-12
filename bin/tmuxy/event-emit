@@ -10,7 +10,7 @@
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPTS_DIR/_lib.sh"
+source "$SCRIPTS_DIR/_lib"
 
 NAME="${1:?Usage: tmuxy event emit <name> <message|->}"
 shift

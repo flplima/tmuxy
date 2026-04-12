@@ -7,7 +7,7 @@
 # Renames remaining group windows to exclude the closed pane.
 
 set -euo pipefail
-source "$(dirname "$0")/_lib.sh"
+source "$(dirname "$0")/_lib"
 
 CLOSE_PANE="$1"
 ACTIVE_WIN=$(active_window)

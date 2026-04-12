@@ -17,14 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build tools (tmux, native modules)
     build-essential pkg-config libssl-dev ca-certificates \
     libevent-dev libncurses-dev bison \
-    # Chromium dependencies (agent-browser)
-    libxcb-shm0 libx11-xcb1 libx11-6 libxcb1 libxext6 libxrandr2 \
-    libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxi6 \
-    libgtk-3-0 libpangocairo-1.0-0 libpango-1.0-0 libatk1.0-0 \
-    libcairo-gobject2 libcairo2 libgdk-pixbuf-2.0-0 libxrender1 \
-    libasound2 libfreetype6 libfontconfig1 libdbus-1-3 libnss3 \
-    libnspr4 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libatspi2.0-0 \
-    libcups2 libxshmfence1 libgbm1 \
+    # Chromium (agent-browser; ARM64 has no playwright-bundled build so we use system)
+    chromium \
     # Tauri build deps (WebKitGTK) and E2E test deps (Xvfb, WebKitWebDriver)
     libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
     libjavascriptcoregtk-4.1-dev librsvg2-dev \
@@ -83,10 +77,6 @@ RUN mkdir /commandhistory \
 
 ENV DEVCONTAINER=true
 
-# Create workspace and config directories
-RUN mkdir -p /workspace /home/node/.claude \
-    && chown -R node:node /workspace /home/node/.claude
-
 WORKDIR /workspace
 
 # git-delta for better diffs
@@ -127,5 +117,7 @@ RUN git clone https://github.com/LazyVim/starter ~/.config/nvim \
     && nvim --headless "+Lazy! sync" +qa 2>&1
 
 # Global npm packages: pm2, agent-browser
+# ARM64 Linux has no playwright-bundled Chromium — use system chromium instead
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 RUN npm install -g pm2 agent-browser \
-    && agent-browser install
+    && if [ "$(dpkg --print-architecture)" != "arm64" ]; then agent-browser install; fi

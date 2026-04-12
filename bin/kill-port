@@ -3,10 +3,10 @@
 # Kill any process listening on a given TCP port.
 # Works in minimal containers without lsof/fuser/ss.
 #
-# Usage: kill-port.sh <port>
+# Usage: kill-port <port>
 #
 
-PORT="${1:?Usage: kill-port.sh <port>}"
+PORT="${1:?Usage: kill-port <port>}"
 HEX=$(printf '%04X' "$PORT")
 
 # Collect socket inodes listening (state 0A = LISTEN) on this port

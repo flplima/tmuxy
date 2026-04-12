@@ -1679,13 +1679,13 @@ export const appMachine = setup({
         CLOSE_PANE: {
           actions: sendTo('tmux', ({ event }) => ({
             type: 'SEND_COMMAND' as const,
-            command: `run-shell "scripts/tmuxy/pane-group-close.sh ${event.paneId}"`,
+            command: `run-shell "bin/tmuxy/pane-group-close ${event.paneId}"`,
           })),
         },
         TAB_CLICK: {
           actions: sendTo('tmux', ({ event }) => ({
             type: 'SEND_COMMAND' as const,
-            command: `run-shell "scripts/tmuxy/pane-group-switch.sh ${event.paneId}"`,
+            command: `run-shell "bin/tmuxy/pane-group-switch ${event.paneId}"`,
           })),
         },
         ZOOM_PANE: {

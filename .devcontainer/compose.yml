@@ -18,9 +18,6 @@ services:
       - ../.devcontainer:/home/user/.devcontainer:ro
       # Dotfiles scripts (tmux-run, etc.)
       - ~/dotfiles/scripts:/home/user/dotfiles/scripts:ro
-      # Claude config (auth and settings - .claude.json has onboarding state)
-      - ~/.claude:/home/user/.claude
-      - ~/.claude.json:/home/user/.claude.json
       # SSH keys for git
       - ~/.ssh:/home/user/.ssh:ro
       # GitHub CLI auth

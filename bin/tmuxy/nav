@@ -8,7 +8,7 @@
 # prev:       last-pane in window, fall back to last-window
 
 set -euo pipefail
-source "$(dirname "$0")/_lib.sh"
+source "$(dirname "$0")/_lib"
 
 DIR="$1"
 PANE_ID="$2"
@@ -77,7 +77,7 @@ nav_horizontal() {
           idx=0
           for pid in $pane_ids; do
             if [ "$idx" -eq "$target_idx" ]; then
-              exec "$SCRIPTS_DIR/pane-group-switch.sh" "$pid"
+              exec "$SCRIPTS_DIR/pane-group-switch" "$pid"
             fi
             idx=$((idx + 1))
           done

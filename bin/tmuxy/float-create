@@ -20,7 +20,7 @@
 #   captured stdout. Enables: FILE=$(tmuxy float fzf) && nvim "$FILE"
 
 set -euo pipefail
-source "$(dirname "$0")/_lib.sh"
+source "$(dirname "$0")/_lib"
 
 # Parse options
 DRAWER=""
