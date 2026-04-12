@@ -9,7 +9,7 @@ const { execSync } = require('child_process');
 const path = require('path');
 
 const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
-const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'scripts/tmuxy-cli');
+const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'bin/tmuxy-cli');
 
 /**
  * Run a tmux command safely through the tmuxy CLI (`tmuxy run <command>`).

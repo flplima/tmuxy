@@ -25,7 +25,7 @@ tmuxy/
 │   │   └── src/tmux/demo/    # In-browser demo engine (DemoAdapter, DemoTmux, DemoShell)
 │   ├── tmuxy-demo/           # Next.js demo site (static export → GitHub Pages)
 │   └── tauri-app/            # Tauri desktop app wrapper
-├── scripts/
+├── bin/
 │   ├── tmuxy-cli              # Shell dispatcher (symlinked as ~/.local/bin/tmuxy)
 │   └── tmuxy/                 # Shell scripts for floats, groups, widgets
 ├── tests/                    # E2E tests (Jest + Playwright)
@@ -36,7 +36,7 @@ tmuxy/
 
 ## CLI Usage
 
-The `tmuxy` CLI is a noun-verb dispatcher at `scripts/tmuxy-cli`, symlinked as `~/.local/bin/tmuxy`.
+The `tmuxy` CLI is a noun-verb dispatcher at `bin/tmuxy-cli`, symlinked as `~/.local/bin/tmuxy`.
 All mutating commands route through `tmux run-shell` for safety with control mode.
 
 ```bash

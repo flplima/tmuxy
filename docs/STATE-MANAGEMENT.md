@@ -216,4 +216,4 @@ Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `sele
 
 5. **Copy mode divergence** — Copy mode state is entirely client-side (scrollback lines, cursor, selection). The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag. See [COPY-MODE.md](COPY-MODE.md).
 
-6. **Group state** — Pane groups are stored in tmux's session-level environment variable (`TMUXY_GROUPS` as compact JSON). The backend reads this on state sync and includes it in state updates. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `scripts/tmuxy/`.
+6. **Group state** — Pane groups are stored in tmux's session-level environment variable (`TMUXY_GROUPS` as compact JSON). The backend reads this on state sync and includes it in state updates. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `bin/tmuxy/`.

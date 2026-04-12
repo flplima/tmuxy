@@ -1,5 +1,5 @@
 #!/bin/bash
-# session-switch.sh — Interactive session switcher
+# session-switch — Interactive session switcher
 #
 # Standalone mode (default): switch tmux client to selected session
 # Float mode (--float): set TMUXY_SWITCH_TO env var and exit (caller handles switch)

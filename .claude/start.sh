@@ -62,7 +62,7 @@ step_done "Cleaned up old processes"
 # --- Start servers (sequentially to avoid concurrent compilation OOM) ---
 
 step_start "Starting prod server (port 9000)"
-pm2 start ./scripts/prod.sh --name tmuxy-prod --cwd "$WORKSPACE" --silent >/dev/null 2>&1
+pm2 start ./bin/prod --name tmuxy-prod --cwd "$WORKSPACE" --silent >/dev/null 2>&1
 step_done "Started prod server (port 9000)"
 
 step_start "Compiling prod server"

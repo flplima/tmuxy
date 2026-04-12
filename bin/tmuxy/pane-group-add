@@ -6,7 +6,7 @@
 # Otherwise creates a new group with the active pane + new pane.
 
 set -euo pipefail
-source "$(dirname "$0")/_lib.sh"
+source "$(dirname "$0")/_lib"
 
 PANE_ID="$1"
 PANE_WIDTH="$2"

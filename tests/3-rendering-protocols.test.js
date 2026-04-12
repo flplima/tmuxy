@@ -407,7 +407,7 @@ function waitForDomSelector(page, selector, timeout = 10000) {
 }
 
 // Resolve tmuxy-widget path relative to this file (works in both dev and CI)
-const TMUXY_WIDGET = path.resolve(__dirname, '..', 'scripts/tmuxy/tmuxy-widget');
+const TMUXY_WIDGET = path.resolve(__dirname, '..', 'bin/tmuxy/tmuxy-widget');
 
 describe('Category 17: Widgets', () => {
   const wCtx = createTestContext();

@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const CLI_PATH = path.resolve(__dirname, '../../../scripts/tmuxy-cli');
+const CLI_PATH = path.resolve(__dirname, '../../../bin/tmuxy-cli');
 const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 
 /**

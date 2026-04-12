@@ -9,7 +9,7 @@
     "./fonts/nerd-font.css": "./src/fonts/nerd-font.css"
   },
   "scripts": {
-    "predev": "bash ../../scripts/kill-port.sh 9002",
+    "predev": "bash ../../bin/kill-port 9002",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

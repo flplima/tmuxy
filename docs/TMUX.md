@@ -76,7 +76,7 @@ These are safe because they either run **before** control mode connects, are **r
 
 ### Shell Scripts and `run-shell`
 
-Shell scripts in `scripts/tmuxy/` are executed via tmux's `run-shell` command (sent through control mode). Since `run-shell` executes within the tmux server process itself (not as an external subprocess), scripts can safely call tmux CLI commands internally — except `new-window` (see below).
+Shell scripts in `bin/tmuxy/` are executed via tmux's `run-shell` command (sent through control mode). Since `run-shell` executes within the tmux server process itself (not as an external subprocess), scripts can safely call tmux CLI commands internally — except `new-window` (see below).
 
 ## `new-window` Crashes Control Mode
 
@@ -92,7 +92,7 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 **Where it's applied:**
 - `packages/tmuxy-server/src/sse.rs` — The `new_window` command handler, `execute_prefix_binding` for `c` key, and `run_tmux_command` all intercept `neww`/`new-window` and rewrite to `splitw ; breakp`.
-- `scripts/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
+- `bin/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
 - `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
 
 ## Tauri Desktop App: Missing `new-window` Workaround

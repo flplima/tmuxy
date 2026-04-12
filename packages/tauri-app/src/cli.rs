@@ -6,8 +6,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// Search order:
 /// 1. $TMUXY_SCRIPTS env var
-/// 2. Relative to binary: ../scripts/tmuxy-cli (dev layout)
-/// 3. Relative to binary: ../share/tmuxy/scripts/tmuxy-cli (installed layout)
+/// 2. Relative to binary: ../bin/tmuxy-cli (dev layout)
+/// 3. Relative to binary: ../share/tmuxy/bin/tmuxy-cli (installed layout)
 fn find_cli_script() -> Option<PathBuf> {
     // Env override
     if let Ok(dir) = std::env::var("TMUXY_SCRIPTS") {
@@ -20,23 +20,23 @@ fn find_cli_script() -> Option<PathBuf> {
     // Relative to binary
     if let Ok(exe) = std::env::current_exe() {
         if let Some(bin_dir) = exe.parent() {
-            // Dev layout: target/debug/tmuxy → repo/scripts/tmuxy-cli
+            // Dev layout: target/debug/tmuxy → repo/bin/tmuxy-cli
             let dev = bin_dir
                 .join("..")
                 .join("..")
                 .join("..")
-                .join("scripts")
+                .join("bin")
                 .join("tmuxy-cli");
             if dev.exists() {
                 return Some(dev);
             }
 
-            // Installed layout: bin/tmuxy → share/tmuxy/scripts/tmuxy-cli
+            // Installed layout: bin/tmuxy → share/tmuxy/bin/tmuxy-cli
             let installed = bin_dir
                 .join("..")
                 .join("share")
                 .join("tmuxy")
-                .join("scripts")
+                .join("bin")
                 .join("tmuxy-cli");
             if installed.exists() {
                 return Some(installed);
@@ -51,7 +51,7 @@ fn find_cli_script() -> Option<PathBuf> {
     }
 
     // Workspace root (for development)
-    let workspace = PathBuf::from("/workspace/scripts/tmuxy-cli");
+    let workspace = PathBuf::from("/workspace/bin/tmuxy-cli");
     if workspace.exists() {
         return Some(workspace);
     }

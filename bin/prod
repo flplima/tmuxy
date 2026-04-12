@@ -6,7 +6,7 @@
 # Used by the QA agent system alongside the dev server.
 #
 # Usage:
-#   pm2 start ./scripts/prod.sh --name tmuxy-prod
+#   pm2 start ./bin/prod --name tmuxy-prod
 #
 
 set -e

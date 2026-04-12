@@ -1,5 +1,5 @@
 #!/bin/bash
-# session-connect.sh — SSH connection prompt (Tauri desktop app only)
+# session-connect — SSH connection prompt (Tauri desktop app only)
 #
 # Creates a new tmux session running an SSH command and sets
 # TMUXY_SWITCH_TO for the frontend to pick up.
