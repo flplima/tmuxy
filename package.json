@@ -26,7 +26,7 @@
     "lint:tests": "eslint tests/",
     "format": "prettier --write 'tests/**/*.js' && npm run format -w tmuxy-ui",
     "agents": "bash bin/devcontainer --name agents --cmd 'bash .claude/start.sh'",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "git config core.hooksPath .github"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",
