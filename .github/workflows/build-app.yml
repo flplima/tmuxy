@@ -20,15 +20,18 @@ jobs:
           - platform: linux
             os: ubuntu-22.04
             rust-targets: ''
-            args: ''
+            tauri-args: ''
+            binary: target/release/tmuxy
           - platform: macos
             os: macos-latest
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            args: '--target universal-apple-darwin'
+            tauri-args: '--target universal-apple-darwin'
+            binary: target/universal-apple-darwin/release/tmuxy
           - platform: windows
             os: windows-latest
             rust-targets: ''
-            args: ''
+            tauri-args: ''
+            binary: target/release/tmuxy.exe
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -54,20 +57,79 @@ jobs:
 
       - run: npm install
 
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: packages/tauri-app
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('tmuxy {0}', github.ref_name) || '' }}
-          releaseBody: 'See the assets below to download and install tmuxy for your platform.'
-          releaseDraft: false
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          args: ${{ matrix.args }}
+      # --- Build ---
+
+      - name: Build Tauri app
+        run: npx tauri build ${{ matrix.tauri-args }}
+        working-directory: packages/tauri-app
+
+      # --- Smoke Test (Linux + macOS) ---
+
+      - name: Install smoke test deps (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            tmux webkit2gtk-driver xvfb x11-utils
+
+      - name: Install smoke test deps (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          brew install tmux
+          sudo safaridriver --enable
+
+      - name: Install tauri-driver
+        if: matrix.platform != 'windows'
+        run: cargo install tauri-driver
+
+      - name: Run smoke test (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          # Start virtual display
+          Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
+          XVFB_PID=$!
+          export DISPLAY=:99
+
+          # Wait for display
+          for i in $(seq 1 20); do
+            xdpyinfo -display :99 >/dev/null 2>&1 && break
+            sleep 0.25
+          done
+
+          # Start tauri-driver
+          tauri-driver --port 4444 &
+          DRIVER_PID=$!
+          sleep 2
+
+          # Run smoke test
+          node tests/smoke/smoke-test.js "${{ matrix.binary }}"
+          RESULT=$?
+
+          # Cleanup
+          kill $DRIVER_PID 2>/dev/null || true
+          kill $XVFB_PID 2>/dev/null || true
+
+          exit $RESULT
+
+      - name: Run smoke test (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          # Start tauri-driver
+          tauri-driver --port 4444 &
+          DRIVER_PID=$!
+          sleep 2
+
+          # Run smoke test
+          node tests/smoke/smoke-test.js "${{ matrix.binary }}"
+          RESULT=$?
+
+          # Cleanup
+          kill $DRIVER_PID 2>/dev/null || true
+
+          exit $RESULT
+
+      # --- Collect Artifacts ---
 
       - name: Collect artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         shell: bash
         run: |
           mkdir -p artifacts
@@ -87,9 +149,42 @@ jobs:
           ls -lh artifacts/
 
       - name: Upload artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
           name: tmuxy-${{ matrix.platform }}
           path: artifacts/*
           if-no-files-found: warn
+
+  # --- Release (only on tag push, after all builds + smoke tests pass) ---
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          # Flatten all platform artifacts into one directory
+          mkdir -p release-assets
+          find all-artifacts -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \) \
+            -exec cp {} release-assets/ \;
+
+          ls -lh release-assets/
+
+          # Create release with all assets
+          gh release create "$TAG" release-assets/* \
+            --title "tmuxy $TAG" \
+            --notes "See the assets below to download and install tmuxy for your platform." \
+            --latest
