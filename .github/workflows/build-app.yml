@@ -113,30 +113,47 @@ jobs:
 
       # --- Collect Artifacts ---
 
-      - name: Collect artifacts
-        shell: bash
-        run: |
-          mkdir -p artifacts
-          case "${{ matrix.platform }}" in
-            linux)
-              cp target/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
-              cp target/release/bundle/deb/*.deb artifacts/ 2>/dev/null || true
-              ;;
-            macos)
-              cp target/universal-apple-darwin/release/bundle/dmg/*.dmg artifacts/ 2>/dev/null || true
-              ;;
-            windows)
-              cp target/release/bundle/msi/*.msi artifacts/ 2>/dev/null || true
-              cp target/release/bundle/nsis/*.exe artifacts/ 2>/dev/null || true
-              ;;
-          esac
-          ls -lh artifacts/
+      # --- Collect & Upload Artifacts ---
+      # Linux uploads .deb and .AppImage as separate artifacts
 
-      - name: Upload artifacts
+      - name: Upload AppImage
+        if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: tmuxy-${{ matrix.platform }}
-          path: artifacts/*
+          name: tmuxy-appimage
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+      - name: Upload .deb
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmuxy-deb
+          path: target/release/bundle/deb/*.deb
+          if-no-files-found: warn
+
+      - name: Upload .dmg
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmuxy-dmg
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+
+      - name: Upload .msi
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmuxy-msi
+          path: target/release/bundle/msi/*.msi
+          if-no-files-found: warn
+
+      - name: Upload .exe
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmuxy-exe
+          path: target/release/bundle/nsis/*.exe
           if-no-files-found: warn
 
   # --- Release (only on tag push, after all builds + smoke tests pass) ---
