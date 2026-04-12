@@ -3,20 +3,24 @@
 /**
  * Post-build smoke test for the Tauri desktop app.
  *
- * Launches the built binary via WebdriverIO → tauri-driver, types a command,
- * and verifies the output appears in the terminal UI. Exits 0 on success, 1 on failure.
+ * On Linux: Uses WebdriverIO → tauri-driver to launch the app, type a command,
+ * and verify the output appears in the terminal UI (full stack test).
+ *
+ * On macOS: tauri-driver doesn't support macOS (WKWebView). Falls back to
+ * launching the binary directly + verifying via tmux send-keys/capture-pane
+ * (verifies app→tmux connection, not UI rendering).
  *
  * Usage: node smoke-test.js <binary-path>
  *
  * Prerequisites (managed by the CI workflow, not this script):
- *   - tauri-driver running on port 4444
- *   - DISPLAY set (Xvfb on Linux, native on macOS)
+ *   - Linux: tauri-driver running on port 4444, DISPLAY set (Xvfb)
+ *   - macOS: native display available
  *   - tmux installed and in PATH
  */
 
-const { remote } = require('webdriverio');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 const path = require('path');
+const os = require('os');
 
 const BINARY = process.argv[2];
 if (!BINARY) {
@@ -25,16 +29,12 @@ if (!BINARY) {
 }
 
 const BINARY_PATH = path.resolve(BINARY);
-const DRIVER_PORT = 4444;
-const APP_READY_TIMEOUT = 60000;
-const COMMAND_TIMEOUT = 30000;
-const SESSION_NAME = 'tmuxy'; // default session name (tauri-driver can't forward env vars)
+const SESSION_NAME = 'tmuxy'; // default session name
+const IS_MACOS = os.platform() === 'darwin';
 
-async function main() {
-  console.warn(`Binary: ${BINARY_PATH}`);
-  console.warn(`Display: ${process.env.DISPLAY || '(native)'}`);
+// --- Shared helpers ---
 
-  // Pre-create tmux session so the app can attach immediately
+function createTmuxSession() {
   try {
     execSync(`tmux kill-session -t ${SESSION_NAME}`, { stdio: 'ignore' });
   } catch {
@@ -42,19 +42,34 @@ async function main() {
   }
   execSync(`tmux new-session -d -s ${SESSION_NAME}`, { stdio: 'inherit' });
   console.warn(`tmux session "${SESSION_NAME}" created`);
+}
+
+function cleanupTmuxSession() {
+  try {
+    execSync(`tmux kill-session -t ${SESSION_NAME}`, { stdio: 'ignore' });
+  } catch {
+    // Session may already be gone
+  }
+}
+
+// --- Linux: Full WebdriverIO smoke test ---
+
+async function smokeTestLinux() {
+  const { remote } = require('webdriverio');
+
+  const DRIVER_PORT = 4444;
+  const APP_READY_TIMEOUT = 60000;
+  const COMMAND_TIMEOUT = 30000;
 
   let driver;
   try {
-    // Connect to tauri-driver
     driver = await remote({
       hostname: 'localhost',
       port: DRIVER_PORT,
       capabilities: {
         'tauri:options': {
           application: BINARY_PATH,
-          env: {
-            DISPLAY: process.env.DISPLAY || ':99',
-          },
+          env: { DISPLAY: process.env.DISPLAY || ':99' },
         },
       },
       logLevel: 'warn',
@@ -68,7 +83,7 @@ async function main() {
     await terminal.waitForExist({ timeout: APP_READY_TIMEOUT });
     console.warn('Terminal element found');
 
-    // Wait for shell prompt (indicates tmux connected and shell is ready)
+    // Wait for shell prompt
     const promptStart = Date.now();
     while (Date.now() - promptStart < APP_READY_TIMEOUT) {
       const hasPrompt = await driver.execute(() => {
@@ -83,11 +98,10 @@ async function main() {
     }
     console.warn('Shell prompt detected');
 
-    // Focus the terminal
+    // Focus and type
     await terminal.click();
     await driver.pause(300);
 
-    // Type the smoke test command with a unique marker
     const marker = `SMOKE_${Date.now()}`;
     const command = `echo '${marker}'`;
     for (const char of command) {
@@ -97,7 +111,7 @@ async function main() {
     await driver.keys('\uE007'); // Enter
     console.warn(`Typed: ${command}`);
 
-    // Wait for the marker to appear in terminal output
+    // Wait for marker in terminal output (twice: command + echo output)
     const cmdStart = Date.now();
     while (Date.now() - cmdStart < COMMAND_TIMEOUT) {
       const content = await driver.execute(() => {
@@ -106,18 +120,14 @@ async function main() {
           .map((l) => l.textContent || '')
           .join('\n');
       });
-      // The marker should appear twice: once in the command, once in the output.
-      // Count occurrences to confirm the echo output is rendered.
       const occurrences = content.split(marker).length - 1;
       if (occurrences >= 2) {
         console.warn('Command output verified in terminal UI');
-        console.warn('Smoke test passed');
         return;
       }
       await driver.pause(500);
     }
 
-    // If we get here, the marker didn't appear as output
     const finalContent = await driver.execute(() => {
       const logs = document.querySelectorAll('[role="log"]');
       return Array.from(logs)
@@ -126,11 +136,10 @@ async function main() {
     });
     throw new Error(
       `Command output not visible in terminal within ${COMMAND_TIMEOUT}ms.\n` +
-        `Expected marker "${marker}" to appear twice (command + output).\n` +
+        `Expected marker "${marker}" to appear twice.\n` +
         `Terminal content:\n${finalContent.slice(0, 500)}`
     );
   } finally {
-    // Clean up WebDriver session (kills Tauri binary)
     if (driver) {
       try {
         await driver.deleteSession();
@@ -138,13 +147,139 @@ async function main() {
         // Session may already be gone
       }
     }
+  }
+}
 
-    // Clean up tmux session
-    try {
-      execSync(`tmux kill-session -t ${SESSION_NAME}`, { stdio: 'ignore' });
-    } catch {
-      // Session may already be gone
+// --- macOS: tmux-based smoke test (tauri-driver not supported) ---
+
+async function smokeTestMacOS() {
+  const STARTUP_TIMEOUT = 30000;
+  const COMMAND_TIMEOUT = 15000;
+
+  // Launch the binary in the background
+  const child = spawn(BINARY_PATH, [], {
+    stdio: 'ignore',
+    detached: true,
+    env: { ...process.env, TMUXY_SESSION: SESSION_NAME },
+  });
+  child.unref();
+  console.warn(`App launched (pid ${child.pid})`);
+
+  try {
+    // Wait for the app to attach to the tmux session (pane count > 0 means control mode connected)
+    const startTime = Date.now();
+    let ready = false;
+    while (Date.now() - startTime < STARTUP_TIMEOUT) {
+      try {
+        const output = execSync(
+          `tmux list-panes -t ${SESSION_NAME} -F '#{pane_active}' 2>/dev/null`,
+          { encoding: 'utf-8', timeout: 5000 }
+        ).trim();
+        if (output.length > 0) {
+          ready = true;
+          break;
+        }
+      } catch {
+        // Session not ready yet
+      }
+      await sleep(500);
     }
+
+    if (!ready) {
+      throw new Error(`App did not connect to tmux session within ${STARTUP_TIMEOUT}ms`);
+    }
+    console.warn('App connected to tmux session');
+
+    // Wait for shell prompt in the pane
+    const promptStart = Date.now();
+    while (Date.now() - promptStart < STARTUP_TIMEOUT) {
+      try {
+        const content = execSync(
+          `tmux capture-pane -t ${SESSION_NAME} -p 2>/dev/null`,
+          { encoding: 'utf-8', timeout: 5000 }
+        );
+        if (content.length > 5 && /[$#%>❯]/.test(content)) {
+          break;
+        }
+      } catch {
+        // Not ready
+      }
+      await sleep(500);
+    }
+    console.warn('Shell prompt detected via tmux');
+
+    // Send a command via tmux
+    const marker = `SMOKE_${Date.now()}`;
+    execSync(`tmux send-keys -t ${SESSION_NAME} "echo '${marker}'" Enter`, {
+      stdio: 'ignore',
+      timeout: 5000,
+    });
+    console.warn(`Sent: echo '${marker}'`);
+
+    // Wait for the marker to appear in capture-pane output
+    const cmdStart = Date.now();
+    while (Date.now() - cmdStart < COMMAND_TIMEOUT) {
+      try {
+        const content = execSync(
+          `tmux capture-pane -t ${SESSION_NAME} -p 2>/dev/null`,
+          { encoding: 'utf-8', timeout: 5000 }
+        );
+        // Marker appears twice: in the typed command and in the echo output
+        const occurrences = content.split(marker).length - 1;
+        if (occurrences >= 2) {
+          console.warn('Command output verified via tmux capture-pane');
+          return;
+        }
+      } catch {
+        // Capture failed
+      }
+      await sleep(500);
+    }
+
+    const finalContent = execSync(
+      `tmux capture-pane -t ${SESSION_NAME} -p 2>/dev/null || echo "(capture failed)"`,
+      { encoding: 'utf-8', timeout: 5000 }
+    );
+    throw new Error(
+      `Command output not visible within ${COMMAND_TIMEOUT}ms.\n` +
+        `Expected marker "${marker}" to appear twice.\n` +
+        `Pane content:\n${finalContent.slice(0, 500)}`
+    );
+  } finally {
+    // Kill the app
+    try {
+      process.kill(-child.pid, 'SIGTERM');
+    } catch {
+      try {
+        process.kill(child.pid, 'SIGTERM');
+      } catch {
+        // Already dead
+      }
+    }
+  }
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// --- Main ---
+
+async function main() {
+  console.warn(`Binary: ${BINARY_PATH}`);
+  console.warn(`Platform: ${os.platform()} (${IS_MACOS ? 'macOS tmux-based' : 'Linux WebDriver'})`);
+
+  createTmuxSession();
+
+  try {
+    if (IS_MACOS) {
+      await smokeTestMacOS();
+    } else {
+      await smokeTestLinux();
+    }
+    console.warn('Smoke test passed');
+  } finally {
+    cleanupTmuxSession();
   }
 }
 

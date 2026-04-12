@@ -64,22 +64,19 @@ jobs:
         working-directory: packages/tauri-app
 
       # --- Smoke Test (Linux + macOS) ---
+      # Linux: Full UI test via WebdriverIO → tauri-driver → WebKitWebDriver
+      # macOS: tmux-based test (tauri-driver doesn't support macOS/WKWebView)
 
       - name: Install smoke test deps (Linux)
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get install -y --no-install-recommends \
             tmux webkit2gtk-driver xvfb x11-utils
+          cargo install tauri-driver
 
       - name: Install smoke test deps (macOS)
         if: matrix.platform == 'macos'
-        run: |
-          brew install tmux
-          sudo safaridriver --enable
-
-      - name: Install tauri-driver
-        if: matrix.platform != 'windows'
-        run: cargo install tauri-driver
+        run: brew install tmux
 
       - name: Run smoke test (Linux)
         if: matrix.platform == 'linux'
@@ -112,20 +109,7 @@ jobs:
 
       - name: Run smoke test (macOS)
         if: matrix.platform == 'macos'
-        run: |
-          # Start tauri-driver
-          tauri-driver --port 4444 &
-          DRIVER_PID=$!
-          sleep 2
-
-          # Run smoke test
-          node tests/smoke/smoke-test.js "${{ matrix.binary }}"
-          RESULT=$?
-
-          # Cleanup
-          kill $DRIVER_PID 2>/dev/null || true
-
-          exit $RESULT
+        run: node tests/smoke/smoke-test.js "${{ matrix.binary }}"
 
       # --- Collect Artifacts ---
 
