@@ -88,8 +88,12 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
         {error && !showLayout ? (
           <div className="error" data-testid="error-display">
-            <h2>Error</h2>
-            <p>{error}</p>
+            <h2>Connection Error</h2>
+            <p>Failed to connect to tmux. Make sure tmux is installed and running.</p>
+            <details className="error-details">
+              <summary>Details</summary>
+              <pre className="error-log">{error}</pre>
+            </details>
           </div>
         ) : !showLayout ? (
           <div className="loading" data-testid="loading-display">
