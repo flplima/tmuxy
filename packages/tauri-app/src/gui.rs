@@ -275,6 +275,15 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
 /// Start the Tauri GUI application.
 pub fn run() {
     tauri::Builder::default()
+        // Single instance: when user clicks the app icon while already running,
+        // bring the existing window to front instead of launching a broken second instance.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(|app| {
             // Verify tmux is available — the monitor will create the session
             // itself via control mode (avoids race between sync creation and
