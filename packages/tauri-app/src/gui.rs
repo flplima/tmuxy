@@ -276,47 +276,34 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            // Initialize tmux session — abort if this fails (no point showing
-            // a broken UI that can't talk to tmux)
+            // Verify tmux is available — the monitor will create the session
+            // itself via control mode (avoids race between sync creation and
+            // async monitor connection where the session can die in between)
+            let tmux_bin = session::tmux_path();
             let session_name =
                 std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string());
-            let tmux_bin = session::tmux_path();
             eprintln!("[tmuxy] tmux binary: {}", tmux_bin);
             eprintln!("[tmuxy] session name: {}", session_name);
 
-            if let Err(e) = session::create_or_attach(&session_name) {
-                let msg = format!(
-                    "Failed to initialize tmux session.\n\ntmux binary: {}\nSession: {}\nError: {}",
-                    tmux_bin, session_name, e
-                );
-                eprintln!("{}", msg);
-                return Err(msg.into());
-            }
-
-            // Verify the session actually exists after creation — tmux might create
-            // and immediately destroy it (e.g., shell exits, config error)
-            match session::session_exists(&session_name) {
-                Ok(true) => {
-                    eprintln!("[tmuxy] session '{}' verified", session_name);
+            // Quick check that tmux is actually runnable
+            match std::process::Command::new(tmux_bin).arg("-V").output() {
+                Ok(output) if output.status.success() => {
+                    let version = String::from_utf8_lossy(&output.stdout);
+                    eprintln!("[tmuxy] {}", version.trim());
                 }
-                Ok(false) => {
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
                     let msg = format!(
-                        "tmux session '{}' was created but immediately died.\n\n\
-                        This usually means the default shell exited or the tmux config has errors.\n\n\
-                        tmux binary: {}\n\
-                        Try running: {} new-session -d -s test\n\
-                        to diagnose the issue.",
-                        session_name, tmux_bin, tmux_bin
+                        "tmux failed to run.\n\nbinary: {}\nexit code: {}\nstderr: {}",
+                        tmux_bin, output.status.code().unwrap_or(-1), stderr.trim()
                     );
-                    eprintln!("{}", msg);
                     return Err(msg.into());
                 }
                 Err(e) => {
                     let msg = format!(
-                        "Failed to verify tmux session: {}\ntmux binary: {}",
-                        e, tmux_bin
+                        "tmux binary not found or not executable.\n\nbinary: {}\nerror: {}",
+                        tmux_bin, e
                     );
-                    eprintln!("{}", msg);
                     return Err(msg.into());
                 }
             }
