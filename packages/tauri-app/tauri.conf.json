@@ -17,7 +17,10 @@
         "height": 600,
         "resizable": true,
         "fullscreen": false,
-        "transparent": true
+        "transparent": true,
+        "decorations": false,
+        "titleBarStyle": "overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

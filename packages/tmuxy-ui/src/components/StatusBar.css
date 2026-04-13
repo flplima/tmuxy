@@ -13,6 +13,25 @@
   user-select: none;
 }
 
+/* macOS Tauri: make the top bar draggable for window movement */
+.statusbar-draggable {
+  -webkit-app-region: drag;
+}
+
+/* Buttons/tabs inside draggable bar must be interactive (not draggable) */
+.statusbar-draggable .tab-list,
+.statusbar-draggable .tab-add,
+.statusbar-draggable .tab-name {
+  -webkit-app-region: no-drag;
+}
+
+/* Spacer that reserves room for macOS traffic light buttons (close/min/max) */
+.traffic-light-spacer {
+  width: 70px;
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
 .statusbar-inner {
   display: flex;
   align-items: center;
