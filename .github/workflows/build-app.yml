@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   build:
     strategy:
@@ -35,9 +32,9 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -118,41 +115,41 @@ jobs:
 
       - name: Upload AppImage
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: tmuxy-appimage
+          name: tmuxy-linux-appimage
           path: target/release/bundle/appimage/*.AppImage
           if-no-files-found: warn
 
       - name: Upload .deb
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: tmuxy-deb
+          name: tmuxy-linux-deb
           path: target/release/bundle/deb/*.deb
           if-no-files-found: warn
 
       - name: Upload .dmg
         if: matrix.platform == 'macos'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: tmuxy-dmg
+          name: tmuxy-macos-dmg
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: warn
 
       - name: Upload .msi
         if: matrix.platform == 'windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: tmuxy-msi
+          name: tmuxy-windows-msi
           path: target/release/bundle/msi/*.msi
           if-no-files-found: warn
 
       - name: Upload .exe
         if: matrix.platform == 'windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: tmuxy-exe
+          name: tmuxy-windows-exe
           path: target/release/bundle/nsis/*.exe
           if-no-files-found: warn
 
@@ -165,9 +162,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           path: all-artifacts
 
