@@ -33,7 +33,7 @@ interface TabContextMenuState {
   windowIndex: number;
 }
 
-export function WindowTabs({ dragRegion }: { dragRegion?: boolean } = {}) {
+export function WindowTabs() {
   const send = useAppSend();
   const rawWindows = useAppSelectorShallow(selectVisibleWindows);
   const allWindows = useAppSelector(selectWindows);
@@ -108,7 +108,7 @@ export function WindowTabs({ dragRegion }: { dragRegion?: boolean } = {}) {
   }, [send, contextMenu.windowIndex, closeContextMenu]);
 
   return (
-    <div className="tab-list" {...(dragRegion ? { 'data-tauri-drag-region': '' } : {})}>
+    <div className="tab-list">
       {visibleWindows.map((window, idx) => {
         const visualIndex = idx + 1;
         return (
