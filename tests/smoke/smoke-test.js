@@ -6,9 +6,9 @@
  * On Linux: Uses WebdriverIO → tauri-driver to launch the app, type a command,
  * and verify the output appears in the terminal UI (full stack test).
  *
- * On macOS: tauri-driver doesn't support macOS (WKWebView). Falls back to
- * launching the binary directly + verifying via tmux send-keys/capture-pane
- * (verifies app→tmux connection, not UI rendering).
+ * On macOS: tauri-driver doesn't support macOS (WKWebView). Launches the binary
+ * directly with restricted GUI PATH, verifies session creation AND control mode
+ * connection by checking the app's stderr for errors.
  *
  * Usage: node smoke-test.js <binary-path>
  *
@@ -164,55 +164,100 @@ async function smokeTestMacOS() {
   const guiEnv = { ...process.env, PATH: guiPath, TMUXY_SESSION: SESSION_NAME };
   console.warn(`Launching with restricted PATH: ${guiPath}`);
 
+  // Capture stderr to detect control mode errors
   const child = spawn(BINARY_PATH, [], {
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'pipe'],
     detached: true,
     env: guiEnv,
   });
   child.unref();
   console.warn(`App launched (pid ${child.pid})`);
 
+  // Collect stderr output for diagnostics
+  let stderrOutput = '';
+  child.stderr.on('data', (data) => {
+    stderrOutput += data.toString();
+  });
+
   try {
-    // Wait for the app to attach to the tmux session (pane count > 0 means control mode connected)
+    // Wait for the app to create and connect to the tmux session.
+    // We verify TWO things:
+    //   1. The session exists (new-session -d succeeded)
+    //   2. A control mode client is attached (tmux -CC succeeded)
+    // Just checking session existence is NOT enough — the session can
+    // exist while control mode fails (the bug we're catching).
     const startTime = Date.now();
-    let ready = false;
+    let sessionReady = false;
+    let controlModeReady = false;
+
     while (Date.now() - startTime < STARTUP_TIMEOUT) {
-      try {
-        const output = execSync(
-          `tmux list-panes -t ${SESSION_NAME} -F '#{pane_active}' 2>/dev/null`,
-          { encoding: 'utf-8', timeout: 5000 }
-        ).trim();
-        if (output.length > 0) {
-          ready = true;
-          break;
-        }
-      } catch {
-        // Session not ready yet
+      // Check stderr for fatal errors (server crash, connection failure)
+      if (stderrOutput.includes('server exited unexpectedly') ||
+          stderrOutput.includes('Control mode connection died') ||
+          stderrOutput.includes('Control mode timed out')) {
+        throw new Error(
+          `App reported control mode failure:\n${stderrOutput.slice(-1000)}`
+        );
       }
+
+      if (!sessionReady) {
+        try {
+          const output = execSync(
+            `tmux list-panes -t ${SESSION_NAME} -F '#{pane_active}' 2>/dev/null`,
+            { encoding: 'utf-8', timeout: 5000 }
+          ).trim();
+          if (output.length > 0) {
+            sessionReady = true;
+            console.warn('Session exists');
+          }
+        } catch {
+          // Session not ready yet
+        }
+      }
+
+      if (sessionReady && !controlModeReady) {
+        // Verify a control mode client is attached by checking client count.
+        // "tmux list-clients -t session" shows attached clients including CC.
+        try {
+          const clients = execSync(
+            `tmux list-clients -t ${SESSION_NAME} 2>/dev/null`,
+            { encoding: 'utf-8', timeout: 5000 }
+          ).trim();
+          if (clients.length > 0) {
+            controlModeReady = true;
+            console.warn('Control mode client attached');
+          }
+        } catch {
+          // Not ready
+        }
+      }
+
+      if (sessionReady && controlModeReady) break;
       await sleep(500);
     }
 
-    if (!ready) {
+    if (!sessionReady || !controlModeReady) {
       // Gather diagnostics
-      let diag = '';
+      let diag = `\nsession exists: ${sessionReady}`;
+      diag += `\ncontrol mode attached: ${controlModeReady}`;
       try {
-        diag += '\ntmux server alive: ';
-        execSync('tmux list-sessions 2>&1', { encoding: 'utf-8', timeout: 3000 });
-        diag += 'yes';
+        const sessions = execSync('tmux list-sessions 2>&1', { encoding: 'utf-8', timeout: 3000 });
+        diag += `\ntmux sessions:\n${sessions}`;
       } catch (e) {
-        diag += `no (${e.stderr || e.message})`;
+        diag += `\ntmux server: dead (${e.stderr || e.message})`;
       }
       try {
         diag += '\ntmux version: ' + execSync('tmux -V 2>&1', { encoding: 'utf-8', timeout: 3000 }).trim();
       } catch {
         diag += '\ntmux version: (failed)';
       }
+      if (stderrOutput) {
+        diag += `\napp stderr (last 500 chars):\n${stderrOutput.slice(-500)}`;
+      }
       throw new Error(
-        `App did not create/connect to tmux session '${SESSION_NAME}' within ${STARTUP_TIMEOUT}ms` +
-          diag
+        `App did not fully connect to tmux within ${STARTUP_TIMEOUT}ms` + diag
       );
     }
-    console.warn('App connected to tmux session');
 
     // Wait for shell prompt in the pane
     const promptStart = Date.now();
