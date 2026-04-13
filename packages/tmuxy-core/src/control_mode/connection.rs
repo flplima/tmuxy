@@ -249,52 +249,75 @@ impl ControlModeConnection {
 
     /// Create a new control mode session.
     ///
-    /// First creates the session via regular `tmux new-session -d`, then
-    /// attaches in control mode via `connect()`. This two-step approach
-    /// avoids a tmux 3.5a bug where `tmux -CC new-session` crashes the
-    /// server when another control mode client is already attached.
+    /// Creates a simple detached session then attaches in control mode.
+    /// No config file is passed (-f) — the user's default ~/.tmux.conf is used.
+    /// No size flags (-x/-y) — control mode will resize after connecting.
     pub async fn new_session(
         session_name: &str,
         working_dir: Option<&std::path::Path>,
     ) -> Result<Self, String> {
-        // Step 1: Create the session as a detached regular session.
-        // WARNING: On tmux 3.5a, this crashes the server if another CC client
-        // is attached. The server (sse.rs) routes creation through an existing
-        // CC client when possible. This path is the fallback when no CC client
-        // is running (e.g., first session creation).
-        //
-        // Do NOT pass -f with the tmuxy config here — it contains devcontainer-
-        // specific settings (command-alias, window-size manual) that can crash
-        // the tmux server on macOS. Let tmux use the user's default config.
-        // The server's enforce_settings() will apply tmuxy settings after
-        // control mode connects.
+        // Create a minimal detached session. Avoid -f (crashes with devcontainer
+        // config), -x/-y (can cause issues), and any settings that might
+        // conflict with an existing tmux server.
+        let tmux_path = session::tmux_path();
         let mut create_cmd = session::tmux_command();
-        create_cmd.args([
-            "new-session",
-            "-d",
-            "-s",
-            session_name,
-            "-x",
-            &INITIAL_PTY_COLS.to_string(),
-            "-y",
-            &INITIAL_PTY_ROWS.to_string(),
-        ]);
+        create_cmd.args(["new-session", "-d", "-s", session_name]);
         if let Some(dir) = working_dir {
             create_cmd.arg("-c").arg(dir);
         }
+
+        let cmd_desc = format!("{} new-session -d -s {}", tmux_path, session_name);
+        eprintln!("[tmuxy] creating session: {}", cmd_desc);
+
         let output = create_cmd
             .output()
-            .map_err(|e| format!("Failed to create tmux session: {}", e))?;
+            .map_err(|e| format!(
+                "Failed to create tmux session: {}\n  command: {}",
+                e, cmd_desc
+            ))?;
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "Failed to create tmux session '{}': {}",
-                session_name,
-                stderr.trim()
-            ));
+            let stderr_str = stderr.trim();
+
+            // tmux 3.5a crashes the server when new-session is run while a
+            // control mode client is attached (e.g., stale client from a
+            // previous tmuxy crash). If the server died, retry once — the
+            // fresh server won't have stale CC clients.
+            if stderr_str.contains("server exited unexpectedly") || stderr_str.contains("no server running") {
+                eprintln!("[tmuxy] server crashed or missing, retrying session creation");
+                std::thread::sleep(std::time::Duration::from_millis(500));
+
+                let mut retry_cmd = session::tmux_command();
+                retry_cmd.args(["new-session", "-d", "-s", session_name]);
+                if let Some(dir) = working_dir {
+                    retry_cmd.arg("-c").arg(dir);
+                }
+                let retry_output = retry_cmd
+                    .output()
+                    .map_err(|e| format!(
+                        "Retry failed to create tmux session: {}\n  command: {}",
+                        e, cmd_desc
+                    ))?;
+                if !retry_output.status.success() {
+                    let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
+                    return Err(format!(
+                        "Failed to create tmux session '{}' (after retry)\n  command: {}\n  stderr: {}",
+                        session_name, cmd_desc, retry_stderr.trim()
+                    ));
+                }
+                eprintln!("[tmuxy] session '{}' created on retry", session_name);
+            } else {
+                return Err(format!(
+                    "Failed to create tmux session '{}'\n  command: {}\n  stderr: {}",
+                    session_name, cmd_desc, stderr_str
+                ));
+            }
+        } else {
+            eprintln!("[tmuxy] session '{}' created, attaching control mode", session_name);
         }
 
-        // Step 2: Attach in control mode
+        // Attach in control mode
         Self::connect(session_name, working_dir).await
     }
 
