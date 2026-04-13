@@ -13,6 +13,14 @@
   user-select: none;
 }
 
+/* Spacer that reserves room for macOS traffic light buttons (close/min/max).
+   78px = ~16px left inset + 54px for the three buttons + padding */
+.traffic-light-spacer {
+  width: 78px;
+  min-width: 78px;
+  flex-shrink: 0;
+}
+
 .statusbar-inner {
   display: flex;
   align-items: center;
