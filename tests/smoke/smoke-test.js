@@ -3,24 +3,23 @@
 /**
  * Post-build smoke test for the Tauri desktop app.
  *
- * On Linux: Uses WebdriverIO → tauri-driver to launch the app, type a command,
- * and verify the output appears in the terminal UI (full stack test).
+ * Full GUI test on both Linux and macOS: launches the app via WebdriverIO,
+ * types a command in the terminal, and verifies the output appears in the UI.
  *
- * On macOS: tauri-driver doesn't support macOS (WKWebView). Launches the binary
- * directly with restricted GUI PATH, verifies session creation AND control mode
- * connection by checking the app's stderr for errors.
+ * Linux:  tauri-driver (WebKitGTK WebDriver) + Xvfb
+ * macOS:  tauri-webdriver (embeds WebDriver in app via tauri-plugin-webdriver)
  *
  * Usage: node smoke-test.js <binary-path>
  *
  * Prerequisites (managed by the CI workflow, not this script):
  *   - Linux: tauri-driver running on port 4444, DISPLAY set (Xvfb)
- *   - macOS: native display available
+ *   - macOS: tauri-webdriver running on port 4444, tmux installed
  *   - tmux installed and in PATH
  */
 
-const { execSync, spawn } = require('child_process');
+const { remote } = require('webdriverio');
+const { execSync } = require('child_process');
 const path = require('path');
-const os = require('os');
 
 const BINARY = process.argv[2];
 if (!BINARY) {
@@ -29,38 +28,24 @@ if (!BINARY) {
 }
 
 const BINARY_PATH = path.resolve(BINARY);
+const DRIVER_PORT = 4444;
 const SESSION_NAME = 'tmuxy'; // default session name
-const IS_MACOS = os.platform() === 'darwin';
+const APP_READY_TIMEOUT = 60000;
+const COMMAND_TIMEOUT = 30000;
 
-// --- Shared helpers ---
-
-function createTmuxSession() {
-  try {
-    execSync(`tmux kill-session -t ${SESSION_NAME}`, { stdio: 'ignore' });
-  } catch {
-    // Session may not exist
-  }
-  execSync(`tmux new-session -d -s ${SESSION_NAME}`, { stdio: 'inherit' });
-  console.warn(`tmux session "${SESSION_NAME}" created`);
-}
+// --- Helpers ---
 
 function cleanupTmuxSession() {
   try {
     execSync(`tmux kill-session -t ${SESSION_NAME}`, { stdio: 'ignore' });
   } catch {
-    // Session may already be gone
+    // Session may not exist
   }
 }
 
-// --- Linux: Full WebdriverIO smoke test ---
+// --- Full GUI smoke test (WebdriverIO — both platforms) ---
 
-async function smokeTestLinux() {
-  const { remote } = require('webdriverio');
-
-  const DRIVER_PORT = 4444;
-  const APP_READY_TIMEOUT = 60000;
-  const COMMAND_TIMEOUT = 30000;
-
+async function smokeTest() {
   let driver;
   try {
     driver = await remote({
@@ -69,7 +54,9 @@ async function smokeTestLinux() {
       capabilities: {
         'tauri:options': {
           application: BINARY_PATH,
-          env: { DISPLAY: process.env.DISPLAY || ':99' },
+          env: {
+            DISPLAY: process.env.DISPLAY || ':99',
+          },
         },
       },
       logLevel: 'warn',
@@ -123,6 +110,7 @@ async function smokeTestLinux() {
       const occurrences = content.split(marker).length - 1;
       if (occurrences >= 2) {
         console.warn('Command output verified in terminal UI');
+        console.warn('Smoke test passed');
         return;
       }
       await driver.pause(500);
@@ -150,251 +138,17 @@ async function smokeTestLinux() {
   }
 }
 
-// --- macOS: tmux-based smoke test (tauri-driver not supported) ---
-
-async function smokeTestMacOS() {
-  const STARTUP_TIMEOUT = 30000;
-  const COMMAND_TIMEOUT = 15000;
-
-  // --- Simulate real-world conditions ---
-  // On a real Mac, users have existing tmux sessions and there may be
-  // stale control mode clients from previous tmuxy crashes. The tmux 3.5a
-  // bug crashes the server when new-session is run with a CC client attached.
-  // We simulate this by creating a session + attaching a CC client BEFORE
-  // launching the app, so CI catches bugs that only appear on dirty environments.
-  console.warn('Simulating real-world tmux state (existing session + CC client)');
-  const existingSession = 'smoke_existing';
-  try { execSync(`tmux kill-session -t ${existingSession}`, { stdio: 'ignore' }); } catch {}
-  execSync(`tmux new-session -d -s ${existingSession}`);
-  // Attach a control mode client (simulates a stale tmuxy process)
-  const staleCC = spawn('tmux', ['-CC', 'attach-session', '-t', existingSession], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  await sleep(500); // Let CC attach
-  console.warn(`Stale CC client attached to '${existingSession}' (pid ${staleCC.pid})`);
-
-  // Launch the binary with a restricted PATH that mimics macOS GUI apps.
-  // Finder/Spotlight launches get only /usr/bin:/bin:/usr/sbin:/sbin —
-  // Homebrew (/opt/homebrew/bin, /usr/local/bin) is NOT included.
-  // The app must find tmux on its own despite this minimal PATH.
-  const guiPath = '/usr/bin:/bin:/usr/sbin:/sbin';
-  const guiEnv = { ...process.env, PATH: guiPath, TMUXY_SESSION: SESSION_NAME };
-  console.warn(`Launching with restricted PATH: ${guiPath}`);
-
-  // Capture stderr to detect control mode errors
-  const child = spawn(BINARY_PATH, [], {
-    stdio: ['ignore', 'ignore', 'pipe'],
-    detached: true,
-    env: guiEnv,
-  });
-  child.unref();
-  console.warn(`App launched (pid ${child.pid})`);
-
-  // Collect stderr output for diagnostics
-  let stderrOutput = '';
-  child.stderr.on('data', (data) => {
-    stderrOutput += data.toString();
-  });
-
-  try {
-    // Wait for the app to create and connect to the tmux session.
-    // We verify TWO things:
-    //   1. The session exists (new-session -d succeeded)
-    //   2. A control mode client is attached (tmux -CC succeeded)
-    // Just checking session existence is NOT enough — the session can
-    // exist while control mode fails (the bug we're catching).
-    const startTime = Date.now();
-    let sessionReady = false;
-    let controlModeReady = false;
-
-    while (Date.now() - startTime < STARTUP_TIMEOUT) {
-      // Check stderr for fatal errors (server crash, connection failure)
-      if (stderrOutput.includes('server exited unexpectedly') ||
-          stderrOutput.includes('Control mode connection died') ||
-          stderrOutput.includes('Control mode timed out')) {
-        throw new Error(
-          `App reported control mode failure:\n${stderrOutput.slice(-1000)}`
-        );
-      }
-
-      if (!sessionReady) {
-        try {
-          const output = execSync(
-            `tmux list-panes -t ${SESSION_NAME} -F '#{pane_active}' 2>/dev/null`,
-            { encoding: 'utf-8', timeout: 5000 }
-          ).trim();
-          if (output.length > 0) {
-            sessionReady = true;
-            console.warn('Session exists');
-          }
-        } catch {
-          // Session not ready yet
-        }
-      }
-
-      if (sessionReady && !controlModeReady) {
-        // Verify a control mode client is attached by checking client count.
-        // "tmux list-clients -t session" shows attached clients including CC.
-        try {
-          const clients = execSync(
-            `tmux list-clients -t ${SESSION_NAME} 2>/dev/null`,
-            { encoding: 'utf-8', timeout: 5000 }
-          ).trim();
-          if (clients.length > 0) {
-            controlModeReady = true;
-            console.warn('Control mode client attached');
-          }
-        } catch {
-          // Not ready
-        }
-      }
-
-      if (sessionReady && controlModeReady) break;
-      await sleep(500);
-    }
-
-    if (!sessionReady || !controlModeReady) {
-      // Gather diagnostics
-      let diag = `\nsession exists: ${sessionReady}`;
-      diag += `\ncontrol mode attached: ${controlModeReady}`;
-      try {
-        const sessions = execSync('tmux list-sessions 2>&1', { encoding: 'utf-8', timeout: 3000 });
-        diag += `\ntmux sessions:\n${sessions}`;
-      } catch (e) {
-        diag += `\ntmux server: dead (${e.stderr || e.message})`;
-      }
-      try {
-        diag += '\ntmux version: ' + execSync('tmux -V 2>&1', { encoding: 'utf-8', timeout: 3000 }).trim();
-      } catch {
-        diag += '\ntmux version: (failed)';
-      }
-      if (stderrOutput) {
-        diag += `\napp stderr (last 500 chars):\n${stderrOutput.slice(-500)}`;
-      }
-      throw new Error(
-        `App did not fully connect to tmux within ${STARTUP_TIMEOUT}ms` + diag
-      );
-    }
-
-    // Wait for shell prompt in the pane
-    const promptStart = Date.now();
-    while (Date.now() - promptStart < STARTUP_TIMEOUT) {
-      try {
-        const content = execSync(
-          `tmux capture-pane -t ${SESSION_NAME} -p 2>/dev/null`,
-          { encoding: 'utf-8', timeout: 5000 }
-        );
-        if (content.length > 5 && /[$#%>❯]/.test(content)) {
-          break;
-        }
-      } catch {
-        // Not ready
-      }
-      await sleep(500);
-    }
-    console.warn('Shell prompt detected via tmux');
-
-    // Send a command via tmux
-    const marker = `SMOKE_${Date.now()}`;
-    execSync(`tmux send-keys -t ${SESSION_NAME} "echo '${marker}'" Enter`, {
-      stdio: 'ignore',
-      timeout: 5000,
-    });
-    console.warn(`Sent: echo '${marker}'`);
-
-    // Wait for the marker to appear in capture-pane output
-    const cmdStart = Date.now();
-    while (Date.now() - cmdStart < COMMAND_TIMEOUT) {
-      try {
-        const content = execSync(
-          `tmux capture-pane -t ${SESSION_NAME} -p 2>/dev/null`,
-          { encoding: 'utf-8', timeout: 5000 }
-        );
-        // Marker appears twice: in the typed command and in the echo output
-        const occurrences = content.split(marker).length - 1;
-        if (occurrences >= 2) {
-          console.warn('Command output verified via tmux capture-pane');
-
-          // Verify the existing session survived (app must not crash the server)
-          try {
-            execSync(`tmux has-session -t ${existingSession}`, { stdio: 'ignore', timeout: 3000 });
-            console.warn(`Existing session '${existingSession}' survived (server not crashed)`);
-          } catch {
-            throw new Error(
-              `App crashed the tmux server! Existing session '${existingSession}' was destroyed.\n` +
-                'This is the tmux 3.5a bug: new-session with a CC client attached crashes the server.'
-            );
-          }
-          return;
-        }
-      } catch {
-        // Capture failed
-      }
-      await sleep(500);
-    }
-
-    const finalContent = execSync(
-      `tmux capture-pane -t ${SESSION_NAME} -p 2>/dev/null || echo "(capture failed)"`,
-      { encoding: 'utf-8', timeout: 5000 }
-    );
-    throw new Error(
-      `Command output not visible within ${COMMAND_TIMEOUT}ms.\n` +
-        `Expected marker "${marker}" to appear twice.\n` +
-        `Pane content:\n${finalContent.slice(0, 500)}`
-    );
-  } finally {
-    // Kill the app
-    try {
-      process.kill(-child.pid, 'SIGTERM');
-    } catch {
-      try {
-        process.kill(child.pid, 'SIGTERM');
-      } catch {
-        // Already dead
-      }
-    }
-
-    // Clean up stale CC client and existing session
-    try { staleCC.kill('SIGTERM'); } catch {}
-    try { execSync(`tmux kill-session -t ${existingSession}`, { stdio: 'ignore' }); } catch {}
-
-    // Verify we didn't crash the tmux server (the existing session should survive)
-    try {
-      execSync(`tmux list-sessions 2>/dev/null`, { encoding: 'utf-8', timeout: 3000 });
-    } catch {
-      console.error('WARNING: tmux server died during smoke test — app may have crashed it');
-    }
-  }
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 // --- Main ---
 
 async function main() {
   console.warn(`Binary: ${BINARY_PATH}`);
-  console.warn(`Platform: ${os.platform()} (${IS_MACOS ? 'macOS tmux-based' : 'Linux WebDriver'})`);
+  console.warn(`Platform: ${process.platform}`);
 
-  // On macOS, do NOT pre-create the session — the app must create it itself
-  // with the restricted GUI PATH. This catches tmux discovery failures.
-  // On Linux, the session is pre-created because WebdriverIO/tauri-driver
-  // can't forward env vars, so the app uses the default "tmuxy" session.
-  if (!IS_MACOS) {
-    createTmuxSession();
-  } else {
-    // Make sure no leftover session exists
-    cleanupTmuxSession();
-  }
+  // Clean up any leftover session
+  cleanupTmuxSession();
 
   try {
-    if (IS_MACOS) {
-      await smokeTestMacOS();
-    } else {
-      await smokeTestLinux();
-    }
-    console.warn('Smoke test passed');
+    await smokeTest();
   } finally {
     cleanupTmuxSession();
   }

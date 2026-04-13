@@ -61,8 +61,10 @@ jobs:
         working-directory: packages/tauri-app
 
       # --- Smoke Test (Linux + macOS) ---
-      # Linux: Full UI test via WebdriverIO → tauri-driver → WebKitWebDriver
-      # macOS: tmux-based test (tauri-driver doesn't support macOS/WKWebView)
+      # Both platforms use WebdriverIO for full GUI verification: launch app,
+      # type a command, verify output appears in the terminal UI.
+      # Linux: tauri-driver (WebKitGTK driver) + Xvfb
+      # macOS: tauri-webdriver (embeds WebDriver in the app via plugin)
 
       - name: Install smoke test deps (Linux)
         if: matrix.platform == 'linux'
@@ -73,7 +75,14 @@ jobs:
 
       - name: Install smoke test deps (macOS)
         if: matrix.platform == 'macos'
-        run: brew install tmux
+        run: |
+          brew install tmux
+          cargo install tauri-webdriver
+
+      - name: Build smoke test binary (macOS)
+        if: matrix.platform == 'macos'
+        run: npx tauri build --debug --no-bundle --features webdriver
+        working-directory: packages/tauri-app
 
       - name: Run smoke test (Linux)
         if: matrix.platform == 'linux'
@@ -106,7 +115,20 @@ jobs:
 
       - name: Run smoke test (macOS)
         if: matrix.platform == 'macos'
-        run: node tests/smoke/smoke-test.js "${{ matrix.binary }}"
+        run: |
+          # Start tauri-webdriver (proxies W3C WebDriver to the embedded plugin)
+          tauri-webdriver --port 4444 &
+          DRIVER_PID=$!
+          sleep 2
+
+          # Run smoke test using the debug binary (has webdriver plugin)
+          node tests/smoke/smoke-test.js target/debug/tmuxy
+          RESULT=$?
+
+          # Cleanup
+          kill $DRIVER_PID 2>/dev/null || true
+
+          exit $RESULT
 
       # --- Collect Artifacts ---
 
