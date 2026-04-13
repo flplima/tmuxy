@@ -156,6 +156,23 @@ async function smokeTestMacOS() {
   const STARTUP_TIMEOUT = 30000;
   const COMMAND_TIMEOUT = 15000;
 
+  // --- Simulate real-world conditions ---
+  // On a real Mac, users have existing tmux sessions and there may be
+  // stale control mode clients from previous tmuxy crashes. The tmux 3.5a
+  // bug crashes the server when new-session is run with a CC client attached.
+  // We simulate this by creating a session + attaching a CC client BEFORE
+  // launching the app, so CI catches bugs that only appear on dirty environments.
+  console.warn('Simulating real-world tmux state (existing session + CC client)');
+  const existingSession = 'smoke_existing';
+  try { execSync(`tmux kill-session -t ${existingSession}`, { stdio: 'ignore' }); } catch {}
+  execSync(`tmux new-session -d -s ${existingSession}`);
+  // Attach a control mode client (simulates a stale tmuxy process)
+  const staleCC = spawn('tmux', ['-CC', 'attach-session', '-t', existingSession], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  await sleep(500); // Let CC attach
+  console.warn(`Stale CC client attached to '${existingSession}' (pid ${staleCC.pid})`);
+
   // Launch the binary with a restricted PATH that mimics macOS GUI apps.
   // Finder/Spotlight launches get only /usr/bin:/bin:/usr/sbin:/sbin —
   // Homebrew (/opt/homebrew/bin, /usr/local/bin) is NOT included.
@@ -297,6 +314,17 @@ async function smokeTestMacOS() {
         const occurrences = content.split(marker).length - 1;
         if (occurrences >= 2) {
           console.warn('Command output verified via tmux capture-pane');
+
+          // Verify the existing session survived (app must not crash the server)
+          try {
+            execSync(`tmux has-session -t ${existingSession}`, { stdio: 'ignore', timeout: 3000 });
+            console.warn(`Existing session '${existingSession}' survived (server not crashed)`);
+          } catch {
+            throw new Error(
+              `App crashed the tmux server! Existing session '${existingSession}' was destroyed.\n` +
+                'This is the tmux 3.5a bug: new-session with a CC client attached crashes the server.'
+            );
+          }
           return;
         }
       } catch {
@@ -324,6 +352,17 @@ async function smokeTestMacOS() {
       } catch {
         // Already dead
       }
+    }
+
+    // Clean up stale CC client and existing session
+    try { staleCC.kill('SIGTERM'); } catch {}
+    try { execSync(`tmux kill-session -t ${existingSession}`, { stdio: 'ignore' }); } catch {}
+
+    // Verify we didn't crash the tmux server (the existing session should survive)
+    try {
+      execSync(`tmux list-sessions 2>/dev/null`, { encoding: 'utf-8', timeout: 3000 });
+    } catch {
+      console.error('WARNING: tmux server died during smoke test — app may have crashed it');
     }
   }
 }
