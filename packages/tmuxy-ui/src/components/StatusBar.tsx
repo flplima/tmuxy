@@ -29,7 +29,7 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
   const defaultContent = (
     <>
       {isMacTauri ? <div className="traffic-light-spacer" {...drag} /> : <AppMenu />}
-      <WindowTabs />
+      <WindowTabs dragRegion={isMacTauri} />
     </>
   );
 

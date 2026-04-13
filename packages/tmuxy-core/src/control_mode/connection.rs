@@ -108,13 +108,33 @@ impl ControlModeConnection {
         // First check if the session exists to avoid spawning control mode processes
         // that wait indefinitely for a non-existent session. This prevents a race condition
         // in tmux 3.3a where multiple waiting control mode clients crash the server.
+        let tmux_path = crate::session::tmux_path();
         let check = crate::session::tmux_command()
             .args(["has-session", "-t", session_name])
             .output()
-            .map_err(|e| format!("Failed to check session: {}", e))?;
+            .map_err(|e| format!(
+                "Failed to check session: {}\n  command: {} has-session -t {}\n  tmux binary: {}",
+                e, tmux_path, session_name, tmux_path
+            ))?;
 
         if !check.status.success() {
-            return Err(format!("Session '{}' does not exist", session_name));
+            let stderr = String::from_utf8_lossy(&check.stderr);
+            // List existing sessions for diagnostics
+            let sessions = crate::session::tmux_command()
+                .args(["list-sessions", "-F", "#{session_name}"])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_else(|_| "(failed to list)".to_string());
+            return Err(format!(
+                "Session '{}' does not exist\n\
+                  command: {} has-session -t {}\n\
+                  tmux binary: {}\n\
+                  stderr: {}\n\
+                  existing sessions: {}",
+                session_name, tmux_path, session_name, tmux_path,
+                if stderr.is_empty() { "(empty)" } else { stderr.trim() },
+                if sessions.is_empty() { "(none)" } else { &sessions },
+            ));
         }
 
         // Use `script` to provide a PTY for tmux -CC
