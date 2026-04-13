@@ -121,14 +121,22 @@ impl ControlModeConnection {
         // Without a PTY, tmux fails with "tcgetattr failed: Inappropriate ioctl for device"
         // Set PTY size via stty before starting tmux to avoid tiny default dimensions
         // when running in a background process (e.g., pm2) with no real terminal.
+        //
+        // macOS BSD `script` and Linux GNU `script` have different syntax:
+        //   Linux: script -q /dev/null -c "command"
+        //   macOS: script -q /dev/null bash -c "command"
         let tmux_bin = crate::session::tmux_bin();
         let tmux_cmd = format!(
             "stty cols {} rows {} 2>/dev/null; {} -CC attach-session -t {}",
             INITIAL_PTY_COLS, INITIAL_PTY_ROWS, tmux_bin, session_name
         );
         let mut cmd = Command::new("script");
-        cmd.args(["-q", "/dev/null", "-c", &tmux_cmd])
-            .stdin(Stdio::piped())
+        if cfg!(target_os = "macos") {
+            cmd.args(["-q", "/dev/null", "bash", "-c", &tmux_cmd]);
+        } else {
+            cmd.args(["-q", "/dev/null", "-c", &tmux_cmd]);
+        }
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if let Some(dir) = working_dir {
