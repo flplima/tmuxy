@@ -262,11 +262,13 @@ impl ControlModeConnection {
         // is attached. The server (sse.rs) routes creation through an existing
         // CC client when possible. This path is the fallback when no CC client
         // is running (e.g., first session creation).
+        //
+        // Do NOT pass -f with the tmuxy config here — it contains devcontainer-
+        // specific settings (command-alias, window-size manual) that can crash
+        // the tmux server on macOS. Let tmux use the user's default config.
+        // The server's enforce_settings() will apply tmuxy settings after
+        // control mode connects.
         let mut create_cmd = session::tmux_command();
-        if let Some(ref config_path) = session::get_config_path() {
-            let config = config_path.to_string_lossy();
-            create_cmd.args(["-f", config.as_ref()]);
-        }
         create_cmd.args([
             "new-session",
             "-d",
