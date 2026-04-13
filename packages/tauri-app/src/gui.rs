@@ -285,12 +285,17 @@ pub fn run() {
             }
         }))
         .setup(|app| {
+            // Log environment for debugging Finder vs CLI launch differences
+            tmuxy_core::debug_log::log("=== tmuxy starting ===");
+            tmuxy_core::debug_log::log_env();
+
             // Verify tmux is available — the monitor will create the session
             // itself via control mode (avoids race between sync creation and
             // async monitor connection where the session can die in between)
             let tmux_bin = session::tmux_path();
             let session_name =
                 std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string());
+            tmuxy_core::debug_log::log(&format!("tmux binary: {}", tmux_bin));
             eprintln!("[tmuxy] tmux binary: {}", tmux_bin);
             eprintln!("[tmuxy] session name: {}", session_name);
 

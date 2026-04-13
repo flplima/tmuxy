@@ -150,11 +150,15 @@ pub fn ensure_config() -> PathBuf {
 }
 
 pub fn session_exists(session_name: &str) -> Result<bool, String> {
+    crate::debug_log::log_cmd("has-session", tmux_path(), &["has-session", "-t", session_name]);
     let output = tmux_command()
         .args(["has-session", "-t", session_name])
         .output()
         .map_err(|e| format!("Failed to check session: {}", e))?;
 
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    crate::debug_log::log_cmd_result("has-session", output.status.code(), &stdout, &stderr);
     Ok(output.status.success())
 }
 
@@ -172,13 +176,18 @@ pub fn create_session(session_name: &str) -> Result<(), String> {
         args.insert(1, cs);
     }
 
+    let args_ref: Vec<&str> = args.iter().map(|s| &**s).collect();
+    crate::debug_log::log_cmd("create-session", tmux_path(), &args_ref);
     let output = tmux_command()
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to create session: {}", e))?;
 
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    crate::debug_log::log_cmd_result("create-session", output.status.code(), &stdout, &stderr);
+
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
             "tmux new-session failed (exit {}): {}",
             output.status.code().unwrap_or(-1),
