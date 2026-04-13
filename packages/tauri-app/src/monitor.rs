@@ -41,7 +41,7 @@ pub async fn start_monitoring(app: AppHandle) {
     let config = MonitorConfig {
         session,
         sync_interval: Duration::from_millis(500),
-        create_session: false,
+        create_session: true,
         // Adaptive throttling: emit immediately for low-frequency events (typing),
         // throttle at 16ms (~60fps) when high-frequency output detected
         throttle_interval: Duration::from_millis(16),
