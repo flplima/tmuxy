@@ -109,6 +109,7 @@ impl ControlModeConnection {
         // that wait indefinitely for a non-existent session. This prevents a race condition
         // in tmux 3.3a where multiple waiting control mode clients crash the server.
         let tmux_path = crate::session::tmux_path();
+        crate::debug_log::log(&format!("connect(): checking session '{}'", session_name));
         let check = crate::session::tmux_command()
             .args(["has-session", "-t", session_name])
             .output()
@@ -162,6 +163,7 @@ impl ControlModeConnection {
             }
             args.extend(["-CC".to_string(), "attach-session".to_string(), "-t".to_string(), session_name.to_string()]);
             shell_desc = format!("script {}", args.join(" "));
+            crate::debug_log::log(&format!("connect(): macOS command: {}", shell_desc));
             cmd.args(&args);
         } else {
             // GNU script: command via -c flag
@@ -170,6 +172,7 @@ impl ControlModeConnection {
                 INITIAL_PTY_COLS, INITIAL_PTY_ROWS, tmux_bin_str, session_name
             );
             shell_desc = format!("script -q /dev/null -c \"{}\"", tmux_cmd);
+            crate::debug_log::log(&format!("connect(): linux command: {}", shell_desc));
             cmd.args(["-q", "/dev/null", "-c", &tmux_cmd]);
         }
 
@@ -197,8 +200,11 @@ impl ControlModeConnection {
         // the control mode connection is alive. Without this gate, the caller
         // may start sending commands before tmux has initialized, or worse,
         // not notice that the script/tmux process exited immediately.
+        crate::debug_log::log("connect(): waiting for first control mode event (10s timeout)");
         match tokio::time::timeout(Duration::from_secs(10), ready_rx).await {
-            Ok(Ok(())) => {} // Parser received first event
+            Ok(Ok(())) => {
+                crate::debug_log::log("connect(): control mode connected successfully");
+            }
             Ok(Err(_)) => {
                 // ready_tx was dropped without sending — parser hit EOF immediately
                 // Capture stderr for diagnostics
