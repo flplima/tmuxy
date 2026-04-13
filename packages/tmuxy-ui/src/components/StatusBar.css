@@ -3,6 +3,7 @@
    ============================================ */
 
 .statusbar {
+  position: relative;
   display: flex;
   align-items: center;
   height: var(--statusbar-height);
@@ -13,8 +14,23 @@
   user-select: none;
 }
 
+/* macOS Tauri: transparent drag layer behind content for window movement.
+   Covers the full statusbar; clicks pass through to interactive elements
+   (tabs, buttons) via pointer-events on the content layer above. */
+.statusbar-drag-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+/* Ensure content sits above the drag layer */
+.statusbar-inner {
+  position: relative;
+  z-index: 1;
+}
+
 /* Spacer that reserves room for macOS traffic light buttons (close/min/max).
-   78px = ~14px left inset (matching native macOS apps) + 54px for the three buttons + padding */
+   78px = ~16px left inset + 54px for the three buttons + padding */
 .traffic-light-spacer {
   width: 78px;
   min-width: 78px;

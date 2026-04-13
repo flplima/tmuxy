@@ -5,7 +5,7 @@
  *
  * On macOS Tauri: hides the hamburger menu (native menu bar is used instead),
  * adds spacing for the traffic light window buttons, and makes the bar draggable
- * via Tauri's data-tauri-drag-region attribute.
+ * via a full-width drag layer behind the content.
  */
 
 import type { RenderTabline } from '../App';
@@ -22,23 +22,19 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
 
   const contentWidth = totalWidth > 0 ? totalWidth * charWidth : undefined;
 
-  // data-tauri-drag-region must be on each element that should be draggable
-  // (it does NOT propagate to children in Tauri)
-  const drag = isMacTauri ? { 'data-tauri-drag-region': '' } : {};
-
   const defaultContent = (
     <>
-      {isMacTauri ? <div className="traffic-light-spacer" {...drag} /> : <AppMenu />}
-      <WindowTabs dragRegion={isMacTauri} />
+      {isMacTauri ? <div className="traffic-light-spacer" /> : <AppMenu />}
+      <WindowTabs />
     </>
   );
 
   return (
-    <div className="statusbar" {...drag}>
+    <div className="statusbar">
+      {isMacTauri && <div className="statusbar-drag-layer" data-tauri-drag-region />}
       <div
         className="statusbar-inner"
         style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
-        {...drag}
       >
         {renderTabline ? renderTabline({ children: defaultContent }) : defaultContent}
       </div>
