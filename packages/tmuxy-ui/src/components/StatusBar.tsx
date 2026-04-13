@@ -22,22 +22,23 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
 
   const contentWidth = totalWidth > 0 ? totalWidth * charWidth : undefined;
 
+  // data-tauri-drag-region must be on each element that should be draggable
+  // (it does NOT propagate to children in Tauri)
+  const drag = isMacTauri ? { 'data-tauri-drag-region': '' } : {};
+
   const defaultContent = (
     <>
-      {isMacTauri ? <div className="traffic-light-spacer" /> : <AppMenu />}
+      {isMacTauri ? <div className="traffic-light-spacer" {...drag} /> : <AppMenu />}
       <WindowTabs />
     </>
   );
 
-  // Tauri uses data-tauri-drag-region (not CSS -webkit-app-region) for window dragging
-  const dragProps = isMacTauri ? { 'data-tauri-drag-region': true } : {};
-
   return (
-    <div className="statusbar" {...dragProps}>
+    <div className="statusbar" {...drag}>
       <div
         className="statusbar-inner"
         style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
-        {...dragProps}
+        {...drag}
       >
         {renderTabline ? renderTabline({ children: defaultContent }) : defaultContent}
       </div>

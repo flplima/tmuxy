@@ -201,6 +201,38 @@
   margin-bottom: 1rem;
 }
 
+.error-details {
+  margin-top: 1rem;
+  max-width: 600px;
+  width: 100%;
+}
+
+.error-details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-size-small);
+  user-select: none;
+}
+
+.error-details summary:hover {
+  color: var(--text-primary);
+}
+
+.error-log {
+  margin-top: 0.5rem;
+  padding: 1rem;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  color: var(--error-light);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+  user-select: text;
+}
+
 /* Pane States */
 .pane-active {
   z-index: var(--z-active);

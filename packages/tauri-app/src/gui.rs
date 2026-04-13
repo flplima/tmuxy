@@ -280,22 +280,46 @@ pub fn run() {
             // a broken UI that can't talk to tmux)
             let session_name =
                 std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string());
+            let tmux_bin = session::tmux_path();
+            eprintln!("[tmuxy] tmux binary: {}", tmux_bin);
+            eprintln!("[tmuxy] session name: {}", session_name);
+
             if let Err(e) = session::create_or_attach(&session_name) {
                 let msg = format!(
-                    "Failed to connect to tmux: {}\n\nMake sure tmux is installed.",
-                    e
+                    "Failed to initialize tmux session.\n\ntmux binary: {}\nSession: {}\nError: {}",
+                    tmux_bin, session_name, e
                 );
                 eprintln!("{}", msg);
-                // Show a native error dialog so the user knows what happened
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.eval(&format!(
-                        "document.body.innerHTML = '<pre style=\"padding:2em;color:#f88\">{}</pre>'",
-                        msg.replace('\'', "\\'").replace('\n', "\\n")
-                    ));
-                }
                 return Err(msg.into());
             }
-            println!("tmuxy session '{}' initialized", session_name);
+
+            // Verify the session actually exists after creation — tmux might create
+            // and immediately destroy it (e.g., shell exits, config error)
+            match session::session_exists(&session_name) {
+                Ok(true) => {
+                    eprintln!("[tmuxy] session '{}' verified", session_name);
+                }
+                Ok(false) => {
+                    let msg = format!(
+                        "tmux session '{}' was created but immediately died.\n\n\
+                        This usually means the default shell exited or the tmux config has errors.\n\n\
+                        tmux binary: {}\n\
+                        Try running: {} new-session -d -s test\n\
+                        to diagnose the issue.",
+                        session_name, tmux_bin, tmux_bin
+                    );
+                    eprintln!("{}", msg);
+                    return Err(msg.into());
+                }
+                Err(e) => {
+                    let msg = format!(
+                        "Failed to verify tmux session: {}\ntmux binary: {}",
+                        e, tmux_bin
+                    );
+                    eprintln!("{}", msg);
+                    return Err(msg.into());
+                }
+            }
 
             // Set up native menu bar (macOS) with event handler
             if cfg!(target_os = "macos") {
