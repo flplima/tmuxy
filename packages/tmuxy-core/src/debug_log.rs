@@ -11,7 +11,14 @@ use std::time::SystemTime;
 
 static LOG_MUTEX: Mutex<()> = Mutex::new(());
 
-const LOG_PATH: &str = "/tmp/tmuxy-debug.log";
+/// Log to ~/tmuxy-debug.log (not /tmp — macOS App Translocation may block /tmp access)
+fn log_path() -> String {
+    if let Some(home) = std::env::var_os("HOME") {
+        format!("{}/tmuxy-debug.log", home.to_string_lossy())
+    } else {
+        "/tmp/tmuxy-debug.log".to_string()
+    }
+}
 
 fn timestamp() -> String {
     let elapsed = SystemTime::now()
@@ -25,11 +32,13 @@ fn timestamp() -> String {
     format!("{:02}:{:02}:{:02}.{:03}", hours, mins, s, ms)
 }
 
-/// Write a line to the debug log.
+/// Write a line to the debug log and stderr.
 pub fn log(msg: &str) {
+    let line = format!("[tmuxy {}] {}", timestamp(), msg);
+    eprintln!("{}", line);
     let _lock = LOG_MUTEX.lock().ok();
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(LOG_PATH) {
-        let _ = writeln!(f, "[{}] {}", timestamp(), msg);
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path()) {
+        let _ = writeln!(f, "{}", line);
     }
 }
 
