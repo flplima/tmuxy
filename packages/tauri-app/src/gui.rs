@@ -139,16 +139,26 @@ fn build_app_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            // Initialize tmux session
+            // Initialize tmux session — abort if this fails (no point showing
+            // a broken UI that can't talk to tmux)
             let session_name =
                 std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string());
-            match session::create_or_attach(&session_name) {
-                Ok(_) => println!("tmuxy session '{}' initialized", session_name),
-                Err(e) => {
-                    eprintln!("Failed to create tmux session: {}", e);
-                    eprintln!("Make sure tmux is installed and available in PATH");
+            if let Err(e) = session::create_or_attach(&session_name) {
+                let msg = format!(
+                    "Failed to connect to tmux: {}\n\nMake sure tmux is installed.",
+                    e
+                );
+                eprintln!("{}", msg);
+                // Show a native error dialog so the user knows what happened
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.eval(&format!(
+                        "document.body.innerHTML = '<pre style=\"padding:2em;color:#f88\">{}</pre>'",
+                        msg.replace('\'', "\\'").replace('\n', "\\n")
+                    ));
                 }
+                return Err(msg.into());
             }
+            println!("tmuxy session '{}' initialized", session_name);
 
             // Set up native menu bar (macOS)
             if cfg!(target_os = "macos") {
