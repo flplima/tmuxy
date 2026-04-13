@@ -276,7 +276,16 @@ async function main() {
   console.warn(`Binary: ${BINARY_PATH}`);
   console.warn(`Platform: ${os.platform()} (${IS_MACOS ? 'macOS tmux-based' : 'Linux WebDriver'})`);
 
-  createTmuxSession();
+  // On macOS, do NOT pre-create the session — the app must create it itself
+  // with the restricted GUI PATH. This catches tmux discovery failures.
+  // On Linux, the session is pre-created because WebdriverIO/tauri-driver
+  // can't forward env vars, so the app uses the default "tmuxy" session.
+  if (!IS_MACOS) {
+    createTmuxSession();
+  } else {
+    // Make sure no leftover session exists
+    cleanupTmuxSession();
+  }
 
   try {
     if (IS_MACOS) {
