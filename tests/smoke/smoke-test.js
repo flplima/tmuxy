@@ -193,7 +193,24 @@ async function smokeTestMacOS() {
     }
 
     if (!ready) {
-      throw new Error(`App did not connect to tmux session within ${STARTUP_TIMEOUT}ms`);
+      // Gather diagnostics
+      let diag = '';
+      try {
+        diag += '\ntmux server alive: ';
+        execSync('tmux list-sessions 2>&1', { encoding: 'utf-8', timeout: 3000 });
+        diag += 'yes';
+      } catch (e) {
+        diag += `no (${e.stderr || e.message})`;
+      }
+      try {
+        diag += '\ntmux version: ' + execSync('tmux -V 2>&1', { encoding: 'utf-8', timeout: 3000 }).trim();
+      } catch {
+        diag += '\ntmux version: (failed)';
+      }
+      throw new Error(
+        `App did not create/connect to tmux session '${SESSION_NAME}' within ${STARTUP_TIMEOUT}ms` +
+          diag
+      );
     }
     console.warn('App connected to tmux session');
 
