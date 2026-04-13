@@ -137,25 +137,41 @@ impl ControlModeConnection {
             ));
         }
 
-        // Use `script` to provide a PTY for tmux -CC
-        // Without a PTY, tmux fails with "tcgetattr failed: Inappropriate ioctl for device"
-        // Set PTY size via stty before starting tmux to avoid tiny default dimensions
-        // when running in a background process (e.g., pm2) with no real terminal.
+        // Spawn tmux in control mode (-CC).
         //
-        // macOS BSD `script` and Linux GNU `script` have different syntax:
-        //   Linux: script -q /dev/null -c "command"
-        //   macOS: script -q /dev/null bash -c "command"
-        let tmux_bin = crate::session::tmux_bin();
-        let tmux_cmd = format!(
-            "stty cols {} rows {} 2>/dev/null; {} -CC attach-session -t {}",
-            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, tmux_bin, session_name
-        );
-        let mut cmd = Command::new("script");
+        // On Linux: wrap in `script` to provide a PTY (tmux -CC requires a
+        // controlling terminal; without it: "tcgetattr failed"). `stty` sets
+        // the PTY size so panes don't start tiny.
+        //
+        // On macOS: spawn tmux -CC directly. macOS Tauri apps already have a
+        // proper process context and the `script` wrapper hangs due to BSD
+        // script's different buffering behavior.
+        let tmux_bin_path = crate::session::tmux_path();
+        let tmux_bin_str = crate::session::tmux_bin();
+
+        let mut cmd;
+        let shell_desc: String;
+
         if cfg!(target_os = "macos") {
-            cmd.args(["-q", "/dev/null", "bash", "-c", &tmux_cmd]);
+            cmd = Command::new(tmux_bin_path);
+            // Socket flag must come before -CC
+            if let Ok(socket) = std::env::var("TMUX_SOCKET") {
+                if !socket.is_empty() {
+                    cmd.args(["-L", &socket]);
+                }
+            }
+            cmd.args(["-CC", "attach-session", "-t", session_name]);
+            shell_desc = format!("{} -CC attach-session -t {}", tmux_bin_str, session_name);
         } else {
+            let tmux_cmd = format!(
+                "stty cols {} rows {} 2>/dev/null; {} -CC attach-session -t {}",
+                INITIAL_PTY_COLS, INITIAL_PTY_ROWS, tmux_bin_str, session_name
+            );
+            cmd = Command::new("script");
             cmd.args(["-q", "/dev/null", "-c", &tmux_cmd]);
+            shell_desc = format!("script -q /dev/null -c \"{}\"", tmux_cmd);
         }
+
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -164,7 +180,10 @@ impl ControlModeConnection {
         }
         let mut child = cmd
             .spawn()
-            .map_err(|e| format!("Failed to start tmux control mode: {}", e))?;
+            .map_err(|e| format!(
+                "Failed to start tmux control mode: {}\n  command: {}",
+                e, shell_desc
+            ))?;
 
         let stdin = child.stdin.take().ok_or("Failed to get stdin handle")?;
         let stdout = child.stdout.take().ok_or("Failed to get stdout handle")?;
@@ -181,18 +200,41 @@ impl ControlModeConnection {
             Ok(Ok(())) => {} // Parser received first event
             Ok(Err(_)) => {
                 // ready_tx was dropped without sending — parser hit EOF immediately
+                // Capture stderr for diagnostics
+                let stderr = child.stderr.take();
                 let _ = child.kill().await;
+                let stderr_msg = if let Some(mut se) = stderr {
+                    let mut buf = Vec::new();
+                    let _ = tokio::io::AsyncReadExt::read_to_end(&mut se, &mut buf).await;
+                    String::from_utf8_lossy(&buf).trim().to_string()
+                } else {
+                    String::new()
+                };
                 return Err(format!(
-                    "Control mode connection died immediately for session '{}'",
-                    session_name
+                    "Control mode connection died immediately for session '{}'\n\
+                      command: {}\n\
+                      stderr: {}",
+                    session_name, shell_desc,
+                    if stderr_msg.is_empty() { "(empty)" } else { &stderr_msg },
                 ));
             }
             Err(_) => {
                 // Timeout waiting for first event
+                let stderr = child.stderr.take();
                 let _ = child.kill().await;
+                let stderr_msg = if let Some(mut se) = stderr {
+                    let mut buf = Vec::new();
+                    let _ = tokio::io::AsyncReadExt::read_to_end(&mut se, &mut buf).await;
+                    String::from_utf8_lossy(&buf).trim().to_string()
+                } else {
+                    String::new()
+                };
                 return Err(format!(
-                    "Control mode connection timed out waiting for first event for session '{}'",
-                    session_name
+                    "Control mode timed out (10s) for session '{}'\n\
+                      command: {}\n\
+                      stderr: {}",
+                    session_name, shell_desc,
+                    if stderr_msg.is_empty() { "(empty)" } else { &stderr_msg },
                 ));
             }
         }
