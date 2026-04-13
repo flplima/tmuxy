@@ -1,4 +1,5 @@
 use tauri::Manager;
+use tauri::menu::{MenuBuilder, SubmenuBuilder};
 use tmuxy_core::{executor, session};
 
 use crate::commands;
@@ -92,6 +93,48 @@ fn apply_window_effects(window: &tauri::WebviewWindow) {
     }
 }
 
+/// Build the native macOS application menu bar.
+///
+/// This replaces the web-based hamburger menu when running as a desktop app,
+/// giving users the standard macOS menu experience (Cmd+Q to quit, etc.).
+fn build_app_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
+    let app_menu = SubmenuBuilder::new(app, "tmuxy")
+        .about(None)
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+
+    let file_menu = SubmenuBuilder::new(app, "File")
+        .close_window()
+        .build()?;
+
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .close_window()
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&file_menu)
+        .item(&edit_menu)
+        .item(&window_menu)
+        .build()?;
+
+    Ok(menu)
+}
+
 /// Start the Tauri GUI application.
 pub fn run() {
     tauri::Builder::default()
@@ -107,9 +150,27 @@ pub fn run() {
                 }
             }
 
+            // Set up native menu bar (macOS)
+            if cfg!(target_os = "macos") {
+                match build_app_menu(app) {
+                    Ok(menu) => { let _ = app.set_menu(menu); },
+                    Err(e) => eprintln!("Failed to build app menu: {}", e),
+                }
+            }
+
             // Apply window effects from tmuxy config
             if let Some(window) = app.get_webview_window("main") {
                 apply_window_effects(&window);
+
+                // Tell the frontend which platform we're on so it can adjust layout
+                // (e.g., hide hamburger menu on macOS, add traffic light spacing)
+                let platform = if cfg!(target_os = "macos") { "macos" }
+                    else if cfg!(target_os = "windows") { "windows" }
+                    else { "linux" };
+                let _ = window.eval(&format!(
+                    "document.documentElement.setAttribute('data-platform', '{}')",
+                    platform
+                ));
             }
 
             // Start control mode monitoring in background

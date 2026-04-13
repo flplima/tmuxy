@@ -2,13 +2,19 @@
  * StatusBar - Top bar with hamburger menu and window tabs
  *
  * Content is centered to match pane/status-bar width (totalWidth * charWidth).
+ *
+ * On macOS Tauri: hides the hamburger menu (native menu bar is used instead),
+ * adds spacing for the traffic light window buttons, and makes the bar draggable.
  */
 
 import type { RenderTabline } from '../App';
 import { useAppSelector, selectGridDimensions } from '../machines/AppContext';
+import { isTauri } from '../tmux/adapters';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
 import './StatusBar.css';
+
+const isMacTauri = isTauri() && typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
 
 export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) {
   const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
@@ -17,13 +23,13 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
 
   const defaultContent = (
     <>
-      <AppMenu />
+      {isMacTauri ? <div className="traffic-light-spacer" /> : <AppMenu />}
       <WindowTabs />
     </>
   );
 
   return (
-    <div className="statusbar">
+    <div className={`statusbar${isMacTauri ? ' statusbar-draggable' : ''}`}>
       <div
         className="statusbar-inner"
         style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
