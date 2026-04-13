@@ -274,7 +274,18 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
 
 /// Start the Tauri GUI application.
 pub fn run() {
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    // WebDriver plugin: enables GUI testing via W3C WebDriver on all platforms
+    // including macOS (where the official tauri-driver doesn't support WKWebView).
+    // Only included when built with --features webdriver.
+    #[cfg(feature = "webdriver")]
+    {
+        builder = builder.plugin(tauri_plugin_webdriver::init());
+    }
+
+    builder
         // Single instance: when user clicks the app icon while already running,
         // bring the existing window to front instead of launching a broken second instance.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

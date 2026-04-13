@@ -21,6 +21,10 @@ tokio.workspace = true
 tmuxy-core = { path = "../tmuxy-core" }
 tmuxy-server = { path = "../tmuxy-server" }
 tauri-plugin-single-instance = "2"
+tauri-plugin-webdriver = { version = "0.2", optional = true }
+
+[features]
+webdriver = ["tauri-plugin-webdriver"]
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["process"] }
