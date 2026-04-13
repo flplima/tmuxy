@@ -137,39 +137,40 @@ impl ControlModeConnection {
             ));
         }
 
-        // Spawn tmux in control mode (-CC).
+        // Spawn tmux in control mode (-CC) wrapped in `script` for a PTY.
+        // tmux -CC requires a controlling terminal; piped stdin causes
+        // "tcgetattr failed" or silent failure without a PTY.
         //
-        // On Linux: wrap in `script` to provide a PTY (tmux -CC requires a
-        // controlling terminal; without it: "tcgetattr failed"). `stty` sets
-        // the PTY size so panes don't start tiny.
-        //
-        // On macOS: spawn tmux -CC directly. macOS Tauri apps already have a
-        // proper process context and the `script` wrapper hangs due to BSD
-        // script's different buffering behavior.
+        // BSD (macOS) and GNU (Linux) `script` have different syntax:
+        //   macOS:  script -q /dev/null command arg1 arg2 ...
+        //   Linux:  script -q /dev/null -c "command arg1 arg2 ..."
         let tmux_bin_path = crate::session::tmux_path();
         let tmux_bin_str = crate::session::tmux_bin();
 
-        let mut cmd;
+        let mut cmd = Command::new("script");
         let shell_desc: String;
 
         if cfg!(target_os = "macos") {
-            cmd = Command::new(tmux_bin_path);
-            // Socket flag must come before -CC
+            // BSD script: command as trailing positional args (no -c flag)
+            let mut args = vec!["-q".to_string(), "/dev/null".to_string()];
+            args.push(tmux_bin_path.to_string());
             if let Ok(socket) = std::env::var("TMUX_SOCKET") {
                 if !socket.is_empty() {
-                    cmd.args(["-L", &socket]);
+                    args.push("-L".to_string());
+                    args.push(socket);
                 }
             }
-            cmd.args(["-CC", "attach-session", "-t", session_name]);
-            shell_desc = format!("{} -CC attach-session -t {}", tmux_bin_str, session_name);
+            args.extend(["-CC".to_string(), "attach-session".to_string(), "-t".to_string(), session_name.to_string()]);
+            shell_desc = format!("script {}", args.join(" "));
+            cmd.args(&args);
         } else {
+            // GNU script: command via -c flag
             let tmux_cmd = format!(
                 "stty cols {} rows {} 2>/dev/null; {} -CC attach-session -t {}",
                 INITIAL_PTY_COLS, INITIAL_PTY_ROWS, tmux_bin_str, session_name
             );
-            cmd = Command::new("script");
-            cmd.args(["-q", "/dev/null", "-c", &tmux_cmd]);
             shell_desc = format!("script -q /dev/null -c \"{}\"", tmux_cmd);
+            cmd.args(["-q", "/dev/null", "-c", &tmux_cmd]);
         }
 
         cmd.stdin(Stdio::piped())
