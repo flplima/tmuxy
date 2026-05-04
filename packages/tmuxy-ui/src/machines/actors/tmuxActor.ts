@@ -28,8 +28,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
   return fromCallback<TmuxActorEvent, TmuxActorInput>(({ input, receive }) => {
     const { parent } = input;
 
-    const logInfo = (message: string) =>
-      parent.send({ type: 'LOG_APPEND', kind: 'info', message });
+    const logInfo = (message: string) => parent.send({ type: 'LOG_APPEND', kind: 'info', message });
     const logCommand = (message: string) =>
       parent.send({ type: 'LOG_APPEND', kind: 'command', message });
     const logError = (message: string) =>

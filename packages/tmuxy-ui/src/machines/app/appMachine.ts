@@ -323,9 +323,7 @@ export const appMachine = setup({
         };
         // Cap log size so it never grows unbounded
         const next =
-          context.log.length >= 500
-            ? [...context.log.slice(-499), entry]
-            : [...context.log, entry];
+          context.log.length >= 500 ? [...context.log.slice(-499), entry] : [...context.log, entry];
         return { log: next };
       }),
     },
