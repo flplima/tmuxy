@@ -50,6 +50,11 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       parent.send({ type: 'LOG_APPEND', kind, message });
     });
 
+    const unsubscribeFatal = adapter.onFatal((message) => {
+      logError(message);
+      parent.send({ type: 'TMUX_FATAL', message });
+    });
+
     const unsubscribeKeyBindings = adapter.onKeyBindings((keybindings: KeyBindings) => {
       parent.send({ type: 'KEYBINDINGS_RECEIVED', keybindings });
     });
@@ -187,6 +192,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       unsubscribeState();
       unsubscribeError();
       unsubscribeLog();
+      unsubscribeFatal();
       unsubscribeKeyBindings();
       unsubscribeConnectionInfo();
       adapter.disconnect();

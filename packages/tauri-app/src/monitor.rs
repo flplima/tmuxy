@@ -59,29 +59,60 @@ pub async fn start_monitoring(app: AppHandle) {
         working_dir: None,
     };
 
-    // Keep trying to connect with exponential backoff
+    // Reconnect with exponential backoff, bounded by MAX_CONSECUTIVE_FAILURES.
+    //
+    // A "consecutive failure" is a connect attempt that never produced a working
+    // monitor.run(). Successful connections reset the counter, so a long-lived
+    // session that drops once and reconnects is unaffected. After the bound is
+    // hit, we emit a fatal error and stop — surfacing "tmux is broken" to the UI
+    // instead of hammering it with a doomed retry loop.
     let mut backoff = Duration::from_millis(100);
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
+    const MAX_CONSECUTIVE_FAILURES: u32 = 5;
+
+    let mut consecutive_failures: u32 = 0;
 
     loop {
         match TmuxMonitor::connect(config.clone(), Some(&emitter)).await {
             Ok((mut monitor, _cmd_tx)) => {
-                backoff = Duration::from_millis(100); // Reset on success
+                backoff = Duration::from_millis(100);
+                consecutive_failures = 0;
 
-                // Emit keybindings on each successful connection
                 emit_keybindings(&app);
-
                 monitor.run(&emitter).await;
-                // If we get here, the connection was closed - continue to reconnect
+                // run() returned — the connection died; loop and reconnect.
             }
             Err(e) => {
-                emitter.emit_error(format!("Failed to connect to control mode: {}", e));
+                consecutive_failures += 1;
+                emitter.emit_error(format!(
+                    "Failed to connect to control mode (attempt {} of {}): {}",
+                    consecutive_failures, MAX_CONSECUTIVE_FAILURES, e
+                ));
+
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                    let final_msg = format!(
+                        "Unable to connect to tmux after {} attempts; giving up. Last error: {}",
+                        MAX_CONSECUTIVE_FAILURES, e
+                    );
+                    emit_fatal(&app, &final_msg);
+                    eprintln!("[monitor] FATAL: {}", final_msg);
+                    return;
+                }
             }
         }
 
-        // Exponential backoff before retry
         tokio::time::sleep(backoff).await;
         backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
+    }
+}
+
+/// Emit a terminal failure event to the frontend.
+/// The UI should treat this as a non-recoverable state — the monitor loop has
+/// stopped and no further state updates will arrive.
+fn emit_fatal(app: &AppHandle, message: &str) {
+    let payload = serde_json::json!({ "message": message });
+    if let Err(e) = app.emit("tmux-fatal", &payload) {
+        eprintln!("Failed to emit fatal: {}", e);
     }
 }
 

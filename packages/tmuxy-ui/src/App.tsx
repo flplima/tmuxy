@@ -19,6 +19,7 @@ import {
   useAppConfig,
   selectPreviewPanes,
   selectError,
+  selectFatalError,
   selectLog,
   selectContainerSize,
 } from './machines/AppContext';
@@ -43,11 +44,12 @@ function formatLog(log: LogEntry[]): string {
 
 interface StatusScreenProps {
   error: string | null;
+  fatalError: string | null;
   isConnecting: boolean;
   log: LogEntry[];
 }
 
-function StatusScreen({ error, isConnecting, log }: StatusScreenProps) {
+function StatusScreen({ error, fatalError, isConnecting, log }: StatusScreenProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const text = formatLog(log);
 
@@ -60,21 +62,31 @@ function StatusScreen({ error, isConnecting, log }: StatusScreenProps) {
     }
   }, [text]);
 
-  const heading = error
-    ? 'Connection Error'
-    : isConnecting
-      ? 'Connecting to tmux...'
-      : 'Waiting for tmux state...';
-  const testId = error ? 'error-display' : 'loading-display';
+  const isFatal = fatalError != null;
+  const displayMessage = fatalError ?? error;
+  const heading = isFatal
+    ? 'Cannot connect to tmux'
+    : displayMessage
+      ? 'Connection Error'
+      : isConnecting
+        ? 'Connecting to tmux...'
+        : 'Waiting for tmux state...';
+  const testId = isFatal ? 'fatal-display' : displayMessage ? 'error-display' : 'loading-display';
+  const className = isFatal ? 'error fatal' : displayMessage ? 'error' : 'loading';
 
   return (
-    <div className={error ? 'error' : 'loading'} data-testid={testId}>
+    <div className={className} data-testid={testId}>
       <h2>{heading}</h2>
-      {error && (
+      {displayMessage && (
         <p className="status-message">
-          {error.length > 0
-            ? error
+          {displayMessage.length > 0
+            ? displayMessage
             : 'Failed to connect to tmux. Make sure tmux is installed and running.'}
+        </p>
+      )}
+      {isFatal && (
+        <p className="status-hint">
+          The backend has stopped retrying. Restart the app to try again.
         </p>
       )}
       <div className="status-details">
@@ -99,6 +111,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // Select minimal state needed at App level
   const panes = useAppSelector(selectPreviewPanes);
   const error = useAppSelector(selectError);
+  const fatalError = useAppSelector(selectFatalError);
   const log = useAppSelector(selectLog);
   const containerSize = useAppSelector(selectContainerSize);
   const isConnecting = useAppState('connecting');
@@ -155,7 +168,12 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       <StatusBar renderTabline={renderTabline} />
       <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
         {!showLayout ? (
-          <StatusScreen error={error} isConnecting={isConnecting} log={log} />
+          <StatusScreen
+            error={error}
+            fatalError={fatalError}
+            isConnecting={isConnecting}
+            log={log}
+          />
         ) : (
           <>
             <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>

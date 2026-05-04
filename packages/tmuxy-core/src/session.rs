@@ -48,7 +48,7 @@ fn find_tmux() -> String {
 
 /// Get the resolved tmux binary path (cached).
 pub fn tmux_path() -> &'static str {
-    TMUX_PATH.get_or_init(|| find_tmux())
+    TMUX_PATH.get_or_init(find_tmux)
 }
 
 /// Create a `Command` for tmux that respects the `TMUX_SOCKET` environment variable.

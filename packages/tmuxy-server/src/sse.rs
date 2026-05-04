@@ -115,6 +115,8 @@ enum SseEvent {
     KeyBindings(KeyBindings),
     #[serde(rename = "log")]
     Log { kind: LogKind, message: String },
+    #[serde(rename = "fatal")]
+    Fatal { message: String },
 }
 
 // ============================================
@@ -285,6 +287,7 @@ pub async fn sse_handler(
                                     SseEvent::ConnectionInfo { .. } => "connection-info",
                                     SseEvent::KeyBindings(_) => "keybindings",
                                     SseEvent::Log { .. } => "log",
+                                    SseEvent::Fatal { .. } => "fatal",
                                 };
 
                                 // For state updates, use delta seq as event ID
@@ -1111,11 +1114,15 @@ async fn start_monitoring_control_mode(
 
     let mut backoff = Duration::from_millis(100);
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
+    const MAX_CONSECUTIVE_FAILURES: u32 = 5;
     let mut is_first_connect = true;
     // Track whether monitor.run() ever processed events successfully.
     // If the connection dies before processing any events, we should retry
     // with create_session=true since the session may need to be recreated.
     let mut ever_ran_successfully = false;
+    // Bound consecutive connect failures so we don't hammer a broken tmux
+    // forever. Reset on successful long-running monitor.run().
+    let mut consecutive_failures: u32 = 0;
 
     loop {
         // Stop reconnecting if session was cleaned up (no more clients)
@@ -1283,6 +1290,7 @@ async fn start_monitoring_control_mode(
                 // Short-lived runs indicate startup crashes that should retry with create_session.
                 if run_start.elapsed() > Duration::from_secs(2) {
                     ever_ran_successfully = true;
+                    consecutive_failures = 0;
                 }
 
                 {
@@ -1293,7 +1301,26 @@ async fn start_monitoring_control_mode(
                 }
             }
             Err(e) => {
-                emitter.emit_error(format!("Failed to connect to control mode: {}", e));
+                consecutive_failures += 1;
+                emitter.emit_error(format!(
+                    "Failed to connect to control mode (attempt {} of {}): {}",
+                    consecutive_failures, MAX_CONSECUTIVE_FAILURES, e
+                ));
+
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                    let final_msg = format!(
+                        "Unable to connect to tmux after {} attempts; giving up. Last error: {}",
+                        MAX_CONSECUTIVE_FAILURES, e
+                    );
+                    let event = SseEvent::Fatal {
+                        message: final_msg.clone(),
+                    };
+                    let _ = tx.send(serde_json::to_string(&event).unwrap());
+                    eprintln!("[monitor] FATAL for session '{}': {}", session, final_msg);
+                    let mut sessions = state.sessions.write().await;
+                    sessions.remove(&session);
+                    return;
+                }
             }
         }
 

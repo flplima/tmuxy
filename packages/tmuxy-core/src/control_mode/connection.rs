@@ -194,38 +194,41 @@ impl ControlModeConnection {
         // tmux -CC requires a controlling terminal; piped stdin causes
         // "tcgetattr failed" or silent failure without a PTY.
         //
-        // BSD (macOS) and GNU (Linux) `script` have different syntax:
-        //   macOS:  script -q /dev/null command arg1 arg2 ...
-        //   Linux:  script -q /dev/null -c "command arg1 arg2 ..."
-        let tmux_bin_path = crate::session::tmux_path();
+        // Both branches wrap with /bin/sh -c "stty …; exec tmux …" so the
+        // freshly-allocated PTY has explicit dimensions before tmux sees it.
+        // Without this, when the parent process has no controlling TTY (macOS
+        // .app launched from Finder/Applications, Linux daemons), the PTY
+        // inherits a 0x0 size and tmux 3.5a crashes the moment a command
+        // requires layout computation, severing the control-mode pipe.
+        //
+        // BSD (macOS) and GNU (Linux) `script` differ in how the command is
+        // passed:
+        //   macOS:  script -q /dev/null /bin/sh -c "stty …; exec tmux …"
+        //   Linux:  script -q /dev/null -c "stty …; exec tmux …"
         let tmux_bin_str = crate::session::tmux_bin();
+
+        let socket_arg = std::env::var("TMUX_SOCKET")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|s| format!(" -L {}", s))
+            .unwrap_or_default();
+
+        let inner_cmd = format!(
+            "stty cols {} rows {} 2>/dev/null; exec {}{} -CC attach-session -t {}",
+            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, tmux_bin_str, socket_arg, session_name
+        );
 
         let mut cmd = Command::new("script");
         let shell_desc: String;
 
         if cfg!(target_os = "macos") {
-            // BSD script: command as trailing positional args (no -c flag)
-            let mut args = vec!["-q".to_string(), "/dev/null".to_string()];
-            args.push(tmux_bin_path.to_string());
-            if let Ok(socket) = std::env::var("TMUX_SOCKET") {
-                if !socket.is_empty() {
-                    args.push("-L".to_string());
-                    args.push(socket);
-                }
-            }
-            args.extend(["-CC".to_string(), "attach-session".to_string(), "-t".to_string(), session_name.to_string()]);
-            shell_desc = format!("script {}", args.join(" "));
+            shell_desc = format!("script -q /dev/null /bin/sh -c \"{}\"", inner_cmd);
             crate::debug_log::log(&format!("connect(): macOS command: {}", shell_desc));
-            cmd.args(&args);
+            cmd.args(["-q", "/dev/null", "/bin/sh", "-c", &inner_cmd]);
         } else {
-            // GNU script: command via -c flag
-            let tmux_cmd = format!(
-                "stty cols {} rows {} 2>/dev/null; {} -CC attach-session -t {}",
-                INITIAL_PTY_COLS, INITIAL_PTY_ROWS, tmux_bin_str, session_name
-            );
-            shell_desc = format!("script -q /dev/null -c \"{}\"", tmux_cmd);
+            shell_desc = format!("script -q /dev/null -c \"{}\"", inner_cmd);
             crate::debug_log::log(&format!("connect(): linux command: {}", shell_desc));
-            cmd.args(["-q", "/dev/null", "-c", &tmux_cmd]);
+            cmd.args(["-q", "/dev/null", "-c", &inner_cmd]);
         }
 
         cmd.stdin(Stdio::piped())

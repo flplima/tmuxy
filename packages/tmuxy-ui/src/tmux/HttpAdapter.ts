@@ -7,6 +7,7 @@ import {
   KeyBindingsListener,
   LogListener,
   LogEntryKind,
+  FatalListener,
   ServerState,
   StateUpdate,
   KeyBindings,
@@ -54,6 +55,8 @@ export class HttpAdapter implements TmuxAdapter {
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
   private logListeners = new Set<LogListener>();
+  private fatalListeners = new Set<FatalListener>();
+  private fatal = false;
 
   // Delta protocol state
   private currentState: ServerState | null = null;
@@ -69,6 +72,8 @@ export class HttpAdapter implements TmuxAdapter {
 
   connect(): Promise<void> {
     if (this.connected && this.eventSource) return Promise.resolve();
+    if (this.fatal)
+      return Promise.reject(new Error('tmux backend is in fatal state; refresh required'));
 
     this.intentionalDisconnect = false;
 
@@ -145,6 +150,27 @@ export class HttpAdapter implements TmuxAdapter {
           this.notifyLog(kind, message);
         } catch (e) {
           console.error('Failed to parse log event:', e);
+        }
+      });
+
+      // Backend gave up reconnecting — terminal state, no more events. Suppress
+      // EventSource auto-reconnect so the UI surfaces the error instead of a
+      // silent retry storm.
+      this.eventSource.addEventListener('fatal', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const message = String((data.data?.message ?? data.message) || 'tmux unavailable');
+          this.fatal = true;
+          this.intentionalDisconnect = true;
+          this.connected = false;
+          this.reconnecting = false;
+          if (this.eventSource) {
+            this.eventSource.close();
+            this.eventSource = null;
+          }
+          this.notifyFatal(message);
+        } catch (e) {
+          console.error('Failed to parse fatal event:', e);
         }
       });
 
@@ -326,6 +352,11 @@ export class HttpAdapter implements TmuxAdapter {
     return () => this.logListeners.delete(listener);
   }
 
+  onFatal(listener: FatalListener): () => void {
+    this.fatalListeners.add(listener);
+    return () => this.fatalListeners.delete(listener);
+  }
+
   async switchSession(newSession: string): Promise<void> {
     sessionOverride = newSession;
     this.currentState = null;
@@ -407,5 +438,9 @@ export class HttpAdapter implements TmuxAdapter {
 
   private notifyLog(kind: LogEntryKind, message: string): void {
     this.logListeners.forEach((listener) => listener(kind, message));
+  }
+
+  private notifyFatal(message: string): void {
+    this.fatalListeners.forEach((listener) => listener(message));
   }
 }

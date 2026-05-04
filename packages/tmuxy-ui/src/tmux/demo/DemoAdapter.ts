@@ -6,6 +6,7 @@ import type {
   ReconnectionListener,
   KeyBindingsListener,
   LogListener,
+  FatalListener,
   KeyBindings,
 } from '../types';
 import { DemoTmux } from './DemoTmux';
@@ -286,6 +287,10 @@ export class DemoAdapter implements TmuxAdapter {
   }
 
   onLog(_listener: LogListener): () => void {
+    return () => {};
+  }
+
+  onFatal(_listener: FatalListener): () => void {
     return () => {};
   }
 
