@@ -284,6 +284,9 @@ export type LogEntryKind = 'command' | 'output' | 'info' | 'error';
 
 export type LogListener = (kind: LogEntryKind, message: string) => void;
 
+/** Terminal failure: backend has exhausted retries and stopped. */
+export type FatalListener = (message: string) => void;
+
 export interface TmuxAdapter {
   connect(): Promise<void>;
   disconnect(): void;
@@ -297,6 +300,8 @@ export interface TmuxAdapter {
   onKeyBindings(listener: KeyBindingsListener): () => void;
   /** Streaming connection-time log (each tmux command + its output). */
   onLog(listener: LogListener): () => void;
+  /** Terminal failure — backend gave up reconnecting. No further events expected. */
+  onFatal(listener: FatalListener): () => void;
   switchSession?(sessionName: string): Promise<void>;
 }
 

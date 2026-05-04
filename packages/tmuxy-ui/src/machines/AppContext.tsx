@@ -64,6 +64,7 @@ export {
   selectActiveWindowId,
   selectIsConnected,
   selectError,
+  selectFatalError,
   selectLog,
   selectGridDimensions,
   selectCharSize,

@@ -110,6 +110,12 @@ export interface PendingUpdate {
 export interface AppMachineContext {
   connected: boolean;
   error: string | null;
+  /**
+   * Set when the backend gave up reconnecting (e.g. tmux server unavailable
+   * after MAX_CONSECUTIVE_FAILURES attempts). Terminal: no further events
+   * will arrive on this monitor.
+   */
+  fatalError: string | null;
   /** Recent commands sent and errors received (debug log shown on status screen) */
   log: LogEntry[];
   sessionName: string;
@@ -289,6 +295,7 @@ export type ChildMachineEvent = DragParentEvent | ResizeParentEvent;
 export type TmuxConnectedEvent = { type: 'TMUX_CONNECTED' };
 export type TmuxStateUpdateEvent = { type: 'TMUX_STATE_UPDATE'; state: ServerState };
 export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
+export type TmuxFatalEvent = { type: 'TMUX_FATAL'; message: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
 export type ConnectionInfoEvent = {
   type: 'CONNECTION_INFO';
@@ -474,6 +481,7 @@ export type AppMachineEvent =
   | TmuxConnectedEvent
   | TmuxStateUpdateEvent
   | TmuxErrorEvent
+  | TmuxFatalEvent
   | TmuxDisconnectedEvent
   | ConnectionInfoEvent
   | KeybindingsReceivedEvent

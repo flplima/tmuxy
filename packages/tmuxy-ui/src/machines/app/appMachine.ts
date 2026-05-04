@@ -225,6 +225,7 @@ export const appMachine = setup({
   context: {
     connected: false,
     error: null,
+    fatalError: null,
     log: [],
     sessionName: DEFAULT_SESSION_NAME,
     activeWindowId: null,
@@ -326,6 +327,14 @@ export const appMachine = setup({
           context.log.length >= 500 ? [...context.log.slice(-499), entry] : [...context.log, entry];
         return { log: next };
       }),
+    },
+    // Backend gave up reconnecting. The status screen reads `fatalError` to
+    // show a non-recoverable banner instead of the "connecting…" spinner.
+    TMUX_FATAL: {
+      actions: assign(({ event }) => ({
+        fatalError: event.message,
+        connected: false,
+      })),
     },
     // Size events (handled globally, in any state)
     SET_CHAR_SIZE: {

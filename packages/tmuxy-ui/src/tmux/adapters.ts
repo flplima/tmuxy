@@ -7,6 +7,7 @@ import {
   KeyBindingsListener,
   LogListener,
   LogEntryKind,
+  FatalListener,
   ServerState,
   StateUpdate,
   KeyBindings,
@@ -32,6 +33,7 @@ export class TauriAdapter implements TmuxAdapter {
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
   private logListeners = new Set<LogListener>();
+  private fatalListeners = new Set<FatalListener>();
 
   // Delta protocol state
   private currentState: ServerState | null = null;
@@ -86,6 +88,14 @@ export class TauriAdapter implements TmuxAdapter {
         },
       );
       this.unlistenFns.push(unlistenLog);
+
+      // Backend gave up reconnecting — terminal state, no further events.
+      const unlistenFatal = await listen<{ message: string }>('tmux-fatal', (event) => {
+        this.connected = false;
+        this.reconnectingState = false;
+        this.notifyFatal(event.payload.message);
+      });
+      this.unlistenFns.push(unlistenFatal);
 
       // Listen for errors (emitted by monitor.rs on connection failure)
       const unlistenError = await listen<string>('tmux-error', (event) => {
@@ -196,12 +206,21 @@ export class TauriAdapter implements TmuxAdapter {
     return () => this.logListeners.delete(listener);
   }
 
+  onFatal(listener: FatalListener): () => void {
+    this.fatalListeners.add(listener);
+    return () => this.fatalListeners.delete(listener);
+  }
+
   private notifyStateChange(state: ServerState) {
     this.stateListeners.forEach((listener) => listener(state));
   }
 
   private notifyLog(kind: LogEntryKind, message: string) {
     this.logListeners.forEach((listener) => listener(kind, message));
+  }
+
+  private notifyFatal(message: string) {
+    this.fatalListeners.forEach((listener) => listener(message));
   }
 
   private notifyError(error: string) {

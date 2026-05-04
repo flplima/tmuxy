@@ -244,6 +244,10 @@ export function selectError(context: AppMachineContext): string | null {
   return context.error;
 }
 
+export function selectFatalError(context: AppMachineContext): string | null {
+  return context.fatalError;
+}
+
 export function selectLog(context: AppMachineContext): LogEntry[] {
   return context.log;
 }

@@ -351,7 +351,7 @@ pub fn run() {
                 let platform = if cfg!(target_os = "macos") { "macos" }
                     else if cfg!(target_os = "windows") { "windows" }
                     else { "linux" };
-                let _ = window.eval(&format!(
+                let _ = window.eval(format!(
                     "document.documentElement.setAttribute('data-platform', '{}')",
                     platform
                 ));
