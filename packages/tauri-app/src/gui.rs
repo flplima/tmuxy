@@ -688,6 +688,36 @@ pub fn run() {
             tmuxy_core::debug_log::log("=== tmuxy starting ===");
             tmuxy_core::debug_log::log_env();
 
+            // Patch the parent process PATH so any subprocess we spawn — including
+            // executor::* paths that go through `sh -c "tmux ..."` — can resolve
+            // tmux and the user's shell helpers. macOS launchd-spawned apps get
+            // PATH=/usr/bin:/bin:/usr/sbin:/sbin (no Homebrew), which makes bare
+            // `tmux` fail with "command not found" silently from inside the app.
+            // Mirrors the per-child PATH augmentation in tmuxy_core::control_mode::connection.
+            #[cfg(target_os = "macos")]
+            {
+                let extras = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
+                let current = std::env::var("PATH").unwrap_or_default();
+                let missing: Vec<&str> = extras
+                    .iter()
+                    .copied()
+                    .filter(|p| !current.split(':').any(|seg| seg == *p))
+                    .collect();
+                if !missing.is_empty() {
+                    let prefixed = if current.is_empty() {
+                        missing.join(":")
+                    } else {
+                        format!("{}:{}", missing.join(":"), current)
+                    };
+                    // SAFETY: we're in setup before any threads/subprocesses are spawned.
+                    std::env::set_var("PATH", &prefixed);
+                    tmuxy_core::debug_log::log(&format!(
+                        "patched parent PATH for macOS Homebrew: prepended {}",
+                        missing.join(":")
+                    ));
+                }
+            }
+
             // Create the main window programmatically so we can flip
             // transparent + Overlay titlebar based on TMUXY_OPAQUE_WINDOW.
             // tauri.conf.json's `windows: []` prevents auto-creation.
