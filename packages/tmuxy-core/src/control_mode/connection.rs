@@ -320,9 +320,15 @@ impl ControlModeConnection {
         log_to(log, LogKind::Command, shell_desc.clone());
 
         // Force a usable env for tmux. macOS Finder/Applications launches go
-        // through launchd with a sparse environment (no TERM, no LANG); tmux
-        // is sensitive to both. Set sensible defaults regardless of how the
-        // parent app was started.
+        // through launchd with a sparse environment (no TERM, no LANG, and a
+        // PATH that excludes Homebrew); tmux itself tolerates the first two,
+        // but its *child shell* inherits whatever we hand tmux. Many macOS
+        // users have `set -g default-command "reattach-to-user-namespace -l
+        // $SHELL"` in their tmux.conf — that binary lives under /opt/homebrew
+        // or /usr/local, so a sparse launchd PATH makes the shell fail with
+        // "command not found", the window dies, tmux emits %exit, and we
+        // reconnect in a tight loop. Same hazard for any user .zshrc/.bashrc
+        // line that calls a Homebrew binary at startup.
         let mut cmd = pty_process::Command::new(tmux_bin_str);
         cmd = cmd.args(&tmux_args);
         if std::env::var_os("TERM").is_none() {
@@ -330,6 +336,24 @@ impl ControlModeConnection {
         }
         if std::env::var_os("LANG").is_none() && std::env::var_os("LC_ALL").is_none() {
             cmd = cmd.env("LANG", "en_US.UTF-8");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let extras = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
+            let current = std::env::var("PATH").unwrap_or_default();
+            let missing: Vec<&str> = extras
+                .iter()
+                .copied()
+                .filter(|p| !current.split(':').any(|seg| seg == *p))
+                .collect();
+            if !missing.is_empty() {
+                let prefixed = if current.is_empty() {
+                    missing.join(":")
+                } else {
+                    format!("{}:{}", missing.join(":"), current)
+                };
+                cmd = cmd.env("PATH", prefixed);
+            }
         }
         if let Some(dir) = working_dir {
             cmd = cmd.current_dir(dir);
