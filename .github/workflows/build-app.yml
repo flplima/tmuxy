@@ -24,11 +24,6 @@ jobs:
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
             tauri-args: '--target universal-apple-darwin'
             binary: target/universal-apple-darwin/release/tmuxy
-          - platform: windows
-            os: windows-latest
-            rust-targets: ''
-            tauri-args: ''
-            binary: target/release/tmuxy.exe
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -159,22 +154,6 @@ jobs:
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: warn
 
-      - name: Upload .msi
-        if: matrix.platform == 'windows'
-        uses: actions/upload-artifact@v6
-        with:
-          name: tmuxy-windows-msi
-          path: target/release/bundle/msi/*.msi
-          if-no-files-found: warn
-
-      - name: Upload .exe
-        if: matrix.platform == 'windows'
-        uses: actions/upload-artifact@v6
-        with:
-          name: tmuxy-windows-exe
-          path: target/release/bundle/nsis/*.exe
-          if-no-files-found: warn
-
   # --- Release (only on tag push, after all builds + smoke tests pass) ---
 
   release:
@@ -198,7 +177,7 @@ jobs:
 
           # Flatten all platform artifacts into one directory
           mkdir -p release-assets
-          find all-artifacts -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \) \
+          find all-artifacts -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.dmg' \) \
             -exec cp {} release-assets/ \;
 
           ls -lh release-assets/
