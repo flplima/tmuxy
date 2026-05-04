@@ -499,6 +499,48 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
     }
 }
 
+/// Build the main webview window from code so its transparency settings
+/// can react to runtime env (TMUXY_OPAQUE_WINDOW=1 → opaque + decorated).
+///
+/// Defaults match the previous tauri.conf.json values exactly so production
+/// behavior is unchanged: transparent webview, hidden macOS title with
+/// traffic-light dot positioning. The opaque branch removes both — needed
+/// when running under Xvfb-style displays that lack a compositor.
+fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    let opaque = std::env::var_os("TMUXY_OPAQUE_WINDOW").is_some();
+
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+        .title("tmuxy")
+        .inner_size(800.0, 600.0)
+        .resizable(true)
+        .fullscreen(false);
+
+    if !opaque {
+        builder = builder.transparent(true);
+
+        #[cfg(target_os = "macos")]
+        {
+            use tauri::{LogicalPosition, TitleBarStyle};
+            builder = builder
+                .title_bar_style(TitleBarStyle::Overlay)
+                .hidden_title(true)
+                .traffic_light_position(LogicalPosition::new(16.0, 18.0));
+        }
+    }
+
+    builder.build()?;
+
+    if opaque {
+        tmuxy_core::debug_log::log(
+            "TMUXY_OPAQUE_WINDOW=1: built window with decorations, no transparency",
+        );
+    }
+
+    Ok(())
+}
+
 /// Path to the persistent debug log written by tmuxy_core::debug_log.
 fn debug_log_path() -> std::path::PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
@@ -645,6 +687,17 @@ pub fn run() {
             // Log environment for debugging Finder vs CLI launch differences
             tmuxy_core::debug_log::log("=== tmuxy starting ===");
             tmuxy_core::debug_log::log_env();
+
+            // Create the main window programmatically so we can flip
+            // transparent + Overlay titlebar based on TMUXY_OPAQUE_WINDOW.
+            // tauri.conf.json's `windows: []` prevents auto-creation.
+            //
+            // Why: transparent windows need a compositor (Cocoa on macOS,
+            // Mutter/Picom/etc. on Linux). Xvfb has none, so the WebView
+            // paints onto a never-rendered surface and screenshots come
+            // out monochrome. TMUXY_OPAQUE_WINDOW=1 lets tests in headless
+            // CI/dev envs render visibly without changing prod defaults.
+            create_main_window(app)?;
 
             // Verify tmux is available — the monitor will create the session
             // itself via control mode (avoids race between sync creation and
