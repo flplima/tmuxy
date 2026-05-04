@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tmuxy_core::control_mode::{LogKind, LogSink, MonitorConfig, StateEmitter, TmuxMonitor};
@@ -44,7 +45,8 @@ impl StateEmitter for TauriEmitter {
 
 /// Start control mode monitoring for tmux state changes
 pub async fn start_monitoring(app: AppHandle) {
-    let emitter = TauriEmitter::new(app.clone());
+    let emitter = Arc::new(TauriEmitter::new(app.clone()));
+    let log_sink: Arc<dyn LogSink> = emitter.clone();
     let session = get_session();
 
     let config = MonitorConfig {
@@ -73,13 +75,13 @@ pub async fn start_monitoring(app: AppHandle) {
     let mut consecutive_failures: u32 = 0;
 
     loop {
-        match TmuxMonitor::connect(config.clone(), Some(&emitter)).await {
+        match TmuxMonitor::connect(config.clone(), Some(&log_sink)).await {
             Ok((mut monitor, _cmd_tx)) => {
                 backoff = Duration::from_millis(100);
                 consecutive_failures = 0;
 
                 emit_keybindings(&app);
-                monitor.run(&emitter).await;
+                monitor.run(emitter.as_ref()).await;
                 // run() returned — the connection died; loop and reconnect.
             }
             Err(e) => {

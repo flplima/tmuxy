@@ -1102,7 +1102,8 @@ async fn start_monitoring_control_mode(
     session: String,
     state: Arc<AppState>,
 ) {
-    let emitter = SseEmitter::new(tx.clone(), Arc::clone(&state));
+    let emitter = Arc::new(SseEmitter::new(tx.clone(), Arc::clone(&state)));
+    let log_sink: Arc<dyn LogSink> = emitter.clone();
 
     let config = MonitorConfig {
         session: session.clone(),
@@ -1262,7 +1263,7 @@ async fn start_monitoring_control_mode(
             }
         }
 
-        match TmuxMonitor::connect(connect_config, Some(&emitter)).await {
+        match TmuxMonitor::connect(connect_config, Some(&log_sink)).await {
             Ok((mut monitor, command_tx)) => {
                 // Store command_tx so cleanup_connection can send Shutdown
                 let stored = {
@@ -1287,7 +1288,7 @@ async fn start_monitoring_control_mode(
 
                 backoff = Duration::from_millis(100);
                 let run_start = std::time::Instant::now();
-                monitor.run(&emitter).await;
+                monitor.run(emitter.as_ref()).await;
                 // If the monitor ran for more than 2 seconds, consider it a successful run.
                 // Short-lived runs indicate startup crashes that should retry with create_session.
                 if run_start.elapsed() > Duration::from_secs(2) {

@@ -127,7 +127,7 @@ impl TmuxMonitor {
     /// surface these to a UI.
     pub async fn connect(
         config: MonitorConfig,
-        log: Option<&dyn super::log::LogSink>,
+        log: Option<&std::sync::Arc<dyn super::log::LogSink>>,
     ) -> Result<(Self, MonitorCommandSender), String> {
         // Serialize session creation + CC attachment to prevent concurrent operations
         // that crash tmux 3.5a. The lock covers both new-session and CC attach so that
