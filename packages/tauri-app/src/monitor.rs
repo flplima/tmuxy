@@ -22,6 +22,18 @@ impl TauriEmitter {
 
 impl LogSink for TauriEmitter {
     fn log(&self, kind: LogKind, message: String) {
+        // Mirror to the persistent debug log so the user's "Copy Logs to
+        // Clipboard" capture includes the *reason* a connection died.
+        // Without this, sync_initial_state failures and broken-pipe errors
+        // are only visible to the running UI and disappear on reconnect.
+        let label = match kind {
+            LogKind::Command => "CMD",
+            LogKind::Output => "OUT",
+            LogKind::Info => "INFO",
+            LogKind::Error => "ERR",
+        };
+        tmuxy_core::debug_log::log(&format!("[monitor {}] {}", label, message));
+
         let payload = serde_json::json!({ "kind": kind, "message": message });
         if let Err(e) = self.app.emit("tmux-log", &payload) {
             eprintln!("Failed to emit log: {}", e);
@@ -37,6 +49,7 @@ impl StateEmitter for TauriEmitter {
     }
 
     fn emit_error(&self, error: String) {
+        tmuxy_core::debug_log::log(&format!("[monitor ERR] {}", error));
         if let Err(e) = self.app.emit("tmux-error", &error) {
             eprintln!("Failed to emit error: {}", e);
         }
@@ -63,26 +76,59 @@ pub async fn start_monitoring(app: AppHandle) {
 
     // Reconnect with exponential backoff, bounded by MAX_CONSECUTIVE_FAILURES.
     //
-    // A "consecutive failure" is a connect attempt that never produced a working
-    // monitor.run(). Successful connections reset the counter, so a long-lived
-    // session that drops once and reconnects is unaffected. After the bound is
-    // hit, we emit a fatal error and stop — surfacing "tmux is broken" to the UI
-    // instead of hammering it with a doomed retry loop.
+    // A "consecutive failure" is either:
+    //   1. A connect attempt that returned Err, OR
+    //   2. A connect that succeeded but whose monitor.run() returned within
+    //      MIN_HEALTHY_DURATION — i.e. tmux died right after handshake.
+    //
+    // Case 2 is the macOS-Finder-launch failure mode: `connect()` reads the
+    // first %end and reports "control mode connected successfully", but tmux
+    // exits ~50ms later, sync_initial_state fails on broken pipe, and run()
+    // returns silently. Without this guard, the failure counter resets every
+    // cycle and the loop runs forever.
+    //
+    // Only durable connections (ran ≥ MIN_HEALTHY_DURATION) reset the counter.
     let mut backoff = Duration::from_millis(100);
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
     const MAX_CONSECUTIVE_FAILURES: u32 = 5;
+    const MIN_HEALTHY_DURATION: Duration = Duration::from_secs(5);
 
     let mut consecutive_failures: u32 = 0;
 
     loop {
         match TmuxMonitor::connect(config.clone(), Some(&log_sink)).await {
             Ok((mut monitor, _cmd_tx)) => {
-                backoff = Duration::from_millis(100);
-                consecutive_failures = 0;
-
                 emit_keybindings(&app);
+                let started = std::time::Instant::now();
                 monitor.run(emitter.as_ref()).await;
-                // run() returned — the connection died; loop and reconnect.
+                let lived = started.elapsed();
+                tmuxy_core::debug_log::log(&format!(
+                    "[monitor] run() returned after {:?} (failures so far: {})",
+                    lived, consecutive_failures
+                ));
+
+                if lived >= MIN_HEALTHY_DURATION {
+                    backoff = Duration::from_millis(100);
+                    consecutive_failures = 0;
+                } else {
+                    consecutive_failures += 1;
+                    let msg = format!(
+                        "tmux connection died after {:?} (attempt {} of {})",
+                        lived, consecutive_failures, MAX_CONSECUTIVE_FAILURES
+                    );
+                    tmuxy_core::debug_log::log(&format!("[monitor] {}", msg));
+                    emitter.emit_error(msg);
+
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                        let final_msg = format!(
+                            "tmux disconnects immediately after handshake; giving up after {} attempts. Connection lived {:?} on the last try.",
+                            MAX_CONSECUTIVE_FAILURES, lived
+                        );
+                        emit_fatal(&app, &final_msg);
+                        tmuxy_core::debug_log::log(&format!("[monitor] FATAL: {}", final_msg));
+                        return;
+                    }
+                }
             }
             Err(e) => {
                 consecutive_failures += 1;
@@ -97,7 +143,7 @@ pub async fn start_monitoring(app: AppHandle) {
                         MAX_CONSECUTIVE_FAILURES, e
                     );
                     emit_fatal(&app, &final_msg);
-                    eprintln!("[monitor] FATAL: {}", final_msg);
+                    tmuxy_core::debug_log::log(&format!("[monitor] FATAL: {}", final_msg));
                     return;
                 }
             }

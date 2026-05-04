@@ -111,7 +111,27 @@ fn spawn_parser_task(
             buf.clear();
             match buf_reader.read_until(b'\n', &mut buf).await {
                 Ok(0) => {
-                    // EOF — tmux process exited (or PTY was closed)
+                    // EOF — tmux process exited (or PTY was closed). Surface
+                    // the last lines we saw to the persistent debug log so a
+                    // user-collected log capture includes tmux's parting
+                    // words (often a `%error` or `%exit detached` line).
+                    let tail: Vec<String> = {
+                        let guard = recent_output.lock().await;
+                        let n = guard.len();
+                        let take_from = n.saturating_sub(20);
+                        guard[take_from..].to_vec()
+                    };
+                    if tail.is_empty() {
+                        crate::debug_log::log("parser task: EOF on PTY (no output captured)");
+                    } else {
+                        crate::debug_log::log(&format!(
+                            "parser task: EOF on PTY, last {} line(s):",
+                            tail.len()
+                        ));
+                        for line in &tail {
+                            crate::debug_log::log(&format!("  | {}", line));
+                        }
+                    }
                     break;
                 }
                 Ok(_) => {
@@ -141,7 +161,7 @@ fn spawn_parser_task(
                     }
                 }
                 Err(e) => {
-                    eprintln!("[tmuxy] parser task: read error: {}", e);
+                    crate::debug_log::log(&format!("parser task: read error on PTY: {}", e));
                     break;
                 }
             }
