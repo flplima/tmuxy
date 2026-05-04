@@ -1,11 +1,11 @@
 //! Streaming log sink for surfacing connection-time progress.
 //!
 //! Connection setup runs several external `tmux` invocations (has-session,
-//! list-sessions, new-session, then the `script ... tmux -CC attach-session`
-//! spawn). When something fails on a user's machine, knowing *which* step
-//! failed and what its output was is far more useful than a single
-//! consolidated error string. The sink is threaded through connection.rs and
-//! monitor.rs so each step can be reported as it happens.
+//! list-sessions, new-session, then a PTY spawn of `tmux -CC attach-session`).
+//! When something fails on a user's machine, knowing *which* step failed
+//! and what its output was is far more useful than a single consolidated
+//! error string. The sink is threaded through connection.rs and monitor.rs
+//! so each step can be reported as it happens.
 
 use serde::{Deserialize, Serialize};
 
