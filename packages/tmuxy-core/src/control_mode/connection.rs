@@ -6,13 +6,14 @@ use super::log::{LogKind, LogSink};
 use super::parser::{ControlModeEvent, Parser};
 use crate::session;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex};
 
 /// Helper to conditionally emit a log entry to an optional sink.
-fn log_to(sink: Option<&dyn LogSink>, kind: LogKind, msg: impl Into<String>) {
+fn log_to(sink: Option<&Arc<dyn LogSink>>, kind: LogKind, msg: impl Into<String>) {
     if let Some(s) = sink {
         s.log(kind, msg.into());
     }
@@ -50,6 +51,14 @@ pub async fn session_creation_lock() -> tokio::sync::MutexGuard<'static, ()> {
     SESSION_CREATION_LOCK.lock().await
 }
 
+/// Snapshot the recent stderr buffer as a single newline-joined string.
+/// Used when send_command/connect fails so the error message can include
+/// whatever the dying subprocess said on its way out.
+async fn drain_recent_stderr(recent: &Arc<Mutex<Vec<String>>>) -> String {
+    let guard = recent.lock().await;
+    guard.join("\n")
+}
+
 /// Default initial PTY size (cols x rows) for the `script` wrapper.
 /// Large enough to avoid tiny panes that crash vt100, but will be resized
 /// by the browser once it connects and sends its viewport dimensions.
@@ -69,6 +78,12 @@ pub struct ControlModeConnection {
 
     /// Command counter for tracking responses
     command_counter: u32,
+
+    /// Recent stderr lines from the spawned `script`/`tmux` subprocess.
+    /// Populated by a background task that drains child.stderr.
+    /// Consulted when send_command fails so the error message can include
+    /// whatever the dying process said on its way out.
+    recent_stderr: Arc<Mutex<Vec<String>>>,
 }
 
 /// Spawn the stdout parser task that reads raw bytes, converts to UTF-8 lossily,
@@ -79,6 +94,52 @@ pub struct ControlModeConnection {
 ///
 /// Signals readiness via `ready_tx` after the first successfully parsed event,
 /// ensuring the caller knows the tmux control mode connection is alive.
+/// Spawn a background task that drains the spawned subprocess's stderr,
+/// recording each line into `recent_stderr` (capped to the last 200 lines)
+/// and emitting it to the log sink in real time.
+///
+/// macOS Finder-launched apps run with a very sparse environment from
+/// launchd; when tmux 3.5a fails in -CC mode, its stderr message is the
+/// only direct evidence of *why*. Without this drain, the bytes sit in
+/// the kernel pipe buffer until the child dies, and we never look.
+fn spawn_stderr_drain(
+    stderr: tokio::process::ChildStderr,
+    recent_stderr: Arc<Mutex<Vec<String>>>,
+    log_tx: mpsc::Sender<(LogKind, String)>,
+) {
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr);
+        let mut buf = Vec::with_capacity(1024);
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    while buf.last() == Some(&b'\n') || buf.last() == Some(&b'\r') {
+                        buf.pop();
+                    }
+                    if buf.is_empty() {
+                        continue;
+                    }
+                    let line = String::from_utf8_lossy(&buf).to_string();
+                    {
+                        let mut guard = recent_stderr.lock().await;
+                        guard.push(line.clone());
+                        if guard.len() > 200 {
+                            let drain_count = guard.len() - 200;
+                            guard.drain(0..drain_count);
+                        }
+                    }
+                    let _ = log_tx
+                        .send((LogKind::Output, format!("subprocess stderr: {}", line)))
+                        .await;
+                }
+                Err(_) => break,
+            }
+        }
+    });
+}
+
 fn spawn_parser_task(
     stdout: tokio::process::ChildStdout,
     tx: mpsc::Sender<ControlModeEvent>,
@@ -137,7 +198,7 @@ impl ControlModeConnection {
     pub async fn connect(
         session_name: &str,
         working_dir: Option<&std::path::Path>,
-        log: Option<&dyn LogSink>,
+        log: Option<&Arc<dyn LogSink>>,
     ) -> Result<Self, String> {
         // First check if the session exists to avoid spawning control mode processes
         // that wait indefinitely for a non-existent session. This prevents a race condition
@@ -244,6 +305,20 @@ impl ControlModeConnection {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        // Force a usable env for tmux. macOS Finder/Applications launches go
+        // through launchd with a sparse environment (no TERM, no LANG), and
+        // tmux 3.5a in -CC mode crashes with stderr like "tcgetattr failed"
+        // or silently exits. Our spawned `script ... sh ... tmux` chain
+        // inherits whatever Rust has, so set sensible defaults at the spawn
+        // boundary regardless of how the parent app was started.
+        if std::env::var_os("TERM").is_none() {
+            cmd.env("TERM", "xterm-256color");
+        }
+        if std::env::var_os("LANG").is_none() && std::env::var_os("LC_ALL").is_none() {
+            cmd.env("LANG", "en_US.UTF-8");
+        }
+
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
         }
@@ -259,6 +334,27 @@ impl ControlModeConnection {
 
         let stdin = child.stdin.take().ok_or("Failed to get stdin handle")?;
         let stdout = child.stdout.take().ok_or("Failed to get stdout handle")?;
+        let stderr_handle = child.stderr.take().ok_or("Failed to get stderr handle")?;
+
+        // Drain subprocess stderr in the background so any error message tmux
+        // emits on its way out is captured (a) into recent_stderr for inclusion
+        // in send_command errors, and (b) streamed live to the LogSink so the
+        // user sees it in the Details panel.
+        let recent_stderr: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let (stderr_log_tx, mut stderr_log_rx) = mpsc::channel::<(LogKind, String)>(64);
+        spawn_stderr_drain(stderr_handle, recent_stderr.clone(), stderr_log_tx);
+
+        // Forward live stderr lines into the log sink while connect() is
+        // still running. After connect returns, this forwarder ends, but
+        // the drain itself keeps appending into recent_stderr.
+        if let Some(sink) = log {
+            let sink = sink.clone();
+            tokio::spawn(async move {
+                while let Some((kind, msg)) = stderr_log_rx.recv().await {
+                    sink.log(kind, msg);
+                }
+            });
+        }
 
         let (tx, rx) = mpsc::channel(1000);
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
@@ -280,17 +376,11 @@ impl ControlModeConnection {
                 log_to(log, LogKind::Info, "control mode connected successfully");
             }
             Ok(Err(_)) => {
-                // ready_tx was dropped without sending — parser hit EOF immediately
-                // Capture stderr for diagnostics
-                let stderr = child.stderr.take();
+                // ready_tx dropped without sending — parser hit EOF immediately.
+                // Drain whatever stderr the drain task has accumulated so far.
                 let _ = child.kill().await;
-                let stderr_msg = if let Some(mut se) = stderr {
-                    let mut buf = Vec::new();
-                    let _ = tokio::io::AsyncReadExt::read_to_end(&mut se, &mut buf).await;
-                    String::from_utf8_lossy(&buf).trim().to_string()
-                } else {
-                    String::new()
-                };
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let stderr_msg = drain_recent_stderr(&recent_stderr).await;
                 log_to(
                     log,
                     LogKind::Output,
@@ -317,16 +407,9 @@ impl ControlModeConnection {
                 ));
             }
             Err(_) => {
-                // Timeout waiting for first event
-                let stderr = child.stderr.take();
                 let _ = child.kill().await;
-                let stderr_msg = if let Some(mut se) = stderr {
-                    let mut buf = Vec::new();
-                    let _ = tokio::io::AsyncReadExt::read_to_end(&mut se, &mut buf).await;
-                    String::from_utf8_lossy(&buf).trim().to_string()
-                } else {
-                    String::new()
-                };
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let stderr_msg = drain_recent_stderr(&recent_stderr).await;
                 log_to(
                     log,
                     LogKind::Output,
@@ -359,6 +442,7 @@ impl ControlModeConnection {
             stdin,
             event_rx: rx,
             command_counter: 0,
+            recent_stderr,
         })
     }
 
@@ -370,7 +454,7 @@ impl ControlModeConnection {
     pub async fn new_session(
         session_name: &str,
         working_dir: Option<&std::path::Path>,
-        log: Option<&dyn LogSink>,
+        log: Option<&Arc<dyn LogSink>>,
     ) -> Result<Self, String> {
         // Create a minimal detached session. Avoid -f (crashes with devcontainer
         // config), -x/-y (can cause issues), and any settings that might
@@ -477,17 +561,27 @@ impl ControlModeConnection {
         let cmd_num = self.command_counter;
         self.command_counter += 1;
 
-        self.stdin
-            .write_all(format!("{}\n", cmd).as_bytes())
-            .await
-            .map_err(|e| format!("Failed to send command: {}", e))?;
+        if let Err(e) = self.stdin.write_all(format!("{}\n", cmd).as_bytes()).await {
+            return Err(self.enrich_io_error("Failed to send command", &e).await);
+        }
 
-        self.stdin
-            .flush()
-            .await
-            .map_err(|e| format!("Failed to flush stdin: {}", e))?;
+        if let Err(e) = self.stdin.flush().await {
+            return Err(self.enrich_io_error("Failed to flush stdin", &e).await);
+        }
 
         Ok(cmd_num)
+    }
+
+    /// Append captured subprocess stderr to an io::Error message.
+    /// Gives the user concrete evidence of *why* the pipe broke instead of
+    /// the generic "Broken pipe (os error 32)".
+    async fn enrich_io_error(&self, prefix: &str, e: &std::io::Error) -> String {
+        let stderr = drain_recent_stderr(&self.recent_stderr).await;
+        if stderr.is_empty() {
+            format!("{}: {}", prefix, e)
+        } else {
+            format!("{}: {} | subprocess stderr: {}", prefix, e, stderr)
+        }
     }
 
     /// Send multiple tmux commands in a batch with a single flush.
@@ -505,18 +599,16 @@ impl ControlModeConnection {
 
         // Write all commands without flushing
         for cmd in commands {
-            self.stdin
-                .write_all(format!("{}\n", cmd).as_bytes())
-                .await
-                .map_err(|e| format!("Failed to send command: {}", e))?;
+            if let Err(e) = self.stdin.write_all(format!("{}\n", cmd).as_bytes()).await {
+                return Err(self.enrich_io_error("Failed to send command", &e).await);
+            }
             self.command_counter += 1;
         }
 
         // Single flush for all commands
-        self.stdin
-            .flush()
-            .await
-            .map_err(|e| format!("Failed to flush stdin: {}", e))?;
+        if let Err(e) = self.stdin.flush().await {
+            return Err(self.enrich_io_error("Failed to flush stdin", &e).await);
+        }
 
         Ok(first_cmd_num)
     }
