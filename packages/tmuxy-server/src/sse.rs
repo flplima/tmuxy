@@ -14,7 +14,7 @@ use std::convert::Infallible;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
+use tmuxy_core::control_mode::{LogKind, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
 use tmuxy_core::{executor, StateUpdate};
 use tokio::sync::broadcast;
 
@@ -33,6 +33,13 @@ pub struct SseEmitter {
 impl SseEmitter {
     pub fn new(tx: broadcast::Sender<String>, app_state: Arc<AppState>) -> Self {
         Self { tx, app_state }
+    }
+}
+
+impl LogSink for SseEmitter {
+    fn log(&self, kind: LogKind, message: String) {
+        let event = SseEvent::Log { kind, message };
+        let _ = self.tx.send(serde_json::to_string(&event).unwrap());
     }
 }
 
@@ -106,6 +113,8 @@ enum SseEvent {
     Error { message: String },
     #[serde(rename = "keybindings")]
     KeyBindings(KeyBindings),
+    #[serde(rename = "log")]
+    Log { kind: LogKind, message: String },
 }
 
 // ============================================
@@ -275,6 +284,7 @@ pub async fn sse_handler(
                                     SseEvent::Error { .. } => "error",
                                     SseEvent::ConnectionInfo { .. } => "connection-info",
                                     SseEvent::KeyBindings(_) => "keybindings",
+                                    SseEvent::Log { .. } => "log",
                                 };
 
                                 // For state updates, use delta seq as event ID
@@ -1243,7 +1253,7 @@ async fn start_monitoring_control_mode(
             }
         }
 
-        match TmuxMonitor::connect(connect_config).await {
+        match TmuxMonitor::connect(connect_config, Some(&emitter)).await {
             Ok((mut monitor, command_tx)) => {
                 // Store command_tx so cleanup_connection can send Shutdown
                 let stored = {

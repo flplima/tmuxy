@@ -17,7 +17,7 @@
 
 set -e
 
-cd /workspace
+cd /tmuxy
 
 PORT="${DEV_PORT:-9000}"
 SOCKET="${TMUX_SOCKET:-}"

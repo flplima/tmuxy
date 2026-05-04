@@ -7,6 +7,12 @@ FROM node:22
 ARG TZ
 ENV TZ="$TZ"
 
+# Rename the base image's built-in `node` user/group to `user`
+# and move its home directory accordingly. Done before anything else
+# so all subsequent steps can reference the renamed identity.
+RUN usermod -l user -d /home/user -m node \
+    && groupmod -n user node
+
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools
@@ -27,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ssh-keygen -A \
     && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config \
     && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
-    && echo "node ALL=(root) NOPASSWD: /usr/sbin/sshd" > /etc/sudoers.d/sshd \
+    && echo "user ALL=(root) NOPASSWD: /usr/sbin/sshd" > /etc/sudoers.d/sshd \
     && chmod 440 /etc/sudoers.d/sshd \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -64,20 +70,20 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     && rustup component add rustfmt clippy \
     && cargo install cargo-watch tauri-driver \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
-    && chown -R node:node /usr/local/cargo /usr/local/rustup
+    && chown -R user:user /usr/local/cargo /usr/local/rustup
 
-# Ensure node user has access to /usr/local/share
+# Ensure `user` has access to /usr/local/share
 RUN mkdir -p /usr/local/share/npm-global \
-    && chown -R node:node /usr/local/share
+    && chown -R user:user /usr/local/share
 
 # Persist command history
 RUN mkdir /commandhistory \
     && touch /commandhistory/.bash_history \
-    && chown -R node /commandhistory
+    && chown -R user /commandhistory
 
 ENV DEVCONTAINER=true
 
-WORKDIR /workspace
+WORKDIR /tmuxy
 
 # git-delta for better diffs
 ARG GIT_DELTA_VERSION=0.18.2
@@ -92,21 +98,27 @@ RUN ARCH=$(dpkg --print-architecture) && \
     wget -q "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -O /usr/local/bin/yq && \
     chmod +x /usr/local/bin/yq
 
+# Trust the workspace bind mount: host uid differs from container `user`,
+# which otherwise trips git's "dubious ownership" check on /tmuxy.
+RUN git config --system --add safe.directory /tmuxy
+
 # Switch to non-root user
-USER node
+USER user
 
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
-ENV PATH=/home/node/.local/bin:$PATH:/usr/local/share/npm-global/bin
+ENV PATH=/home/user/.local/bin:$PATH:/usr/local/share/npm-global/bin
 ENV SHELL=/bin/zsh
 ENV EDITOR=nvim
 ENV VISUAL=nvim
 
 # zsh with Pure prompt
-RUN git clone https://github.com/sindresorhus/pure.git /home/node/.zsh/pure
-COPY --chown=node:node .devcontainer/.zshrc /home/node/.zshrc
+RUN git clone https://github.com/sindresorhus/pure.git /home/user/.zsh/pure
+COPY --chown=user:user .devcontainer/.zshrc /home/user/.zshrc
 
 # Add local bin, cargo, and npm global bin to profile (login shells, including non-interactive)
-RUN echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/node/.profile
+# `yolo` shortcut mirrors the zsh function in .zshrc — needed because bin/devcontainer drops into bash.
+RUN echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/user/.profile \
+    && echo 'yolo() { claude --dangerously-skip-permissions "$@"; }' >> /home/user/.profile
 
 # Claude Code (native installer)
 RUN curl -fsSL https://claude.ai/install.sh | bash
@@ -115,6 +127,14 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN git clone https://github.com/LazyVim/starter ~/.config/nvim \
     && rm -rf ~/.config/nvim/.git \
     && nvim --headless "+Lazy! sync" +qa 2>&1
+
+# Pre-create credential dirs with user ownership so the named volume
+# mounts (see bin/devcontainer, compose.yml, devcontainer.json) are
+# writable. Credentials are never mounted from the host — users log in
+# inside (gh auth login, claude login, ssh-keygen) and the volumes
+# persist that state across restarts.
+RUN mkdir -p /home/user/.config/gh /home/user/.config/git /home/user/.claude \
+    && mkdir -p -m 700 /home/user/.ssh
 
 # Global npm packages: pm2, agent-browser
 # ARM64 Linux has no playwright-bundled Chromium — use system chromium instead

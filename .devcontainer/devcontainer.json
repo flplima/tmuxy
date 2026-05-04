@@ -24,23 +24,28 @@
       }
     }
   },
-  "remoteUser": "node",
+  "remoteUser": "user",
   "mounts": [
     "source=tmuxy-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
     "source=tmuxy-cargo-registry,target=/usr/local/cargo/registry,type=volume",
     "source=tmuxy-cargo-git,target=/usr/local/cargo/git,type=volume",
-    "source=${localEnv:HOME}/.gitconfig,target=/home/node/.gitconfig,type=bind,readonly",
-    "source=${localEnv:HOME}/.config/gh,target=/home/node/.config/gh,type=bind,readonly"
+    // Credentials are NOT mounted from host. Log in once inside the
+    // container; named volumes persist auth across rebuilds.
+    "source=tmuxy-gh-config,target=/home/user/.config/gh,type=volume",
+    "source=tmuxy-claude-config,target=/home/user/.claude,type=volume",
+    "source=tmuxy-ssh,target=/home/user/.ssh,type=volume",
+    "source=tmuxy-git-config,target=/home/user/.config/git,type=volume"
   ],
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",
-    "CLAUDE_CONFIG_DIR": "/home/node/.claude",
+    "CLAUDE_CONFIG_DIR": "/home/user/.claude",
     "CHROME_CDP_URL": "http://localhost:9222",
     "TMUX_SESSION": "dev",
-    "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
+    "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
+    "GIT_CONFIG_GLOBAL": "/home/user/.config/git/config"
   },
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
-  "workspaceFolder": "/workspace",
-  "postCreateCommand": "npm install && ln -sf /workspace/.devcontainer/.tmuxy.conf ~/.tmuxy.conf && ln -sf /workspace/bin/tmuxy-cli ~/.local/bin/tmuxy",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/tmuxy,type=bind,consistency=delegated",
+  "workspaceFolder": "/tmuxy",
+  "postCreateCommand": "npm install && ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf && ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy",
   "postStartCommand": "npm start"
 }

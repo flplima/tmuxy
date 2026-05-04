@@ -225,6 +225,7 @@ export const appMachine = setup({
   context: {
     connected: false,
     error: null,
+    log: [],
     sessionName: DEFAULT_SESSION_NAME,
     activeWindowId: null,
     activePaneId: null,
@@ -313,6 +314,21 @@ export const appMachine = setup({
     },
   ],
   on: {
+    LOG_APPEND: {
+      actions: assign(({ context, event }) => {
+        const entry = {
+          timestamp: Date.now(),
+          kind: event.kind,
+          message: event.message,
+        };
+        // Cap log size so it never grows unbounded
+        const next =
+          context.log.length >= 500
+            ? [...context.log.slice(-499), entry]
+            : [...context.log, entry];
+        return { log: next };
+      }),
+    },
     // Size events (handled globally, in any state)
     SET_CHAR_SIZE: {
       actions: assign(({ event }) => ({

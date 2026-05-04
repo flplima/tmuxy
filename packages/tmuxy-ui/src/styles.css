@@ -184,53 +184,69 @@
 .loading,
 .error {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  height: 100%;
+  padding: 2rem;
+  box-sizing: border-box;
   background-color: var(--bg-black);
   color: var(--text-primary);
   font-family: var(--font-mono);
 }
 
-.error {
-  flex-direction: column;
+.loading h2,
+.error h2 {
+  margin: 0 0 1rem;
 }
 
 .error h2 {
   color: var(--error-light);
-  margin-bottom: 1rem;
 }
 
-.error-details {
-  margin-top: 1rem;
-  max-width: 600px;
-  width: 100%;
+.status-message {
+  max-width: 80ch;
+  margin: 0 0 1rem;
+  text-align: center;
+  word-break: break-word;
 }
 
-.error-details summary {
-  cursor: pointer;
-  color: var(--text-muted);
+.status-details {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 900px);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.status-details-label {
+  margin-bottom: 0.5rem;
   font-size: var(--font-size-small);
-  user-select: none;
+  color: var(--text-muted);
 }
 
-.error-details summary:hover {
+.status-details-log {
+  flex: 1 1 auto;
+  min-height: 200px;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 0.75rem;
+  background-color: var(--bg-dark);
   color: var(--text-primary);
-}
-
-.error-log {
-  margin-top: 0.5rem;
-  padding: 1rem;
-  background: var(--bg-dark);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
-  color: var(--error-light);
+  font-family: var(--font-mono);
   font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 300px;
-  overflow-y: auto;
+  line-height: 1.4;
+  white-space: pre;
+  overflow: auto;
   user-select: text;
+}
+
+.status-details-log:focus {
+  outline: none;
+  border-color: var(--bg-highlight-alt);
 }
 
 /* Pane States */

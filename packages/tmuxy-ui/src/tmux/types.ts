@@ -279,6 +279,11 @@ export type ErrorListener = (error: string) => void;
 export type ConnectionInfoListener = (connectionId: number, defaultShell: string) => void;
 export type ReconnectionListener = (reconnecting: boolean, attempt: number) => void;
 
+/** Streamed progress entry kind from the backend (matches `LogKind` in Rust) */
+export type LogEntryKind = 'command' | 'output' | 'info' | 'error';
+
+export type LogListener = (kind: LogEntryKind, message: string) => void;
+
 export interface TmuxAdapter {
   connect(): Promise<void>;
   disconnect(): void;
@@ -290,6 +295,8 @@ export interface TmuxAdapter {
   onConnectionInfo(listener: ConnectionInfoListener): () => void;
   onReconnection(listener: ReconnectionListener): () => void;
   onKeyBindings(listener: KeyBindingsListener): () => void;
+  /** Streaming connection-time log (each tmux command + its output). */
+  onLog(listener: LogListener): () => void;
   switchSession?(sessionName: string): Promise<void>;
 }
 

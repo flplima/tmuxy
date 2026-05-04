@@ -1,6 +1,6 @@
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-use tmuxy_core::control_mode::{MonitorConfig, StateEmitter, TmuxMonitor};
+use tmuxy_core::control_mode::{LogKind, LogSink, MonitorConfig, StateEmitter, TmuxMonitor};
 use tmuxy_core::StateUpdate;
 
 /// Get session name from environment or use default
@@ -16,6 +16,15 @@ pub struct TauriEmitter {
 impl TauriEmitter {
     pub fn new(app: AppHandle) -> Self {
         Self { app }
+    }
+}
+
+impl LogSink for TauriEmitter {
+    fn log(&self, kind: LogKind, message: String) {
+        let payload = serde_json::json!({ "kind": kind, "message": message });
+        if let Err(e) = self.app.emit("tmux-log", &payload) {
+            eprintln!("Failed to emit log: {}", e);
+        }
     }
 }
 
@@ -55,7 +64,7 @@ pub async fn start_monitoring(app: AppHandle) {
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
 
     loop {
-        match TmuxMonitor::connect(config.clone()).await {
+        match TmuxMonitor::connect(config.clone(), Some(&emitter)).await {
             Ok((mut monitor, _cmd_tx)) => {
                 backoff = Duration::from_millis(100); // Reset on success
 

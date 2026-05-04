@@ -11,7 +11,7 @@
 
 set -e
 
-cd /workspace
+cd /tmuxy
 
 # Ensure tmuxy-prod tmux server has a session
 tmux -L tmuxy-prod has-session -t tmuxy 2>/dev/null \

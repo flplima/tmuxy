@@ -2,6 +2,7 @@
 //!
 //! Handles spawning the `tmux -CC` process and communicating with it.
 
+use super::log::{LogKind, LogSink};
 use super::parser::{ControlModeEvent, Parser};
 use crate::session;
 use std::process::Stdio;
@@ -9,6 +10,34 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex};
+
+/// Helper to conditionally emit a log entry to an optional sink.
+fn log_to(sink: Option<&dyn LogSink>, kind: LogKind, msg: impl Into<String>) {
+    if let Some(s) = sink {
+        s.log(kind, msg.into());
+    }
+}
+
+/// Format a `std::process::Output` as a single human-readable line for the log.
+fn format_output(out: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = stdout.trim();
+    let stderr = stderr.trim();
+    let exit = out
+        .status
+        .code()
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "signal".to_string());
+    let mut parts = vec![format!("exit={}", exit)];
+    if !stdout.is_empty() {
+        parts.push(format!("stdout={}", stdout));
+    }
+    if !stderr.is_empty() {
+        parts.push(format!("stderr={}", stderr));
+    }
+    parts.join(" ")
+}
 
 /// Global mutex to serialize tmux session creation and control mode attachment.
 /// Prevents concurrent `new-session -d` + CC attach operations that crash tmux 3.5a.
@@ -101,38 +130,61 @@ impl ControlModeConnection {
     ///
     /// This spawns `tmux -CC attach-session -t <session>` wrapped in `script`
     /// to provide a PTY (required for tmux control mode).
+    ///
+    /// `log` receives streaming entries for each tmux invocation and its
+    /// output. The final `Err(_)` value still summarizes the failure for
+    /// callers that don't surface the log.
     pub async fn connect(
         session_name: &str,
         working_dir: Option<&std::path::Path>,
+        log: Option<&dyn LogSink>,
     ) -> Result<Self, String> {
         // First check if the session exists to avoid spawning control mode processes
         // that wait indefinitely for a non-existent session. This prevents a race condition
         // in tmux 3.3a where multiple waiting control mode clients crash the server.
         let tmux_path = crate::session::tmux_path();
         crate::debug_log::log(&format!("connect(): checking session '{}'", session_name));
+        log_to(log, LogKind::Info, format!("tmux binary: {}", tmux_path));
+        let has_session_cmd = format!("{} has-session -t {}", tmux_path, session_name);
+        log_to(log, LogKind::Command, has_session_cmd.clone());
         let check = crate::session::tmux_command()
             .args(["has-session", "-t", session_name])
             .output()
-            .map_err(|e| format!(
-                "Failed to check session: {}\n  command: {} has-session -t {}\n  tmux binary: {}",
-                e, tmux_path, session_name, tmux_path
-            ))?;
+            .map_err(|e| {
+                let msg = format!(
+                    "Failed to check session: {}\n  command: {}\n  tmux binary: {}",
+                    e, has_session_cmd, tmux_path
+                );
+                log_to(log, LogKind::Error, msg.clone());
+                msg
+            })?;
+        log_to(log, LogKind::Output, format_output(&check));
 
         if !check.status.success() {
             let stderr = String::from_utf8_lossy(&check.stderr);
             // List existing sessions for diagnostics
-            let sessions = crate::session::tmux_command()
+            let list_cmd = format!("{} list-sessions -F '#{{session_name}}'", tmux_path);
+            log_to(log, LogKind::Command, list_cmd);
+            let list_output = crate::session::tmux_command()
                 .args(["list-sessions", "-F", "#{session_name}"])
-                .output()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .unwrap_or_else(|_| "(failed to list)".to_string());
+                .output();
+            let sessions = match &list_output {
+                Ok(o) => {
+                    log_to(log, LogKind::Output, format_output(o));
+                    String::from_utf8_lossy(&o.stdout).trim().to_string()
+                }
+                Err(e) => {
+                    log_to(log, LogKind::Error, format!("list-sessions failed: {}", e));
+                    "(failed to list)".to_string()
+                }
+            };
             return Err(format!(
                 "Session '{}' does not exist\n\
-                  command: {} has-session -t {}\n\
+                  command: {}\n\
                   tmux binary: {}\n\
                   stderr: {}\n\
                   existing sessions: {}",
-                session_name, tmux_path, session_name, tmux_path,
+                session_name, has_session_cmd, tmux_path,
                 if stderr.is_empty() { "(empty)" } else { stderr.trim() },
                 if sessions.is_empty() { "(none)" } else { &sessions },
             ));
@@ -182,12 +234,17 @@ impl ControlModeConnection {
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
         }
+        log_to(log, LogKind::Command, shell_desc.clone());
         let mut child = cmd
             .spawn()
-            .map_err(|e| format!(
-                "Failed to start tmux control mode: {}\n  command: {}",
-                e, shell_desc
-            ))?;
+            .map_err(|e| {
+                let msg = format!(
+                    "Failed to start tmux control mode: {}\n  command: {}",
+                    e, shell_desc
+                );
+                log_to(log, LogKind::Error, msg.clone());
+                msg
+            })?;
 
         let stdin = child.stdin.take().ok_or("Failed to get stdin handle")?;
         let stdout = child.stdout.take().ok_or("Failed to get stdout handle")?;
@@ -201,9 +258,11 @@ impl ControlModeConnection {
         // may start sending commands before tmux has initialized, or worse,
         // not notice that the script/tmux process exited immediately.
         crate::debug_log::log("connect(): waiting for first control mode event (10s timeout)");
+        log_to(log, LogKind::Info, "waiting for first control mode event (10s timeout)");
         match tokio::time::timeout(Duration::from_secs(10), ready_rx).await {
             Ok(Ok(())) => {
                 crate::debug_log::log("connect(): control mode connected successfully");
+                log_to(log, LogKind::Info, "control mode connected successfully");
             }
             Ok(Err(_)) => {
                 // ready_tx was dropped without sending — parser hit EOF immediately
@@ -217,6 +276,14 @@ impl ControlModeConnection {
                 } else {
                     String::new()
                 };
+                log_to(
+                    log,
+                    LogKind::Output,
+                    format!(
+                        "control mode died immediately, stderr: {}",
+                        if stderr_msg.is_empty() { "(empty)" } else { &stderr_msg }
+                    ),
+                );
                 return Err(format!(
                     "Control mode connection died immediately for session '{}'\n\
                       command: {}\n\
@@ -236,6 +303,14 @@ impl ControlModeConnection {
                 } else {
                     String::new()
                 };
+                log_to(
+                    log,
+                    LogKind::Output,
+                    format!(
+                        "control mode timed out after 10s, stderr: {}",
+                        if stderr_msg.is_empty() { "(empty)" } else { &stderr_msg }
+                    ),
+                );
                 return Err(format!(
                     "Control mode timed out (10s) for session '{}'\n\
                       command: {}\n\
@@ -262,6 +337,7 @@ impl ControlModeConnection {
     pub async fn new_session(
         session_name: &str,
         working_dir: Option<&std::path::Path>,
+        log: Option<&dyn LogSink>,
     ) -> Result<Self, String> {
         // Create a minimal detached session. Avoid -f (crashes with devcontainer
         // config), -x/-y (can cause issues), and any settings that might
@@ -275,13 +351,19 @@ impl ControlModeConnection {
 
         let cmd_desc = format!("{} new-session -d -s {}", tmux_path, session_name);
         eprintln!("[tmuxy] creating session: {}", cmd_desc);
+        log_to(log, LogKind::Command, cmd_desc.clone());
 
         let output = create_cmd
             .output()
-            .map_err(|e| format!(
-                "Failed to create tmux session: {}\n  command: {}",
-                e, cmd_desc
-            ))?;
+            .map_err(|e| {
+                let msg = format!(
+                    "Failed to create tmux session: {}\n  command: {}",
+                    e, cmd_desc
+                );
+                log_to(log, LogKind::Error, msg.clone());
+                msg
+            })?;
+        log_to(log, LogKind::Output, format_output(&output));
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -293,6 +375,7 @@ impl ControlModeConnection {
             // fresh server won't have stale CC clients.
             if stderr_str.contains("server exited unexpectedly") || stderr_str.contains("no server running") {
                 eprintln!("[tmuxy] server crashed or missing, retrying session creation");
+                log_to(log, LogKind::Info, "tmux server crashed or missing — retrying after 500ms");
                 std::thread::sleep(std::time::Duration::from_millis(500));
 
                 let mut retry_cmd = session::tmux_command();
@@ -300,12 +383,18 @@ impl ControlModeConnection {
                 if let Some(dir) = working_dir {
                     retry_cmd.arg("-c").arg(dir);
                 }
+                log_to(log, LogKind::Command, format!("{} (retry)", cmd_desc));
                 let retry_output = retry_cmd
                     .output()
-                    .map_err(|e| format!(
-                        "Retry failed to create tmux session: {}\n  command: {}",
-                        e, cmd_desc
-                    ))?;
+                    .map_err(|e| {
+                        let msg = format!(
+                            "Retry failed to create tmux session: {}\n  command: {}",
+                            e, cmd_desc
+                        );
+                        log_to(log, LogKind::Error, msg.clone());
+                        msg
+                    })?;
+                log_to(log, LogKind::Output, format_output(&retry_output));
                 if !retry_output.status.success() {
                     let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
                     return Err(format!(
@@ -314,6 +403,7 @@ impl ControlModeConnection {
                     ));
                 }
                 eprintln!("[tmuxy] session '{}' created on retry", session_name);
+                log_to(log, LogKind::Info, format!("session '{}' created on retry", session_name));
             } else {
                 return Err(format!(
                     "Failed to create tmux session '{}'\n  command: {}\n  stderr: {}",
@@ -322,10 +412,11 @@ impl ControlModeConnection {
             }
         } else {
             eprintln!("[tmuxy] session '{}' created, attaching control mode", session_name);
+            log_to(log, LogKind::Info, format!("session '{}' created, attaching control mode", session_name));
         }
 
         // Attach in control mode
-        Self::connect(session_name, working_dir).await
+        Self::connect(session_name, working_dir, log).await
     }
 
     /// Send a tmux command through control mode.
