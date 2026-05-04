@@ -37,7 +37,11 @@ pub fn log(msg: &str) {
     let line = format!("[tmuxy {}] {}", timestamp(), msg);
     eprintln!("{}", line);
     let _lock = LOG_MUTEX.lock().ok();
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path()) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path())
+    {
         let _ = writeln!(f, "{}", line);
     }
 }
@@ -72,8 +76,18 @@ pub fn log_cmd_result(description: &str, exit_code: Option<i32>, stdout: &str, s
 pub fn log_env() {
     log("--- Environment ---");
     for key in &[
-        "PATH", "HOME", "SHELL", "TERM", "TMPDIR", "USER", "LANG",
-        "LC_ALL", "DISPLAY", "TMUXY_SESSION", "TMUX_SOCKET", "TMUX",
+        "PATH",
+        "HOME",
+        "SHELL",
+        "TERM",
+        "TMPDIR",
+        "USER",
+        "LANG",
+        "LC_ALL",
+        "DISPLAY",
+        "TMUXY_SESSION",
+        "TMUX_SOCKET",
+        "TMUX",
     ] {
         let val = std::env::var(key).unwrap_or_else(|_| "(unset)".to_string());
         log(&format!("  {}={}", key, val));

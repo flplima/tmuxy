@@ -1,5 +1,5 @@
-use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
+use tauri::Manager;
 use tmuxy_core::{executor, session};
 
 use crate::commands;
@@ -97,7 +97,9 @@ fn apply_window_effects(window: &tauri::WebviewWindow) {
 ///
 /// Mirrors the web hamburger menu (Pane, Tab, Session, View, Help) plus
 /// standard macOS menus (tmuxy app menu, Edit, Window).
-fn build_app_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
+fn build_app_menu(
+    app: &tauri::App,
+) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let app_menu = SubmenuBuilder::new(app, "tmuxy")
         .about(None)
         .separator()
@@ -110,64 +112,256 @@ fn build_app_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box
 
     // --- Pane ---
     let pane_menu = SubmenuBuilder::new(app, "Pane")
-        .item(&MenuItem::with_id(app, "pane-split-below", "Split Below", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "pane-split-right", "Split Right", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-split-below",
+            "Split Below",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-split-right",
+            "Split Right",
+            true,
+            None::<&str>,
+        )?)
         .separator()
-        .item(&MenuItem::with_id(app, "pane-next", "Next Pane", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "pane-previous", "Previous Pane", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-next",
+            "Next Pane",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-previous",
+            "Previous Pane",
+            true,
+            None::<&str>,
+        )?)
         .separator()
-        .item(&MenuItem::with_id(app, "pane-swap-prev", "Swap with Previous", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "pane-swap-next", "Swap with Next", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "pane-move-new-tab", "Move to New Tab", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "pane-add-to-group", "Add to Group", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-swap-prev",
+            "Swap with Previous",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-swap-next",
+            "Swap with Next",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-move-new-tab",
+            "Move to New Tab",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-add-to-group",
+            "Add to Group",
+            true,
+            None::<&str>,
+        )?)
         .separator()
-        .item(&MenuItem::with_id(app, "pane-copy-mode", "Copy Mode", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "pane-paste", "Paste Buffer", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "pane-clear", "Clear Screen", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-copy-mode",
+            "Copy Mode",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-paste",
+            "Paste Buffer",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-clear",
+            "Clear Screen",
+            true,
+            None::<&str>,
+        )?)
         .separator()
-        .item(&MenuItem::with_id(app, "view-zoom", "Zoom Pane", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "view-zoom",
+            "Zoom Pane",
+            true,
+            None::<&str>,
+        )?)
         .separator()
-        .item(&MenuItem::with_id(app, "pane-close", "Close Pane", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "pane-close",
+            "Close Pane",
+            true,
+            None::<&str>,
+        )?)
         .build()?;
 
     // --- Tab ---
     let tab_menu = SubmenuBuilder::new(app, "Tab")
-        .item(&MenuItem::with_id(app, "tab-new", "New Tab", true, Some("CmdOrCtrl+T"))?)
+        .item(&MenuItem::with_id(
+            app,
+            "tab-new",
+            "New Tab",
+            true,
+            Some("CmdOrCtrl+T"),
+        )?)
         .separator()
-        .item(&MenuItem::with_id(app, "tab-next", "Next Tab", true, Some("CmdOrCtrl+Shift+]"))?)
-        .item(&MenuItem::with_id(app, "tab-previous", "Previous Tab", true, Some("CmdOrCtrl+Shift+["))?)
-        .item(&MenuItem::with_id(app, "tab-last", "Last Tab", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "tab-next",
+            "Next Tab",
+            true,
+            Some("CmdOrCtrl+Shift+]"),
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "tab-previous",
+            "Previous Tab",
+            true,
+            Some("CmdOrCtrl+Shift+["),
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "tab-last",
+            "Last Tab",
+            true,
+            None::<&str>,
+        )?)
         .separator()
-        .item(&MenuItem::with_id(app, "tab-rename", "Rename Tab", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "tab-rename",
+            "Rename Tab",
+            true,
+            None::<&str>,
+        )?)
         .separator()
-        .item(&MenuItem::with_id(app, "tab-close", "Close Tab", true, Some("CmdOrCtrl+W"))?)
+        .item(&MenuItem::with_id(
+            app,
+            "tab-close",
+            "Close Tab",
+            true,
+            Some("CmdOrCtrl+W"),
+        )?)
         .build()?;
 
     // --- Session ---
     let session_menu = SubmenuBuilder::new(app, "Session")
-        .item(&MenuItem::with_id(app, "session-new", "New Session", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "session-rename", "Rename Session", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "session-detach", "Detach Session", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "session-kill", "Kill Session", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "session-new",
+            "New Session",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "session-rename",
+            "Rename Session",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "session-detach",
+            "Detach Session",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "session-kill",
+            "Kill Session",
+            true,
+            None::<&str>,
+        )?)
         .separator()
-        .item(&MenuItem::with_id(app, "session-reload-config", "Reload Config", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "session-reload-config",
+            "Reload Config",
+            true,
+            None::<&str>,
+        )?)
         .build()?;
 
     // --- View ---
     let layout_menu = SubmenuBuilder::new(app, "Layout")
-        .item(&MenuItem::with_id(app, "view-layout-even-horizontal", "Even Horizontal", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "view-layout-even-vertical", "Even Vertical", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "view-layout-main-horizontal", "Main Horizontal", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "view-layout-main-vertical", "Main Vertical", true, None::<&str>)?)
-        .item(&MenuItem::with_id(app, "view-layout-tiled", "Tiled", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "view-layout-even-horizontal",
+            "Even Horizontal",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "view-layout-even-vertical",
+            "Even Vertical",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "view-layout-main-horizontal",
+            "Main Horizontal",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "view-layout-main-vertical",
+            "Main Vertical",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "view-layout-tiled",
+            "Tiled",
+            true,
+            None::<&str>,
+        )?)
         .build()?;
 
     let view_menu = SubmenuBuilder::new(app, "View")
         .item(&layout_menu)
         .separator()
-        .item(&MenuItem::with_id(app, "view-font-bigger", "Make Text Bigger", true, Some("CmdOrCtrl+Plus"))?)
-        .item(&MenuItem::with_id(app, "view-font-smaller", "Make Text Smaller", true, Some("CmdOrCtrl+-"))?)
-        .item(&MenuItem::with_id(app, "view-font-reset", "Reset Text Size", true, Some("CmdOrCtrl+0"))?)
+        .item(&MenuItem::with_id(
+            app,
+            "view-font-bigger",
+            "Make Text Bigger",
+            true,
+            Some("CmdOrCtrl+Plus"),
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "view-font-smaller",
+            "Make Text Smaller",
+            true,
+            Some("CmdOrCtrl+-"),
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "view-font-reset",
+            "Reset Text Size",
+            true,
+            Some("CmdOrCtrl+0"),
+        )?)
         .build()?;
 
     // --- Edit (standard macOS) ---
@@ -187,7 +381,13 @@ fn build_app_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, Box
 
     // --- Help ---
     let help_menu = SubmenuBuilder::new(app, "Help")
-        .item(&MenuItem::with_id(app, "help-github", "Tmuxy on GitHub", true, None::<&str>)?)
+        .item(&MenuItem::with_id(
+            app,
+            "help-github",
+            "Tmuxy on GitHub",
+            true,
+            None::<&str>,
+        )?)
         .build()?;
 
     let menu = MenuBuilder::new(app)
@@ -221,7 +421,9 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         "pane-swap-prev" => Some("swap-pane -U"),
         "pane-swap-next" => Some("swap-pane -D"),
         "pane-move-new-tab" => Some("break-pane"),
-        "pane-add-to-group" => Some("run-shell \"bin/tmuxy/pane-group-add #{pane_id} #{pane_width} #{pane_height}\""),
+        "pane-add-to-group" => {
+            Some("run-shell \"bin/tmuxy/pane-group-add #{pane_id} #{pane_width} #{pane_height}\"")
+        }
         "pane-copy-mode" => Some("copy-mode"),
         "pane-paste" => Some("paste-buffer"),
         "pane-clear" => Some("send-keys -R \\; clear-history"),
@@ -320,7 +522,9 @@ pub fn run() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     let msg = format!(
                         "tmux failed to run.\n\nbinary: {}\nexit code: {}\nstderr: {}",
-                        tmux_bin, output.status.code().unwrap_or(-1), stderr.trim()
+                        tmux_bin,
+                        output.status.code().unwrap_or(-1),
+                        stderr.trim()
                     );
                     return Err(msg.into());
                 }
@@ -336,7 +540,9 @@ pub fn run() {
             // Set up native menu bar (macOS) with event handler
             if cfg!(target_os = "macos") {
                 match build_app_menu(app) {
-                    Ok(menu) => { let _ = app.set_menu(menu); },
+                    Ok(menu) => {
+                        let _ = app.set_menu(menu);
+                    }
                     Err(e) => eprintln!("Failed to build app menu: {}", e),
                 }
                 app.on_menu_event(handle_menu_event);
@@ -348,9 +554,13 @@ pub fn run() {
 
                 // Tell the frontend which platform we're on so it can adjust layout
                 // (e.g., hide hamburger menu on macOS, add traffic light spacing)
-                let platform = if cfg!(target_os = "macos") { "macos" }
-                    else if cfg!(target_os = "windows") { "windows" }
-                    else { "linux" };
+                let platform = if cfg!(target_os = "macos") {
+                    "macos"
+                } else if cfg!(target_os = "windows") {
+                    "windows"
+                } else {
+                    "linux"
+                };
                 let _ = window.eval(format!(
                     "document.documentElement.setAttribute('data-platform', '{}')",
                     platform
