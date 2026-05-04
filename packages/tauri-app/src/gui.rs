@@ -383,6 +383,21 @@ fn build_app_menu(
     let help_menu = SubmenuBuilder::new(app, "Help")
         .item(&MenuItem::with_id(
             app,
+            "help-copy-logs",
+            "Copy Logs to Clipboard",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "help-reveal-log-file",
+            "Reveal Log File in Finder",
+            true,
+            None::<&str>,
+        )?)
+        .separator()
+        .item(&MenuItem::with_id(
+            app,
             "help-github",
             "Tmuxy on GitHub",
             true,
@@ -459,6 +474,16 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         return;
     }
 
+    // Help: copy / reveal the debug log file
+    if id == "help-copy-logs" {
+        copy_logs_to_clipboard(app_handle);
+        return;
+    }
+    if id == "help-reveal-log-file" {
+        reveal_log_file();
+        return;
+    }
+
     // Frontend-only actions — dispatch via JS eval
     if let Some(window) = app_handle.get_webview_window("main") {
         let js = match id {
@@ -471,6 +496,122 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         if let Some(js) = js {
             let _ = window.eval(js);
         }
+    }
+}
+
+/// Path to the persistent debug log written by tmuxy_core::debug_log.
+fn debug_log_path() -> std::path::PathBuf {
+    if let Some(home) = std::env::var_os("HOME") {
+        std::path::PathBuf::from(home).join("tmuxy-debug.log")
+    } else {
+        std::path::PathBuf::from("/tmp/tmuxy-debug.log")
+    }
+}
+
+/// Read the debug log file and copy its contents (with a small env header)
+/// to the system clipboard. Surfaces a status message in the UI either way.
+fn copy_logs_to_clipboard(app: &tauri::AppHandle) {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+
+    let path = debug_log_path();
+    let header = build_log_header(&path);
+
+    let body = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(e) => {
+            let msg = format!("Could not read log file at {}: {}", path.display(), e);
+            show_status_message(app, &msg, true);
+            return;
+        }
+    };
+
+    // Cap to the last ~256 KB so a long-running session's log doesn't
+    // overflow the clipboard or hang the paste target.
+    const MAX_LOG_BYTES: usize = 256 * 1024;
+    let trimmed = if body.len() > MAX_LOG_BYTES {
+        let cut = body.len() - MAX_LOG_BYTES;
+        format!("[…{} earlier bytes truncated]\n{}", cut, &body[cut..])
+    } else {
+        body
+    };
+
+    let payload = format!("{}\n\n{}", header, trimmed);
+
+    match app.clipboard().write_text(payload) {
+        Ok(()) => {
+            show_status_message(
+                app,
+                &format!("Copied {} log to clipboard", path.display()),
+                false,
+            );
+        }
+        Err(e) => {
+            show_status_message(app, &format!("Failed to write clipboard: {}", e), true);
+        }
+    }
+}
+
+/// Reveal the debug log file in the platform file manager.
+fn reveal_log_file() {
+    let path = debug_log_path();
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(parent) = path.parent() {
+            let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = path;
+    }
+}
+
+fn build_log_header(path: &std::path::Path) -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let pid = std::process::id();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let env_lines: Vec<String> = ["PATH", "HOME", "SHELL", "TERM", "LANG", "LC_ALL", "USER"]
+        .iter()
+        .map(|k| {
+            format!(
+                "  {}={}",
+                k,
+                std::env::var(k).unwrap_or_else(|_| "(unset)".into())
+            )
+        })
+        .collect();
+    format!(
+        "=== tmuxy log dump ===\nversion: {}\npid: {}\nutc_seconds_since_epoch: {}\nlog_file: {}\nplatform: {}\nenv:\n{}\n--- log file contents below ---",
+        version,
+        pid,
+        now,
+        path.display(),
+        std::env::consts::OS,
+        env_lines.join("\n"),
+    )
+}
+
+/// Forward a transient status banner to the React UI via window.eval.
+/// Matches `ShowStatusMessageEvent` in tmuxy-ui (event.text). The is_error
+/// flag is reserved for future styling but currently both render the same.
+fn show_status_message(app: &tauri::AppHandle, message: &str, _is_error: bool) {
+    if let Some(window) = app.get_webview_window("main") {
+        let escaped = message.replace('\\', "\\\\").replace('\'', "\\'");
+        let js = format!(
+            "window.app?.send({{ type: 'SHOW_STATUS_MESSAGE', text: '{}' }})",
+            escaped
+        );
+        let _ = window.eval(js);
     }
 }
 
@@ -497,6 +638,9 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        // Clipboard manager: powers Help > Copy Logs to Clipboard so users
+        // launched from Finder can grab ~/tmuxy-debug.log without a terminal.
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             // Log environment for debugging Finder vs CLI launch differences
             tmuxy_core::debug_log::log("=== tmuxy starting ===");
