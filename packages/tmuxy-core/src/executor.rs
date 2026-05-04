@@ -766,9 +766,14 @@ pub fn run_tmux_command_for_session(session_name: &str, cmd: &str) -> Result<Str
     // Process compound commands (split by \;)
     let processed_cmd = process_compound_command(session_name, cmd, SESSION_TARGETED_COMMANDS)?;
 
-    // Use shell to handle command parsing
+    // Use shell to handle command parsing. We pass the resolved tmux path
+    // (plus -L socket if set) instead of bare `tmux`, because launchd-spawned
+    // GUI apps inherit a sparse PATH that does NOT include Homebrew dirs.
+    // A bare `tmux` would fail with "command not found" and the user would
+    // see typing/operations silently no-op.
+    let tmux_bin = crate::session::tmux_bin();
     let output = Command::new("sh")
-        .args(["-c", &format!("tmux {}", processed_cmd)])
+        .args(["-c", &format!("{} {}", tmux_bin, processed_cmd)])
         .output()
         .map_err(|e| format!("Failed to execute tmux: {}", e))?;
 
