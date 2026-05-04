@@ -2,8 +2,8 @@
 #
 # Start the devcontainer with an interactive shell or a custom command.
 #
-# Mounts host credentials (Claude, Git, GitHub CLI) so you don't
-# need to re-authenticate inside the container.
+# Credentials are NOT mounted from the host. Log in once inside the
+# container — named volumes persist auth (gh, claude, ssh, git) across runs.
 #
 # Multiple instances can run simultaneously from different worktrees —
 # each gets a unique container name and a free host port for the dev server.
@@ -64,6 +64,29 @@ fi
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
+# Ensure credential volumes are owned by `user`.
+#
+# When a named volume is mounted at a path the image doesn't define, Docker
+# creates the mount point as root and locks that ownership in. A volume from
+# an older image (built before these dirs existed) is stuck root-owned —
+# which breaks `gh auth login`, `claude login`, etc.
+#
+# This throwaway root container chowns the volumes to user:user. Mounting at
+# the real target paths preserves Docker's "copy image content into an empty
+# volume" behavior, so fresh volumes still inherit the image's pre-created
+# dirs correctly.
+# ---------------------------------------------------------------------------
+docker run --rm \
+    -v tmuxy-gh-config:/home/user/.config/gh \
+    -v tmuxy-claude-config:/home/user/.claude \
+    -v tmuxy-ssh:/home/user/.ssh \
+    -v tmuxy-git-config:/home/user/.config/git \
+    --user root \
+    "$IMAGE_NAME" \
+    sh -c 'chown -R user:user /home/user/.config/gh /home/user/.claude /home/user/.ssh /home/user/.config/git; chmod 700 /home/user/.ssh' \
+    >/dev/null
+
+# ---------------------------------------------------------------------------
 # Deterministic host port from workspace directory path (10000-20000)
 # Each worktree gets a unique, stable port derived from its absolute path
 # via cksum. The modulo ensures the result is in the 10000-20000 range.
@@ -75,18 +98,17 @@ HOST_PORT=$(echo -n "$CONTAINER_NAME" | cksum | awk '{print 10000 + ($1 % 10001)
 # ---------------------------------------------------------------------------
 MOUNTS=(
     # Workspace (each worktree maps its own directory)
-    -v "$(pwd):/workspace"
-    # Claude config/credentials from host
-    # -v "$HOME/.claude:/home/node/.claude"
+    -v "$(pwd):/tmuxy"
     # Cargo cache (shared across instances — cargo uses file locks)
     -v tmuxy-cargo-registry:/usr/local/cargo/registry
     -v tmuxy-cargo-git:/usr/local/cargo/git
+    # Credentials are NOT mounted from host. Log in once inside the
+    # container — these named volumes persist auth across runs.
+    -v tmuxy-gh-config:/home/user/.config/gh
+    -v tmuxy-claude-config:/home/user/.claude
+    -v tmuxy-ssh:/home/user/.ssh
+    -v tmuxy-git-config:/home/user/.config/git
 )
-
-# Host credentials (mounted read-only, skipped if missing)
-# [ -f "$HOME/.claude.json" ] && MOUNTS+=(-v "$HOME/.claude.json:/home/node/.claude.json")
-# [ -f "$HOME/.gitconfig" ]   && MOUNTS+=(-v "$HOME/.gitconfig:/home/node/.gitconfig:ro")
-# [ -d "$HOME/.config/gh" ]   && MOUNTS+=(-v "$HOME/.config/gh:/home/node/.config/gh:ro")
 
 # Git worktree support: .git is a file pointing to the host's gitdir which
 # doesn't exist in the container. Parse the .git file directly to extract
@@ -100,7 +122,7 @@ if [ -f "$(pwd)/.git" ]; then
     echo "gitdir: /git-main/worktrees/$WORKTREE_NAME" > "$DOTGIT_TMP"
     MOUNTS+=(
         -v "$MAIN_GIT_DIR:/git-main"
-        -v "$DOTGIT_TMP:/workspace/.git"
+        -v "$DOTGIT_TMP:/tmuxy/.git"
     )
 fi
 
@@ -112,17 +134,17 @@ echo "==> Port map:   localhost:$HOST_PORT -> container:9000"
 echo ""
 
 INIT_SCRIPT='
-    ln -sf /workspace/.devcontainer/.tmuxy.conf ~/.tmuxy.conf
+    ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf
     mkdir -p ~/.local/bin
-    ln -sf /workspace/bin/tmuxy-cli ~/.local/bin/tmuxy
+    ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy
     gh auth setup-git 2>/dev/null
-    git -C /workspace remote set-url origin "$(git -C /workspace remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
+    git -C /tmuxy remote set-url origin "$(git -C /tmuxy remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
 '
 # Auto-start servers only for interactive shells (not when --cmd manages its own)
 if [ -z "$CONTAINER_CMD" ]; then
     INIT_SCRIPT+='
-    pm2 start /workspace/bin/prod --name tmuxy-prod --cwd /workspace 2>/dev/null
-    TMUX_SOCKET=tmuxy-dev DEV_PORT=9001 pm2 start /workspace/bin/dev --name tmuxy-dev --cwd /workspace 2>/dev/null
+    pm2 start /tmuxy/bin/prod --name tmuxy-prod --cwd /tmuxy 2>/dev/null
+    TMUX_SOCKET=tmuxy-dev DEV_PORT=9001 pm2 start /tmuxy/bin/dev --name tmuxy-dev --cwd /tmuxy 2>/dev/null
 '
 fi
 
@@ -144,9 +166,9 @@ exec docker run $TTY_FLAG --rm \
     -e HOST_PORT="$HOST_PORT" \
     -e CONTAINER_NAME="$CONTAINER_NAME" \
     -e CHROME_CDP_URL=http://host.docker.internal:9222 \
-    -e GH_TOKEN="${GH_TOKEN:-$(gh auth token 2>/dev/null || echo '')}" \
     -e TMUX_SESSION=dev \
-    -w /workspace \
-    -u node \
+    -e GIT_CONFIG_GLOBAL=/home/user/.config/git/config \
+    -w /tmuxy \
+    -u user \
     "$IMAGE_NAME" \
     bash -lic "${INIT_SCRIPT}${CONTAINER_CMD:-exec bash -l}"

@@ -169,6 +169,21 @@ export function createKeyboardActor() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!enabled) return;
 
+      // Let keys pass through when the user is interacting with a real form
+      // control (e.g. the read-only debug log textarea on the status screen).
+      // Without this, keys like Cmd+A / Cmd+C wouldn't reach the textarea
+      // because they'd be intercepted as send-keys / copy-mode triggers.
+      // Mobile keyboard's hidden input is excluded — it has dedicated handling
+      // further down (mobileKeyboard.ts forwards `input` events).
+      const eventTarget = event.target as HTMLElement | null;
+      if (
+        eventTarget &&
+        (eventTarget.tagName === 'TEXTAREA' || eventTarget.tagName === 'INPUT') &&
+        eventTarget !== getMobileInput()
+      ) {
+        return;
+      }
+
       // Skip during IME composition
       // keyCode 229 is a special value indicating IME is processing
       if (isComposing || event.isComposing || event.keyCode === 229) {

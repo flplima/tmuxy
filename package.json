@@ -12,7 +12,7 @@
     "devcontainer:build": "bash bin/devcontainer --build",
     "yolo-mode": "bash bin/devcontainer --cmd 'claude --dangerously-skip-permissions'",
     "build": "npm run build -w tmuxy-ui && cargo build --release -p tmuxy-server && cd packages/tauri-app && tauri build",
-    "start": "pm2 start ./bin/dev --name tmuxy-dev --cwd /workspace",
+    "start": "pm2 start ./bin/dev --name tmuxy-dev --interpreter bash --cwd /tmuxy",
     "stop": "pm2 stop tmuxy-dev 2>/dev/null; pm2 stop tmuxy-prod 2>/dev/null; true",
     "logs": "pm2 logs",
     "tauri:dev": "cargo tauri dev --manifest-path packages/tauri-app/Cargo.toml",

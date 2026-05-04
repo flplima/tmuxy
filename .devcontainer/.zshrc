@@ -12,6 +12,9 @@ setopt SHARE_HISTORY
 export PATH=/usr/local/cargo/bin:$PATH
 
 # Pure prompt
-fpath+=(/home/node/.zsh/pure)
+fpath+=(/home/user/.zsh/pure)
 autoload -U promptinit; promptinit
 prompt pure
+
+# `yolo` shortcut: run Claude Code with all permission checks disabled
+yolo() { claude --dangerously-skip-permissions "$@"; }

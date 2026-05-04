@@ -5,6 +5,7 @@ import type {
   ConnectionInfoListener,
   ReconnectionListener,
   KeyBindingsListener,
+  LogListener,
   KeyBindings,
 } from '../types';
 import { DemoTmux } from './DemoTmux';
@@ -282,6 +283,10 @@ export class DemoAdapter implements TmuxAdapter {
   onKeyBindings(listener: KeyBindingsListener): () => void {
     this.keyBindingsListeners.add(listener);
     return () => this.keyBindingsListeners.delete(listener);
+  }
+
+  onLog(_listener: LogListener): () => void {
+    return () => {};
   }
 
   private emitState(): void {

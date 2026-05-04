@@ -5,6 +5,8 @@ import {
   ConnectionInfoListener,
   ReconnectionListener,
   KeyBindingsListener,
+  LogListener,
+  LogEntryKind,
   ServerState,
   StateUpdate,
   KeyBindings,
@@ -51,6 +53,7 @@ export class HttpAdapter implements TmuxAdapter {
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
+  private logListeners = new Set<LogListener>();
 
   // Delta protocol state
   private currentState: ServerState | null = null;
@@ -130,6 +133,18 @@ export class HttpAdapter implements TmuxAdapter {
           this.notifyError(message);
         } catch {
           // Not a JSON error event, might be connection error
+        }
+      });
+
+      this.eventSource.addEventListener('log', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const payload = data.data || data;
+          const kind = (payload.kind as LogEntryKind) || 'info';
+          const message = String(payload.message ?? '');
+          this.notifyLog(kind, message);
+        } catch (e) {
+          console.error('Failed to parse log event:', e);
         }
       });
 
@@ -306,6 +321,11 @@ export class HttpAdapter implements TmuxAdapter {
     return () => this.keyBindingsListeners.delete(listener);
   }
 
+  onLog(listener: LogListener): () => void {
+    this.logListeners.add(listener);
+    return () => this.logListeners.delete(listener);
+  }
+
   async switchSession(newSession: string): Promise<void> {
     sessionOverride = newSession;
     this.currentState = null;
@@ -383,5 +403,9 @@ export class HttpAdapter implements TmuxAdapter {
 
   private notifyKeyBindings(keybindings: KeyBindings): void {
     this.keyBindingsListeners.forEach((listener) => listener(keybindings));
+  }
+
+  private notifyLog(kind: LogEntryKind, message: string): void {
+    this.logListeners.forEach((listener) => listener(kind, message));
   }
 }

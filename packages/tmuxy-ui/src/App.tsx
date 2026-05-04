@@ -19,8 +19,10 @@ import {
   useAppConfig,
   selectPreviewPanes,
   selectError,
+  selectLog,
   selectContainerSize,
 } from './machines/AppContext';
+import type { LogEntry } from './machines/types';
 import { initDebugHelpers } from './utils/debug';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
@@ -28,10 +30,76 @@ export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 // Initialize debug helpers
 initDebugHelpers();
 
+function formatLog(log: LogEntry[]): string {
+  if (log.length === 0) return 'No activity yet.';
+  return log
+    .map((entry) => {
+      const time = new Date(entry.timestamp).toISOString().slice(11, 23);
+      const tag = entry.kind.toUpperCase().padEnd(7);
+      return `[${time}] ${tag} ${entry.message}`;
+    })
+    .join('\n');
+}
+
+interface StatusScreenProps {
+  error: string | null;
+  isConnecting: boolean;
+  log: LogEntry[];
+}
+
+function StatusScreen({ error, isConnecting, log }: StatusScreenProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const text = formatLog(log);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    // Auto-scroll to bottom unless the user is selecting text
+    if (document.activeElement !== el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [text]);
+
+  const heading = error
+    ? 'Connection Error'
+    : isConnecting
+      ? 'Connecting to tmux...'
+      : 'Waiting for tmux state...';
+  const testId = error ? 'error-display' : 'loading-display';
+
+  return (
+    <div className={error ? 'error' : 'loading'} data-testid={testId}>
+      <h2>{heading}</h2>
+      {error && (
+        <p className="status-message">
+          {error.length > 0
+            ? error
+            : 'Failed to connect to tmux. Make sure tmux is installed and running.'}
+        </p>
+      )}
+      <div className="status-details">
+        <label htmlFor="status-log" className="status-details-label">
+          Details (commands &amp; errors)
+        </label>
+        <textarea
+          id="status-log"
+          ref={textareaRef}
+          className="status-details-log"
+          data-testid="status-log"
+          readOnly
+          value={text}
+          spellCheck={false}
+        />
+      </div>
+    </div>
+  );
+}
+
 function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // Select minimal state needed at App level
   const panes = useAppSelector(selectPreviewPanes);
   const error = useAppSelector(selectError);
+  const log = useAppSelector(selectLog);
   const containerSize = useAppSelector(selectContainerSize);
   const isConnecting = useAppState('connecting');
   const send = useAppSend();
@@ -86,19 +154,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     <div ref={appContainerRef} className="app-container">
       <StatusBar renderTabline={renderTabline} />
       <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
-        {error && !showLayout ? (
-          <div className="error" data-testid="error-display">
-            <h2>Connection Error</h2>
-            <p>Failed to connect to tmux. Make sure tmux is installed and running.</p>
-            <details className="error-details">
-              <summary>Details</summary>
-              <pre className="error-log">{error}</pre>
-            </details>
-          </div>
-        ) : !showLayout ? (
-          <div className="loading" data-testid="loading-display">
-            <p>Connecting to tmux...</p>
-          </div>
+        {!showLayout ? (
+          <StatusScreen error={error} isConnecting={isConnecting} log={log} />
         ) : (
           <>
             <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>

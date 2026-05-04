@@ -9,6 +9,7 @@ vi.mock('../machines/AppContext', () => ({
   useAppConfig: vi.fn(() => ({})),
   selectPreviewPanes: vi.fn(),
   selectError: vi.fn(),
+  selectLog: vi.fn(),
   selectContainerSize: vi.fn(),
 }));
 
@@ -53,6 +54,7 @@ describe('App', () => {
     mockUseAppSelector.mockImplementation((selector) => {
       if (selector === AppContext.selectPreviewPanes) return [];
       if (selector === AppContext.selectError) return null;
+      if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
       return undefined;
     });
@@ -69,6 +71,7 @@ describe('App', () => {
     mockUseAppSelector.mockImplementation((selector) => {
       if (selector === AppContext.selectPreviewPanes) return [];
       if (selector === AppContext.selectError) return null;
+      if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 800, height: 600 };
       return undefined;
     });
@@ -85,6 +88,7 @@ describe('App', () => {
     mockUseAppSelector.mockImplementation((selector) => {
       if (selector === AppContext.selectPreviewPanes) return [{ tmuxId: '%0' }];
       if (selector === AppContext.selectError) return null;
+      if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
       return undefined;
     });
@@ -101,6 +105,7 @@ describe('App', () => {
     mockUseAppSelector.mockImplementation((selector) => {
       if (selector === AppContext.selectPreviewPanes) return [];
       if (selector === AppContext.selectError) return 'Connection failed';
+      if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
       return undefined;
     });
@@ -117,6 +122,7 @@ describe('App', () => {
     mockUseAppSelector.mockImplementation((selector) => {
       if (selector === AppContext.selectPreviewPanes) return [];
       if (selector === AppContext.selectError) return null;
+      if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
       return undefined;
     });

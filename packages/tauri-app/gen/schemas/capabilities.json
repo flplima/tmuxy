@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for tmuxy desktop app","local":true,"windows":["main"],"permissions":["core:default","core:event:default","core:event:allow-listen","core:event:allow-emit"]}}
+{"default":{"identifier":"default","description":"Default capabilities for tmuxy desktop app","local":true,"windows":["main"],"permissions":["core:default","core:event:default","core:event:allow-listen","core:event:allow-emit","core:window:default","core:window:allow-start-dragging"]}}

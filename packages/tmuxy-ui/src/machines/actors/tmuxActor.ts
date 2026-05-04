@@ -28,13 +28,27 @@ export function createTmuxActor(adapter: TmuxAdapter) {
   return fromCallback<TmuxActorEvent, TmuxActorInput>(({ input, receive }) => {
     const { parent } = input;
 
+    const logInfo = (message: string) =>
+      parent.send({ type: 'LOG_APPEND', kind: 'info', message });
+    const logCommand = (message: string) =>
+      parent.send({ type: 'LOG_APPEND', kind: 'command', message });
+    const logError = (message: string) =>
+      parent.send({ type: 'LOG_APPEND', kind: 'error', message });
+
+    logInfo('Connecting to tmux backend...');
+
     // Subscribe to adapter events
     const unsubscribeState = adapter.onStateChange((state: ServerState) => {
       parent.send({ type: 'TMUX_STATE_UPDATE', state });
     });
 
     const unsubscribeError = adapter.onError((error: string) => {
+      logError(error);
       parent.send({ type: 'TMUX_ERROR', error });
+    });
+
+    const unsubscribeLog = adapter.onLog((kind, message) => {
+      parent.send({ type: 'LOG_APPEND', kind, message });
     });
 
     const unsubscribeKeyBindings = adapter.onKeyBindings((keybindings: KeyBindings) => {
@@ -51,30 +65,42 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     adapter
       .connect()
       .then(() => {
+        logInfo('Connected to tmux backend');
         parent.send({ type: 'TMUX_CONNECTED' });
       })
       .catch((error) => {
-        parent.send({ type: 'TMUX_ERROR', error: error.message || 'Failed to connect' });
+        const message = error?.message || String(error) || 'Failed to connect';
+        logError(`Connect failed: ${message}`);
+        parent.send({ type: 'TMUX_ERROR', error: message });
       });
 
     // Handle commands from parent machine
     receive((event) => {
       if (event.type === 'SEND_COMMAND') {
+        logCommand(event.command);
         adapter.invoke<void>('run_tmux_command', { command: event.command }).catch((error) => {
-          parent.send({ type: 'TMUX_ERROR', error: error.message || 'Command failed' });
+          const message = error?.message || String(error) || 'Command failed';
+          logError(`${event.command} -> ${message}`);
+          parent.send({ type: 'TMUX_ERROR', error: message });
         });
       } else if (event.type === 'INVOKE') {
+        logCommand(`${event.cmd}${event.args ? ' ' + JSON.stringify(event.args) : ''}`);
         adapter.invoke(event.cmd, event.args || {}).catch((error) => {
-          parent.send({ type: 'TMUX_ERROR', error: error.message || 'Invoke failed' });
+          const message = error?.message || String(error) || 'Invoke failed';
+          logError(`${event.cmd} -> ${message}`);
+          parent.send({ type: 'TMUX_ERROR', error: message });
         });
       } else if (event.type === 'FETCH_INITIAL_STATE') {
+        logCommand(`get_initial_state cols=${event.cols} rows=${event.rows}`);
         adapter
           .invoke<ServerState>('get_initial_state', { cols: event.cols, rows: event.rows })
           .then((state) => {
             parent.send({ type: 'TMUX_STATE_UPDATE', state });
           })
           .catch((error) => {
-            parent.send({ type: 'TMUX_ERROR', error: error.message || 'Failed to fetch state' });
+            const message = error?.message || String(error) || 'Failed to fetch state';
+            logError(`get_initial_state -> ${message}`);
+            parent.send({ type: 'TMUX_ERROR', error: message });
           });
       } else if (event.type === 'FETCH_SCROLLBACK_CELLS') {
         adapter
@@ -161,6 +187,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     return () => {
       unsubscribeState();
       unsubscribeError();
+      unsubscribeLog();
       unsubscribeKeyBindings();
       unsubscribeConnectionInfo();
       adapter.disconnect();

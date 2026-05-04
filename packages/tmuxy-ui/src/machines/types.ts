@@ -86,6 +86,13 @@ export interface ResizeState {
 // App Machine Types
 // ============================================
 
+/** Log entry shown on the connecting/error status screen for debugging */
+export interface LogEntry {
+  timestamp: number;
+  kind: 'command' | 'output' | 'error' | 'info';
+  message: string;
+}
+
 /** Pending state update stored during pane exit animation */
 export interface PendingUpdate {
   panes: TmuxPane[];
@@ -103,6 +110,8 @@ export interface PendingUpdate {
 export interface AppMachineContext {
   connected: boolean;
   error: string | null;
+  /** Recent commands sent and errors received (debug log shown on status screen) */
+  log: LogEntry[];
   sessionName: string;
   activeWindowId: string | null;
   activePaneId: string | null;
@@ -440,6 +449,13 @@ export type DecreaseFontSizeEvent = { type: 'DECREASE_FONT_SIZE' };
 export type ResetFontSizeEvent = { type: 'RESET_FONT_SIZE' };
 export type ToggleCursorBlinkEvent = { type: 'TOGGLE_CURSOR_BLINK' };
 
+// Debug log events
+export type LogAppendEvent = {
+  type: 'LOG_APPEND';
+  kind: 'command' | 'output' | 'error' | 'info';
+  message: string;
+};
+
 // Theme events
 export type SetThemeEvent = { type: 'SET_THEME'; name: string };
 export type SetThemeModeEvent = { type: 'SET_THEME_MODE'; mode: 'dark' | 'light' };
@@ -522,7 +538,8 @@ export type AppMachineEvent =
   | IncreaseFontSizeEvent
   | DecreaseFontSizeEvent
   | ResetFontSizeEvent
-  | ToggleCursorBlinkEvent;
+  | ToggleCursorBlinkEvent
+  | LogAppendEvent;
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

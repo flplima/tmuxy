@@ -64,6 +64,7 @@ export {
   selectActiveWindowId,
   selectIsConnected,
   selectError,
+  selectLog,
   selectGridDimensions,
   selectCharSize,
   selectPanePixelDimensions,

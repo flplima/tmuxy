@@ -29,7 +29,10 @@ pub enum MonitorCommand {
 ///
 /// Implement this trait in tmuxy-server (SseEmitter) and tauri-app (TauriEmitter)
 /// to receive state updates from the monitor.
-pub trait StateEmitter: Send + Sync {
+///
+/// `StateEmitter: LogSink` — emitters may also override [`LogSink::log`] to
+/// surface connection-time command/output progress to the UI.
+pub trait StateEmitter: super::log::LogSink {
     /// Called when tmux state changes (full or delta update)
     fn emit_state(&self, update: StateUpdate);
 
@@ -118,20 +121,32 @@ pub struct TmuxMonitor {
 impl TmuxMonitor {
     /// Connect to a tmux session in control mode.
     /// Returns the monitor and a sender for sending commands to it.
-    pub async fn connect(config: MonitorConfig) -> Result<(Self, MonitorCommandSender), String> {
+    ///
+    /// `log` receives streaming progress entries (each tmux invocation, its
+    /// output, and any retry decisions). Pass `None` if the caller doesn't
+    /// surface these to a UI.
+    pub async fn connect(
+        config: MonitorConfig,
+        log: Option<&dyn super::log::LogSink>,
+    ) -> Result<(Self, MonitorCommandSender), String> {
         // Serialize session creation + CC attachment to prevent concurrent operations
         // that crash tmux 3.5a. The lock covers both new-session and CC attach so that
         // only one monitor at a time is spawning control mode processes.
         let connection = {
             let _lock = super::connection::session_creation_lock().await;
-            match ControlModeConnection::connect(&config.session, config.working_dir.as_deref())
-                .await
+            match ControlModeConnection::connect(
+                &config.session,
+                config.working_dir.as_deref(),
+                log,
+            )
+            .await
             {
                 Ok(conn) => conn,
                 Err(e) if config.create_session && e.contains("does not exist") => {
                     ControlModeConnection::new_session(
                         &config.session,
                         config.working_dir.as_deref(),
+                        log,
                     )
                     .await?
                 }
@@ -853,6 +868,8 @@ mod tests {
         updates: Arc<Mutex<Vec<StateUpdate>>>,
         errors: Arc<Mutex<Vec<String>>>,
     }
+
+    impl super::super::log::LogSink for TestEmitter {}
 
     impl StateEmitter for TestEmitter {
         fn emit_state(&self, update: StateUpdate) {

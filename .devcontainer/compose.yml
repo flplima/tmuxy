@@ -10,24 +10,27 @@ services:
     stdin_open: true
     tty: true
     user: user
-    working_dir: /workspace
+    working_dir: /tmuxy
     volumes:
       # Project workspace
-      - ..:/workspace
+      - ..:/tmuxy
       # Container config files
       - ../.devcontainer:/home/user/.devcontainer:ro
       # Dotfiles scripts (tmux-run, etc.)
       - ~/dotfiles/scripts:/home/user/dotfiles/scripts:ro
-      # SSH keys for git
-      - ~/.ssh:/home/user/.ssh:ro
-      # GitHub CLI auth
-      - ~/.config/gh:/home/user/.config/gh:ro
+      # Credentials are NOT mounted from host — log in once inside the
+      # container; named volumes below persist auth across restarts.
+      - tmuxy-gh-config:/home/user/.config/gh
+      - tmuxy-claude-config:/home/user/.claude
+      - tmuxy-ssh:/home/user/.ssh
+      - tmuxy-git-config:/home/user/.config/git
       # Cargo cache for faster builds
       - tmuxy-cargo-registry:/usr/local/cargo/registry
       - tmuxy-cargo-git:/usr/local/cargo/git
     environment:
       - CHROME_CDP_URL=http://localhost:9222
       - TMUX_SESSION=dev
+      - GIT_CONFIG_GLOBAL=/home/user/.config/git/config
     security_opt:
       - no-new-privileges:true
     shm_size: 1g
@@ -37,3 +40,7 @@ services:
 volumes:
   tmuxy-cargo-registry:
   tmuxy-cargo-git:
+  tmuxy-gh-config:
+  tmuxy-claude-config:
+  tmuxy-ssh:
+  tmuxy-git-config:

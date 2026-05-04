@@ -1,5 +1,6 @@
 import type {
   AppMachineContext,
+  LogEntry,
   TmuxPane,
   PaneGroup,
   ResizeState,
@@ -241,6 +242,10 @@ export function selectIsConnected(context: AppMachineContext): boolean {
 
 export function selectError(context: AppMachineContext): string | null {
   return context.error;
+}
+
+export function selectLog(context: AppMachineContext): LogEntry[] {
+  return context.log;
 }
 
 // ============================================

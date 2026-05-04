@@ -5,6 +5,8 @@ import {
   ConnectionInfoListener,
   ReconnectionListener,
   KeyBindingsListener,
+  LogListener,
+  LogEntryKind,
   ServerState,
   StateUpdate,
   KeyBindings,
@@ -29,6 +31,7 @@ export class TauriAdapter implements TmuxAdapter {
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
+  private logListeners = new Set<LogListener>();
 
   // Delta protocol state
   private currentState: ServerState | null = null;
@@ -74,6 +77,15 @@ export class TauriAdapter implements TmuxAdapter {
         this.notifyKeyBindings(event.payload);
       });
       this.unlistenFns.push(unlistenKeybindings);
+
+      // Listen for streaming connection-time progress (each command + output)
+      const unlistenLog = await listen<{ kind: LogEntryKind; message: string }>(
+        'tmux-log',
+        (event) => {
+          this.notifyLog(event.payload.kind, event.payload.message);
+        },
+      );
+      this.unlistenFns.push(unlistenLog);
 
       // Listen for errors (emitted by monitor.rs on connection failure)
       const unlistenError = await listen<string>('tmux-error', (event) => {
@@ -179,8 +191,17 @@ export class TauriAdapter implements TmuxAdapter {
     return () => this.keyBindingsListeners.delete(listener);
   }
 
+  onLog(listener: LogListener): () => void {
+    this.logListeners.add(listener);
+    return () => this.logListeners.delete(listener);
+  }
+
   private notifyStateChange(state: ServerState) {
     this.stateListeners.forEach((listener) => listener(state));
+  }
+
+  private notifyLog(kind: LogEntryKind, message: string) {
+    this.logListeners.forEach((listener) => listener(kind, message));
   }
 
   private notifyError(error: string) {
