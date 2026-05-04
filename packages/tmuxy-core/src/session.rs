@@ -30,10 +30,10 @@ fn find_tmux() -> String {
 
     // Common locations not in macOS GUI PATH
     let candidates = [
-        "/opt/homebrew/bin/tmux", // Homebrew on Apple Silicon
-        "/usr/local/bin/tmux",    // Homebrew on Intel Mac / Linux manual install
-        "/usr/bin/tmux",          // System package (apt, yum)
-        "/run/current-system/sw/bin/tmux", // NixOS
+        "/opt/homebrew/bin/tmux",                 // Homebrew on Apple Silicon
+        "/usr/local/bin/tmux",                    // Homebrew on Intel Mac / Linux manual install
+        "/usr/bin/tmux",                          // System package (apt, yum)
+        "/run/current-system/sw/bin/tmux",        // NixOS
         "/nix/var/nix/profiles/default/bin/tmux", // Nix single-user
     ];
     for path in candidates {
@@ -150,7 +150,11 @@ pub fn ensure_config() -> PathBuf {
 }
 
 pub fn session_exists(session_name: &str) -> Result<bool, String> {
-    crate::debug_log::log_cmd("has-session", tmux_path(), &["has-session", "-t", session_name]);
+    crate::debug_log::log_cmd(
+        "has-session",
+        tmux_path(),
+        &["has-session", "-t", session_name],
+    );
     let output = tmux_command()
         .args(["has-session", "-t", session_name])
         .output()

@@ -14,7 +14,9 @@ use std::convert::Infallible;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use tmuxy_core::control_mode::{LogKind, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
+use tmuxy_core::control_mode::{
+    LogKind, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
+};
 use tmuxy_core::{executor, StateUpdate};
 use tokio::sync::broadcast;
 
