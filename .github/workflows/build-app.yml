@@ -108,6 +108,31 @@ jobs:
 
           exit $RESULT
 
+      # Regression test for the macOS Finder-launch failure pattern. Runs
+      # only on Linux because it needs to spawn the binary with a custom
+      # HOME (the macOS .app on the runner can't be relaunched the same
+      # way). Validates the bounded-retry safety net by planting a
+      # tmux.conf whose default-command can't exec, then asserting the
+      # debug log shows FATAL within ~45s instead of looping forever.
+      - name: Run hostile-config regression test (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
+          XVFB_PID=$!
+          export DISPLAY=:99
+
+          for i in $(seq 1 20); do
+            xdpyinfo -display :99 >/dev/null 2>&1 && break
+            sleep 0.25
+          done
+
+          node tests/smoke/hostile-config-test.js "${{ matrix.binary }}"
+          RESULT=$?
+
+          kill $XVFB_PID 2>/dev/null || true
+
+          exit $RESULT
+
       - name: Run smoke test (macOS)
         if: matrix.platform == 'macos'
         run: |
@@ -124,6 +149,25 @@ jobs:
           kill $DRIVER_PID 2>/dev/null || true
 
           exit $RESULT
+
+      # Sparse-PATH regression test for the macOS Finder-launch failure.
+      # Runs the *release* universal binary (which contains the production
+      # PATH-augmentation code path) under launchd-style stripped env, with
+      # a tmux.conf that requires a Homebrew-only binary to stay alive.
+      # If gui.rs's PATH augmentation regresses, this test reconnect-storms
+      # or FATALs out within seconds.
+      - name: Install sparse-PATH test helper (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          sudo tee /opt/homebrew/bin/tmuxy-stay-alive > /dev/null << 'EOF'
+          #!/bin/sh
+          exec sleep 36000
+          EOF
+          sudo chmod +x /opt/homebrew/bin/tmuxy-stay-alive
+
+      - name: Run sparse-PATH regression test (macOS)
+        if: matrix.platform == 'macos'
+        run: node tests/smoke/macos-sparse-path-test.js "${{ matrix.binary }}"
 
       # --- Collect Artifacts ---
 

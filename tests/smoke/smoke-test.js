@@ -19,6 +19,8 @@
 
 const { remote } = require('webdriverio');
 const { execSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const BINARY = process.argv[2];
@@ -32,6 +34,7 @@ const DRIVER_PORT = 4444;
 const SESSION_NAME = 'tmuxy'; // default session name
 const APP_READY_TIMEOUT = 60000;
 const COMMAND_TIMEOUT = 30000;
+const DEBUG_LOG = path.join(os.homedir(), 'tmuxy-debug.log');
 
 // --- Helpers ---
 
@@ -41,6 +44,53 @@ function cleanupTmuxSession() {
   } catch {
     // Session may not exist
   }
+}
+
+function truncateDebugLog() {
+  // Start with an empty log so post-run assertions only see this run's output.
+  try {
+    fs.writeFileSync(DEBUG_LOG, '');
+  } catch {
+    // Log may not exist yet; the app creates it on first write.
+  }
+}
+
+/**
+ * Validate the debug log shows a healthy single connection lifecycle.
+ *
+ * Catches subtle bugs where the smoke test's marker-typing happens to succeed
+ * but the app reconnected silently in the background (e.g. tmux crashed and
+ * was reattached, masking control-mode regressions). Specifically guards:
+ *   - The FATAL retry-cap (proves we never gave up)
+ *   - Repeated "control mode connected successfully" lines (proves we didn't
+ *     reconnect-loop). One is normal; >2 means the connection died and came
+ *     back, which is the exact pattern the macOS Finder-launch bug produced.
+ */
+function assertHealthyDebugLog() {
+  let contents;
+  try {
+    contents = fs.readFileSync(DEBUG_LOG, 'utf8');
+  } catch (err) {
+    throw new Error(`Could not read debug log at ${DEBUG_LOG}: ${err.message}`);
+  }
+
+  if (/FATAL:/.test(contents)) {
+    throw new Error(
+      `Debug log contains FATAL — bounded retry gave up.\n` +
+        `Tail:\n${contents.slice(-2000)}`
+    );
+  }
+
+  const connectMarker = 'control mode connected successfully';
+  const connectCount = (contents.match(new RegExp(connectMarker, 'g')) || []).length;
+  if (connectCount > 2) {
+    throw new Error(
+      `Debug log shows ${connectCount} reconnects (expected ≤ 2). ` +
+        `Connection is unstable. Tail:\n${contents.slice(-2000)}`
+    );
+  }
+
+  console.warn(`Debug log healthy: ${connectCount} connect event(s), no FATAL`);
 }
 
 // --- Full GUI smoke test (WebdriverIO — both platforms) ---
@@ -144,11 +194,14 @@ async function main() {
   console.warn(`Binary: ${BINARY_PATH}`);
   console.warn(`Platform: ${process.platform}`);
 
-  // Clean up any leftover session
+  // Clean up any leftover session and clear the debug log so the
+  // post-run assertions only inspect this run's output.
   cleanupTmuxSession();
+  truncateDebugLog();
 
   try {
     await smokeTest();
+    assertHealthyDebugLog();
   } finally {
     cleanupTmuxSession();
   }
