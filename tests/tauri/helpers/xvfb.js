@@ -35,9 +35,13 @@ function startXvfb() {
   // Set DISPLAY for child processes
   process.env.DISPLAY = DISPLAY;
 
-  // Wait for Xvfb to be ready
+  // Wait for Xvfb to be ready. Bumped from 5s to 30s because cold CI
+  // runners (especially during the first test invocation, when xdpyinfo
+  // itself may take ~1s to spawn) intermittently miss the original
+  // window. 30s leaves headroom without slowing the happy path.
+  const timeoutMs = 30000;
   const start = Date.now();
-  while (Date.now() - start < 5000) {
+  while (Date.now() - start < timeoutMs) {
     try {
       execSync(`xdpyinfo -display ${DISPLAY}`, { stdio: 'ignore', timeout: 1000 });
       return;
@@ -47,7 +51,7 @@ function startXvfb() {
     execSync('sleep 0.1');
   }
 
-  throw new Error('Xvfb did not start within 5 seconds');
+  throw new Error(`Xvfb did not start within ${timeoutMs / 1000} seconds`);
 }
 
 /**
