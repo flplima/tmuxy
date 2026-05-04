@@ -5,11 +5,10 @@
 use super::log::{LogKind, LogSink};
 use super::parser::{ControlModeEvent, Parser};
 use crate::session;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::Child;
 use tokio::sync::{mpsc, Mutex};
 
 /// Helper to conditionally emit a log entry to an optional sink.
@@ -51,17 +50,17 @@ pub async fn session_creation_lock() -> tokio::sync::MutexGuard<'static, ()> {
     SESSION_CREATION_LOCK.lock().await
 }
 
-/// Snapshot the recent stderr buffer as a single newline-joined string.
+/// Snapshot the recent-output buffer as a single newline-joined string.
 /// Used when send_command/connect fails so the error message can include
-/// whatever the dying subprocess said on its way out.
-async fn drain_recent_stderr(recent: &Arc<Mutex<Vec<String>>>) -> String {
+/// whatever tmux emitted on its way out.
+async fn drain_recent_output(recent: &Arc<Mutex<Vec<String>>>) -> String {
     let guard = recent.lock().await;
     guard.join("\n")
 }
 
-/// Default initial PTY size (cols x rows) for the `script` wrapper.
-/// Large enough to avoid tiny panes that crash vt100, but will be resized
-/// by the browser once it connects and sends its viewport dimensions.
+/// Default initial PTY size (cols x rows). Large enough to avoid tiny
+/// panes that crash vt100; the browser sends a real resize once it connects
+/// and reports its viewport dimensions.
 pub const INITIAL_PTY_COLS: u32 = 200;
 pub const INITIAL_PTY_ROWS: u32 = 50;
 
@@ -70,8 +69,9 @@ pub struct ControlModeConnection {
     /// The tmux -CC child process
     child: Child,
 
-    /// Stdin for sending commands
-    stdin: ChildStdin,
+    /// Write half of the PTY master — sends commands to tmux via the
+    /// controlling terminal (mimicking what a user types).
+    pty_writer: pty_process::OwnedWritePty,
 
     /// Receiver for parsed events
     event_rx: mpsc::Receiver<ControlModeEvent>,
@@ -79,93 +79,57 @@ pub struct ControlModeConnection {
     /// Command counter for tracking responses
     command_counter: u32,
 
-    /// Recent stderr lines from the spawned `script`/`tmux` subprocess.
-    /// Populated by a background task that drains child.stderr.
-    /// Consulted when send_command fails so the error message can include
-    /// whatever the dying process said on its way out.
-    recent_stderr: Arc<Mutex<Vec<String>>>,
+    /// Bounded buffer of recent raw lines from the PTY master (parsed or
+    /// otherwise). Consulted when send_command fails so the error message
+    /// can include whatever tmux said on its way out — e.g. an error
+    /// message printed to stderr that came through the merged PTY stream.
+    recent_output: Arc<Mutex<Vec<String>>>,
 }
 
-/// Spawn the stdout parser task that reads raw bytes, converts to UTF-8 lossily,
-/// and feeds parsed events into the channel.
+/// Spawn the PTY-master parser task. Reads raw bytes from the master end of
+/// the pty, converts each line to UTF-8 lossily, parses control-mode events,
+/// forwards them to `tx`, and signals readiness via `ready_tx` after the
+/// first successfully parsed event.
 ///
-/// Uses `read_until(b'\n')` instead of `lines()` to avoid failing on non-UTF-8
-/// bytes that the `script` PTY wrapper may introduce into the stream.
-///
-/// Signals readiness via `ready_tx` after the first successfully parsed event,
-/// ensuring the caller knows the tmux control mode connection is alive.
-/// Spawn a background task that drains the spawned subprocess's stderr,
-/// recording each line into `recent_stderr` (capped to the last 200 lines)
-/// and emitting it to the log sink in real time.
-///
-/// macOS Finder-launched apps run with a very sparse environment from
-/// launchd; when tmux 3.5a fails in -CC mode, its stderr message is the
-/// only direct evidence of *why*. Without this drain, the bytes sit in
-/// the kernel pipe buffer until the child dies, and we never look.
-fn spawn_stderr_drain(
-    stderr: tokio::process::ChildStderr,
-    recent_stderr: Arc<Mutex<Vec<String>>>,
-    log_tx: mpsc::Sender<(LogKind, String)>,
-) {
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr);
-        let mut buf = Vec::with_capacity(1024);
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf).await {
-                Ok(0) => break,
-                Ok(_) => {
-                    while buf.last() == Some(&b'\n') || buf.last() == Some(&b'\r') {
-                        buf.pop();
-                    }
-                    if buf.is_empty() {
-                        continue;
-                    }
-                    let line = String::from_utf8_lossy(&buf).to_string();
-                    {
-                        let mut guard = recent_stderr.lock().await;
-                        guard.push(line.clone());
-                        if guard.len() > 200 {
-                            let drain_count = guard.len() - 200;
-                            guard.drain(0..drain_count);
-                        }
-                    }
-                    let _ = log_tx
-                        .send((LogKind::Output, format!("subprocess stderr: {}", line)))
-                        .await;
-                }
-                Err(_) => break,
-            }
-        }
-    });
-}
-
+/// Every line — parsed or not — is also pushed into `recent_output`, capped
+/// to the last 200 entries, so a later send error can include tmux's final
+/// words. With pty-process the child's stdout AND stderr are merged into
+/// the same PTY stream, so any error tmux writes on its way out lands here
+/// for capture.
 fn spawn_parser_task(
-    stdout: tokio::process::ChildStdout,
+    reader: pty_process::OwnedReadPty,
     tx: mpsc::Sender<ControlModeEvent>,
     ready_tx: tokio::sync::oneshot::Sender<()>,
+    recent_output: Arc<Mutex<Vec<String>>>,
 ) {
     tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout);
+        let mut buf_reader = BufReader::new(reader);
         let mut parser = Parser::new();
         let mut buf = Vec::with_capacity(4096);
         let mut ready_tx = Some(ready_tx);
 
         loop {
             buf.clear();
-            match reader.read_until(b'\n', &mut buf).await {
+            match buf_reader.read_until(b'\n', &mut buf).await {
                 Ok(0) => {
-                    // EOF - tmux process exited
+                    // EOF — tmux process exited (or PTY was closed)
                     break;
                 }
                 Ok(_) => {
-                    // Strip trailing \n and \r
                     while buf.last() == Some(&b'\n') || buf.last() == Some(&b'\r') {
                         buf.pop();
                     }
 
-                    // Convert to string lossily (replaces invalid UTF-8 with U+FFFD)
-                    let line = String::from_utf8_lossy(&buf);
+                    let line = String::from_utf8_lossy(&buf).to_string();
+
+                    if !line.is_empty() {
+                        let mut guard = recent_output.lock().await;
+                        guard.push(line.clone());
+                        if guard.len() > 200 {
+                            let drain_count = guard.len() - 200;
+                            guard.drain(0..drain_count);
+                        }
+                    }
 
                     if let Some(event) = parser.parse_line(&line) {
                         // Signal readiness on first parsed event
@@ -189,8 +153,12 @@ fn spawn_parser_task(
 impl ControlModeConnection {
     /// Connect to a tmux session in control mode.
     ///
-    /// This spawns `tmux -CC attach-session -t <session>` wrapped in `script`
-    /// to provide a PTY (required for tmux control mode).
+    /// Spawns `tmux -CC attach-session -t <session>` directly attached to a
+    /// freshly-allocated PTY (via openpty(3) + setsid + TIOCSCTTY). tmux's
+    /// `-CC` mode requires a real controlling terminal on stdin; pipes don't
+    /// work. We previously wrapped the spawn in `script(1)` for this, but
+    /// `script` was unreliable under macOS launchd (no controlling TTY in
+    /// the parent) — pty-process makes the spawn portable and robust.
     ///
     /// `log` receives streaming entries for each tmux invocation and its
     /// output. The final `Err(_)` value still summarizes the failure for
@@ -261,188 +229,152 @@ impl ControlModeConnection {
             ));
         }
 
-        // Spawn tmux in control mode (-CC) wrapped in `script` for a PTY.
-        // tmux -CC requires a controlling terminal; piped stdin causes
-        // "tcgetattr failed" or silent failure without a PTY.
+        // Spawn tmux in control mode (-CC) attached to a PTY allocated
+        // directly via openpty(3). Replaces the previous `script(1)` wrapper
+        // — script's behavior under macOS launchd (no controlling TTY in the
+        // parent) was unreliable and caused the server to die ~50ms after
+        // sending %begin when the .app was launched from Finder.
         //
-        // Both branches wrap with /bin/sh -c "stty …; exec tmux …" so the
-        // freshly-allocated PTY has explicit dimensions before tmux sees it.
-        // Without this, when the parent process has no controlling TTY (macOS
-        // .app launched from Finder/Applications, Linux daemons), the PTY
-        // inherits a 0x0 size and tmux 3.5a crashes the moment a command
-        // requires layout computation, severing the control-mode pipe.
-        //
-        // BSD (macOS) and GNU (Linux) `script` differ in how the command is
-        // passed:
-        //   macOS:  script -q /dev/null /bin/sh -c "stty …; exec tmux …"
-        //   Linux:  script -q /dev/null -c "stty …; exec tmux …"
+        // pty-process makes the spawned tmux a session leader of a fresh
+        // session and sets the new pty as its controlling terminal, which is
+        // exactly what `tmux -CC` requires (it calls tcgetattr(STDIN_FILENO)
+        // and refuses to run without a real TTY). Same code path for both
+        // platforms; no `script`, no `/bin/sh -c`, no shell quoting.
         let tmux_bin_str = crate::session::tmux_bin();
 
-        let socket_arg = std::env::var("TMUX_SOCKET")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(|s| format!(" -L {}", s))
-            .unwrap_or_default();
+        let (pty, pts) = pty_process::open().map_err(|e| {
+            let msg = format!("Failed to open pty: {}", e);
+            log_to(log, LogKind::Error, msg.clone());
+            msg
+        })?;
+        pty.resize(pty_process::Size::new(
+            INITIAL_PTY_ROWS as u16,
+            INITIAL_PTY_COLS as u16,
+        ))
+        .map_err(|e| {
+            let msg = format!("Failed to set pty size: {}", e);
+            log_to(log, LogKind::Error, msg.clone());
+            msg
+        })?;
 
-        let inner_cmd = format!(
-            "stty cols {} rows {} 2>/dev/null; exec {}{} -CC attach-session -t {}",
-            INITIAL_PTY_COLS, INITIAL_PTY_ROWS, tmux_bin_str, socket_arg, session_name
-        );
-
-        let mut cmd = Command::new("script");
-        let shell_desc: String;
-
-        if cfg!(target_os = "macos") {
-            shell_desc = format!("script -q /dev/null /bin/sh -c \"{}\"", inner_cmd);
-            crate::debug_log::log(&format!("connect(): macOS command: {}", shell_desc));
-            cmd.args(["-q", "/dev/null", "/bin/sh", "-c", &inner_cmd]);
-        } else {
-            shell_desc = format!("script -q /dev/null -c \"{}\"", inner_cmd);
-            crate::debug_log::log(&format!("connect(): linux command: {}", shell_desc));
-            cmd.args(["-q", "/dev/null", "-c", &inner_cmd]);
+        let mut tmux_args: Vec<String> = Vec::new();
+        if let Ok(socket) = std::env::var("TMUX_SOCKET") {
+            if !socket.is_empty() {
+                tmux_args.push("-L".to_string());
+                tmux_args.push(socket);
+            }
         }
+        tmux_args.extend([
+            "-CC".to_string(),
+            "attach-session".to_string(),
+            "-t".to_string(),
+            session_name.to_string(),
+        ]);
 
-        cmd.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        let shell_desc = format!("{} {}", tmux_bin_str, tmux_args.join(" "));
+        crate::debug_log::log(&format!("connect(): pty spawn: {}", shell_desc));
+        log_to(log, LogKind::Command, shell_desc.clone());
 
         // Force a usable env for tmux. macOS Finder/Applications launches go
-        // through launchd with a sparse environment (no TERM, no LANG), and
-        // tmux 3.5a in -CC mode crashes with stderr like "tcgetattr failed"
-        // or silently exits. Our spawned `script ... sh ... tmux` chain
-        // inherits whatever Rust has, so set sensible defaults at the spawn
-        // boundary regardless of how the parent app was started.
+        // through launchd with a sparse environment (no TERM, no LANG); tmux
+        // is sensitive to both. Set sensible defaults regardless of how the
+        // parent app was started.
+        let mut cmd = pty_process::Command::new(tmux_bin_str);
+        cmd = cmd.args(&tmux_args);
         if std::env::var_os("TERM").is_none() {
-            cmd.env("TERM", "xterm-256color");
+            cmd = cmd.env("TERM", "xterm-256color");
         }
         if std::env::var_os("LANG").is_none() && std::env::var_os("LC_ALL").is_none() {
-            cmd.env("LANG", "en_US.UTF-8");
+            cmd = cmd.env("LANG", "en_US.UTF-8");
+        }
+        if let Some(dir) = working_dir {
+            cmd = cmd.current_dir(dir);
         }
 
-        if let Some(dir) = working_dir {
-            cmd.current_dir(dir);
-        }
-        log_to(log, LogKind::Command, shell_desc.clone());
-        let mut child = cmd.spawn().map_err(|e| {
+        let child = cmd.spawn(pts).map_err(|e| {
             let msg = format!(
-                "Failed to start tmux control mode: {}\n  command: {}",
+                "Failed to spawn tmux on pty: {}\n  command: {}",
                 e, shell_desc
             );
             log_to(log, LogKind::Error, msg.clone());
             msg
         })?;
 
-        let stdin = child.stdin.take().ok_or("Failed to get stdin handle")?;
-        let stdout = child.stdout.take().ok_or("Failed to get stdout handle")?;
-        let stderr_handle = child.stderr.take().ok_or("Failed to get stderr handle")?;
+        let (pty_reader, pty_writer) = pty.into_split();
 
-        // Drain subprocess stderr in the background so any error message tmux
-        // emits on its way out is captured (a) into recent_stderr for inclusion
-        // in send_command errors, and (b) streamed live to the LogSink so the
-        // user sees it in the Details panel.
-        let recent_stderr: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let (stderr_log_tx, mut stderr_log_rx) = mpsc::channel::<(LogKind, String)>(64);
-        spawn_stderr_drain(stderr_handle, recent_stderr.clone(), stderr_log_tx);
-
-        // Forward live stderr lines into the log sink while connect() is
-        // still running. After connect returns, this forwarder ends, but
-        // the drain itself keeps appending into recent_stderr.
-        if let Some(sink) = log {
-            let sink = sink.clone();
-            tokio::spawn(async move {
-                while let Some((kind, msg)) = stderr_log_rx.recv().await {
-                    sink.log(kind, msg);
-                }
-            });
-        }
-
+        let recent_output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = mpsc::channel(1000);
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        spawn_parser_task(stdout, tx, ready_tx);
+        spawn_parser_task(pty_reader, tx, ready_tx, recent_output.clone());
 
-        // Wait for the parser to receive the first event from tmux, confirming
-        // the control mode connection is alive. Without this gate, the caller
-        // may start sending commands before tmux has initialized, or worse,
-        // not notice that the script/tmux process exited immediately.
+        // Wait for the parser to receive the first event from tmux,
+        // confirming the control mode connection is alive. Without this
+        // gate, the caller may start sending commands before tmux has
+        // initialized, or worse, not notice that tmux exited immediately.
         crate::debug_log::log("connect(): waiting for first control mode event (10s timeout)");
         log_to(
             log,
             LogKind::Info,
             "waiting for first control mode event (10s timeout)",
         );
+
+        let mut child = child;
         match tokio::time::timeout(Duration::from_secs(10), ready_rx).await {
             Ok(Ok(())) => {
                 crate::debug_log::log("connect(): control mode connected successfully");
                 log_to(log, LogKind::Info, "control mode connected successfully");
             }
             Ok(Err(_)) => {
-                // ready_tx dropped without sending — parser hit EOF immediately.
-                // Drain whatever stderr the drain task has accumulated so far.
+                // Parser hit EOF before sending readiness — tmux exited.
                 let _ = child.kill().await;
                 tokio::time::sleep(Duration::from_millis(50)).await;
-                let stderr_msg = drain_recent_stderr(&recent_stderr).await;
+                let tail = drain_recent_output(&recent_output).await;
                 log_to(
                     log,
                     LogKind::Output,
                     format!(
-                        "control mode died immediately, stderr: {}",
-                        if stderr_msg.is_empty() {
-                            "(empty)"
-                        } else {
-                            &stderr_msg
-                        }
+                        "control mode died immediately, output: {}",
+                        if tail.is_empty() { "(empty)" } else { &tail }
                     ),
                 );
                 return Err(format!(
                     "Control mode connection died immediately for session '{}'\n\
                       command: {}\n\
-                      stderr: {}",
+                      output: {}",
                     session_name,
                     shell_desc,
-                    if stderr_msg.is_empty() {
-                        "(empty)"
-                    } else {
-                        &stderr_msg
-                    },
+                    if tail.is_empty() { "(empty)" } else { &tail },
                 ));
             }
             Err(_) => {
                 let _ = child.kill().await;
                 tokio::time::sleep(Duration::from_millis(50)).await;
-                let stderr_msg = drain_recent_stderr(&recent_stderr).await;
+                let tail = drain_recent_output(&recent_output).await;
                 log_to(
                     log,
                     LogKind::Output,
                     format!(
-                        "control mode timed out after 10s, stderr: {}",
-                        if stderr_msg.is_empty() {
-                            "(empty)"
-                        } else {
-                            &stderr_msg
-                        }
+                        "control mode timed out after 10s, output: {}",
+                        if tail.is_empty() { "(empty)" } else { &tail }
                     ),
                 );
                 return Err(format!(
                     "Control mode timed out (10s) for session '{}'\n\
                       command: {}\n\
-                      stderr: {}",
+                      output: {}",
                     session_name,
                     shell_desc,
-                    if stderr_msg.is_empty() {
-                        "(empty)"
-                    } else {
-                        &stderr_msg
-                    },
+                    if tail.is_empty() { "(empty)" } else { &tail },
                 ));
             }
         }
 
         Ok(Self {
             child,
-            stdin,
+            pty_writer,
             event_rx: rx,
             command_counter: 0,
-            recent_stderr,
+            recent_output,
         })
     }
 
@@ -561,11 +493,15 @@ impl ControlModeConnection {
         let cmd_num = self.command_counter;
         self.command_counter += 1;
 
-        if let Err(e) = self.stdin.write_all(format!("{}\n", cmd).as_bytes()).await {
+        if let Err(e) = self
+            .pty_writer
+            .write_all(format!("{}\n", cmd).as_bytes())
+            .await
+        {
             return Err(self.enrich_io_error("Failed to send command", &e).await);
         }
 
-        if let Err(e) = self.stdin.flush().await {
+        if let Err(e) = self.pty_writer.flush().await {
             return Err(self.enrich_io_error("Failed to flush stdin", &e).await);
         }
 
@@ -576,7 +512,7 @@ impl ControlModeConnection {
     /// Gives the user concrete evidence of *why* the pipe broke instead of
     /// the generic "Broken pipe (os error 32)".
     async fn enrich_io_error(&self, prefix: &str, e: &std::io::Error) -> String {
-        let stderr = drain_recent_stderr(&self.recent_stderr).await;
+        let stderr = drain_recent_output(&self.recent_output).await;
         if stderr.is_empty() {
             format!("{}: {}", prefix, e)
         } else {
@@ -599,14 +535,18 @@ impl ControlModeConnection {
 
         // Write all commands without flushing
         for cmd in commands {
-            if let Err(e) = self.stdin.write_all(format!("{}\n", cmd).as_bytes()).await {
+            if let Err(e) = self
+                .pty_writer
+                .write_all(format!("{}\n", cmd).as_bytes())
+                .await
+            {
                 return Err(self.enrich_io_error("Failed to send command", &e).await);
             }
             self.command_counter += 1;
         }
 
         // Single flush for all commands
-        if let Err(e) = self.stdin.flush().await {
+        if let Err(e) = self.pty_writer.flush().await {
             return Err(self.enrich_io_error("Failed to flush stdin", &e).await);
         }
 

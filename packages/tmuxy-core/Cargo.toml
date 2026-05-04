@@ -14,6 +14,7 @@ vt100 = "0.15"
 regex = "1"
 nix = { version = "0.29", features = ["term", "process", "signal", "fs"] }
 libc = "0.2"
+pty-process = { version = "0.5", features = ["async"] }
 
 [[bin]]
 name = "tmux-capture"
