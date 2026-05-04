@@ -129,29 +129,20 @@ impl TmuxMonitor {
         config: MonitorConfig,
         log: Option<&std::sync::Arc<dyn super::log::LogSink>>,
     ) -> Result<(Self, MonitorCommandSender), String> {
-        // Serialize session creation + CC attachment to prevent concurrent operations
-        // that crash tmux 3.5a. The lock covers both new-session and CC attach so that
-        // only one monitor at a time is spawning control mode processes.
+        // Serialize control mode attachment to prevent concurrent operations
+        // that crash tmux 3.5a (multiple CC clients racing to attach).
+        // `tmux -CC new-session -A` (when create_session is true) handles
+        // both create and attach atomically — no clientless gap for the
+        // macOS launchd reaper to hit.
         let connection = {
             let _lock = super::connection::session_creation_lock().await;
-            match ControlModeConnection::connect(
+            ControlModeConnection::connect(
                 &config.session,
                 config.working_dir.as_deref(),
                 log,
+                config.create_session,
             )
-            .await
-            {
-                Ok(conn) => conn,
-                Err(e) if config.create_session && e.contains("does not exist") => {
-                    ControlModeConnection::new_session(
-                        &config.session,
-                        config.working_dir.as_deref(),
-                        log,
-                    )
-                    .await?
-                }
-                Err(e) => return Err(e),
-            }
+            .await?
         };
 
         let (command_tx, command_rx) = mpsc::channel(32);
