@@ -44,10 +44,14 @@ if (!BINARY) {
 
 const BINARY_PATH = path.resolve(BINARY);
 
-// Sandbox HOME so we don't trample the runner's own ~/.tmux.conf
-// or ~/tmuxy-debug.log. Everything the test needs is inside this dir.
+// Sandbox HOME so we don't trample the runner's own config or
+// ~/tmuxy-debug.log. The hostile config goes at ~/.config/tmuxy/tmuxy.conf
+// because that's the path tmuxy passes via `tmux -f` for the CC connection
+// — planting at ~/.tmux.conf has no effect now that the desktop app
+// explicitly selects its config (see crate::session::get_config_path).
 const SANDBOX_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-hostile-'));
-const TMUX_CONF = path.join(SANDBOX_HOME, '.tmux.conf');
+const TMUXY_CONFIG_DIR = path.join(SANDBOX_HOME, '.config', 'tmuxy');
+const TMUX_CONF = path.join(TMUXY_CONFIG_DIR, 'tmuxy.conf');
 const DEBUG_LOG = path.join(SANDBOX_HOME, 'tmuxy-debug.log');
 const SESSION_NAME = `tmuxy-hostile-${Date.now()}`;
 
@@ -79,6 +83,7 @@ function readLog() {
 }
 
 async function run() {
+  fs.mkdirSync(TMUXY_CONFIG_DIR, { recursive: true });
   fs.writeFileSync(TMUX_CONF, HOSTILE_TMUX_CONF);
   console.warn(`Sandbox HOME: ${SANDBOX_HOME}`);
   console.warn(`Planted hostile tmux.conf at ${TMUX_CONF}`);
