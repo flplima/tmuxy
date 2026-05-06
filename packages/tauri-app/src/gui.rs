@@ -299,6 +299,39 @@ fn build_app_menu(
         )?)
         .build()?;
 
+    // --- Theme ---
+    // Mirrors the web hamburger menu's Theme submenu: light/dark mode toggle,
+    // then one item per *.css under ~/.config/tmuxy/themes/. Theme list is
+    // captured at app startup; changing the directory at runtime won't update
+    // the menu until next launch (acceptable v1 — themes don't churn often).
+    let mut theme_builder = SubmenuBuilder::new(app, "Theme")
+        .item(&MenuItem::with_id(
+            app,
+            "theme-mode-dark",
+            "Dark Mode",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "theme-mode-light",
+            "Light Mode",
+            true,
+            None::<&str>,
+        )?)
+        .separator();
+    for name in tmuxy_core::session::list_themes() {
+        let label = display_theme_name(&name);
+        theme_builder = theme_builder.item(&MenuItem::with_id(
+            app,
+            format!("theme-set-{}", name),
+            label,
+            true,
+            None::<&str>,
+        )?);
+    }
+    let theme_menu = theme_builder.build()?;
+
     // --- View ---
     let layout_menu = SubmenuBuilder::new(app, "Layout")
         .item(&MenuItem::with_id(
@@ -410,6 +443,7 @@ fn build_app_menu(
         .item(&pane_menu)
         .item(&tab_menu)
         .item(&session_menu)
+        .item(&theme_menu)
         .item(&view_menu)
         .item(&edit_menu)
         .item(&window_menu)
@@ -417,6 +451,22 @@ fn build_app_menu(
         .build()?;
 
     Ok(menu)
+}
+
+/// Convert a theme file stem into a display label: "tokyonight" → "Tokyonight",
+/// "gruvbox-material" → "Gruvbox Material". Mirrors the rough capitalization
+/// the web menu uses for `displayName`.
+fn display_theme_name(stem: &str) -> String {
+    stem.split('-')
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Handle native menu item clicks.
@@ -484,13 +534,33 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         return;
     }
 
-    // Frontend-only actions — dispatch via JS eval
+    // Frontend-only actions — dispatch via JS eval. Theme actions reuse the
+    // same XState events the web hamburger menu fires, so the Tauri menu and
+    // the in-app menu stay in sync without a parallel code path.
     if let Some(window) = app_handle.get_webview_window("main") {
-        let js = match id {
+        let owned;
+        let js: Option<&str> = match id {
             "view-font-bigger" => Some("window.app?.send({ type: 'INCREASE_FONT_SIZE' })"),
             "view-font-smaller" => Some("window.app?.send({ type: 'DECREASE_FONT_SIZE' })"),
             "view-font-reset" => Some("window.app?.send({ type: 'RESET_FONT_SIZE' })"),
             "help-github" => Some("window.open('https://github.com/flplima/tmuxy', '_blank')"),
+            "theme-mode-dark" => Some("window.app?.send({ type: 'SET_THEME_MODE', mode: 'dark' })"),
+            "theme-mode-light" => {
+                Some("window.app?.send({ type: 'SET_THEME_MODE', mode: 'light' })")
+            }
+            other if other.starts_with("theme-set-") => {
+                let name = &other["theme-set-".len()..];
+                // JSON-encode the theme name so quotes/special chars in
+                // exotic theme filenames (none today, but cheap insurance)
+                // can't break out of the JS string literal.
+                let json_name =
+                    serde_json::to_string(name).unwrap_or_else(|_| "\"default\"".to_string());
+                owned = format!(
+                    "window.app?.send({{ type: 'SET_THEME', name: {} }})",
+                    json_name
+                );
+                Some(owned.as_str())
+            }
             _ => None,
         };
         if let Some(js) = js {
@@ -687,6 +757,33 @@ pub fn run() {
             // Log environment for debugging Finder vs CLI launch differences
             tmuxy_core::debug_log::log("=== tmuxy starting ===");
             tmuxy_core::debug_log::log_env();
+
+            // Materialize the per-user config layout on first run:
+            //   ~/.config/tmuxy/tmuxy.conf   — main tmux config (prefix bindings, etc.)
+            //   ~/.config/tmuxy/themes/*.css — bundled themes mirrored to disk
+            // The CC connection's `tmux -f <conf> -CC new-session -A` picks up
+            // the tmuxy.conf for create paths; existing sessions keep their
+            // running settings (an attach sources the conf via source-file in
+            // sync_initial_state). Without this call the prefix never gets
+            // re-bound to C-a, the status bar's prefix indicator looks wrong,
+            // and prefix-key sequences silently no-op for new users.
+            let config_path = tmuxy_core::session::ensure_config();
+            let themes_dir = tmuxy_core::session::ensure_themes();
+            tmuxy_core::debug_log::log(&format!("config: {:?}", config_path));
+            tmuxy_core::debug_log::log(&format!("themes: {:?}", themes_dir));
+
+            // Refresh ~/.local/bin/tmuxy → this binary, async so a slow
+            // disk doesn't delay the splash window. Best-effort: failures
+            // are logged but don't block startup.
+            if let Ok(exe) = std::env::current_exe() {
+                tauri::async_runtime::spawn(async move {
+                    tmuxy_core::session::refresh_launcher(&exe);
+                });
+            } else {
+                tmuxy_core::debug_log::log(
+                    "current_exe() failed; tmuxy CLI shorthand not refreshed",
+                );
+            }
 
             // Patch the parent process PATH so any subprocess we spawn — including
             // executor::* paths that go through `sh -c "tmux ..."` — can resolve

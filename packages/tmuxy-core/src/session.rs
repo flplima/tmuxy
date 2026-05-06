@@ -77,17 +77,66 @@ pub fn tmux_bin() -> String {
 /// Embedded at compile time from .devcontainer/.tmuxy.conf.
 const DEFAULT_CONFIG: &str = include_str!("../../../.devcontainer/.tmuxy.conf");
 
-/// Get the path to the tmuxy config file.
-/// Checks: ~/.config/tmuxy/tmuxy.conf, ~/.tmuxy.conf, then .devcontainer/.tmuxy.conf.
-pub fn get_config_path() -> Option<PathBuf> {
-    // XDG-style config location
-    let xdg_config = dirs::config_dir()
+/// Bundled theme CSS files, embedded at compile time. Mirrored to
+/// ~/.config/tmuxy/themes/ on first run by [`ensure_themes`] so the user
+/// can edit them in place; future versions can also load custom themes
+/// dropped into that directory.
+const BUNDLED_THEMES: &[(&str, &str)] = &[
+    (
+        "default.css",
+        include_str!("../../tmuxy-ui/public/themes/default.css"),
+    ),
+    (
+        "cold-harbor.css",
+        include_str!("../../tmuxy-ui/public/themes/cold-harbor.css"),
+    ),
+    (
+        "dracula.css",
+        include_str!("../../tmuxy-ui/public/themes/dracula.css"),
+    ),
+    (
+        "fallout.css",
+        include_str!("../../tmuxy-ui/public/themes/fallout.css"),
+    ),
+    (
+        "gruvbox.css",
+        include_str!("../../tmuxy-ui/public/themes/gruvbox.css"),
+    ),
+    (
+        "gruvbox-material.css",
+        include_str!("../../tmuxy-ui/public/themes/gruvbox-material.css"),
+    ),
+    (
+        "nord.css",
+        include_str!("../../tmuxy-ui/public/themes/nord.css"),
+    ),
+    (
+        "solarized.css",
+        include_str!("../../tmuxy-ui/public/themes/solarized.css"),
+    ),
+    (
+        "tokyonight.css",
+        include_str!("../../tmuxy-ui/public/themes/tokyonight.css"),
+    ),
+];
+
+/// Resolve the user's tmuxy config directory: $XDG_CONFIG_HOME/tmuxy or
+/// $HOME/.config/tmuxy. Does not create the directory.
+pub fn config_dir() -> PathBuf {
+    dirs::config_dir()
         .unwrap_or_else(|| {
             dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join(".config")
         })
-        .join("tmuxy/tmuxy.conf");
+        .join("tmuxy")
+}
+
+/// Get the path to the tmuxy config file.
+/// Checks: ~/.config/tmuxy/tmuxy.conf, ~/.tmuxy.conf, then .devcontainer/.tmuxy.conf.
+pub fn get_config_path() -> Option<PathBuf> {
+    // XDG-style config location
+    let xdg_config = config_dir().join("tmuxy.conf");
     if xdg_config.exists() {
         return Some(xdg_config);
     }
@@ -119,21 +168,12 @@ pub fn get_config_path() -> Option<PathBuf> {
 /// Creates the directory and file with defaults if they don't exist.
 /// Returns the path to the config file.
 pub fn ensure_config() -> PathBuf {
-    let config_dir = dirs::config_dir()
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".config")
-        })
-        .join("tmuxy");
-    let config_path = config_dir.join("tmuxy.conf");
+    let dir = config_dir();
+    let config_path = dir.join("tmuxy.conf");
 
     if !config_path.exists() {
-        if let Err(e) = std::fs::create_dir_all(&config_dir) {
-            eprintln!(
-                "Warning: could not create config dir {:?}: {}",
-                config_dir, e
-            );
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("Warning: could not create config dir {:?}: {}", dir, e);
             return config_path;
         }
         if let Err(e) = std::fs::write(&config_path, DEFAULT_CONFIG) {
@@ -147,6 +187,184 @@ pub fn ensure_config() -> PathBuf {
     }
 
     config_path
+}
+
+/// Ensure the themes directory exists at ~/.config/tmuxy/themes/ and is
+/// populated with the bundled theme CSS files. Existing files are NOT
+/// overwritten so the user's edits survive across upgrades. Returns the
+/// path to the themes directory.
+pub fn ensure_themes() -> PathBuf {
+    let themes_dir = config_dir().join("themes");
+
+    if let Err(e) = std::fs::create_dir_all(&themes_dir) {
+        eprintln!(
+            "Warning: could not create themes dir {:?}: {}",
+            themes_dir, e
+        );
+        return themes_dir;
+    }
+
+    for (name, content) in BUNDLED_THEMES {
+        let path = themes_dir.join(name);
+        if !path.exists() {
+            if let Err(e) = std::fs::write(&path, content) {
+                eprintln!(
+                    "Warning: could not write bundled theme to {:?}: {}",
+                    path, e
+                );
+            }
+        }
+    }
+
+    themes_dir
+}
+
+/// List user-available theme names (file stems of *.css under
+/// ~/.config/tmuxy/themes/). Falls back to the bundled list if the
+/// directory can't be read. Sorted alphabetically with `default` first.
+pub fn list_themes() -> Vec<String> {
+    let themes_dir = config_dir().join("themes");
+
+    let mut names: Vec<String> = match std::fs::read_dir(&themes_dir) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let path = e.path();
+                if path.extension().and_then(|s| s.to_str()) != Some("css") {
+                    return None;
+                }
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            })
+            .collect(),
+        Err(_) => BUNDLED_THEMES
+            .iter()
+            .filter_map(|(name, _)| name.strip_suffix(".css").map(|s| s.to_string()))
+            .collect(),
+    };
+
+    names.sort_by(|a, b| match (a.as_str(), b.as_str()) {
+        ("default", _) => std::cmp::Ordering::Less,
+        (_, "default") => std::cmp::Ordering::Greater,
+        _ => a.cmp(b),
+    });
+    names
+}
+
+/// Static `tmuxy` shell wrapper that reads the launcher path written by
+/// [`refresh_launcher`] and execs it. macOS branches through `open -a` so
+/// the .app gets normal LaunchServices treatment (icon-bouncing dock,
+/// proper activation policy) instead of running as a headless child of
+/// the user's shell.
+const LAUNCHER_WRAPPER: &str = "#!/bin/sh
+# tmuxy — auto-generated shorthand for the desktop app.
+#
+# Refreshed by the GUI on every launch (see refresh_launcher in
+# tmuxy-core/src/session.rs). DO NOT EDIT — your changes will be replaced
+# the next time you open the app.
+set -eu
+LAUNCHER_FILE=\"${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher\"
+if [ ! -f \"$LAUNCHER_FILE\" ]; then
+  echo 'tmuxy: no launcher recorded yet — open the app once via Finder/GUI.' >&2
+  exit 1
+fi
+EXEC_PATH=\"$(cat \"$LAUNCHER_FILE\")\"
+case \"$(uname -s)\" in
+  Darwin)
+    APP_PATH=\"${EXEC_PATH%%/Contents/MacOS/*}\"
+    if [ \"$APP_PATH\" != \"$EXEC_PATH\" ] && [ -d \"$APP_PATH\" ]; then
+      exec /usr/bin/open \"$APP_PATH\" --args \"$@\"
+    fi
+    ;;
+esac
+exec \"$EXEC_PATH\" \"$@\"
+";
+
+/// Async-friendly: refresh the `tmuxy` shell shorthand to point at the
+/// currently-running executable. Writes two files:
+///
+///   1. `~/.config/tmuxy/launcher` — a single line: the absolute path to
+///      the .app/binary that launched us. Refreshed every GUI launch so
+///      the shorthand always points at the most-recently-opened build
+///      (handy when juggling Releases.app vs. a debug build).
+///
+///   2. `~/.local/bin/tmuxy` — the wrapper script. Only rewritten when
+///      its content drifts from [`LAUNCHER_WRAPPER`], so we don't churn
+///      the inode on every launch. The wrapper is `chmod +x`'d.
+///
+/// Errors are logged to debug_log and otherwise swallowed; this is a
+/// best-effort install convenience, not a hard prerequisite for app use.
+pub fn refresh_launcher(exe_path: &std::path::Path) {
+    let dir = config_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        crate::debug_log::log(&format!("refresh_launcher: mkdir {:?} failed: {}", dir, e));
+        return;
+    }
+
+    let launcher_file = dir.join("launcher");
+    let exe_str = exe_path.to_string_lossy();
+    if let Err(e) = std::fs::write(&launcher_file, format!("{}\n", exe_str)) {
+        crate::debug_log::log(&format!(
+            "refresh_launcher: writing {:?} failed: {}",
+            launcher_file, e
+        ));
+        return;
+    }
+
+    let bin_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".local/bin");
+    if let Err(e) = std::fs::create_dir_all(&bin_dir) {
+        crate::debug_log::log(&format!(
+            "refresh_launcher: mkdir {:?} failed: {}",
+            bin_dir, e
+        ));
+        return;
+    }
+
+    let wrapper_path = bin_dir.join("tmuxy");
+    let needs_write = match std::fs::read_to_string(&wrapper_path) {
+        Ok(existing) => existing != LAUNCHER_WRAPPER,
+        Err(_) => true,
+    };
+    if needs_write {
+        if let Err(e) = std::fs::write(&wrapper_path, LAUNCHER_WRAPPER) {
+            crate::debug_log::log(&format!(
+                "refresh_launcher: writing wrapper {:?} failed: {}",
+                wrapper_path, e
+            ));
+            return;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&wrapper_path, std::fs::Permissions::from_mode(0o755));
+        }
+        crate::debug_log::log(&format!(
+            "refresh_launcher: installed shorthand at {:?}",
+            wrapper_path
+        ));
+    }
+}
+
+/// Read a theme CSS file by name from ~/.config/tmuxy/themes/<name>.css.
+/// Falls back to the bundled copy if the user's directory doesn't have it
+/// (e.g. they deleted a default but the menu still references it).
+pub fn read_theme_css(name: &str) -> Result<String, String> {
+    let path = config_dir().join("themes").join(format!("{}.css", name));
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        return Ok(content);
+    }
+
+    let filename = format!("{}.css", name);
+    for (bundled_name, bundled_content) in BUNDLED_THEMES {
+        if *bundled_name == filename {
+            return Ok((*bundled_content).to_string());
+        }
+    }
+
+    Err(format!("theme '{}' not found", name))
 }
 
 pub fn session_exists(session_name: &str) -> Result<bool, String> {

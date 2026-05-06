@@ -295,6 +295,16 @@ impl ControlModeConnection {
                 tmux_args.push(socket);
             }
         }
+        // Apply the user's tmuxy config at server-startup time. tmux only
+        // reads `-f` when it forks a new server, which means this only takes
+        // effect on the create-the-session path; attaching to an existing
+        // server has no-op semantics for `-f` (the running server already
+        // parsed its config). The monitor's sync_initial_state() also
+        // source-files the same config after attach to cover that case.
+        if let Some(path) = crate::session::get_config_path() {
+            tmux_args.push("-f".to_string());
+            tmux_args.push(path.to_string_lossy().into_owned());
+        }
         if create_if_missing {
             // -A: attach to existing session if it exists, otherwise create.
             // Atomic from tmux's perspective — no clientless gap for the
