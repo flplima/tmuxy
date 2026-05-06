@@ -64,13 +64,19 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // The server's totalWidth/totalHeight includes group/float window panes whose
   // coordinates are in independent layouts — using them for centering causes the
   // active window grid to appear off-center.
+  //
+  // tmux's pane_height excludes the pane-border-status row that sits above
+  // the topmost pane, so summing pane.y + pane.height undercounts the grid's
+  // visual height by exactly one row — the one we render as the top pane's
+  // PaneHeader. Add that row back so centering and per-pane positioning agree
+  // about the grid's full bounds.
   const { totalWidth, totalHeight } = useMemo(() => {
     if (visiblePanes.length === 0) {
       return { totalWidth: serverTotalWidth, totalHeight: serverTotalHeight };
     }
     return {
       totalWidth: Math.max(...visiblePanes.map((p) => p.x + p.width)),
-      totalHeight: Math.max(...visiblePanes.map((p) => p.y + p.height)),
+      totalHeight: Math.max(...visiblePanes.map((p) => p.y + p.height)) + 1,
     };
   }, [visiblePanes, serverTotalWidth, serverTotalHeight]);
 
@@ -146,17 +152,26 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
-      const headerY = Math.max(0, pane.y - 1);
+      // pane.y comes from tmux's #{pane_top} — the row of the pane's
+      // border-status, not its content. Our PaneHeader replaces that border
+      // row, so the layout's top edge IS pane.y. The previous formula
+      // `max(0, pane.y - 1)` placed bottom panes one row too high to
+      // compensate for the grid missing space for the top pane's header
+      // (also fixed above by totalHeight + 1); with that fix in place,
+      // pane.y is the correct top.
+      const headerY = pane.y;
       // Extend horizontally into the tmux separator column between adjacent panes.
       const onLeft = pane.x === 0;
       const onRight = pane.x + pane.width >= totalWidth;
       const padLeft = onLeft ? 0 : hPadding;
       const padRight = onRight ? 0 : hPadding;
-      // With pane-border-status top, the layout height for y=0 panes already
-      // includes the border-title row. For y>0 panes, the border-title sits in
-      // the separator row at y-1, which is NOT included in the layout height,
-      // so we add 1 extra row for the header.
-      const heightRows = pane.y > 0 ? pane.height + 1 : pane.height;
+      // Always +1 for the PaneHeader row that sits above pane.height rows
+      // of terminal content. The previous code only added this extra row
+      // for y > 0 panes, sizing the topmost pane at exactly pane.height
+      // rows total — but the absolutely-positioned terminal renders
+      // pane.height rows on top of the 17px header, overflowing by ~one
+      // row and clipping the first content line under the header.
+      const heightRows = pane.height + 1;
       return {
         position: 'absolute',
         left: Math.round(centeringOffset.x + pane.x * charWidth) - padLeft,
@@ -224,9 +239,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
               style={{
                 position: 'absolute',
                 left: centeringOffset.x + dropTarget.x * charWidth - gl,
-                top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
+                // Match getPaneStyle: top = dropTarget.y (the border-status
+                // row), not dropTarget.y - 1; height = pane.height + 1
+                // unconditionally to include the header row.
+                top: centeringOffset.y + dropTarget.y * charHeight,
                 width: dropTarget.width * charWidth + gl + gr,
-                height: (dropTarget.y > 0 ? dropTarget.height + 1 : dropTarget.height) * charHeight,
+                height: (dropTarget.height + 1) * charHeight,
               }}
             />
           );
