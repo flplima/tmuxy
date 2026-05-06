@@ -46,7 +46,10 @@ if (!BINARY) {
 
 const BINARY_PATH = path.resolve(BINARY);
 const SANDBOX_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-sparse-'));
-const TMUX_CONF = path.join(SANDBOX_HOME, '.tmux.conf');
+// Plant under ~/.config/tmuxy/tmuxy.conf — the desktop app passes that
+// exact file to `tmux -f` and doesn't fall back to ~/.tmux.conf.
+const TMUXY_CONFIG_DIR = path.join(SANDBOX_HOME, '.config', 'tmuxy');
+const TMUX_CONF = path.join(TMUXY_CONFIG_DIR, 'tmuxy.conf');
 const DEBUG_LOG = path.join(SANDBOX_HOME, 'tmuxy-debug.log');
 const SESSION_NAME = `tmuxy-sparse-${Date.now()}`;
 const HELPER_BIN = '/opt/homebrew/bin/tmuxy-stay-alive';
@@ -100,6 +103,7 @@ function readLog() {
 
 async function run() {
   preflight();
+  fs.mkdirSync(TMUXY_CONFIG_DIR, { recursive: true });
   fs.writeFileSync(TMUX_CONF, HOSTILE_TMUX_CONF);
   console.warn(`Sandbox HOME: ${SANDBOX_HOME}`);
   console.warn(`Planted tmux.conf using ${HELPER_BIN} via name (no abs path)`);
