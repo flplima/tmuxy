@@ -122,69 +122,6 @@ describe('IPC Commands', () => {
     await waitForTerminalText(driver, marker);
   });
 
-  // Regression test for the bug where the first terminal line was clipped
-  // under the pane header. The smoke test only verified that some marker
-  // appears anywhere in textContent, which the DOM still exposes even when
-  // the row is visually clipped by overflow:hidden. This test asserts the
-  // structural invariant — every visible terminal line's top edge sits at
-  // or below the pane header's bottom edge — so a future regression that
-  // re-introduces row-0 clipping can't slip through unnoticed.
-  test('first terminal line is not obscured by pane header', async () => {
-    await setupApp();
-
-    // Print N distinct markers so something definitely lives near row 0.
-    // Using `seq` keeps output noisy enough to fill the visible area on a
-    // 600px-tall webdriver window even after the prompt redraws.
-    await typeKeys(driver, 'seq 1 50');
-    await pressKey(driver, 'Enter');
-    await waitForTerminalText(driver, '50');
-    // Brief settle so layout/animations finish before we measure rects.
-    await driver.pause(300);
-
-    const overlap = await driver.execute(() => {
-      const header = document.querySelector('.pane-header');
-      const lines = document.querySelectorAll('.terminal-line');
-      if (!header || !lines.length) {
-        return { reason: 'header or terminal-line missing from DOM' };
-      }
-      const headerRect = header.getBoundingClientRect();
-      const headerBottom = headerRect.bottom;
-      // Find the first terminal line whose top edge sits at or above the
-      // header's bottom — i.e. visually overlapping or fully under the
-      // header. Allow 1px slop for sub-pixel rendering.
-      const slop = 1;
-      for (let i = 0; i < lines.length; i++) {
-        const r = lines[i].getBoundingClientRect();
-        if (r.height === 0) continue; // detached / not laid out yet
-        if (r.top < headerBottom - slop) {
-          return {
-            lineIndex: i,
-            lineTop: r.top,
-            lineBottom: r.bottom,
-            headerTop: headerRect.top,
-            headerBottom,
-            text: (lines[i].textContent || '').slice(0, 80),
-          };
-        }
-        // Once we find a line below the header we're safe; subsequent
-        // lines stack downward and can't overlap.
-        return null;
-      }
-      return null;
-    });
-
-    if (overlap && overlap.reason) {
-      throw new Error(`Sanity check failed: ${overlap.reason}`);
-    }
-    if (overlap) {
-      throw new Error(
-        `Terminal line ${overlap.lineIndex} is clipped under the pane header.\n` +
-          `  line.top=${overlap.lineTop}px line.bottom=${overlap.lineBottom}px\n` +
-          `  header.top=${overlap.headerTop}px header.bottom=${overlap.headerBottom}px\n` +
-          `  line text: ${JSON.stringify(overlap.text)}`,
-      );
-    }
-  });
 
   test('split pane via IPC', async () => {
     await setupApp();

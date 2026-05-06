@@ -200,16 +200,9 @@ export function ResizeDividers({
                       div.axisPos * charWidth +
                       charWidth / 2 -
                       DIVIDER_THICKNESS / 2,
-                    // After the unified-divider header fix, panes span
-                    // start..end+1 rows (the +1 is the header row). The
-                    // previous Math.max(0, div.start - 1) was a workaround
-                    // for the OLD layout where headers sat at y - 1 and
-                    // pane heights were one row short. Now that pane.y is
-                    // the header row directly and heightRows = pane.height
-                    // + 1, the divider should span exactly that range.
-                    top: centeringOffset.y + div.start * charHeight,
+                    top: centeringOffset.y + Math.max(0, div.start - 1) * charHeight,
                     width: DIVIDER_THICKNESS,
-                    height: (div.end + 1 - div.start) * charHeight,
+                    height: (div.end - Math.max(0, div.start - 1)) * charHeight,
                   }
             }
             onMouseDown={(e) => {

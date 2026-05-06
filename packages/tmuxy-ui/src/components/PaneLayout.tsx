@@ -64,19 +64,13 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // The server's totalWidth/totalHeight includes group/float window panes whose
   // coordinates are in independent layouts — using them for centering causes the
   // active window grid to appear off-center.
-  //
-  // tmux's pane_height excludes the pane-border-status row that sits above
-  // the topmost pane, so summing pane.y + pane.height undercounts the grid's
-  // visual height by exactly one row — the one we render as the top pane's
-  // PaneHeader. Add that row back so centering and per-pane positioning agree
-  // about the grid's full bounds.
   const { totalWidth, totalHeight } = useMemo(() => {
     if (visiblePanes.length === 0) {
       return { totalWidth: serverTotalWidth, totalHeight: serverTotalHeight };
     }
     return {
       totalWidth: Math.max(...visiblePanes.map((p) => p.x + p.width)),
-      totalHeight: Math.max(...visiblePanes.map((p) => p.y + p.height)) + 1,
+      totalHeight: Math.max(...visiblePanes.map((p) => p.y + p.height)),
     };
   }, [visiblePanes, serverTotalWidth, serverTotalHeight]);
 
@@ -149,30 +143,17 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
-      // pane.y comes from tmux's #{pane_top} — the row of the pane's
-      // border-status, not its content. Our PaneHeader replaces that border
-      // row, so the layout's top edge IS pane.y. The previous formula
-      // `max(0, pane.y - 1)` placed bottom panes one row too high to
-      // compensate for the grid missing space for the top pane's header
-      // (also fixed above by totalHeight + 1); with that fix in place,
-      // pane.y is the correct top.
-      const headerY = pane.y;
-      // Always +1 for the PaneHeader row that sits above pane.height rows
-      // of terminal content. The previous code only added this extra row
-      // for y > 0 panes, sizing the topmost pane at exactly pane.height
-      // rows total — but the absolutely-positioned terminal renders
-      // pane.height rows on top of the 17px header, overflowing by ~one
-      // row and clipping the first content line under the header.
-      const heightRows = pane.height + 1;
+      const headerY = Math.max(0, pane.y - 1);
+      // With pane-border-status top, the layout height for y=0 panes already
+      // includes the border-title row. For y>0 panes, the border-title sits in
+      // the separator row at y-1, which is NOT included in the layout height,
+      // so we add 1 extra row for the header.
+      const heightRows = pane.y > 0 ? pane.height + 1 : pane.height;
       return {
         position: 'absolute',
-        // Pure tmux-grid coordinates: pane.x and pane.x + pane.width are
-        // the content columns; the separator column tmux draws between
-        // adjacent panes is the integer gap between them. The previous
-        // hPadding extension had each pane reach into half of the
-        // separator, which produced the "stacked outlines" visual; with
-        // the unified-divider design we want a real 1-charWidth gap that
-        // ResizeDividers' visible line draws through.
+        // Pure tmux-grid coordinates — no separator-column overlap. The
+        // 1-charWidth gap between adjacent panes is real space; the visible
+        // 1px line through it is rendered by ResizeDividers.
         left: Math.round(centeringOffset.x + pane.x * charWidth),
         top: centeringOffset.y + headerY * charHeight,
         width: Math.round(pane.width * charWidth),
@@ -225,18 +206,19 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       })}
 
       {/* Ghost indicator showing dragged pane's current grid position.
-          Mirrors getPaneStyle exactly: pure pane.x/y/width/height plus
-          the +1 header row. With the unified-divider layout the ghost
-          stops at the gap column rather than overlapping into it. */}
+          Mirrors getPaneStyle: y > 0 panes get +1 row for the separator
+          row above; y=0 panes' layout already includes the border-status
+          row in their pane.height. */}
       {dropTarget && isDragging && (
         <div
           className="pane-drag-ghost"
           style={{
             position: 'absolute',
             left: centeringOffset.x + dropTarget.x * charWidth,
-            top: centeringOffset.y + dropTarget.y * charHeight,
+            top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
             width: dropTarget.width * charWidth,
-            height: (dropTarget.height + 1) * charHeight,
+            height:
+              (dropTarget.y > 0 ? dropTarget.height + 1 : dropTarget.height) * charHeight,
           }}
         />
       )}
