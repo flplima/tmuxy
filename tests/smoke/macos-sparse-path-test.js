@@ -112,6 +112,11 @@ async function run() {
   const env = {
     PATH: SPARSE_PATH,
     HOME: SANDBOX_HOME,
+    // Pin XDG_CONFIG_HOME to the sandbox so the binary's `dirs::config_dir()`
+    // call lands inside our sandbox; without it, an inherited XDG_CONFIG_HOME
+    // points at /Users/runner/.config and our planted hostile config is
+    // never read.
+    XDG_CONFIG_HOME: path.join(SANDBOX_HOME, '.config'),
     USER: process.env.USER || 'runner',
     TMPDIR: process.env.TMPDIR || '/tmp/',
     TMUXY_SESSION: SESSION_NAME,
