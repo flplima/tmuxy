@@ -170,15 +170,14 @@ describe('Scenario 1: General Layout', () => {
     expect(Math.abs(splitCol[0].left - splitCol[1].left)).toBeLessThanOrEqual(2);
     expect(splitCol[0].top).not.toBe(splitCol[1].top);
 
-    // Pane widths should correspond to tmux char-cell widths
+    // Pane widths should correspond to tmux char-cell widths.
+    // The layout no longer extends panes into the separator column;
+    // each pane's CSS width is exactly pane.width * charWidth, and the
+    // 1-charWidth gap between adjacent panes is rendered as real space
+    // (with a 1px divider through it).
     const tolerance = 2;
     for (const pane of layoutData.panes) {
-      const hPadding = Math.round(charWidth / 2);
-      const onLeft = pane.x === 0;
-      const onRight = pane.x + pane.width >= totalWidth;
-      const padLeft = onLeft ? 0 : hPadding;
-      const padRight = onRight ? 0 : hPadding;
-      const expectedWidth = Math.ceil(pane.width * charWidth) + padLeft + padRight;
+      const expectedWidth = Math.ceil(pane.width * charWidth);
       const actual = actualRects.find(a => a.id === pane.id);
       expect(actual).toBeDefined();
       if (actual) {
