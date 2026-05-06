@@ -593,10 +593,15 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
         #[cfg(target_os = "macos")]
         {
             use tauri::{LogicalPosition, TitleBarStyle};
+            // Vertically center the traffic-light cluster inside the
+            // 36px-tall top status bar (`--statusbar-height` in CSS).
+            // Apple's traffic lights are ~14px tall, so the top edge
+            // sits at (36 - 14) / 2 = 11px to align them with the tab
+            // buttons' midline at y = 18px.
             builder = builder
                 .title_bar_style(TitleBarStyle::Overlay)
                 .hidden_title(true)
-                .traffic_light_position(LogicalPosition::new(16.0, 18.0));
+                .traffic_light_position(LogicalPosition::new(16.0, 11.0));
         }
     }
 

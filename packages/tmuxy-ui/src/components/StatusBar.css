@@ -7,7 +7,6 @@
   align-items: center;
   height: var(--statusbar-height);
   background: transparent;
-  border-bottom: 1px solid var(--border-medium);
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
   user-select: none;
