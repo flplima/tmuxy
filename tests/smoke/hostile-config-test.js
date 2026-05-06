@@ -60,10 +60,14 @@ const SESSION_NAME = `tmuxy-hostile-${Date.now()}`;
 // FATAL should land well under 30s in the failure case.
 const HARD_TIMEOUT_MS = 45000;
 
-// Default-command that points to an absolute path that cannot exist.
-// Using an absolute path bypasses any PATH augmentation and forces the
-// shell to fail on exec, matching the macOS failure mode.
-const HOSTILE_TMUX_CONF = `set -g default-command "/nonexistent/tmuxy-hostile-binary -l $SHELL"
+// Default-command that successfully execs but immediately exits.
+// Earlier versions of this test pointed at a non-existent absolute
+// path, but modern tmux falls back to the user's shell when the
+// configured default-command fails to exec — masking the failure mode.
+// `/bin/false` is universally available, execs cleanly, then exits 1
+// — which deterministically kills the pane and triggers tmux's %exit
+// just like Felipe's macOS shell-can't-find-reattach scenario.
+const HOSTILE_TMUX_CONF = `set -g default-command "/bin/false"
 `;
 
 function cleanupTmuxSession(env) {
