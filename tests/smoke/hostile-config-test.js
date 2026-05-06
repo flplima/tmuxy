@@ -91,6 +91,11 @@ async function run() {
   const env = {
     ...process.env,
     HOME: SANDBOX_HOME,
+    // Pin XDG_CONFIG_HOME to the sandbox so `dirs::config_dir()` lands inside
+    // it. Without this, the runner's XDG_CONFIG_HOME=/home/runner/.config
+    // takes precedence over our HOME override and the binary reads the real
+    // user's config — masking our planted hostile content.
+    XDG_CONFIG_HOME: path.join(SANDBOX_HOME, '.config'),
     TMUXY_SESSION: SESSION_NAME,
     DISPLAY: process.env.DISPLAY || ':99',
   };
