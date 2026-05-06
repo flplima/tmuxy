@@ -180,6 +180,7 @@ export function ResizeDividers({
           <div
             key={`divider-${idx}`}
             className="resize-divider"
+            data-orient={isH ? 'h' : 'v'}
             style={
               isH
                 ? {
@@ -191,14 +192,24 @@ export function ResizeDividers({
                   }
                 : {
                     cursor: 'ew-resize',
+                    // Center the 8px hit area in the 1-charWidth separator
+                    // column at axisPos; the visible 1px line (via ::before)
+                    // sits at the column's exact midpoint.
                     left:
                       centeringOffset.x +
                       div.axisPos * charWidth +
                       charWidth / 2 -
                       DIVIDER_THICKNESS / 2,
-                    top: centeringOffset.y + Math.max(0, div.start - 1) * charHeight,
+                    // After the unified-divider header fix, panes span
+                    // start..end+1 rows (the +1 is the header row). The
+                    // previous Math.max(0, div.start - 1) was a workaround
+                    // for the OLD layout where headers sat at y - 1 and
+                    // pane heights were one row short. Now that pane.y is
+                    // the header row directly and heightRows = pane.height
+                    // + 1, the divider should span exactly that range.
+                    top: centeringOffset.y + div.start * charHeight,
                     width: DIVIDER_THICKNESS,
-                    height: (div.end - Math.max(0, div.start - 1)) * charHeight,
+                    height: (div.end + 1 - div.start) * charHeight,
                   }
             }
             onMouseDown={(e) => {

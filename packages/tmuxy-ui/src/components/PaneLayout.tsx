@@ -80,9 +80,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, [visiblePanes, serverTotalWidth, serverTotalHeight]);
 
-  // Padding to cover the tmux separator column between horizontally-adjacent panes
-  const hPadding = Math.round(charWidth / 2);
-
   // Center the pane grid in the container.
   // .pane-layout is inset by CONTAINER_PADDING (CSS), so its dimensions match
   // containerWidth/Height (content-box from ResizeObserver). No padding-box
@@ -160,11 +157,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       // (also fixed above by totalHeight + 1); with that fix in place,
       // pane.y is the correct top.
       const headerY = pane.y;
-      // Extend horizontally into the tmux separator column between adjacent panes.
-      const onLeft = pane.x === 0;
-      const onRight = pane.x + pane.width >= totalWidth;
-      const padLeft = onLeft ? 0 : hPadding;
-      const padRight = onRight ? 0 : hPadding;
       // Always +1 for the PaneHeader row that sits above pane.height rows
       // of terminal content. The previous code only added this extra row
       // for y > 0 panes, sizing the topmost pane at exactly pane.height
@@ -174,15 +166,20 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       const heightRows = pane.height + 1;
       return {
         position: 'absolute',
-        left: Math.round(centeringOffset.x + pane.x * charWidth) - padLeft,
+        // Pure tmux-grid coordinates: pane.x and pane.x + pane.width are
+        // the content columns; the separator column tmux draws between
+        // adjacent panes is the integer gap between them. The previous
+        // hPadding extension had each pane reach into half of the
+        // separator, which produced the "stacked outlines" visual; with
+        // the unified-divider design we want a real 1-charWidth gap that
+        // ResizeDividers' visible line draws through.
+        left: Math.round(centeringOffset.x + pane.x * charWidth),
         top: centeringOffset.y + headerY * charHeight,
-        width: Math.round(pane.width * charWidth) + padLeft + padRight,
+        width: Math.round(pane.width * charWidth),
         height: heightRows * charHeight,
-        '--pane-h-padding-left': `${padLeft}px`,
-        '--pane-h-padding-right': `${padRight}px`,
-      } as React.CSSProperties;
+      };
     },
-    [charWidth, charHeight, centeringOffset, hPadding, totalWidth, totalHeight],
+    [charWidth, charHeight, centeringOffset],
   );
 
   const getPaneClassName = useCallback(
@@ -227,28 +224,22 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         );
       })}
 
-      {/* Ghost indicator showing dragged pane's current grid position */}
-      {dropTarget &&
-        isDragging &&
-        (() => {
-          const gl = dropTarget.x === 0 ? 0 : hPadding;
-          const gr = dropTarget.x + dropTarget.width >= totalWidth ? 0 : hPadding;
-          return (
-            <div
-              className="pane-drag-ghost"
-              style={{
-                position: 'absolute',
-                left: centeringOffset.x + dropTarget.x * charWidth - gl,
-                // Match getPaneStyle: top = dropTarget.y (the border-status
-                // row), not dropTarget.y - 1; height = pane.height + 1
-                // unconditionally to include the header row.
-                top: centeringOffset.y + dropTarget.y * charHeight,
-                width: dropTarget.width * charWidth + gl + gr,
-                height: (dropTarget.height + 1) * charHeight,
-              }}
-            />
-          );
-        })()}
+      {/* Ghost indicator showing dragged pane's current grid position.
+          Mirrors getPaneStyle exactly: pure pane.x/y/width/height plus
+          the +1 header row. With the unified-divider layout the ghost
+          stops at the gap column rather than overlapping into it. */}
+      {dropTarget && isDragging && (
+        <div
+          className="pane-drag-ghost"
+          style={{
+            position: 'absolute',
+            left: centeringOffset.x + dropTarget.x * charWidth,
+            top: centeringOffset.y + dropTarget.y * charHeight,
+            width: dropTarget.width * charWidth,
+            height: (dropTarget.height + 1) * charHeight,
+          }}
+        />
+      )}
 
       <ResizeDividers
         panes={visiblePanes}
