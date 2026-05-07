@@ -1,6 +1,6 @@
 {
   "name": "tmuxy",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "A tmux terminal wrapper - available as Tauri app or web server",
   "workspaces": [

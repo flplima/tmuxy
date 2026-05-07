@@ -231,3 +231,86 @@ jobs:
             --title "tmuxy $TAG" \
             --notes "See the assets below to download and install tmuxy for your platform." \
             --latest
+
+  # --- Bump Homebrew Cask (only on tag push, after release publishes) ---
+  #
+  # Pushes an updated Casks/tmuxy.rb to flplima/homebrew-tap so users can
+  # `brew install --cask flplima/tap/tmuxy`. Brew strips the macOS quarantine
+  # xattr automatically on cask install, so the unsigned DMG is usable
+  # without the "tmuxy is damaged" Gatekeeper dialog. Requires
+  # HOMEBREW_TAP_TOKEN secret (PAT with Contents:Write on flplima/homebrew-tap).
+
+  bump-cask:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: tmuxy-macos-dmg
+          path: dmg
+
+      - name: Compute version + sha256
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          DMG=$(ls dmg/*.dmg | head -1)
+          SHA=$(sha256sum "$DMG" | awk '{print $1}')
+          echo "version=$VERSION"  >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA"       >> "$GITHUB_OUTPUT"
+          echo "dmg_name=$(basename "$DMG")" >> "$GITHUB_OUTPUT"
+          echo "Bumping cask: v$VERSION sha256=$SHA from $(basename "$DMG")"
+
+      - name: Push updated cask to flplima/homebrew-tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA256: ${{ steps.meta.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 \
+            "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/flplima/homebrew-tap.git" tap
+          cd tap
+          mkdir -p Casks
+
+          # Single-quoted heredoc so bash leaves Ruby `#{version}`
+          # interpolation untouched. Placeholders are sed-replaced below.
+          cat > Casks/tmuxy.rb <<'CASK'
+          cask "tmuxy" do
+            version "__VERSION__"
+            sha256 "__SHA256__"
+
+            url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_universal.dmg"
+            name "tmuxy"
+            desc "Web-based tmux interface"
+            homepage "https://github.com/flplima/tmuxy"
+
+            auto_updates false
+
+            app "tmuxy.app"
+
+            zap trash: [
+              "~/.config/tmuxy",
+              "~/.local/bin/tmuxy",
+              "~/Library/Application Support/com.tmuxy.app",
+              "~/Library/Preferences/com.tmuxy.app.plist",
+              "~/Library/Saved Application State/com.tmuxy.app.savedState",
+              "~/tmuxy-debug.log",
+            ]
+          end
+          CASK
+
+          sed -i "s/__VERSION__/${VERSION}/g" Casks/tmuxy.rb
+          sed -i "s/__SHA256__/${SHA256}/g"  Casks/tmuxy.rb
+
+          git config user.name  "tmuxy-cask-bumper[bot]"
+          git config user.email "tmuxy-cask-bumper@users.noreply.github.com"
+          git add Casks/tmuxy.rb
+
+          if git diff --staged --quiet; then
+            echo "Cask already at v${VERSION}; nothing to push."
+          else
+            git commit -m "chore: bump tmuxy to v${VERSION}"
+            git push origin HEAD
+          fi
