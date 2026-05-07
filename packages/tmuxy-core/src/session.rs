@@ -120,15 +120,28 @@ const BUNDLED_THEMES: &[(&str, &str)] = &[
     ),
 ];
 
-/// Resolve the user's tmuxy config directory: $XDG_CONFIG_HOME/tmuxy or
-/// $HOME/.config/tmuxy. Does not create the directory.
+/// Resolve the user's tmuxy config directory: $XDG_CONFIG_HOME/tmuxy
+/// or $HOME/.config/tmuxy. Does not create the directory.
+///
+/// We deliberately do NOT use `dirs::config_dir()` because on macOS that
+/// returns `~/Library/Application Support`, which surprises users who
+/// expect to find their tmuxy config at `~/.config/tmuxy/tmuxy.conf`
+/// (the same path as on Linux, the devcontainer, and what every doc/CI
+/// path references). The mismatch silently broke first-run config
+/// loading on Mac: ensure_config wrote into `~/Library/Application
+/// Support/tmuxy/`, the user looked at `~/.config/tmuxy/`, found
+/// nothing, and the desktop app got the default tmux prefix because
+/// `tmux -f` was never given a config path either way.
 pub fn config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".config")
-        })
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        let xdg = std::path::PathBuf::from(xdg);
+        if xdg.is_absolute() {
+            return xdg.join("tmuxy");
+        }
+    }
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".config")
         .join("tmuxy")
 }
 

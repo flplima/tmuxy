@@ -120,11 +120,7 @@
 
   /* Sizes */
   --statusbar-height: 36px;
-  /* Pane header height matches one terminal row exactly so it occupies the
-     same vertical space tmux's pane-border-status row would. The header's
-     1px bottom border (the horizontal pane divider) is INSIDE this height
-     — line-box content area is `--line-height-terminal - 1px`. */
-  --pane-header-height: var(--line-height-terminal);
+  --pane-header-height: 17px; /* Header height (total row = header + margin = 21px) */
 
   /* Border Radius */
   --radius-sm: 3px;
@@ -259,10 +255,9 @@
 }
 
 .pane-content {
-  /* No padding — the unified-divider layout places pane.width charWidth-px
-     of terminal content edge-to-edge, with the separator column rendered
-     as an actual gap by ResizeDividers' visible 1px line. */
-  padding: 0;
+  /* Horizontal padding: matches the pane extension into the tmux separator column.
+     Left/right are set independently per pane so the terminal content fills its exact width. */
+  padding: 0 var(--pane-h-padding-right, 0) 0 var(--pane-h-padding-left, 0);
   flex: 1;
   position: relative;
   box-sizing: border-box;
@@ -452,11 +447,13 @@
   flex-direction: column;
   box-sizing: border-box;
   border-radius: 0;
-  /* Per-pane outlines were here before — they produced the "row of separate
-     boxes" look. The unified-divider layout replaces them with a 1px line in
-     the middle of the gap column (rendered by ResizeDividers' ::before) and
-     a 1px bottom border on each PaneHeader. Active state moves to the header
-     bottom border too — see .pane-header-active below. */
+  /* 1px outline per pane. Combined with the hPadding extension in
+     getPaneStyle (each pane reaches half a charWidth into the tmux
+     separator column), adjacent panes' outlines coincide pixel-for-
+     pixel at the shared edge — producing the "mosaic" look where the
+     grid reads as a single connected frame rather than a row of
+     separate boxes with gaps. */
+  outline: 1px solid var(--border-medium);
   /* Animate position/size changes for swaps and resizes */
   transition:
     left var(--transition-layout),
@@ -470,6 +467,16 @@
 /* Inactive pane: slightly dimmed content */
 .pane-layout-item:not(.pane-active):not(.pane-dragging):not(.pane-leaving) {
   opacity: 0.7;
+}
+
+/* Active pane: green outline (replaces the inactive border-medium) */
+.pane-layout-item.pane-active {
+  outline-color: var(--term-green);
+}
+
+/* Copy mode: bright green outline */
+.pane-layout-item.pane-active.pane-copy-mode {
+  outline-color: var(--term-bright-green);
 }
 
 .pane-layout-item.pane-dragging {
@@ -489,10 +496,9 @@
   pointer-events: none;
 }
 
-/* Resize Dividers — 8px-thick invisible hit area for grab/resize.
-   The ::before pseudo-element draws the 1px-thick visible line through
-   the middle of that hit area, so the visible divider and the resize
-   target are guaranteed to stay aligned. */
+/* Resize Dividers — invisible 8px-thick hit areas for grab/resize.
+   The visible divider line is the per-pane outline on .pane-layout-item;
+   here we just need the cursor:row/col-resize hit target. */
 .resize-divider {
   position: absolute;
   background: transparent;
@@ -502,35 +508,6 @@
     top var(--transition-layout),
     width var(--transition-layout),
     height var(--transition-layout);
-}
-
-.resize-divider::before {
-  content: '';
-  position: absolute;
-  background: var(--border-medium);
-  pointer-events: none;
-}
-
-/* Vertical divider (between horizontally-adjacent panes) — 1px-wide
-   line centered in the 8px-wide hit area, full height of the segment. */
-.resize-divider[data-orient='v']::before {
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-}
-
-/* Horizontal divider (between vertically-stacked panes) — 1px-tall line
-   centered in the 8px-tall hit area, full width of the segment. The
-   pane header below it also draws a 1px bottom border, so visually the
-   line is reinforced where the header sits. */
-.resize-divider[data-orient='h']::before {
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 1px;
-  transform: translateY(-50%);
 }
 
 .pane-layout-no-animations .resize-divider {
@@ -605,14 +582,9 @@
 .pane-header {
   display: flex;
   align-items: center;
-  /* Total visual height (including the 1px bottom border) = exactly one
-     terminal row, so the header occupies the same space tmux's
-     pane-border-status row would. The 1px is absorbed via box-sizing:
-     border-box; the inner line-box is line-height-terminal - 1px. */
   height: var(--pane-header-height);
   margin-top: 0;
-  margin-bottom: 0;
-  border-bottom: 1px solid var(--border-medium);
+  margin-bottom: 4px;
   background-color: color-mix(
     in srgb,
     color-mix(in hsl, var(--term-bright-black), gray 50%) 20%,
@@ -627,8 +599,6 @@
   gap: 0;
 }
 
-/* Active pane indicator — the bottom border of its header glows green.
-   Replaces the per-pane outline that used to ring the entire pane. */
 .pane-header-active {
   background-color: color-mix(
     in srgb,
@@ -636,11 +606,6 @@
     transparent
   );
   color: var(--pane-header-text-inactive);
-  border-bottom-color: var(--term-green);
-}
-
-.pane-layout-item.pane-copy-mode .pane-header-active {
-  border-bottom-color: var(--term-bright-green);
 }
 
 .pane-header-active .pane-tab-selected,

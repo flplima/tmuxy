@@ -593,15 +593,18 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
         #[cfg(target_os = "macos")]
         {
             use tauri::{LogicalPosition, TitleBarStyle};
-            // Vertically center the traffic-light cluster inside the
-            // 36px-tall top status bar (`--statusbar-height` in CSS).
-            // Apple's traffic lights are ~14px tall, so the top edge
-            // sits at (36 - 14) / 2 = 11px to align them with the tab
-            // buttons' midline at y = 18px.
+            // Vertically center the traffic-light cluster on the visible
+            // status-bar midline (y = 18 for a 36px statusbar). Tauri's
+            // traffic_light_position is interpreted by Cocoa as an
+            // offset from the implicit title-bar origin under Overlay
+            // style, NOT the top of our webview content — math based on
+            // statusbar pixels alone undershoots. Empirically y=18 lands
+            // the cluster center on the tab-button midline; lower values
+            // (e.g. 11) push the buttons to the very top of the bar.
             builder = builder
                 .title_bar_style(TitleBarStyle::Overlay)
                 .hidden_title(true)
-                .traffic_light_position(LogicalPosition::new(16.0, 11.0));
+                .traffic_light_position(LogicalPosition::new(16.0, 18.0));
         }
     }
 

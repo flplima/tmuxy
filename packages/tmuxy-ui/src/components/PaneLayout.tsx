@@ -74,6 +74,13 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, [visiblePanes, serverTotalWidth, serverTotalHeight]);
 
+  // Padding to cover the tmux separator column between horizontally-adjacent
+  // panes. Each non-edge pane reaches half a charWidth into the separator;
+  // adjacent panes' outlines coincide pixel-for-pixel at the shared edge,
+  // producing the connected "mosaic" look (one continuous border between
+  // neighbors) rather than two parallel lines with a gap.
+  const hPadding = Math.round(charWidth / 2);
+
   // Center the pane grid in the container.
   // .pane-layout is inset by CONTAINER_PADDING (CSS), so its dimensions match
   // containerWidth/Height (content-box from ResizeObserver). No padding-box
@@ -144,6 +151,14 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
       const headerY = Math.max(0, pane.y - 1);
+      // Extend horizontally into the tmux separator column between adjacent
+      // panes (skip the extension at outer edges of the grid). Combined
+      // with the per-pane outline this is what makes neighboring panes'
+      // borders coincide rather than appearing as two parallel lines.
+      const onLeft = pane.x === 0;
+      const onRight = pane.x + pane.width >= totalWidth;
+      const padLeft = onLeft ? 0 : hPadding;
+      const padRight = onRight ? 0 : hPadding;
       // With pane-border-status top, the layout height for y=0 panes already
       // includes the border-title row. For y>0 panes, the border-title sits in
       // the separator row at y-1, which is NOT included in the layout height,
@@ -151,16 +166,15 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       const heightRows = pane.y > 0 ? pane.height + 1 : pane.height;
       return {
         position: 'absolute',
-        // Pure tmux-grid coordinates — no separator-column overlap. The
-        // 1-charWidth gap between adjacent panes is real space; the visible
-        // 1px line through it is rendered by ResizeDividers.
-        left: Math.round(centeringOffset.x + pane.x * charWidth),
+        left: Math.round(centeringOffset.x + pane.x * charWidth) - padLeft,
         top: centeringOffset.y + headerY * charHeight,
-        width: Math.round(pane.width * charWidth),
+        width: Math.round(pane.width * charWidth) + padLeft + padRight,
         height: heightRows * charHeight,
-      };
+        '--pane-h-padding-left': `${padLeft}px`,
+        '--pane-h-padding-right': `${padRight}px`,
+      } as React.CSSProperties;
     },
-    [charWidth, charHeight, centeringOffset],
+    [charWidth, charHeight, centeringOffset, hPadding, totalWidth],
   );
 
   const getPaneClassName = useCallback(
@@ -206,21 +220,28 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       })}
 
       {/* Ghost indicator showing dragged pane's current grid position.
-          Mirrors getPaneStyle: y > 0 panes get +1 row for the separator
-          row above; y=0 panes' layout already includes the border-status
-          row in their pane.height. */}
-      {dropTarget && isDragging && (
-        <div
-          className="pane-drag-ghost"
-          style={{
-            position: 'absolute',
-            left: centeringOffset.x + dropTarget.x * charWidth,
-            top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
-            width: dropTarget.width * charWidth,
-            height: (dropTarget.y > 0 ? dropTarget.height + 1 : dropTarget.height) * charHeight,
-          }}
-        />
-      )}
+          Mirrors getPaneStyle exactly so the ghost lands where the
+          pane will, including the hPadding extension at non-edge sides
+          and the +1 row for y>0 panes' header. */}
+      {dropTarget &&
+        isDragging &&
+        (() => {
+          const gl = dropTarget.x === 0 ? 0 : hPadding;
+          const gr = dropTarget.x + dropTarget.width >= totalWidth ? 0 : hPadding;
+          return (
+            <div
+              className="pane-drag-ghost"
+              style={{
+                position: 'absolute',
+                left: centeringOffset.x + dropTarget.x * charWidth - gl,
+                top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
+                width: dropTarget.width * charWidth + gl + gr,
+                height:
+                  (dropTarget.y > 0 ? dropTarget.height + 1 : dropTarget.height) * charHeight,
+              }}
+            />
+          );
+        })()}
 
       <ResizeDividers
         panes={visiblePanes}
