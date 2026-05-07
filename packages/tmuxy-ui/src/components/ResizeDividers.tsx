@@ -180,7 +180,6 @@ export function ResizeDividers({
           <div
             key={`divider-${idx}`}
             className="resize-divider"
-            data-orient={isH ? 'h' : 'v'}
             style={
               isH
                 ? {
