@@ -47,11 +47,12 @@ In the web app, communication happens via HTTP/SSE. It is fast, I promise you. B
 brew install --cask flplima/tap/tmuxy
 ```
 
-The desktop app is unsigned, but Homebrew strips the macOS quarantine
-attribute on cask install — so you won't see the "tmuxy is damaged"
-Gatekeeper dialog.
+The desktop app is unsigned (no Apple Developer subscription), so the
+cask runs `xattr -dr com.apple.quarantine /Applications/tmuxy.app`
+automatically on install to skip the macOS Sequoia
+"Apple could not verify…" dialog.
 
-If you'd rather grab the DMG directly from the [Releases page](https://github.com/flplima/tmuxy/releases), you can lift the quarantine yourself:
+If you grabbed the DMG directly from the [Releases page](https://github.com/flplima/tmuxy/releases) instead, run that yourself before launching:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/tmuxy.app
