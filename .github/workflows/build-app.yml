@@ -274,8 +274,8 @@ jobs:
           cd tap
           mkdir -p Casks
 
-          # Single-quoted heredoc so bash leaves Ruby `#{version}`
-          # interpolation untouched. Placeholders are sed-replaced below.
+          # Single-quoted heredoc so bash leaves Ruby `#{version}` and
+          # `#{appdir}` interpolation untouched. Placeholders sed-replaced.
           cat > Casks/tmuxy.rb <<'CASK'
           cask "tmuxy" do
             version "__VERSION__"
@@ -289,6 +289,18 @@ jobs:
             auto_updates false
 
             app "tmuxy.app"
+
+            # Strip Gatekeeper's quarantine attribute so macOS Sequoia's
+            # "Apple could not verify..." dialog doesn't block the first
+            # launch. Brew stopped doing this automatically in 2022; for
+            # an unsigned + un-notarized app there's no other way to ship
+            # a frictionless first launch without paying for the Apple
+            # Developer Program.
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-dr", "com.apple.quarantine", "#{appdir}/tmuxy.app"],
+                             sudo: false
+            end
 
             zap trash: [
               "~/.config/tmuxy",
