@@ -236,8 +236,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
                 left: centeringOffset.x + dropTarget.x * charWidth - gl,
                 top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
                 width: dropTarget.width * charWidth + gl + gr,
-                height:
-                  (dropTarget.y > 0 ? dropTarget.height + 1 : dropTarget.height) * charHeight,
+                height: (dropTarget.y > 0 ? dropTarget.height + 1 : dropTarget.height) * charHeight,
               }}
             />
           );
