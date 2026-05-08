@@ -60,14 +60,25 @@ const SESSION_NAME = `tmuxy-hostile-${Date.now()}`;
 // FATAL should land well under 30s in the failure case.
 const HARD_TIMEOUT_MS = 45000;
 
-// Default-command that successfully execs but immediately exits.
-// Earlier versions of this test pointed at a non-existent absolute
-// path, but modern tmux falls back to the user's shell when the
-// configured default-command fails to exec — masking the failure mode.
-// `/bin/false` is universally available, execs cleanly, then exits 1
-// — which deterministically kills the pane and triggers tmux's %exit
-// just like Felipe's macOS shell-can't-find-reattach scenario.
+// Hostile config that kills the tmux server within ~250ms of every
+// CC client attach. Earlier iterations of this test relied on
+// `default-command "/bin/false"` alone, but tmux 3.x sometimes drags
+// pane-death detection long enough for the connection to live past
+// MIN_HEALTHY_DURATION (5s) — which resets the bounded-retry counter
+// and means FATAL never fires within the 45s test window.
+//
+// The session-created hook + `run-shell -b "sleep 0.2; tmux
+// kill-server"` combo guarantees:
+//   1. The CC client attaches → connect() returns Ok → we hit
+//      monitor.run() (the path the test is designed to verify).
+//   2. ~200ms later the server is gone → recv() returns None →
+//      run() exits in well under MIN_HEALTHY_DURATION.
+//   3. Counter increments every cycle. After 5 → FATAL → test passes.
+//
+// /bin/false on default-command is kept as a belt-and-suspenders so
+// even if hooks misbehave on a given tmux build the pane still dies.
 const HOSTILE_TMUX_CONF = `set -g default-command "/bin/false"
+set-hook -g client-attached 'run-shell -b "sleep 0.2; tmux kill-server"'
 `;
 
 function cleanupTmuxSession(env) {
