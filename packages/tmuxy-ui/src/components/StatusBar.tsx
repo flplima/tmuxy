@@ -36,6 +36,20 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
     });
   }, []);
 
+  // Double-click on the bar zooms the window (toggle maximize), matching
+  // the native macOS / Windows / Linux titlebar gesture. Same interactive-
+  // element exclusion as the drag handler so clicks on tabs/buttons don't
+  // accidentally maximize.
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!isTauri()) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, [role="tab"], .tab-add, .app-menu-button')) return;
+
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      getCurrentWindow().toggleMaximize();
+    });
+  }, []);
+
   const defaultContent = (
     <>
       {isMacTauri ? <div className="traffic-light-spacer" /> : <AppMenu />}
@@ -44,7 +58,7 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
   );
 
   return (
-    <div className="statusbar" onMouseDown={handleMouseDown}>
+    <div className="statusbar" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick}>
       <div
         className="statusbar-inner"
         style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}

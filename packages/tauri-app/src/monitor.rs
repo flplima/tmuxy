@@ -54,6 +54,17 @@ impl StateEmitter for TauriEmitter {
             eprintln!("Failed to emit error: {}", e);
         }
     }
+
+    /// Re-emit keybindings after sync_initial_state has source-file'd
+    /// the user's tmuxy.conf. Without this, the frontend latches the
+    /// prefix it read at start_monitoring time (before the config was
+    /// sourced) — which is the default C-b on a tmux server that
+    /// already existed from a previous tmuxy run, even though our
+    /// source-file just applied `set -g prefix C-a` server-globally.
+    /// SseEmitter does the same thing in tmuxy-server/src/sse.rs.
+    fn on_initial_sync_complete(&self) {
+        emit_keybindings(&self.app);
+    }
 }
 
 /// Start control mode monitoring for tmux state changes
