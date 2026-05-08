@@ -16,7 +16,6 @@ interface TerminalProps {
   cursorX?: number;
   cursorY?: number;
   isActive?: boolean;
-  blink?: boolean;
   width?: number;
   height?: number;
   inMode?: boolean; // copy mode
@@ -90,7 +89,6 @@ export const Terminal: React.FC<TerminalProps> = ({
   cursorX = 0,
   cursorY = 0,
   isActive = false,
-  blink,
   width = 80,
   height = 24,
   inMode = false,
@@ -111,9 +109,10 @@ export const Terminal: React.FC<TerminalProps> = ({
   // Hide cursor when application requests it (DECTCEM off), but always show in copy mode
   const showCursor = (isActive && !cursorHidden) || inMode;
 
-  // Derive cursor mode and blink from DECSCUSR shape
+  // Derive cursor mode from DECSCUSR shape (blink is intentionally dropped —
+  // tmuxy doesn't render a blinking cursor regardless of what the running
+  // application requests via DECSCUSR).
   const cursorStyle = useMemo(() => cursorShapeToMode(cursorShape), [cursorShape]);
-  const effectiveBlink = blink !== undefined ? blink : cursorStyle.blink;
   const cursorMode = inMode ? ('block' as CursorMode) : cursorStyle.mode;
 
   // Resolve selection start: mouse drag (optimistic) takes priority, then backend (authoritative)
@@ -158,7 +157,6 @@ export const Terminal: React.FC<TerminalProps> = ({
             showCursor={showCursor}
             inMode={inMode}
             isActive={isActive}
-            blink={effectiveBlink}
             cursorMode={cursorMode}
             selectionRange={getSelectionRange(lineIndex)}
             width={width}

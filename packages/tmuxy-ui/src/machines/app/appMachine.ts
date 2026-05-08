@@ -57,8 +57,6 @@ import {
   increaseFontSize,
   decreaseFontSize,
   DEFAULT_FONT_SIZE,
-  loadCursorBlinkFromStorage,
-  saveCursorBlinkToStorage,
 } from '../../utils/fontSizeManager';
 import type { CopyModeState, CellLine, ServerState } from '../../tmux/types';
 
@@ -286,7 +284,6 @@ export const appMachine = setup({
     prefixActive: false,
     // Display settings
     baseFontSize: loadFontSizeFromStorage(),
-    cursorBlink: loadCursorBlinkFromStorage(),
   },
   entry: [({ context }) => applyFontSize(context.baseFontSize)],
   invoke: [
@@ -594,13 +591,6 @@ export const appMachine = setup({
         saveFontSizeToStorage(DEFAULT_FONT_SIZE);
         enqueue(assign({ baseFontSize: DEFAULT_FONT_SIZE }));
         enqueue(sendTo('size', { type: 'REMEASURE' as const }));
-      }),
-    },
-    TOGGLE_CURSOR_BLINK: {
-      actions: enqueueActions(({ context, enqueue }) => {
-        const newBlink = !context.cursorBlink;
-        saveCursorBlinkToStorage(newBlink);
-        enqueue(assign({ cursorBlink: newBlink }));
       }),
     },
 

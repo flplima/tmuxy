@@ -18,7 +18,6 @@ import {
   useAppSelector,
   selectCharSize,
   selectContainerSize,
-  selectCursorBlink,
 } from '../machines/AppContext';
 import type { FloatPaneState } from '../machines/types';
 import type { TmuxPane } from '../machines/types';
@@ -37,7 +36,6 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const isFocused = focusedFloatPaneId === floatState.paneId;
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
-  const cursorBlink = useAppSelector(selectCursorBlink);
 
   const handleClose = useCallback(() => {
     send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
@@ -104,7 +102,6 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
             cursorX={pane.cursorX}
             cursorY={pane.cursorY}
             isActive={isFocused}
-            blink={cursorBlink}
             height={terminalRows}
             inMode={pane.inMode}
             copyCursorX={pane.copyCursorX}
@@ -151,7 +148,6 @@ export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
             cursorX={pane.cursorX}
             cursorY={pane.cursorY}
             isActive={isFocused}
-            blink={cursorBlink}
             height={terminalRows}
             inMode={pane.inMode}
             copyCursorX={pane.copyCursorX}

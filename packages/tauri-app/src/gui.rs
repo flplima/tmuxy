@@ -761,6 +761,7 @@ pub fn run() {
         // Clipboard manager: powers Help > Copy Logs to Clipboard so users
         // launched from Finder can grab ~/tmuxy-debug.log without a terminal.
         .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(monitor::KeyBindingsState::default())
         .setup(|app| {
             // Log environment for debugging Finder vs CLI launch differences
             tmuxy_core::debug_log::log("=== tmuxy starting ===");
@@ -777,8 +778,14 @@ pub fn run() {
             // and prefix-key sequences silently no-op for new users.
             let config_path = tmuxy_core::session::ensure_config();
             let themes_dir = tmuxy_core::session::ensure_themes();
+            // Mirror the bundled CLI dispatcher and helper scripts so the
+            // in-config command-aliases (Ctrl+hjkl nav, pane groups, …) and
+            // the `tmuxy <subcommand>` shell wrapper can reach them by an
+            // absolute path even when launched from Finder/Spotlight.
+            let bin_dir = tmuxy_core::session::ensure_bin_scripts();
             tmuxy_core::debug_log::log(&format!("config: {:?}", config_path));
             tmuxy_core::debug_log::log(&format!("themes: {:?}", themes_dir));
+            tmuxy_core::debug_log::log(&format!("bin: {:?}", bin_dir));
 
             // Refresh ~/.local/bin/tmuxy → this binary, async so a slow
             // disk doesn't delay the splash window. Best-effort: failures
@@ -935,6 +942,7 @@ pub fn run() {
             commands::run_tmux_command,
             commands::execute_prefix_binding,
             commands::get_key_bindings,
+            commands::get_keybindings_snapshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
