@@ -95,7 +95,6 @@ export {
   selectThemeMode,
   selectAvailableThemes,
   selectBaseFontSize,
-  selectCursorBlink,
 } from './selectors';
 
 // ============================================

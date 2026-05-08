@@ -7,7 +7,6 @@ interface CursorProps {
   y: number;
   char?: string;
   mode?: CursorMode;
-  blink?: boolean;
   active?: boolean;
   copyMode?: boolean;
   charWidth?: number;
@@ -26,7 +25,6 @@ export function Cursor({
   y,
   char = ' ',
   mode = 'block',
-  blink = false,
   active = true,
   copyMode = false,
   charWidth,
@@ -38,7 +36,6 @@ export function Cursor({
     'terminal-cursor',
     `terminal-cursor-${mode}`,
     isOverlay ? 'terminal-cursor-overlay' : '',
-    blink && active ? 'terminal-cursor-blink' : '',
     copyMode ? 'terminal-cursor-copy' : '',
     !active ? 'terminal-cursor-inactive' : '',
   ]

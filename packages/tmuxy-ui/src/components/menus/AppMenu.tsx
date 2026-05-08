@@ -21,7 +21,6 @@ import {
   selectThemeName,
   selectThemeMode,
   selectAvailableThemes,
-  selectCursorBlink,
 } from '../../machines/AppContext';
 import { getKeybindingLabel } from './keybindingLabel';
 import { executeMenuAction } from './menuActions';
@@ -44,7 +43,6 @@ export function AppMenu() {
   const themeName = useAppSelector(selectThemeName);
   const themeMode = useAppSelector(selectThemeMode);
   const availableThemes = useAppSelector(selectAvailableThemes);
-  const cursorBlink = useAppSelector(selectCursorBlink);
 
   const isSinglePane = visiblePanes.length <= 1;
   const isSingleWindow =
@@ -163,10 +161,6 @@ export function AppMenu() {
         <MenuItem onClick={() => send({ type: 'INCREASE_FONT_SIZE' })}>Make Text Bigger</MenuItem>
         <MenuItem onClick={() => send({ type: 'DECREASE_FONT_SIZE' })}>Make Text Smaller</MenuItem>
         <MenuItem onClick={() => send({ type: 'RESET_FONT_SIZE' })}>Make Text Normal Size</MenuItem>
-        <MenuDivider />
-        <MenuItem onClick={() => send({ type: 'TOGGLE_CURSOR_BLINK' })}>
-          {cursorBlink ? '\u2713 ' : '\u2003 '}Blinking Cursor
-        </MenuItem>
       </SubMenu>
 
       <SubMenu label="Help">

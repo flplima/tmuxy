@@ -657,7 +657,3 @@ export function selectAvailableThemes(
 export function selectBaseFontSize(context: AppMachineContext): number {
   return context.baseFontSize;
 }
-
-export function selectCursorBlink(context: AppMachineContext): boolean {
-  return context.cursorBlink;
-}

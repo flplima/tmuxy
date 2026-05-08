@@ -1,12 +1,28 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tmuxy_core::control_mode::{LogKind, LogSink, MonitorConfig, StateEmitter, TmuxMonitor};
 use tmuxy_core::StateUpdate;
 
 /// Get session name from environment or use default
 fn get_session() -> String {
     std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string())
+}
+
+/// Snapshot of the most recently broadcast keybindings.
+///
+/// Stored in Tauri-managed state so the frontend can fetch it on connect.
+/// Without this, `app.emit("tmux-keybindings", …)` fires before the WebView
+/// has subscribed via `listen()`, the event vanishes, and the frontend ends
+/// up with an empty `prefixBindings` map — which is why the statusline
+/// indicator was missing, prefix C-a + binding key did nothing, and
+/// `Ctrl+hjkl` fell through to the shell instead of triggering nav.
+pub struct KeyBindingsState(pub Arc<RwLock<Option<serde_json::Value>>>);
+
+impl Default for KeyBindingsState {
+    fn default() -> Self {
+        Self(Arc::new(RwLock::new(None)))
+    }
 }
 
 /// Tauri emitter that broadcasts state changes to the frontend
@@ -175,7 +191,10 @@ fn emit_fatal(app: &AppHandle, message: &str) {
     }
 }
 
-/// Emit keybindings to the frontend after a successful connection
+/// Emit keybindings to the frontend after a successful connection.
+///
+/// Also stores the payload in `KeyBindingsState` so a frontend that connects
+/// after the emit can still retrieve them via `get_keybindings_snapshot`.
 fn emit_keybindings(app: &AppHandle) {
     let prefix_key = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into());
     let prefix_bindings = tmuxy_core::get_prefix_bindings().unwrap_or_default();
@@ -186,6 +205,12 @@ fn emit_keybindings(app: &AppHandle) {
         "prefix_bindings": prefix_bindings,
         "root_bindings": root_bindings,
     });
+
+    if let Some(state) = app.try_state::<KeyBindingsState>() {
+        if let Ok(mut guard) = state.0.write() {
+            *guard = Some(payload.clone());
+        }
+    }
 
     if let Err(e) = app.emit("tmux-keybindings", &payload) {
         eprintln!("Failed to emit keybindings: {}", e);

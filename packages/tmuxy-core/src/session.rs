@@ -120,6 +120,36 @@ const BUNDLED_THEMES: &[(&str, &str)] = &[
     ),
 ];
 
+/// Bundled CLI dispatcher and helper scripts, embedded at compile time and
+/// mirrored to `~/.config/tmuxy/bin/` on launch by [`ensure_bin_scripts`].
+///
+/// These power the noun-verb CLI (`tmuxy pane list`) and the in-config
+/// `command-alias` entries that drive Ctrl+hjkl pane navigation, pane
+/// groups, etc. The .app bundle's working directory at launch is `/`,
+/// so the historical `bin/tmuxy/nav` relative paths in `.tmuxy.conf`
+/// would resolve to `/bin/tmuxy/nav` and silently fail. Materializing
+/// to a stable absolute path under `$HOME/.config/tmuxy/bin/` and
+/// referencing them by `$HOME/...` in the config fixes both issues.
+const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
+    ("tmuxy-cli", include_str!("../../../bin/tmuxy-cli")),
+    ("tmuxy/_lib", include_str!("../../../bin/tmuxy/_lib")),
+    ("tmuxy/event-emit", include_str!("../../../bin/tmuxy/event-emit")),
+    ("tmuxy/event-list", include_str!("../../../bin/tmuxy/event-list")),
+    ("tmuxy/event-wait", include_str!("../../../bin/tmuxy/event-wait")),
+    ("tmuxy/float-create", include_str!("../../../bin/tmuxy/float-create")),
+    ("tmuxy/nav", include_str!("../../../bin/tmuxy/nav")),
+    ("tmuxy/pane-group-add", include_str!("../../../bin/tmuxy/pane-group-add")),
+    ("tmuxy/pane-group-close", include_str!("../../../bin/tmuxy/pane-group-close")),
+    ("tmuxy/pane-group-next", include_str!("../../../bin/tmuxy/pane-group-next")),
+    ("tmuxy/pane-group-prev", include_str!("../../../bin/tmuxy/pane-group-prev")),
+    ("tmuxy/pane-group-switch", include_str!("../../../bin/tmuxy/pane-group-switch")),
+    ("tmuxy/session-connect", include_str!("../../../bin/tmuxy/session-connect")),
+    ("tmuxy/session-switch", include_str!("../../../bin/tmuxy/session-switch")),
+    ("tmuxy/tmuxy-widget", include_str!("../../../bin/tmuxy/tmuxy-widget")),
+    ("tmuxy/tmuxy-widget-image", include_str!("../../../bin/tmuxy/tmuxy-widget-image")),
+    ("tmuxy/tmuxy-widget-markdown", include_str!("../../../bin/tmuxy/tmuxy-widget-markdown")),
+];
+
 /// Resolve the user's tmuxy config directory: $XDG_CONFIG_HOME/tmuxy
 /// or $HOME/.config/tmuxy. Does not create the directory.
 ///
@@ -179,7 +209,15 @@ pub fn get_config_path() -> Option<PathBuf> {
 
 /// Ensure the default config exists at ~/.config/tmuxy/tmuxy.conf.
 /// Creates the directory and file with defaults if they don't exist.
-/// Returns the path to the config file.
+///
+/// Also migrates configs written by older tmuxy releases (≤0.0.4) that
+/// referenced helper scripts via the relative path `bin/tmuxy/…`. Those
+/// paths only resolved when tmuxy was launched from the project root —
+/// the .app bundle's working directory is `/`, so Ctrl+hjkl navigation
+/// and pane-group commands silently no-op'd. We rewrite to the absolute
+/// `$HOME/.config/tmuxy/bin/tmuxy/…` path that [`ensure_bin_scripts`]
+/// materializes, leaving any user customizations elsewhere in the file
+/// intact.
 pub fn ensure_config() -> PathBuf {
     let dir = config_dir();
     let config_path = dir.join("tmuxy.conf");
@@ -197,9 +235,59 @@ pub fn ensure_config() -> PathBuf {
         } else {
             eprintln!("Created default config at {:?}", config_path);
         }
+        return config_path;
+    }
+
+    // Migrate stale relative bin paths in pre-existing user configs.
+    if let Ok(existing) = std::fs::read_to_string(&config_path) {
+        let migrated = migrate_bin_paths(&existing);
+        if migrated != existing {
+            if let Err(e) = std::fs::write(&config_path, &migrated) {
+                eprintln!(
+                    "Warning: could not migrate config at {:?}: {}",
+                    config_path, e
+                );
+            } else {
+                eprintln!(
+                    "Migrated relative bin paths in {:?} to $HOME/.config/tmuxy/bin/",
+                    config_path
+                );
+            }
+        }
     }
 
     config_path
+}
+
+/// Rewrite legacy relative `bin/tmuxy/…` paths to the materialized absolute
+/// path. Conservative — only touches occurrences inside `run-shell` strings
+/// for our known helpers, so a user who hand-rolled a `bin/` reference for
+/// their own scripts isn't affected.
+fn migrate_bin_paths(config: &str) -> String {
+    let mut result = config.to_string();
+    let helpers = [
+        "pane-group-add",
+        "pane-group-prev",
+        "pane-group-next",
+        "pane-group-close",
+        "pane-group-switch",
+        "session-connect",
+        "session-switch",
+        "float-create",
+        "event-emit",
+        "event-list",
+        "event-wait",
+        "nav",
+    ];
+    for name in helpers {
+        let stale = format!("bin/tmuxy/{}", name);
+        let fresh = format!("$HOME/.config/tmuxy/bin/tmuxy/{}", name);
+        // Only rewrite when the surrounding context is `run-shell …` — the
+        // simple substring check is sufficient because tmux configs don't
+        // legitimately contain `bin/tmuxy/<helper>` outside that context.
+        result = result.replace(&stale, &fresh);
+    }
+    result
 }
 
 /// Ensure the themes directory exists at ~/.config/tmuxy/themes/ and is
@@ -230,6 +318,56 @@ pub fn ensure_themes() -> PathBuf {
     }
 
     themes_dir
+}
+
+/// User bin directory: `~/.config/tmuxy/bin/`. Where we materialize the
+/// embedded CLI dispatcher (`tmuxy-cli`) and helper scripts so the
+/// in-config `run-shell "$HOME/.config/tmuxy/bin/tmuxy/nav …"` calls and
+/// the `tmuxy <subcommand>` shell wrapper can reach them at known paths,
+/// independent of the .app bundle's working directory.
+pub fn bin_dir() -> PathBuf {
+    config_dir().join("bin")
+}
+
+/// Mirror the bundled CLI dispatcher and helper scripts to
+/// `~/.config/tmuxy/bin/`. Always overwrites — these are not user-editable;
+/// upgrades must ship their own helpers without leaving stale copies behind.
+/// Returns the bin directory path.
+pub fn ensure_bin_scripts() -> PathBuf {
+    let bin = bin_dir();
+
+    if let Err(e) = std::fs::create_dir_all(&bin) {
+        eprintln!(
+            "Warning: could not create bin dir {:?}: {}",
+            bin, e
+        );
+        return bin;
+    }
+    if let Err(e) = std::fs::create_dir_all(bin.join("tmuxy")) {
+        eprintln!(
+            "Warning: could not create bin/tmuxy dir {:?}: {}",
+            bin, e
+        );
+        return bin;
+    }
+
+    for (rel_path, content) in BUNDLED_BIN_SCRIPTS {
+        let path = bin.join(rel_path);
+        if let Err(e) = std::fs::write(&path, content) {
+            eprintln!(
+                "Warning: could not write bundled script to {:?}: {}",
+                path, e
+            );
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    bin
 }
 
 /// List user-available theme names (file stems of *.css under
@@ -266,10 +404,15 @@ pub fn list_themes() -> Vec<String> {
 }
 
 /// Static `tmuxy` shell wrapper that reads the launcher path written by
-/// [`refresh_launcher`] and execs it. macOS branches through `open -a` so
-/// the .app gets normal LaunchServices treatment (icon-bouncing dock,
-/// proper activation policy) instead of running as a headless child of
-/// the user's shell.
+/// [`refresh_launcher`] and dispatches:
+///   - no args → open the GUI through `open -a` on macOS (LaunchServices
+///     bounces the dock icon and applies the right activation policy)
+///   - any args → exec the binary directly so it runs in CLI mode
+///
+/// Earlier versions always routed through `open -a`, which on macOS
+/// silently swallows args for known apps and never starts a CLI session,
+/// so `tmuxy pane list` etc. just opened a duplicate GUI window instead
+/// of dispatching into the noun-verb shell helper.
 const LAUNCHER_WRAPPER: &str = "#!/bin/sh
 # tmuxy — auto-generated shorthand for the desktop app.
 #
@@ -283,15 +426,25 @@ if [ ! -f \"$LAUNCHER_FILE\" ]; then
   exit 1
 fi
 EXEC_PATH=\"$(cat \"$LAUNCHER_FILE\")\"
+
+# With args: run the binary directly — main.rs routes nouns like
+# `pane`, `tab`, `widget`, … into the shell dispatcher (bin/tmuxy-cli).
+# Stays in the foreground so the user sees stdout/stderr in their terminal.
+if [ \"$#\" -gt 0 ]; then
+  exec \"$EXEC_PATH\" \"$@\"
+fi
+
+# No args: open the GUI through LaunchServices on macOS so the dock
+# bounces the icon and the existing instance is reactivated.
 case \"$(uname -s)\" in
   Darwin)
     APP_PATH=\"${EXEC_PATH%%/Contents/MacOS/*}\"
     if [ \"$APP_PATH\" != \"$EXEC_PATH\" ] && [ -d \"$APP_PATH\" ]; then
-      exec /usr/bin/open \"$APP_PATH\" --args \"$@\"
+      exec /usr/bin/open \"$APP_PATH\"
     fi
     ;;
 esac
-exec \"$EXEC_PATH\" \"$@\"
+exec \"$EXEC_PATH\"
 ";
 
 /// Async-friendly: refresh the `tmuxy` shell shorthand to point at the

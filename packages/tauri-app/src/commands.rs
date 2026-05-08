@@ -1,5 +1,8 @@
 use serde_json::Value;
+use tauri::State;
 use tmuxy_core::{executor, session};
+
+use crate::monitor::KeyBindingsState;
 
 /// Get session name from environment or use default
 fn get_session() -> String {
@@ -140,4 +143,13 @@ pub async fn get_key_bindings() -> Result<Value, String> {
         "prefix": prefix,
         "bindings": bindings
     }))
+}
+
+/// Return the most recent `tmux-keybindings` payload, or null if the monitor
+/// hasn't broadcast one yet. The frontend calls this on connect to recover
+/// from the race where the backend emits before the WebView's listener is
+/// attached.
+#[tauri::command]
+pub fn get_keybindings_snapshot(state: State<'_, KeyBindingsState>) -> Option<Value> {
+    state.0.read().ok().and_then(|guard| guard.clone())
 }

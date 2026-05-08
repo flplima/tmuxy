@@ -190,8 +190,6 @@ export interface AppMachineContext {
   prefixActive: boolean;
   /** Base font size for terminal text in pixels */
   baseFontSize: number;
-  /** Whether the cursor blinks */
-  cursorBlink: boolean;
   /** Timestamp of last layout command (for debouncing rapid layout changes) */
   lastLayoutCommandTime: number;
   /** Temporarily suppress layout transitions (e.g., command-based resize) */
@@ -454,7 +452,6 @@ export type SessionSwitchRequestedEvent = {
 export type IncreaseFontSizeEvent = { type: 'INCREASE_FONT_SIZE' };
 export type DecreaseFontSizeEvent = { type: 'DECREASE_FONT_SIZE' };
 export type ResetFontSizeEvent = { type: 'RESET_FONT_SIZE' };
-export type ToggleCursorBlinkEvent = { type: 'TOGGLE_CURSOR_BLINK' };
 
 // Debug log events
 export type LogAppendEvent = {
@@ -546,7 +543,6 @@ export type AppMachineEvent =
   | IncreaseFontSizeEvent
   | DecreaseFontSizeEvent
   | ResetFontSizeEvent
-  | ToggleCursorBlinkEvent
   | LogAppendEvent;
 
 /** All events the app machine handles (external + child machine events) */

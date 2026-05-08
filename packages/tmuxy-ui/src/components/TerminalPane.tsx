@@ -25,7 +25,6 @@ import {
   useAppSelector,
   useAppConfig,
   selectCharSize,
-  selectCursorBlink,
 } from '../machines/AppContext';
 import { usePaneMouse, usePaneTouch } from '../hooks';
 import { extractSelectedText } from '../utils/copyMode';
@@ -41,7 +40,6 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
-  const cursorBlink = useAppSelector(selectCursorBlink);
   const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -376,7 +374,6 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
                   cursorX={pane.cursorX}
                   cursorY={pane.cursorY}
                   isActive={pane.active && isInActiveWindow && !focusedFloatPaneId}
-                  blink={cursorBlink}
                   width={pane.width}
                   height={pane.height}
                   inMode={pane.inMode}

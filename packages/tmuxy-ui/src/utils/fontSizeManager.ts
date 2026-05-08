@@ -35,21 +35,3 @@ export function increaseFontSize(current: number): number {
 export function decreaseFontSize(current: number): number {
   return Math.max(current - 1, MIN_FONT_SIZE);
 }
-
-export function loadCursorBlinkFromStorage(): boolean {
-  try {
-    const val = localStorage.getItem('tmuxy-cursor-blink');
-    if (val !== null) return val === 'true';
-  } catch {
-    // localStorage unavailable
-  }
-  return true;
-}
-
-export function saveCursorBlinkToStorage(blink: boolean): void {
-  try {
-    localStorage.setItem('tmuxy-cursor-blink', String(blink));
-  } catch {
-    // localStorage unavailable
-  }
-}

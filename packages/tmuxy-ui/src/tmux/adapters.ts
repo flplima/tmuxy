@@ -124,6 +124,20 @@ export class TauriAdapter implements TmuxAdapter {
 
       // Tauri is always primary
       this.notifyConnectionInfo(0, 'bash');
+
+      // Backfill keybindings: the backend's first `tmux-keybindings` event
+      // can fire before this listener is attached (especially on a fresh
+      // launch where the WebView is still booting). Without this fetch the
+      // prefix indicator stays hidden and prefix/root bindings are empty,
+      // so prefix-key and Ctrl+hjkl silently no-op.
+      try {
+        const snapshot = await invoke<KeyBindings | null>('get_keybindings_snapshot');
+        if (snapshot) {
+          this.notifyKeyBindings(snapshot);
+        }
+      } catch {
+        // Older app builds won't have the command — fall through silently.
+      }
     } catch (e) {
       this.notifyError('Failed to connect to Tauri');
       throw e;

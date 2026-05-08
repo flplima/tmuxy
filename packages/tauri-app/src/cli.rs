@@ -6,8 +6,12 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// Search order:
 /// 1. $TMUXY_SCRIPTS env var
-/// 2. Relative to binary: ../bin/tmuxy-cli (dev layout)
-/// 3. Relative to binary: ../share/tmuxy/bin/tmuxy-cli (installed layout)
+/// 2. ~/.config/tmuxy/bin/tmuxy-cli (materialized by ensure_bin_scripts;
+///    the canonical location whenever the .app has been launched at least
+///    once on this machine)
+/// 3. Relative to binary: ../../../bin/tmuxy-cli (dev layout)
+/// 4. Relative to binary: ../share/tmuxy/bin/tmuxy-cli (Linux installed layout)
+/// 5. Same directory as binary (flat fallback)
 fn find_cli_script() -> Option<PathBuf> {
     // Env override
     if let Ok(dir) = std::env::var("TMUXY_SCRIPTS") {
@@ -15,6 +19,14 @@ fn find_cli_script() -> Option<PathBuf> {
         if p.exists() {
             return Some(p);
         }
+    }
+
+    // Materialized location (~/.config/tmuxy/bin/tmuxy-cli). Materialize
+    // first if the GUI has never run — gives `tmuxy pane list` from a fresh
+    // shell something to dispatch into.
+    let user_bin = tmuxy_core::session::ensure_bin_scripts().join("tmuxy-cli");
+    if user_bin.exists() {
+        return Some(user_bin);
     }
 
     // Relative to binary
@@ -48,12 +60,6 @@ fn find_cli_script() -> Option<PathBuf> {
                 return Some(flat);
             }
         }
-    }
-
-    // Workspace root (for development)
-    let workspace = PathBuf::from("/workspace/bin/tmuxy-cli");
-    if workspace.exists() {
-        return Some(workspace);
     }
 
     None
