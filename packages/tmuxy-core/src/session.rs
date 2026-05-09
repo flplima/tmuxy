@@ -133,21 +133,63 @@ const BUNDLED_THEMES: &[(&str, &str)] = &[
 const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
     ("tmuxy-cli", include_str!("../../../bin/tmuxy-cli")),
     ("tmuxy/_lib", include_str!("../../../bin/tmuxy/_lib")),
-    ("tmuxy/event-emit", include_str!("../../../bin/tmuxy/event-emit")),
-    ("tmuxy/event-list", include_str!("../../../bin/tmuxy/event-list")),
-    ("tmuxy/event-wait", include_str!("../../../bin/tmuxy/event-wait")),
-    ("tmuxy/float-create", include_str!("../../../bin/tmuxy/float-create")),
+    (
+        "tmuxy/event-emit",
+        include_str!("../../../bin/tmuxy/event-emit"),
+    ),
+    (
+        "tmuxy/event-list",
+        include_str!("../../../bin/tmuxy/event-list"),
+    ),
+    (
+        "tmuxy/event-wait",
+        include_str!("../../../bin/tmuxy/event-wait"),
+    ),
+    (
+        "tmuxy/float-create",
+        include_str!("../../../bin/tmuxy/float-create"),
+    ),
     ("tmuxy/nav", include_str!("../../../bin/tmuxy/nav")),
-    ("tmuxy/pane-group-add", include_str!("../../../bin/tmuxy/pane-group-add")),
-    ("tmuxy/pane-group-close", include_str!("../../../bin/tmuxy/pane-group-close")),
-    ("tmuxy/pane-group-next", include_str!("../../../bin/tmuxy/pane-group-next")),
-    ("tmuxy/pane-group-prev", include_str!("../../../bin/tmuxy/pane-group-prev")),
-    ("tmuxy/pane-group-switch", include_str!("../../../bin/tmuxy/pane-group-switch")),
-    ("tmuxy/session-connect", include_str!("../../../bin/tmuxy/session-connect")),
-    ("tmuxy/session-switch", include_str!("../../../bin/tmuxy/session-switch")),
-    ("tmuxy/tmuxy-widget", include_str!("../../../bin/tmuxy/tmuxy-widget")),
-    ("tmuxy/tmuxy-widget-image", include_str!("../../../bin/tmuxy/tmuxy-widget-image")),
-    ("tmuxy/tmuxy-widget-markdown", include_str!("../../../bin/tmuxy/tmuxy-widget-markdown")),
+    (
+        "tmuxy/pane-group-add",
+        include_str!("../../../bin/tmuxy/pane-group-add"),
+    ),
+    (
+        "tmuxy/pane-group-close",
+        include_str!("../../../bin/tmuxy/pane-group-close"),
+    ),
+    (
+        "tmuxy/pane-group-next",
+        include_str!("../../../bin/tmuxy/pane-group-next"),
+    ),
+    (
+        "tmuxy/pane-group-prev",
+        include_str!("../../../bin/tmuxy/pane-group-prev"),
+    ),
+    (
+        "tmuxy/pane-group-switch",
+        include_str!("../../../bin/tmuxy/pane-group-switch"),
+    ),
+    (
+        "tmuxy/session-connect",
+        include_str!("../../../bin/tmuxy/session-connect"),
+    ),
+    (
+        "tmuxy/session-switch",
+        include_str!("../../../bin/tmuxy/session-switch"),
+    ),
+    (
+        "tmuxy/tmuxy-widget",
+        include_str!("../../../bin/tmuxy/tmuxy-widget"),
+    ),
+    (
+        "tmuxy/tmuxy-widget-image",
+        include_str!("../../../bin/tmuxy/tmuxy-widget-image"),
+    ),
+    (
+        "tmuxy/tmuxy-widget-markdown",
+        include_str!("../../../bin/tmuxy/tmuxy-widget-markdown"),
+    ),
 ];
 
 /// Resolve the user's tmuxy config directory: $XDG_CONFIG_HOME/tmuxy
@@ -337,17 +379,11 @@ pub fn ensure_bin_scripts() -> PathBuf {
     let bin = bin_dir();
 
     if let Err(e) = std::fs::create_dir_all(&bin) {
-        eprintln!(
-            "Warning: could not create bin dir {:?}: {}",
-            bin, e
-        );
+        eprintln!("Warning: could not create bin dir {:?}: {}", bin, e);
         return bin;
     }
     if let Err(e) = std::fs::create_dir_all(bin.join("tmuxy")) {
-        eprintln!(
-            "Warning: could not create bin/tmuxy dir {:?}: {}",
-            bin, e
-        );
+        eprintln!("Warning: could not create bin/tmuxy dir {:?}: {}", bin, e);
         return bin;
     }
 
