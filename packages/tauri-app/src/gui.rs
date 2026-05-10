@@ -486,9 +486,9 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         "pane-swap-prev" => Some("swap-pane -U"),
         "pane-swap-next" => Some("swap-pane -D"),
         "pane-move-new-tab" => Some("break-pane"),
-        "pane-add-to-group" => {
-            Some("run-shell \"bin/tmuxy/pane-group-add #{pane_id} #{pane_width} #{pane_height}\"")
-        }
+        "pane-add-to-group" => Some(
+            "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/pane-group-add #{pane_id} #{pane_width} #{pane_height}\"",
+        ),
         "pane-copy-mode" => Some("copy-mode"),
         "pane-paste" => Some("paste-buffer"),
         "pane-clear" => Some("send-keys -R \\; clear-history"),

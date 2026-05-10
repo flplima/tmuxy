@@ -526,10 +526,30 @@ pub fn refresh_launcher(exe_path: &std::path::Path) {
     }
 
     let wrapper_path = bin_dir.join("tmuxy");
-    let needs_write = match std::fs::read_to_string(&wrapper_path) {
-        Ok(existing) => existing != LAUNCHER_WRAPPER,
-        Err(_) => true,
+
+    // Probe via symlink_metadata so we see the *link*, not what it points to.
+    // Earlier dev-tree installs sometimes left `~/.local/bin/tmuxy` as a
+    // symlink to a now-renamed path (e.g. `…/projects/tmuxy/scripts/tmuxy-cli`).
+    // `read_to_string` would follow the dangling symlink, fail, and we'd then
+    // try to `write` *through* it — also failing because the target's parent
+    // directory no longer exists. Unlink stale symlinks first so we always
+    // end up with a fresh regular-file wrapper.
+    let symlink_meta = std::fs::symlink_metadata(&wrapper_path).ok();
+    let is_symlink = symlink_meta
+        .as_ref()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+
+    let needs_write = if is_symlink {
+        let _ = std::fs::remove_file(&wrapper_path);
+        true
+    } else {
+        match std::fs::read_to_string(&wrapper_path) {
+            Ok(existing) => existing != LAUNCHER_WRAPPER,
+            Err(_) => true,
+        }
     };
+
     if needs_write {
         if let Err(e) = std::fs::write(&wrapper_path, LAUNCHER_WRAPPER) {
             crate::debug_log::log(&format!(
