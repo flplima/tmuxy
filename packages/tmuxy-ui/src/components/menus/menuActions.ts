@@ -52,7 +52,8 @@ export function executeMenuAction(send: Send, actionId: string): void {
     case 'pane-add-to-group':
       send({
         type: 'SEND_TMUX_COMMAND',
-        command: 'run-shell "bin/tmuxy/pane-group-add #{pane_id} #{pane_width} #{pane_height}"',
+        command:
+          'run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-add #{pane_id} #{pane_width} #{pane_height}"',
       });
       break;
     case 'pane-copy-mode':
