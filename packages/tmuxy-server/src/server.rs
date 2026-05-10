@@ -53,6 +53,11 @@ pub async fn run(args: ServerArgs) {
 /// Start the development server with Vite and demo proxies
 async fn start_dev_server() {
     tmuxy_core::session::ensure_config();
+    // Materialize bundled CLI dispatcher and helper scripts so the in-config
+    // `command-alias` entries (Ctrl+hjkl nav, pane groups, etc.) and the
+    // direct "Add Pane to Group" menu commands resolve at the absolute
+    // `$HOME/.config/tmuxy/bin/tmuxy/…` path. Mirrors gui.rs setup().
+    tmuxy_core::session::ensure_bin_scripts();
     let state = Arc::new(AppState::new());
 
     println!(
@@ -109,6 +114,7 @@ async fn start_dev_server() {
 async fn start_server(port: u16, host: String) {
     write_pid_file();
     tmuxy_core::session::ensure_config();
+    tmuxy_core::session::ensure_bin_scripts();
 
     let state = Arc::new(AppState::new());
 
