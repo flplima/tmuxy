@@ -191,6 +191,14 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
+      // Alternate-screen apps (nvim, less, htop) without mouse tracking: don't
+      // start a drag-selection. Our client-side copy mode operates on tmux
+      // scrollback, which is hidden while the alternate buffer is active —
+      // dragging would pop the user into an unrelated view.
+      if (alternateOn) {
+        return;
+      }
+
       // Default: prepare for potential drag selection
       mouseButtonRef.current = e.button;
 
@@ -208,7 +216,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         document.addEventListener('mouseup', cleanupDrag);
       }
     },
-    [send, paneId, mouseAnyFlag, pixelToCell, cleanupDrag],
+    [send, paneId, mouseAnyFlag, alternateOn, pixelToCell, cleanupDrag],
   );
 
   // Handle mouse up
