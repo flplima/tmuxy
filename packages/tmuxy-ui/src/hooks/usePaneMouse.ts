@@ -167,10 +167,14 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       // Don't handle clicks on the header (drag is handled separately)
       if (target.closest('.pane-header')) return;
 
-      // Shift+click always focuses pane, regardless of mouse mode
+      // Focus unconditionally — FOCUS_PANE is a no-op when already active.
+      // Mouse-tracking panes (vim/htop) used to forward SGR without focusing,
+      // so input stayed routed to the previous pane.
+      haptics.trigger(10);
+      send({ type: 'FOCUS_PANE', paneId });
+
+      // Shift+click: focus only, don't forward or start a drag-selection.
       if (e.shiftKey) {
-        haptics.trigger(10);
-        send({ type: 'FOCUS_PANE', paneId });
         return;
       }
 
@@ -187,9 +191,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      // Default: focus the pane and prepare for potential drag selection
-      haptics.trigger(10);
-      send({ type: 'FOCUS_PANE', paneId });
+      // Default: prepare for potential drag selection
       mouseButtonRef.current = e.button;
 
       if (e.button === 0) {
