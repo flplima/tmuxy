@@ -203,6 +203,28 @@ export function createKeyboardActor() {
       // Let browser handle Ctrl+V / Cmd+V for paste
       if ((event.ctrlKey || event.metaKey) && event.key === 'v') return;
 
+      // Font size shortcuts (CmdOrCtrl + = / + / - / 0). Handled here rather
+      // than via the native menu accelerator because the menu only exists on
+      // macOS, and Cmd+= alone isn't reliably caught by Tauri's "CmdOrCtrl+Plus"
+      // mapping — that string targets Cmd+Shift+=.
+      if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        if (event.key === '=' || event.key === '+') {
+          event.preventDefault();
+          input.parent.send({ type: 'INCREASE_FONT_SIZE' });
+          return;
+        }
+        if (event.key === '-' || event.key === '_') {
+          event.preventDefault();
+          input.parent.send({ type: 'DECREASE_FONT_SIZE' });
+          return;
+        }
+        if (event.key === '0') {
+          event.preventDefault();
+          input.parent.send({ type: 'RESET_FONT_SIZE' });
+          return;
+        }
+      }
+
       // Cmd+C / Ctrl+C: copy selection to clipboard (if in copy mode with selection)
       // or send SIGINT (if not in copy mode / no selection)
       if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
