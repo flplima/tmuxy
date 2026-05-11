@@ -1880,12 +1880,16 @@ export const appMachine = setup({
               }),
             );
 
-            // Fetch initial chunk: visible area + 200 lines above
+            // Fetch the entire scrollback history. tmux returns only what
+            // exists, so cost scales with the live history size — not the
+            // 100k history-limit. Pre-fetching everything avoids the
+            // "wheel scrolls faster than the paginator" race where users
+            // saw partial history because incremental loads couldn't keep up.
             enqueue(
               sendTo('tmux', {
                 type: 'FETCH_SCROLLBACK_CELLS' as const,
                 paneId: event.paneId,
-                start: -(pane.height + 200),
+                start: -historySize,
                 end: pane.height - 1,
               }),
             );
