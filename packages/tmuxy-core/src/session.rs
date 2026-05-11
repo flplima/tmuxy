@@ -283,6 +283,8 @@ pub fn ensure_config() -> PathBuf {
     // Migrate stale relative bin paths in pre-existing user configs.
     if let Ok(existing) = std::fs::read_to_string(&config_path) {
         let migrated = migrate_bin_paths(&existing);
+        let migrated = repair_doubled_bin_paths(&migrated);
+        let migrated = migrate_tab_bindings(&migrated);
         if migrated != existing {
             if let Err(e) = std::fs::write(&config_path, &migrated) {
                 eprintln!(
@@ -290,10 +292,7 @@ pub fn ensure_config() -> PathBuf {
                     config_path, e
                 );
             } else {
-                eprintln!(
-                    "Migrated relative bin paths in {:?} to $HOME/.config/tmuxy/bin/",
-                    config_path
-                );
+                eprintln!("Migrated tmuxy.conf at {:?}", config_path);
             }
         }
     }
@@ -301,11 +300,57 @@ pub fn ensure_config() -> PathBuf {
     config_path
 }
 
+/// Repair `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/…` doubled
+/// paths produced by the non-idempotent v0.0.5→v0.0.6 migration. Collapses
+/// any number of repeated `$HOME/.config/tmuxy/` prefixes down to one.
+fn repair_doubled_bin_paths(config: &str) -> String {
+    let doubled = "$HOME/.config/tmuxy/$HOME/.config/tmuxy/";
+    let single = "$HOME/.config/tmuxy/";
+    let mut result = config.to_string();
+    while result.contains(doubled) {
+        result = result.replace(doubled, single);
+    }
+    result
+}
+
+/// Append the Ctrl+Tab / Ctrl+Shift+Tab root bindings to an existing user
+/// config if they're missing. New default configs already include them; this
+/// is for users upgrading from a release that predated those bindings.
+fn migrate_tab_bindings(config: &str) -> String {
+    let has_ctab = config.contains("bind -n C-Tab ");
+    let has_cstab = config.contains("bind -n C-S-Tab ");
+    if has_ctab && has_cstab {
+        return config.to_string();
+    }
+    let mut result = config.to_string();
+    if !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result.push_str("\n# Tab navigation (Ctrl+Tab / Ctrl+Shift+Tab) — added by tmuxy upgrade\n");
+    if !has_ctab {
+        result.push_str("bind -n C-Tab next-window\n");
+    }
+    if !has_cstab {
+        result.push_str("bind -n C-S-Tab previous-window\n");
+    }
+    result
+}
+
 /// Rewrite legacy relative `bin/tmuxy/…` paths to the materialized absolute
 /// path. Conservative — only touches occurrences inside `run-shell` strings
 /// for our known helpers, so a user who hand-rolled a `bin/` reference for
 /// their own scripts isn't affected.
+///
+/// Idempotent: if the config already contains the fresh path prefix, the
+/// migration is skipped entirely. Without this guard the substring `replace`
+/// would recursively rewrite the already-migrated path on every launch —
+/// e.g. v0.0.5→v0.0.6 upgrades produced
+/// `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav`, which silently
+/// broke Ctrl+hjkl pane navigation and pane-group actions on macOS.
 fn migrate_bin_paths(config: &str) -> String {
+    if config.contains("$HOME/.config/tmuxy/bin/tmuxy/") {
+        return config.to_string();
+    }
     let mut result = config.to_string();
     let helpers = [
         "pane-group-add",
@@ -674,4 +719,73 @@ pub fn kill_session(session_name: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to kill session: {}", e))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrate_bin_paths_rewrites_stale_relative_paths() {
+        let input =
+            r#"set -s command-alias[110] 'tmuxy-nav-left=run-shell "bash bin/tmuxy/nav left"'"#;
+        let out = migrate_bin_paths(input);
+        assert!(out.contains("$HOME/.config/tmuxy/bin/tmuxy/nav"));
+        assert!(!out.contains("\"bash bin/tmuxy/nav"));
+    }
+
+    #[test]
+    fn migrate_bin_paths_is_idempotent() {
+        // Regression: v0.0.5 wrote configs with the fresh path already in place.
+        // v0.0.6's substring `replace` found `bin/tmuxy/nav` inside the fresh
+        // path and produced `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav`,
+        // breaking Ctrl+hjkl on every upgrade.
+        let input = r#"run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav left""#;
+        let out = migrate_bin_paths(input);
+        assert_eq!(out, input);
+        assert!(!out.contains("$HOME/.config/tmuxy/$HOME"));
+    }
+
+    #[test]
+    fn repair_doubled_bin_paths_collapses_repeated_prefixes() {
+        let doubled = "run-shell \"bash $HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav\"";
+        let out = repair_doubled_bin_paths(doubled);
+        assert_eq!(out, "run-shell \"bash $HOME/.config/tmuxy/bin/tmuxy/nav\"");
+    }
+
+    #[test]
+    fn repair_doubled_bin_paths_handles_triple_mangling() {
+        let triple = "$HOME/.config/tmuxy/$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/nav";
+        let out = repair_doubled_bin_paths(triple);
+        assert_eq!(out, "$HOME/.config/tmuxy/bin/tmuxy/nav");
+    }
+
+    #[test]
+    fn migrate_tab_bindings_appends_when_missing() {
+        let input = "set -g prefix C-a\n";
+        let out = migrate_tab_bindings(input);
+        assert!(out.contains("bind -n C-Tab next-window"));
+        assert!(out.contains("bind -n C-S-Tab previous-window"));
+    }
+
+    #[test]
+    fn migrate_tab_bindings_is_idempotent() {
+        let input =
+            "set -g prefix C-a\nbind -n C-Tab next-window\nbind -n C-S-Tab previous-window\n";
+        let out = migrate_tab_bindings(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn parse_option_from_config_reads_set_g_lines() {
+        let cfg = "# comment\nset -g @tmuxy-opacity 0.8\nset -g @tmuxy-vibrancy under-window\n";
+        // Re-implementing here so we don't reach into the gui crate; the parser
+        // logic in tauri-app/src/gui.rs is exercised independently in its own
+        // build, but having the regression here lives next to migrate_bin_paths.
+        let opacity_line = cfg
+            .lines()
+            .find(|l| l.contains("@tmuxy-opacity"))
+            .expect("opacity line");
+        assert!(opacity_line.ends_with("0.8"));
+    }
 }

@@ -5,12 +5,71 @@ use tmuxy_core::{executor, session};
 use crate::commands;
 use crate::monitor;
 
-/// Read a tmuxy user-option from tmux globals, returning None if unset or empty.
+/// Read a tmuxy user-option, preferring the live tmux server but falling back
+/// to parsing `~/.config/tmuxy/tmuxy.conf` directly when the server isn't up
+/// yet. The initial `apply_window_effects` call runs during Tauri setup —
+/// before `monitor::start_monitoring` connects and sources the config — so
+/// `show-options` would otherwise return empty and the macOS window would
+/// open with no opacity/vibrancy on first launch.
 fn read_tmuxy_option(name: &str) -> Option<String> {
-    executor::execute_tmux_command(&["show-options", "-gqv", name])
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    if let Ok(s) = executor::execute_tmux_command(&["show-options", "-gqv", name]) {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    let config_path = session::config_dir().join("tmuxy.conf");
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    parse_option_from_config(&content, name)
+}
+
+/// Best-effort parser for `set [-g|-ga|-gu|-s|-sg|...] @name value` lines in a
+/// tmux config. Matches the last assignment wins (mirroring tmux) and ignores
+/// comments. The value can be a bare word or a single-/double-quoted string.
+fn parse_option_from_config(content: &str, name: &str) -> Option<String> {
+    let mut found: Option<String> = None;
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut tokens = line.split_whitespace();
+        if tokens.next() != Some("set") {
+            continue;
+        }
+        // Skip the flag(s) (`-g`, `-ga`, `-gu`, `-sg`, etc.); the next token
+        // should be the option name.
+        let after_flag = loop {
+            match tokens.next() {
+                Some(tok) if tok.starts_with('-') => continue,
+                Some(tok) => break Some(tok),
+                None => break None,
+            }
+        };
+        if after_flag != Some(name) {
+            continue;
+        }
+        // The remainder of the line is the value (possibly quoted).
+        let rest = tokens.collect::<Vec<&str>>().join(" ");
+        let value = strip_quotes(rest.trim());
+        if !value.is_empty() {
+            found = Some(value.to_string());
+        }
+    }
+    found
+}
+
+fn strip_quotes(s: &str) -> &str {
+    if s.len() >= 2 {
+        let bytes = s.as_bytes();
+        let first = bytes[0];
+        let last = bytes[s.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return &s[1..s.len() - 1];
+        }
+    }
+    s
 }
 
 /// Parse the @tmuxy-vibrancy value into a Tauri window effect.
@@ -946,4 +1005,60 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_option_reads_set_g_bare_value() {
+        let cfg = "set -g @tmuxy-opacity 0.8\n";
+        assert_eq!(
+            parse_option_from_config(cfg, "@tmuxy-opacity"),
+            Some("0.8".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_option_reads_set_g_quoted_value() {
+        let cfg = "set -g @tmuxy-vibrancy \"under-window\"\n";
+        assert_eq!(
+            parse_option_from_config(cfg, "@tmuxy-vibrancy"),
+            Some("under-window".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_option_ignores_comments() {
+        let cfg = "# set -g @tmuxy-opacity 1.0\nset -g @tmuxy-opacity 0.8\n";
+        assert_eq!(
+            parse_option_from_config(cfg, "@tmuxy-opacity"),
+            Some("0.8".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_option_last_assignment_wins() {
+        let cfg = "set -g @tmuxy-opacity 0.5\nset -g @tmuxy-opacity 0.8\n";
+        assert_eq!(
+            parse_option_from_config(cfg, "@tmuxy-opacity"),
+            Some("0.8".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_option_returns_none_when_missing() {
+        let cfg = "set -g prefix C-a\n";
+        assert_eq!(parse_option_from_config(cfg, "@tmuxy-opacity"), None);
+    }
+
+    #[test]
+    fn parse_option_handles_multi_flag_forms() {
+        let cfg = "set -ga @tmuxy-vibrancy sidebar\n";
+        assert_eq!(
+            parse_option_from_config(cfg, "@tmuxy-vibrancy"),
+            Some("sidebar".to_string())
+        );
+    }
 }
