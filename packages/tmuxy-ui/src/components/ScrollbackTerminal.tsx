@@ -58,12 +58,18 @@ function computeScrollbackSelection(
 export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const preRef = useRef<HTMLPreElement>(null);
+  // Indexed by div position (not by absolute row): each entry records what
+  // was last rendered into children[i]. Position-keyed tracking is required
+  // because scrolling shifts visibleStart, reusing the same divs for different
+  // rows. A row-keyed map skipped updates whenever the new row happened to
+  // overlap the previous render's row set, leaving stale content in the divs.
   const prevLinesRef = useRef<
-    Map<
-      number,
-      { line: CellLine; selRange: ReturnType<ReturnType<typeof computeScrollbackSelection>> }
-    >
-  >(new Map());
+    Array<{
+      row: number;
+      line: CellLine;
+      selRange: ReturnType<ReturnType<typeof computeScrollbackSelection>>;
+    }>
+  >([]);
 
   const { totalLines, scrollTop, height, cursorRow, cursorCol, lines } = copyState;
 
@@ -93,12 +99,12 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
     if (!pre) return;
 
     const children = pre.children;
-    const prevMap = prevLinesRef.current;
+    const prevArr = prevLinesRef.current;
+    const newPrevArr: typeof prevArr = new Array(visibleCount);
 
     // Ensure correct number of line divs
     if (children.length !== visibleCount) {
       pre.textContent = '';
-      prevMap.clear();
       for (let i = 0; i < visibleCount; i++) {
         const div = document.createElement('div');
         div.className = 'terminal-line';
@@ -107,20 +113,20 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
         const selRange = getSelectionRange(row);
         renderLineToDOM(div, line, selRange);
         pre.appendChild(div);
-        prevMap.set(row, { line, selRange });
+        newPrevArr[i] = { row, line, selRange };
       }
     } else {
-      // Incremental update
-      const newPrevMap = new Map<
-        number,
-        { line: CellLine; selRange: ReturnType<ReturnType<typeof computeScrollbackSelection>> }
-      >();
+      // Incremental update — compare per div position. When scrolling, the
+      // row at children[i] changes; rowChanged forces a redraw even if the
+      // new row's content happens to be reference-equal to what was at i
+      // before.
       for (let i = 0; i < visibleCount; i++) {
         const row = visibleStart + i;
         const line = lines.get(row) ?? EMPTY_LINE;
         const selRange = getSelectionRange(row);
-        const prev = prevMap.get(row);
+        const prev = prevArr[i];
 
+        const rowChanged = !prev || prev.row !== row;
         const lineChanged = !prev || prev.line !== line;
         const selChanged =
           !prev ||
@@ -130,14 +136,14 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
               selRange?.startCol !== prev.selRange?.startCol ||
               selRange?.endCol !== prev.selRange?.endCol));
 
-        if (lineChanged || selChanged) {
+        if (rowChanged || lineChanged || selChanged) {
           const div = children[i] as HTMLDivElement;
           renderLineToDOM(div, line, selRange);
         }
-        newPrevMap.set(row, { line, selRange });
+        newPrevArr[i] = { row, line, selRange };
       }
-      prevLinesRef.current = newPrevMap;
     }
+    prevLinesRef.current = newPrevArr;
   }, [visibleStart, visibleCount, lines, getSelectionRange]);
 
   // Cursor character
