@@ -1,6 +1,6 @@
 {
   "name": "tmuxy-ui",
-  "version": "0.0.10-alpha.1",
+  "version": "0.0.10-alpha.2",
   "private": true,
   "type": "module",
   "exports": {
