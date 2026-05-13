@@ -217,9 +217,7 @@ function resolveTabNavTarget(
   context: AppMachineContext,
 ): { windowId: string; windowIndex: number } | null {
   if (!context.activeWindowId) return null;
-  const visibleWindows = context.windows.filter(
-    (w) => !w.isPaneGroupWindow && !w.isFloatWindow,
-  );
+  const visibleWindows = context.windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow);
   if (visibleWindows.length === 0) return null;
 
   const trimmed = command.trim();
@@ -246,8 +244,7 @@ function resolveTabNavTarget(
   }
 
   if (trimmed.match(/^(previous-window|prevw|prev)(\s|$)/)) {
-    const target =
-      visibleWindows[(currentIdx - 1 + visibleWindows.length) % visibleWindows.length];
+    const target = visibleWindows[(currentIdx - 1 + visibleWindows.length) % visibleWindows.length];
     if (target && target.id !== context.activeWindowId) {
       return { windowId: target.id, windowIndex: target.index };
     }
@@ -1814,8 +1811,7 @@ export const appMachine = setup({
             // first pane we know about in that window.
             const targetPanes = context.panes.filter((p) => p.windowId === event.windowId);
             const remembered = context.lastActivePaneByWindow[event.windowId];
-            const rememberedExists =
-              remembered && targetPanes.some((p) => p.tmuxId === remembered);
+            const rememberedExists = remembered && targetPanes.some((p) => p.tmuxId === remembered);
             const targetPaneId =
               (rememberedExists ? remembered : null) ??
               targetPanes.find((p) => p.active)?.tmuxId ??
