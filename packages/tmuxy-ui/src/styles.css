@@ -438,8 +438,13 @@
      separator column), adjacent panes' outlines coincide pixel-for-
      pixel at the shared edge — producing the "mosaic" look where the
      grid reads as a single connected frame rather than a row of
-     separate boxes with gaps. */
-  outline: 1px solid var(--border-medium);
+     separate boxes with gaps.
+
+     Inactive panes share the same dark-gray tone as the active one,
+     just at reduced opacity. Override `--pane-active-border` per theme
+     to break the link. */
+  outline: 1px solid
+    color-mix(in srgb, var(--pane-active-border, var(--border-medium)) 35%, transparent);
   /* Animate position/size changes for swaps and resizes */
   transition:
     left var(--transition-layout),
@@ -455,21 +460,14 @@
   opacity: 0.7;
 }
 
-/* Active pane: outline shares the desaturated green hue used by the
-   pane-header active background, just slightly more opaque so the 1px
-   line stays readable. Themes can override --pane-active-border to break
-   the link (e.g. gruvbox uses a solid light gray for both the outline
-   and the header bar). */
+/* Active pane: same dark-gray tone as the inactive border, but fully opaque. */
 .pane-layout-item.pane-active {
-  outline-color: var(
-    --pane-active-border,
-    color-mix(in srgb, color-mix(in hsl, var(--term-green), gray 50%) 50%, transparent)
-  );
+  outline-color: var(--pane-active-border, var(--border-medium));
 }
 
-/* Copy mode: same hue, override-aware */
+/* Copy mode: distinct bright-green outline so the mode is unmistakable. */
 .pane-layout-item.pane-active.pane-copy-mode {
-  outline-color: var(--pane-active-border, var(--term-bright-green));
+  outline-color: var(--term-bright-green);
 }
 
 .pane-layout-item.pane-dragging {
@@ -578,9 +576,10 @@
   height: var(--pane-header-height);
   margin-top: 0;
   margin-bottom: 4px;
+  /* Same dark-gray tone as the inactive pane outline, at reduced opacity. */
   background-color: color-mix(
     in srgb,
-    color-mix(in hsl, var(--term-bright-black), gray 50%) 20%,
+    var(--pane-active-border, var(--border-medium)) 35%,
     transparent
   );
   font-family: var(--font-mono);
@@ -593,11 +592,8 @@
 }
 
 .pane-header-active {
-  background-color: color-mix(
-    in srgb,
-    color-mix(in hsl, var(--term-green), gray 50%) 20%,
-    transparent
-  );
+  /* Same dark-gray tone as the inactive bar, but fully opaque. */
+  background-color: var(--pane-active-border, var(--border-medium));
   color: var(--pane-header-text-inactive);
 }
 
