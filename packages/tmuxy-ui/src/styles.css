@@ -455,14 +455,21 @@
   opacity: 0.7;
 }
 
-/* Active pane: green outline (replaces the inactive border-medium) */
+/* Active pane: outline shares the desaturated green hue used by the
+   pane-header active background, just slightly more opaque so the 1px
+   line stays readable. Themes can override --pane-active-border to break
+   the link (e.g. gruvbox uses a solid light gray for both the outline
+   and the header bar). */
 .pane-layout-item.pane-active {
-  outline-color: var(--term-green);
+  outline-color: var(
+    --pane-active-border,
+    color-mix(in srgb, color-mix(in hsl, var(--term-green), gray 50%) 50%, transparent)
+  );
 }
 
-/* Copy mode: bright green outline */
+/* Copy mode: same hue, override-aware */
 .pane-layout-item.pane-active.pane-copy-mode {
-  outline-color: var(--term-bright-green);
+  outline-color: var(--pane-active-border, var(--term-bright-green));
 }
 
 .pane-layout-item.pane-dragging {
@@ -844,7 +851,7 @@
 
 /* Keybinding hints */
 .statusline-hints {
-  color: #000;
+  color: var(--text-dark);
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.73);
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -860,7 +867,7 @@
 
 .statusline-hints kbd {
   font-weight: bold;
-  color: #000;
+  color: var(--text-dark);
   font-family: inherit;
 }
 
@@ -891,7 +898,7 @@
 /* Host and session labels */
 .statusline-host,
 .statusline-session {
-  color: #000;
+  color: var(--text-dark);
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
   padding: var(--spacing-md) var(--spacing-lg);
