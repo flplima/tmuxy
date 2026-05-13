@@ -202,6 +202,61 @@ function parseDisplayMessage(command: string): string | null {
   return null;
 }
 
+/**
+ * Detect a tab-navigation command (`select-window -t N`, `next-window`,
+ * `previous-window`) and resolve it to a concrete target window. Returns
+ * `null` for any other command, or when the resolved target is the current
+ * window (so SELECT_TAB can no-op without a wasted dispatch).
+ *
+ * The visual `select-window -t N` remap from Ctrl+1..9 must run *before*
+ * calling this — by the time we look it up, the command should reference
+ * a real tmux window index.
+ */
+function resolveTabNavTarget(
+  command: string,
+  context: AppMachineContext,
+): { windowId: string; windowIndex: number } | null {
+  if (!context.activeWindowId) return null;
+  const visibleWindows = context.windows.filter(
+    (w) => !w.isPaneGroupWindow && !w.isFloatWindow,
+  );
+  if (visibleWindows.length === 0) return null;
+
+  const trimmed = command.trim();
+
+  const selectMatch = trimmed.match(/^(select-window|selectw)\s+-t\s+:?=?(\d+)\s*$/);
+  if (selectMatch) {
+    const target = parseInt(selectMatch[2], 10);
+    const targetWindow = visibleWindows.find((w) => w.index === target);
+    if (targetWindow && targetWindow.id !== context.activeWindowId) {
+      return { windowId: targetWindow.id, windowIndex: targetWindow.index };
+    }
+    return null;
+  }
+
+  const currentIdx = visibleWindows.findIndex((w) => w.id === context.activeWindowId);
+  if (currentIdx === -1) return null;
+
+  if (trimmed.match(/^(next-window|nextw|next)(\s|$)/)) {
+    const target = visibleWindows[(currentIdx + 1) % visibleWindows.length];
+    if (target && target.id !== context.activeWindowId) {
+      return { windowId: target.id, windowIndex: target.index };
+    }
+    return null;
+  }
+
+  if (trimmed.match(/^(previous-window|prevw|prev)(\s|$)/)) {
+    const target =
+      visibleWindows[(currentIdx - 1 + visibleWindows.length) % visibleWindows.length];
+    if (target && target.id !== context.activeWindowId) {
+      return { windowId: target.id, windowIndex: target.index };
+    }
+    return null;
+  }
+
+  return null;
+}
+
 /** Status message auto-clear delay in milliseconds */
 const STATUS_MESSAGE_DURATION = 5000;
 
@@ -266,6 +321,8 @@ export const appMachine = setup({
     suppressLayoutTransition: false,
     // Stable React key overrides: maps real pane tmuxId → placeholder ID it morphed from
     paneKeyOverrides: {},
+    // Per-window most-recently-active pane (used to pick optimistic focus on SELECT_TAB)
+    lastActivePaneByWindow: {},
     // Pane activation order (MRU first) — used for navigation tie-breaking
     paneActivationOrder: [] as string[],
     // Dimension override during group switch (prevents intermediate state flicker)
@@ -1169,6 +1226,15 @@ export const appMachine = setup({
                 });
               }
 
+              // Record each window's active pane as confirmed by the server,
+              // so SELECT_TAB can restore focus to the right pane on return.
+              const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
+              for (const pane of transformed.panes) {
+                if (pane.active && pane.windowId) {
+                  lastActivePaneByWindow[pane.windowId] = pane.tmuxId;
+                }
+              }
+
               enqueue(
                 assign(({ context: ctx }) => ({
                   ...transformed,
@@ -1192,6 +1258,7 @@ export const appMachine = setup({
                     effectiveActivePaneId !== ctx.activePaneId
                       ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
                       : ctx.paneActivationOrder,
+                  lastActivePaneByWindow,
                 })),
               );
               enqueue(
@@ -1353,6 +1420,19 @@ export const appMachine = setup({
               if (targetWindow) {
                 command = `select-window -t ${targetWindow.index}`;
               }
+            }
+
+            // Route tab-nav commands (select-window / next-window / previous-window)
+            // through SELECT_TAB so they share the optimistic flip and
+            // lastActivePaneByWindow bookkeeping with UI clicks.
+            const tabNavTarget = resolveTabNavTarget(command, context);
+            if (tabNavTarget) {
+              enqueue.raise({
+                type: 'SELECT_TAB',
+                windowId: tabNavTarget.windowId,
+                windowIndex: tabNavTarget.windowIndex,
+              });
+              return;
             }
 
             // Don't apply optimistic updates for swap commands during drag
@@ -1672,6 +1752,20 @@ export const appMachine = setup({
               }
             }
 
+            // Route tab-nav commands through SELECT_TAB. UI menu items fire
+            // `next-window`/`previous-window`/`last-window`/`select-window` via
+            // SEND_COMMAND; we want the same optimistic flip + pane bookkeeping
+            // as window-tab clicks get.
+            const tabNavTarget = resolveTabNavTarget(command, context);
+            if (tabNavTarget) {
+              enqueue.raise({
+                type: 'SELECT_TAB',
+                windowId: tabNavTarget.windowId,
+                windowIndex: tabNavTarget.windowIndex,
+              });
+              return;
+            }
+
             enqueue(
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
@@ -1700,6 +1794,62 @@ export const appMachine = setup({
             type: 'SEND_COMMAND' as const,
             command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${event.paneId}"`,
           })),
+        },
+        SELECT_TAB: {
+          actions: enqueueActions(({ event, context, enqueue }) => {
+            // No-op when already on the target window — protects against
+            // duplicate clicks and the tab-next/prev wrap edge case where
+            // resolution lands on the current window.
+            if (context.activeWindowId === event.windowId) return;
+
+            // Record the outgoing window's active pane so a future return to
+            // this tab restores focus to where the user left it.
+            const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
+            if (context.activeWindowId && context.activePaneId) {
+              lastActivePaneByWindow[context.activeWindowId] = context.activePaneId;
+            }
+
+            // Pick the optimistic target pane: remembered for this window,
+            // else whatever tmux marks active in our cached state, else the
+            // first pane we know about in that window.
+            const targetPanes = context.panes.filter((p) => p.windowId === event.windowId);
+            const remembered = context.lastActivePaneByWindow[event.windowId];
+            const rememberedExists =
+              remembered && targetPanes.some((p) => p.tmuxId === remembered);
+            const targetPaneId =
+              (rememberedExists ? remembered : null) ??
+              targetPanes.find((p) => p.active)?.tmuxId ??
+              targetPanes[0]?.tmuxId ??
+              null;
+
+            enqueue(
+              assign({
+                activeWindowId: event.windowId,
+                activePaneId: targetPaneId,
+                lastActivePaneByWindow,
+              }),
+            );
+
+            // Send the real tmux command in parallel — server reconciliation
+            // via TMUX_STATE_UPDATE will overwrite our guess if it's wrong.
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `select-window -t ${event.windowIndex}`,
+              }),
+            );
+
+            // Route keystrokes to the optimistic active pane immediately so a
+            // user typing after the click doesn't address the previous tab.
+            if (targetPaneId !== context.activePaneId) {
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_ACTIVE_PANE' as const,
+                  paneId: targetPaneId,
+                }),
+              );
+            }
+          }),
         },
         ZOOM_PANE: {
           actions: [

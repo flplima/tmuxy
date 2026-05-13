@@ -198,6 +198,9 @@ export interface AppMachineContext {
    *  Prevents unmount/remount flicker when optimistic placeholders are replaced
    *  by server-confirmed panes. */
   paneKeyOverrides: Record<string, string>;
+  /** Per-window most-recently-active pane ID, populated from server state and
+   *  used by SELECT_TAB to pick the optimistic focus when switching tabs. */
+  lastActivePaneByWindow: Record<string, string>;
 }
 
 // ============================================
@@ -365,6 +368,18 @@ export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: string };
 export type CloseTopFloatEvent = { type: 'CLOSE_TOP_FLOAT' };
 export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: string };
 
+/**
+ * Switch to a tab/window. Covers every tab-nav method — click, keybinding,
+ * native menu, command palette — not just clicks. The handler flips
+ * `activeWindowId` optimistically before `select-window` round-trips, so the
+ * new window's cached pane contents render immediately.
+ */
+export type SelectTabEvent = {
+  type: 'SELECT_TAB';
+  windowId: string;
+  windowIndex: number;
+};
+
 // Copy mode events
 export type EnterCopyModeEvent = {
   type: 'ENTER_COPY_MODE';
@@ -520,6 +535,7 @@ export type AppMachineEvent =
   | EnableAnimationsEvent
   | ClosePaneEvent
   | TabClickEvent
+  | SelectTabEvent
   | ZoomPaneEvent
   | CloseFloatEvent
   | CloseTopFloatEvent
