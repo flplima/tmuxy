@@ -217,15 +217,31 @@ export function selectResizePixelDelta(context: AppMachineContext): { x: number;
 // Window/Pane Selectors
 // ============================================
 
-export function selectWindows(context: AppMachineContext) {
-  return context.windows;
-}
+/**
+ * Windows with `active` derived from context.activeWindowId.
+ *
+ * The server snapshot also carries an `active` boolean per window, but it
+ * lags our optimistic SELECT_TAB flip — a snapshot captured before tmux
+ * processed `select-window` still marks the old window active, which would
+ * make the tab highlight blink (new → old → new) as those snapshots arrive.
+ * Deriving from activeWindowId here makes the UI a single source of truth.
+ */
+export const selectWindows = createMemoizedSelector(
+  (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
+  (context: AppMachineContext) =>
+    context.windows.map((w) => {
+      const shouldBeActive = w.id === context.activeWindowId;
+      return w.active === shouldBeActive ? w : { ...w, active: shouldBeActive };
+    }),
+);
 
 /** Windows visible in status bar (excludes pane group, float, and unnamed transient windows) */
 export const selectVisibleWindows = createMemoizedSelector(
-  (ctx: AppMachineContext) => ctx.windows,
+  (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
   (context: AppMachineContext) =>
-    context.windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow && w.name !== ''),
+    selectWindows(context).filter(
+      (w) => !w.isPaneGroupWindow && !w.isFloatWindow && w.name !== '',
+    ),
 );
 
 export function selectActiveWindowId(context: AppMachineContext): string | null {
