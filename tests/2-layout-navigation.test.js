@@ -822,6 +822,119 @@ describe('Scenario 23: Window Tab Input Routing', () => {
   }, 180000);
 });
 
+// ==================== Scenario 24: Tab Switch No Blink ====================
+
+describe('Scenario 24: Tab Switch No Blink', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Clicking an inactive tab transitions the active highlight exactly once (no A→B→A→B blink)', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Create a second window so we have two tabs to switch between
+    await createWindowKeyboard(ctx.page);
+    await waitForWindowCount(ctx.page, 2);
+    await delay(DELAYS.SYNC);
+
+    // Install a MutationObserver inside the page that records, for each
+    // observed mutation on .tab-name elements, the ordered list of tab ids
+    // currently bearing `.tab-name-active`. We poll this sequence after the
+    // click to verify the highlight doesn't flip-flop.
+    await ctx.page.evaluate(() => {
+      const list = document.querySelector('.tab-list');
+      if (!list) throw new Error('No .tab-list found');
+
+      // Tag each tab with a stable data-tab-id so the observer can identify
+      // them across class mutations (using DOM order as the id).
+      const tabs = list.querySelectorAll('.tab-name:not(.tab-add)');
+      tabs.forEach((t, i) => t.setAttribute('data-tab-test-id', String(i)));
+
+      const snapshot = () => {
+        const out = [];
+        list.querySelectorAll('.tab-name:not(.tab-add)').forEach((t) => {
+          if (t.classList.contains('tab-name-active')) {
+            out.push(t.getAttribute('data-tab-test-id'));
+          }
+        });
+        return out.join(',');
+      };
+
+      const seq = [snapshot()];
+      window.__tabBlinkSeq = seq;
+
+      const obs = new MutationObserver(() => {
+        const cur = snapshot();
+        if (cur !== seq[seq.length - 1]) seq.push(cur);
+      });
+      obs.observe(list, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class'],
+      });
+      window.__tabBlinkObserver = obs;
+    });
+
+    // Find the inactive tab and click it (real user path → SELECT_TAB)
+    const allTabs = await ctx.page.$$('.tab-name:not(.tab-add)');
+    expect(allTabs.length).toBe(2);
+    let inactiveTab = null;
+    for (const t of allTabs) {
+      const isActive = await t.evaluate((el) => el.classList.contains('tab-name-active'));
+      if (!isActive) {
+        inactiveTab = t;
+        break;
+      }
+    }
+    expect(inactiveTab).not.toBeNull();
+    await inactiveTab.click();
+
+    // Wait well past the SELECT_TAB grace window (600ms) so any stale
+    // snapshot that would cause a bounce has time to arrive and be applied.
+    await delay(2000);
+
+    // Read the observed sequence of active-tab ids
+    const seq = await ctx.page.evaluate(() => {
+      window.__tabBlinkObserver?.disconnect();
+      return window.__tabBlinkSeq || [];
+    });
+
+    // Sanity: we should see at least the initial state and the post-click state
+    expect(seq.length).toBeGreaterThanOrEqual(2);
+
+    // Final state must be a single active tab, different from the first one
+    const firstActive = seq[0];
+    const lastActive = seq[seq.length - 1];
+    expect(firstActive).not.toBe('');
+    expect(lastActive).not.toBe('');
+    expect(lastActive).not.toBe(firstActive);
+
+    // Blink detection: the active tab must never revert to a previously-seen
+    // value. Each value should appear in a single contiguous run. A blink
+    // produces a sequence like [A, B, A, B] where A repeats.
+    const seen = new Set();
+    let prev = null;
+    for (const value of seq) {
+      if (value !== prev) {
+        if (seen.has(value)) {
+          throw new Error(
+            `Tab highlight blinked: active-tab ids reverted. Sequence: ${JSON.stringify(seq)}`,
+          );
+        }
+        seen.add(value);
+        prev = value;
+      }
+    }
+
+    // Stronger check: there must be exactly one transition (firstActive → lastActive)
+    const transitions = seq.filter((v, i) => i > 0 && v !== seq[i - 1]).length;
+    expect(transitions).toBe(1);
+  }, 60000);
+});
+
 // ==================== Scenario 22: Float fzf Workflow ====================
 
 describe('Scenario 22: Float fzf Workflow', () => {
