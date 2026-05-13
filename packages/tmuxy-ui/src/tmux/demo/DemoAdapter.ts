@@ -250,7 +250,6 @@ export class DemoAdapter implements TmuxAdapter {
           { name: 'dracula', displayName: 'Dracula' },
           { name: 'fallout', displayName: 'Fallout' },
           { name: 'gruvbox', displayName: 'Gruvbox' },
-          { name: 'gruvbox-material', displayName: 'Gruvbox Material' },
           { name: 'nord', displayName: 'Nord' },
           { name: 'solarized', displayName: 'Solarized' },
           { name: 'tokyonight', displayName: 'Tokyo Night' },

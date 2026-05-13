@@ -513,8 +513,8 @@ fn build_app_menu(
 }
 
 /// Convert a theme file stem into a display label: "tokyonight" → "Tokyonight",
-/// "gruvbox-material" → "Gruvbox Material". Mirrors the rough capitalization
-/// the web menu uses for `displayName`.
+/// "cold-harbor" → "Cold Harbor". Mirrors the rough capitalization the web
+/// menu uses for `displayName`.
 fn display_theme_name(stem: &str) -> String {
     stem.split('-')
         .map(|part| {

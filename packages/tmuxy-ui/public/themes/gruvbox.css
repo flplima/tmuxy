@@ -35,7 +35,8 @@
   --text-dimmed: #928374;
   --text-subtle: #665c54;
   --text-faint: #504945;
-  --text-dark: #282828;
+  /* Status-bar text: white on the dark-gray status background */
+  --text-dark: #ebdbb2;
 
   --border-medium: #3c3836;
   --border-light: #504945;
@@ -73,11 +74,29 @@
   --cursor-copy-bg: #458588;
   --cursor-inactive: #928374;
 
-  --tmux-status-bg: #98971a;
+  /* Status bar: dark gray (instead of olive green) */
+  --tmux-status-bg: #3c3836;
+
+  /* Active pane border + header bar: solid light gray. Overrides the
+     default theme's tinted-green link so gruvbox stays neutral. */
+  --pane-active-border: #a89984;
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* Override the styles.css pane-header active bg formula so it uses the
+   gruvbox light-gray instead of the term-green color-mix. Text in the
+   active header switches to dark for contrast against the light bar. */
+:root.theme-dark .pane-header-active {
+  background-color: #a89984;
+  color: #1d2021;
+}
+
+:root.theme-dark .pane-header-active .pane-tab-selected,
+:root.theme-dark .pane-header-active .pane-tab-active {
+  color: #1d2021;
 }
 
 :root.theme-light {
@@ -153,9 +172,24 @@
   --cursor-copy-bg: #076678;
   --cursor-inactive: #928374;
 
-  --tmux-status-bg: #797403;
+  /* Status bar: dark gray with cream text (matches dark mode treatment) */
+  --tmux-status-bg: #3c3836;
+  --text-dark: #ebdbb2;
+
+  /* Active pane border + header bar: medium-light gray. */
+  --pane-active-border: #bdae93;
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+:root.theme-light .pane-header-active {
+  background-color: #bdae93;
+  color: #1d2021;
+}
+
+:root.theme-light .pane-header-active .pane-tab-selected,
+:root.theme-light .pane-header-active .pane-tab-active {
+  color: #1d2021;
 }

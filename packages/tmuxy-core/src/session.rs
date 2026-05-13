@@ -103,10 +103,6 @@ const BUNDLED_THEMES: &[(&str, &str)] = &[
         include_str!("../../tmuxy-ui/public/themes/gruvbox.css"),
     ),
     (
-        "gruvbox-material.css",
-        include_str!("../../tmuxy-ui/public/themes/gruvbox-material.css"),
-    ),
-    (
         "nord.css",
         include_str!("../../tmuxy-ui/public/themes/nord.css"),
     ),
@@ -377,6 +373,13 @@ fn migrate_bin_paths(config: &str) -> String {
     result
 }
 
+/// Theme files that were once bundled but have since been removed. On launch
+/// we delete these from the user's themes dir so the Theme menu (which lists
+/// the contents of the directory) doesn't keep showing orphaned options.
+/// A user who customized one of these files loses their copy — by design;
+/// themes are managed, not user-data.
+const RETIRED_THEMES: &[&str] = &["gruvbox-material.css"];
+
 /// Ensure the themes directory exists at ~/.config/tmuxy/themes/ and is
 /// populated with the bundled theme CSS files. Existing files are NOT
 /// overwritten so the user's edits survive across upgrades. Returns the
@@ -400,6 +403,15 @@ pub fn ensure_themes() -> PathBuf {
                     "Warning: could not write bundled theme to {:?}: {}",
                     path, e
                 );
+            }
+        }
+    }
+
+    for name in RETIRED_THEMES {
+        let path = themes_dir.join(name);
+        if path.exists() {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("Warning: could not remove retired theme {:?}: {}", path, e);
             }
         }
     }
