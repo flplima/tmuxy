@@ -16,6 +16,10 @@ const {
   clickPaneGroupAdd,
   getGroupTabInfo,
   waitForCondition,
+  runCommand,
+  focusPage,
+  enterCopyModeAndWait,
+  getCopyModeState,
   DELAYS,
 } = require('./helpers');
 
@@ -215,5 +219,112 @@ describe('Scenario: Pane border-status enforced to top', () => {
       { encoding: 'utf-8', timeout: 5000 }
     ).trim();
     expect(status).toBe('top');
+  });
+});
+
+// ==================== Scenario: Copy mode reveals terminal history ====================
+
+describe('Scenario: Copy mode reveals terminal history above visible content', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll, ctx.hookTimeout);
+  beforeEach(ctx.beforeEach, ctx.hookTimeout);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Wheel-scrolling up in copy mode renders consecutive history rows', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Generate uniquely-numbered history lines. Zero-padding the number
+    // makes each marker line a unique substring search target.
+    await runCommand(
+      ctx.page,
+      'for i in $(seq -w 1 200); do echo "BUGMARK_$i"; done',
+      'BUGMARK_200',
+    );
+    await focusPage(ctx.page);
+    await delay(DELAYS.SYNC);
+
+    // Sanity: BUGMARK_200 is visible at the bottom; the earliest markers
+    // were pushed out of the live viewport into scrollback.
+    const visibleBefore = await ctx.page.evaluate(() => {
+      const log = document.querySelector('[role="log"]');
+      return log?.textContent || '';
+    });
+    expect(visibleBefore).toContain('BUGMARK_200');
+    expect(visibleBefore).not.toContain('BUGMARK_001');
+
+    // Enter copy mode via keyboard prefix+[ and wait for the full scrollback
+    // chunk to load. cs.loading flips to false once COPY_MODE_CHUNK_LOADED
+    // has populated the lines map for every absolute row.
+    await enterCopyModeAndWait(ctx.page);
+    await ctx.page.waitForFunction(
+      () => {
+        const snap = window.app?.getSnapshot();
+        const paneId = snap?.context?.activePaneId;
+        const cs = snap?.context?.copyModeStates?.[paneId];
+        return cs && cs.loading === false && cs.historySize >= 150;
+      },
+      { timeout: 10000, polling: 100 },
+    );
+
+    // Wheel-scroll upward in increments. This is the path the bug was
+    // reported under: scrollTop changes per wheel event while visibleCount
+    // (≈ 3 × pane height) stays the same, exercising the incremental DOM
+    // update path in ScrollbackTerminal.
+    const paneCenter = await ctx.page.evaluate(() => {
+      const pane = document.querySelector('[data-pane-id]');
+      const r = pane.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await ctx.page.mouse.move(paneCenter.x, paneCenter.y);
+    for (let i = 0; i < 6; i++) {
+      await ctx.page.mouse.wheel(0, -200);
+      await delay(150);
+    }
+    await delay(DELAYS.SYNC);
+
+    // After several wheel ticks we expect to be partway up the scrollback.
+    const cs = await getCopyModeState(ctx.page);
+    expect(cs.scrollTop).toBeLessThan(cs.totalLines - cs.height);
+
+    // The regression assertion: every <.terminal-line> div rendered inside
+    // the scrollback must be filled with the correct absolute row's content.
+    // When the renderer reused divs across scroll positions and skipped the
+    // redraw, the DOM ended up holding non-consecutive rows (e.g. div 9 →
+    // BUGMARK_107, div 10 → BUGMARK_127). Extract every numeric marker and
+    // verify they form a consecutive run.
+    const lineNumbers = await ctx.page.evaluate(() => {
+      const sb = document.querySelector('[data-copy-mode="true"]');
+      if (!sb) return null;
+      const out = [];
+      for (const el of sb.querySelectorAll('.terminal-line')) {
+        const m = (el.textContent || '').match(/BUGMARK_(\d+)/);
+        out.push(m ? Number(m[1]) : null);
+      }
+      return out;
+    });
+
+    expect(lineNumbers).not.toBeNull();
+    // Locate the contiguous stretch of marker lines (some divs at the very
+    // top of scrollback may render a shell prompt or other non-marker text).
+    const numericRuns = [];
+    let run = [];
+    for (const n of lineNumbers) {
+      if (n === null) {
+        if (run.length) numericRuns.push(run);
+        run = [];
+      } else {
+        run.push(n);
+      }
+    }
+    if (run.length) numericRuns.push(run);
+
+    // The run covering scrollback should be at least one screen of markers.
+    const longest = numericRuns.sort((a, b) => b.length - a.length)[0] || [];
+    expect(longest.length).toBeGreaterThanOrEqual(20);
+    for (let i = 1; i < longest.length; i++) {
+      expect(longest[i]).toBe(longest[i - 1] + 1);
+    }
   });
 });
