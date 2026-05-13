@@ -320,6 +320,8 @@ export const appMachine = setup({
     paneKeyOverrides: {},
     // Per-window most-recently-active pane (used to pick optimistic focus on SELECT_TAB)
     lastActivePaneByWindow: {},
+    // Optimistic SELECT_TAB pending — see PendingSelectTabAt docs
+    pendingSelectTabAt: null as number | null,
     // Pane activation order (MRU first) — used for navigation tie-breaking
     paneActivationOrder: [] as string[],
     // Dimension override during group switch (prevents intermediate state flicker)
@@ -835,6 +837,32 @@ export const appMachine = setup({
               // Skip spurious empty-pane states from the server
               if (transformed.panes.length === 0) return;
 
+              // Pending SELECT_TAB grace: state snapshots emitted before tmux
+              // processed `select-window` still carry the old activeWindowId.
+              // While our optimistic flip is pending, hold onto it so the UI
+              // doesn't bounce A → B → A → B as those stale snapshots arrive.
+              // Cleared on the first snapshot that confirms our target.
+              const SELECT_TAB_GRACE_MS = 600;
+              let pendingSelectTabAt = context.pendingSelectTabAt;
+              if (pendingSelectTabAt !== null) {
+                const elapsed = Date.now() - pendingSelectTabAt;
+                if (transformed.activeWindowId === context.activeWindowId) {
+                  // Server confirmed our target — clear pending.
+                  pendingSelectTabAt = null;
+                } else if (elapsed < SELECT_TAB_GRACE_MS) {
+                  // Hold our optimistic active window over the stale snapshot.
+                  // Pane content updates in `transformed.panes` still flow
+                  // through; only the active-window/active-pane fields are pinned.
+                  transformed.activeWindowId = context.activeWindowId;
+                  if (context.activePaneId) {
+                    transformed.activePaneId = context.activePaneId;
+                  }
+                } else {
+                  // Grace expired without confirmation — let server win.
+                  pendingSelectTabAt = null;
+                }
+              }
+
               // During group switch: freeze both panes from current context to block
               // intermediate server states. The swap-pane causes TUI apps (nvim) to
               // do a full redraw, producing intermediate frames with inverse-mode on
@@ -1256,6 +1284,7 @@ export const appMachine = setup({
                       ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
                       : ctx.paneActivationOrder,
                   lastActivePaneByWindow,
+                  pendingSelectTabAt,
                 })),
               );
               enqueue(
@@ -1823,6 +1852,7 @@ export const appMachine = setup({
                 activeWindowId: event.windowId,
                 activePaneId: targetPaneId,
                 lastActivePaneByWindow,
+                pendingSelectTabAt: Date.now(),
               }),
             );
 

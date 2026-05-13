@@ -201,6 +201,12 @@ export interface AppMachineContext {
   /** Per-window most-recently-active pane ID, populated from server state and
    *  used by SELECT_TAB to pick the optimistic focus when switching tabs. */
   lastActivePaneByWindow: Record<string, string>;
+  /** Timestamp of the most recent SELECT_TAB optimistic flip. While set,
+   *  TMUX_STATE_UPDATE merges hold our optimistic activeWindowId and won't
+   *  let stale server snapshots (emitted before tmux processed select-window)
+   *  bounce the UI back to the previous tab. Cleared when server confirms
+   *  the same window or after a stale grace period. */
+  pendingSelectTabAt: number | null;
 }
 
 // ============================================
