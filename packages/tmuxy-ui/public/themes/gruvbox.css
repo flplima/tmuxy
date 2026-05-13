@@ -77,9 +77,21 @@
   /* Status bar: dark gray (instead of olive green) */
   --tmux-status-bg: #3c3836;
 
+  /* Active pane bar/outline: gruvbox bg-highlight — a step lighter than
+     `--border-medium` (which inactive panes use) so the active state reads
+     clearly without being a hard white box. */
+  --pane-active-border: #504945;
+
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* Gruvbox dark: white tab title on the active pane (default theme uses
+   `--accent-green` for emphasis — too much olive against our gray bar). */
+:root.theme-dark .pane-tab-active .pane-tab-title,
+:root.theme-dark .pane-tab-active .pane-tab-icon {
+  color: #ebdbb2;
 }
 
 :root.theme-light {
@@ -159,7 +171,16 @@
   --tmux-status-bg: #3c3836;
   --text-dark: #ebdbb2;
 
+  /* Active pane bar/outline: one step lighter than the light-mode border. */
+  --pane-active-border: #a89984;
+
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+/* Gruvbox light: white tab title on the active pane. */
+:root.theme-light .pane-tab-active .pane-tab-title,
+:root.theme-light .pane-tab-active .pane-tab-icon {
+  color: #fbf1c7;
 }
