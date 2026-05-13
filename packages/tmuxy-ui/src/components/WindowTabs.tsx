@@ -18,7 +18,7 @@ import {
 import { executeMenuAction } from './menus/menuActions';
 import { getKeybindingLabel } from './menus/keybindingLabel';
 import { haptics } from '../utils/haptics';
-import type { KeyBindings } from '../machines/types';
+import type { KeyBindings, TmuxWindow } from '../machines/types';
 
 function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
   const label = getKeybindingLabel(keybindings, command);
@@ -55,9 +55,9 @@ export function WindowTabs() {
     allWindows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow).length <= 1;
 
   const handleWindowClick = useCallback(
-    (windowIndex: number) => {
+    (window: TmuxWindow) => {
       haptics.trigger(10);
-      send({ type: 'SEND_COMMAND', command: `select-window -t ${windowIndex}` });
+      send({ type: 'SELECT_TAB', windowId: window.id, windowIndex: window.index });
     },
     [send],
   );
@@ -115,7 +115,7 @@ export function WindowTabs() {
           <span
             key={window.id}
             className={`tab-name ${window.active ? 'tab-name-active' : ''}`}
-            onClick={() => handleWindowClick(window.index)}
+            onClick={() => handleWindowClick(window)}
             onContextMenu={(e) => handleContextMenu(e, window.index)}
             role="tab"
             aria-selected={window.active}
