@@ -214,6 +214,101 @@ async function assertContentMatch(page, label) {
   );
 }
 
+/**
+ * Compare the active pane's rendered DOM against `tmux capture-pane -p`
+ * for a pane that is currently in alternate screen. assertContentMatch
+ * deliberately skips alt-screen panes, so this helper exists for tests
+ * targeting TUI/curses-style rendering specifically.
+ *
+ * @param {Page} page - Playwright page
+ * @param {string} sessionName - tmux session name to capture from
+ * @param {Object} [options]
+ * @param {number} [options.maxDiffs=0] - rows tolerated as differing
+ * @param {string[]} [options.requireMarkers=[]] - strings that must appear in both buffers
+ * @returns {Promise<{tmuxLines: string[], uiLines: string[], width: number, height: number}>}
+ */
+async function assertAltScreenMatch(page, sessionName, options = {}) {
+  const { maxDiffs = 0, requireMarkers = [] } = options;
+
+  const uiState = await page.evaluate(() => {
+    const snap = window.app?.getSnapshot();
+    if (!snap?.context) return null;
+    const ctx = snap.context;
+    const pane = (ctx.panes || []).find(
+      (p) => p.tmuxId === ctx.activePaneId && p.windowId === ctx.activeWindowId,
+    );
+    if (!pane) return null;
+    const el = document.querySelector(`[data-pane-id="${pane.tmuxId}"] .terminal-content`);
+    if (!el) return null;
+    const lines = [];
+    el.querySelectorAll('.terminal-line').forEach((lineEl) => {
+      let text = '';
+      lineEl.querySelectorAll('span').forEach((s) => {
+        text += s.textContent || '';
+      });
+      lines.push(text.slice(0, pane.width));
+    });
+    return { width: pane.width, height: pane.height, alternateOn: pane.alternateOn, lines };
+  });
+
+  if (!uiState) {
+    throw new Error('assertAltScreenMatch: active pane not found in UI state');
+  }
+  if (!uiState.alternateOn) {
+    throw new Error(
+      'assertAltScreenMatch: active pane is not in alternate screen; nothing to verify',
+    );
+  }
+
+  const tmuxLines = tmuxQuery(`capture-pane -t ${sessionName} -p`).split('\n');
+
+  const compareCount = Math.min(tmuxLines.length, uiState.lines.length);
+  if (compareCount < 5) {
+    throw new Error(
+      `assertAltScreenMatch: too few comparable rows (tmux=${tmuxLines.length}, ui=${uiState.lines.length})`,
+    );
+  }
+
+  const diffs = [];
+  for (let i = 0; i < compareCount; i++) {
+    const t = (tmuxLines[i] || '').replace(/\s+$/, '');
+    const u = (uiState.lines[i] || '').replace(/\s+$/, '');
+    if (t !== u) {
+      diffs.push({ row: i, tmux: t.slice(0, 80), ui: u.slice(0, 80) });
+    }
+  }
+
+  if (diffs.length > maxDiffs) {
+    const details = diffs
+      .slice(0, 5)
+      .map(
+        (d) =>
+          `  row ${d.row}:\n    tmux: ${JSON.stringify(d.tmux)}\n    ui:   ${JSON.stringify(d.ui)}`,
+      )
+      .join('\n');
+    const extra = diffs.length > 5 ? `\n  …and ${diffs.length - 5} more differing rows` : '';
+    throw new Error(
+      `Alt-screen rendering diverged from tmux capture-pane on ${diffs.length}/${compareCount} rows:\n${details}${extra}`,
+    );
+  }
+
+  if (requireMarkers.length > 0) {
+    const flatTmux = tmuxLines.join('\n');
+    const flatUi = uiState.lines.join('\n');
+    for (const marker of requireMarkers) {
+      if (!flatTmux.includes(marker)) {
+        throw new Error(`assertAltScreenMatch: marker ${JSON.stringify(marker)} missing from tmux capture`);
+      }
+      if (!flatUi.includes(marker)) {
+        throw new Error(`assertAltScreenMatch: marker ${JSON.stringify(marker)} missing from UI DOM`);
+      }
+    }
+  }
+
+  return { tmuxLines, uiLines: uiState.lines, width: uiState.width, height: uiState.height };
+}
+
 module.exports = {
   assertContentMatch,
+  assertAltScreenMatch,
 };
