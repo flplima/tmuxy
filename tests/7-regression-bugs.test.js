@@ -328,6 +328,98 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     for (let i = 1; i < longest.length; i++) {
       expect(longest[i]).toBe(longest[i - 1] + 1);
     }
+    // The rendered markers must reflect the scrolled-up position — not the
+    // initial visible viewport. If scrolling updated scrollTop but the DOM
+    // kept the original BUGMARK_171..200 content, the assertions above
+    // (consecutive run) would still pass. Verify the bottommost markers
+    // are no longer rendered and that older markers appear instead.
+    expect(longest).not.toContain(200);
+    expect(longest[0]).toBeLessThan(170);
+  });
+
+  // Covers the user-reported flow: "scroll up enters copy mode but I only
+  // see what was already visible, not the older history." Exercises the
+  // wheel-scroll entry path (which calls ENTER_COPY_MODE with scrollLines)
+  // and asserts both (a) loadedRanges cover the entire absolute row range
+  // after the initial FETCH_SCROLLBACK_CELLS, and (b) the rendered DOM
+  // shows the oldest history at the top after wheeling all the way up. A
+  // silent fetch failure, an off-by-one in the range conversion, or a
+  // re-render that fails to redraw the divs would all surface here.
+  test('Entering copy mode via wheel-scroll loads the entire scrollback', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    await runCommand(
+      ctx.page,
+      'for i in $(seq -w 1 200); do echo "WHEELMARK_$i"; done',
+      'WHEELMARK_200',
+    );
+    await focusPage(ctx.page);
+    await delay(DELAYS.SYNC);
+
+    // Wheel-scroll up over the pane — this is the user-reported entry point.
+    // The wheel handler in usePaneMouse sends ENTER_COPY_MODE with a
+    // negative `scrollLines`, which the state machine seeds with a
+    // partially-scrolled scrollTop. The bug surfaces if the subsequent
+    // FETCH_SCROLLBACK_CELLS doesn't populate the absolute rows above the
+    // initially-visible portion.
+    const paneCenter = await ctx.page.evaluate(() => {
+      const pane = document.querySelector('[data-pane-id]');
+      const r = pane.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await ctx.page.mouse.move(paneCenter.x, paneCenter.y);
+    // Wheel-scroll up continuously without pausing to let the initial
+    // FETCH_SCROLLBACK_CELLS complete. Mirrors the user-reported flow of
+    // grabbing the trackpad and going. While `loading` is true,
+    // getNeededChunk suppresses follow-up fetches, so the rendered
+    // content must come from the initial pre-fetch (the full history),
+    // not from on-demand chunking.
+    for (let i = 0; i < 30; i++) {
+      await ctx.page.mouse.wheel(0, -400);
+      await delay(30);
+    }
+    await delay(DELAYS.SYNC);
+
+    // Wait until copy mode is active and the loaded ranges cover the
+    // entire scrollback (loading may bounce true/false as follow-up
+    // chunks land, so check loadedRanges directly).
+    await ctx.page.waitForFunction(
+      () => {
+        const snap = window.app?.getSnapshot();
+        const paneId = snap?.context?.activePaneId;
+        const cs = snap?.context?.copyModeStates?.[paneId];
+        if (!cs) return false;
+        if (cs.historySize < 150) return false;
+        if (cs.loading) return false;
+        if (cs.loadedRanges.length === 0) return false;
+        const first = cs.loadedRanges[0];
+        const last = cs.loadedRanges[cs.loadedRanges.length - 1];
+        return first[0] <= 0 && last[1] >= cs.totalLines - 1;
+      },
+      { timeout: 10000, polling: 100 },
+    );
+
+    const csTop = await getCopyModeState(ctx.page);
+    expect(csTop.scrollTop).toBeLessThan(50); // close enough to top
+
+    // After scrolling to scrollTop=0 via wheel, the rendered DOM should
+    // show the OLDEST content at the top, not the pane's initial visible
+    // area. WHEELMARK_001 lives at the start of scrollback and must
+    // appear in the rendered <pre>.
+    const renderedText = await ctx.page.evaluate(() => {
+      const sb = document.querySelector('[data-copy-mode="true"]');
+      if (!sb) return null;
+      return Array.from(sb.querySelectorAll('.terminal-line'))
+        .slice(0, 20)
+        .map((el) => el.textContent || '')
+        .join('\n');
+    });
+    expect(renderedText).not.toBeNull();
+    expect(renderedText).toMatch(/WHEELMARK_0*1\b/);
+    // The bottom-of-screen markers (WHEELMARK_200) must NOT be in the top
+    // viewport after wheel-scrolling to row 0.
+    expect(renderedText).not.toContain('WHEELMARK_200');
   });
 });
 
