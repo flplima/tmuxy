@@ -118,6 +118,65 @@ describe('Scenario 16: Unicode Rendering', () => {
   }, 180000);
 });
 
+// ==================== Scenario 16b: SGR 2 (faint/dim) ====================
+
+describe('Scenario 16b: SGR 2 faint/dim attribute', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // Claude Code's TUI uses SGR 2 (faint) for its autosuggestion text. The
+  // vt100 0.15 crate dropped SGR 2 on the floor, so dim text rendered as
+  // normal-intensity white. After bumping to vt100 0.16 + threading
+  // `cell.dim()` through CellStyle, the frontend renders dim cells at
+  // reduced opacity.
+  test('Faint text (SGR 2) is rendered at reduced opacity', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Emit DIM_TEXT in faint, BRIGHT_TEXT in normal intensity.
+    await runCommand(
+      ctx.page,
+      'printf "\\e[2mDIM_TEXT\\e[22m BRIGHT_TEXT\\n"',
+      'DIM_TEXT',
+    );
+    await waitForTerminalText(ctx.page, 'BRIGHT_TEXT');
+
+    // Locate the spans whose text *exactly* equals each marker — the
+    // shell echoes the printf command back as one continuous prompt-line
+    // span containing the literal "DIM_TEXT" / "BRIGHT_TEXT" substrings,
+    // so a substring search would find that span first and miss the
+    // actual rendered output below.
+    const opacities = await ctx.page.evaluate(() => {
+      const findExactSpan = (text) => {
+        const spans = document.querySelectorAll('[role="log"] span');
+        for (const s of spans) {
+          if ((s.textContent || '').trim() === text) return s;
+        }
+        return null;
+      };
+      const readOpacity = (el) => {
+        if (!el) return null;
+        const inline = el.style.opacity;
+        if (inline) return parseFloat(inline);
+        const computed = getComputedStyle(el).opacity;
+        return computed ? parseFloat(computed) : 1;
+      };
+      return {
+        dim: readOpacity(findExactSpan('DIM_TEXT')),
+        bright: readOpacity(findExactSpan('BRIGHT_TEXT')),
+      };
+    });
+
+    expect(opacities.dim).not.toBeNull();
+    expect(opacities.bright).not.toBeNull();
+    expect(opacities.dim).toBeLessThan(1);
+    expect(opacities.bright).toBe(1);
+  }, 60000);
+});
+
 // ==================== Detailed OSC Protocol Tests ====================
 
 describe('Category 11: OSC Protocols (Detailed)', () => {

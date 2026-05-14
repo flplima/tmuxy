@@ -124,6 +124,7 @@ function styleKey(s: CellStyle | undefined): number {
   if (s.italic) h = (h ^ 2) * 0x01000193;
   if (s.underline) h = (h ^ 4) * 0x01000193;
   if (s.inverse) h = (h ^ 8) * 0x01000193;
+  if (s.dim) h = (h ^ 16) * 0x01000193;
   if (s.url) {
     for (let i = 0; i < s.url.length; i++) {
       h = (h ^ s.url.charCodeAt(i)) * 0x01000193;
@@ -146,6 +147,9 @@ function buildCellStyle(style: CellStyle): CSSProperties {
   }
   if (style.bold) {
     css.fontWeight = 'bold';
+  }
+  if (style.dim) {
+    css.opacity = 0.5;
   }
   if (style.italic) {
     css.fontStyle = 'italic';

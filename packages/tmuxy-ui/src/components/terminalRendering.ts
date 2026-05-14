@@ -104,6 +104,7 @@ function applyStyleToElement(
   }
 
   if (style.bold) el.style.fontWeight = 'bold';
+  if (style.dim) el.style.opacity = '0.5';
   if (style.italic) el.style.fontStyle = 'italic';
   if (style.underline) el.style.textDecoration = 'underline';
 
@@ -122,6 +123,7 @@ export function stylesMatch(a: CellStyle | undefined, b: CellStyle | undefined):
     colorEqual(a.fg, b.fg) &&
     colorEqual(a.bg, b.bg) &&
     (a.bold ?? false) === (b.bold ?? false) &&
+    (a.dim ?? false) === (b.dim ?? false) &&
     (a.italic ?? false) === (b.italic ?? false) &&
     (a.underline ?? false) === (b.underline ?? false) &&
     (a.inverse ?? false) === (b.inverse ?? false) &&

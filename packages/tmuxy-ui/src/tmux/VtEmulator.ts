@@ -292,6 +292,8 @@ export class VtEmulator {
         this.currentStyle = {};
       } else if (n === 1) {
         this.currentStyle = { ...this.currentStyle, bold: true };
+      } else if (n === 2) {
+        this.currentStyle = { ...this.currentStyle, dim: true };
       } else if (n === 3) {
         this.currentStyle = { ...this.currentStyle, italic: true };
       } else if (n === 4) {
@@ -299,7 +301,8 @@ export class VtEmulator {
       } else if (n === 7) {
         this.currentStyle = { ...this.currentStyle, inverse: true };
       } else if (n === 22) {
-        const { bold: _b, ...rest } = this.currentStyle;
+        // SGR 22 (normal intensity) resets both bold and dim
+        const { bold: _b, dim: _d, ...rest } = this.currentStyle;
         this.currentStyle = rest;
       } else if (n === 23) {
         const { italic: _i, ...rest } = this.currentStyle;
