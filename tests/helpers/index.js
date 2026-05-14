@@ -15,7 +15,7 @@ const TmuxTestSession = require('./TmuxTestSession');
 const { GlitchDetector, OPERATION_THRESHOLDS } = require('./glitch-detector');
 const consistency = require('./consistency');
 const cli = require('./cli');
-const { assertContentMatch } = require('./content-match');
+const { assertContentMatch, assertAltScreenMatch } = require('./content-match');
 const { assertLayoutInvariants } = require('./layout');
 const copyMode = require('./copy-mode');
 const mouseCapture = require('./mouse-capture');
@@ -58,6 +58,7 @@ module.exports = {
 
   // Content-match assertions
   assertContentMatch,
+  assertAltScreenMatch,
 
   // Layout invariant assertions
   assertLayoutInvariants,
