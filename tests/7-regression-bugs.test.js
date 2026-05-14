@@ -9,10 +9,12 @@ const {
   createTestContext,
   delay,
   waitForWindowCount,
+  waitForPaneCount,
   typeInTerminal,
   pressEnter,
   waitForTerminalText,
   createWindowKeyboard,
+  splitPaneKeyboard,
   clickPaneGroupAdd,
   getGroupTabInfo,
   waitForCondition,
@@ -382,73 +384,271 @@ describe('Scenario: Tab switch shows panes instantly', () => {
       beforeSwitch.windowCount,
     );
 
-    // Install a frame-by-frame sampler that captures every paint after the
-    // tab click for ~250ms (≈ 15 frames at 60Hz). Each sample records pane
-    // count + pane bounds + whether the visible pane already has the target
-    // content. The sampler is set up BEFORE the click so we don't miss the
-    // first paint.
+    // Wire up two complementary watchers BEFORE the click so we don't miss
+    // any state between click and first paint:
+    //
+    // 1) MutationObserver on .pane-layout — fires on every DOM mutation that
+    //    touches pane structure or text content. Captures intermediate React
+    //    commits the RAF sampler can miss when multiple commits land in the
+    //    same animation frame.
+    //
+    // 2) requestAnimationFrame sampler — captures paint-aligned snapshots so
+    //    we know what the user actually sees each frame for ~400ms.
     await ctx.page.evaluate(() => {
       window.__tabSwitchSamples = [];
-      window.__startSampling = false;
-      function sample(t0) {
-        if (!window.__startSampling) {
-          requestAnimationFrame(() => sample(t0));
-          return;
-        }
-        const now = performance.now();
+      window.__tabSwitchMutations = [];
+      window.__tabSwitchT0 = null;
+
+      function snapshotPanes() {
         const items = document.querySelectorAll('.pane-layout-item');
-        const out = { dt: Math.round(now - t0), itemCount: items.length, panes: [] };
+        const out = [];
         for (const it of items) {
           const r = it.getBoundingClientRect();
           const log = it.querySelector('[role="log"]');
+          const lines = it.querySelectorAll('.terminal-line');
           const text = (log?.textContent || '').replace(/\s+/g, ' ').trim();
-          out.panes.push({
+          out.push({
             id: it.getAttribute('data-pane-id'),
             w: Math.round(r.width),
             h: Math.round(r.height),
+            lineCount: lines.length,
+            textLen: text.length,
             hasOne: text.includes('TAB_ONE_MARKER'),
             hasTwo: text.includes('TAB_TWO_MARKER'),
-            textLen: text.length,
           });
         }
-        window.__tabSwitchSamples.push(out);
-        if (out.dt < 400) requestAnimationFrame(() => sample(t0));
+        return out;
+      }
+
+      window.__snapshotPanes = snapshotPanes;
+
+      const observer = new MutationObserver(() => {
+        if (window.__tabSwitchT0 === null) return;
+        const dt = Math.round(performance.now() - window.__tabSwitchT0);
+        const panes = snapshotPanes();
+        window.__tabSwitchMutations.push({ dt, panes });
+      });
+      const root = document.querySelector('.pane-layout') || document.body;
+      observer.observe(root, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true,
+      });
+      window.__tabSwitchObserver = observer;
+
+      function sample(t0) {
+        if (window.__tabSwitchT0 === null) {
+          requestAnimationFrame(() => sample(t0));
+          return;
+        }
+        const dt = Math.round(performance.now() - window.__tabSwitchT0);
+        const panes = snapshotPanes();
+        window.__tabSwitchSamples.push({ dt, itemCount: panes.length, panes });
+        if (dt < 400) requestAnimationFrame(() => sample(t0));
       }
       requestAnimationFrame(() => sample(performance.now()));
     });
 
-    // Click the first tab to switch back to window 1, and start sampling
-    // in the same evaluate so t0 lines up with the click.
+    // Click tab 1 in the same evaluate so the t0 we record lines up with
+    // the click event — both watchers gate on __tabSwitchT0 being non-null.
     await ctx.page.evaluate(() => {
-      window.__startSampling = true;
+      window.__tabSwitchT0 = performance.now();
       const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
       if (tabs[0]) tabs[0].click();
     });
 
-    // Wait for the sampler to finish ~400ms of frames.
+    // Wait for the watchers to finish ~400ms of frames.
     await delay(600);
-    const samples = await ctx.page.evaluate(() => window.__tabSwitchSamples);
+    const { samples, mutations } = await ctx.page.evaluate(() => ({
+      samples: window.__tabSwitchSamples,
+      mutations: window.__tabSwitchMutations,
+    }));
 
-    // Sanity: we captured at least a few frames.
+    // Sanity: we captured at least a few frames + the observer fired.
     expect(samples.length).toBeGreaterThan(3);
+    expect(mutations.length).toBeGreaterThan(0);
 
-    // The regression assertion: from the first frame after the click,
-    // .pane-layout-item must contain the target tab's marker. There must
-    // be NO frame where panes are present but contain neither marker —
-    // that empty interval is the bug we're catching.
-    const emptyFrames = samples.filter(
-      (s) => s.itemCount > 0 && s.panes.every((p) => !p.hasOne && !p.hasTwo && p.textLen < 5),
-    );
-    if (emptyFrames.length > 0) {
+    // Empty-pane assertion across BOTH watchers. A frame is "empty" when
+    // panes exist but none contains visible text in a [role="log"] with
+    // at least one rendered .terminal-line. The MutationObserver path
+    // catches any intermediate DOM commit; the RAF path catches what the
+    // user actually sees between vsync events.
+    const isEmptyFrame = (s) =>
+      s.panes.length > 0 &&
+      s.panes.every((p) => p.textLen < 5 || p.lineCount === 0 || p.w === 0 || p.h === 0);
+    const emptyRaf = samples.filter(isEmptyFrame);
+    const emptyMutation = mutations.filter(isEmptyFrame);
+    if (emptyRaf.length > 0 || emptyMutation.length > 0) {
       // eslint-disable-next-line no-console
-      console.log('empty frames:', JSON.stringify(emptyFrames.slice(0, 5), null, 2));
+      console.log(
+        'empty frames (raf):',
+        JSON.stringify(emptyRaf.slice(0, 3), null, 2),
+        '\nempty frames (mutation):',
+        JSON.stringify(emptyMutation.slice(0, 3), null, 2),
+      );
     }
-    expect(emptyFrames).toEqual([]);
+    expect(emptyRaf).toEqual([]);
+    expect(emptyMutation).toEqual([]);
 
-    // And the target marker must be visible within the very first sampled
-    // frame — the cached content should render synchronously with the
-    // optimistic activeWindowId flip.
+    // From the very first RAF after the click, the target window's marker
+    // must already be visible in a pane. This is the "instant" assertion —
+    // the optimistic activeWindowId flip and the cached pane content must
+    // be applied in the same React commit that the click event triggers,
+    // so the next browser paint shows the target tab.
     const firstFrame = samples[0];
     expect(firstFrame.panes.some((p) => p.hasOne)).toBe(true);
+    expect(firstFrame.panes.every((p) => !p.hasTwo)).toBe(true);
+
+    // And the first mutation observation must already show the target
+    // window's panes — i.e. the synchronous React commit from the click
+    // event handler must replace window 2's DOM with window 1's DOM in
+    // one batch, with no transient state where the layout is empty.
+    const firstMutation = mutations[0];
+    expect(firstMutation.panes.some((p) => p.hasOne)).toBe(true);
+  });
+
+  test('Switching to a multi-pane tab renders all panes from the first paint', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Window 1: split into 3 panes with distinct markers so we can detect
+    // each one individually. Multi-pane tabs are the scenario where the
+    // emptiness is most visible — a single-pane tab can mask layout-shift
+    // bugs because the geometry barely changes.
+    await runCommand(ctx.page, 'echo W1_PANE_A', 'W1_PANE_A');
+    await delay(DELAYS.SHORT);
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
+    await runCommand(ctx.page, 'echo W1_PANE_B', 'W1_PANE_B');
+    await delay(DELAYS.SHORT);
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await waitForPaneCount(ctx.page, 3);
+    await runCommand(ctx.page, 'echo W1_PANE_C', 'W1_PANE_C');
+    await delay(DELAYS.SHORT);
+
+    // Window 2 with a single pane.
+    await createWindowKeyboard(ctx.page);
+    await waitForWindowCount(ctx.page, 2);
+    await focusPage(ctx.page);
+    await runCommand(ctx.page, 'echo W2_PANE_X', 'W2_PANE_X');
+    await delay(DELAYS.SHORT);
+
+    // Install the MutationObserver + RAF watchers.
+    await ctx.page.evaluate(() => {
+      window.__multiSamples = [];
+      window.__multiMutations = [];
+      window.__multiT0 = null;
+
+      function snapshotPanes() {
+        const items = document.querySelectorAll('.pane-layout-item');
+        const out = [];
+        for (const it of items) {
+          const r = it.getBoundingClientRect();
+          const log = it.querySelector('[role="log"]');
+          const lines = it.querySelectorAll('.terminal-line');
+          const text = (log?.textContent || '').replace(/\s+/g, ' ').trim();
+          out.push({
+            id: it.getAttribute('data-pane-id'),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+            lineCount: lines.length,
+            textLen: text.length,
+            hasA: text.includes('W1_PANE_A'),
+            hasB: text.includes('W1_PANE_B'),
+            hasC: text.includes('W1_PANE_C'),
+            hasX: text.includes('W2_PANE_X'),
+          });
+        }
+        return out;
+      }
+
+      const observer = new MutationObserver(() => {
+        if (window.__multiT0 === null) return;
+        const dt = Math.round(performance.now() - window.__multiT0);
+        window.__multiMutations.push({ dt, panes: snapshotPanes() });
+      });
+      const root = document.querySelector('.pane-layout') || document.body;
+      observer.observe(root, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true,
+      });
+
+      function sample(t0) {
+        if (window.__multiT0 === null) {
+          requestAnimationFrame(() => sample(t0));
+          return;
+        }
+        const dt = Math.round(performance.now() - window.__multiT0);
+        window.__multiSamples.push({ dt, panes: snapshotPanes() });
+        if (dt < 400) requestAnimationFrame(() => sample(t0));
+      }
+      requestAnimationFrame(() => sample(performance.now()));
+    });
+
+    // Click tab 1 to switch from window 2 back to the multi-pane window 1.
+    await ctx.page.evaluate(() => {
+      window.__multiT0 = performance.now();
+      const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
+      if (tabs[0]) tabs[0].click();
+    });
+
+    await delay(600);
+    const { samples, mutations } = await ctx.page.evaluate(() => ({
+      samples: window.__multiSamples,
+      mutations: window.__multiMutations,
+    }));
+
+    expect(samples.length).toBeGreaterThan(3);
+
+    // Frame is "empty" if panes exist but none has visible terminal content.
+    const isEmpty = (s) =>
+      s.panes.length > 0 &&
+      s.panes.every((p) => p.textLen < 5 || p.lineCount === 0 || p.w === 0 || p.h === 0);
+    const emptyRaf = samples.filter(isEmpty);
+    const emptyMutation = mutations.filter(isEmpty);
+    if (emptyRaf.length > 0 || emptyMutation.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        'multi empty frames (raf):',
+        JSON.stringify(emptyRaf.slice(0, 3), null, 2),
+        '\nmulti empty frames (mutation):',
+        JSON.stringify(emptyMutation.slice(0, 3), null, 2),
+      );
+    }
+    expect(emptyRaf).toEqual([]);
+    expect(emptyMutation).toEqual([]);
+
+    // The first RAF after the click must already show all three of
+    // window 1's panes with their markers — none of window 2's pane (X)
+    // should be visible. This is the "instantly optimistic" guarantee:
+    // cached pane content must render from the same React commit as
+    // the activeWindowId flip.
+    const firstFrame = samples[0];
+    expect(firstFrame.panes.length).toBeGreaterThanOrEqual(3);
+    expect(firstFrame.panes.some((p) => p.hasA)).toBe(true);
+    expect(firstFrame.panes.some((p) => p.hasB)).toBe(true);
+    expect(firstFrame.panes.some((p) => p.hasC)).toBe(true);
+    expect(firstFrame.panes.every((p) => !p.hasX)).toBe(true);
+
+    // First DOM mutation after click must already reflect all three target
+    // panes. Mutation observers fire on each React commit, so this catches
+    // the case where the layout flips activeWindowId but renders an empty
+    // grid before the cached panes are projected into selectVisiblePanes.
+    expect(mutations.length).toBeGreaterThan(0);
+    const firstMutation = mutations[0];
+    expect(firstMutation.panes.length).toBeGreaterThanOrEqual(3);
+    expect(firstMutation.panes.some((p) => p.hasA)).toBe(true);
+    expect(firstMutation.panes.some((p) => p.hasB)).toBe(true);
+    expect(firstMutation.panes.some((p) => p.hasC)).toBe(true);
+
+    // No frame at any point should show the previous tab's pane content.
+    // If activeWindowId flips but selectVisiblePanes still returns the old
+    // window's panes (memoization or stale closure), the X marker would
+    // leak through.
+    const framesWithStaleContent = samples.filter((s) => s.panes.some((p) => p.hasX));
+    expect(framesWithStaleContent).toEqual([]);
   });
 });
