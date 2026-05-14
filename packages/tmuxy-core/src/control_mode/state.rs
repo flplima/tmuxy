@@ -2134,57 +2134,39 @@ impl StateAggregator {
 
     /// Convert current state to TmuxState for the frontend.
     pub fn to_tmux_state(&mut self) -> TmuxState {
-        // Get panes for the active window AND group windows
-        // Group windows are hidden windows that contain grouped panes
         let active_window = self.active_window_id.as_ref();
 
-        // Build set of pane group window IDs.
-        // Include all pane group windows unconditionally: after swap-pane, the parent
-        // pane may be in the group window itself (not the active window).
-        let valid_pane_group_windows: std::collections::HashSet<String> = self
-            .windows
-            .values()
-            .filter_map(|w| {
-                if parse_pane_group_window_name(&w.name).is_some() {
-                    Some(w.id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Float windows are always included (they contain floating panes)
-        let float_windows: std::collections::HashSet<String> = self
-            .windows
-            .values()
-            .filter_map(|w| {
-                if is_float_window_name(&w.name) {
-                    Some(w.id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Collect matching pane IDs first (need &self for filter, then &mut self for to_tmux_pane)
+        // Send panes from every window in the session. The frontend filters
+        // by activeWindowId via selectVisiblePanes, so panes from inactive
+        // windows live harmlessly in context.panes[] — and that cache is
+        // what makes SELECT_TAB feel instant: the optimistic activeWindowId
+        // flip can render the target tab without waiting for the server
+        // round-trip. Hidden pane-group and float windows ride along on the
+        // same code path (no special-casing needed once the active-window
+        // filter is gone).
         let matching_pane_ids: Vec<String> = self
             .panes
             .values()
-            .filter(|p| {
-                if p.window_id.is_empty() {
-                    return false;
-                }
-                let is_active_window = active_window.map(|w| p.window_id == *w).unwrap_or(false);
-                let is_valid_pane_group_window = valid_pane_group_windows.contains(&p.window_id);
-                let is_float_window = float_windows.contains(&p.window_id);
-                is_active_window || is_valid_pane_group_window || is_float_window
-            })
+            .filter(|p| !p.window_id.is_empty())
             .map(|p| p.id.clone())
             .collect();
 
+        // Tmux stores `pane.active` per window — every window has its own
+        // active pane. Collapse to a session-wide single active pane so the
+        // frontend can treat `pane.active` as a uniqueness flag (used by
+        // keyboard routing, optimistic-prediction lookups, focus indicators).
+        // Without this collapse, multiple panes report active=true and any
+        // downstream code that assumes "at most one active pane" misbehaves.
         let panes: Vec<TmuxPane> = matching_pane_ids
             .iter()
-            .filter_map(|id| self.panes.get_mut(id).map(|p| p.build_tmux_pane()))
+            .filter_map(|id| {
+                self.panes.get_mut(id).map(|p| {
+                    let mut pane = p.build_tmux_pane();
+                    pane.active = pane.active
+                        && active_window.map(|w| pane.window_id == *w).unwrap_or(false);
+                    pane
+                })
+            })
             .collect();
 
         let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
