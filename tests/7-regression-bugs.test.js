@@ -328,3 +328,127 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     }
   });
 });
+
+// ==================== Scenario: Tab switch is instant (no empty-pane flash) ====================
+
+describe('Scenario: Tab switch shows panes instantly', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll, ctx.hookTimeout);
+  beforeEach(ctx.beforeEach, ctx.hookTimeout);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Switching to a tab renders the cached pane content without a transient empty frame', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Window 1: leave a distinctive marker so we can detect its pane content.
+    await runCommand(ctx.page, 'echo TAB_ONE_MARKER', 'TAB_ONE_MARKER');
+    await delay(DELAYS.SHORT);
+
+    // Create window 2 and leave a different marker. The new-window helper
+    // routes through the server's control-mode-safe new-window → split + break
+    // wrapper.
+    await createWindowKeyboard(ctx.page);
+    await waitForWindowCount(ctx.page, 2);
+    await focusPage(ctx.page);
+    await runCommand(ctx.page, 'echo TAB_TWO_MARKER', 'TAB_TWO_MARKER');
+    await delay(DELAYS.SHORT);
+
+    // Pre-flight: we're on window 2 and TAB_TWO_MARKER is in the visible pane.
+    // Also confirm both windows' panes are cached in context.panes — this is
+    // the precondition for SELECT_TAB to feel instant. The previous bug was
+    // the server only sending panes for the active window, leaving nothing
+    // to render when activeWindowId flipped optimistically.
+    const beforeSwitch = await ctx.page.evaluate(() => {
+      const items = document.querySelectorAll('.pane-layout-item');
+      const text = Array.from(items)
+        .map((it) => it.textContent || '')
+        .join(' ');
+      const cctx = window.app?.getSnapshot()?.context;
+      return {
+        itemCount: items.length,
+        text: text.slice(0, 200),
+        windowIdsWithPanes: cctx?.panes
+          ? Array.from(new Set(cctx.panes.map((p) => p.windowId))).sort()
+          : [],
+        windowCount: cctx?.windows?.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow).length ?? 0,
+      };
+    });
+    expect(beforeSwitch.itemCount).toBeGreaterThanOrEqual(1);
+    expect(beforeSwitch.text).toContain('TAB_TWO_MARKER');
+    // Both visible windows must have at least one pane cached on the client.
+    expect(beforeSwitch.windowIdsWithPanes.length).toBeGreaterThanOrEqual(
+      beforeSwitch.windowCount,
+    );
+
+    // Install a frame-by-frame sampler that captures every paint after the
+    // tab click for ~250ms (≈ 15 frames at 60Hz). Each sample records pane
+    // count + pane bounds + whether the visible pane already has the target
+    // content. The sampler is set up BEFORE the click so we don't miss the
+    // first paint.
+    await ctx.page.evaluate(() => {
+      window.__tabSwitchSamples = [];
+      window.__startSampling = false;
+      function sample(t0) {
+        if (!window.__startSampling) {
+          requestAnimationFrame(() => sample(t0));
+          return;
+        }
+        const now = performance.now();
+        const items = document.querySelectorAll('.pane-layout-item');
+        const out = { dt: Math.round(now - t0), itemCount: items.length, panes: [] };
+        for (const it of items) {
+          const r = it.getBoundingClientRect();
+          const log = it.querySelector('[role="log"]');
+          const text = (log?.textContent || '').replace(/\s+/g, ' ').trim();
+          out.panes.push({
+            id: it.getAttribute('data-pane-id'),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+            hasOne: text.includes('TAB_ONE_MARKER'),
+            hasTwo: text.includes('TAB_TWO_MARKER'),
+            textLen: text.length,
+          });
+        }
+        window.__tabSwitchSamples.push(out);
+        if (out.dt < 400) requestAnimationFrame(() => sample(t0));
+      }
+      requestAnimationFrame(() => sample(performance.now()));
+    });
+
+    // Click the first tab to switch back to window 1, and start sampling
+    // in the same evaluate so t0 lines up with the click.
+    await ctx.page.evaluate(() => {
+      window.__startSampling = true;
+      const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
+      if (tabs[0]) tabs[0].click();
+    });
+
+    // Wait for the sampler to finish ~400ms of frames.
+    await delay(600);
+    const samples = await ctx.page.evaluate(() => window.__tabSwitchSamples);
+
+    // Sanity: we captured at least a few frames.
+    expect(samples.length).toBeGreaterThan(3);
+
+    // The regression assertion: from the first frame after the click,
+    // .pane-layout-item must contain the target tab's marker. There must
+    // be NO frame where panes are present but contain neither marker —
+    // that empty interval is the bug we're catching.
+    const emptyFrames = samples.filter(
+      (s) => s.itemCount > 0 && s.panes.every((p) => !p.hasOne && !p.hasTwo && p.textLen < 5),
+    );
+    if (emptyFrames.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log('empty frames:', JSON.stringify(emptyFrames.slice(0, 5), null, 2));
+    }
+    expect(emptyFrames).toEqual([]);
+
+    // And the target marker must be visible within the very first sampled
+    // frame — the cached content should render synchronously with the
+    // optimistic activeWindowId flip.
+    const firstFrame = samples[0];
+    expect(firstFrame.panes.some((p) => p.hasOne)).toBe(true);
+  });
+});
