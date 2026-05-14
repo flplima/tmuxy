@@ -188,6 +188,7 @@ function cellLinesEqual(a: CellLine, b: CellLine): boolean {
     // Normalize boolean fields: undefined and false are equivalent
     if (
       (ca.s.bold ?? false) !== (cb.s.bold ?? false) ||
+      (ca.s.dim ?? false) !== (cb.s.dim ?? false) ||
       (ca.s.italic ?? false) !== (cb.s.italic ?? false) ||
       (ca.s.underline ?? false) !== (cb.s.underline ?? false) ||
       (ca.s.inverse ?? false) !== (cb.s.inverse ?? false) ||

@@ -37,6 +37,10 @@ pub struct CellStyle {
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default)]
     pub bold: bool,
+    /// SGR 2: faint/dim text. Apps like Claude Code use this for autosuggestions.
+    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default)]
+    pub dim: bool,
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default)]
     pub italic: bool,
@@ -60,6 +64,7 @@ impl CellStyle {
         self.fg.is_none()
             && self.bg.is_none()
             && !self.bold
+            && !self.dim
             && !self.italic
             && !self.underline
             && !self.inverse
@@ -135,7 +140,7 @@ pub fn extract_cells_with_urls(
             let char_content = if raw_content.is_empty() {
                 " ".to_string()
             } else {
-                raw_content
+                raw_content.to_string()
             };
 
             let fg = match cell.fgcolor() {
@@ -157,6 +162,7 @@ pub fn extract_cells_with_urls(
                 fg,
                 bg,
                 bold: cell.bold(),
+                dim: cell.dim(),
                 italic: cell.italic(),
                 underline: cell.underline(),
                 inverse: cell.inverse(),
@@ -845,5 +851,40 @@ mod vt100_capture_test {
         assert_eq!(content[0][0].char, "1", "First row should start with '1'");
         assert_eq!(content[1][0].char, "2", "Second row should start with '2'");
         assert_eq!(content[2][0].char, "3", "Third row should start with '3'");
+    }
+
+    #[test]
+    fn test_sgr_dim_faint_propagates_to_cell_style() {
+        // SGR 2 (faint/dim) — used by Claude Code's TUI for autosuggestion text.
+        // vt100 0.15 silently dropped this; 0.16 propagates it as cell.dim().
+        // \e[2m turns on dim, \e[22m turns it off, \e[0m fully resets.
+        let bytes = b"\x1b[2mdim\x1b[22m bright\x1b[2mD\x1b[0mP";
+        let mut terminal = vt100::Parser::new(1, 32, 0);
+        terminal.process(bytes);
+
+        let cells = crate::extract_cells_from_screen(terminal.screen());
+        let row = &cells[0];
+
+        let is_dim = |col: usize| {
+            row.get(col)
+                .expect("cell present")
+                .style
+                .as_ref()
+                .is_some_and(|s| s.dim)
+        };
+
+        // Column layout for "\x1b[2mdim\x1b[22m bright\x1b[2mD\x1b[0mP":
+        //   0..2: 'd','i','m' (dim on)
+        //   3:    ' '         (dim off)
+        //   4..9: 'b','r','i','g','h','t'
+        //   10:   'D'         (dim on again)
+        //   11:   'P'         (dim off via SGR 0)
+        assert!(is_dim(0), "'d' should be dim");
+        assert!(is_dim(1), "'i' should be dim");
+        assert!(is_dim(2), "'m' should be dim");
+        assert!(!is_dim(4), "'b' (in 'bright') should not be dim");
+        assert!(!is_dim(9), "'t' (end of 'bright') should not be dim");
+        assert!(is_dim(10), "'D' after re-enabling SGR 2 should be dim");
+        assert!(!is_dim(11), "'P' after SGR 0 should not be dim");
     }
 }

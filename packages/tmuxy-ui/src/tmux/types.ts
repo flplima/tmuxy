@@ -98,6 +98,8 @@ export interface CellStyle {
   fg?: CellColor;
   bg?: CellColor;
   bold?: boolean;
+  /** SGR 2: faint/dim text (rendered at reduced opacity) */
+  dim?: boolean;
   italic?: boolean;
   underline?: boolean;
   inverse?: boolean;
