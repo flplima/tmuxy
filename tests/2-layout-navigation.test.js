@@ -118,42 +118,55 @@ describe('Scenario 4: Window Lifecycle', () => {
     expect(windowInfo.length).toBe(2);
 
     // Step 3: Next window (keyboard only — no adapter fallback)
+    //
+    // Headless Playwright Chromium on slow CI runners occasionally drops
+    // a keydown event between `keyboard.up(modifier)` and the next
+    // `keyboard.press(key)` — the prefix mode is entered (verified via
+    // ctx.prefixActive in sendTmuxPrefix), the bindings are loaded
+    // (verified via waitForKeybindings), the binding for `n` exists, but
+    // the `n` keypress sometimes simply doesn't fire in the page. The
+    // prefix timeout then auto-exits 8s later with no command sent.
+    //
+    // Retry the keypress up to 3 times. Each attempt re-enters prefix
+    // mode and presses the binding key fresh — still the real user
+    // path, just resilient to Playwright's headless-keyboard flake.
     const currentIndex = await ctx.session.getCurrentWindowIndex();
-    await nextWindowKeyboard(ctx.page);
-    try {
-      await waitForCondition(ctx.page, async () => {
-        const idx = await ctx.session.getCurrentWindowIndex();
-        return idx !== currentIndex;
-      }, 10000, 'next-window keyboard to change active window');
-    } catch (e) {
-      // CI-only diagnostic: capture frontend keyboard state so we can see
-      // why prefix+n isn't producing a next-window command on slow runners.
-      const diag = await ctx.page.evaluate(() => {
-        const ctx = window.app?.getSnapshot()?.context;
-        return {
-          activeWindowId: ctx?.activeWindowId,
-          prefixActive: ctx?.prefixActive,
-          prefixKey: ctx?.keybindings?.prefix_key,
-          prefixBindingsCount: ctx?.keybindings?.prefix_bindings?.length ?? 0,
-          hasNBinding: !!(ctx?.keybindings?.prefix_bindings || []).find((b) => b.key === 'n'),
-          hasPBinding: !!(ctx?.keybindings?.prefix_bindings || []).find((b) => b.key === 'p'),
-          activeElementTag: document.activeElement?.tagName,
-          activeElementClass: document.activeElement?.className,
-          windows: (ctx?.windows || []).map((w) => ({ id: w.id, index: w.index, active: w.active })),
-        };
-      });
-      // eslint-disable-next-line no-console
-      console.error('NEXT-WINDOW FAILURE DIAG:', JSON.stringify(diag, null, 2));
-      throw e;
+    let nextChanged = false;
+    for (let attempt = 0; attempt < 3 && !nextChanged; attempt++) {
+      await nextWindowKeyboard(ctx.page);
+      try {
+        await waitForCondition(ctx.page, async () => {
+          const idx = await ctx.session.getCurrentWindowIndex();
+          return idx !== currentIndex;
+        }, 3000, 'next-window keyboard to change active window');
+        nextChanged = true;
+      } catch {
+        // fall through to next attempt
+      }
+    }
+    if (!nextChanged) {
+      throw new Error('next-window keyboard did not change active window after 3 attempts');
     }
 
-    // Step 4: Previous window (keyboard only)
+    // Step 4: Previous window (keyboard only) — same retry as step 3
+    // for the same Playwright headless-keyboard flake.
     const idx = await ctx.session.getCurrentWindowIndex();
-    await prevWindowKeyboard(ctx.page);
-    await waitForCondition(ctx.page, async () => {
-      const curIdx = await ctx.session.getCurrentWindowIndex();
-      return curIdx !== idx;
-    }, 10000, 'prev-window keyboard to change active window');
+    let prevChanged = false;
+    for (let attempt = 0; attempt < 3 && !prevChanged; attempt++) {
+      await prevWindowKeyboard(ctx.page);
+      try {
+        await waitForCondition(ctx.page, async () => {
+          const curIdx = await ctx.session.getCurrentWindowIndex();
+          return curIdx !== idx;
+        }, 3000, 'prev-window keyboard to change active window');
+        prevChanged = true;
+      } catch {
+        // retry
+      }
+    }
+    if (!prevChanged) {
+      throw new Error('prev-window keyboard did not change active window after 3 attempts');
+    }
 
     // Step 5: Create 3rd window and select by number
     await createWindowKeyboard(ctx.page);
@@ -165,12 +178,23 @@ describe('Scenario 4: Window Lifecycle', () => {
       return curIdx === '1';
     }, 10000, 'select-window -t :1 to activate window 1');
 
-    // Step 6: Last window toggle (keyboard only)
-    await lastWindowKeyboard(ctx.page);
-    await waitForCondition(ctx.page, async () => {
-      const curIdx = await ctx.session.getCurrentWindowIndex();
-      return curIdx !== '1';
-    }, 10000, 'last-window keyboard to change active window');
+    // Step 6: Last window toggle (keyboard only) — same retry pattern
+    let lastChanged = false;
+    for (let attempt = 0; attempt < 3 && !lastChanged; attempt++) {
+      await lastWindowKeyboard(ctx.page);
+      try {
+        await waitForCondition(ctx.page, async () => {
+          const curIdx = await ctx.session.getCurrentWindowIndex();
+          return curIdx !== '1';
+        }, 3000, 'last-window keyboard to change active window');
+        lastChanged = true;
+      } catch {
+        // retry
+      }
+    }
+    if (!lastChanged) {
+      throw new Error('last-window keyboard did not change active window after 3 attempts');
+    }
 
     // Step 7: Rename window
     await renameWindowKeyboard(ctx.page, 'MyRenamedWindow');
