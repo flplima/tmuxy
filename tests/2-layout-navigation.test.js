@@ -120,10 +120,32 @@ describe('Scenario 4: Window Lifecycle', () => {
     // Step 3: Next window (keyboard only — no adapter fallback)
     const currentIndex = await ctx.session.getCurrentWindowIndex();
     await nextWindowKeyboard(ctx.page);
-    await waitForCondition(ctx.page, async () => {
-      const idx = await ctx.session.getCurrentWindowIndex();
-      return idx !== currentIndex;
-    }, 10000, 'next-window keyboard to change active window');
+    try {
+      await waitForCondition(ctx.page, async () => {
+        const idx = await ctx.session.getCurrentWindowIndex();
+        return idx !== currentIndex;
+      }, 10000, 'next-window keyboard to change active window');
+    } catch (e) {
+      // CI-only diagnostic: capture frontend keyboard state so we can see
+      // why prefix+n isn't producing a next-window command on slow runners.
+      const diag = await ctx.page.evaluate(() => {
+        const ctx = window.app?.getSnapshot()?.context;
+        return {
+          activeWindowId: ctx?.activeWindowId,
+          prefixActive: ctx?.prefixActive,
+          prefixKey: ctx?.keybindings?.prefix_key,
+          prefixBindingsCount: ctx?.keybindings?.prefix_bindings?.length ?? 0,
+          hasNBinding: !!(ctx?.keybindings?.prefix_bindings || []).find((b) => b.key === 'n'),
+          hasPBinding: !!(ctx?.keybindings?.prefix_bindings || []).find((b) => b.key === 'p'),
+          activeElementTag: document.activeElement?.tagName,
+          activeElementClass: document.activeElement?.className,
+          windows: (ctx?.windows || []).map((w) => ({ id: w.id, index: w.index, active: w.active })),
+        };
+      });
+      // eslint-disable-next-line no-console
+      console.error('NEXT-WINDOW FAILURE DIAG:', JSON.stringify(diag, null, 2));
+      throw e;
+    }
 
     // Step 4: Previous window (keyboard only)
     const idx = await ctx.session.getCurrentWindowIndex();
