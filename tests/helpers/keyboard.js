@@ -67,11 +67,42 @@ async function getPrefixKey(page) {
 }
 
 /**
+ * Block until the keyboard actor has prefix bindings loaded from the server.
+ *
+ * The keyboard actor's `prefixBindings` map is populated from an
+ * UPDATE_KEYBINDINGS event whose payload comes from the server's
+ * `list-keys -T prefix` response. If a prefix-bound keypress (e.g.
+ * `prefix+n` → next-window) arrives before that event lands, the actor
+ * looks the key up, finds nothing, and silently drops it ("Unknown
+ * binding - just ignore (like tmux does)" in keyboardActor.ts).
+ *
+ * On a slow CI runner the bindings response can lag the first test's
+ * first prefix-bound action; locally the cache is usually warm enough
+ * to not notice. Wait for prefix_bindings.length > 0 before pressing.
+ */
+async function waitForKeybindings(page, timeout = 5000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const ready = await page.evaluate(() => {
+      const kb = window.app?.getSnapshot()?.context?.keybindings;
+      return Boolean(kb?.prefix_bindings?.length);
+    });
+    if (ready) return;
+    await delay(50);
+  }
+  throw new Error(`Keybindings (prefix_bindings) not loaded within ${timeout}ms`);
+}
+
+/**
  * Send tmux prefix key (dynamically read from XState keybindings)
  * Includes a longer delay to allow tmux to enter prefix mode
  */
 async function sendTmuxPrefix(page) {
   await focusTerminal(page);
+  // Ensure the keyboard actor knows the prefix bindings before any
+  // prefix-bound key is delivered — otherwise the second keystroke is
+  // silently dropped, and the test waiting on its effect times out.
+  await waitForKeybindings(page);
   await delay(DELAYS.MEDIUM);
 
   // Read the actual prefix key from the browser's XState context
@@ -180,6 +211,7 @@ module.exports = {
   focusTerminal,
   sendKeyCombo,
   getPrefixKey,
+  waitForKeybindings,
   sendTmuxPrefix,
   sendPrefixCommand,
   typeChar,
