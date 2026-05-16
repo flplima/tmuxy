@@ -2162,8 +2162,8 @@ impl StateAggregator {
             .filter_map(|id| {
                 self.panes.get_mut(id).map(|p| {
                     let mut pane = p.build_tmux_pane();
-                    pane.active = pane.active
-                        && active_window.map(|w| pane.window_id == *w).unwrap_or(false);
+                    pane.active =
+                        pane.active && active_window.map(|w| pane.window_id == *w).unwrap_or(false);
                     pane
                 })
             })
