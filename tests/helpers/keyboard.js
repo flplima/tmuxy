@@ -95,7 +95,14 @@ async function waitForKeybindings(page, timeout = 5000) {
 
 /**
  * Send tmux prefix key (dynamically read from XState keybindings)
- * Includes a longer delay to allow tmux to enter prefix mode
+ *
+ * Waits for the keyboard actor to *confirm* it entered prefix mode
+ * (via PREFIX_MODE_CHANGE → ctx.prefixActive) before returning. The
+ * fixed PREFIX delay used to "give tmux time" isn't actually about
+ * tmux — the gate is the frontend keyboardActor's prefix state. On a
+ * slow CI runner, 300 ms can land before the actor's keydown handler
+ * runs; the subsequent `n` keypress then sees inPrefixMode=false,
+ * falls through to send-keys, and the binding never fires.
  */
 async function sendTmuxPrefix(page) {
   await focusTerminal(page);
@@ -113,8 +120,27 @@ async function sendTmuxPrefix(page) {
   await delay(50);
   await page.keyboard.up(prefix.modifier);
 
-  // Use PREFIX delay to give tmux time to enter prefix mode
-  await delay(DELAYS.PREFIX);
+  // Wait for the keyboard actor to acknowledge prefix mode rather
+  // than relying on a fixed delay.
+  await waitForPrefixActive(page);
+}
+
+/**
+ * Block until ctx.prefixActive flips true. The keyboard actor sends
+ * PREFIX_MODE_CHANGE to the app machine right after enterPrefixMode();
+ * once the assign lands, we know the next keypress will be looked up
+ * in prefixBindings and not silently fall through to send-keys.
+ */
+async function waitForPrefixActive(page, timeout = 2000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const active = await page.evaluate(() => {
+      return window.app?.getSnapshot()?.context?.prefixActive === true;
+    });
+    if (active) return;
+    await delay(25);
+  }
+  throw new Error(`Prefix mode did not activate within ${timeout}ms`);
 }
 
 /**
@@ -212,6 +238,7 @@ module.exports = {
   sendKeyCombo,
   getPrefixKey,
   waitForKeybindings,
+  waitForPrefixActive,
   sendTmuxPrefix,
   sendPrefixCommand,
   typeChar,
