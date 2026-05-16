@@ -239,9 +239,7 @@ export const selectWindows = createMemoizedSelector(
 export const selectVisibleWindows = createMemoizedSelector(
   (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
   (context: AppMachineContext) =>
-    selectWindows(context).filter(
-      (w) => !w.isPaneGroupWindow && !w.isFloatWindow && w.name !== '',
-    ),
+    selectWindows(context).filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow && w.name !== ''),
 );
 
 export function selectActiveWindowId(context: AppMachineContext): string | null {
