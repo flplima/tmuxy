@@ -22,6 +22,7 @@
   --term-background: #282828;
 
   --bg-black: #282828;
+  --window-bg-rgb: 0, 0, 0;
   --bg-dark: #1d2021;
   --bg-dark-alt: #242424;
   --bg-medium: #32302f;
@@ -116,6 +117,7 @@
   --term-background: #fbf1c7;
 
   --bg-black: #fbf1c7;
+  --window-bg-rgb: 255, 255, 255;
   --bg-dark: #f2e5bc;
   --bg-dark-alt: #ebdbb2;
   --bg-medium: #d5c4a1;
