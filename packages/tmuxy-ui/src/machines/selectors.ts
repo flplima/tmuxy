@@ -436,6 +436,47 @@ export const selectVisiblePanes = createMemoizedSelector(
 );
 
 /**
+ * Panes that belong to non-active, non-float windows. PaneLayout renders these
+ * with `display: none` so their <TerminalPane> instances stay mounted across
+ * tab switches — eliminates the empty-pane flash on window change (the new
+ * window's panes already have their DOM + content in place).
+ *
+ * Float panes and group-hidden panes are excluded because they have their own
+ * rendering paths (floats) or are intentionally suppressed (group siblings).
+ */
+function selectHiddenWindowPanesUncached(context: AppMachineContext): TmuxPane[] {
+  const { panes, activeWindowId, floatPanes, paneGroups } = context;
+  if (!activeWindowId) return [];
+
+  const hiddenGroupPaneIds = new Set<string>();
+  for (const group of Object.values(paneGroups)) {
+    const activeGroupPaneId = getActivePaneInGroup(context, group);
+    for (const id of group.paneIds) {
+      if (id !== activeGroupPaneId) hiddenGroupPaneIds.add(id);
+    }
+  }
+
+  const result: TmuxPane[] = [];
+  for (const pane of panes) {
+    if (pane.windowId === activeWindowId) continue;
+    if (floatPanes[pane.tmuxId]) continue;
+    if (hiddenGroupPaneIds.has(pane.tmuxId)) continue;
+    result.push(pane);
+  }
+  return result.sort((a, b) => (a.tmuxId < b.tmuxId ? -1 : a.tmuxId > b.tmuxId ? 1 : 0));
+}
+
+export const selectHiddenWindowPanes = createMemoizedSelector(
+  (ctx: AppMachineContext) => ({
+    panes: ctx.panes,
+    paneGroups: ctx.paneGroups,
+    activeWindowId: ctx.activeWindowId,
+    floatPanes: ctx.floatPanes,
+  }),
+  selectHiddenWindowPanesUncached,
+);
+
+/**
  * Find the group that contains a given pane (if any)
  */
 export const selectPaneGroupForPane = createMemoizedSelectorWithArg(

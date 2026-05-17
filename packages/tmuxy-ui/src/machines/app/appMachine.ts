@@ -842,7 +842,9 @@ export const appMachine = setup({
               // While our optimistic flip is pending, hold onto it so the UI
               // doesn't bounce A → B → A → B as those stale snapshots arrive.
               // Cleared on the first snapshot that confirms our target.
-              const SELECT_TAB_GRACE_MS = 600;
+              // Tight window — panes stay mounted across tab switches now, so
+              // any residual bounce is a cheap CSS class flip, not a remount.
+              const SELECT_TAB_GRACE_MS = 200;
               let pendingSelectTabAt = context.pendingSelectTabAt;
               if (pendingSelectTabAt !== null) {
                 const elapsed = Date.now() - pendingSelectTabAt;

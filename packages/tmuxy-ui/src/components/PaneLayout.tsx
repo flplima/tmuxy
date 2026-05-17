@@ -14,6 +14,7 @@ import {
   useIsDragging,
   useIsResizing,
   selectVisiblePanes,
+  selectHiddenWindowPanes,
   selectDraggedPaneId,
   selectDragOffsetX,
   selectDragOffsetY,
@@ -35,6 +36,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const send = useAppSend();
 
   const visiblePanes = useAppSelector(selectVisiblePanes);
+  const hiddenWindowPanes = useAppSelector(selectHiddenWindowPanes);
   const draggedPaneId = useAppSelector(selectDraggedPaneId);
   const dropTarget = useAppSelector(selectDropTarget);
   const {
@@ -188,12 +190,48 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [draggedPaneId, focusedFloatPaneId],
   );
 
+  // Merge visible + hidden panes into one stable-ordered list so React
+  // reconciles by key across tab switches — the new window's <TerminalPane>
+  // instances are already mounted (just hidden), so flipping tabs is a CSS
+  // class swap, not an unmount/remount. Sort by the effective React key
+  // (paneKeyOverrides honored so placeholder→real transitions stay stable).
+  const renderedPanes = useMemo(() => {
+    const items: { pane: TmuxPane; hidden: boolean }[] = [];
+    for (const pane of visiblePanes) items.push({ pane, hidden: false });
+    for (const pane of hiddenWindowPanes) items.push({ pane, hidden: true });
+    items.sort((a, b) => {
+      const ka = paneKeyOverrides[a.pane.tmuxId] ?? a.pane.tmuxId;
+      const kb = paneKeyOverrides[b.pane.tmuxId] ?? b.pane.tmuxId;
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+    return items;
+  }, [visiblePanes, hiddenWindowPanes, paneKeyOverrides]);
+
   return (
     <div
       ref={containerRef}
       className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing || suppressLayoutTransition ? 'pane-layout-resizing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
     >
-      {visiblePanes.map((pane) => {
+      {renderedPanes.map(({ pane, hidden }) => {
+        if (hidden) {
+          // Keep mounted but visually absent — no positioning math, no
+          // animation, no event handlers. Preserves <TerminalPane> + content
+          // so a future tab switch shows the pane instantly.
+          return (
+            <AnimatedPaneWrapper
+              key={paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId}
+              pane={pane}
+              className="pane-layout-item pane-window-hidden"
+              style={{ display: 'none' }}
+              targetX={0}
+              targetY={0}
+              elevated={false}
+            >
+              {children(pane)}
+            </AnimatedPaneWrapper>
+          );
+        }
+
         const isDraggedPane = pane.tmuxId === draggedPaneId;
         const baseStyle = getPaneStyle(pane);
 
