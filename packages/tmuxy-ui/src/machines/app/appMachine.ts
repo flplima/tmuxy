@@ -254,6 +254,55 @@ function resolveTabNavTarget(
   return null;
 }
 
+/**
+ * Detect a pane-group-nav command and resolve it to the target pane id we'd
+ * land on if the script ran. Returns `null` for any other command, or when
+ * the resolved target is already the visible pane (so the optimistic flip
+ * can no-op cleanly).
+ *
+ * Matches both the command-alias form (`tmuxy-pane-group-prev/next`) and the
+ * expanded `run-shell` form. `pane-group-switch` is deliberately NOT matched
+ * — that's what `SELECT_PANE_GROUP_TAB` itself emits and would recurse.
+ */
+function resolvePaneGroupNavTarget(
+  command: string,
+  context: AppMachineContext,
+): { paneId: string } | null {
+  const trimmed = command.trim();
+
+  let direction: 'prev' | 'next' | null = null;
+  if (trimmed.match(/^tmuxy-pane-group-prev\b/) || trimmed.includes('/pane-group-prev')) {
+    direction = 'prev';
+  } else if (trimmed.match(/^tmuxy-pane-group-next\b/) || trimmed.includes('/pane-group-next')) {
+    direction = 'next';
+  }
+  if (!direction) return null;
+
+  // Operate on the user's perceived focus — the optimistically-set activePaneId
+  // — so back-to-back prev/next nav doesn't get stuck on a stale visible pane.
+  const focusPaneId = context.activePaneId;
+  if (!focusPaneId) return null;
+
+  const group = Object.values(context.paneGroups).find((g) => g.paneIds.includes(focusPaneId));
+  if (!group || group.paneIds.length <= 1) return null;
+
+  // Mirror the shell scripts' algorithm: index off the currently-visible pane
+  // (the one in the active window), step ±1 with wrap.
+  const visibleId = group.paneIds.find((id) => {
+    const p = context.panes.find((pp) => pp.tmuxId === id);
+    return p?.windowId === context.activeWindowId;
+  });
+  if (!visibleId) return null;
+
+  const idx = group.paneIds.indexOf(visibleId);
+  const count = group.paneIds.length;
+  const targetIdx = direction === 'next' ? (idx + 1) % count : (idx - 1 + count) % count;
+  const target = group.paneIds[targetIdx];
+  if (!target || target === visibleId) return null;
+
+  return { paneId: target };
+}
+
 /** Status message auto-clear delay in milliseconds */
 const STATUS_MESSAGE_DURATION = 5000;
 
@@ -1503,6 +1552,18 @@ export const appMachine = setup({
               return;
             }
 
+            // Same routing for pane-group nav (prev/next): share the
+            // optimistic swap + keyboard re-target path with TAB clicks so
+            // `<prefix> -` and friends don't lag the visible state.
+            const groupNavTarget = resolvePaneGroupNavTarget(command, context);
+            if (groupNavTarget) {
+              enqueue.raise({
+                type: 'SELECT_PANE_GROUP_TAB',
+                paneId: groupNavTarget.paneId,
+              });
+              return;
+            }
+
             // Don't apply optimistic updates for swap commands during drag
             // The drag machine already handles swaps optimistically
             const isDragging = context.drag !== null;
@@ -1834,6 +1895,17 @@ export const appMachine = setup({
               return;
             }
 
+            // Same treatment for pane-group nav (prev/next) — share the
+            // optimistic swap + keyboard re-target path that tab clicks get.
+            const groupNavTarget = resolvePaneGroupNavTarget(command, context);
+            if (groupNavTarget) {
+              enqueue.raise({
+                type: 'SELECT_PANE_GROUP_TAB',
+                paneId: groupNavTarget.paneId,
+              });
+              return;
+            }
+
             enqueue(
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
@@ -1857,11 +1929,128 @@ export const appMachine = setup({
             command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-close ${event.paneId}"`,
           })),
         },
-        TAB_CLICK: {
-          actions: sendTo('tmux', ({ event }) => ({
-            type: 'SEND_COMMAND' as const,
-            command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${event.paneId}"`,
-          })),
+        // Optimistic pane-group tab switch — mirrors SELECT_TAB so the active
+        // tab indicator flips immediately, the visible-window slot shows the
+        // clicked pane before tmux's swap-pane round-trips, and the keyboard
+        // actor's activePaneId tracks the user's intent (so a Ctrl+C typed
+        // right after the click doesn't land in the previously-visible pane).
+        SELECT_PANE_GROUP_TAB: {
+          actions: enqueueActions(({ event, context, enqueue }) => {
+            const clickedPaneId = event.paneId;
+            if (clickedPaneId === context.activePaneId) return;
+
+            const clickedPane = context.panes.find((p) => p.tmuxId === clickedPaneId);
+            if (!clickedPane) return;
+
+            const group = Object.values(context.paneGroups).find((g) =>
+              g.paneIds.includes(clickedPaneId),
+            );
+
+            // Find the pane currently occupying the visible window slot for
+            // this group (if any) — that's the one swap-pane will swap with.
+            const visiblePane = group
+              ? (() => {
+                  const visibleId = group.paneIds.find((id) => {
+                    const p = context.panes.find((pp) => pp.tmuxId === id);
+                    return p?.windowId === context.activeWindowId;
+                  });
+                  return visibleId
+                    ? (context.panes.find((p) => p.tmuxId === visibleId) ?? null)
+                    : null;
+                })()
+              : null;
+
+            // No group or no visible peer: still flip activePaneId so the
+            // header highlight + keyboard target update, but skip the swap
+            // bookkeeping. The run-shell command will no-op in tmux too.
+            if (!group || !visiblePane || visiblePane.tmuxId === clickedPaneId) {
+              enqueue(assign({ activePaneId: clickedPaneId }));
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_ACTIVE_PANE' as const,
+                  paneId: clickedPaneId,
+                }),
+              );
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${clickedPaneId}"`,
+                }),
+              );
+              return;
+            }
+
+            // Optimistic swap: clicked pane takes the visible slot, the
+            // previously-visible pane goes to the clicked pane's old window.
+            // Mirrors the pane-group-switch shell script's swap-pane effect.
+            const clickedWindowId = clickedPane.windowId;
+            const optimisticPanes = context.panes.map((p) => {
+              if (p.tmuxId === clickedPaneId) {
+                return {
+                  ...p,
+                  windowId: visiblePane.windowId,
+                  x: visiblePane.x,
+                  y: visiblePane.y,
+                  width: visiblePane.width,
+                  height: visiblePane.height,
+                  active: true,
+                };
+              }
+              if (p.tmuxId === visiblePane.tmuxId) {
+                return { ...p, windowId: clickedWindowId, active: false };
+              }
+              return p;
+            });
+
+            // Prime the dim override at click-time. The reactive detector in
+            // TMUX_STATE_UPDATE no longer fires (previous state already has
+            // the swap applied), so we have to set it here for the 500ms
+            // freeze that hides nvim's full-redraw flicker during swap-pane.
+            const groupSwitchDimOverride = {
+              paneId: clickedPaneId,
+              fromPaneId: visiblePane.tmuxId,
+              x: visiblePane.x,
+              y: visiblePane.y,
+              width: visiblePane.width,
+              height: visiblePane.height,
+              timestamp: Date.now(),
+            };
+
+            enqueue(
+              assign({
+                panes: optimisticPanes,
+                activePaneId: clickedPaneId,
+                groupSwitchDimOverride,
+              }),
+            );
+
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_ACTIVE_PANE' as const,
+                paneId: clickedPaneId,
+              }),
+            );
+
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${clickedPaneId}"`,
+              }),
+            );
+
+            // Same post-swap refresh schedule as the reactive detector: clear
+            // the override at 750ms and force a list-panes refresh at 550ms
+            // so correct content arrives after the freeze releases.
+            const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
+            enqueue(({ self }) => {
+              setTimeout(() => {
+                self.send({ type: 'CLEAR_GROUP_SWITCH_OVERRIDE' });
+              }, 750);
+              setTimeout(() => {
+                self.send({ type: 'SEND_COMMAND', command: listPanesCmd });
+              }, 550);
+            });
+          }),
         },
         SELECT_TAB: {
           actions: enqueueActions(({ event, context, enqueue }) => {

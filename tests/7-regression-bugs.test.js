@@ -17,6 +17,7 @@ const {
   splitPaneKeyboard,
   clickPaneGroupAdd,
   getGroupTabInfo,
+  waitForGroupTabs,
   waitForCondition,
   runCommand,
   focusPage,
@@ -742,5 +743,118 @@ describe('Scenario: Tab switch shows panes instantly', () => {
     // leak through.
     const framesWithStaleContent = samples.filter((s) => s.panes.some((p) => p.hasX));
     expect(framesWithStaleContent).toEqual([]);
+  });
+});
+
+// ==================== Scenario: keystrokes route to clicked pane-group tab ====================
+
+describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll, ctx.hookTimeout);
+  beforeEach(ctx.beforeEach, ctx.hookTimeout);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Typing immediately after a pane-group tab click hits the clicked pane, not the previously-visible one', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Record the original (ALPHA) pane id. ALPHA is visible at this point.
+    const alphaId = await ctx.page.evaluate(() => {
+      return window.app?.getSnapshot()?.context?.activePaneId || null;
+    });
+    expect(alphaId).not.toBeNull();
+
+    // Leave a fingerprint marker in ALPHA so we can recognize it later.
+    await runCommand(ctx.page, 'echo ALPHA_HOME', 'ALPHA_HOME');
+
+    // Add to group — creates BETA and swaps it into the visible slot.
+    await clickPaneGroupAdd(ctx.page);
+    await waitForGroupTabs(ctx.page, 2);
+    await delay(DELAYS.SYNC);
+
+    const betaId = await ctx.page.evaluate(() => {
+      return window.app?.getSnapshot()?.context?.activePaneId || null;
+    });
+    expect(betaId).not.toBeNull();
+    expect(betaId).not.toBe(alphaId);
+
+    // Fingerprint marker for BETA so the two panes have distinct content.
+    await runCommand(ctx.page, 'echo BETA_HOME', 'BETA_HOME');
+
+    // Find ALPHA's (currently inactive) tab.
+    const tabs = await getGroupTabInfo(ctx.page);
+    const alphaTabIdx = tabs.findIndex((t) => !t.active);
+    expect(alphaTabIdx).toBeGreaterThanOrEqual(0);
+
+    // Click ALPHA's tab, then send keystrokes IMMEDIATELY — no re-click on
+    // the terminal, no settle delay. This is the user flow that surfaces
+    // the bug: tab click + impatient typing. typeInTerminal would mask the
+    // bug because it re-clicks the active pane's terminal element, which
+    // would re-route focus to whichever pane the UI currently considers
+    // active (BETA pre-fix, ALPHA post-fix).
+    const marker = `ALPHAKEY${Date.now()}`;
+    await ctx.page.evaluate((idx) => {
+      const tabEls = document.querySelectorAll('.pane-tabs .pane-tab');
+      if (tabEls[idx]) tabEls[idx].click();
+    }, alphaTabIdx);
+
+    // Fire keystrokes via the page-level keyboard so they go through the
+    // same `window.addEventListener('keydown')` path the keyboardActor uses.
+    // The keyboardActor's local `activePaneId` is what decides the -t target;
+    // pre-fix it would still be BETA's id and the marker would land in BETA.
+    for (const ch of marker) {
+      await ctx.page.keyboard.type(ch);
+    }
+    await ctx.page.keyboard.press('Enter');
+
+    // Wait for the marker to appear in the visible pane (ALPHA after the
+    // optimistic swap completes). If routing is broken, the marker lands
+    // in BETA and never shows up here — the wait times out and the
+    // expectation below fails, which is the regression we want to catch.
+    await waitForTerminalText(ctx.page, marker, 10000);
+
+    // The visible pane is ALPHA; assert ALPHA's fingerprint is also present
+    // so we're not just matching against any pane that happens to render.
+    const alphaDom = await ctx.page.evaluate(() => {
+      const log = document.querySelector('.pane-active [role="log"]');
+      return (log?.textContent || '').replace(/\s+/g, ' ');
+    });
+    expect(alphaDom).toContain('ALPHA_HOME');
+    expect(alphaDom).toContain(marker);
+
+    // Switch to BETA's tab and confirm its DOM does NOT contain the marker.
+    // Pre-fix, the marker would be in BETA (the previously-visible pane);
+    // post-fix it must stay confined to ALPHA.
+    const tabsAfter = await getGroupTabInfo(ctx.page);
+    const betaTabIdx = tabsAfter.findIndex((t) => !t.active);
+    expect(betaTabIdx).toBeGreaterThanOrEqual(0);
+    await ctx.page.evaluate((idx) => {
+      const tabEls = document.querySelectorAll('.pane-tabs .pane-tab');
+      if (tabEls[idx]) tabEls[idx].click();
+    }, betaTabIdx);
+
+    // Wait for BETA to be the visible pane via its fingerprint, then assert
+    // the marker isn't there. waitForCondition guards against the swap
+    // racing with the DOM read.
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const txt = await ctx.page.evaluate(() => {
+          const log = document.querySelector('.pane-active [role="log"]');
+          return (log?.textContent || '').replace(/\s+/g, ' ');
+        });
+        return txt.includes('BETA_HOME');
+      },
+      10000,
+      'BETA pane to become visible',
+    );
+
+    const betaDom = await ctx.page.evaluate(() => {
+      const log = document.querySelector('.pane-active [role="log"]');
+      return (log?.textContent || '').replace(/\s+/g, ' ');
+    });
+    expect(betaDom).toContain('BETA_HOME');
+    expect(betaDom).not.toContain(marker);
   });
 });

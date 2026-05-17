@@ -188,6 +188,24 @@ For operations where the user expects instant feedback (split, navigate, swap), 
 6. If the prediction matched: operation cleared, server state confirmed
 7. If mismatch: console warning, server state overwrites the prediction
 
+### Keystroke-routing contract
+
+Anything that changes the user's perceived "focused pane" MUST keep three pieces of state in lockstep, or keystrokes will land in the wrong pane during the brief window before tmux confirms the change:
+
+| State                          | Owner                | Why it matters                                                                 |
+|--------------------------------|----------------------|--------------------------------------------------------------------------------|
+| `context.activePaneId`         | appMachine           | Drives the UI focus indicator (PaneHeader tab highlight, pane border, etc.).   |
+| `activePaneId` (local)         | keyboardActor        | Used as the `-t` target for every `send-keys`, paste, and IME-commit command.  |
+| Server-side active pane        | tmux                 | Used by any prefix/root binding that omits `-t` (e.g., `split-window`).        |
+
+Rules an action that flips focus must follow:
+
+1. **Set `activePaneId` in context** — via `assign({ activePaneId: ... })`.
+2. **Push `UPDATE_ACTIVE_PANE` to the keyboard actor** — so the next keypress already targets the new pane. The keyboardActor stores `activePaneId` as a local variable (see `tmuxy-ui/src/machines/actors/keyboardActor.ts`) and only re-reads it on this event or on `TMUX_STATE_UPDATE`.
+3. **Don't trust tmux's active pane** — for the third case, prefix and root bindings are auto-pinned at dispatch time: keyboardActor prepends `select-pane -t <activePaneId> \;` to every binding command. New code should not bypass this.
+
+Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_TAB` (pane-group tab clicks) in `appMachine.ts`. Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these via `resolveTabNavTarget` / `resolvePaneGroupNavTarget` so they share the same optimism.
+
 ### React Integration
 
 Components consume the machine via hooks defined in `tmuxy-ui/src/machines/AppContext.tsx`:
