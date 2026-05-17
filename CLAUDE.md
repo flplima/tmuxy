@@ -177,3 +177,55 @@ Use [gitmoji](https://gitmoji.dev/) for commit messages:
 | ✅ | Tests |
 | 📝 | Documentation |
 | 🔧 | Configuration |
+| 🚀 | Version bump / release |
+
+## Release Workflow (Critical)
+
+The full ship sequence — from a green main commit all the way to a Homebrew-installable release. Each step must succeed before the next; never tag ahead of CI.
+
+### 1. Land the change on main
+Stage files explicitly (never `git add -A`), commit with a gitmoji prefix, push to `origin/main`. CI runs three workflows: `lint and tests`, `Build App`, `Deploy Demo`. The `Build App` workflow on a non-tag push builds and uploads artifacts but **skips** the `release` and `bump-cask` jobs — those are tag-gated.
+
+### 2. Wait for CI green on the change commit
+Poll with `gh run list --commit <SHA> --json name,status,conclusion`. All three must be `success` before proceeding. If `lint and tests` fails on something pre-existing (e.g., `cargo fmt --check` drift in a file you didn't touch), fix it as a separate commit per the "Testing & Bug Fixes" rule above.
+
+### 3. Bump the version
+The next version is the existing version with the alpha number incremented. Update **all** of these to keep the workspace consistent:
+
+- `Cargo.toml` (workspace.package.version)
+- `package.json` (root)
+- `packages/tmuxy-ui/package.json`
+- `packages/tmuxy-demo/package.json`
+- `packages/tauri-app/tauri.conf.json` (literal — Tauri 2 forbids templating; `packages/tauri-app/build.rs` auto-syncs from `Cargo.toml` at build time, but commit the synced value explicitly so the tag is reproducible without a build step)
+- `Cargo.lock` — regenerate with `cargo build -p tmuxy-server`
+
+Commit as `🚀 v<new-version>` with no body. Same 6 files as every prior version bump — check `git show v<previous-version> --stat` to confirm the pattern.
+
+**Heads-up:** stopping `tmuxy-dev` in pm2 first (`pm2 stop tmuxy-dev`) avoids transient `Permission denied` errors when `cargo build` races the dev-mode binary.
+
+### 4. Tag and push
+```
+git tag v<new-version> <commit-sha>
+git push origin main
+git push origin v<new-version>
+```
+Order matters: push main first so the tag's commit is on the remote when the tag arrives.
+
+### 5. Wait for tag-triggered Build App run
+Pushing the tag triggers a **second** `Build App` run (this one with `github.ref = refs/tags/v...`). This run executes `build` → `release` → `bump-cask`. Watch it with `gh run list --workflow build-app.yml --limit 5` — the new row has `head_branch = v<new-version>`.
+
+- The `release` job downloads the build artifacts and creates a GitHub Release with `tmuxy_<version>_amd64.AppImage`, `tmuxy_<version>_amd64.deb`, and `tmuxy_<version>_universal.dmg` attached.
+- The `bump-cask` job downloads the `.dmg`, computes sha256, and pushes an updated `Casks/tmuxy.rb` to `flplima/homebrew-tap`.
+
+**This run is what makes `brew install --cask flplima/tap/tmuxy` pick up the new version.** Until it finishes green, the brew cask still points at the previous tag.
+
+### 6. Verify brew is ready
+- `gh release view v<new-version>` should list 3 assets (`.AppImage`, `.deb`, `.dmg`).
+- The latest commit on `flplima/homebrew-tap` should be `chore: bump tmuxy to v<new-version>`.
+- A user running `brew update && brew upgrade --cask flplima/tap/tmuxy` should now get the new build.
+
+### Common failures
+- **Linux build hangs on `npm install`** — runner-side flake. Cancel the hung run (`gh run cancel <id>`) and re-run the workflow (`gh run rerun <id>` or push an empty commit on the tag — simpler is to delete + repush the tag, but that requires `--force` on the second push, so prefer rerun).
+- **`cargo fmt --check` fails on a pre-existing file** — run `cargo fmt -p <crate>`, commit the result as `🎨 cargo fmt <path>` before the version bump, and re-wait for CI.
+- **Tag-triggered run starts but `release` job is skipped** — the tag wasn't pushed (only the commit was). Confirm with `git ls-remote --tags origin`.
+- **`bump-cask` fails with "already at v..."** — benign; means a previous run already pushed the cask update. Brew is ready.
