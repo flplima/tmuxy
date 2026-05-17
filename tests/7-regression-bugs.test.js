@@ -858,3 +858,193 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
     expect(betaDom).not.toContain(marker);
   });
 });
+
+// ==================== Scenario: rapid pane-group tab switches don't blink ====================
+
+describe('Scenario: rapid pane-group tab switches do not blink previously-visible content', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll, ctx.hookTimeout);
+  beforeEach(ctx.beforeEach, ctx.hookTimeout);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('Clicking three pane-group tabs in rapid succession never flashes a non-target pane in the visible slot', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Build a 3-pane group with distinct content per pane so we can fingerprint
+    // which pane is in the visible window slot at every captured frame.
+    await runCommand(ctx.page, 'echo ALPHA_TAB', 'ALPHA_TAB');
+    const alphaId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId || null,
+    );
+    expect(alphaId).not.toBeNull();
+
+    await clickPaneGroupAdd(ctx.page);
+    await waitForGroupTabs(ctx.page, 2);
+    await delay(DELAYS.SYNC);
+    await runCommand(ctx.page, 'echo BETA_TAB', 'BETA_TAB');
+    const betaId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId || null,
+    );
+    expect(betaId).not.toBeNull();
+    expect(betaId).not.toBe(alphaId);
+
+    await clickPaneGroupAdd(ctx.page);
+    await waitForGroupTabs(ctx.page, 3);
+    await delay(DELAYS.SYNC);
+    await runCommand(ctx.page, 'echo GAMMA_TAB', 'GAMMA_TAB');
+    const gammaId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId || null,
+    );
+    expect(gammaId).not.toBeNull();
+    expect(gammaId).not.toBe(alphaId);
+    expect(gammaId).not.toBe(betaId);
+
+    // GAMMA is the visible peer right now (it was just added). Wire up the
+    // RAF + MutationObserver sampler BEFORE the rapid clicks so we can't
+    // miss any intermediate React commit. Sample what's in the .pane-active
+    // [role="log"] each frame for ~700 ms (longer than the 500 ms freeze).
+    await ctx.page.evaluate(
+      ({ alphaMark, betaMark, gammaMark }) => {
+        window.__rapidSwitchSamples = [];
+        window.__rapidSwitchMutations = [];
+        window.__rapidSwitchT0 = null;
+
+        function snapshotVisible() {
+          const items = document.querySelectorAll('.pane-layout-item');
+          const out = [];
+          for (const it of items) {
+            const log = it.querySelector('[role="log"]');
+            const txt = (log?.textContent || '').replace(/\s+/g, ' ');
+            const r = it.getBoundingClientRect();
+            out.push({
+              id: it.getAttribute('data-pane-id'),
+              w: Math.round(r.width),
+              h: Math.round(r.height),
+              hasAlpha: txt.includes(alphaMark),
+              hasBeta: txt.includes(betaMark),
+              hasGamma: txt.includes(gammaMark),
+            });
+          }
+          return out;
+        }
+        window.__snapshotVisible = snapshotVisible;
+
+        const observer = new MutationObserver(() => {
+          if (window.__rapidSwitchT0 === null) return;
+          const dt = Math.round(performance.now() - window.__rapidSwitchT0);
+          window.__rapidSwitchMutations.push({ dt, panes: snapshotVisible() });
+        });
+        const root = document.querySelector('.pane-layout') || document.body;
+        observer.observe(root, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true,
+        });
+        window.__rapidSwitchObserver = observer;
+
+        function sample() {
+          if (window.__rapidSwitchT0 === null) {
+            requestAnimationFrame(sample);
+            return;
+          }
+          const dt = Math.round(performance.now() - window.__rapidSwitchT0);
+          window.__rapidSwitchSamples.push({ dt, panes: snapshotVisible() });
+          if (dt < 700) requestAnimationFrame(sample);
+        }
+        requestAnimationFrame(sample);
+      },
+      { alphaMark: 'ALPHA_TAB', betaMark: 'BETA_TAB', gammaMark: 'GAMMA_TAB' },
+    );
+
+    // Rapid click sequence: GAMMA (visible) → ALPHA → BETA, in the same
+    // synchronous evaluate so every click lands within ~10 ms — well inside
+    // the 500 ms freeze window that hides nvim's mid-swap redraw flicker.
+    // Pre-fix, the previously-visible peer (GAMMA) would briefly flash back
+    // into the visible slot when the override from click#1 was replaced by
+    // click#2's override (which only protected BETA and ALPHA, not GAMMA).
+    const tabIndices = await ctx.page.evaluate(() => {
+      const tabs = document.querySelectorAll('.pane-tabs .pane-tab');
+      return Array.from(tabs).map((t) => ({
+        active: t.classList.contains('pane-tab-active') || t.classList.contains('pane-tab-selected'),
+      }));
+    });
+    // ALPHA is the first non-active tab; BETA is the second.
+    const inactiveIdxs = tabIndices
+      .map((t, i) => (t.active ? -1 : i))
+      .filter((i) => i >= 0);
+    expect(inactiveIdxs.length).toBeGreaterThanOrEqual(2);
+
+    await ctx.page.evaluate((idxs) => {
+      window.__rapidSwitchT0 = performance.now();
+      const tabs = document.querySelectorAll('.pane-tabs .pane-tab');
+      // Two rapid clicks, fully synchronous so the second lands inside the
+      // 500 ms freeze window opened by the first.
+      if (tabs[idxs[0]]) tabs[idxs[0]].click();
+      if (tabs[idxs[1]]) tabs[idxs[1]].click();
+    }, inactiveIdxs);
+
+    // Let watchers finish the ~700 ms sample window.
+    await delay(900);
+
+    const { samples, mutations } = await ctx.page.evaluate(() => ({
+      samples: window.__rapidSwitchSamples,
+      mutations: window.__rapidSwitchMutations,
+    }));
+
+    // Sanity: watchers fired.
+    expect(samples.length).toBeGreaterThan(3);
+    expect(mutations.length).toBeGreaterThan(0);
+
+    // Each captured frame must show AT MOST ONE pane in the visible window
+    // that contains a marker. Multiple markers in the visible slot at once
+    // indicates a render bug. Pre-fix, GAMMA's content could leak through
+    // when its protection got stripped by the replaced override.
+    const multiMarkerFrames = [...samples, ...mutations].filter((s) => {
+      const present = s.panes.filter(
+        (p) => (p.hasAlpha ? 1 : 0) + (p.hasBeta ? 1 : 0) + (p.hasGamma ? 1 : 0) > 0,
+      );
+      // count panes that have ANY marker — there should never be more than
+      // one such pane visible at once, since only one pane occupies the
+      // active window's group slot.
+      return present.length > 1;
+    });
+    if (multiMarkerFrames.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        'multi-marker frames:',
+        JSON.stringify(multiMarkerFrames.slice(0, 3), null, 2),
+      );
+    }
+    expect(multiMarkerFrames).toEqual([]);
+
+    // After the freeze settles, the visible pane MUST be the LAST clicked
+    // tab (BETA, the second click in the rapid sequence).
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const txt = await ctx.page.evaluate(() => {
+          const log = document.querySelector('.pane-active [role="log"]');
+          return (log?.textContent || '').replace(/\s+/g, ' ');
+        });
+        return txt.includes('BETA_TAB');
+      },
+      10000,
+      'BETA to be the final visible pane after rapid swap settles',
+    );
+
+    // Once BETA is visible and the freeze has cleared, NO further frame
+    // should leak ALPHA or GAMMA into the visible slot — the freeze union-
+    // pins every involved pane until each override expires, but post-settle
+    // the visible content must be stable.
+    await delay(200);
+    const stableTxt = await ctx.page.evaluate(() => {
+      const log = document.querySelector('.pane-active [role="log"]');
+      return (log?.textContent || '').replace(/\s+/g, ' ');
+    });
+    expect(stableTxt).toContain('BETA_TAB');
+  });
+});
+
