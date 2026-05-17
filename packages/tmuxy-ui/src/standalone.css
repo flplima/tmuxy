@@ -5,7 +5,7 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: var(--bg-black);
+  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
 }
 
 #root {
@@ -15,28 +15,18 @@ body {
   box-sizing: border-box;
 }
 
-/* Window opacity: terminal backgrounds use alpha from --window-opacity.
-   Set by Tauri from @tmuxy-opacity in tmuxy.conf. Default: 1.0 (fully opaque).
+/* Window opacity is composed into background colors via
+   rgba(var(--window-bg-rgb), var(--window-opacity)) throughout styles.css.
+   --window-opacity defaults to 1 (fully opaque); Tauri overrides it from
+   @tmuxy-opacity in tmuxy.conf to produce a translucent window. The active
+   pane gets its own bg with the same opacity, so it stacks an extra layer
+   on top of pane-container — visually emphasized when opacity < 1.
 
-   The selectors include .pane-layout-item and .terminal-container so the
-   "default" pane/terminal background (where no terminal cell has set its
-   own bg) inherits the opacity. Individual cells that DO set an explicit
-   background-color (e.g. the blue cell in `\033[44m text \033[0m`) render
-   that color inline at full alpha — no rule below targets `.terminal-line`
-   or per-cell elements, so their explicit bg stays fully opaque on top of
-   the transparent terminal-container. */
+   Per-cell terminal colors set inline by SGR codes (e.g. \033[44m) render
+   at full alpha, so explicit cell bg stays opaque on top of the
+   semi-transparent pane bg. */
 :root {
   --window-opacity: 1;
-}
-
-html[data-opacity] body,
-html[data-opacity] .pane-container,
-html[data-opacity] .pane-layout-item,
-html[data-opacity] .terminal-container,
-html[data-opacity] .loading,
-html[data-opacity] .error,
-html[data-opacity] .pane-scroll-container {
-  background-color: rgba(0, 0, 0, var(--window-opacity));
 }
 
 /* Vibrancy mode: fully transparent backgrounds so native glass effect shows through.
@@ -45,6 +35,7 @@ html[data-opacity] .pane-scroll-container {
 html[data-vibrancy] body,
 html[data-vibrancy] .pane-container,
 html[data-vibrancy] .pane-layout-item,
+html[data-vibrancy] .pane-layout-item.pane-active,
 html[data-vibrancy] .terminal-container,
 html[data-vibrancy] .loading,
 html[data-vibrancy] .error,

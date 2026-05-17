@@ -33,6 +33,10 @@
 
   /* Colors - Backgrounds */
   --bg-black: var(--term-black);
+  /* RGB triplet for the app/active-pane background. Composed with
+     --window-opacity (default 1) via rgba(). Themes override per palette;
+     default theme keeps full black. */
+  --window-bg-rgb: 0, 0, 0;
   --bg-dark: #1e1e1e;
   --bg-dark-alt: #252526;
   --bg-medium: #2d2d2d;
@@ -173,7 +177,7 @@
 }
 
 .pane-container {
-  background-color: var(--bg-black);
+  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
 }
 
 .pane-container.secondary-client {
@@ -190,7 +194,7 @@
   height: 100%;
   padding: 2rem;
   box-sizing: border-box;
-  background-color: var(--bg-black);
+  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
   color: var(--text-primary);
   font-family: var(--font-mono);
 }
@@ -291,7 +295,10 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: var(--term-background);
+  /* Transparent — pane-layout-item supplies the bg so opacity stacks
+     correctly (active pane gets its own layer on top of pane-container;
+     inactive panes show through to the container). */
+  background-color: transparent;
   user-select: none;
   position: relative;
 }
@@ -334,7 +341,7 @@
 }
 
 .pane-scroll-container {
-  background-color: var(--bg-black);
+  background-color: transparent;
 }
 
 .hide-scrollbar {
@@ -428,7 +435,11 @@
 
 .pane-layout-item {
   overflow: hidden;
-  background: var(--term-background);
+  /* Inactive panes carry no bg of their own — they show through to the
+     pane-container bg. Only .pane-active gets a bg, so the active pane
+     stacks an extra opacity layer on top of the container for emphasis
+     when --window-opacity < 1. */
+  background: transparent;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -463,6 +474,7 @@
 /* Active pane: same dark-gray tone as the inactive border, but fully opaque. */
 .pane-layout-item.pane-active {
   outline-color: var(--pane-active-border, var(--border-medium));
+  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
 }
 
 /* Copy mode: distinct bright-green outline so the mode is unmistakable. */
