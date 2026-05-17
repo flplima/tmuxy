@@ -30,8 +30,7 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   // already filtered out by the active-window guard since their swaps moved
   // them off-screen.
   const overrides = context.groupSwitchDimOverrides;
-  const dimOverride =
-    overrides.length > 0 ? overrides[overrides.length - 1] : null;
+  const dimOverride = overrides.length > 0 ? overrides[overrides.length - 1] : null;
   const applyDimOverride = dimOverride && Date.now() - dimOverride.timestamp < 500;
 
   // Single pass: filter to active window + apply active/dimOverride/drag transforms
