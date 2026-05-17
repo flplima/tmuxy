@@ -75,6 +75,7 @@ export {
   getActivePaneInGroup,
   getActiveIndexInGroup,
   selectVisiblePanes,
+  selectHiddenWindowPanes,
   selectPaneById,
   selectIsPaneInActiveWindow,
   selectIsSinglePane,

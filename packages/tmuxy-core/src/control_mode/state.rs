@@ -1154,11 +1154,23 @@ impl StateAggregator {
                 for (id, window) in self.windows.iter_mut() {
                     window.active = *id == window_id;
                 }
-                self.active_window_id = Some(window_id);
+                self.active_window_id = Some(window_id.clone());
                 self.status_line_dirty = true; // Active window changed - refresh status line
+
+                // Refresh capture for every pane in the newly active window so
+                // long-idle tabs don't show stale content after a switch. The
+                // monitor batches these into a single capture-pane round-trip.
+                let refresh: Vec<String> = self
+                    .panes
+                    .values()
+                    .filter(|p| p.window_id == window_id)
+                    .map(|p| p.id.clone())
+                    .collect();
+
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,
+                    panes_needing_refresh: refresh,
                     ..Default::default()
                 }
             }
