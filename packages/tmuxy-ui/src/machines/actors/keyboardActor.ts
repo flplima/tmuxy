@@ -368,9 +368,17 @@ export function createKeyboardActor() {
 
         const bindingCommand = prefixBindings.get(bindingKey);
         if (bindingCommand) {
-          // Send binding commands as-is — the control mode connection is already
-          // session-scoped, so all targets resolve correctly without a session prefix.
-          const command = bindingCommand;
+          // Prefix-pin to activePaneId. Most prefix bindings (e.g., `split-window`,
+          // `kill-pane`) have no `-t` target and run against tmux's server-side
+          // active pane — which can lag the user's perceived focus right after a
+          // window switch or pane-group swap. Prepending `select-pane -t <id>`
+          // aligns tmux's view with ours before the binding executes; for
+          // bindings that carry their own target (e.g., `select-pane -L`), the
+          // prepend is a harmless no-op since the binding overrides it.
+          const target = focusedFloatPaneId ?? activePaneId;
+          const command = target
+            ? `select-pane -t ${target} \\; ${bindingCommand}`
+            : bindingCommand;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command,
@@ -414,9 +422,14 @@ export function createKeyboardActor() {
 
       const rootCommand = rootBindings.get(formattedKey);
       if (rootCommand) {
+        // Same prefix-pin treatment as prefix bindings — root bindings (bind -n)
+        // also run against tmux's server-side active pane and need the
+        // post-tab-switch / post-group-swap race guarded the same way.
+        const target = focusedFloatPaneId ?? activePaneId;
+        const command = target ? `select-pane -t ${target} \\; ${rootCommand}` : rootCommand;
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
-          command: rootCommand,
+          command,
         });
 
         input.parent.send({

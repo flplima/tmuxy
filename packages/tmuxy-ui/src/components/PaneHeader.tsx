@@ -211,7 +211,7 @@ export function PaneHeader({
   const handleTabClick = (e: React.MouseEvent, clickedPaneId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    send({ type: 'TAB_CLICK', paneId: clickedPaneId });
+    send({ type: 'SELECT_PANE_GROUP_TAB', paneId: clickedPaneId });
   };
 
   const handleClosePane = (e: React.MouseEvent) => {

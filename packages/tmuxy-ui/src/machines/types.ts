@@ -368,7 +368,16 @@ export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 
 // Semantic pane events (components send intent, machine constructs commands)
 export type ClosePaneEvent = { type: 'CLOSE_PANE'; paneId: string };
-export type TabClickEvent = { type: 'TAB_CLICK'; paneId: string };
+/**
+ * Click on a pane-group tab (the tabs inside a `PaneHeader`, not the top
+ * window tabs — those use `SELECT_TAB`). Handler is optimistic in the same
+ * shape as `SELECT_TAB`: it flips `activePaneId`, swaps the clicked pane
+ * into the visible window slot locally, primes the group-switch dim override
+ * to suppress mid-swap nvim redraw flicker, and pushes `UPDATE_ACTIVE_PANE`
+ * to the keyboard actor so subsequent keystrokes target the clicked pane
+ * before tmux's `swap-pane` round-trips.
+ */
+export type SelectPaneGroupTabEvent = { type: 'SELECT_PANE_GROUP_TAB'; paneId: string };
 /**
  * Create a new tab/window. Single entry point for the "+" button, the
  * tab context-menu "New Tab" item, and the AppMenu "New Tab" item.
@@ -547,7 +556,7 @@ export type AppMachineEvent =
   | ClearLayoutTransitionSuppressionEvent
   | EnableAnimationsEvent
   | ClosePaneEvent
-  | TabClickEvent
+  | SelectPaneGroupTabEvent
   | CreateTabEvent
   | SelectTabEvent
   | ZoomPaneEvent
