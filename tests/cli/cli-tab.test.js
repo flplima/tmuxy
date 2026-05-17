@@ -22,25 +22,22 @@ describe('CLI tab subcommands', () => {
 
   describe('tab create', () => {
     test('creates tab (no name)', () => {
-      const { stdout, exitCode, tmuxCalls } = runCLI(['tab', 'create']);
+      const { exitCode, tmuxCalls } = runCLI(['tab', 'create']);
       expect(exitCode).toBe(0);
-      // split-window first, then break-pane
-      expect(tmuxCalls).toHaveLength(2);
-      expect(tmuxCalls[0].args[0]).toBe('split-window');
-      expect(tmuxCalls[0].args).toContain('-dP');
-      expect(tmuxCalls[1].args[0]).toBe('break-pane');
-      expect(tmuxCalls[1].args).toContain('-d');
-      // stdout should contain the new pane id
-      expect(stdout.trim()).toBe('%99');
+      // Routes through run-shell with a compound splitw+breakp command so
+      // it doesn't crash tmux 3.5a when control mode is attached.
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux splitw \\; breakp']);
     });
 
     test('creates tab with name', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'create', 'my-tab']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls).toHaveLength(2);
-      expect(tmuxCalls[1].args[0]).toBe('break-pane');
-      expect(tmuxCalls[1].args).toContain('-n');
-      expect(tmuxCalls[1].args).toContain('my-tab');
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux splitw \\; breakp -n 'my-tab'",
+      ]);
     });
   });
 

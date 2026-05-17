@@ -561,6 +561,14 @@ export const appMachine = setup({
         },
       ],
     },
+    // Single entry point for tab creation — re-raised as SEND_TMUX_COMMAND
+    // so the "+" button and tab menu items pick up the same optimistic
+    // prediction + reconciliation path that the prefix+c keybinding gets.
+    CREATE_TAB: {
+      actions: enqueueActions(({ enqueue }) => {
+        enqueue.raise({ type: 'SEND_TMUX_COMMAND', command: 'new-window' });
+      }),
+    },
     CLEAR_STATUS_MESSAGE: {
       actions: assign(({ context }) => {
         // Only clear if the message is old enough (prevents clearing a newer message)
@@ -957,6 +965,33 @@ export const appMachine = setup({
                     // early, the current optimistic context (placeholder + resized panes)
                     // stays intact, eliminating the add→remove→add divider bounce.
                     return;
+                  }
+                } else if (context.optimisticOperation.prediction.type === 'new-window') {
+                  if (result.matched) {
+                    // A real new window appeared in server state — clear optimistic
+                    // so the next assign() naturally drops the placeholder window.
+                    clearOptimistic = true;
+                  } else if (isOperationStale(context.optimisticOperation)) {
+                    // splitw+breakp never produced a new window within the stale
+                    // timeout. Drop the placeholder and surface the failure so the
+                    // user knows the click didn't take effect.
+                    clearOptimistic = true;
+                    enqueue(({ self }) => {
+                      self.send({
+                        type: 'SHOW_STATUS_MESSAGE',
+                        text: 'Failed to create tab',
+                      });
+                    });
+                  } else {
+                    // Not yet matched and not stale. Re-inject the placeholder into
+                    // transformed.windows so the tab stays visible while we wait —
+                    // other state updates (pane content, etc.) still apply normally.
+                    const placeholderId =
+                      context.optimisticOperation.prediction.placeholderWindowId;
+                    const existing = context.windows.find((w) => w.id === placeholderId);
+                    if (existing && !transformed.windows.some((w) => w.id === placeholderId)) {
+                      transformed.windows = [...transformed.windows, existing];
+                    }
                   }
                 } else {
                   clearOptimistic = true;
@@ -1367,7 +1402,12 @@ export const appMachine = setup({
           },
         ],
         TMUX_ERROR: {
-          actions: assign(({ event }) => ({ error: event.error })),
+          actions: enqueueActions(({ event, enqueue }) => {
+            enqueue(assign({ error: event.error }));
+            enqueue(({ self }) => {
+              self.send({ type: 'SHOW_STATUS_MESSAGE', text: event.error });
+            });
+          }),
         },
         TMUX_DISCONNECTED: {
           target: 'connecting',
@@ -2697,7 +2737,12 @@ export const appMachine = setup({
         },
         // Still handle errors and disconnects
         TMUX_ERROR: {
-          actions: assign(({ event }) => ({ error: event.error })),
+          actions: enqueueActions(({ event, enqueue }) => {
+            enqueue(assign({ error: event.error }));
+            enqueue(({ self }) => {
+              self.send({ type: 'SHOW_STATUS_MESSAGE', text: event.error });
+            });
+          }),
         },
         TMUX_DISCONNECTED: {
           target: 'connecting',

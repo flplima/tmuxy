@@ -535,6 +535,7 @@ function calculateNewWindowPrediction(
       type: 'new-window',
       placeholderWindowId: `__placeholder_${id}`,
       placeholderName: `Window ${maxIndex + 1}`,
+      priorWindowIds: windows.map((w) => w.id),
     },
   };
 }

@@ -160,20 +160,31 @@ function reconcileSwap(prediction: SwapPrediction, serverPanes: TmuxPane[]): Rec
 
 /**
  * Reconcile new window prediction.
- * Check if server state now has more windows than the placeholder count.
+ * Only match when server state contains a window ID that didn't exist when
+ * the prediction was created. Trivial "any windows exist" matching would
+ * clear the placeholder on the very next state tick even if splitw+breakp
+ * failed, masking errors.
  */
 function reconcileNewWindow(
-  _prediction: NewWindowPrediction,
+  prediction: NewWindowPrediction,
   serverWindows?: TmuxWindow[],
 ): ReconciliationResult {
-  // If server provided windows and we have at least one visible window,
-  // consider it reconciled. The placeholder will be replaced by server state.
-  if (serverWindows && serverWindows.length > 0) {
+  if (!serverWindows || serverWindows.length === 0) {
+    return {
+      matched: false,
+      mismatchReason: 'New window prediction: no windows in server state',
+    };
+  }
+  const prior = new Set(prediction.priorWindowIds);
+  const hasNewWindow = serverWindows.some(
+    (w) => !prior.has(w.id) && !w.id.startsWith('__placeholder_'),
+  );
+  if (hasNewWindow) {
     return { matched: true };
   }
   return {
     matched: false,
-    mismatchReason: 'New window prediction: no windows in server state',
+    mismatchReason: 'New window prediction: no new window id appeared yet',
   };
 }
 

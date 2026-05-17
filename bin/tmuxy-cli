@@ -24,7 +24,11 @@ fi
 
 # Run a mutating tmux command safely through run-shell
 run_safe() {
-  tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} $*"
+  if [ -n "${TMUX_SOCKET:-}" ]; then
+    tmux run-shell "tmux -L $TMUX_SOCKET $*"
+  else
+    tmux run-shell "tmux $*"
+  fi
 }
 
 # Find tmuxy-server binary: PATH first, then cargo target directory
@@ -451,15 +455,15 @@ cmd_tab() {
         --help|-h) echo "Usage: tmuxy tab create [name]"; return ;;
       esac
       local name="${1:-}"
-      # new-window crashes tmux 3.5a — use split-window + break-pane workaround
-      local new_pane
-      new_pane=$(tmux split-window -dP -F '#{pane_id}')
+      # new-window crashes tmux 3.5a — use splitw+breakp as a single tmux command
+      # list (separated by \;) so it runs atomically through run-shell. Direct
+      # external tmux invocations crash CC; this routes through run-shell safely.
       if [ -n "$name" ]; then
-        tmux break-pane -d -s "$new_pane" -n "$name"
+        local safe_name="${name//\'/\'\\\'\'}"
+        run_safe "splitw \\; breakp -n '$safe_name'"
       else
-        tmux break-pane -d -s "$new_pane"
+        run_safe "splitw \\; breakp"
       fi
-      echo "$new_pane"
       ;;
 
     kill)
