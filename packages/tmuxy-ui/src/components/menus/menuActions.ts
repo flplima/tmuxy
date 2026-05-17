@@ -71,7 +71,7 @@ export function executeMenuAction(send: Send, actionId: string): void {
 
     // Tab actions
     case 'tab-new':
-      send({ type: 'SEND_COMMAND', command: 'new-window' });
+      send({ type: 'CREATE_TAB' });
       break;
     case 'tab-next':
       send({ type: 'SEND_COMMAND', command: 'next-window' });

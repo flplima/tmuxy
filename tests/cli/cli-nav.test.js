@@ -32,52 +32,52 @@ describe('CLI nav subcommand', () => {
   });
 
   describe('direction dispatch', () => {
-    test('left dispatches run-shell with nav.sh left', () => {
+    test('left dispatches run-shell with nav left', () => {
       const { exitCode, tmuxCalls } = runCLI(['nav', 'left']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('nav.sh left');
+      expect(tmuxCalls[0].args[1]).toMatch(/\/nav' left\b/);
     });
 
-    test('right dispatches run-shell with nav.sh right', () => {
+    test('right dispatches run-shell with nav right', () => {
       const { exitCode, tmuxCalls } = runCLI(['nav', 'right']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('nav.sh right');
+      expect(tmuxCalls[0].args[1]).toMatch(/\/nav' right\b/);
     });
 
-    test('up dispatches run-shell with nav.sh up', () => {
+    test('up dispatches run-shell with nav up', () => {
       const { exitCode, tmuxCalls } = runCLI(['nav', 'up']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('nav.sh up');
+      expect(tmuxCalls[0].args[1]).toMatch(/\/nav' up\b/);
     });
 
-    test('down dispatches run-shell with nav.sh down', () => {
+    test('down dispatches run-shell with nav down', () => {
       const { exitCode, tmuxCalls } = runCLI(['nav', 'down']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('nav.sh down');
+      expect(tmuxCalls[0].args[1]).toMatch(/\/nav' down\b/);
     });
 
-    test('next dispatches run-shell with nav.sh next', () => {
+    test('next dispatches run-shell with nav next', () => {
       const { exitCode, tmuxCalls } = runCLI(['nav', 'next']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('nav.sh next');
+      expect(tmuxCalls[0].args[1]).toMatch(/\/nav' next\b/);
     });
 
-    test('prev dispatches run-shell with nav.sh prev', () => {
+    test('prev dispatches run-shell with nav prev', () => {
       const { exitCode, tmuxCalls } = runCLI(['nav', 'prev']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain('nav.sh prev');
+      expect(tmuxCalls[0].args[1]).toMatch(/\/nav' prev\b/);
     });
   });
 

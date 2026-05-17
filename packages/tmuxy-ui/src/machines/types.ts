@@ -369,6 +369,13 @@ export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 // Semantic pane events (components send intent, machine constructs commands)
 export type ClosePaneEvent = { type: 'CLOSE_PANE'; paneId: string };
 export type TabClickEvent = { type: 'TAB_CLICK'; paneId: string };
+/**
+ * Create a new tab/window. Single entry point for the "+" button, the
+ * tab context-menu "New Tab" item, and the AppMenu "New Tab" item.
+ * Applies the same optimistic-prediction path that prefix+c gets so the
+ * placeholder tab appears instantly and reconciliation surfaces failures.
+ */
+export type CreateTabEvent = { type: 'CREATE_TAB' };
 export type ZoomPaneEvent = { type: 'ZOOM_PANE'; paneId: string };
 export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: string };
 export type CloseTopFloatEvent = { type: 'CLOSE_TOP_FLOAT' };
@@ -541,6 +548,7 @@ export type AppMachineEvent =
   | EnableAnimationsEvent
   | ClosePaneEvent
   | TabClickEvent
+  | CreateTabEvent
   | SelectTabEvent
   | ZoomPaneEvent
   | CloseFloatEvent
@@ -630,6 +638,9 @@ export interface NewWindowPrediction {
   type: 'new-window';
   placeholderWindowId: string;
   placeholderName: string;
+  /** Window IDs that existed when the prediction fired. Reconciliation
+   *  only matches when server state contains an ID not in this set. */
+  priorWindowIds: string[];
 }
 
 export interface SelectWindowPrediction {

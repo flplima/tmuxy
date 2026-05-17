@@ -63,7 +63,7 @@ export function WindowTabs() {
   );
 
   const handleNewWindow = useCallback(() => {
-    send({ type: 'SEND_COMMAND', command: 'new-window' });
+    send({ type: 'CREATE_TAB' });
   }, [send]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, windowIndex: number) => {
