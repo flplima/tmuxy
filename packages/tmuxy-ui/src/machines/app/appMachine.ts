@@ -1211,9 +1211,7 @@ export const appMachine = setup({
                   return p?.windowId === context.activeWindowId;
                 });
                 if (newVisibleId && prevVisibleId && newVisibleId !== prevVisibleId) {
-                  const alreadyPinned = groupSwitchOverrides.some(
-                    (o) => o.paneId === newVisibleId,
-                  );
+                  const alreadyPinned = groupSwitchOverrides.some((o) => o.paneId === newVisibleId);
                   if (alreadyPinned) break;
                   const newVisible = transformed.panes.find((p) => p.tmuxId === newVisibleId);
                   if (newVisible) {
@@ -1418,8 +1416,7 @@ export const appMachine = setup({
               // ADDED a brand new entry (i.e. a CLI-initiated swap we hadn't
               // already pinned from a click). Click-initiated swaps schedule
               // their own refresh in the SELECT_PANE_GROUP_TAB handler.
-              const reactivelyAddedNewEntry =
-                groupSwitchOverrides.length > prunedOverrides.length;
+              const reactivelyAddedNewEntry = groupSwitchOverrides.length > prunedOverrides.length;
               if (reactivelyAddedNewEntry) {
                 const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
                 enqueue(({ self }) => {
