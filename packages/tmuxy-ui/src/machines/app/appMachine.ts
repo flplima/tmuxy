@@ -303,6 +303,18 @@ function resolvePaneGroupNavTarget(
   return { paneId: target };
 }
 
+/**
+ * Strip the `select-pane -t <id> \;` head that keyboardActor prepends to every
+ * prefix/root binding (so tmux's server-side active pane aligns with the user's
+ * focus before a `-t`-less binding runs). Returned form is what the client-side
+ * intercepts and parsers expect; the original (with prefix) is what we forward
+ * to tmux so the alignment actually happens for tmux-bound commands.
+ */
+function stripActivePanePrefix(command: string): string {
+  const m = command.match(/^select-pane\s+-t\s+\S+\s+\\;\s+/);
+  return m ? command.slice(m[0].length) : command;
+}
+
 /** Status message auto-clear delay in milliseconds */
 const STATUS_MESSAGE_DURATION = 5000;
 
@@ -1486,8 +1498,14 @@ export const appMachine = setup({
             // Resolve relative window targets (see resolveWindowTarget docs)
             command = resolveWindowTarget(command, context.activeWindowId);
 
+            // Match intercepts against the binding tail (keyboardActor prepends
+            // `select-pane -t <id> \;` to every prefix/root binding). Keep
+            // forwarding the original `command` so tmux still sees the
+            // alignment prefix for commands that aren't intercepted.
+            let tail = stripActivePanePrefix(command);
+
             // Intercept copy-mode — activate client-side copy mode
-            if (command.match(/^copy-mode\b/)) {
+            if (tail.match(/^copy-mode\b/)) {
               const paneId = context.activePaneId;
               if (paneId) {
                 enqueue.raise({ type: 'ENTER_COPY_MODE', paneId });
@@ -1496,8 +1514,8 @@ export const appMachine = setup({
             }
 
             // Intercept command-prompt — enter client-side command mode
-            if (command.match(/^command-prompt\b/)) {
-              const parsed = parseCommandPrompt(command, context);
+            if (tail.match(/^command-prompt\b/)) {
+              const parsed = parseCommandPrompt(tail, context);
               enqueue(
                 assign({
                   commandMode: {
@@ -1511,8 +1529,8 @@ export const appMachine = setup({
             }
 
             // Intercept display-message (without -p) — show in status bar
-            if (command.match(/^display-message\b/)) {
-              const msg = parseDisplayMessage(command);
+            if (tail.match(/^display-message\b/)) {
+              const msg = parseDisplayMessage(tail);
               if (msg !== null) {
                 enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
                 enqueue(({ self }) => {
@@ -1527,7 +1545,7 @@ export const appMachine = setup({
             // Intercept select-window -t <N> from Ctrl+number keybindings.
             // Remap the visual tab index to the actual tmux window index,
             // since pane group windows consume intermediate indices.
-            const selectWindowMatch = command.match(/^select-window\s+-t\s+(\d+)$/);
+            const selectWindowMatch = tail.match(/^select-window\s+-t\s+(\d+)$/);
             if (selectWindowMatch) {
               const targetIndex = parseInt(selectWindowMatch[1], 10);
               const visibleWindows = context.windows.filter(
@@ -1535,14 +1553,15 @@ export const appMachine = setup({
               );
               const targetWindow = visibleWindows.find((_, i) => i + 1 === targetIndex);
               if (targetWindow) {
-                command = `select-window -t ${targetWindow.index}`;
+                tail = `select-window -t ${targetWindow.index}`;
+                command = tail;
               }
             }
 
             // Route tab-nav commands (select-window / next-window / previous-window)
             // through SELECT_TAB so they share the optimistic flip and
             // lastActivePaneByWindow bookkeeping with UI clicks.
-            const tabNavTarget = resolveTabNavTarget(command, context);
+            const tabNavTarget = resolveTabNavTarget(tail, context);
             if (tabNavTarget) {
               enqueue.raise({
                 type: 'SELECT_TAB',
@@ -1555,7 +1574,7 @@ export const appMachine = setup({
             // Same routing for pane-group nav (prev/next): share the
             // optimistic swap + keyboard re-target path with TAB clicks so
             // `<prefix> -` and friends don't lag the visible state.
-            const groupNavTarget = resolvePaneGroupNavTarget(command, context);
+            const groupNavTarget = resolvePaneGroupNavTarget(tail, context);
             if (groupNavTarget) {
               enqueue.raise({
                 type: 'SELECT_PANE_GROUP_TAB',
@@ -1568,8 +1587,10 @@ export const appMachine = setup({
             // The drag machine already handles swaps optimistically
             const isDragging = context.drag !== null;
 
-            // Try to parse and calculate optimistic prediction
-            const parsed = parseCommand(command);
+            // Optimistic predictor parses single tmux commands; feed it the
+            // binding tail so split-window etc. are recognized through the
+            // select-pane prefix-pin.
+            const parsed = parseCommand(tail);
             const prediction = parsed
               ? calculatePrediction(
                   parsed,
@@ -1658,7 +1679,7 @@ export const appMachine = setup({
             }
 
             // Track layout commands to suppress transient active pane changes
-            if (/^(next-layout|previous-layout|select-layout|selectl)\b/.test(command)) {
+            if (/^(next-layout|previous-layout|select-layout|selectl)\b/.test(tail)) {
               enqueue(assign({ lastLayoutCommandTime: Date.now() }));
             }
 
@@ -1842,9 +1863,14 @@ export const appMachine = setup({
         SEND_COMMAND: {
           actions: enqueueActions(({ event, context, enqueue }) => {
             const command = resolveWindowTarget(event.command, context.activeWindowId);
+            // Match intercepts against the tail after the prefix-pin so
+            // bindings like `<prefix> [` (rewritten to
+            // `select-pane -t %X \; copy-mode`) still hit the client-side
+            // copy-mode path. Forwarding to tmux keeps the original.
+            const tail = stripActivePanePrefix(command);
 
             // Intercept copy-mode — activate client-side copy mode
-            if (command.match(/^copy-mode\b/)) {
+            if (tail.match(/^copy-mode\b/)) {
               const paneId = context.activePaneId;
               if (paneId) {
                 enqueue.raise({ type: 'ENTER_COPY_MODE', paneId });
@@ -1853,8 +1879,8 @@ export const appMachine = setup({
             }
 
             // Intercept command-prompt — enter client-side command mode
-            if (command.match(/^command-prompt\b/)) {
-              const parsed = parseCommandPrompt(command, context);
+            if (tail.match(/^command-prompt\b/)) {
+              const parsed = parseCommandPrompt(tail, context);
               enqueue(
                 assign({
                   commandMode: {
@@ -1868,8 +1894,8 @@ export const appMachine = setup({
             }
 
             // Intercept display-message (without -p) — show in status bar
-            if (command.match(/^display-message\b/)) {
-              const msg = parseDisplayMessage(command);
+            if (tail.match(/^display-message\b/)) {
+              const msg = parseDisplayMessage(tail);
               if (msg !== null) {
                 enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
                 enqueue(({ self }) => {
@@ -1885,7 +1911,7 @@ export const appMachine = setup({
             // `next-window`/`previous-window`/`last-window`/`select-window` via
             // SEND_COMMAND; we want the same optimistic flip + pane bookkeeping
             // as window-tab clicks get.
-            const tabNavTarget = resolveTabNavTarget(command, context);
+            const tabNavTarget = resolveTabNavTarget(tail, context);
             if (tabNavTarget) {
               enqueue.raise({
                 type: 'SELECT_TAB',
@@ -1897,7 +1923,7 @@ export const appMachine = setup({
 
             // Same treatment for pane-group nav (prev/next) — share the
             // optimistic swap + keyboard re-target path that tab clicks get.
-            const groupNavTarget = resolvePaneGroupNavTarget(command, context);
+            const groupNavTarget = resolvePaneGroupNavTarget(tail, context);
             if (groupNavTarget) {
               enqueue.raise({
                 type: 'SELECT_PANE_GROUP_TAB',
