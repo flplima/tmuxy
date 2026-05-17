@@ -25,7 +25,13 @@ import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/
 function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   const { panes, resize, drag, charWidth, charHeight, activeWindowId, activePaneId } = context;
 
-  const dimOverride = context.groupSwitchDimOverride;
+  // Use the latest non-expired entry — only the most recent swap's target
+  // needs the dim-override coordinates applied; previous-click targets are
+  // already filtered out by the active-window guard since their swaps moved
+  // them off-screen.
+  const overrides = context.groupSwitchDimOverrides;
+  const dimOverride =
+    overrides.length > 0 ? overrides[overrides.length - 1] : null;
   const applyDimOverride = dimOverride && Date.now() - dimOverride.timestamp < 500;
 
   // Single pass: filter to active window + apply active/dimOverride/drag transforms
@@ -132,7 +138,7 @@ export const selectPreviewPanes = createMemoizedSelector(
     charHeight: ctx.charHeight,
     activeWindowId: ctx.activeWindowId,
     activePaneId: ctx.activePaneId,
-    groupSwitchDimOverride: ctx.groupSwitchDimOverride,
+    groupSwitchDimOverrides: ctx.groupSwitchDimOverrides,
   }),
   selectPreviewPanesUncached,
 );
@@ -551,7 +557,7 @@ const selectPreviewPaneMap = createMemoizedSelector(
     charHeight: ctx.charHeight,
     activeWindowId: ctx.activeWindowId,
     activePaneId: ctx.activePaneId,
-    groupSwitchDimOverride: ctx.groupSwitchDimOverride,
+    groupSwitchDimOverrides: ctx.groupSwitchDimOverrides,
   }),
   (context: AppMachineContext): Map<string, TmuxPane> => {
     const previewPanes = selectPreviewPanes(context);
@@ -600,16 +606,20 @@ export function selectIsSinglePane(context: AppMachineContext): boolean {
 // ============================================
 
 /**
- * Get pane IDs involved in a recent group switch.
- * Used to disable CSS transitions on affected panes to prevent height clipping.
- * Override is cleared by CLEAR_GROUP_SWITCH_OVERRIDE event (fired 750ms after switch).
+ * Pane IDs touched by a non-expired group swap — disables CSS transitions
+ * on those panes so they don't animate height/width during the freeze.
+ * Returns the union across every in-flight override; rapid clicks pile
+ * entries up and each click's involved panes need transition suppression.
  */
-export function selectGroupSwitchPaneIds(
-  context: AppMachineContext,
-): { paneId: string; fromPaneId: string } | null {
-  const override = context.groupSwitchDimOverride;
-  if (!override) return null;
-  return { paneId: override.paneId, fromPaneId: override.fromPaneId };
+export function selectGroupSwitchPaneIds(context: AppMachineContext): Set<string> | null {
+  const overrides = context.groupSwitchDimOverrides;
+  if (overrides.length === 0) return null;
+  const ids = new Set<string>();
+  for (const o of overrides) {
+    ids.add(o.paneId);
+    ids.add(o.fromPaneId);
+  }
+  return ids;
 }
 
 // ============================================

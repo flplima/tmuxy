@@ -235,9 +235,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         const isDraggedPane = pane.tmuxId === draggedPaneId;
         const baseStyle = getPaneStyle(pane);
 
-        const isGroupSwitchPane =
-          groupSwitchPanes &&
-          (pane.tmuxId === groupSwitchPanes.paneId || pane.tmuxId === groupSwitchPanes.fromPaneId);
+        const isGroupSwitchPane = groupSwitchPanes?.has(pane.tmuxId) ?? false;
         const style = isGroupSwitchPane ? { ...baseStyle, transition: 'none' } : baseStyle;
 
         const shouldFollowCursor = isDraggedPane && isDragging;
