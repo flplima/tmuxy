@@ -11,9 +11,8 @@ fn main() {
 // bump and Tauri produces artifacts named after the stale version, breaking the
 // Homebrew cask URL (which is templated from the tag).
 fn sync_tauri_conf_version() {
-    let manifest_dir = PathBuf::from(
-        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"),
-    );
+    let manifest_dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
     let workspace_toml = manifest_dir.join("../../Cargo.toml");
     let tauri_conf = manifest_dir.join("tauri.conf.json");
 
@@ -23,7 +22,10 @@ fn sync_tauri_conf_version() {
     let toml = fs::read_to_string(&workspace_toml)
         .unwrap_or_else(|e| panic!("read {}: {}", workspace_toml.display(), e));
     let version = extract_workspace_version(&toml).unwrap_or_else(|| {
-        panic!("no [workspace.package].version in {}", workspace_toml.display())
+        panic!(
+            "no [workspace.package].version in {}",
+            workspace_toml.display()
+        )
     });
 
     let conf = fs::read_to_string(&tauri_conf)
@@ -32,7 +34,10 @@ fn sync_tauri_conf_version() {
     if updated != conf {
         fs::write(&tauri_conf, updated)
             .unwrap_or_else(|e| panic!("write {}: {}", tauri_conf.display(), e));
-        println!("cargo:warning=synced tauri.conf.json version to {}", version);
+        println!(
+            "cargo:warning=synced tauri.conf.json version to {}",
+            version
+        );
     }
 }
 
@@ -69,7 +74,10 @@ fn replace_json_version(json: &str, version: &str) -> String {
     for line in json.split_inclusive('\n') {
         if !done && line.trim_start().starts_with("\"version\"") {
             let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-            let has_comma = line.trim_end_matches(['\n', '\r']).trim_end().ends_with(',');
+            let has_comma = line
+                .trim_end_matches(['\n', '\r'])
+                .trim_end()
+                .ends_with(',');
             let line_ending = if line.ends_with("\r\n") {
                 "\r\n"
             } else if line.ends_with('\n') {
