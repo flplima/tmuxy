@@ -11,6 +11,7 @@ import { useRef, useLayoutEffect, useMemo } from 'react';
 import { Cursor } from './Cursor';
 import { useAppSelector, selectCharSize } from '../machines/AppContext';
 import { renderLineToDOM } from './terminalRendering';
+import { isRowLoaded } from '../utils/copyMode';
 import type { CopyModeState, CellLine } from '../tmux/types';
 
 interface ScrollbackTerminalProps {
@@ -18,6 +19,38 @@ interface ScrollbackTerminalProps {
 }
 
 const EMPTY_LINE: CellLine = [];
+
+// Dim "loading" placeholder for rows that exist in `totalLines` but haven't
+// been fetched yet. Distinguishing this from a genuinely blank scrollback row
+// (`EMPTY_LINE`) is critical — without it, a slow or failed
+// FETCH_SCROLLBACK_CELLS makes the entire history look empty, which is the
+// reported symptom of "scrolling up shows only what was already visible".
+const PLACEHOLDER_LINE: CellLine = [
+  { c: '·', s: { dim: true } },
+  { c: ' ' },
+  { c: '·', s: { dim: true } },
+  { c: ' ' },
+  { c: '·', s: { dim: true } },
+];
+
+/**
+ * Pick the line to render for a row. A row is one of three things:
+ *   1. Loaded with content     → render `lines.get(row)`
+ *   2. Loaded but blank        → render `EMPTY_LINE`
+ *   3. Not yet loaded (in flight or queued) → render `PLACEHOLDER_LINE`
+ * The third case used to render as case 2, indistinguishable from a real
+ * blank line; users assumed there was no scrollback when in fact a fetch
+ * was still pending. `isRowLoaded` checks the `loadedRanges` intervals.
+ */
+function lineFor(
+  row: number,
+  lines: Map<number, CellLine>,
+  loadedRanges: Array<[number, number]>,
+): CellLine {
+  const existing = lines.get(row);
+  if (existing) return existing;
+  return isRowLoaded(loadedRanges, row) ? EMPTY_LINE : PLACEHOLDER_LINE;
+}
 
 /**
  * Compute per-line selection ranges from copy mode state
@@ -71,7 +104,7 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
     }>
   >([]);
 
-  const { totalLines, scrollTop, height, cursorRow, cursorCol, lines } = copyState;
+  const { totalLines, scrollTop, height, cursorRow, cursorCol, lines, loadedRanges } = copyState;
 
   const getSelectionRange = useMemo(
     () => computeScrollbackSelection(copyState),
@@ -109,7 +142,7 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
         const div = document.createElement('div');
         div.className = 'terminal-line';
         const row = visibleStart + i;
-        const line = lines.get(row) ?? EMPTY_LINE;
+        const line = lineFor(row, lines, loadedRanges);
         const selRange = getSelectionRange(row);
         renderLineToDOM(div, line, selRange);
         pre.appendChild(div);
@@ -122,7 +155,7 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
       // before.
       for (let i = 0; i < visibleCount; i++) {
         const row = visibleStart + i;
-        const line = lines.get(row) ?? EMPTY_LINE;
+        const line = lineFor(row, lines, loadedRanges);
         const selRange = getSelectionRange(row);
         const prev = prevArr[i];
 
@@ -144,7 +177,7 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
       }
     }
     prevLinesRef.current = newPrevArr;
-  }, [visibleStart, visibleCount, lines, getSelectionRange]);
+  }, [visibleStart, visibleCount, lines, loadedRanges, getSelectionRange]);
 
   // Cursor character
   const cursorChar = useMemo(() => {
