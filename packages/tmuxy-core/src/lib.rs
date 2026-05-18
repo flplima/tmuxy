@@ -707,7 +707,11 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
             alternate_on: false,
             mouse_any_flag: false,
             paused: false,
-            history_size: 0, // not available in polling mode
+            // Sourced from `#{history_size}` so a fresh connect's initial state
+            // reflects real scrollback even before the first control-mode delta
+            // lands — copy mode entered immediately after page load now asks
+            // for the correct FETCH_SCROLLBACK_CELLS range instead of `start: -0`.
+            history_size: info.history_size,
             selection_present: false,
             selection_start_x: 0,
             selection_start_y: 0,
