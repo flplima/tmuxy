@@ -260,9 +260,15 @@ function resolveTabNavTarget(
  * the resolved target is already the visible pane (so the optimistic flip
  * can no-op cleanly).
  *
- * Matches both the command-alias form (`tmuxy-pane-group-prev/next`) and the
- * expanded `run-shell` form. `pane-group-switch` is deliberately NOT matched
- * — that's what `SELECT_PANE_GROUP_TAB` itself emits and would recurse.
+ * Matches the command-alias form (`tmuxy-pane-group-prev/next`,
+ * `tmuxy-nav-left/right`) and the expanded `run-shell` form for both. The
+ * `nav` script does double duty — for panes inside a group, left/right step
+ * through the group circularly; for other panes it falls back to tmux's
+ * `select-pane -L/-R`. We only short-circuit when the active pane is in a
+ * group, otherwise we let the binding flow to tmux unchanged.
+ *
+ * `pane-group-switch` is deliberately NOT matched — that's what
+ * `SELECT_PANE_GROUP_TAB` itself emits and would recurse.
  */
 function resolvePaneGroupNavTarget(
   command: string,
@@ -274,6 +280,12 @@ function resolvePaneGroupNavTarget(
   if (trimmed.match(/^tmuxy-pane-group-prev\b/) || trimmed.includes('/pane-group-prev')) {
     direction = 'prev';
   } else if (trimmed.match(/^tmuxy-pane-group-next\b/) || trimmed.includes('/pane-group-next')) {
+    direction = 'next';
+  } else if (trimmed.match(/^tmuxy-nav-left\b/) || trimmed.match(/\/nav\s+left\b/)) {
+    // Ctrl+H / Ctrl+Left — when the active pane is in a group, step left in
+    // the group instead of letting the nav script run-shell out to swap-pane.
+    direction = 'prev';
+  } else if (trimmed.match(/^tmuxy-nav-right\b/) || trimmed.match(/\/nav\s+right\b/)) {
     direction = 'next';
   }
   if (!direction) return null;

@@ -21,6 +21,12 @@ pub struct PaneInfo {
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
     pub window_id: String, // window this pane belongs to (e.g., "@0")
+    /// Number of history (scrollback) lines for this pane. Sourced from
+    /// `#{history_size}`. Must be populated in polling mode so the frontend
+    /// can request the correct FETCH_SCROLLBACK_CELLS range on first connect
+    /// — before control-mode list-panes deltas update the field — otherwise
+    /// copy mode entered immediately after page load can't see scrollback.
+    pub history_size: u64,
 }
 
 /// Information about a tmux window
@@ -277,28 +283,43 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<(), Str
 
 /// Get information about all panes in all windows of the session
 pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
-    // Use comma delimiter (matching control mode state.rs parser)
-    // Fields: pane_id, pane_index, pane_left, pane_top, pane_width, pane_height, cursor_x, cursor_y, pane_active, pane_current_command, pane_title, pane_in_mode, copy_cursor_x, copy_cursor_y, window_id, border_title
+    // Use comma delimiter (matching control mode state.rs parser).
+    // Fields: pane_id, pane_index, pane_left, pane_top, pane_width, pane_height,
+    //         cursor_x, cursor_y, pane_active, pane_current_command, pane_title,
+    //         pane_in_mode, copy_cursor_x, copy_cursor_y, window_id, history_size,
+    //         border_title
+    //
+    // `history_size` is placed BEFORE `border_title`. The pane title is the only
+    // field that can legitimately contain commas (set by the shell / app), so we
+    // anchor everything else by position and let the title soak up any remaining
+    // commas at the end. Putting `history_size` after the title would mean
+    // titles-with-commas could push it out of its expected slot.
     let output = execute_tmux_command(&[
         "list-panes",
         "-s",  // List all panes in all windows of the session (not just active window)
         "-t",
         session_name,
         "-F",
-        "#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id},#{T:pane-border-format}",
+        "#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id},#{history_size},#{T:pane-border-format}",
     ])?;
 
     let mut panes = Vec::new();
 
     for line in output.lines() {
         let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 14 {
+        if parts.len() < 16 {
             continue;
         }
 
-        // Parse optional fields from the end
-        let window_id = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
-        let border_title = parts.get(15).map(|s| s.to_string()).unwrap_or_default();
+        let window_id = parts[14].to_string();
+        let history_size: u64 = parts[15].parse().unwrap_or(0);
+        // Border title may itself contain commas (it's evaluated from a
+        // user-controlled tmux format), so re-join anything past index 15.
+        let border_title = if parts.len() > 16 {
+            parts[16..].join(",")
+        } else {
+            String::new()
+        };
 
         let pane = PaneInfo {
             id: parts[0].to_string(),
@@ -317,6 +338,7 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>, String> {
             copy_cursor_x: parts[12].parse().unwrap_or(0),
             copy_cursor_y: parts[13].parse().unwrap_or(0),
             window_id,
+            history_size,
         };
 
         panes.push(pane);
