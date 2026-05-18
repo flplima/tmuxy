@@ -1270,11 +1270,19 @@ export const appMachine = setup({
                     scrollTop: Math.max(0, tl - newPane.height),
                   };
                   updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: copyState };
+                  // Match the user-initiated ENTER_COPY_MODE fetch range —
+                  // request the entire live history (capped by tmux's actual
+                  // backlog), not a fixed `height + 200` slab. The narrower
+                  // request silently truncated scrollback for any pane that
+                  // entered copy mode without going through the frontend's
+                  // intercept (CLI `tmuxy run copy-mode`, custom `run-shell`
+                  // bindings, anything that flipped `in_mode` server-side),
+                  // making scrollback above ~200 lines invisible on scroll.
                   enqueue(
                     sendTo('tmux', {
                       type: 'FETCH_SCROLLBACK_CELLS' as const,
                       paneId: newPane.tmuxId,
-                      start: -(newPane.height + 200),
+                      start: -hs,
                       end: newPane.height - 1,
                     }),
                   );
@@ -2626,7 +2634,16 @@ export const appMachine = setup({
               }),
             );
 
-            // Check if we need to load more content
+            // Check if we need to load more content. Don't gate on
+            // `existing.loading`: the initial entry fetch is a single big
+            // request for the entire history, and during the seconds it
+            // takes for that response to arrive a fast wheel-scroll into
+            // unloaded rows left the user staring at empty space until
+            // the big fetch finally landed. Letting scroll-induced fetches
+            // race alongside the initial one means a smaller viewport-
+            // sized chunk lands much faster and fills the user's actual
+            // view. Duplicate-range responses are idempotent at the merge
+            // layer (Map.set on the same absolute row is a no-op).
             const needed = getNeededChunk(
               scrollTop,
               existing.height,
@@ -2634,7 +2651,7 @@ export const appMachine = setup({
               existing.historySize,
               existing.totalLines,
             );
-            if (needed && !existing.loading) {
+            if (needed) {
               enqueue(
                 assign({
                   copyModeStates: {

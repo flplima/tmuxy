@@ -422,6 +422,82 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     // viewport after wheel-scrolling to row 0.
     expect(renderedText).not.toContain('WHEELMARK_200');
   });
+
+  // Reactive (server-initiated) copy-mode entry — e.g. a CLI
+  // `tmuxy run copy-mode -t %X` or any custom binding that flips tmux's
+  // `in_mode` without going through the frontend's SEND_TMUX_COMMAND
+  // intercept — used to fetch only `height + 200` history lines. Anything
+  // older than that 200-line slab was invisible on scroll. Fix 1 unifies
+  // this path with the user-initiated one (full live history).
+  test('Copy mode entered server-side fetches the entire history, not a 200-line slab', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Generate ~500 lines — well past the old `height + 200` cap so the
+    // pre-Fix-1 behavior would silently truncate the top ~270 lines.
+    await runCommand(
+      ctx.page,
+      'for i in $(seq -w 1 500); do echo "REACTIVE_$i"; done',
+      'REACTIVE_500',
+    );
+    await delay(DELAYS.SYNC);
+
+    const paneId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId || null,
+    );
+    expect(paneId).not.toBeNull();
+
+    // Enter copy mode WITHOUT going through the frontend keybinding path
+    // so the reactive detector in TMUX_STATE_UPDATE is what creates the
+    // copyModeStates entry and fires the scrollback fetch. `runCommand` on
+    // the test session routes `copy-mode` through `tmuxy run` (run-shell)
+    // because it isn't in the safe-externally read-only list.
+    ctx.session.runCommand(`copy-mode -t ${paneId}`);
+
+    // Wait for client copy mode + full scrollback coverage.
+    await ctx.page.waitForFunction(
+      (id) => {
+        const snap = window.app?.getSnapshot();
+        const cs = snap?.context?.copyModeStates?.[id];
+        if (!cs) return false;
+        if (cs.historySize < 400) return false;
+        if (cs.loading) return false;
+        if (cs.loadedRanges.length === 0) return false;
+        const first = cs.loadedRanges[0];
+        const last = cs.loadedRanges[cs.loadedRanges.length - 1];
+        return first[0] <= 0 && last[1] >= cs.totalLines - 1;
+      },
+      { timeout: 15000, polling: 100 },
+      paneId,
+    );
+
+    // Drive the viewport to the top via the state machine. The oldest
+    // REACTIVE_001 marker MUST appear in the rendered <pre>; pre-Fix-1 it
+    // would render as PLACEHOLDER (post-Fix-3) or as an empty line
+    // (pre-Fix-3), with no actual content because the fetch never asked
+    // for those rows.
+    await ctx.page.evaluate(
+      ({ id }) => {
+        window.app?.send({ type: 'COPY_MODE_SCROLL', paneId: id, scrollTop: 0 });
+      },
+      { id: paneId },
+    );
+    await delay(DELAYS.MEDIUM);
+
+    const topText = await ctx.page.evaluate(() => {
+      const sb = document.querySelector('[data-copy-mode="true"]');
+      if (!sb) return null;
+      return Array.from(sb.querySelectorAll('.terminal-line'))
+        .slice(0, 40)
+        .map((el) => el.textContent || '')
+        .join('\n');
+    });
+    expect(topText).not.toBeNull();
+    expect(topText).toMatch(/REACTIVE_0*1\b/);
+    // The newer end-of-history markers must NOT be at the top after
+    // scrolling to row 0 — that would mean the lines Map is misaligned.
+    expect(topText).not.toContain('REACTIVE_500');
+  });
 });
 
 // ==================== Scenario: Tab switch is instant (no empty-pane flash) ====================
