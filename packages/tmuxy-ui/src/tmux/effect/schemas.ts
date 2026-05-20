@@ -155,9 +155,7 @@ export const WindowDelta = Schema.Struct({
 /** Server delta envelope. `null` value in panes/windows means removed. */
 export const ServerDelta = Schema.Struct({
   seq: Schema.Number,
-  panes: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.NullOr(PaneDelta) }),
-  ),
+  panes: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.NullOr(PaneDelta) })),
   windows: Schema.optional(
     Schema.Record({ key: Schema.String, value: Schema.NullOr(WindowDelta) }),
   ),

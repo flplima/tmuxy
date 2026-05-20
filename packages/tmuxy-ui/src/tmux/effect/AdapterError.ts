@@ -44,10 +44,7 @@ export type AdapterError = TransportError | ProtocolError | TmuxError | Cancelle
  * This helper picks the most accurate _tag based on shape; when in doubt it
  * falls back to TransportError, never throws.
  */
-export function classifyAdapterError(
-  cause: unknown,
-  context?: { command?: string },
-): AdapterError {
+export function classifyAdapterError(cause: unknown, context?: { command?: string }): AdapterError {
   // Already-tagged Effect errors pass through unchanged.
   if (cause instanceof TransportError) return cause;
   if (cause instanceof ProtocolError) return cause;

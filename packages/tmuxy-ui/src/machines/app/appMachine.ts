@@ -29,16 +29,11 @@ import { uiPrefsActions } from './actions/uiPrefs';
 import { commandUiState } from './states/commandUi';
 import { commandUiActions } from './actions/commandUi';
 import { copyModeState } from './states/copyMode';
-import {
-  copyModeActions,
-  copyModeExitTimes,
-  COPY_MODE_REENTRY_COOLDOWN,
-} from './actions/copyMode';
-import {
-  groupsAndFloatsGlobalEvents,
-  groupsAndFloatsIdleEvents,
-} from './states/groupsAndFloats';
+import { copyModeActions, copyModeExitTimes, COPY_MODE_REENTRY_COOLDOWN } from './actions/copyMode';
+import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
+import { layoutState } from './states/layout';
+import { layoutActions } from './actions/layout';
 import {
   parseCommand,
   calculatePrediction,
@@ -254,6 +249,7 @@ export const appMachine = setup({
     ...commandUiActions,
     ...copyModeActions,
     ...groupsAndFloatsActions,
+    ...layoutActions,
   },
 }).createMachine({
   id: 'app',
@@ -510,6 +506,7 @@ export const appMachine = setup({
         // Per-state handlers active only during idle (require a live connection).
         ...copyModeState.on,
         ...groupsAndFloatsIdleEvents,
+        ...layoutState.on,
 
         // Tmux Events
         TMUX_STATE_UPDATE: [
@@ -1456,16 +1453,8 @@ export const appMachine = setup({
           actions: sendTo('dragLogic', { type: 'DRAG_CANCEL' }),
         },
 
-        // Events from Drag Machine
-        DRAG_STATE_UPDATE: {
-          actions: assign(({ event }) => ({
-            drag: event.drag,
-          })),
-        },
+        // Events from Drag Machine — DRAG_STATE_UPDATE and DRAG_ERROR handled by layoutState
         DRAG_COMPLETED: {},
-        DRAG_ERROR: {
-          actions: assign(({ event }) => ({ error: event.error, drag: null })),
-        },
 
         // Resize Events - Forward to resize machine with full context
         RESIZE_START: {
@@ -1487,44 +1476,7 @@ export const appMachine = setup({
         },
 
         // Forward KEY_PRESS to drag and resize machines for Escape handling
-        KEY_PRESS: {
-          actions: [
-            sendTo('dragLogic', ({ event }) => event),
-            sendTo('resizeLogic', ({ event }) => event),
-          ],
-        },
-
-        // Events from Resize Machine
-        RESIZE_STATE_UPDATE: {
-          actions: assign(({ event }) => ({
-            resize: event.resize,
-            resizeActive: event.resize !== null,
-          })),
-        },
-        RESIZE_COMPLETED: {
-          // Keep resize state as optimistic preview until next TMUX_STATE_UPDATE
-          // arrives with server-confirmed pane sizes. This prevents the visual
-          // snap-back glitch when releasing the resize divider.
-          // Timeout fallback: clear after 2s in case server update is delayed.
-          actions: enqueueActions(({ enqueue }) => {
-            enqueue(assign({ resizeActive: false }));
-            enqueue(({ self }) => {
-              setTimeout(() => {
-                const snap = self.getSnapshot();
-                if (snap.context.resize) {
-                  self.send({ type: 'RESIZE_STATE_UPDATE', resize: null });
-                }
-              }, 2000);
-            });
-          }),
-        },
-        RESIZE_ERROR: {
-          actions: assign(({ event }) => ({
-            error: event.error,
-            resize: null,
-            resizeActive: false,
-          })),
-        },
+        // KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED, RESIZE_ERROR — handled by layoutState
 
         // Animation events
         ANIMATION_LEAVE_COMPLETE: {},
@@ -1648,21 +1600,7 @@ export const appMachine = setup({
             );
           }),
         },
-        SEND_KEYS: {
-          actions: sendTo('tmux', ({ event }) => ({
-            type: 'SEND_COMMAND' as const,
-            command: `send-keys -t ${event.paneId} ${event.keys}`,
-          })),
-        },
-
-        // Semantic pane events — components send intent, machine constructs commands
-        // Scripts handle both grouped and non-grouped panes (derived from window names)
-        CLOSE_PANE: {
-          actions: sendTo('tmux', ({ event }) => ({
-            type: 'SEND_COMMAND' as const,
-            command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-close ${event.paneId}"`,
-          })),
-        },
+        // SEND_KEYS, CLOSE_PANE — handled by layoutState
         // Optimistic pane-group tab switch — mirrors SELECT_TAB so the active
         // tab indicator flips immediately, the visible-window slot shows the
         // clicked pane before tmux's swap-pane round-trips, and the keyboard
@@ -1793,82 +1731,8 @@ export const appMachine = setup({
             });
           }),
         },
-        SELECT_TAB: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            // No-op when already on the target window — protects against
-            // duplicate clicks and the tab-next/prev wrap edge case where
-            // resolution lands on the current window.
-            if (context.activeWindowId === event.windowId) return;
-
-            // Record the outgoing window's active pane so a future return to
-            // this tab restores focus to where the user left it.
-            const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
-            if (context.activeWindowId && context.activePaneId) {
-              lastActivePaneByWindow[context.activeWindowId] = context.activePaneId;
-            }
-
-            // Pick the optimistic target pane: remembered for this window,
-            // else whatever tmux marks active in our cached state, else the
-            // first pane we know about in that window.
-            const targetPanes = context.panes.filter((p) => p.windowId === event.windowId);
-            const remembered = context.lastActivePaneByWindow[event.windowId];
-            const rememberedExists = remembered && targetPanes.some((p) => p.tmuxId === remembered);
-            const targetPaneId =
-              (rememberedExists ? remembered : null) ??
-              targetPanes.find((p) => p.active)?.tmuxId ??
-              targetPanes[0]?.tmuxId ??
-              null;
-
-            enqueue(
-              assign({
-                activeWindowId: event.windowId,
-                activePaneId: targetPaneId,
-                lastActivePaneByWindow,
-                pendingSelectTabAt: Date.now(),
-              }),
-            );
-
-            // Send the real tmux command in parallel — server reconciliation
-            // via TMUX_STATE_UPDATE will overwrite our guess if it's wrong.
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `select-window -t ${event.windowIndex}`,
-              }),
-            );
-
-            // Route keystrokes to the optimistic active pane immediately so a
-            // user typing after the click doesn't address the previous tab.
-            if (targetPaneId !== context.activePaneId) {
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_ACTIVE_PANE' as const,
-                  paneId: targetPaneId,
-                }),
-              );
-            }
-          }),
-        },
-        ZOOM_PANE: {
-          actions: [
-            sendTo('tmux', ({ event }) => ({
-              type: 'SEND_COMMAND' as const,
-              command: `select-pane -t ${event.paneId}`,
-            })),
-            sendTo('tmux', () => ({
-              type: 'SEND_COMMAND' as const,
-              command: 'resize-pane -Z',
-            })),
-          ],
-        },
+        // SELECT_TAB, ZOOM_PANE, WRITE_TO_PANE — handled by layoutState
         // CLOSE_FLOAT, CLOSE_TOP_FLOAT — handled by groupsAndFloatsIdleEvents
-
-        WRITE_TO_PANE: {
-          actions: sendTo('tmux', ({ event }) => ({
-            type: 'SEND_COMMAND' as const,
-            command: `send-keys -t ${event.paneId} -l '${event.data.replace(/'/g, "'\\''")}'`,
-          })),
-        },
 
         // Cmd+C / Ctrl+C: copy selection to clipboard or send SIGINT
         COPY_SELECTION: {
@@ -1908,15 +1772,11 @@ export const appMachine = setup({
           }),
         },
 
-
         // Re-filter expired entries (each switch schedules its own clear at
         // +750 ms; entries from rapid follow-up clicks stay until their own
         // timers fire, so this can't blindly nullify the array).
         // CLEAR_GROUP_SWITCH_OVERRIDE — handled by groupsAndFloatsIdleEvents
-        // Clear layout transition suppression (fired after command-based resize settles)
-        CLEAR_LAYOUT_TRANSITION_SUPPRESSION: {
-          actions: assign({ suppressLayoutTransition: false }),
-        },
+        // CLEAR_LAYOUT_TRANSITION_SUPPRESSION — handled by layoutState
       },
     },
 

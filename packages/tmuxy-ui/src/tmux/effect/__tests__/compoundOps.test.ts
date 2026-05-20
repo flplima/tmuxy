@@ -34,14 +34,10 @@ function mockCtx(
       calls.push({ cmd: kind, args: command });
       const step = responses[i++];
       if (!step) {
-        return Effect.fail(
-          new TmuxError({ command, stderr: `unscripted call: ${command}` }),
-        );
+        return Effect.fail(new TmuxError({ command, stderr: `unscripted call: ${command}` }));
       }
       if (step.cmd !== kind) {
-        return Effect.fail(
-          new TmuxError({ command, stderr: `expected ${step.cmd}, got ${kind}` }),
-        );
+        return Effect.fail(new TmuxError({ command, stderr: `expected ${step.cmd}, got ${kind}` }));
       }
       if ('throws' in step && step.throws) {
         return Effect.fail(step.throws);
@@ -69,10 +65,7 @@ describe('createAndRenameWindow', () => {
   });
 
   it('accepts a plain string window_id return', async () => {
-    const { ctx } = mockCtx([
-      { cmd: 'new-window', result: '@9' },
-      { cmd: 'rename-window' },
-    ]);
+    const { ctx } = mockCtx([{ cmd: 'new-window', result: '@9' }, { cmd: 'rename-window' }]);
     const exit = await Effect.runPromiseExit(
       createAndRenameWindow('x').pipe(Effect.provideService(CompoundOps, ctx)),
     );
@@ -111,11 +104,7 @@ describe('createAndRenameWindow', () => {
       expect(json).toMatch(/TmuxError/);
       expect(json).toMatch(/duplicate name/);
     }
-    expect(calls.map((c) => c.cmd)).toEqual([
-      'new-window',
-      'rename-window',
-      'kill-window',
-    ]);
+    expect(calls.map((c) => c.cmd)).toEqual(['new-window', 'rename-window', 'kill-window']);
   });
 
   it('re-raises the original rename error even if cleanup ALSO fails', async () => {

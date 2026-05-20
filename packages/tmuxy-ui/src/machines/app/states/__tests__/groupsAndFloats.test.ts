@@ -73,13 +73,19 @@ describe('groupsAndFloats state', () => {
     const fresh = {
       paneId: 'p1',
       fromPaneId: 'p2',
-      x: 0, y: 0, width: 80, height: 24,
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 24,
       timestamp: Date.now() - 200,
     };
     const stale = {
       paneId: 'p3',
       fromPaneId: 'p4',
-      x: 0, y: 0, width: 80, height: 24,
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 24,
       timestamp: Date.now() - 1000,
     };
     const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {

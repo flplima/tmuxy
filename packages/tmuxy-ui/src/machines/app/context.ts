@@ -63,9 +63,6 @@ export const FIELD_OWNERS = {
   containerWidth: 'parent',
   containerHeight: 'parent',
   lastUpdateTime: 'parent',
-  drag: 'parent',
-  resize: 'parent',
-  resizeActive: 'parent',
 
   // ---- layout ----
   panes: 'layout',
@@ -79,6 +76,10 @@ export const FIELD_OWNERS = {
   pendingSelectTabAt: 'layout',
   pendingUpdate: 'layout',
   lastLayoutCommandTime: 'layout',
+  drag: 'layout',
+  resize: 'layout',
+  resizeActive: 'layout',
+  suppressLayoutTransition: 'layout',
 
   // ---- copyMode ----
   copyModeStates: 'copyMode',
@@ -101,7 +102,6 @@ export const FIELD_OWNERS = {
   availableThemes: 'uiPrefs',
   baseFontSize: 'uiPrefs',
   enableAnimations: 'uiPrefs',
-  suppressLayoutTransition: 'uiPrefs',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
 /**

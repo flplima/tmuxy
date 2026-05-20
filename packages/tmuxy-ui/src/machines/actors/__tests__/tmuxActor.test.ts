@@ -184,9 +184,7 @@ describe('tmuxActor — Phase E4 cancellable scrollback', () => {
       .getSnapshot()
       .children.tmux!.send({ type: 'FETCH_SCROLLBACK_CELLS', paneId: '%2', start: 0, end: 10 });
 
-    await waitFor(
-      () => events.filter((e) => e.type === 'COPY_MODE_CHUNK_LOADED').length === 2,
-    );
+    await waitFor(() => events.filter((e) => e.type === 'COPY_MODE_CHUNK_LOADED').length === 2);
     const loaded = events.filter((e) => e.type === 'COPY_MODE_CHUNK_LOADED');
     const paneIds = new Set(loaded.map((e) => e.paneId));
     expect(paneIds).toEqual(new Set(['%1', '%2']));
