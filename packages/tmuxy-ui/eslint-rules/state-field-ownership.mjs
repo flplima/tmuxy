@@ -39,7 +39,6 @@ const FIELD_OWNERS = {
   activePaneId: 'layout',
   paneActivationOrder: 'layout',
   lastActivePaneByWindow: 'layout',
-  optimisticOperation: 'layout',
   paneKeyOverrides: 'layout',
   pendingSelectTabAt: 'layout',
   pendingUpdate: 'layout',

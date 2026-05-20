@@ -664,17 +664,11 @@ export function selectPaneKeyOverrides(context: AppMachineContext): Record<strin
   return context.paneKeyOverrides;
 }
 
-// ============================================
-// Optimistic Update Selectors
-// ============================================
-
-/**
- * Check if there's a pending optimistic operation.
- * Useful for UI indicators or debugging.
- */
-export function selectHasOptimisticOperation(context: AppMachineContext): boolean {
-  return context.optimisticOperation !== null;
-}
+// Optimistic operations live in the TmuxStore (Tier 3) now. The `derived`
+// snapshot already includes pending op patches, so selectors over
+// `context.panes` / `context.windows` see optimistic state without any
+// dedicated query. A "has pending op" flag is no longer needed by any UI
+// component; if one is wanted later, expose it via the store's getModel().
 
 // ============================================
 // Command Mode Selectors
