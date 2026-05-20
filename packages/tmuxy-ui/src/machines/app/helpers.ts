@@ -7,6 +7,95 @@ import type { TmuxPane, TmuxWindow } from '../types';
 import { isGroupWindow, parseGroupWindowName } from './groupState';
 
 /**
+ * Parse a `command-prompt` command and extract -I (initial value), -p (prompt), and template.
+ * Expands tmux format strings (#W, #S) from context.
+ */
+export function parseCommandPrompt(
+  command: string,
+  context: {
+    windows: { id: string; name: string }[];
+    activeWindowId: string | null;
+    sessionName: string;
+  },
+): { prompt: string; initialValue: string; template: string | null } {
+  let prompt = ':';
+  let initialValue = '';
+  let template: string | null = null;
+
+  const tokens: string[] = [];
+  const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
+  let m;
+  while ((m = re.exec(command)) !== null) {
+    tokens.push(m[1] ?? m[2] ?? m[3]);
+  }
+
+  let i = tokens[0] === 'command-prompt' ? 1 : 0;
+  while (i < tokens.length) {
+    if (tokens[i] === '-I' && i + 1 < tokens.length) {
+      initialValue = tokens[++i];
+      i++;
+    } else if (tokens[i] === '-p' && i + 1 < tokens.length) {
+      prompt = tokens[++i];
+      i++;
+    } else if (tokens[i].startsWith('-')) {
+      const flag = tokens[i];
+      i++;
+      if (/^-[tTFN]$/.test(flag) && i < tokens.length) {
+        i++;
+      }
+    } else {
+      template = tokens[i];
+      i++;
+    }
+  }
+
+  const activeWindow = context.windows.find((w) => w.id === context.activeWindowId);
+  const windowName = activeWindow?.name ?? '';
+  const expand = (s: string) => s.replace(/#W/g, windowName).replace(/#S/g, context.sessionName);
+
+  initialValue = expand(initialValue);
+  prompt = expand(prompt);
+
+  return { prompt, initialValue, template };
+}
+
+/**
+ * Parse a `display-message` command and extract the message text.
+ * Returns null if -p flag is present (output mode — should go to tmux).
+ */
+export function parseDisplayMessage(command: string): string | null {
+  const tokens: string[] = [];
+  const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
+  let m;
+  while ((m = re.exec(command)) !== null) {
+    tokens.push(m[1] ?? m[2] ?? m[3]);
+  }
+
+  let i = tokens[0] === 'display-message' ? 1 : 0;
+  let hasOutputFlag = false;
+
+  while (i < tokens.length) {
+    if (tokens[i] === '-p') {
+      hasOutputFlag = true;
+      i++;
+    } else if (tokens[i].startsWith('-')) {
+      const flag = tokens[i];
+      i++;
+      if (/^-[tFc]$/.test(flag) && i < tokens.length) {
+        i++;
+      }
+    } else {
+      if (hasOutputFlag) return null;
+      return tokens[i];
+    }
+  }
+
+  return null;
+}
+
+export const STATUS_MESSAGE_DURATION = 5000;
+
+/**
  * Convert snake_case object keys to camelCase
  */
 export function camelize<T>(obj: Record<string, unknown>): T {
