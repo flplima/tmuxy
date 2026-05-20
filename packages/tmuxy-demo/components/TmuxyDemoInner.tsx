@@ -124,7 +124,7 @@ export default function TmuxyDemoInner() {
       const activeId = state.active_window_id;
       if (lastWindowId.current !== null && activeId !== lastWindowId.current) {
         const win = state.windows.find((w) => w.id === activeId);
-        if (win && !win.is_pane_group_window && !win.is_float_window) {
+        if (win && win.window_type === 'tab') {
           trackEvent({ name: 'demo_tab_switch', params: { tab_name: win.name } });
         }
       }
