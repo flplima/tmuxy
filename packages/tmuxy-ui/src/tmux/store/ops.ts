@@ -62,11 +62,25 @@ export function predict(
   }
 }
 
-export function reconcile(pending: PendingOp, committed: TmuxSnapshot): ReconcileVerdict {
+export function reconcile(
+  pending: PendingOp,
+  committed: TmuxSnapshot,
+  /**
+   * Real pane / window ids already claimed by EARLIER pending ops in this
+   * same reconcile pass. Critical when two Split ops are in flight at the
+   * same time: without this set, both would match against the same real
+   * pane id and the model would drop both ops prematurely. The reducer
+   * threads this through `applyServerSnapshot`.
+   */
+  claimed: { panes: ReadonlySet<string>; windows: ReadonlySet<string> } = {
+    panes: new Set(),
+    windows: new Set(),
+  },
+): ReconcileVerdict {
   const { op, meta } = pending;
   switch (op._tag) {
     case 'Split':
-      return reconcileSplit(meta, committed);
+      return reconcileSplit(meta, committed, claimed.panes);
     case 'Navigate':
       return reconcileFocus(meta, committed.activePaneId);
     case 'SelectPane':
@@ -74,7 +88,7 @@ export function reconcile(pending: PendingOp, committed: TmuxSnapshot): Reconcil
     case 'Swap':
       return reconcileSwap(meta, committed.panes);
     case 'NewWindow':
-      return reconcileNewWindow(meta, committed.windows);
+      return reconcileNewWindow(meta, committed.windows, claimed.windows);
     case 'SelectWindow':
       return reconcileSelectWindow(meta, committed.activeWindowId);
     case 'RawCommand':
@@ -213,16 +227,22 @@ const SPLIT_POSITION_TOLERANCE = 1;
 function reconcileSplit(
   meta: Readonly<Record<string, unknown>>,
   committed: TmuxSnapshot,
+  /** Real pane ids already claimed by earlier pending Split ops in this pass. */
+  claimedRealIds: ReadonlySet<string>,
 ): ReconcileVerdict {
   const priorPaneIds = new Set(meta.priorPaneIds as string[]);
   const expectedNew = meta.expectedNew as { x: number; y: number; width: number; height: number };
 
   // The real new pane is any tmuxId in committed.panes that wasn't in priorPaneIds
-  // and isn't a placeholder. Position-based matching is a sanity check, not
-  // the primary key — tmux's layout algorithm can produce coordinates that
-  // differ from our half-and-half prediction by a cell or two.
+  // and isn't a placeholder AND hasn't already been claimed by an earlier op
+  // in the same reconcile pass. Position-based matching is a sanity check —
+  // tmux's layout algorithm can produce coordinates that differ from our
+  // half-and-half prediction by a cell or two.
   const realNew = committed.panes.find(
-    (p) => !priorPaneIds.has(p.tmuxId) && !p.tmuxId.startsWith('__placeholder_'),
+    (p) =>
+      !priorPaneIds.has(p.tmuxId) &&
+      !p.tmuxId.startsWith('__placeholder_') &&
+      !claimedRealIds.has(p.tmuxId),
   );
   if (!realNew) {
     return { _tag: 'pending' };
@@ -492,11 +512,15 @@ function predictNewWindow(snapshot: TmuxSnapshot, opId: string): PredictResult {
 function reconcileNewWindow(
   meta: Readonly<Record<string, unknown>>,
   windows: ReadonlyArray<TmuxWindow>,
+  /** Real window ids already claimed by earlier pending NewWindow ops. */
+  claimedRealIds: ReadonlySet<string>,
 ): ReconcileVerdict {
   const prior = new Set(meta.priorWindowIds as string[]);
   if (windows.length === 0) return { _tag: 'pending' };
-  const hasNew = windows.some((w) => !prior.has(w.id) && !w.id.startsWith('__placeholder_'));
-  if (hasNew) return { _tag: 'matched' };
+  const candidate = windows.find(
+    (w) => !prior.has(w.id) && !w.id.startsWith('__placeholder_') && !claimedRealIds.has(w.id),
+  );
+  if (candidate) return { _tag: 'matched', realId: candidate.id };
   return { _tag: 'pending' };
 }
 

@@ -111,6 +111,10 @@ export function applyServerSnapshot(
   const rolledBack: RollbackEntry[] = [];
   const keepers: PendingOp[] = [];
   let paneKeyOverrides = model.paneKeyOverrides;
+  // Track real ids already claimed in this reconcile pass so two in-flight
+  // Split / NewWindow ops don't both match against the same new id.
+  const claimedPanes = new Set<string>();
+  const claimedWindows = new Set<string>();
 
   for (const op of model.ops) {
     if (op.status === 'failed') {
@@ -118,13 +122,21 @@ export function applyServerSnapshot(
       rolledBack.push({ opId: op.id, op: op.op, reason: 'previously failed' });
       continue;
     }
-    const verdict = opReconcile(op, committed);
+    const verdict = opReconcile(op, committed, {
+      panes: claimedPanes,
+      windows: claimedWindows,
+    });
     if (verdict._tag === 'matched') {
       matched.push({ opId: op.id, op: op.op, realId: verdict.realId });
-      if (op.op._tag === 'Split' && verdict.realId) {
-        const placeholderId = (op.meta as { placeholderId?: string }).placeholderId;
-        if (placeholderId) {
-          paneKeyOverrides = { ...paneKeyOverrides, [verdict.realId]: placeholderId };
+      if (verdict.realId) {
+        if (op.op._tag === 'Split') {
+          claimedPanes.add(verdict.realId);
+          const placeholderId = (op.meta as { placeholderId?: string }).placeholderId;
+          if (placeholderId) {
+            paneKeyOverrides = { ...paneKeyOverrides, [verdict.realId]: placeholderId };
+          }
+        } else if (op.op._tag === 'NewWindow') {
+          claimedWindows.add(verdict.realId);
         }
       }
       continue;
