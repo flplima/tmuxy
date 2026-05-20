@@ -61,7 +61,7 @@ Like native tmux, when multiple browser clients connect to the same session, the
 
 2. **All commands through control mode** — External tmux subprocess calls can crash the tmux server when control mode is attached. See [TMUX.md](TMUX.md).
 
-3. **State machine in frontend** — All client logic lives in XState, keeping React components purely presentational. No `useEffect` side effects.
+3. **State machine + client model in frontend** — XState owns UI-mode finite states (connecting / idle / removingPane, drag, resize, copy mode, command mode). The tmux world itself lives in a dedicated `TmuxClientModel` (`src/tmux/store/`) with explicit committed / pending-ops / derived layers, owned by an Effect-managed Ref. The appMachine bridges them by routing `SEND_TMUX_COMMAND` and `TMUX_STATE_UPDATE` through `tmuxStoreActor`. React components remain purely presentational — no `useEffect` side effects.
 
 4. **Adapter pattern for transport** — `TmuxAdapter` interface abstracts SSE/HTTP vs Tauri IPC, making the frontend transport-agnostic.
 
@@ -101,6 +101,9 @@ packages/
 │       ├── tmux/
 │       │   ├── types.ts            # TmuxAdapter, TmuxPane, TmuxWindow
 │       │   ├── adapters.ts         # HttpAdapter, TauriAdapter
+│       │   ├── effect/             # Effect-based adapter facade (typed errors, schemas, SSE Stream)
+│       │   ├── store/              # Tier-3 TmuxClientModel + Effect-managed store
+│       │   │                       # (typed ops, predict/reconcile, rollback)
 │       │   └── demo/               # In-browser demo engine
 │       └── components/             # React components (Terminal, PaneLayout, etc.)
 └── tauri-app/

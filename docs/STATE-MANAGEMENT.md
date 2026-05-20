@@ -219,11 +219,15 @@ Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_
 ```
 machines/app/
 ├── appMachine.ts          # Parent: lifecycle (connecting / idle / removingPane),
-│                          # actor wiring, cross-cutting orchestrators
-│                          # (SEND_TMUX_COMMAND optimistic intercept,
-│                          # TMUX_STATE_UPDATE reconciliation, FOCUS_PANE,
-│                          # SELECT_PANE_GROUP_TAB, DRAG_START, COPY_SELECTION,
-│                          # CREATE_TAB).
+│                          # actor wiring, cross-cutting orchestrators.
+│                          # SEND_TMUX_COMMAND keeps its keybinding intercepts
+│                          # (copy-mode, command-prompt, display-message, tab
+│                          # remap) but the optimistic-apply path is now a
+│                          # one-liner sendTo('tmuxStore', DISPATCH_COMMAND).
+│                          # TMUX_STATE_UPDATE is one-liner sendTo('tmuxStore',
+│                          # RECONCILE_SERVER); the heavy downstream work
+│                          # (groups, floats, copy-mode detect, animations)
+│                          # runs in the TMUX_MODEL_UPDATE handler.
 ├── context.ts             # createInitialContext() and FIELD_OWNERS registry
 ├── tmuxStateSlices.ts     # Per-state slice helpers for TMUX_STATE_UPDATE
 │                          # (sliceCopyModeStates, sliceStatusLine,
@@ -237,7 +241,8 @@ machines/app/
 │   ├── commandUi.ts       # command mode, status messages, prefix indicator
 │   ├── copyMode.ts        # client-side copy mode (per-pane CopyModeState)
 │   ├── groupsAndFloats.ts # pane groups, float panes, group-switch freeze
-│   └── layout.ts          # panes, windows, focus, drag/resize, optimistic
+│   └── layout.ts          # panes, windows, focus, drag/resize
+│                          # (optimistic state lives in src/tmux/store/, not here)
 ├── actions/               # Named action implementations referenced by
 │                          # states/<name>.ts via string IDs. Spread into
 │                          # setup({ actions: { ...uiPrefsActions, ... }}).
@@ -317,7 +322,7 @@ Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `sele
 
 3. **Sequence gaps** — If a delta arrives with an unexpected sequence number, the frontend requests a full resync.
 
-4. **Optimistic reconciliation** — When the frontend has a pending optimistic operation and receives a state update, it validates the prediction. Matching predictions are confirmed; mismatches are overwritten by the server state.
+4. **Optimistic reconciliation** — Every dispatched op stays in `TmuxClientModel.ops` until a server state update either matches it (the predicted real id appears in `committed`) or it stale-expires after `OP_STALE_TIMEOUT_MS`. Multiple in-flight ops are reconciled in dispatch order, each claiming its own real id so concurrent Split / NewWindow ops don't collide. On `TmuxError`, the store rolls the patch back immediately and surfaces `OpRejectedByTmux { stderr }` to the caller.
 
 5. **Copy mode divergence** — Copy mode state is entirely client-side (scrollback lines, cursor, selection). The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag. See [COPY-MODE.md](COPY-MODE.md).
 
