@@ -14,3 +14,8 @@ export {
   decodeKeyBindings,
 } from './decoders';
 export * as Schemas from './schemas';
+export {
+  eventSourceStream,
+  type SseEvent,
+  type SseStreamOptions,
+} from './sseStream';
