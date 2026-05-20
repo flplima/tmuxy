@@ -8,14 +8,9 @@ import type { FloatPaneState } from '../../../types';
 function makeFloat(paneId: string, extra: Partial<FloatPaneState> = {}): FloatPaneState {
   return {
     paneId,
-    name: 'test-float',
-    x: 0,
-    y: 0,
     width: 80,
     height: 24,
     backdrop: 'dim',
-    direction: null,
-    drawer: false,
     ...extra,
   };
 }

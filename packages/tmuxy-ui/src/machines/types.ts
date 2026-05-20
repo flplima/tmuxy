@@ -315,7 +315,18 @@ export type ChildMachineEvent = DragParentEvent | ResizeParentEvent;
 // Tmux connection events
 export type TmuxConnectedEvent = { type: 'TMUX_CONNECTED' };
 export type TmuxStateUpdateEvent = { type: 'TMUX_STATE_UPDATE'; state: ServerState };
-export type TmuxErrorEvent = { type: 'TMUX_ERROR'; error: string };
+/**
+ * `tagged` is the structured AdapterError from the Effect-based adapter
+ * layer (see src/tmux/effect/AdapterError.ts). `error` remains a free-form
+ * display string for the existing log and status surfaces. New consumers
+ * that want pattern-matching should branch on `tagged?._tag` and fall back
+ * to `error` only for display.
+ */
+export type TmuxErrorEvent = {
+  type: 'TMUX_ERROR';
+  error: string;
+  tagged?: import('../tmux/effect/AdapterError').AdapterError;
+};
 export type TmuxFatalEvent = { type: 'TMUX_FATAL'; message: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
 export type ConnectionInfoEvent = {
