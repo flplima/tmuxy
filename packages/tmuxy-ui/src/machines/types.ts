@@ -156,8 +156,6 @@ export interface AppMachineContext {
   keybindings: KeyBindings | null;
   /** Client-side copy mode state per pane */
   copyModeStates: Record<string, CopyModeState>;
-  /** Current optimistic operation being applied (awaiting server confirmation) */
-  optimisticOperation: OptimisticOperation | null;
   /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
   paneActivationOrder: string[];
   /**
@@ -315,6 +313,16 @@ export type ChildMachineEvent = DragParentEvent | ResizeParentEvent;
 // Tmux connection events
 export type TmuxConnectedEvent = { type: 'TMUX_CONNECTED' };
 export type TmuxStateUpdateEvent = { type: 'TMUX_STATE_UPDATE'; state: ServerState };
+/**
+ * Fired by tmuxStoreActor whenever the TmuxClientModel changes — either from
+ * a server reconciliation, a local optimistic dispatch, or a rollback. The
+ * handler reads `model.derived` and treats it as the authoritative snapshot
+ * for downstream effects (group/float builds, copy-mode detection, animations).
+ */
+export type TmuxModelUpdateEvent = {
+  type: 'TMUX_MODEL_UPDATE';
+  model: import('../tmux/store').TmuxClientModel;
+};
 /**
  * `tagged` is the structured AdapterError from the Effect-based adapter
  * layer (see src/tmux/effect/AdapterError.ts). `error` remains a free-form
@@ -539,6 +547,7 @@ export type ThemesListReceivedEvent = {
 export type AppMachineEvent =
   | TmuxConnectedEvent
   | TmuxStateUpdateEvent
+  | TmuxModelUpdateEvent
   | TmuxErrorEvent
   | TmuxFatalEvent
   | TmuxDisconnectedEvent
@@ -612,74 +621,6 @@ export type AppMachineEvent =
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;
 
-// ============================================
-// Optimistic Update Types
-// ============================================
-
-/** Optimistic operation tracking for instant UI feedback */
-export interface OptimisticOperation {
-  id: string;
-  type: 'split' | 'navigate' | 'swap' | 'new-window' | 'select-window';
-  command: string;
-  timestamp: number;
-  prediction: OptimisticPrediction;
-}
-
-export type OptimisticPrediction =
-  | SplitPrediction
-  | NavigatePrediction
-  | SwapPrediction
-  | NewWindowPrediction
-  | SelectWindowPrediction;
-
-export interface SplitPrediction {
-  type: 'split';
-  direction: 'horizontal' | 'vertical';
-  targetPaneId: string;
-  newPane: {
-    placeholderId: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    windowId: string;
-  };
-  resizedPanes: Array<{
-    paneId: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }>;
-}
-
-export interface NavigatePrediction {
-  type: 'navigate';
-  direction: 'L' | 'R' | 'U' | 'D';
-  fromPaneId: string;
-  toPaneId: string;
-}
-
-export interface SwapPrediction {
-  type: 'swap';
-  sourcePaneId: string;
-  targetPaneId: string;
-  sourceNewPosition: { x: number; y: number; width: number; height: number };
-  targetNewPosition: { x: number; y: number; width: number; height: number };
-}
-
-export interface NewWindowPrediction {
-  type: 'new-window';
-  placeholderWindowId: string;
-  placeholderName: string;
-  /** Window IDs that existed when the prediction fired. Reconciliation
-   *  only matches when server state contains an ID not in this set. */
-  priorWindowIds: string[];
-}
-
-export interface SelectWindowPrediction {
-  type: 'select-window';
-  fromWindowId: string;
-  toWindowId: string;
-  toActivePaneId: string;
-}
+// Optimistic operation tracking lives in `src/tmux/store/` now (Tier 3).
+// The PendingOp / TmuxOp / TmuxClientModel types replace the per-op
+// prediction structs that used to live here.

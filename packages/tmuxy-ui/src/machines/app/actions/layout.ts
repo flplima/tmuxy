@@ -2,7 +2,7 @@
  * Action implementations for the layout parallel state.
  *
  * Owns context fields: panes, windows, activeWindowId, activePaneId,
- * paneActivationOrder, lastActivePaneByWindow, optimisticOperation,
+ * paneActivationOrder, lastActivePaneByWindow,
  * paneKeyOverrides, pendingSelectTabAt, pendingUpdate, lastLayoutCommandTime,
  * drag, resize, resizeActive, suppressLayoutTransition.
  *

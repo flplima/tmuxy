@@ -34,21 +34,10 @@ import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
 import { layoutActions } from './actions/layout';
-import {
-  parseCommand,
-  calculatePrediction,
-  applySplitPrediction,
-  applySwapPrediction,
-  applyNavigatePrediction,
-  applyNewWindowPrediction,
-  applySelectWindowPrediction,
-  reconcileOptimisticUpdate,
-  findMatchingRealPane,
-  isOperationStale,
-} from './optimistic';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
+import type { TmuxClientModel, TmuxSnapshot } from '../../tmux/store';
+import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
 import {
-  transformServerState,
   buildGroupsFromWindows,
   buildFloatPanesFromWindows,
   parseCommandPrompt,
@@ -56,7 +45,7 @@ import {
   STATUS_MESSAGE_DURATION,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
-import type { CopyModeState, CellLine, ServerState } from '../../tmux/types';
+import type { CopyModeState, CellLine } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
@@ -84,19 +73,35 @@ function resolveWindowTarget(command: string, activeWindowId: string | null): st
 }
 
 /**
- * Cache transformServerState per event to avoid redundant calls.
- * The guard and action both need the transformed state for the same event.
+ * Materialize a mutable snapshot view from the TmuxClientModel.
+ *
+ * The downstream TMUX_MODEL_UPDATE handler mutates the snapshot in place
+ * (mostly: temporary pinning during select-tab grace and group-switch
+ * freeze). The store's TmuxSnapshot is readonly, so we shallow-clone the
+ * arrays once at handler entry to keep that older code shape working
+ * without scattering `as unknown` casts.
  */
-const transformCache = new WeakMap<object, ReturnType<typeof transformServerState>>();
-function getCachedTransform(event: {
-  state: ServerState;
-}): ReturnType<typeof transformServerState> {
-  let cached = transformCache.get(event);
-  if (!cached) {
-    cached = transformServerState(event.state);
-    transformCache.set(event, cached);
-  }
-  return cached;
+function snapshotFromModel(model: TmuxClientModel): {
+  panes: TmuxSnapshot['panes'][number][];
+  windows: TmuxSnapshot['windows'][number][];
+  activePaneId: string | null;
+  activeWindowId: string | null;
+  totalWidth: number;
+  totalHeight: number;
+  statusLine: string;
+  sessionName: string;
+} {
+  const d = model.derived;
+  return {
+    panes: [...d.panes],
+    windows: [...d.windows],
+    activePaneId: d.activePaneId,
+    activeWindowId: d.activeWindowId,
+    totalWidth: d.totalWidth,
+    totalHeight: d.totalHeight,
+    statusLine: d.statusLine,
+    sessionName: d.sessionName,
+  };
 }
 
 /** Move a pane ID to the front of the MRU list */
@@ -239,6 +244,7 @@ export const appMachine = setup({
   },
   actors: {
     tmuxActor: fromCallback<TmuxActorEvent, { parent: AnyActorRef }>(() => () => {}),
+    tmuxStoreActor: fromCallback<TmuxStoreActorEvent, { parent: AnyActorRef }>(() => () => {}),
     keyboardActor: fromCallback<KeyboardActorEvent, { parent: AnyActorRef }>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
     dragMachine,
@@ -260,6 +266,16 @@ export const appMachine = setup({
     {
       id: 'tmux',
       src: 'tmuxActor',
+      input: ({ self }) => ({ parent: self }),
+    },
+    {
+      // The Tier-3 client model: bridges TmuxStore (Effect Ref) into XState.
+      // SEND_TMUX_COMMAND relays here for optimistic dispatch; TMUX_STATE_UPDATE
+      // relays here for reconcile. The actor forwards model changes back as
+      // TMUX_MODEL_UPDATE so XState context stays in sync without any
+      // optimistic-prediction code living in the machine itself.
+      id: 'tmuxStore',
+      src: 'tmuxStoreActor',
       input: ({ self }) => ({ parent: self }),
     },
     {
@@ -427,7 +443,6 @@ export const appMachine = setup({
             connected: false,
             error: null,
             copyModeStates: {},
-            optimisticOperation: null,
             enableAnimations: false,
           }),
         );
@@ -509,14 +524,26 @@ export const appMachine = setup({
         ...layoutState.on,
 
         // Tmux Events
-        TMUX_STATE_UPDATE: [
+        // TMUX_STATE_UPDATE (the wire event) is now a one-liner: hand the
+        // server snapshot to the TmuxStore. The store reconciles pending
+        // optimistic ops, recomputes `derived`, and notifies the subscriber
+        // (tmuxStoreActor) which forwards a TMUX_MODEL_UPDATE event. All the
+        // heavy lifting (group/float build, copy-mode detection, animations)
+        // lives in that handler below.
+        TMUX_STATE_UPDATE: {
+          actions: sendTo('tmuxStore', ({ event }) => ({
+            type: 'RECONCILE_SERVER' as const,
+            state: event.state,
+          })),
+        },
+        TMUX_MODEL_UPDATE: [
           {
             // If panes were removed, transition to removingPane state for exit animation
             // Skip if server reports 0 panes — that's a spurious intermediate state
             // Skip if only float panes were removed — floats are rendered via FloatContainer
             // not PaneLayout, so the leave animation doesn't apply and just adds latency
             guard: ({ event, context }) => {
-              const transformed = getCachedTransform(event);
+              const transformed = snapshotFromModel(event.model);
               if (transformed.panes.length === 0) return false;
               const currentPaneIds = context.panes.map((p) => p.tmuxId);
               const newPaneIds = transformed.panes.map((p) => p.tmuxId);
@@ -532,7 +559,7 @@ export const appMachine = setup({
             },
             target: 'removingPane',
             actions: enqueueActions(({ event, context, enqueue }) => {
-              const transformed = getCachedTransform(event);
+              const transformed = snapshotFromModel(event.model);
 
               const paneGroups = buildGroupsFromWindows(
                 transformed.windows,
@@ -577,8 +604,6 @@ export const appMachine = setup({
                     floatPanes,
                   },
                   lastUpdateTime: Date.now(),
-                  // Clear optimistic tracking
-                  optimisticOperation: null,
                 }),
               );
             }),
@@ -586,7 +611,7 @@ export const appMachine = setup({
           {
             // Normal update without pane removal
             actions: enqueueActions(({ event, context, enqueue }) => {
-              const transformed = getCachedTransform(event);
+              const transformed = snapshotFromModel(event.model);
 
               // Skip spurious empty-pane states from the server
               if (transformed.panes.length === 0) return;
@@ -648,117 +673,13 @@ export const appMachine = setup({
                 transformed.activePaneId = context.activePaneId;
               }
 
-              // Reconcile optimistic updates if pending.
-              //
-              // Split anti-flicker strategy:
-              // The placeholder pane must keep its React key alive across ALL
-              // renders until the real pane arrives and can assume that key
-              // (via paneKeyOverrides). Two cases:
-              //
-              // Case A — intermediate update (real pane not yet in server state):
-              //   Inject the placeholder from context.panes back into
-              //   transformed.panes so its key survives in PaneLayout.
-              //
-              // Case B — real pane arrives:
-              //   Map realId → placeholderId in paneKeyOverrides. PaneLayout
-              //   renders the real pane with the placeholder's key. React sees
-              //   the same key → in-place update, no unmount/remount.
-              //
-              // The override persists for the lifetime of the pane (stale
-              // pruning removes it when the pane is killed). The tmuxId is
-              // NEVER changed — only the React key is overridden.
-              let newPaneKeyOverrides = context.paneKeyOverrides;
-              let clearOptimistic = false;
-              if (context.optimisticOperation) {
-                const result = reconcileOptimisticUpdate(
-                  context.optimisticOperation,
-                  transformed.panes,
-                  transformed.activePaneId,
-                  transformed.windows,
-                  transformed.activeWindowId,
-                );
-
-                if (!result.matched && result.mismatchReason) {
-                  console.warn('[Optimistic] Rollback:', result.mismatchReason);
-                }
-
-                if (context.optimisticOperation.prediction.type === 'split') {
-                  const placeholderId =
-                    context.optimisticOperation.prediction.newPane.placeholderId;
-                  // Collect real pane IDs that existed before the optimistic split
-                  const priorPaneIds = new Set(
-                    context.panes
-                      .filter((p) => !p.tmuxId.startsWith('__placeholder_'))
-                      .map((p) => p.tmuxId),
-                  );
-                  const realId = findMatchingRealPane(priorPaneIds, transformed.panes);
-                  if (realId) {
-                    // Case B: real pane arrived. Map its React key to the
-                    // placeholder's key so PaneLayout updates in-place.
-                    newPaneKeyOverrides = {
-                      ...newPaneKeyOverrides,
-                      [realId]: placeholderId,
-                    };
-                    clearOptimistic = true;
-                  } else if (isOperationStale(context.optimisticOperation)) {
-                    // Stale: clear optimistic and apply server state as-is.
-                    clearOptimistic = true;
-                  } else {
-                    // Case A: intermediate server update — real pane not yet present.
-                    // Skip this update entirely to prevent divider flicker. The server
-                    // sends an intermediate state with old pane dimensions (pre-split)
-                    // before the new pane appears. Applying that state causes the layout
-                    // to revert (divider removed, pane height restored to full), then
-                    // snap back when the final state arrives (~30ms later). By returning
-                    // early, the current optimistic context (placeholder + resized panes)
-                    // stays intact, eliminating the add→remove→add divider bounce.
-                    return;
-                  }
-                } else if (context.optimisticOperation.prediction.type === 'new-window') {
-                  if (result.matched) {
-                    // A real new window appeared in server state — clear optimistic
-                    // so the next assign() naturally drops the placeholder window.
-                    clearOptimistic = true;
-                  } else if (isOperationStale(context.optimisticOperation)) {
-                    // splitw+breakp never produced a new window within the stale
-                    // timeout. Drop the placeholder and surface the failure so the
-                    // user knows the click didn't take effect.
-                    clearOptimistic = true;
-                    enqueue(({ self }) => {
-                      self.send({
-                        type: 'SHOW_STATUS_MESSAGE',
-                        text: 'Failed to create tab',
-                      });
-                    });
-                  } else {
-                    // Not yet matched and not stale. Re-inject the placeholder into
-                    // transformed.windows so the tab stays visible while we wait —
-                    // other state updates (pane content, etc.) still apply normally.
-                    const placeholderId =
-                      context.optimisticOperation.prediction.placeholderWindowId;
-                    const existing = context.windows.find((w) => w.id === placeholderId);
-                    if (existing && !transformed.windows.some((w) => w.id === placeholderId)) {
-                      transformed.windows = [...transformed.windows, existing];
-                    }
-                  }
-                } else {
-                  clearOptimistic = true;
-                }
-              } else {
-                clearOptimistic = true;
-              }
-
-              // Prune stale key overrides for panes that no longer exist
-              const transformedPaneIds = new Set(transformed.panes.map((p) => p.tmuxId));
-              const staleOverrideKeys = Object.keys(newPaneKeyOverrides).filter(
-                (id) => !transformedPaneIds.has(id),
-              );
-              if (staleOverrideKeys.length > 0) {
-                newPaneKeyOverrides = { ...newPaneKeyOverrides };
-                for (const key of staleOverrideKeys) {
-                  delete newPaneKeyOverrides[key];
-                }
-              }
+              // Optimistic reconciliation moved out of XState — TmuxStore owns
+              // it now. By the time TMUX_MODEL_UPDATE fires, `event.model.derived`
+              // already includes any in-flight predicted patches, and
+              // `event.model.paneKeyOverrides` already maps freshly-confirmed
+              // real pane IDs back to their placeholder React keys. No
+              // placeholder reinjection, no stale-timeout dance, no
+              // position-tolerance heuristics in this handler.
 
               // Skip heavy structural computations when only content changed.
               // Compare pane count, window count, active window, and window names.
@@ -1060,23 +981,21 @@ export const appMachine = setup({
               }
 
               enqueue(
-                assign(({ context: ctx }) => ({
+                assign(({ context: ctx, event: ev }) => ({
                   ...transformed,
                   activePaneId: effectiveActivePaneId,
                   paneGroups,
                   floatPanes,
                   copyModeStates: updatedCopyModeStates,
                   lastUpdateTime: Date.now(),
-                  // Clear optimistic tracking when server confirms (or operation is stale).
-                  // Kept alive for split operations until the real pane appears.
-                  optimisticOperation: clearOptimistic ? null : ctx.optimisticOperation,
                   // Clear held resize preview only after resize drag ends.
                   // During active resize, keep the preview to avoid size jumps
                   // from intermediate %layout-change events.
                   resize: ctx.resizeActive ? ctx.resize : null,
                   groupSwitchDimOverrides: groupSwitchOverrides,
-                  // Stable React key overrides for morphed placeholders
-                  paneKeyOverrides: newPaneKeyOverrides,
+                  // Stable React key overrides for morphed placeholders —
+                  // owned by TmuxStore now, mirrored into context for selectors.
+                  paneKeyOverrides: ev.model.paneKeyOverrides,
                   // Track pane activation order (MRU) for navigation prediction
                   paneActivationOrder:
                     effectiveActivePaneId !== ctx.activePaneId
@@ -1288,99 +1207,22 @@ export const appMachine = setup({
               return;
             }
 
-            // Don't apply optimistic updates for swap commands during drag
-            // The drag machine already handles swaps optimistically
+            // Drag-time swaps: the drag machine already pre-shuffled pane
+            // positions for visual continuity. Skip the store's own predicted
+            // patch so we don't double-shuffle; the server reconcile will
+            // still confirm the swap and clear any in-flight op.
             const isDragging = context.drag !== null;
+            const skipPrediction = isDragging && /^(swap-pane|swapp)\b/.test(tail);
 
-            // Optimistic predictor parses single tmux commands; feed it the
-            // binding tail so split-window etc. are recognized through the
-            // select-pane prefix-pin.
-            const parsed = parseCommand(tail);
-            const prediction = parsed
-              ? calculatePrediction(
-                  parsed,
-                  context.panes,
-                  context.activePaneId,
-                  context.activeWindowId,
-                  command,
-                  context.paneActivationOrder,
-                  context.windows,
-                )
-              : null;
-
-            // Skip optimistic updates for swaps during drag (drag machine handles it)
-            const shouldApplyOptimistic =
-              prediction && !(isDragging && prediction.prediction.type === 'swap');
-
-            if (shouldApplyOptimistic && prediction) {
-              // Apply optimistic update directly to panes/activePaneId/windows
-              // Server state will overwrite when it arrives
-              let newPanes = context.panes;
-              let newActivePaneId = context.activePaneId;
-              let newActiveWindowId = context.activeWindowId;
-              let newWindows = context.windows;
-
-              switch (prediction.prediction.type) {
-                case 'split':
-                  newPanes = applySplitPrediction(
-                    context.panes,
-                    prediction.prediction,
-                    context.activeWindowId,
-                    context.defaultShell,
-                  );
-                  // New pane becomes active
-                  newActivePaneId = prediction.prediction.newPane.placeholderId;
-                  break;
-                case 'navigate':
-                  newActivePaneId = applyNavigatePrediction(prediction.prediction);
-                  break;
-                case 'swap':
-                  newPanes = applySwapPrediction(context.panes, prediction.prediction);
-                  break;
-                case 'new-window':
-                  newWindows = applyNewWindowPrediction(context.windows, prediction.prediction);
-                  break;
-                case 'select-window': {
-                  const result = applySelectWindowPrediction(prediction.prediction);
-                  newActiveWindowId = result.activeWindowId;
-                  newActivePaneId = result.activePaneId;
-                  break;
-                }
-              }
-
-              // Suppress layout animations during split/new-window: the placeholder
-              // pane key changes to the real tmux ID when server state arrives,
-              // causing React to unmount/remount. Disabling animations prevents
-              // the visible flicker. Re-enabled by the TMUX_STATE_UPDATE handler.
-              const suppressAnimations =
-                prediction.prediction.type === 'split' ||
-                prediction.prediction.type === 'new-window';
-
-              enqueue(
-                assign(({ context: ctx }) => ({
-                  optimisticOperation: prediction,
-                  panes: newPanes,
-                  windows: newWindows,
-                  activePaneId: newActivePaneId,
-                  activeWindowId: newActiveWindowId,
-                  enableAnimations: suppressAnimations ? false : ctx.enableAnimations,
-                  paneActivationOrder:
-                    newActivePaneId !== ctx.activePaneId
-                      ? updateActivationOrder(ctx.paneActivationOrder, newActivePaneId)
-                      : ctx.paneActivationOrder,
-                })),
-              );
-
-              // Immediately notify keyboard actor of new active pane so input
-              // targets the correct pane before tmux processes the command.
-              if (newActivePaneId !== context.activePaneId) {
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_ACTIVE_PANE' as const,
-                    paneId: newActivePaneId,
-                  }),
-                );
-              }
+            // Suppress layout animations for the duration of a Split / NewWindow
+            // dispatch — the placeholder→real-id swap in PaneLayout would
+            // otherwise transition the React key change as a fade-in/out. The
+            // post-confirm TMUX_MODEL_UPDATE re-enables animations naturally
+            // (the same `enableAnimations` settle path runs as before).
+            const isSplit = /^(split-window|splitw)\b/.test(tail);
+            const isNew = /^(new-window|neww)\b/.test(tail);
+            if (isSplit || isNew) {
+              enqueue(assign({ enableAnimations: false }));
             }
 
             // Track layout commands to suppress transient active pane changes
@@ -1388,11 +1230,17 @@ export const appMachine = setup({
               enqueue(assign({ lastLayoutCommandTime: Date.now() }));
             }
 
-            // Always send the command to tmux
+            // Dispatch through the TmuxStore — it parses the command into a
+            // typed op, applies the optimistic patch synchronously (TmuxStore
+            // subscribers see the new derived model immediately, including
+            // this XState machine which assigns context.panes/etc. on
+            // TMUX_MODEL_UPDATE), and forwards the command to the adapter.
+            // On a tmux rejection the patch is rolled back automatically.
             enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
+              sendTo('tmuxStore', {
+                type: 'DISPATCH_COMMAND' as const,
                 command,
+                skipPrediction,
               }),
             );
           }),
@@ -1892,10 +1740,20 @@ export const appMachine = setup({
             );
           }),
         },
-        // Queue any new state updates that arrive during animation
+        // Reconcile fresh server snapshots through the store even during the
+        // exit animation — the model needs to stay current so the post-anim
+        // pendingUpdate reflects the latest reality.
         TMUX_STATE_UPDATE: {
+          actions: sendTo('tmuxStore', ({ event }) => ({
+            type: 'RECONCILE_SERVER' as const,
+            state: event.state,
+          })),
+        },
+        // Queue any model updates that arrive during animation as a
+        // pending snapshot; the animation completion handler applies it.
+        TMUX_MODEL_UPDATE: {
           actions: enqueueActions(({ event, context, enqueue }) => {
-            const transformed = getCachedTransform(event);
+            const transformed = snapshotFromModel(event.model);
 
             // Skip spurious empty-pane states from the server
             if (transformed.panes.length === 0) return;
@@ -1928,16 +1786,17 @@ export const appMachine = setup({
             );
           }),
         },
-        // Still handle tmux commands during animation
+        // Still handle tmux commands during animation — go through the store
+        // so optimistic patches and rollback semantics are consistent.
         SEND_TMUX_COMMAND: {
-          actions: sendTo('tmux', ({ event, context }) => ({
-            type: 'SEND_COMMAND' as const,
+          actions: sendTo('tmuxStore', ({ event, context }) => ({
+            type: 'DISPATCH_COMMAND' as const,
             command: resolveWindowTarget(event.command, context.activeWindowId),
           })),
         },
         SEND_COMMAND: {
-          actions: sendTo('tmux', ({ event, context }) => ({
-            type: 'SEND_COMMAND' as const,
+          actions: sendTo('tmuxStore', ({ event, context }) => ({
+            type: 'DISPATCH_COMMAND' as const,
             command: resolveWindowTarget(event.command, context.activeWindowId),
           })),
         },

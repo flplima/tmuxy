@@ -32,6 +32,10 @@ import { createAdapter } from '../tmux/adapters';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createSizeActor } from './actors/sizeActor';
+import { createTmuxStoreActor } from './actors/tmuxStoreActor';
+import { makeTmuxStore } from '../tmux/store';
+import { toEffectAdapter } from '../tmux/effect';
+import { Effect } from 'effect';
 
 // ============================================
 // App Config (static flags passed via provider)
@@ -84,7 +88,6 @@ export {
   selectEnableAnimations,
   selectSuppressLayoutTransition,
   selectPaneKeyOverrides,
-  selectHasOptimisticOperation,
   selectGroupSwitchPaneIds,
   selectSessionName,
   selectKeyBindings,
@@ -133,11 +136,16 @@ export function AppProvider({
   adapter?: TmuxAdapter;
   config?: AppConfig;
 }) {
-  // Create adapter and actors once
+  // Create adapter, store, and actors once. The TmuxStore is the Tier-3
+  // client model — owns optimistic patches and reconciliation; the
+  // tmuxStoreActor bridges it into XState so the appMachine context stays
+  // a passive mirror of the store's derived snapshot.
   const actors = useMemo(() => {
     const adapter = externalAdapter ?? createAdapter();
+    const store = Effect.runSync(makeTmuxStore({ adapter: toEffectAdapter(adapter) }));
     return {
       tmuxActor: createTmuxActor(adapter),
+      tmuxStoreActor: createTmuxStoreActor(store),
       keyboardActor: createKeyboardActor(),
       sizeActor: createSizeActor(measureCharWidth),
     };

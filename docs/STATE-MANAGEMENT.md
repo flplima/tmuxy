@@ -152,8 +152,8 @@ The context holds all frontend state. Key fields:
 - `paneGroups: Record<string, PaneGroup>` — Pane group tabs (hidden windows)
 - `floatPanes: Record<string, FloatPaneState>` — Floating pane positions
 - `commandMode` — Client-side command prompt (`:` mode)
-- `optimisticOperation` — Pending optimistic update being reconciled
 - `paneActivationOrder` — Most-recently-used pane order
+- `paneKeyOverrides` — Real-pane-id → placeholder-id mapping (mirrored from TmuxStore so React keys stay stable across optimistic-placeholder → real-pane id swaps)
 - `charWidth`, `charHeight` — Monospace font dimensions (measured once)
 - `targetCols`, `targetRows` — Browser viewport in character units
 - `containerWidth`, `containerHeight` — Browser container pixel dimensions
@@ -176,17 +176,23 @@ The machine spawns three persistent actors:
 
 **`resizeMachine`** (`tmuxy-ui/src/machines/resize/resizeMachine.ts`) — Pane resize via divider dragging. States: `idle` and `resizing`. Tracks pixel delta, converts to character units, sends tmux `resize-pane` commands when delta >= 1 char. Throttles to avoid command spam.
 
-### Optimistic Updates
+### Optimistic Updates — TmuxClientModel (Tier 3)
 
-For operations where the user expects instant feedback (split, navigate, swap), the machine applies predicted state changes immediately:
+Optimistic state lives outside XState in a dedicated client model: `tmuxy-ui/src/tmux/store/`. The model splits server-confirmed state from in-flight predictions and replays predictions on top.
 
-1. Component sends a command (e.g., `splitw`)
-2. Machine stores an `optimisticOperation` with the predicted result
-3. Prediction functions (in `tmuxy-ui/src/machines/app/optimistic/predictions.ts`) update the context panes
-4. UI renders with predicted state instantly
-5. When the real `TMUX_STATE_UPDATE` arrives, `reconcileOptimisticUpdate()` validates the prediction
-6. If the prediction matched: operation cleared, server state confirmed
-7. If mismatch: console warning, server state overwrites the prediction
+| Concept              | Lives in                       | Purpose                                                                 |
+|----------------------|--------------------------------|-------------------------------------------------------------------------|
+| `committed`          | `TmuxClientModel.committed`    | Last server-confirmed snapshot (panes, windows, active*).               |
+| `ops`                | `TmuxClientModel.ops`          | Ordered log of in-flight optimistic operations.                         |
+| `derived`            | `TmuxClientModel.derived`      | `committed` with every `ops[i].patch` replayed in order. UI reads this. |
+| `paneKeyOverrides`   | `TmuxClientModel`              | Maps real pane IDs to placeholder IDs so React keys stay stable.        |
+
+A `TmuxOp` is a typed value, not a parsed command string. The store knows how to:
+1. **Predict** — `ops.ts`'s `predict(op, snapshot, ctx) → Patch | null` produces the patch applied on top of `committed`.
+2. **Dispatch** — `TmuxStore.dispatch(op)` runs predict → applies the patch → sends the command through the adapter → on `TmuxError` rolls the patch back.
+3. **Reconcile** — `TmuxStore.reconcile(serverState)` advances `committed`, runs each pending op's reconciler, drops matched/stale ones, recomputes `derived`.
+
+The XState `appMachine` is a thin bridge: `SEND_TMUX_COMMAND` routes to `tmuxStoreActor` → `store.dispatch`; `TMUX_STATE_UPDATE` routes to `tmuxStoreActor` → `store.reconcile`. Every model change fires a `TMUX_MODEL_UPDATE` event back to the parent, where context.panes/windows/activePaneId are mirrored from `model.derived`. The 600+ lines of split-anti-flicker, position-tolerance heuristics, and stale-timeout fallbacks that used to live inline in `appMachine.ts` are gone — the store owns all of it via pure reducers in `store/model.ts`.
 
 ### Keystroke-routing contract
 

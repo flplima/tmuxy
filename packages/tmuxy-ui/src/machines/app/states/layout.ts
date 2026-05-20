@@ -1,10 +1,15 @@
 /**
- * layout state — parallel state for panes, windows, focus, and optimistic ops.
+ * layout state — parallel state for panes, windows, and focus.
  *
  * Owns context fields: panes, windows, activeWindowId, activePaneId,
- * paneActivationOrder, lastActivePaneByWindow, optimisticOperation,
- * paneKeyOverrides, pendingSelectTabAt, pendingUpdate, lastLayoutCommandTime,
- * drag, resize, resizeActive, suppressLayoutTransition.
+ * paneActivationOrder, lastActivePaneByWindow, paneKeyOverrides,
+ * pendingSelectTabAt, pendingUpdate, lastLayoutCommandTime, drag, resize,
+ * resizeActive, suppressLayoutTransition.
+ *
+ * Optimistic operations no longer live here — they're owned by the
+ * Tier-3 TmuxStore (`src/tmux/store/`). The TMUX_MODEL_UPDATE handler
+ * mirrors the store's `derived` snapshot into context, so this state
+ * stays a passive view of the model.
  *
  * Migrated events (these spread into states.idle.on):
  *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
