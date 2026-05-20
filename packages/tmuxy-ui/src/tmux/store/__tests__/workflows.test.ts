@@ -589,10 +589,11 @@ describe('TmuxStore — clear (session switch)', () => {
     // Switch session → clear.
     const snaps: number[] = [];
     const unsub = store.subscribe((m) => snaps.push(m.committed.panes.length));
-    snaps.length = 0; // ignore the immediate "current" callback
-    store.subscribe; // (suppress unused-binding nit if any)
+    snaps.length = 0; // ignore the immediate "current" callback fired on subscribe
     await Effect.runPromise(store.clear());
     unsub();
+    // The clear should have fired exactly one notification with empty panes.
+    expect(snaps).toEqual([0]);
 
     const m = store.getModel();
     expect(m.committed.panes).toHaveLength(0);
