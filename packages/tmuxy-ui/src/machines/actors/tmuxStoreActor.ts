@@ -38,6 +38,14 @@ export type TmuxStoreActorEvent =
   | { type: 'RECONCILE_SERVER'; state: ServerState }
   /** Reset the store after a session-changed or initial-state full snapshot. */
   | { type: 'RESET_TO_SERVER'; state: ServerState }
+  /**
+   * Drop every pending op + committed/derived snapshot. Used on SWITCH_SESSION
+   * before the new session's first state-update arrives — without this, pending
+   * ops from the previous session would attempt to reconcile against the new
+   * one (different pane/window ids) and stale-timeout 2 seconds later instead
+   * of dropping immediately.
+   */
+  | { type: 'CLEAR' }
   /** Update the predict context (defaultShell or paneActivationOrder changed). */
   | {
       type: 'UPDATE_PREDICT_CONTEXT';
@@ -103,6 +111,11 @@ export function createTmuxStoreActor(store: TmuxStore) {
 
       if (event.type === 'RESET_TO_SERVER') {
         Effect.runSync(store.resetToServer(event.state));
+        return;
+      }
+
+      if (event.type === 'CLEAR') {
+        Effect.runSync(store.clear());
         return;
       }
 
