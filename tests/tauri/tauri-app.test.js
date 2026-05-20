@@ -158,6 +158,61 @@ describe('IPC Commands', () => {
     // The result should contain our session name
     expect(result).toContain(sessionName);
   });
+
+  // Regression for the "+ New Tab" button: the frontend dispatches
+  // SEND_TMUX_COMMAND with `new-window`, which routes through
+  // adapter.invoke('run_tmux_command'). On tmux 3.5a a bare external
+  // `tmux new-window` while control mode is attached crashes the server,
+  // so run_tmux_command must intercept and rewrite to `splitw ; breakp` —
+  // exactly like the SSE server does.
+  test('run_tmux_command rewrites new-window to splitw+breakp', async () => {
+    await setupApp();
+
+    expect(await getWindowCount(driver)).toBe(1);
+
+    await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
+    await waitForWindowCount(driver, 2);
+
+    expect(await getWindowCount(driver)).toBe(2);
+
+    // tmux server must still be alive — a crash would have killed it and
+    // run_tmux_command would now error.
+    const result = await invokeCommand(driver, 'run_tmux_command', {
+      command: 'display-message -p #{session_name}',
+    });
+    expect(result).toContain(sessionName);
+  });
+
+  // Regression for copy mode scrollback: without get_scrollback_cells the
+  // frontend's FETCH_SCROLLBACK_CELLS path errors silently, leaving the
+  // user staring at empty rows when scrolling up past the live viewport.
+  // Pre-fix, calling this command threw "Unknown command get_scrollback_cells"
+  // — the bug was the missing IPC binding, not the underlying parsing.
+  test('get_scrollback_cells is exposed and returns the expected shape', async () => {
+    await setupApp();
+
+    const state = await getAppState(driver);
+    const paneId = state.panes[0]?.tmuxId ?? '%0';
+    const result = await invokeCommand(driver, 'get_scrollback_cells', {
+      paneId,
+      start: -200,
+      end: -1,
+    });
+
+    // The frontend's FETCH_SCROLLBACK_CELLS handler asserts these fields
+    // (see tmuxActor.ts). If any are missing the copy-mode chunk-merge
+    // throws and the scrollback stays empty.
+    expect(result).toBeDefined();
+    expect(result.cells).toBeDefined();
+    expect(Array.isArray(result.cells)).toBe(true);
+    expect(typeof result.historySize).toBe('number');
+    expect(typeof result.start).toBe('number');
+    expect(typeof result.end).toBe('number');
+    expect(typeof result.width).toBe('number');
+    // The bug-3 invocation surface (an unknown command name) returns
+    // `{ __error: ... }` from invokeCommand's wrapper; assert no error.
+    expect(result.__error).toBeUndefined();
+  });
 });
 
 // ==================== Tauri-Specific Features ====================

@@ -114,9 +114,16 @@ fn apply_window_effects(window: &tauri::WebviewWindow) {
     let vibrancy = read_tmuxy_option("@tmuxy-vibrancy")
         .and_then(|s| parse_vibrancy(&s).map(|effect| (s, effect)));
 
-    // Apply vibrancy effect (macOS / Windows)
+    // Apply vibrancy effect (macOS / Windows). Pin the effect state to Active
+    // so the macOS blur stays applied when the window loses key focus. Without
+    // this, NSVisualEffectView defaults to FollowsWindowActiveState — switching
+    // away from the tmuxy window drops the blur and the configured @tmuxy-opacity
+    // backing, leaving the inactive window opaque.
     if let Some((ref name, effect)) = vibrancy {
-        let effects = tauri::window::EffectsBuilder::new().effect(effect).build();
+        let effects = tauri::window::EffectsBuilder::new()
+            .effect(effect)
+            .state(tauri::window::EffectState::Active)
+            .build();
         if let Err(e) = window.set_effects(Some(effects)) {
             eprintln!("Failed to set vibrancy effect: {}", e);
         } else {
@@ -1002,6 +1009,14 @@ pub fn run() {
             commands::execute_prefix_binding,
             commands::get_key_bindings,
             commands::get_keybindings_snapshot,
+            // Copy mode + themes (mirrors the SSE server's invoke surface so
+            // the React frontend's INVOKE / FETCH_SCROLLBACK_CELLS paths work
+            // identically under Tauri)
+            commands::get_scrollback_cells,
+            commands::get_theme_settings,
+            commands::set_theme,
+            commands::set_theme_mode,
+            commands::get_themes_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
