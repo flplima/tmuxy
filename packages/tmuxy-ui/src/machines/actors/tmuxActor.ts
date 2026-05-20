@@ -1,5 +1,10 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
+import { Cause, Effect, Exit } from 'effect';
 import type { TmuxAdapter, ServerState, KeyBindings } from '../../tmux/types';
+import {
+  toEffectAdapter,
+  type AdapterError,
+} from '../../tmux/effect';
 
 export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
@@ -16,17 +21,37 @@ export interface TmuxActorInput {
 }
 
 /**
+ * Convert a typed AdapterError into a human-readable string for logs and
+ * the status-line display. The structured `tagged` field stays available
+ * on the TMUX_ERROR event for consumers that want pattern matching.
+ */
+function adapterErrorToString(e: AdapterError): string {
+  switch (e._tag) {
+    case 'TmuxError':
+      return `${e.command}: ${e.stderr}`;
+    case 'TransportError':
+      return e.context ? `${e.context}: ${String(e.cause)}` : String(e.cause);
+    case 'ProtocolError':
+      return `protocol error: ${e.reason}`;
+    case 'Cancelled':
+      return e.reason ? `cancelled: ${e.reason}` : 'cancelled';
+  }
+}
+
+/**
  * Create a tmux actor with the given adapter.
  *
- * The actor handles SSE/HTTP or Tauri IPC communication:
- * - Connects on actor start
- * - Sends events to parent via parent.send()
- * - Receives commands from parent via receive callback
- * - Disconnects on actor stop
+ * Internally wraps the Promise-based adapter with an Effect-based facade
+ * (toEffectAdapter) so failures carry the AdapterError ADT instead of
+ * arbitrary string messages. Errors tunnel back to the parent machine as
+ * { type: 'TMUX_ERROR', error: <display string>, tagged: <AdapterError> }
+ * — consumers can switch on `tagged._tag` for typed handling and fall back
+ * to `error` for logging.
  */
 export function createTmuxActor(adapter: TmuxAdapter) {
   return fromCallback<TmuxActorEvent, TmuxActorInput>(({ input, receive }) => {
     const { parent } = input;
+    const eff = toEffectAdapter(adapter);
 
     const logInfo = (message: string) => parent.send({ type: 'LOG_APPEND', kind: 'info', message });
     const logCommand = (message: string) =>
@@ -34,9 +59,49 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     const logError = (message: string) =>
       parent.send({ type: 'LOG_APPEND', kind: 'error', message });
 
+    /**
+     * Run an Effect program, send typed errors to the parent, and invoke
+     * onSuccess on the resolved value. logPrefix attaches a context label
+     * to the LOG_APPEND error entry (e.g. command name) for debuggability.
+     *
+     * silentFail: skip tunneling the error to the parent (used for
+     * fire-and-forget operations like FETCH_SCROLLBACK_CELLS where a
+     * failed fetch shouldn't surface as a UI error).
+     */
+    const run = <T>(
+      effect: Effect.Effect<T, AdapterError>,
+      opts: {
+        onSuccess?: (value: T) => void;
+        logPrefix?: string;
+        silentFail?: boolean;
+      } = {},
+    ) => {
+      void Effect.runPromiseExit(effect).then((exit) => {
+        if (Exit.isSuccess(exit)) {
+          opts.onSuccess?.(exit.value);
+          return;
+        }
+        const failure = Cause.failureOption(exit.cause);
+        if (failure._tag !== 'Some') return;
+        const tagged = failure.value;
+        const display = adapterErrorToString(tagged);
+        if (opts.silentFail) {
+          console.error(
+            `[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`,
+            tagged._tag,
+            display,
+          );
+          return;
+        }
+        if (opts.logPrefix) logError(`${opts.logPrefix} -> ${display}`);
+        parent.send({ type: 'TMUX_ERROR', error: display, tagged });
+      });
+    };
+
     logInfo('Connecting to tmux backend...');
 
-    // Subscribe to adapter events
+    // Subscribe to adapter events (still callback-based — Phase E2 will
+    // convert SSE to Effect Stream for backpressure + structured cancellation).
     const unsubscribeState = adapter.onStateChange((state: ServerState) => {
       parent.send({ type: 'TMUX_STATE_UPDATE', state });
     });
@@ -65,50 +130,38 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       },
     );
 
-    // Connect to backend
-    adapter
-      .connect()
-      .then(() => {
+    run(eff.connect(), {
+      onSuccess: () => {
         logInfo('Connected to tmux backend');
         parent.send({ type: 'TMUX_CONNECTED' });
-      })
-      .catch((error) => {
-        const message = error?.message || String(error) || 'Failed to connect';
-        logError(`Connect failed: ${message}`);
-        parent.send({ type: 'TMUX_ERROR', error: message });
-      });
+      },
+      logPrefix: 'Connect failed',
+    });
 
-    // Handle commands from parent machine
     receive((event) => {
       if (event.type === 'SEND_COMMAND') {
         logCommand(event.command);
-        adapter.invoke<void>('run_tmux_command', { command: event.command }).catch((error) => {
-          const message = error?.message || String(error) || 'Command failed';
-          logError(`${event.command} -> ${message}`);
-          parent.send({ type: 'TMUX_ERROR', error: message });
+        run(eff.invoke<void>('run_tmux_command', { command: event.command }), {
+          logPrefix: event.command,
         });
       } else if (event.type === 'INVOKE') {
         logCommand(`${event.cmd}${event.args ? ' ' + JSON.stringify(event.args) : ''}`);
-        adapter.invoke(event.cmd, event.args || {}).catch((error) => {
-          const message = error?.message || String(error) || 'Invoke failed';
-          logError(`${event.cmd} -> ${message}`);
-          parent.send({ type: 'TMUX_ERROR', error: message });
-        });
+        run(eff.invoke(event.cmd, event.args || {}), { logPrefix: event.cmd });
       } else if (event.type === 'FETCH_INITIAL_STATE') {
         logCommand(`get_initial_state cols=${event.cols} rows=${event.rows}`);
-        adapter
-          .invoke<ServerState>('get_initial_state', { cols: event.cols, rows: event.rows })
-          .then((state) => {
-            parent.send({ type: 'TMUX_STATE_UPDATE', state });
-          })
-          .catch((error) => {
-            const message = error?.message || String(error) || 'Failed to fetch state';
-            logError(`get_initial_state -> ${message}`);
-            parent.send({ type: 'TMUX_ERROR', error: message });
-          });
+        run(
+          eff.invoke<ServerState>('get_initial_state', {
+            cols: event.cols,
+            rows: event.rows,
+          }),
+          {
+            onSuccess: (state) => parent.send({ type: 'TMUX_STATE_UPDATE', state }),
+            logPrefix: 'get_initial_state',
+          },
+        );
       } else if (event.type === 'FETCH_SCROLLBACK_CELLS') {
-        adapter
-          .invoke<{
+        run(
+          eff.invoke<{
             cells: import('../../tmux/types').PaneContent;
             historySize: number;
             start: number;
@@ -118,76 +171,79 @@ export function createTmuxActor(adapter: TmuxAdapter) {
             paneId: event.paneId,
             start: event.start,
             end: event.end,
-          })
-          .then((result) => {
-            parent.send({
-              type: 'COPY_MODE_CHUNK_LOADED',
-              paneId: event.paneId,
-              cells: result.cells,
-              start: result.start,
-              end: result.end,
-              historySize: result.historySize,
-              width: result.width,
-            });
-          })
-          .catch((error) => {
-            console.error('[tmuxActor] Fetch scrollback cells failed:', error);
-          });
+          }),
+          {
+            onSuccess: (result) => {
+              parent.send({
+                type: 'COPY_MODE_CHUNK_LOADED',
+                paneId: event.paneId,
+                cells: result.cells,
+                start: result.start,
+                end: result.end,
+                historySize: result.historySize,
+                width: result.width,
+              });
+            },
+            logPrefix: 'get_scrollback_cells',
+            silentFail: true,
+          },
+        );
       } else if (event.type === 'FETCH_THEME_SETTINGS') {
-        adapter
-          .invoke<{ theme: string; mode: string }>('get_theme_settings', {})
-          .then((result) => {
-            parent.send({
-              type: 'THEME_SETTINGS_RECEIVED',
-              theme: result.theme || 'default',
-              mode: (result.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light',
-            });
-          })
-          .catch((error) => {
-            console.error('[tmuxActor] Fetch theme settings failed:', error);
-          });
+        run(
+          eff.invoke<{ theme: string; mode: string }>('get_theme_settings', {}),
+          {
+            onSuccess: (result) => {
+              parent.send({
+                type: 'THEME_SETTINGS_RECEIVED',
+                theme: result.theme || 'default',
+                mode: (result.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light',
+              });
+            },
+            logPrefix: 'get_theme_settings',
+            silentFail: true,
+          },
+        );
       } else if (event.type === 'FETCH_THEMES_LIST') {
-        adapter
-          .invoke<Array<{ name: string; displayName: string }>>('get_themes_list', {})
-          .then((themes) => {
-            parent.send({ type: 'THEMES_LIST_RECEIVED', themes: themes || [] });
-          })
-          .catch((error) => {
-            console.error('[tmuxActor] Fetch themes list failed:', error);
-          });
+        run(
+          eff.invoke<Array<{ name: string; displayName: string }>>('get_themes_list', {}),
+          {
+            onSuccess: (themes) =>
+              parent.send({ type: 'THEMES_LIST_RECEIVED', themes: themes || [] }),
+            logPrefix: 'get_themes_list',
+            silentFail: true,
+          },
+        );
       } else if (event.type === 'SWITCH_SESSION') {
-        if (adapter.switchSession) {
-          adapter.switchSession(event.sessionName).catch((error) => {
-            parent.send({
-              type: 'TMUX_ERROR',
-              error: error.message || 'Session switch failed',
-            });
-          });
-        }
+        run(eff.switchSession(event.sessionName), {
+          logPrefix: `switch-session ${event.sessionName}`,
+        });
       } else if (event.type === 'CHECK_SESSION_SWITCH') {
-        adapter
-          .invoke<string>('run_tmux_command', { command: 'show-environment -g TMUXY_SWITCH_TO' })
-          .then((result) => {
-            const str = String(result);
-            const match = str.match(/TMUXY_SWITCH_TO=(.+)/);
-            if (match) {
+        run(
+          eff.invoke<string>('run_tmux_command', {
+            command: 'show-environment -g TMUXY_SWITCH_TO',
+          }),
+          {
+            onSuccess: (result) => {
+              const str = String(result);
+              const match = str.match(/TMUXY_SWITCH_TO=(.+)/);
+              if (!match) return;
               const sessionName = match[1].trim();
               parent.send({ type: 'SESSION_SWITCH_REQUESTED', sessionName });
-              // Clear the env var
-              adapter
-                .invoke('run_tmux_command', {
+              // Clear the env var (fire-and-forget)
+              run(
+                eff.invoke('run_tmux_command', {
                   command: 'set-environment -g -u TMUXY_SWITCH_TO',
-                })
-                .catch(() => {});
-            }
-          })
-          .catch(() => {
-            // Env var not set — no session switch pending
-          });
+                }),
+                { silentFail: true, logPrefix: 'clear TMUXY_SWITCH_TO' },
+              );
+            },
+            silentFail: true,
+            logPrefix: 'check session switch',
+          },
+        );
       }
     });
 
-    // Cleanup on actor stop
     return () => {
       unsubscribeState();
       unsubscribeError();

@@ -25,6 +25,7 @@
     "@xstate/react": "^6.0.0",
     "anser": "^2.3.5",
     "ansi-to-html": "^0.7.2",
+    "effect": "^3.21.2",
     "mermaid": "^11.12.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
