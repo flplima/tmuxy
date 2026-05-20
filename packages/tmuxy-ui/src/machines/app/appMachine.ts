@@ -446,6 +446,11 @@ export const appMachine = setup({
             enableAnimations: false,
           }),
         );
+        // Drop any pending ops + committed state — they belong to the
+        // previous session's pane/window ids. Without this the store would
+        // try to reconcile the new session's first snapshot against the old
+        // one and stale-timeout the orphaned ops 2 seconds later.
+        enqueue(sendTo('tmuxStore', { type: 'CLEAR' as const }));
         enqueue(
           sendTo('tmux', {
             type: 'SWITCH_SESSION' as const,

@@ -110,6 +110,13 @@ export interface TmuxStore {
   /** Force a reset to a fresh server snapshot, dropping any pending ops. */
   readonly resetToServer: (state: ServerState) => Effect.Effect<void>;
 
+  /**
+   * Drop everything (committed, ops, paneKeyOverrides). Used on session
+   * switch when we don't yet have a new server snapshot to reset against —
+   * the store starts empty and rebuilds on the next reconcile.
+   */
+  readonly clear: () => Effect.Effect<void>;
+
   /** Per-op cancellation hook for use cases like resize drag-end. */
   readonly cancelOp: (opId: OpId) => Effect.Effect<void>;
 
@@ -233,6 +240,12 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
         return result.rolledBack;
       });
 
+    const clear = (): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        yield* Ref.set(ref, EMPTY_MODEL);
+        notify(EMPTY_MODEL);
+      });
+
     const resetToServer = (state: ServerState): Effect.Effect<void> =>
       Effect.gen(function* () {
         const snapshot = serverStateToSnapshot(state);
@@ -276,6 +289,7 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
       dispatchCommand,
       reconcile,
       resetToServer,
+      clear,
       cancelOp,
       subscribe,
       setPredictContext,

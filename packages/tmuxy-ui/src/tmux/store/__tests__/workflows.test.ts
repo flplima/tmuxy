@@ -569,7 +569,42 @@ describe('TmuxStore — typed errors', () => {
 });
 
 // ============================================
-// 7. canonical toTmuxCommand for ops constructed in code
+// 7. clear() drops everything (session switch)
+// ============================================
+
+describe('TmuxStore — clear (session switch)', () => {
+  it('drops committed + pending ops and notifies subscribers', async () => {
+    const fake = makeFakeAdapter();
+    const store = await Effect.runPromise(
+      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
+    );
+
+    // Seed the store with a session, then dispatch an in-flight op.
+    await Effect.runPromise(store.reconcile(serverState()));
+    fake.setNextResult({ kind: 'ok', value: undefined });
+    await Effect.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
+    expect(store.getModel().committed.panes).toHaveLength(1);
+    expect(store.getModel().ops).toHaveLength(1);
+
+    // Switch session → clear.
+    const snaps: number[] = [];
+    const unsub = store.subscribe((m) => snaps.push(m.committed.panes.length));
+    snaps.length = 0; // ignore the immediate "current" callback
+    store.subscribe; // (suppress unused-binding nit if any)
+    await Effect.runPromise(store.clear());
+    unsub();
+
+    const m = store.getModel();
+    expect(m.committed.panes).toHaveLength(0);
+    expect(m.committed.windows).toHaveLength(0);
+    expect(m.ops).toHaveLength(0);
+    expect(m.derived.panes).toHaveLength(0);
+    expect(Object.keys(m.paneKeyOverrides)).toHaveLength(0);
+  });
+});
+
+// ============================================
+// 8. canonical toTmuxCommand for ops constructed in code
 // ============================================
 
 describe('TmuxStore — toTmuxCommand fallback for in-code ops', () => {
