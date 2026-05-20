@@ -222,8 +222,7 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
     const dispatchCommand = (
       command: string,
       opts?: DispatchOptions,
-    ): Effect.Effect<OpId, OpError> =>
-      dispatch(parseCommandToOp(command), { ...opts, command });
+    ): Effect.Effect<OpId, OpError> => dispatch(parseCommandToOp(command), { ...opts, command });
 
     const reconcile = (state: ServerState): Effect.Effect<ReadonlyArray<RollbackEntry>> =>
       Effect.gen(function* () {
