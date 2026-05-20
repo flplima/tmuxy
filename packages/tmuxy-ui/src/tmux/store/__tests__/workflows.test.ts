@@ -623,3 +623,170 @@ describe('TmuxStore — toTmuxCommand fallback for in-code ops', () => {
     expect(fake.invocations[0]).toContain('select-window -t 3');
   });
 });
+
+// ============================================
+// 9. tmux output positions are honored (sanity)
+// ============================================
+
+describe('Op predictions — tmux-output shape', () => {
+  // Tmux pane positions and sizes are integer cell counts (not pixels).
+  // Splits divide the existing pane in half with a single-cell separator.
+  // These tests pin our prediction to that contract so we'd catch any
+  // drift in the math (e.g., off-by-one in separator handling).
+
+  it('vertical split (-h) places the new pane to the right with a 1-cell separator', () => {
+    const m = modelFromSnapshot({
+      panes: [
+        {
+          id: 0,
+          tmuxId: '%0',
+          windowId: '@0',
+          content: [],
+          cursorX: 0,
+          cursorY: 0,
+          width: 80,
+          height: 24,
+          x: 0,
+          y: 0,
+          active: true,
+          command: 'bash',
+          title: '',
+          borderTitle: '',
+          inMode: false,
+          copyCursorX: 0,
+          copyCursorY: 0,
+          alternateOn: false,
+          mouseAnyFlag: false,
+          paused: false,
+          historySize: 0,
+          selectionPresent: false,
+          selectionStartX: 0,
+          selectionStartY: 0,
+          cursorShape: 0,
+          cursorHidden: false,
+        },
+      ],
+      windows: [
+        {
+          id: '@0',
+          index: 0,
+          name: 'main',
+          active: true,
+          isPaneGroupWindow: false,
+          paneGroupPaneIds: null,
+          isFloatWindow: false,
+          floatPaneId: null,
+        },
+      ],
+      activePaneId: '%0',
+      activeWindowId: '@0',
+      totalWidth: 80,
+      totalHeight: 24,
+      statusLine: '',
+      sessionName: 'tmuxy',
+    });
+    const r = predict(
+      { _tag: 'Split', direction: 'vertical' },
+      m.committed,
+      { defaultShell: 'bash', paneActivationOrder: [] },
+      'opV',
+    )!;
+    const next = r.patch(m.committed);
+    const placeholder = next.panes.find((p) => p.tmuxId.startsWith('__placeholder_'))!;
+    const original = next.panes.find((p) => p.tmuxId === '%0')!;
+    // 80 - floor(80/2) - 1 = 39 for the existing, 40 for the placeholder.
+    expect(original.width).toBe(39);
+    expect(placeholder.width).toBe(40);
+    // Placeholder starts at original.width + 1 (separator cell).
+    expect(placeholder.x).toBe(original.x + original.width + 1);
+    // Heights are unchanged in a vertical split.
+    expect(placeholder.height).toBe(original.height);
+    expect(placeholder.y).toBe(original.y);
+  });
+
+  it('NewWindow prediction lands at max(index) + 1', () => {
+    const m = modelFromSnapshot({
+      panes: [],
+      windows: [
+        {
+          id: '@5',
+          index: 5,
+          name: 'a',
+          active: true,
+          isPaneGroupWindow: false,
+          paneGroupPaneIds: null,
+          isFloatWindow: false,
+          floatPaneId: null,
+        },
+        {
+          id: '@7',
+          index: 7,
+          name: 'b',
+          active: false,
+          isPaneGroupWindow: false,
+          paneGroupPaneIds: null,
+          isFloatWindow: false,
+          floatPaneId: null,
+        },
+      ],
+      activePaneId: null,
+      activeWindowId: '@5',
+      totalWidth: 80,
+      totalHeight: 24,
+      statusLine: '',
+      sessionName: 'tmuxy',
+    });
+    const r = predict(
+      { _tag: 'NewWindow' },
+      m.committed,
+      { defaultShell: 'bash', paneActivationOrder: [] },
+      'opNW',
+    )!;
+    const next = r.patch(m.committed);
+    const newWin = next.windows.find((w) => w.id.startsWith('__placeholder_'))!;
+    // Should land at 8 (max(5,7) + 1), matching tmux's "first available index after max".
+    expect(newWin.index).toBe(8);
+  });
+
+  it('reconcile after sessionName change still cleanly matches new ops', async () => {
+    const fake = makeFakeAdapter();
+    const store = await Effect.runPromise(
+      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
+    );
+    // Session A
+    await Effect.runPromise(store.reconcile(serverState({ session_name: 'A' })));
+    // Clear (e.g. SWITCH_SESSION).
+    await Effect.runPromise(store.clear());
+    // Session B arrives — different ids reused.
+    await Effect.runPromise(
+      store.reconcile(
+        serverState({
+          session_name: 'B',
+          panes: [serverPane({ tmux_id: '%0', active: true })],
+          active_pane_id: '%0',
+        }),
+      ),
+    );
+    expect(store.getModel().committed.sessionName).toBe('B');
+    expect(store.getModel().ops).toHaveLength(0);
+
+    // A fresh dispatch in session B reconciles normally.
+    fake.setNextResult({ kind: 'ok', value: undefined });
+    await Effect.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
+    expect(store.getModel().ops).toHaveLength(1);
+    await Effect.runPromise(
+      store.reconcile(
+        serverState({
+          session_name: 'B',
+          panes: [
+            serverPane({ tmux_id: '%0', x: 0, width: 39 }),
+            serverPane({ tmux_id: '%1', x: 40, width: 40, active: true }),
+          ],
+          active_pane_id: '%1',
+        }),
+      ),
+    );
+    expect(store.getModel().ops).toHaveLength(0);
+    expect(store.getModel().committed.panes).toHaveLength(2);
+  });
+});
