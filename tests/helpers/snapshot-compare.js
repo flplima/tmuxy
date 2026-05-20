@@ -434,10 +434,12 @@ function compareSnapshots(ui, tmux) {
       const contentErrors = [];
       for (const uiPane of ui.panes) {
         // Compare non-empty content lines only, ignoring vertical position.
-        // During resize events, capture-pane and %output can race, causing
-        // the VT100 terminal to have content at a different row offset than
-        // tmux's current state. We verify that the SAME non-empty text lines
-        // exist in both sides (a "semantic" content match).
+        // The UI's vt100 emulator may retain prior redraws (e.g. a bash
+        // prompt that repainted itself once its async git-status hook
+        // returned) that tmux's `capture-pane -p` no longer shows. Treat
+        // tmux's lines as the required floor: every line tmux thinks is
+        // visible must also appear in the UI, IN ORDER. Extra leading
+        // lines in the UI are tolerated.
         const getNonEmpty = (lines) => {
           const seen = new Set();
           return (lines || [])
@@ -451,11 +453,30 @@ function compareSnapshots(ui, tmux) {
         const uiNonEmpty = getNonEmpty(ui.paneContent[uiPane.tmuxId]);
         const tmuxNonEmpty = getNonEmpty(tmux.paneContent[uiPane.tmuxId]);
 
-        if (uiNonEmpty.join('\n') !== tmuxNonEmpty.join('\n')) {
+        // Walk tmux's lines, advancing through UI's lines and looking for
+        // each one in order. A missing tmux line is a real content
+        // divergence; unmatched UI lines (extra redraws / scrollback) are OK.
+        let uiIdx = 0;
+        const missing = [];
+        for (const tline of tmuxNonEmpty) {
+          let found = false;
+          while (uiIdx < uiNonEmpty.length) {
+            if (uiNonEmpty[uiIdx] === tline) {
+              found = true;
+              uiIdx++;
+              break;
+            }
+            uiIdx++;
+          }
+          if (!found) missing.push(tline);
+        }
+
+        if (missing.length > 0) {
           contentErrors.push(
-            `${uiPane.tmuxId}: content mismatch\n` +
-            `      UI:   ${JSON.stringify(uiNonEmpty)}\n` +
-            `      tmux: ${JSON.stringify(tmuxNonEmpty)}`
+            `${uiPane.tmuxId}: tmux lines not found in UI (in order)\n` +
+              `      missing: ${JSON.stringify(missing)}\n` +
+              `      UI:      ${JSON.stringify(uiNonEmpty)}\n` +
+              `      tmux:    ${JSON.stringify(tmuxNonEmpty)}`,
           );
         }
       }
