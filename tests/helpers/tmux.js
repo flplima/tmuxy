@@ -62,7 +62,9 @@ function captureTmuxSnapshot(sessionName) {
   if (!fs.existsSync(binaryPath)) {
     binaryPath = captureScriptDebug;
     if (!fs.existsSync(binaryPath)) {
-      throw new Error('tmux-capture binary not found. Run: cargo build -p tmuxy-core --bin tmux-capture');
+      throw new Error(
+        'tmux-capture binary not found. Run: cargo build -p tmuxy-core --bin tmux-capture',
+      );
     }
   }
 

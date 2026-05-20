@@ -95,7 +95,9 @@ async function waitForAppReady(driver, timeout = 30000) {
   while (Date.now() - start < timeout) {
     const hasContent = await driver.execute(() => {
       const logs = document.querySelectorAll('[role="log"]');
-      const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+      const content = Array.from(logs)
+        .map((l) => l.textContent || '')
+        .join('\n');
       return content.length > 5 && /[$#%>❯]/.test(content);
     });
     if (hasContent) return;
@@ -131,7 +133,9 @@ async function waitForXState(driver, timeout = 15000) {
 async function getTerminalText(driver) {
   return driver.execute(() => {
     const logs = document.querySelectorAll('[role="log"]');
-    return Array.from(logs).map(l => l.textContent || '').join('\n');
+    return Array.from(logs)
+      .map((l) => l.textContent || '')
+      .join('\n');
   });
 }
 
@@ -151,7 +155,7 @@ async function waitForTerminalText(driver, text, timeout = 15000) {
   }
   const content = await getTerminalText(driver);
   throw new Error(
-    `Timeout waiting for "${text}" in terminal (${timeout}ms). Content: "${content.slice(0, 200)}"`
+    `Timeout waiting for "${text}" in terminal (${timeout}ms). Content: "${content.slice(0, 200)}"`,
   );
 }
 
@@ -196,7 +200,7 @@ async function pressKey(driver, key) {
  * @param {string[]} keys - Array of key names, e.g. ['Control', 'a']
  */
 async function sendKeyCombo(driver, ...keys) {
-  const codes = keys.map(k => KEYS[k] || k);
+  const codes = keys.map((k) => KEYS[k] || k);
   await driver.keys(codes);
   await driver.pause(100);
 }
@@ -215,14 +219,14 @@ async function getAppState(driver) {
     return {
       sessionName: ctx.sessionName,
       adapterType: '__TAURI_INTERNALS__' in window ? 'tauri' : 'http',
-      panes: ctx.panes?.map(p => ({
+      panes: ctx.panes?.map((p) => ({
         id: p.tmuxId,
         windowId: p.windowId,
         active: p.active,
         width: p.width,
         height: p.height,
       })),
-      windows: ctx.windows?.map(w => ({
+      windows: ctx.windows?.map((w) => ({
         id: w.id,
         index: w.index,
         name: w.name,
@@ -246,7 +250,7 @@ async function getPaneCount(driver) {
     const snap = window.app?.getSnapshot();
     if (!snap?.context) return 0;
     const ctx = snap.context;
-    return ctx.panes?.filter(p => p.windowId === ctx.activeWindowId).length || 0;
+    return ctx.panes?.filter((p) => p.windowId === ctx.activeWindowId).length || 0;
   });
 }
 
@@ -260,7 +264,7 @@ async function getWindowCount(driver) {
   return driver.execute(() => {
     const snap = window.app?.getSnapshot();
     if (!snap?.context) return 0;
-    return snap.context.windows?.filter(w => w.windowType === "tab").length || 0;
+    return snap.context.windows?.filter((w) => w.windowType === 'tab').length || 0;
   });
 }
 
@@ -277,8 +281,9 @@ async function invokeCommand(driver, command, args = {}) {
   // execute/sync endpoint doesn't support async functions in WebKitWebDriver.
   return driver.executeAsync(
     (cmd, a, done) => {
-      window.__TAURI_INTERNALS__?.invoke(cmd, a)
-        .then(result => {
+      window.__TAURI_INTERNALS__
+        ?.invoke(cmd, a)
+        .then((result) => {
           if (result == null) return done(null);
           // Sanitize control characters (U+0000–U+001F) that break WebDriver JSON
           if (typeof result === 'string') {
@@ -286,10 +291,10 @@ async function invokeCommand(driver, command, args = {}) {
           }
           done(JSON.parse(JSON.stringify(result)));
         })
-        .catch(e => done({ __error: e?.message || String(e) }));
+        .catch((e) => done({ __error: e?.message || String(e) }));
     },
     command,
-    args
+    args,
   );
 }
 

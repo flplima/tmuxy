@@ -39,26 +39,33 @@ async function getTmuxState(page) {
   try {
     // Get windows: id, index, name, active, type. Filter to tab-typed only.
     const winRaw = tmuxQuery(
-      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}"`
+      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}"`,
     );
-    const windows = winRaw.split('\n').filter(Boolean).map(line => {
-      const [id, index, name, active, windowType] = line.split('|');
-      return { id, index: parseInt(index, 10), name, active: active === '1', windowType };
-    }).filter(w => w.windowType === 'tab');
+    const windows = winRaw
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [id, index, name, active, windowType] = line.split('|');
+        return { id, index: parseInt(index, 10), name, active: active === '1', windowType };
+      })
+      .filter((w) => w.windowType === 'tab');
 
     // Get panes for active window: id, active, cols, rows
     const paneRaw = tmuxQuery(
-      `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_active}|#{pane_width}|#{pane_height}"`
+      `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_active}|#{pane_width}|#{pane_height}"`,
     );
-    const panes = paneRaw.split('\n').filter(Boolean).map(line => {
-      const [id, active, width, height] = line.split('|');
-      return {
-        id,
-        active: active === '1',
-        width: parseInt(width, 10),
-        height: parseInt(height, 10),
-      };
-    });
+    const panes = paneRaw
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [id, active, width, height] = line.split('|');
+        return {
+          id,
+          active: active === '1',
+          width: parseInt(width, 10),
+          height: parseInt(height, 10),
+        };
+      });
 
     // Note: Pane content comparison (capture-pane vs DOM) is omitted because
     // capture-pane and DOM rendering are inherently racy — the content is
@@ -87,12 +94,12 @@ async function getUIState(page) {
 
     // Windows (only tab-typed)
     const windows = (ctx.windows || [])
-      .filter(w => w.windowType === 'tab')
-      .map(w => ({ id: w.id, index: w.index, name: w.name, active: w.active }));
+      .filter((w) => w.windowType === 'tab')
+      .map((w) => ({ id: w.id, index: w.index, name: w.name, active: w.active }));
 
     // Panes in active window
-    const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
-    const panes = visiblePanes.map(p => ({
+    const visiblePanes = (ctx.panes || []).filter((p) => p.windowId === ctx.activeWindowId);
+    const panes = visiblePanes.map((p) => ({
       id: p.tmuxId,
       active: p.active,
       width: p.width,
@@ -103,13 +110,18 @@ async function getUIState(page) {
     const content = {};
     for (const pane of visiblePanes) {
       const el = document.querySelector(`[data-pane-id="${pane.tmuxId}"] .terminal-content`);
-      if (!el) { content[pane.tmuxId] = []; continue; }
+      if (!el) {
+        content[pane.tmuxId] = [];
+        continue;
+      }
       const lines = [];
-      el.querySelectorAll('.terminal-line').forEach(lineEl => {
+      el.querySelectorAll('.terminal-line').forEach((lineEl) => {
         let text = '';
         const spans = lineEl.querySelectorAll('span');
         if (spans.length > 0) {
-          spans.forEach(s => { text += s.textContent || ''; });
+          spans.forEach((s) => {
+            text += s.textContent || '';
+          });
         } else {
           text = lineEl.textContent || '';
         }
@@ -142,9 +154,7 @@ function compareState(tmux, ui, options = {}) {
 
   // --- Windows ---
   if (tmux.windows.length !== ui.windows.length) {
-    errors.push(
-      `Window count: tmux=${tmux.windows.length}, ui=${ui.windows.length}`
-    );
+    errors.push(`Window count: tmux=${tmux.windows.length}, ui=${ui.windows.length}`);
   } else {
     for (let i = 0; i < tmux.windows.length; i++) {
       const tw = tmux.windows[i];
@@ -159,17 +169,15 @@ function compareState(tmux, ui, options = {}) {
   }
 
   // --- Panes ---
-  const tmuxPaneIds = tmux.panes.map(p => p.id).sort();
-  const uiPaneIds = ui.panes.map(p => p.id).sort();
+  const tmuxPaneIds = tmux.panes.map((p) => p.id).sort();
+  const uiPaneIds = ui.panes.map((p) => p.id).sort();
 
   if (tmuxPaneIds.join(',') !== uiPaneIds.join(',')) {
-    errors.push(
-      `Pane IDs differ: tmux=[${tmuxPaneIds}], ui=[${uiPaneIds}]`
-    );
+    errors.push(`Pane IDs differ: tmux=[${tmuxPaneIds}], ui=[${uiPaneIds}]`);
   } else {
     // Pane IDs match — compare properties per pane
     for (const tmuxPane of tmux.panes) {
-      const uiPane = ui.panes.find(p => p.id === tmuxPane.id);
+      const uiPane = ui.panes.find((p) => p.id === tmuxPane.id);
       if (!uiPane) continue; // shouldn't happen since IDs match
 
       if (tmuxPane.active !== uiPane.active) {
@@ -216,8 +224,8 @@ function compareState(tmux, ui, options = {}) {
         if (diffLineCount <= 3) {
           errors.push(
             `Pane ${tmuxPane.id} line ${i} (${charDiffs} chars differ):\n` +
-            `    tmux: ${JSON.stringify(tLine.slice(0, 80))}\n` +
-            `    ui:   ${JSON.stringify(uLine.slice(0, 80))}`
+              `    tmux: ${JSON.stringify(tLine.slice(0, 80))}\n` +
+              `    ui:   ${JSON.stringify(uLine.slice(0, 80))}`,
           );
         }
       }
@@ -247,7 +255,9 @@ async function assertStateMatches(page, options = {}) {
   try {
     const url = page.url();
     if (url === 'about:blank') return;
-  } catch { return; }
+  } catch {
+    return;
+  }
 
   let lastErrors = null;
 
@@ -255,10 +265,7 @@ async function assertStateMatches(page, options = {}) {
     if (attempt > 0) await delay(retryDelay);
 
     try {
-      const [tmux, ui] = await Promise.all([
-        getTmuxState(page),
-        getUIState(page),
-      ]);
+      const [tmux, ui] = await Promise.all([getTmuxState(page), getUIState(page)]);
 
       if (!tmux || !ui) return; // can't compare, skip silently
 
@@ -274,7 +281,7 @@ async function assertStateMatches(page, options = {}) {
 
   throw new Error(
     `State mismatch (${lastErrors.length} difference(s) after ${retries} attempts):\n` +
-    lastErrors.map(e => `  - ${e}`).join('\n')
+      lastErrors.map((e) => `  - ${e}`).join('\n'),
   );
 }
 
@@ -306,7 +313,7 @@ async function verifyDomSizes(page, options = {}) {
     const { charWidth, charHeight, panes, totalWidth, totalHeight, activeWindowId } = app;
 
     // Filter to visible panes in active window
-    const visiblePanes = (panes || []).filter(p => p.windowId === activeWindowId);
+    const visiblePanes = (panes || []).filter((p) => p.windowId === activeWindowId);
 
     // Get actual DOM element sizes — use .pane-layout-item selector to get the
     // positioned container (not the inner .pane-wrapper which may have different sizing)
@@ -340,12 +347,14 @@ async function verifyDomSizes(page, options = {}) {
       domPanes,
       totalWidth,
       totalHeight,
-      containerRect: containerRect ? {
-        width: containerRect.width,
-        height: containerRect.height,
-        x: containerRect.x,
-        y: containerRect.y,
-      } : null,
+      containerRect: containerRect
+        ? {
+            width: containerRect.width,
+            height: containerRect.height,
+            x: containerRect.x,
+            y: containerRect.y,
+          }
+        : null,
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
     };
@@ -363,9 +372,9 @@ async function verifyDomSizes(page, options = {}) {
   // the tmux session dimensions. Instead, verify proportional relationships.
 
   const matchedPanes = uiState.panes
-    .map(pane => ({
+    .map((pane) => ({
       pane,
-      dom: uiState.domPanes.find(p => p.paneId === pane.tmuxId),
+      dom: uiState.domPanes.find((p) => p.paneId === pane.tmuxId),
     }))
     .filter(({ dom }) => dom != null);
 
@@ -389,13 +398,13 @@ async function verifyDomSizes(page, options = {}) {
       if (a.pane.width >= b.pane.width * 2 && a.dom.domWidth < b.dom.domWidth) {
         errors.push(
           `Pane ${a.pane.tmuxId} (${a.pane.width} cols) should be wider than ` +
-          `${b.pane.tmuxId} (${b.pane.width} cols), but DOM shows ${a.dom.domWidth.toFixed(0)} < ${b.dom.domWidth.toFixed(0)}`
+            `${b.pane.tmuxId} (${b.pane.width} cols), but DOM shows ${a.dom.domWidth.toFixed(0)} < ${b.dom.domWidth.toFixed(0)}`,
         );
       }
       if (b.pane.width >= a.pane.width * 2 && b.dom.domWidth < a.dom.domWidth) {
         errors.push(
           `Pane ${b.pane.tmuxId} (${b.pane.width} cols) should be wider than ` +
-          `${a.pane.tmuxId} (${a.pane.width} cols), but DOM shows ${b.dom.domWidth.toFixed(0)} < ${a.dom.domWidth.toFixed(0)}`
+            `${a.pane.tmuxId} (${a.pane.width} cols), but DOM shows ${b.dom.domWidth.toFixed(0)} < ${a.dom.domWidth.toFixed(0)}`,
         );
       }
     }
@@ -487,10 +496,7 @@ async function withConsistencyChecks(ctx, operation, options = {}) {
   // Compare structural state (tmux vs UI)
   if (!skipSnapshot && ctx.page) {
     try {
-      const [tmux, ui] = await Promise.all([
-        getTmuxState(ctx.page),
-        getUIState(ctx.page),
-      ]);
+      const [tmux, ui] = await Promise.all([getTmuxState(ctx.page), getUIState(ctx.page)]);
       if (tmux && ui) {
         const result = compareState(tmux, ui);
         snapshotResult = {
@@ -556,9 +562,10 @@ function assertConsistencyPasses(result, options = {}) {
     if (nodeFlickers > threshold) {
       failures.push(
         `Flicker detected (${nodeFlickers} events, threshold: ${threshold}):\n` +
-        result.glitch.flickers.slice(0, 3).map(f =>
-          `  - ${f.element}: ${f.sequence.map(s => s.type).join(' -> ')}`
-        ).join('\n')
+          result.glitch.flickers
+            .slice(0, 3)
+            .map((f) => `  - ${f.element}: ${f.sequence.map((s) => s.type).join(' -> ')}`)
+            .join('\n'),
       );
     }
   }
@@ -570,9 +577,10 @@ function assertConsistencyPasses(result, options = {}) {
     if (attrChurnEvents > threshold) {
       failures.push(
         `Attribute churn detected (${attrChurnEvents} events, threshold: ${threshold}):\n` +
-        result.glitch.churn.slice(0, 3).map(c =>
-          `  - ${c.target}: ${c.changeCount} changes`
-        ).join('\n')
+          result.glitch.churn
+            .slice(0, 3)
+            .map((c) => `  - ${c.target}: ${c.changeCount} changes`)
+            .join('\n'),
       );
     }
   }
@@ -581,9 +589,10 @@ function assertConsistencyPasses(result, options = {}) {
   if (!allowSnapshotDiff && !result.snapshot.match) {
     failures.push(
       `State mismatch (${result.snapshot.diff.length} difference(s)):\n` +
-      result.snapshot.diff.slice(0, 5).map(d =>
-        `  - ${d.description || `Row ${d.line}`}`
-      ).join('\n')
+        result.snapshot.diff
+          .slice(0, 5)
+          .map((d) => `  - ${d.description || `Row ${d.line}`}`)
+          .join('\n'),
     );
   }
 
@@ -591,15 +600,15 @@ function assertConsistencyPasses(result, options = {}) {
   if (!allowSizeErrors && !result.sizes.valid) {
     failures.push(
       `DOM size verification failed:\n` +
-      result.sizes.errors.slice(0, 5).map(e => `  - ${e}`).join('\n')
+        result.sizes.errors
+          .slice(0, 5)
+          .map((e) => `  - ${e}`)
+          .join('\n'),
     );
   }
 
   if (failures.length > 0) {
-    throw new Error(
-      `Consistency check failed for "${operation}":\n\n` +
-      failures.join('\n\n')
-    );
+    throw new Error(`Consistency check failed for "${operation}":\n\n` + failures.join('\n\n'));
   }
 }
 

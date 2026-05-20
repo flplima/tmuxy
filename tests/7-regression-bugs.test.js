@@ -52,9 +52,7 @@ describe('Scenario: Content persistence after split/close', () => {
       const ctx = snap?.context;
       if (!ctx || !ctx.panes || ctx.panes.length === 0) return { error: 'no panes' };
       const pane = ctx.panes[0];
-      const hasContent = pane.content.some(line =>
-        line.some(cell => cell.c && cell.c !== ' ')
-      );
+      const hasContent = pane.content.some((line) => line.some((cell) => cell.c && cell.c !== ' '));
       return { hasContent, paneCount: ctx.panes.length };
     });
     expect(stateCheck.error).toBeUndefined();
@@ -130,7 +128,7 @@ describe('Scenario: Tab numbering is sequential', () => {
     // Step 3: Read tab labels from the UI
     const tabLabels = await ctx.page.evaluate(() => {
       const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
-      return Array.from(tabs).map(t => t.textContent.trim());
+      return Array.from(tabs).map((t) => t.textContent.trim());
     });
 
     // Tabs should be "1:name" and "2:name" (sequential), not "1:name" and "5:name"
@@ -162,11 +160,16 @@ describe('Scenario: Pane group tab label updates on process exit', () => {
     await pressEnter(ctx.page);
 
     // Step 3: Wait for the tab label to show "sleep" (metadata sync may take up to 2s)
-    await waitForCondition(ctx.page, async () => {
-      const info = await getGroupTabInfo(ctx.page);
-      const tab = info.find(t => t.active);
-      return tab && tab.title.includes('sleep');
-    }, 5000, 'group tab to show "sleep"');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const info = await getGroupTabInfo(ctx.page);
+        const tab = info.find((t) => t.active);
+        return tab && tab.title.includes('sleep');
+      },
+      5000,
+      'group tab to show "sleep"',
+    );
 
     // Step 4: Kill the sleep process (Ctrl+C)
     await ctx.page.keyboard.down('Control');
@@ -176,11 +179,16 @@ describe('Scenario: Pane group tab label updates on process exit', () => {
     // Step 5: Wait for the tab label to update (should show shell, not "sleep")
     // Metadata sync polls every 2s; after Ctrl+C the process exit + next poll
     // cycle can take up to 6s in CI, so use 10s timeout.
-    await waitForCondition(ctx.page, async () => {
-      const info = await getGroupTabInfo(ctx.page);
-      const tab = info.find(t => t.active);
-      return tab && !tab.title.includes('sleep');
-    }, 10000, 'group tab to update after process exit');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const info = await getGroupTabInfo(ctx.page);
+        const tab = info.find((t) => t.active);
+        return tab && !tab.title.includes('sleep');
+      },
+      10000,
+      'group tab to update after process exit',
+    );
   });
 });
 
@@ -213,13 +221,13 @@ describe('Scenario: Pane border-status enforced to top', () => {
 
     // enforce_settings() sets pane-border-status at session level (not global).
     // PaneLayout relies on this — with it off, y=0 panes lose 1 row of content.
-    const sessionName = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.sessionName || ''
+    const sessionName = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.sessionName || '',
     );
     const { execSync } = require('child_process');
     const status = execSync(
       `tmux show-options -t ${sessionName} -v pane-border-status 2>/dev/null || echo "off"`,
-      { encoding: 'utf-8', timeout: 5000 }
+      { encoding: 'utf-8', timeout: 5000 },
     ).trim();
     expect(status).toBe('top');
   });
@@ -710,15 +718,13 @@ describe('Scenario: Tab switch shows panes instantly', () => {
         windowIdsWithPanes: cctx?.panes
           ? Array.from(new Set(cctx.panes.map((p) => p.windowId))).sort()
           : [],
-        windowCount: cctx?.windows?.filter((w) => w.windowType === "tab").length ?? 0,
+        windowCount: cctx?.windows?.filter((w) => w.windowType === 'tab').length ?? 0,
       };
     });
     expect(beforeSwitch.itemCount).toBeGreaterThanOrEqual(1);
     expect(beforeSwitch.text).toContain('TAB_TWO_MARKER');
     // Both visible windows must have at least one pane cached on the client.
-    expect(beforeSwitch.windowIdsWithPanes.length).toBeGreaterThanOrEqual(
-      beforeSwitch.windowCount,
-    );
+    expect(beforeSwitch.windowIdsWithPanes.length).toBeGreaterThanOrEqual(beforeSwitch.windowCount);
 
     // Wire up two complementary watchers BEFORE the click so we don't miss
     // any state between click and first paint:
@@ -1211,13 +1217,12 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
     const tabIndices = await ctx.page.evaluate(() => {
       const tabs = document.querySelectorAll('.pane-tabs .pane-tab');
       return Array.from(tabs).map((t) => ({
-        active: t.classList.contains('pane-tab-active') || t.classList.contains('pane-tab-selected'),
+        active:
+          t.classList.contains('pane-tab-active') || t.classList.contains('pane-tab-selected'),
       }));
     });
     // ALPHA is the first non-active tab; BETA is the second.
-    const inactiveIdxs = tabIndices
-      .map((t, i) => (t.active ? -1 : i))
-      .filter((i) => i >= 0);
+    const inactiveIdxs = tabIndices.map((t, i) => (t.active ? -1 : i)).filter((i) => i >= 0);
     expect(inactiveIdxs.length).toBeGreaterThanOrEqual(2);
 
     await ctx.page.evaluate((idxs) => {
@@ -1256,10 +1261,7 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
     });
     if (multiMarkerFrames.length > 0) {
       // eslint-disable-next-line no-console
-      console.log(
-        'multi-marker frames:',
-        JSON.stringify(multiMarkerFrames.slice(0, 3), null, 2),
-      );
+      console.log('multi-marker frames:', JSON.stringify(multiMarkerFrames.slice(0, 3), null, 2));
     }
     expect(multiMarkerFrames).toEqual([]);
 
@@ -1290,4 +1292,3 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
     expect(stableTxt).toContain('BETA_TAB');
   });
 });
-

@@ -34,10 +34,7 @@ describe('CLI tab subcommands', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'create', 'my-tab']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual([
-        'run-shell',
-        "tmux splitw \\; breakp -n 'my-tab'",
-      ]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux splitw \\; breakp -n 'my-tab'"]);
     });
   });
 

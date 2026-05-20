@@ -6,7 +6,13 @@
 
 const { delay } = require('./browser');
 const { DELAYS } = require('./config');
-const { sendKeyCombo, sendPrefixCommand, tmuxCommandKeyboard, typeInTerminal, pressEnter } = require('./keyboard');
+const {
+  sendKeyCombo,
+  sendPrefixCommand,
+  tmuxCommandKeyboard,
+  typeInTerminal,
+  pressEnter,
+} = require('./keyboard');
 
 // ==================== Pane Information ====================
 
@@ -75,7 +81,9 @@ async function getUIPaneInfo(page) {
 async function getTerminalText(page) {
   return await page.evaluate(() => {
     const logs = document.querySelectorAll('[role="log"]');
-    return Array.from(logs).map(l => l.textContent || '').join('\n');
+    return Array.from(logs)
+      .map((l) => l.textContent || '')
+      .join('\n');
   });
 }
 
@@ -89,14 +97,18 @@ async function waitForTerminalText(page, text, timeout = 15000) {
   while (Date.now() - start < timeout) {
     const found = await page.evaluate((searchText) => {
       const logs = document.querySelectorAll('[role="log"]');
-      const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+      const content = Array.from(logs)
+        .map((l) => l.textContent || '')
+        .join('\n');
       return content.includes(searchText);
     }, text);
     if (found) return await getTerminalText(page);
     await delay(100);
   }
   const content = await getTerminalText(page);
-  throw new Error(`Timeout waiting for "${text}" in terminal (${timeout}ms). Content (${content.length} chars): "${content.slice(0, 200)}"`);
+  throw new Error(
+    `Timeout waiting for "${text}" in terminal (${timeout}ms). Content (${content.length} chars): "${content.slice(0, 200)}"`,
+  );
 }
 
 /**
@@ -108,14 +120,18 @@ async function waitForShellPrompt(page, timeout = 10000) {
   while (Date.now() - start < timeout) {
     const found = await page.evaluate(() => {
       const logs = document.querySelectorAll('[role="log"]');
-      const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+      const content = Array.from(logs)
+        .map((l) => l.textContent || '')
+        .join('\n');
       return content.length > 5 && /[$#%>❯]/.test(content);
     });
     if (found) return await getTerminalText(page);
     await delay(100);
   }
   const content = await getTerminalText(page);
-  throw new Error(`Timeout waiting for shell prompt (${timeout}ms). Content (${content.length} chars): "${content.slice(0, 200)}"`);
+  throw new Error(
+    `Timeout waiting for shell prompt (${timeout}ms). Content (${content.length} chars): "${content.slice(0, 200)}"`,
+  );
 }
 
 /**
@@ -250,9 +266,10 @@ async function splitPaneKeyboard(page, direction = 'horizontal') {
 async function splitPaneUI(page, direction = 'horizontal') {
   try {
     // Try to find and click the split button directly
-    const splitBtnSelector = direction === 'horizontal'
-      ? '[title*="split" i][title*="horizontal" i], [aria-label*="split" i][aria-label*="horizontal" i], .split-horizontal'
-      : '[title*="split" i][title*="vertical" i], [aria-label*="split" i][aria-label*="vertical" i], .split-vertical';
+    const splitBtnSelector =
+      direction === 'horizontal'
+        ? '[title*="split" i][title*="horizontal" i], [aria-label*="split" i][aria-label*="horizontal" i], .split-horizontal'
+        : '[title*="split" i][title*="vertical" i], [aria-label*="split" i][aria-label*="vertical" i], .split-vertical';
 
     const directButton = await page.$(splitBtnSelector);
     if (directButton) {

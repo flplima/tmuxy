@@ -65,7 +65,8 @@ class TmuxTestSession {
   runCommand(command) {
     // These commands are safe to run as external subprocesses even when
     // control mode is attached (per docs/TMUX.md "Commands Safe to Run")
-    const safeExternally = /^(send-keys|source-file|kill-session|has-session|capture-pane|display-message|list-keys|show-options|list-windows|list-panes)\b/;
+    const safeExternally =
+      /^(send-keys|source-file|kill-session|has-session|capture-pane|display-message|list-keys|show-options|list-windows|list-panes)\b/;
     if (safeExternally.test(command)) {
       return tmuxQuery(command);
     }
@@ -153,7 +154,7 @@ class TmuxTestSession {
     }
 
     // Wait for monitor to process the %exit event and disconnect
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 500));
 
     this.created = false;
     this.page = null;
@@ -183,7 +184,7 @@ class TmuxTestSession {
     const result = this.runCommand(command);
     // Wait for tmux to process the command and propagate state
     // Chain: tmux → event → monitor → SSE → browser → XState
-    await new Promise(r => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, 250));
     return result;
   }
 
@@ -218,7 +219,7 @@ class TmuxTestSession {
       }, predicateStr);
 
       if (result) return;
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
     }
 
     throw new Error(`State condition not met within ${timeout}ms`);
@@ -242,7 +243,7 @@ class TmuxTestSession {
         if (!snap || !snap.context) return null;
         const ctx = snap.context;
         return {
-          panes: ctx.panes.map(p => ({
+          panes: ctx.panes.map((p) => ({
             id: p.tmuxId,
             windowId: p.windowId,
             index: p.id,
@@ -256,7 +257,7 @@ class TmuxTestSession {
             inMode: p.inMode,
             command: p.command,
           })),
-          windows: ctx.windows.map(w => ({
+          windows: ctx.windows.map((w) => ({
             id: w.id,
             index: w.index,
             name: w.name,
@@ -286,7 +287,7 @@ class TmuxTestSession {
     while (Date.now() - start < timeout) {
       const state = await this._getBrowserState();
       if (state) return state;
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
     }
     return null;
   }
@@ -304,12 +305,12 @@ class TmuxTestSession {
     if (this.page) {
       const state = await this._waitForBrowserState();
       if (state) {
-        return state.panes.filter(p => p.windowId === state.activeWindowId).length;
+        return state.panes.filter((p) => p.windowId === state.activeWindowId).length;
       }
       throw new Error('Browser state not available for getPaneCount');
     }
     const result = this.runCommandSync(`list-panes -t ${this.name} -F "#{pane_id}"`);
-    return result.split('\n').filter(line => line.trim()).length;
+    return result.split('\n').filter((line) => line.trim()).length;
   }
 
   /**
@@ -319,12 +320,12 @@ class TmuxTestSession {
     if (this.page) {
       const state = await this._waitForBrowserState();
       if (state) {
-        return state.windows.filter(w => w.windowType === "tab").length;
+        return state.windows.filter((w) => w.windowType === 'tab').length;
       }
       throw new Error('Browser state not available for getWindowCount');
     }
     const result = this.runCommandSync(`list-windows -t ${this.name} -F "#{window_id}"`);
-    return result.split('\n').filter(line => line.trim()).length;
+    return result.split('\n').filter((line) => line.trim()).length;
   }
 
   /**
@@ -335,8 +336,8 @@ class TmuxTestSession {
       const state = await this._waitForBrowserState();
       if (state) {
         return state.panes
-          .filter(p => p.windowId === state.activeWindowId)
-          .map(p => ({
+          .filter((p) => p.windowId === state.activeWindowId)
+          .map((p) => ({
             id: p.id,
             index: p.index,
             width: p.width,
@@ -349,20 +350,23 @@ class TmuxTestSession {
       throw new Error('Browser state not available for getPaneInfo');
     }
     const result = this.runCommandSync(
-      `list-panes -t ${this.name} -F "#{pane_id}|#{pane_index}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_top}|#{pane_left}"`
+      `list-panes -t ${this.name} -F "#{pane_id}|#{pane_index}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_top}|#{pane_left}"`,
     );
-    return result.split('\n').filter(line => line.trim()).map(line => {
-      const [id, index, width, height, active, top, left] = line.split('|');
-      return {
-        id,
-        index: parseInt(index, 10),
-        width: parseInt(width, 10),
-        height: parseInt(height, 10),
-        active: active === '1',
-        y: parseInt(top, 10),
-        x: parseInt(left, 10),
-      };
-    });
+    return result
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => {
+        const [id, index, width, height, active, top, left] = line.split('|');
+        return {
+          id,
+          index: parseInt(index, 10),
+          width: parseInt(width, 10),
+          height: parseInt(height, 10),
+          active: active === '1',
+          y: parseInt(top, 10),
+          x: parseInt(left, 10),
+        };
+      });
   }
 
   /**
@@ -376,7 +380,7 @@ class TmuxTestSession {
       for (let i = 0; i < 30; i++) {
         const state = await this._getBrowserState();
         if (state && state.activePaneId) return state.activePaneId;
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 100));
       }
       return null;
     }
@@ -391,7 +395,9 @@ class TmuxTestSession {
   async isPaneZoomed() {
     if (!this.page) {
       try {
-        const result = this.runCommandSync(`display-message -t ${this.name} -p "#{window_zoomed_flag}"`);
+        const result = this.runCommandSync(
+          `display-message -t ${this.name} -p "#{window_zoomed_flag}"`,
+        );
         return result.trim() === '1';
       } catch {
         return false;
@@ -401,18 +407,26 @@ class TmuxTestSession {
     // control mode → tmux → event → monitor → SSE → browser → XState
     for (let i = 0; i < 30; i++) {
       const state = await this._getBrowserState();
-      if (!state) { await new Promise(r => setTimeout(r, 100)); continue; }
-      const windowPanes = state.panes.filter(p => p.windowId === state.activeWindowId);
+      if (!state) {
+        await new Promise((r) => setTimeout(r, 100));
+        continue;
+      }
+      const windowPanes = state.panes.filter((p) => p.windowId === state.activeWindowId);
       if (windowPanes.length <= 1) return false;
       // When zoomed, the active pane overlaps with other panes
       // (it takes full window dimensions while others keep their positions)
-      const activePane = windowPanes.find(p => p.id === state.activePaneId);
-      if (!activePane) { await new Promise(r => setTimeout(r, 100)); continue; }
+      const activePane = windowPanes.find((p) => p.id === state.activePaneId);
+      if (!activePane) {
+        await new Promise((r) => setTimeout(r, 100));
+        continue;
+      }
       for (const other of windowPanes) {
         if (other.id === activePane.id) continue;
         // Check if active pane's bounding box overlaps with other pane
-        const overlapX = activePane.x < other.x + other.width && activePane.x + activePane.width > other.x;
-        const overlapY = activePane.y < other.y + other.height && activePane.y + activePane.height > other.y;
+        const overlapX =
+          activePane.x < other.x + other.width && activePane.x + activePane.width > other.x;
+        const overlapY =
+          activePane.y < other.y + other.height && activePane.y + activePane.height > other.y;
         if (overlapX && overlapY) return true;
       }
       return false;
@@ -431,10 +445,10 @@ class TmuxTestSession {
       for (let i = 0; i < 20; i++) {
         const state = await this._getBrowserState();
         if (state) {
-          const activePane = state.panes.find(p => p.id === state.activePaneId);
+          const activePane = state.panes.find((p) => p.id === state.activePaneId);
           if (activePane && activePane.inMode) return true;
         }
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 50));
       }
       return false;
     }
@@ -455,8 +469,8 @@ class TmuxTestSession {
     if (this.page) {
       const state = await this._waitForBrowserState();
       if (!state) return 0;
-      const activePane = state.panes.find(p => p.id === state.activePaneId);
-      return (activePane && activePane.inMode) ? 1 : 0;
+      const activePane = state.panes.find((p) => p.id === state.activePaneId);
+      return activePane && activePane.inMode ? 1 : 0;
     }
     try {
       const result = this.runCommandSync(`display-message -t ${this.name} -p "#{scroll_position}"`);
@@ -476,22 +490,25 @@ class TmuxTestSession {
       if (state) {
         const titles = {};
         state.panes
-          .filter(p => p.windowId === state.activeWindowId)
-          .forEach(p => { titles[p.id] = p.title; });
+          .filter((p) => p.windowId === state.activeWindowId)
+          .forEach((p) => {
+            titles[p.id] = p.title;
+          });
         return titles;
       }
       return {};
     }
-    const result = this.runCommandSync(
-      `list-panes -t ${this.name} -F "#{pane_id}|#{pane_title}"`
-    );
+    const result = this.runCommandSync(`list-panes -t ${this.name} -F "#{pane_id}|#{pane_title}"`);
     const titles = {};
-    result.split('\n').filter(line => line.trim()).forEach(line => {
-      const sep = line.indexOf('|');
-      if (sep !== -1) {
-        titles[line.slice(0, sep)] = line.slice(sep + 1);
-      }
-    });
+    result
+      .split('\n')
+      .filter((line) => line.trim())
+      .forEach((line) => {
+        const sep = line.indexOf('|');
+        if (sep !== -1) {
+          titles[line.slice(0, sep)] = line.slice(sep + 1);
+        }
+      });
     return titles;
   }
 
@@ -504,7 +521,7 @@ class TmuxTestSession {
     if (this.page) {
       const state = await this._waitForBrowserState();
       if (state) {
-        const activeWin = state.windows.find(w => w.active);
+        const activeWin = state.windows.find((w) => w.active);
         return activeWin ? String(activeWin.index) : null;
       }
       return null;
@@ -523,8 +540,12 @@ class TmuxTestSession {
       const state = await this._waitForBrowserState();
       if (state) {
         return state.windows
-          .filter(w => (includeGroups || w.windowType !== "group") && (includeFloats || w.windowType !== "float"))
-          .map(w => ({
+          .filter(
+            (w) =>
+              (includeGroups || w.windowType !== 'group') &&
+              (includeFloats || w.windowType !== 'float'),
+          )
+          .map((w) => ({
             id: w.id,
             index: w.index,
             name: w.name,
@@ -535,17 +556,20 @@ class TmuxTestSession {
       return [];
     }
     const result = this.runCommandSync(
-      `list-windows -t ${this.name} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}"`
+      `list-windows -t ${this.name} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}"`,
     );
-    return result.split('\n').filter(line => line.trim()).map(line => {
-      const [id, index, name, active] = line.split('|');
-      return {
-        id,
-        index: parseInt(index, 10),
-        name,
-        active: active === '1',
-      };
-    });
+    return result
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => {
+        const [id, index, name, active] = line.split('|');
+        return {
+          id,
+          index: parseInt(index, 10),
+          name,
+          active: active === '1',
+        };
+      });
   }
 
   // ==================== Pane Operations ====================
@@ -585,7 +609,9 @@ class TmuxTestSession {
     if (!fs.existsSync(binaryPath)) {
       binaryPath = captureScriptDebug;
       if (!fs.existsSync(binaryPath)) {
-        throw new Error('tmux-capture binary not found. Run: cargo build -p tmuxy-core --bin tmux-capture');
+        throw new Error(
+          'tmux-capture binary not found. Run: cargo build -p tmuxy-core --bin tmux-capture',
+        );
       }
     }
 

@@ -6,12 +6,25 @@
 const path = require('path');
 const helpersDir = path.join(__dirname, 'helpers');
 
-const { getBrowser, navigateToSession, waitForPaneCount, waitForWindowCount, delay } = require(path.join(helpersDir, 'browser'));
+const { getBrowser, navigateToSession, waitForPaneCount, waitForWindowCount, delay } = require(
+  path.join(helpersDir, 'browser'),
+);
 const { GlitchDetector, OPERATION_THRESHOLDS } = require(path.join(helpersDir, 'glitch-detector'));
 const { assertLayoutInvariants } = require(path.join(helpersDir, 'layout'));
-const { focusTerminal, sendPrefixCommand, typeInTerminal, pressEnter } = require(path.join(helpersDir, 'keyboard'));
-const { splitPaneKeyboard, killPaneKeyboard, toggleZoomKeyboard, resizePaneKeyboard, cycleLayoutKeyboard, getUIPaneCount } = require(path.join(helpersDir, 'pane-ops'));
-const { createWindowKeyboard, nextWindowKeyboard, killWindowKeyboard } = require(path.join(helpersDir, 'window-ops'));
+const { focusTerminal, sendPrefixCommand, typeInTerminal, pressEnter } = require(
+  path.join(helpersDir, 'keyboard'),
+);
+const {
+  splitPaneKeyboard,
+  killPaneKeyboard,
+  toggleZoomKeyboard,
+  resizePaneKeyboard,
+  cycleLayoutKeyboard,
+  getUIPaneCount,
+} = require(path.join(helpersDir, 'pane-ops'));
+const { createWindowKeyboard, nextWindowKeyboard, killWindowKeyboard } = require(
+  path.join(helpersDir, 'window-ops'),
+);
 const { DELAYS } = require(path.join(helpersDir, 'config'));
 
 const SESSION = 'tmuxy-qa';
@@ -27,7 +40,7 @@ async function withTimeout(fn, label) {
   return Promise.race([
     fn(),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`TIMEOUT: ${label} exceeded 5 minutes`)), SCENARIO_TIMEOUT)
+      setTimeout(() => reject(new Error(`TIMEOUT: ${label} exceeded 5 minutes`)), SCENARIO_TIMEOUT),
     ),
   ]);
 }
@@ -100,7 +113,9 @@ async function scenario1_splitHorizontal(page) {
   await waitForPaneCount(page, 2);
   await delay(DELAYS.SYNC);
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
   log(`  Timeline:\n${GlitchDetector.formatTimeline(result)}`);
 
   const t = OPERATION_THRESHOLDS.split;
@@ -120,7 +135,9 @@ async function scenario2_splitVertical(page) {
   await waitForPaneCount(page, 2);
   await delay(DELAYS.SYNC);
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
   log(`  Timeline:\n${GlitchDetector.formatTimeline(result)}`);
 
   const t = OPERATION_THRESHOLDS.split;
@@ -140,7 +157,9 @@ async function scenario3_killPane(page) {
   await waitForPaneCount(page, 1);
   await delay(DELAYS.SYNC);
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
   log(`  Timeline:\n${GlitchDetector.formatTimeline(result)}`);
 
   const t = OPERATION_THRESHOLDS.kill;
@@ -156,7 +175,9 @@ async function scenario4_resizePane(page) {
   await resizePaneKeyboard(page, 'D', 5);
   await delay(DELAYS.SYNC);
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
 
   const t = OPERATION_THRESHOLDS.resize;
   if (result.summary.nodeFlickers > t.nodeFlickers) {
@@ -177,12 +198,16 @@ async function scenario5_windowSwitch(page) {
   await nextWindowKeyboard(page);
   await delay(DELAYS.SYNC);
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
   log(`  Timeline:\n${GlitchDetector.formatTimeline(result)}`);
 
   const t = OPERATION_THRESHOLDS.windowSwitch;
-  if (result.summary.attrChurnEvents > (t.attrChurnEvents + 2)) {
-    throw new Error(`Attribute churn: ${result.summary.attrChurnEvents} > threshold ${t.attrChurnEvents + 2}`);
+  if (result.summary.attrChurnEvents > t.attrChurnEvents + 2) {
+    throw new Error(
+      `Attribute churn: ${result.summary.attrChurnEvents} > threshold ${t.attrChurnEvents + 2}`,
+    );
   }
 
   // Clean up: kill extra window
@@ -207,7 +232,9 @@ async function scenario6_groupTabSwitch(page) {
   await pressEnter(page);
   await delay(DELAYS.SYNC);
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
   log(`  Timeline:\n${GlitchDetector.formatTimeline(result)}`);
 
   const t = OPERATION_THRESHOLDS.groupSwitch;
@@ -233,7 +260,9 @@ async function scenario7_zoomToggle(page) {
   await toggleZoomKeyboard(page);
   await delay(DELAYS.SYNC);
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
   log(`  Timeline:\n${GlitchDetector.formatTimeline(result)}`);
 
   // Zoom causes size jumps naturally, but check for excessive ones
@@ -255,7 +284,9 @@ async function scenario8_rapidSplitSpam(page) {
   const result = await detector.stop();
   const paneCount = await getUIPaneCount(page);
   log(`  Pane count after 5 splits: ${paneCount}`);
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}, totalNodeMutations=${result.summary.totalNodeMutations}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}, totalNodeMutations=${result.summary.totalNodeMutations}`,
+  );
 
   // Stress test: allow more but not unlimited
   if (result.summary.nodeFlickers > 5) {
@@ -293,7 +324,9 @@ async function scenario9_dragPaneHeader(page) {
   await page.mouse.up();
   await delay(DELAYS.SYNC);
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
 
   const t = OPERATION_THRESHOLDS.drag;
   if (result.summary.nodeFlickers > t.nodeFlickers) {
@@ -315,7 +348,9 @@ async function scenario10_floatOpenClose(page) {
   await pressEnter(page);
   await delay(DELAYS.SYNC * 2);
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}, totalNodeMutations=${result.summary.totalNodeMutations}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}, totalNodeMutations=${result.summary.totalNodeMutations}`,
+  );
   log(`  Timeline:\n${GlitchDetector.formatTimeline(result)}`);
 
   // Check for orphaned nodes (float DOM should be cleaned up)
@@ -337,7 +372,9 @@ async function scenario11_layoutCycle(page) {
     await delay(DELAYS.SYNC);
   }
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
 
   if (result.summary.nodeFlickers > 0) {
     throw new Error(`Node flickers during layout cycle: ${result.summary.nodeFlickers}`);
@@ -368,11 +405,15 @@ async function scenario12_windowCreateSwitchKill(page) {
   await delay(DELAYS.SYNC);
 
   const result = await detector.stop();
-  log(`  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`);
+  log(
+    `  Summary: flickers=${result.summary.nodeFlickers}, sizeJumps=${result.summary.sizeJumps}, attrChurn=${result.summary.attrChurnEvents}`,
+  );
   log(`  Timeline:\n${GlitchDetector.formatTimeline(result)}`);
 
   if (result.summary.nodeFlickers > 2) {
-    throw new Error(`Excessive node flickers during window lifecycle: ${result.summary.nodeFlickers}`);
+    throw new Error(
+      `Excessive node flickers during window lifecycle: ${result.summary.nodeFlickers}`,
+    );
   }
 }
 
@@ -408,20 +449,24 @@ async function main() {
     await runScenario('10. Float Open/Close', scenario10_floatOpenClose, page);
     await runScenario('11. Layout Cycle', scenario11_layoutCycle, page);
     await runScenario('12. Window Create+Switch+Kill', scenario12_windowCreateSwitchKill, page);
-
   } finally {
     // Clean up
-    await page.context().close().catch(() => {});
+    await page
+      .context()
+      .close()
+      .catch(() => {});
   }
 
   // Summary
   log('\n========== SUMMARY ==========');
-  const passed = results.filter(r => r.status === 'PASS').length;
-  const failed = results.filter(r => r.status === 'FAIL').length;
+  const passed = results.filter((r) => r.status === 'PASS').length;
+  const failed = results.filter((r) => r.status === 'FAIL').length;
   log(`Total: ${results.length}, Passed: ${passed}, Failed: ${failed}`);
   for (const r of results) {
     const icon = r.status === 'PASS' ? '✅' : '❌';
-    log(`  ${icon} ${r.name} (${r.duration || 0}ms)${r.error ? ' — ' + r.error.slice(0, 120) : ''}`);
+    log(
+      `  ${icon} ${r.name} (${r.duration || 0}ms)${r.error ? ' — ' + r.error.slice(0, 120) : ''}`,
+    );
   }
 
   // Output JSON for downstream processing
@@ -429,7 +474,7 @@ async function main() {
   console.warn(JSON.stringify(results, null, 2));
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Fatal error:', err);
   process.exit(1);
 });

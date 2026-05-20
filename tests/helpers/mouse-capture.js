@@ -20,7 +20,9 @@ const MOUSE_LOG = '/tmp/mouse-events.log';
  * Returns content box and char size for coordinate calculations.
  */
 async function startMouseCapture(ctx) {
-  try { fs.unlinkSync(MOUSE_LOG); } catch {}
+  try {
+    fs.unlinkSync(MOUSE_LOG);
+  } catch {}
   await focusPage(ctx.page);
   await typeInTerminal(ctx.page, `python3 ${MOUSE_CAPTURE_SCRIPT}`);
   await pressEnter(ctx.page);
@@ -39,7 +41,9 @@ async function startMouseCapture(ctx) {
   const flagStart = Date.now();
   let flagSet = false;
   while (!flagSet && Date.now() - flagStart < 15000) {
-    flagSet = await ctx.page.evaluate(() => !!document.querySelector('[data-mouse-any-flag="true"]'));
+    flagSet = await ctx.page.evaluate(
+      () => !!document.querySelector('[data-mouse-any-flag="true"]'),
+    );
     if (!flagSet) await delay(DELAYS.MEDIUM);
   }
   expect(flagSet).toBe(true);
@@ -67,8 +71,12 @@ async function readMouseEvents(minCount = 1, timeout = 5000) {
   while (Date.now() - start < timeout) {
     try {
       const content = fs.readFileSync(MOUSE_LOG, 'utf-8');
-      const lines = content.trim().split('\n').map(l => l.trim()).filter(l => l && l !== 'READY');
-      events = lines.map(line => {
+      const lines = content
+        .trim()
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && l !== 'READY');
+      events = lines.map((line) => {
         const parts = line.split(':');
         const type = parts[0].trim();
         const props = {};

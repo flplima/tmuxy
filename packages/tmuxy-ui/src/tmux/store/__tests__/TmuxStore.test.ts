@@ -58,7 +58,7 @@ function blankServerState(over: Partial<ServerState> = {}): ServerState {
         index: 0,
         name: 'main',
         active: true,
-        window_type: "tab",
+        window_type: 'tab',
       },
     ],
     total_width: 80,

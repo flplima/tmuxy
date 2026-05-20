@@ -11,7 +11,11 @@
 
 const { getBrowser, waitForServer, delay } = require('../helpers/browser');
 const { TMUXY_URL, DELAYS } = require('../helpers/config');
-const { extractUIState, extractTmuxState, compareSnapshots } = require('../helpers/snapshot-compare');
+const {
+  extractUIState,
+  extractTmuxState,
+  compareSnapshots,
+} = require('../helpers/snapshot-compare');
 const { assertLayoutInvariants } = require('../helpers/layout');
 
 let browser, page;
@@ -33,13 +37,13 @@ beforeAll(async () => {
     // No existing page — open a new one (CI environment)
     page = await browser.newPage();
     // Log browser console for CI debugging
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       const type = msg.type();
       if (type === 'error' || type === 'warn' || msg.text().includes('[HttpAdapter]')) {
         console.warn(`[browser:${type}] ${msg.text()}`);
       }
     });
-    page.on('pageerror', err => console.warn(`[browser:pageerror] ${err.message}`));
+    page.on('pageerror', (err) => console.warn(`[browser:pageerror] ${err.message}`));
     await page.goto(TMUXY_URL);
     ownedPage = true;
   }
@@ -51,46 +55,62 @@ beforeAll(async () => {
   const maxPageAttempts = ownedPage ? 3 : 1;
   for (let pageAttempt = 0; pageAttempt < maxPageAttempts; pageAttempt++) {
     try {
-      await page.waitForFunction(() => {
-        const ctx = window.app?.getSnapshot()?.context;
-        if (!ctx?.connected || !ctx?.panes?.length) return false;
-        const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
-        return visiblePanes.every(p => {
-          if (!p.content || !Array.isArray(p.content)) return false;
-          const text = p.content.map(line =>
-            Array.isArray(line) ? line.map(cell => cell?.c || '').join('') : ''
-          ).join('');
-          return text.trim().length > 0;
-        });
-      }, undefined, { timeout: 20000 });
+      await page.waitForFunction(
+        () => {
+          const ctx = window.app?.getSnapshot()?.context;
+          if (!ctx?.connected || !ctx?.panes?.length) return false;
+          const visiblePanes = (ctx.panes || []).filter((p) => p.windowId === ctx.activeWindowId);
+          return visiblePanes.every((p) => {
+            if (!p.content || !Array.isArray(p.content)) return false;
+            const text = p.content
+              .map((line) =>
+                Array.isArray(line) ? line.map((cell) => cell?.c || '').join('') : '',
+              )
+              .join('');
+            return text.trim().length > 0;
+          });
+        },
+        undefined,
+        { timeout: 20000 },
+      );
       break; // Content arrived — proceed
     } catch (e) {
       if (pageAttempt < maxPageAttempts - 1) {
-        console.warn(`[snapshot:beforeAll] Attempt ${pageAttempt + 1}: content empty, reloading page`);
+        console.warn(
+          `[snapshot:beforeAll] Attempt ${pageAttempt + 1}: content empty, reloading page`,
+        );
         await page.reload({ waitUntil: 'load' });
         continue;
       }
       // Final attempt failed — dump state and throw
-      const state = await page.evaluate(() => {
-        const ctx = window.app?.getSnapshot()?.context;
-        const pane = ctx?.panes?.[0];
-        const contentSample = pane?.content?.slice(0, 3)?.map(line => {
-          if (!line || !Array.isArray(line)) return String(line);
-          return line.slice(0, 20).map(cell => cell?.c || '').join('');
-        });
-        return {
-          hasApp: !!window.app,
-          connected: ctx?.connected,
-          error: ctx?.error,
-          paneCount: ctx?.panes?.length,
-          sessionName: ctx?.sessionName,
-          activeWindowId: ctx?.activeWindowId,
-          pane0windowId: pane?.windowId,
-          pane0contentLength: pane?.content?.length,
-          pane0contentSample: contentSample,
-        };
-      }).catch(() => 'evaluate failed');
-      console.error('[snapshot:beforeAll] waitForFunction failed. Browser state:', JSON.stringify(state));
+      const state = await page
+        .evaluate(() => {
+          const ctx = window.app?.getSnapshot()?.context;
+          const pane = ctx?.panes?.[0];
+          const contentSample = pane?.content?.slice(0, 3)?.map((line) => {
+            if (!line || !Array.isArray(line)) return String(line);
+            return line
+              .slice(0, 20)
+              .map((cell) => cell?.c || '')
+              .join('');
+          });
+          return {
+            hasApp: !!window.app,
+            connected: ctx?.connected,
+            error: ctx?.error,
+            paneCount: ctx?.panes?.length,
+            sessionName: ctx?.sessionName,
+            activeWindowId: ctx?.activeWindowId,
+            pane0windowId: pane?.windowId,
+            pane0contentLength: pane?.content?.length,
+            pane0contentSample: contentSample,
+          };
+        })
+        .catch(() => 'evaluate failed');
+      console.error(
+        '[snapshot:beforeAll] waitForFunction failed. Browser state:',
+        JSON.stringify(state),
+      );
       throw e;
     }
   }
@@ -101,11 +121,17 @@ beforeAll(async () => {
   await delay(ownedPage ? DELAYS.SYNC * 2 : DELAYS.SYNC);
   if (ownedPage) {
     try {
-      await page.waitForFunction(() => {
-        const logs = document.querySelectorAll('[role="log"]');
-        const content = Array.from(logs).map(l => l.textContent || '').join('\n');
-        return content.includes('❯') || content.includes('$') || content.includes('#');
-      }, undefined, { timeout: 15000, polling: 200 });
+      await page.waitForFunction(
+        () => {
+          const logs = document.querySelectorAll('[role="log"]');
+          const content = Array.from(logs)
+            .map((l) => l.textContent || '')
+            .join('\n');
+          return content.includes('❯') || content.includes('$') || content.includes('#');
+        },
+        undefined,
+        { timeout: 15000, polling: 200 },
+      );
     } catch {
       // If prompt never appears, proceed anyway — the test will fail with a useful diff
     }
@@ -152,9 +178,7 @@ test('structural snapshot: UI matches tmux state', async () => {
   // If the snapshot doesn't match on first check, it's a real bug.
   await delay(DELAYS.SYNC * 3);
 
-  const sessionName = await page.evaluate(
-    () => window.app?.getSnapshot()?.context?.sessionName
-  );
+  const sessionName = await page.evaluate(() => window.app?.getSnapshot()?.context?.sessionName);
   expect(sessionName).toBeTruthy();
 
   const [uiState, tmuxState] = await Promise.all([
@@ -174,7 +198,7 @@ test('structural snapshot: UI matches tmux state', async () => {
     }
   }
 
-  const passed = result.checks.filter(c => c.pass).length;
+  const passed = result.checks.filter((c) => c.pass).length;
   const total = result.checks.length;
   console.warn(`  Snapshot: ${passed}/${total} checks passed`);
 
@@ -229,15 +253,13 @@ test('DOM pane count matches XState pane count', async () => {
     if (!snap?.context) return null;
     const { panes, activeWindowId } = snap.context;
     const xstatePaneIds = (panes || [])
-      .filter(p => p.windowId === activeWindowId)
-      .map(p => p.tmuxId)
+      .filter((p) => p.windowId === activeWindowId)
+      .map((p) => p.tmuxId)
       .sort();
 
-    const domPaneIds = Array.from(
-      document.querySelectorAll('.pane-layout-item[data-pane-id]')
-    )
-      .map(el => el.getAttribute('data-pane-id'))
-      .filter(id => xstatePaneIds.includes(id))
+    const domPaneIds = Array.from(document.querySelectorAll('.pane-layout-item[data-pane-id]'))
+      .map((el) => el.getAttribute('data-pane-id'))
+      .filter((id) => xstatePaneIds.includes(id))
       .sort();
 
     return { xstatePaneIds, domPaneIds };
@@ -255,13 +277,13 @@ test('tab bar matches visible windows', async () => {
 
     // Visible (non-group, non-float) windows from XState
     const visibleWindows = (windows || [])
-      .filter(w => w.windowType === "tab")
-      .map(w => ({ index: w.index, name: w.name, active: w.active }))
+      .filter((w) => w.windowType === 'tab')
+      .map((w) => ({ index: w.index, name: w.name, active: w.active }))
       .sort((a, b) => a.index - b.index);
 
     // DOM tab elements — tabs are .tab-name spans inside .tab-list
     const tabEls = Array.from(document.querySelectorAll('.tab-list .tab-name'));
-    const domTabs = tabEls.map(el => ({
+    const domTabs = tabEls.map((el) => ({
       name: el.textContent || '',
       active: el.classList.contains('tab-name-active'),
     }));
@@ -286,13 +308,13 @@ test('no orphan DOM panes: every data-pane-id has an XState pane', async () => {
   const result = await page.evaluate(() => {
     const snap = window.app?.getSnapshot();
     if (!snap?.context) return null;
-    const allPaneIds = new Set((snap.context.panes || []).map(p => p.tmuxId));
+    const allPaneIds = new Set((snap.context.panes || []).map((p) => p.tmuxId));
 
-    const domPaneIds = Array.from(
-      document.querySelectorAll('[data-pane-id]')
-    ).map(el => el.getAttribute('data-pane-id'));
+    const domPaneIds = Array.from(document.querySelectorAll('[data-pane-id]')).map((el) =>
+      el.getAttribute('data-pane-id'),
+    );
 
-    const orphans = domPaneIds.filter(id => !allPaneIds.has(id));
+    const orphans = domPaneIds.filter((id) => !allPaneIds.has(id));
     return { orphans, total: domPaneIds.length };
   });
 
@@ -319,14 +341,19 @@ test('no terminal content flicker: lines should not re-render when idle', async 
       const ts = performance.now() - window.__termFlickerData.startTime;
       for (const m of records) {
         // Get pane ID from closest ancestor
-        const paneId = m.target.closest?.('[data-pane-id]')?.getAttribute('data-pane-id') || 'unknown';
+        const paneId =
+          m.target.closest?.('[data-pane-id]')?.getAttribute('data-pane-id') || 'unknown';
 
         if (m.type === 'childList') {
           for (const node of m.addedNodes) {
             const text = node.textContent?.slice(0, 40) || '';
             const tag = node.nodeType === 1 ? node.tagName : '#text';
             window.__termFlickerData.mutations.push({
-              ts, type: 'add', paneId, tag, text,
+              ts,
+              type: 'add',
+              paneId,
+              tag,
+              text,
               // Which terminal line was affected
               lineIdx: getLineIndex(m.target),
             });
@@ -335,13 +362,19 @@ test('no terminal content flicker: lines should not re-render when idle', async 
             const text = node.textContent?.slice(0, 40) || '';
             const tag = node.nodeType === 1 ? node.tagName : '#text';
             window.__termFlickerData.mutations.push({
-              ts, type: 'remove', paneId, tag, text,
+              ts,
+              type: 'remove',
+              paneId,
+              tag,
+              text,
               lineIdx: getLineIndex(m.target),
             });
           }
         } else if (m.type === 'characterData') {
           window.__termFlickerData.mutations.push({
-            ts, type: 'text-change', paneId,
+            ts,
+            type: 'text-change',
+            paneId,
             oldText: m.oldValue?.slice(0, 40) || '',
             newText: m.target.textContent?.slice(0, 40) || '',
             lineIdx: getLineIndex(m.target),
@@ -402,7 +435,7 @@ test('no terminal content flicker: lines should not re-render when idle', async 
         flickerLines.push({
           key,
           count: muts.length,
-          sample: muts.slice(0, 6).map(m => ({
+          sample: muts.slice(0, 6).map((m) => ({
             ts: Math.round(m.ts),
             type: m.type,
             text: m.text || m.newText || '',
@@ -416,7 +449,7 @@ test('no terminal content flicker: lines should not re-render when idle', async 
       flickerLines,
       // Also report any lines with just a few mutations (context)
       lineGroupCounts: Object.fromEntries(
-        Object.entries(lineGroups).map(([k, v]) => [k, v.length])
+        Object.entries(lineGroups).map(([k, v]) => [k, v.length]),
       ),
     };
   });
@@ -424,11 +457,16 @@ test('no terminal content flicker: lines should not re-render when idle', async 
   expect(result).not.toBeNull();
 
   if (result.flickerLines.length > 0) {
-    const details = result.flickerLines.map(f =>
-      `  ${f.key}: ${f.count} mutations\n` +
-      f.sample.map(s => `    +${s.ts}ms ${s.type}: ${JSON.stringify(s.text)}`).join('\n')
-    ).join('\n');
-    console.warn(`Terminal flicker detected (${result.totalMutations} total mutations):\n${details}`);
+    const details = result.flickerLines
+      .map(
+        (f) =>
+          `  ${f.key}: ${f.count} mutations\n` +
+          f.sample.map((s) => `    +${s.ts}ms ${s.type}: ${JSON.stringify(s.text)}`).join('\n'),
+      )
+      .join('\n');
+    console.warn(
+      `Terminal flicker detected (${result.totalMutations} total mutations):\n${details}`,
+    );
   }
 
   // Allow cursor blink mutations (1 line with periodic changes is OK)
@@ -457,11 +495,13 @@ test('no layout flicker: pane containers stable when idle', async () => {
         if (m.target.classList?.contains('terminal-content')) continue;
 
         if (m.type === 'childList' && (m.addedNodes.length > 0 || m.removedNodes.length > 0)) {
-          const targetId = m.target.className?.split?.(' ').slice(0, 2).join('.') || m.target.tagName;
+          const targetId =
+            m.target.className?.split?.(' ').slice(0, 2).join('.') || m.target.tagName;
           for (const node of m.addedNodes) {
             if (node.nodeType !== 1) continue;
             window.__layoutFlickerData.mutations.push({
-              ts, type: 'add',
+              ts,
+              type: 'add',
               target: targetId,
               element: node.className?.split?.(' ').slice(0, 2).join('.') || node.tagName,
             });
@@ -469,15 +509,18 @@ test('no layout flicker: pane containers stable when idle', async () => {
           for (const node of m.removedNodes) {
             if (node.nodeType !== 1) continue;
             window.__layoutFlickerData.mutations.push({
-              ts, type: 'remove',
+              ts,
+              type: 'remove',
               target: targetId,
               element: node.className?.split?.(' ').slice(0, 2).join('.') || node.tagName,
             });
           }
         } else if (m.type === 'attributes') {
-          const targetId = m.target.className?.split?.(' ').slice(0, 2).join('.') || m.target.tagName;
+          const targetId =
+            m.target.className?.split?.(' ').slice(0, 2).join('.') || m.target.tagName;
           window.__layoutFlickerData.mutations.push({
-            ts, type: 'attr',
+            ts,
+            type: 'attr',
             target: targetId,
             attr: m.attributeName,
             oldValue: m.oldValue?.slice(0, 60),
@@ -522,10 +565,12 @@ test('no layout flicker: pane containers stable when idle', async () => {
       for (let i = 0; i < muts.length - 1; i++) {
         const curr = muts[i];
         const next = muts[i + 1];
-        if (curr.type !== next.type &&
-            (curr.type === 'add' || curr.type === 'remove') &&
-            (next.type === 'add' || next.type === 'remove') &&
-            (next.ts - curr.ts) < 200) {
+        if (
+          curr.type !== next.type &&
+          (curr.type === 'add' || curr.type === 'remove') &&
+          (next.type === 'add' || next.type === 'remove') &&
+          next.ts - curr.ts < 200
+        ) {
           flickers.push({ key, curr, next, gapMs: next.ts - curr.ts });
         }
       }
@@ -541,9 +586,10 @@ test('no layout flicker: pane containers stable when idle', async () => {
   expect(result).not.toBeNull();
 
   if (result.flickers.length > 0) {
-    const details = result.flickers.slice(0, 5).map(f =>
-      `  ${f.key}: ${f.curr.type}→${f.next.type} in ${f.gapMs.toFixed(0)}ms`
-    ).join('\n');
+    const details = result.flickers
+      .slice(0, 5)
+      .map((f) => `  ${f.key}: ${f.curr.type}→${f.next.type} in ${f.gapMs.toFixed(0)}ms`)
+      .join('\n');
     console.warn(`Layout flicker detected:\n${details}`);
   }
 
@@ -561,10 +607,8 @@ test('active pane has visual indicator in DOM', async () => {
     // When a float is focused, tiled panes are all inactive — skip
     if (focusedFloatPaneId) return { skip: true };
 
-    const activeEls = Array.from(
-      document.querySelectorAll('.pane-layout-item.pane-active')
-    );
-    const activeIds = activeEls.map(el => el.getAttribute('data-pane-id'));
+    const activeEls = Array.from(document.querySelectorAll('.pane-layout-item.pane-active'));
+    const activeIds = activeEls.map((el) => el.getAttribute('data-pane-id'));
 
     return {
       skip: false,

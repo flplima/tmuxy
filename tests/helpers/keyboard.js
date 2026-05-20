@@ -188,7 +188,7 @@ async function typeChar(page, char) {
 async function typeInTerminal(page, text) {
   // Click the active pane's terminal for reliable focus.
   // Using the first [role="log"] would change the active pane via FOCUS_PANE.
-  const terminal = await page.$('.pane-active [role="log"]') || await page.$('[role="log"]');
+  const terminal = (await page.$('.pane-active [role="log"]')) || (await page.$('[role="log"]'));
   if (terminal) {
     await terminal.click();
   } else {

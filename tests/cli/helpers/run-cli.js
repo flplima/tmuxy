@@ -15,7 +15,10 @@ const MOCKS_DIR = path.resolve(__dirname, '../mocks');
  * @returns {{ stdout: string, stderr: string, exitCode: number, tmuxCalls: Array<{args: string[]}> }}
  */
 function runCLI(args, opts = {}) {
-  const logFile = path.join(os.tmpdir(), `mock-tmux-log-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const logFile = path.join(
+    os.tmpdir(),
+    `mock-tmux-log-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 
   const env = {
     ...process.env,
@@ -52,14 +55,18 @@ function runCLI(args, opts = {}) {
   try {
     const logContent = fs.readFileSync(logFile, 'utf8').trim();
     if (logContent) {
-      tmuxCalls = logContent.split('\n').map(line => JSON.parse(line));
+      tmuxCalls = logContent.split('\n').map((line) => JSON.parse(line));
     }
   } catch {
     // No log file or empty — no tmux calls made
   }
 
   // Clean up log file
-  try { fs.unlinkSync(logFile); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(logFile);
+  } catch {
+    /* ignore */
+  }
 
   return { stdout, stderr, exitCode, tmuxCalls };
 }
@@ -75,7 +82,10 @@ function runCLI(args, opts = {}) {
  */
 function runCLIFull(args, opts = {}) {
   const { spawnSync } = require('child_process');
-  const logFile = path.join(os.tmpdir(), `mock-tmux-log-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const logFile = path.join(
+    os.tmpdir(),
+    `mock-tmux-log-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 
   const env = {
     ...process.env,
@@ -96,14 +106,18 @@ function runCLIFull(args, opts = {}) {
   try {
     const logContent = fs.readFileSync(logFile, 'utf8').trim();
     if (logContent) {
-      tmuxCalls = logContent.split('\n').map(line => JSON.parse(line));
+      tmuxCalls = logContent.split('\n').map((line) => JSON.parse(line));
     }
   } catch {
     // No log file or empty — no tmux calls made
   }
 
   // Clean up log file
-  try { fs.unlinkSync(logFile); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(logFile);
+  } catch {
+    /* ignore */
+  }
 
   return {
     stdout: result.stdout || '',

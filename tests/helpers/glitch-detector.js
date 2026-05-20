@@ -86,9 +86,9 @@ class GlitchDetector {
       // Initialize data storage
       window.__glitchData = {
         startTime: performance.now(),
-        nodes: [],      // Node additions/removals
+        nodes: [], // Node additions/removals
         attributes: [], // Attribute changes
-        sizes: [],      // Size snapshots
+        sizes: [], // Size snapshots
         config: config,
       };
 
@@ -98,7 +98,7 @@ class GlitchDetector {
       // Helper: check if element should be ignored
       const shouldIgnore = (el) => {
         if (!el || !el.matches) return true;
-        return ignoreSelectors.some(sel => {
+        return ignoreSelectors.some((sel) => {
           try {
             return el.matches(sel) || el.closest(sel);
           } catch {
@@ -111,7 +111,12 @@ class GlitchDetector {
       const getElementId = (el) => {
         if (!el) return 'null';
         const tag = el.tagName?.toLowerCase() || 'unknown';
-        const classes = el.className?.split?.(' ').filter(c => c).slice(0, 3).join('.') || '';
+        const classes =
+          el.className
+            ?.split?.(' ')
+            .filter((c) => c)
+            .slice(0, 3)
+            .join('.') || '';
         const paneId = el.dataset?.paneId || el.closest?.('[data-pane-id]')?.dataset?.paneId || '';
         return `${tag}${classes ? '.' + classes : ''}${paneId ? '[pane=' + paneId + ']' : ''}`;
       };
@@ -189,7 +194,7 @@ class GlitchDetector {
 
         const snapshot = {
           ts,
-          panes: Array.from(panes).map(p => {
+          panes: Array.from(panes).map((p) => {
             const r = p.getBoundingClientRect();
             return {
               id: p.dataset?.paneId || getElementId(p),
@@ -208,7 +213,6 @@ class GlitchDetector {
           data.sizes = data.sizes.slice(-250);
         }
       }, config.sizePollIntervalMs);
-
     }, config);
   }
 
@@ -237,7 +241,7 @@ class GlitchDetector {
       }
 
       // Clean up WeakRefs before returning (can't be serialized)
-      const nodes = data.nodes.map(n => {
+      const nodes = data.nodes.map((n) => {
         const { elementRef, ...rest } = n;
         return rest;
       });
@@ -298,7 +302,7 @@ class GlitchDetector {
         const curr = events[i];
         const next = events[i + 1];
 
-        if (curr.type !== next.type && (next.ts - curr.ts) < config.flickerWindowMs) {
+        if (curr.type !== next.type && next.ts - curr.ts < config.flickerWindowMs) {
           // Found a potential flicker
           flickers.push({
             element,
@@ -323,7 +327,7 @@ class GlitchDetector {
       // Count changes within churn window
       let churnCount = 0;
       for (let i = 1; i < events.length; i++) {
-        if ((events[i].ts - events[i - 1].ts) < config.churnWindowMs) {
+        if (events[i].ts - events[i - 1].ts < config.churnWindowMs) {
           churnCount++;
         }
       }
@@ -344,7 +348,7 @@ class GlitchDetector {
       const curr = data.sizes[i];
 
       for (const pane of curr.panes) {
-        const prevPane = prev.panes.find(p => p.id === pane.id);
+        const prevPane = prev.panes.find((p) => p.id === pane.id);
         if (!prevPane) continue;
 
         const dw = Math.abs(pane.w - prevPane.w);
@@ -396,38 +400,44 @@ class GlitchDetector {
     if (result.summary.nodeFlickers > thresholds.nodeFlickers) {
       failures.push(
         `Node flickers: ${result.summary.nodeFlickers} (max: ${thresholds.nodeFlickers})\n` +
-        result.flickers.map(f =>
-          `  - ${f.element}: ${f.sequence.map(s => s.type).join('→')} in ${f.windowMs.toFixed(1)}ms`
-        ).join('\n')
+          result.flickers
+            .map(
+              (f) =>
+                `  - ${f.element}: ${f.sequence.map((s) => s.type).join('→')} in ${f.windowMs.toFixed(1)}ms`,
+            )
+            .join('\n'),
       );
     }
 
     if (result.summary.attrChurnEvents > thresholds.attrChurnEvents) {
       failures.push(
         `Attribute churn: ${result.summary.attrChurnEvents} (max: ${thresholds.attrChurnEvents})\n` +
-        result.churn.map(c =>
-          `  - ${c.target}: ${c.changeCount} changes (${c.rapidChanges} rapid)`
-        ).join('\n')
+          result.churn
+            .map((c) => `  - ${c.target}: ${c.changeCount} changes (${c.rapidChanges} rapid)`)
+            .join('\n'),
       );
     }
 
     if (result.summary.sizeJumps > thresholds.sizeJumps) {
       failures.push(
         `Size jumps: ${result.summary.sizeJumps} (max: ${thresholds.sizeJumps})\n` +
-        result.jumps.map(j =>
-          `  - ${j.paneId} at ${j.ts.toFixed(1)}ms: ${j.from.w}x${j.from.h} → ${j.to.w}x${j.to.h}`
-        ).join('\n')
+          result.jumps
+            .map(
+              (j) =>
+                `  - ${j.paneId} at ${j.ts.toFixed(1)}ms: ${j.from.w}x${j.from.h} → ${j.to.w}x${j.to.h}`,
+            )
+            .join('\n'),
       );
     }
 
     if (failures.length > 0) {
       throw new Error(
         `Glitch detected during "${options.operation || 'operation'}":\n\n` +
-        failures.join('\n\n') +
-        `\n\nTimeline summary:\n` +
-        `  Duration: ${result.summary.duration.toFixed(1)}ms\n` +
-        `  Total node mutations: ${result.summary.totalNodeMutations}\n` +
-        `  Total attr mutations: ${result.summary.totalAttrMutations}`
+          failures.join('\n\n') +
+          `\n\nTimeline summary:\n` +
+          `  Duration: ${result.summary.duration.toFixed(1)}ms\n` +
+          `  Total node mutations: ${result.summary.totalNodeMutations}\n` +
+          `  Total attr mutations: ${result.summary.totalAttrMutations}`,
       );
     }
 
@@ -441,18 +451,20 @@ class GlitchDetector {
    */
   static formatTimeline(result) {
     const events = [
-      ...result.nodes.map(n => ({ ...n, kind: 'node' })),
-      ...result.attributes.map(a => ({ ...a, kind: 'attr' })),
+      ...result.nodes.map((n) => ({ ...n, kind: 'node' })),
+      ...result.attributes.map((a) => ({ ...a, kind: 'attr' })),
     ].sort((a, b) => a.ts - b.ts);
 
-    return events.map(e => {
-      const ts = `+${e.ts.toFixed(0)}ms`.padStart(8);
-      if (e.kind === 'node') {
-        return `${ts}  ${e.target}: ${e.type === 'add' ? '+' : '-'}${e.element}`;
-      } else {
-        return `${ts}  ${e.target}.${e.attr}: "${e.oldValue}" → "${e.newValue}"`;
-      }
-    }).join('\n');
+    return events
+      .map((e) => {
+        const ts = `+${e.ts.toFixed(0)}ms`.padStart(8);
+        if (e.kind === 'node') {
+          return `${ts}  ${e.target}: ${e.type === 'add' ? '+' : '-'}${e.element}`;
+        } else {
+          return `${ts}  ${e.target}.${e.attr}: "${e.oldValue}" → "${e.newValue}"`;
+        }
+      })
+      .join('\n');
   }
 }
 

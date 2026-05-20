@@ -44,7 +44,7 @@ describe('Scenario 12: Session Reconnect', () => {
         const snap = window.app?.getSnapshot?.();
         const panes = snap?.context?.panes || [];
         const awId = snap?.context?.activeWindowId;
-        return panes.filter(p => p.windowId === awId).length === 2;
+        return panes.filter((p) => p.windowId === awId).length === 2;
       },
       { timeout: 5000, polling: 100 },
     );
@@ -174,11 +174,14 @@ describe('Scenario 22: Token-Free Command Routing', () => {
     const baseUrl = TMUXY_URL;
     const resizeResult = await ctx.page.evaluate(async (url) => {
       try {
-        const res = await fetch(`${url}/commands?session=${encodeURIComponent(window.app?.getSnapshot()?.context?.sessionName || '')}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Connection-Id': '1' },
-          body: JSON.stringify({ cmd: 'set_client_size', args: { cols: 100, rows: 30 } }),
-        });
+        const res = await fetch(
+          `${url}/commands?session=${encodeURIComponent(window.app?.getSnapshot()?.context?.sessionName || '')}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Connection-Id': '1' },
+            body: JSON.stringify({ cmd: 'set_client_size', args: { cols: 100, rows: 30 } }),
+          },
+        );
         return { success: res.ok, status: res.status };
       } catch (e) {
         return { success: false, error: e.message };

@@ -5,12 +5,20 @@
 const path = require('path');
 const helpersDir = path.join(__dirname, 'helpers');
 
-const { getBrowser, navigateToSession, waitForPaneCount, waitForWindowCount, delay } = require(path.join(helpersDir, 'browser'));
+const { getBrowser, navigateToSession, waitForPaneCount, waitForWindowCount, delay } = require(
+  path.join(helpersDir, 'browser'),
+);
 const { GlitchDetector, OPERATION_THRESHOLDS } = require(path.join(helpersDir, 'glitch-detector'));
 const { assertLayoutInvariants } = require(path.join(helpersDir, 'layout'));
-const { focusTerminal, sendPrefixCommand, typeInTerminal, pressEnter } = require(path.join(helpersDir, 'keyboard'));
-const { splitPaneKeyboard, killPaneKeyboard, cycleLayoutKeyboard, getUIPaneCount } = require(path.join(helpersDir, 'pane-ops'));
-const { createWindowKeyboard, nextWindowKeyboard, killWindowKeyboard } = require(path.join(helpersDir, 'window-ops'));
+const { focusTerminal, sendPrefixCommand, typeInTerminal, pressEnter } = require(
+  path.join(helpersDir, 'keyboard'),
+);
+const { splitPaneKeyboard, killPaneKeyboard, cycleLayoutKeyboard, getUIPaneCount } = require(
+  path.join(helpersDir, 'pane-ops'),
+);
+const { createWindowKeyboard, nextWindowKeyboard, killWindowKeyboard } = require(
+  path.join(helpersDir, 'window-ops'),
+);
 const { DELAYS } = require(path.join(helpersDir, 'config'));
 
 const SESSION = 'tmuxy-qa';
@@ -71,13 +79,18 @@ async function main() {
     await delay(DELAYS.SYNC * 3);
 
     const result10 = await detector10.stop();
-    log(`  Summary: flickers=${result10.summary.nodeFlickers}, sizeJumps=${result10.summary.sizeJumps}, attrChurn=${result10.summary.attrChurnEvents}`);
+    log(
+      `  Summary: flickers=${result10.summary.nodeFlickers}, sizeJumps=${result10.summary.sizeJumps}, attrChurn=${result10.summary.attrChurnEvents}`,
+    );
     log(`  Timeline:\n${GlitchDetector.formatTimeline(result10)}`);
 
     // Check for orphaned float nodes
     const orphanedFloats = await page.evaluate(() => {
       const floats = document.querySelectorAll('.float-modal, .modal-overlay.float-modal');
-      return { count: floats.length, html: floats.length > 0 ? floats[0].outerHTML.slice(0, 200) : '' };
+      return {
+        count: floats.length,
+        html: floats.length > 0 ? floats[0].outerHTML.slice(0, 200) : '',
+      };
     });
     log(`  Orphaned float elements: ${orphanedFloats.count}`);
     if (orphanedFloats.count > 0) {
@@ -87,7 +100,11 @@ async function main() {
     // Check if float window still exists in tmux
     const floatWindows = await page.evaluate(() => {
       const snap = window.app?.getSnapshot();
-      return snap?.context?.windows?.filter(w => w.windowType === "float").map(w => `${w.id}:${w.name}`) || [];
+      return (
+        snap?.context?.windows
+          ?.filter((w) => w.windowType === 'float')
+          .map((w) => `${w.id}:${w.name}`) || []
+      );
     });
     log(`  Remaining float windows in XState: ${JSON.stringify(floatWindows)}`);
 
@@ -118,7 +135,8 @@ async function main() {
         const container = document.querySelector('.pane-container');
         const cRect = container?.getBoundingClientRect();
         const items = document.querySelectorAll('.pane-layout-item[data-pane-id]');
-        let minLeft = Infinity, maxRight = -Infinity;
+        let minLeft = Infinity,
+          maxRight = -Infinity;
         for (const el of items) {
           const r = el.getBoundingClientRect();
           minLeft = Math.min(minLeft, r.left);
@@ -132,7 +150,9 @@ async function main() {
           paneCount: items.length,
         };
       });
-      log(`  Layout ${i+1}: leftM=${layoutInfo.leftMargin.toFixed(0)}px, rightM=${layoutInfo.rightMargin.toFixed(0)}px, panes=${layoutInfo.paneCount}`);
+      log(
+        `  Layout ${i + 1}: leftM=${layoutInfo.leftMargin.toFixed(0)}px, rightM=${layoutInfo.rightMargin.toFixed(0)}px, panes=${layoutInfo.paneCount}`,
+      );
     }
 
     // Final centering check
@@ -152,7 +172,10 @@ async function main() {
     const preState = await page.evaluate(() => {
       const snap = window.app?.getSnapshot();
       return {
-        windows: snap?.context?.windows?.map(w => `${w.id}:${w.name}:float=${w.windowType === "float"}`) || [],
+        windows:
+          snap?.context?.windows?.map(
+            (w) => `${w.id}:${w.name}:float=${w.windowType === 'float'}`,
+          ) || [],
         tabCount: document.querySelectorAll('.tab-name:not(.tab-add)').length,
       };
     });
@@ -176,7 +199,9 @@ async function main() {
     await delay(DELAYS.SYNC);
 
     const result12 = await detector12.stop();
-    log(`  Summary: flickers=${result12.summary.nodeFlickers}, sizeJumps=${result12.summary.sizeJumps}, attrChurn=${result12.summary.attrChurnEvents}`);
+    log(
+      `  Summary: flickers=${result12.summary.nodeFlickers}, sizeJumps=${result12.summary.sizeJumps}, attrChurn=${result12.summary.attrChurnEvents}`,
+    );
     log(`  Timeline:\n${GlitchDetector.formatTimeline(result12)}`);
 
     if (result12.summary.nodeFlickers > 2) {
@@ -184,13 +209,15 @@ async function main() {
     } else {
       log('  PASS');
     }
-
   } finally {
-    await page.context().close().catch(() => {});
+    await page
+      .context()
+      .close()
+      .catch(() => {});
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Fatal error:', err);
   process.exit(1);
 });

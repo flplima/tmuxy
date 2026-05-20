@@ -72,7 +72,7 @@ function preflight() {
   if (!fs.existsSync(HELPER_BIN)) {
     throw new Error(
       `Test prerequisite missing: ${HELPER_BIN} not installed. ` +
-        `The CI workflow must place a stay-alive script there before this test runs.`
+        `The CI workflow must place a stay-alive script there before this test runs.`,
     );
   }
   // Make sure the helper is genuinely Homebrew-only — fail early if some
@@ -80,7 +80,7 @@ function preflight() {
   if (fs.existsSync('/usr/bin/tmuxy-stay-alive')) {
     throw new Error(
       `Test setup invalid: /usr/bin/tmuxy-stay-alive exists. ` +
-        `The test relies on the helper being reachable only via Homebrew.`
+        `The test relies on the helper being reachable only via Homebrew.`,
     );
   }
 }
@@ -143,7 +143,7 @@ async function run() {
       if (child.exitCode !== null) {
         throw new Error(
           `Binary exited (code=${child.exitCode}) before stability window elapsed.\n` +
-            `Log tail:\n${readLog().slice(-2000)}`
+            `Log tail:\n${readLog().slice(-2000)}`,
         );
       }
       await new Promise((r) => setTimeout(r, 1000));
@@ -154,7 +154,7 @@ async function run() {
     if (/FATAL:/.test(log)) {
       throw new Error(
         `FATAL emitted — PATH augmentation did not resolve ${HELPER_BIN}.\n` +
-          `Log tail:\n${log.slice(-2000)}`
+          `Log tail:\n${log.slice(-2000)}`,
       );
     }
 
@@ -162,20 +162,20 @@ async function run() {
     if (connectCount === 0) {
       throw new Error(
         `No "control mode connected" lines after ${STABLE_SECONDS}s — the app never reached handshake.\n` +
-          `Log tail:\n${log.slice(-2000)}`
+          `Log tail:\n${log.slice(-2000)}`,
       );
     }
     if (connectCount > 2) {
       throw new Error(
         `Reconnect storm: ${connectCount} connect events in ${STABLE_SECONDS}s. ` +
           `Connection is unstable under sparse PATH — PATH fix likely regressed.\n` +
-          `Log tail:\n${log.slice(-2000)}`
+          `Log tail:\n${log.slice(-2000)}`,
       );
     }
 
     console.warn(
       `Connection stable: ${connectCount} connect event(s), no FATAL, ` +
-        `no reconnect storm. PATH augmentation working.`
+        `no reconnect storm. PATH augmentation working.`,
     );
   } finally {
     try {

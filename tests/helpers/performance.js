@@ -74,11 +74,13 @@ async function measureKeyboardRoundTrip(page, text, timeout = 5000) {
   await page.waitForFunction(
     (searchText) => {
       const logs = document.querySelectorAll('[role="log"]');
-      const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+      const content = Array.from(logs)
+        .map((l) => l.textContent || '')
+        .join('\n');
       return content.includes(searchText);
     },
     text,
-    { timeout, polling: 50 }
+    { timeout, polling: 50 },
   );
 
   return performance.now() - start;

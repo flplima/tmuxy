@@ -56,13 +56,7 @@ describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pa
       // against the degenerate "both buffers happen to be empty" case.
       await assertAltScreenMatch(ctx.page, ctx.session.name, {
         maxDiffs: 0,
-        requireMarkers: [
-          'TUI BENCH',
-          'STATUS:',
-          'tmuxy-test',
-          'RED-ON-BLUE',
-          'TUI_READY',
-        ],
+        requireMarkers: ['TUI BENCH', 'STATUS:', 'tmuxy-test', 'RED-ON-BLUE', 'TUI_READY'],
       });
     } finally {
       // Cleanup: Ctrl+C tells the script's trap to drop alt-screen and exit.

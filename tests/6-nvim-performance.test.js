@@ -126,7 +126,8 @@ describe('Nvim Performance & Correctness', () => {
     await delay(DELAYS.LONG);
 
     // Type a paragraph and measure time for it to appear
-    const paragraph = 'The quick brown fox jumps over the lazy dog. Performance testing in progress.';
+    const paragraph =
+      'The quick brown fox jumps over the lazy dog. Performance testing in progress.';
     const typeTime = await typeWithTiming(ctx.page, paragraph);
 
     // Wait for the text to appear in the terminal
@@ -150,7 +151,7 @@ describe('Nvim Performance & Correctness', () => {
     // Generate a 500-line file with unique prefix per line
     await typeInTerminal(
       ctx.page,
-      "seq 1 500 | awk '{printf \"LINE%03d quick brown fox\\n\", NR}' > /tmp/nvim-scroll.txt",
+      'seq 1 500 | awk \'{printf "LINE%03d quick brown fox\\n", NR}\' > /tmp/nvim-scroll.txt',
     );
     await pressEnter(ctx.page);
     await delay(DELAYS.LONG);

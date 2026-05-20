@@ -54,7 +54,8 @@ const {
 async function verifyFloatVisible(page) {
   const info = await page.evaluate(() => {
     // Find the float container (centered float) or modal-container (drawer)
-    const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+    const fc =
+      document.querySelector('.float-container') || document.querySelector('.modal-container');
     if (!fc) return null;
     const fcRect = fc.getBoundingClientRect();
 
@@ -67,8 +68,15 @@ async function verifyFloatVisible(page) {
     const logRect = log ? log.getBoundingClientRect() : null;
 
     return {
-      floatRect: { x: Math.round(fcRect.x), y: Math.round(fcRect.y), w: Math.round(fcRect.width), h: Math.round(fcRect.height) },
-      contentRect: contentRect ? { w: Math.round(contentRect.width), h: Math.round(contentRect.height) } : null,
+      floatRect: {
+        x: Math.round(fcRect.x),
+        y: Math.round(fcRect.y),
+        w: Math.round(fcRect.width),
+        h: Math.round(fcRect.height),
+      },
+      contentRect: contentRect
+        ? { w: Math.round(contentRect.width), h: Math.round(contentRect.height) }
+        : null,
       logRect: logRect ? { w: Math.round(logRect.width), h: Math.round(logRect.height) } : null,
     };
   });
@@ -135,10 +143,15 @@ describe('Scenario 4: Window Lifecycle', () => {
     for (let attempt = 0; attempt < 3 && !nextChanged; attempt++) {
       await nextWindowKeyboard(ctx.page);
       try {
-        await waitForCondition(ctx.page, async () => {
-          const idx = await ctx.session.getCurrentWindowIndex();
-          return idx !== currentIndex;
-        }, 3000, 'next-window keyboard to change active window');
+        await waitForCondition(
+          ctx.page,
+          async () => {
+            const idx = await ctx.session.getCurrentWindowIndex();
+            return idx !== currentIndex;
+          },
+          3000,
+          'next-window keyboard to change active window',
+        );
         nextChanged = true;
       } catch {
         // fall through to next attempt
@@ -155,10 +168,15 @@ describe('Scenario 4: Window Lifecycle', () => {
     for (let attempt = 0; attempt < 3 && !prevChanged; attempt++) {
       await prevWindowKeyboard(ctx.page);
       try {
-        await waitForCondition(ctx.page, async () => {
-          const curIdx = await ctx.session.getCurrentWindowIndex();
-          return curIdx !== idx;
-        }, 3000, 'prev-window keyboard to change active window');
+        await waitForCondition(
+          ctx.page,
+          async () => {
+            const curIdx = await ctx.session.getCurrentWindowIndex();
+            return curIdx !== idx;
+          },
+          3000,
+          'prev-window keyboard to change active window',
+        );
         prevChanged = true;
       } catch {
         // retry
@@ -173,20 +191,30 @@ describe('Scenario 4: Window Lifecycle', () => {
     await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, 3);
     await selectWindowKeyboard(ctx.page, 1);
-    await waitForCondition(ctx.page, async () => {
-      const curIdx = await ctx.session.getCurrentWindowIndex();
-      return curIdx === '1';
-    }, 10000, 'select-window -t :1 to activate window 1');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const curIdx = await ctx.session.getCurrentWindowIndex();
+        return curIdx === '1';
+      },
+      10000,
+      'select-window -t :1 to activate window 1',
+    );
 
     // Step 6: Last window toggle (keyboard only) — same retry pattern
     let lastChanged = false;
     for (let attempt = 0; attempt < 3 && !lastChanged; attempt++) {
       await lastWindowKeyboard(ctx.page);
       try {
-        await waitForCondition(ctx.page, async () => {
-          const curIdx = await ctx.session.getCurrentWindowIndex();
-          return curIdx !== '1';
-        }, 3000, 'last-window keyboard to change active window');
+        await waitForCondition(
+          ctx.page,
+          async () => {
+            const curIdx = await ctx.session.getCurrentWindowIndex();
+            return curIdx !== '1';
+          },
+          3000,
+          'last-window keyboard to change active window',
+        );
         lastChanged = true;
       } catch {
         // retry
@@ -200,7 +228,7 @@ describe('Scenario 4: Window Lifecycle', () => {
     await renameWindowKeyboard(ctx.page, 'MyRenamedWindow');
     await delay(DELAYS.SYNC);
     let windows = await ctx.session.getWindowInfo();
-    expect(windows.find(w => w.name === 'MyRenamedWindow')).toBeDefined();
+    expect(windows.find((w) => w.name === 'MyRenamedWindow')).toBeDefined();
 
     // Step 8: Close windows until only 1 remains (use stable window IDs,
     // not indices which can shift; adapter path avoids keyboard focus races)
@@ -229,7 +257,7 @@ describe('Scenario 4: Window Lifecycle', () => {
     await delay(DELAYS.SYNC);
     const tiledPanes = await ctx.session.getPaneInfo();
     expect(tiledPanes.length).toBe(4);
-    const areas = tiledPanes.map(p => p.width * p.height);
+    const areas = tiledPanes.map((p) => p.width * p.height);
     expect(Math.max(...areas) / Math.min(...areas)).toBeLessThan(2);
 
     // Wait for layout to fully settle (layout change triggers resize round-trip)
@@ -277,7 +305,7 @@ describe('Scenario 5: Pane Groups', () => {
     expect(await isHeaderGrouped(ctx.page)).toBe(true);
     let tabs = await getGroupTabInfo(ctx.page);
     expect(tabs.length).toBe(2);
-    expect(tabs.filter(t => t.active).length).toBe(1);
+    expect(tabs.filter((t) => t.active).length).toBe(1);
 
     // Step 5: Record the new (BETA) pane ID — it should be different from ALPHA
     await delay(DELAYS.SYNC);
@@ -288,17 +316,23 @@ describe('Scenario 5: Pane Groups', () => {
     expect(betaPaneId).not.toBe(alphaPaneId);
 
     // Step 6: Switch to original pane tab, verify pane identity via ID
-    const inactiveIdx = tabs.findIndex(t => !t.active);
+    const inactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, inactiveIdx);
     await waitForGroupTabs(ctx.page, 2);
-    await waitForCondition(ctx.page, async () => {
-      const id = await ctx.page.evaluate(() =>
-        window.app?.getSnapshot()?.context?.activePaneId || null);
-      return id === alphaPaneId;
-    }, 10000, 'group tab switch to ALPHA pane');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const id = await ctx.page.evaluate(
+          () => window.app?.getSnapshot()?.context?.activePaneId || null,
+        );
+        return id === alphaPaneId;
+      },
+      10000,
+      'group tab switch to ALPHA pane',
+    );
 
     tabs = await getGroupTabInfo(ctx.page);
-    expect(tabs.filter(t => t.active).length).toBe(1);
+    expect(tabs.filter((t) => t.active).length).toBe(1);
 
     const afterSwitchId = await ctx.page.evaluate(() => {
       return window.app?.getSnapshot()?.context?.activePaneId || null;
@@ -306,7 +340,7 @@ describe('Scenario 5: Pane Groups', () => {
     expect(afterSwitchId).toBe(alphaPaneId);
 
     // Step 7: Switch back to BETA pane and verify identity
-    const betaIdx = tabs.findIndex(t => t.active); // currently on ALPHA's tab
+    const betaIdx = tabs.findIndex((t) => t.active); // currently on ALPHA's tab
     const otherIdx = betaIdx === 0 ? 1 : 0;
     await clickGroupTab(ctx.page, otherIdx);
     await delay(DELAYS.SYNC);
@@ -318,7 +352,7 @@ describe('Scenario 5: Pane Groups', () => {
 
     // Step 8: Verify tab highlight matches active pane
     const tabsAfterSwitch = await getGroupTabInfo(ctx.page);
-    const selectedTab = tabsAfterSwitch.find(t => t.active);
+    const selectedTab = tabsAfterSwitch.find((t) => t.active);
     expect(selectedTab).toBeDefined();
     expect(selectedTab.index).toBe(otherIdx);
 
@@ -340,7 +374,7 @@ describe('Scenario 5: Pane Groups', () => {
     // that triggers the bug where a pane escapes the group window when the
     // active tmux window is itself a group window.
     tabs = await getGroupTabInfo(ctx.page);
-    const firstInactiveIdx = tabs.findIndex(t => !t.active);
+    const firstInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, firstInactiveIdx);
     await delay(DELAYS.SYNC);
     await waitForGroupTabs(ctx.page, 3);
@@ -348,7 +382,7 @@ describe('Scenario 5: Pane Groups', () => {
 
     // Step 9c: Switch to another inactive tab with 3 tabs
     tabs = await getGroupTabInfo(ctx.page);
-    const secondInactiveIdx = tabs.findIndex(t => !t.active);
+    const secondInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, secondInactiveIdx);
     await delay(DELAYS.SYNC);
     await waitForGroupTabs(ctx.page, 3);
@@ -356,7 +390,7 @@ describe('Scenario 5: Pane Groups', () => {
 
     // Step 9d: Switch one more time — cycle through all 3 tabs
     tabs = await getGroupTabInfo(ctx.page);
-    const thirdInactiveIdx = tabs.findIndex(t => !t.active);
+    const thirdInactiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTab(ctx.page, thirdInactiveIdx);
     await delay(DELAYS.SYNC);
     await waitForGroupTabs(ctx.page, 3);
@@ -370,11 +404,16 @@ describe('Scenario 5: Pane Groups', () => {
     // Step 11: Close remaining extra tab → revert to regular header
     // Close the non-active tab (find it dynamically since index may vary)
     tabs = await getGroupTabInfo(ctx.page);
-    const nonActiveIdx = tabs.findIndex(t => !t.active);
+    const nonActiveIdx = tabs.findIndex((t) => !t.active);
     await clickGroupTabClose(ctx.page, nonActiveIdx >= 0 ? nonActiveIdx : 1);
-    await waitForCondition(ctx.page, async () => {
-      return !(await isHeaderGrouped(ctx.page));
-    }, 15000, 'header to revert to ungrouped');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        return !(await isHeaderGrouped(ctx.page));
+      },
+      15000,
+      'header to revert to ungrouped',
+    );
 
     // Pane should still exist
     const finalHeader = await ctx.page.$('.pane-tab');
@@ -419,7 +458,8 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
 
     // Step 5: Float header has close button but NO group-add (+) button
     const headerInfo = await ctx.page.evaluate(() => {
-      const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+      const fc =
+        document.querySelector('.float-container') || document.querySelector('.modal-container');
       if (!fc) return null;
       return {
         hasHeader: !!fc.querySelector('.pane-header'),
@@ -436,16 +476,16 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     await waitForCondition(
       ctx.page,
       async () => {
-        const id = await ctx.page.evaluate(() =>
-          window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+        const id = await ctx.page.evaluate(
+          () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
         );
         return id !== null && id !== undefined;
       },
       5000,
       'focusedFloatPaneId to be set after float appears',
     );
-    const focusedFloatId = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+    const focusedFloatId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
     );
     expect(focusedFloatId).toMatch(/^%\d+$/);
 
@@ -498,7 +538,9 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       ctx.page,
       async () => {
         return await ctx.page.evaluate(() => {
-          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          const fc =
+            document.querySelector('.float-container') ||
+            document.querySelector('.modal-container');
           if (!fc) return false;
           const log = fc.querySelector('[role="log"]');
           if (!log) return false;
@@ -529,7 +571,9 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       ctx.page,
       async () => {
         return await ctx.page.evaluate((token) => {
-          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          const fc =
+            document.querySelector('.float-container') ||
+            document.querySelector('.modal-container');
           if (!fc) return false;
           const log = fc.querySelector('[role="log"]');
           return log?.textContent?.includes(token) || false;
@@ -559,21 +603,25 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
 
     // Step 10: Close float via close button
     const closeClicked = await ctx.page.evaluate(() => {
-      const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+      const fc =
+        document.querySelector('.float-container') || document.querySelector('.modal-container');
       const btn = fc?.querySelector('.pane-header-close');
-      if (btn) { btn.click(); return true; }
+      if (btn) {
+        btn.click();
+        return true;
+      }
       return false;
     });
     expect(closeClicked).toBe(true);
 
-    await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.modal-overlay').length === 0,
-      { timeout: 10000, polling: 100 },
-    );
+    await ctx.page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
+      timeout: 10000,
+      polling: 100,
+    });
 
     // Step 11: focusedFloatPaneId cleared, background pane interactive
-    const focusedAfterClose = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+    const focusedAfterClose = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
     );
     expect(focusedAfterClose).toBeNull();
 
@@ -619,8 +667,8 @@ describe('Scenario 6b: Float Escape Close', () => {
     await waitForCondition(
       ctx.page,
       async () => {
-        const id = await ctx.page.evaluate(() =>
-          window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+        const id = await ctx.page.evaluate(
+          () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
         );
         return id !== null && id !== undefined;
       },
@@ -631,14 +679,14 @@ describe('Scenario 6b: Float Escape Close', () => {
     // Step 4: Press Escape — should close the float
     await ctx.page.keyboard.press('Escape');
 
-    await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.modal-overlay').length === 0,
-      { timeout: 10000, polling: 100 },
-    );
+    await ctx.page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
+      timeout: 10000,
+      polling: 100,
+    });
 
     // Step 5: Float is gone, focus restored
-    const focusedAfter = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+    const focusedAfter = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
     );
     expect(focusedAfter).toBeNull();
 
@@ -681,10 +729,10 @@ describe('Scenario 6c: Float Backdrop Close', () => {
     const box = await backdrop.boundingBox();
     await ctx.page.mouse.click(box.x + 5, box.y + 5);
 
-    await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.modal-overlay').length === 0,
-      { timeout: 10000, polling: 100 },
-    );
+    await ctx.page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
+      timeout: 10000,
+      polling: 100,
+    });
 
     // Step 4: Background pane accepts input
     const TOKEN = 'BACKDROP_CLOSE_' + Date.now();
@@ -707,7 +755,8 @@ describe('Scenario 11: Status Bar', () => {
 
     // Step 1: Status bar visible
     const barInfo = await ctx.page.evaluate(() => {
-      const bar = document.querySelector('.status-bar') || document.querySelector('.tmux-status-bar');
+      const bar =
+        document.querySelector('.status-bar') || document.querySelector('.tmux-status-bar');
       if (!bar) return null;
       return {
         hasContent: bar.textContent.trim().length > 0,
@@ -724,7 +773,8 @@ describe('Scenario 11: Status Bar', () => {
 
     // Step 3: Session name visible
     const barText = await ctx.page.evaluate(() => {
-      const bar = document.querySelector('.status-bar') || document.querySelector('.tmux-status-bar');
+      const bar =
+        document.querySelector('.status-bar') || document.querySelector('.tmux-status-bar');
       return bar ? bar.textContent : '';
     });
     expect(barText).toContain(ctx.session.name);
@@ -745,8 +795,11 @@ describe('Scenario 11: Status Bar', () => {
     expect(allTabs.length).toBe(2);
     let inactiveTab = null;
     for (const t of allTabs) {
-      const isActive = await t.evaluate(el => el.classList.contains('tab-name-active'));
-      if (!isActive) { inactiveTab = t; break; }
+      const isActive = await t.evaluate((el) => el.classList.contains('tab-name-active'));
+      if (!isActive) {
+        inactiveTab = t;
+        break;
+      }
     }
     expect(inactiveTab).not.toBeNull();
     await inactiveTab.click();
@@ -757,13 +810,15 @@ describe('Scenario 11: Status Bar', () => {
     await delay(DELAYS.SYNC);
     const tabText = await ctx.page.evaluate(() => {
       const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
-      return Array.from(tabs).map(t => t.textContent).join(' ');
+      return Array.from(tabs)
+        .map((t) => t.textContent)
+        .join(' ');
     });
     expect(tabText).toContain('RENAMED_WINDOW');
 
     // Step 8: Close window via tmux (removing the non-active one)
     const windows = await ctx.session.getWindowInfo();
-    const inactiveWindow = windows.find(w => !w.active);
+    const inactiveWindow = windows.find((w) => !w.active);
     if (inactiveWindow) {
       await tmuxCommandKeyboard(ctx.page, `kill-window -t :${inactiveWindow.index}`);
       await delay(DELAYS.SYNC);
@@ -787,8 +842,8 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     await ctx.setupPage();
 
     // Step 1: Record window 1 pane ID
-    const win1PaneId = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.activePaneId,
+    const win1PaneId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId,
     );
     expect(win1PaneId).toBeTruthy();
 
@@ -797,11 +852,15 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     await waitForWindowCount(ctx.page, 2);
     await delay(DELAYS.SYNC);
     // Wait for new pane content to render via SSE (non-fatal on CI)
-    try { await waitForShellPrompt(ctx.page, 10000); } catch { /* CI SSE may not deliver new pane content */ }
+    try {
+      await waitForShellPrompt(ctx.page, 10000);
+    } catch {
+      /* CI SSE may not deliver new pane content */
+    }
 
     // Step 3: Record window 2 pane ID
-    const win2PaneId = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.activePaneId,
+    const win2PaneId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId,
     );
     expect(win2PaneId).toBeTruthy();
     expect(win2PaneId).not.toBe(win1PaneId);
@@ -816,24 +875,26 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     expect(allTabs.length).toBe(2);
     let inactiveTab = null;
     for (const t of allTabs) {
-      const isActive = await t.evaluate(el => el.classList.contains('tab-name-active'));
-      if (!isActive) { inactiveTab = t; break; }
+      const isActive = await t.evaluate((el) => el.classList.contains('tab-name-active'));
+      if (!isActive) {
+        inactiveTab = t;
+        break;
+      }
     }
     expect(inactiveTab).not.toBeNull();
     await inactiveTab.click();
     await delay(DELAYS.SYNC);
 
     // Step 6: Verify we switched — active pane should be win1PaneId
-    await ctx.session.waitForState(
-      ctx => ctx.activePaneId === win1PaneId,
-      5000,
-    ).catch(() => {
-      // The waitForState stringifies the function, so win1PaneId won't be in scope.
-      // Use page.evaluate instead.
-    });
+    await ctx.session
+      .waitForState((ctx) => ctx.activePaneId === win1PaneId, 5000)
+      .catch(() => {
+        // The waitForState stringifies the function, so win1PaneId won't be in scope.
+        // Use page.evaluate instead.
+      });
     // Use direct evaluate to check active pane
-    const activeAfterSwitch = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.activePaneId,
+    const activeAfterSwitch = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId,
     );
 
     // Step 7: Type a marker in window 1
@@ -850,8 +911,11 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     const tabs2 = await ctx.page.$$('.tab-name:not(.tab-add)');
     let inactiveTab2 = null;
     for (const t of tabs2) {
-      const isActive = await t.evaluate(el => el.classList.contains('tab-name-active'));
-      if (!isActive) { inactiveTab2 = t; break; }
+      const isActive = await t.evaluate((el) => el.classList.contains('tab-name-active'));
+      if (!isActive) {
+        inactiveTab2 = t;
+        break;
+      }
     }
     expect(inactiveTab2).not.toBeNull();
     await inactiveTab2.click();
@@ -1006,8 +1070,8 @@ describe('Scenario 22: Float fzf Workflow', () => {
     await verifyFloatVisible(ctx.page);
 
     // Get the float pane ID for capture-pane verification
-    const floatPaneId = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+    const floatPaneId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
     );
     expect(floatPaneId).toBeTruthy();
 
@@ -1017,7 +1081,9 @@ describe('Scenario 22: Float fzf Workflow', () => {
         ctx.page,
         async () => {
           return await ctx.page.evaluate(() => {
-            const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+            const fc =
+              document.querySelector('.float-container') ||
+              document.querySelector('.modal-container');
             if (!fc) return false;
             const log = fc.querySelector('[role="log"]');
             if (!log) return false;
@@ -1028,7 +1094,9 @@ describe('Scenario 22: Float fzf Workflow', () => {
         10000,
         'float pane shell prompt to render',
       );
-    } catch { /* CI SSE may not deliver new pane content */ }
+    } catch {
+      /* CI SSE may not deliver new pane content */
+    }
 
     // Step 4: Run echo in the float and verify output
     const TOKEN = `FZF_TOKEN_${Date.now()}`;
@@ -1044,7 +1112,9 @@ describe('Scenario 22: Float fzf Workflow', () => {
       ctx.page,
       async () => {
         return await ctx.page.evaluate((token) => {
-          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          const fc =
+            document.querySelector('.float-container') ||
+            document.querySelector('.modal-container');
           if (!fc) return false;
           const log = fc.querySelector('[role="log"]');
           return log?.textContent?.includes(token) || false;
@@ -1069,7 +1139,9 @@ describe('Scenario 22: Float fzf Workflow', () => {
       ctx.page,
       async () => {
         return await ctx.page.evaluate((marker) => {
-          const fc = document.querySelector('.float-container') || document.querySelector('.modal-container');
+          const fc =
+            document.querySelector('.float-container') ||
+            document.querySelector('.modal-container');
           if (!fc) return false;
           const log = fc.querySelector('[role="log"]');
           return log?.textContent?.includes(marker) || false;
@@ -1088,10 +1160,10 @@ describe('Scenario 22: Float fzf Workflow', () => {
       await ctx.page.keyboard.press('Enter');
     }
 
-    await ctx.page.waitForFunction(
-      () => document.querySelectorAll('.modal-overlay').length === 0,
-      { timeout: 15000, polling: 100 },
-    );
+    await ctx.page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
+      timeout: 15000,
+      polling: 100,
+    });
 
     // Background pane should be interactive after float closes
     const bgMarker = `BG_RESTORED_${Date.now()}`;

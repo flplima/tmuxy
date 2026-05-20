@@ -46,7 +46,7 @@ async function assertContentMatch(page, label) {
 
       // Query tmux state in a single list-panes call
       const tmuxRaw = tmuxQuery(
-        `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_width}|#{pane_height}|#{cursor_x}|#{cursor_y}|#{T:pane-border-format}"`
+        `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_width}|#{pane_height}|#{cursor_x}|#{cursor_y}|#{T:pane-border-format}"`,
       );
       const tmuxPanes = {};
       for (const line of tmuxRaw.split('\n').filter(Boolean)) {
@@ -66,7 +66,7 @@ async function assertContentMatch(page, label) {
         const snap = window.app?.getSnapshot();
         if (!snap?.context) return null;
         const ctx = snap.context;
-        const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
+        const visiblePanes = (ctx.panes || []).filter((p) => p.windowId === ctx.activeWindowId);
         const copyModeStates = ctx.copyModeStates || {};
 
         const result = {};
@@ -79,15 +79,19 @@ async function assertContentMatch(page, label) {
           const el = document.querySelector(`[data-pane-id="${pane.tmuxId}"] .terminal-content`);
           const lines = [];
           if (el) {
-            el.querySelectorAll('.terminal-line').forEach(lineEl => {
+            el.querySelectorAll('.terminal-line').forEach((lineEl) => {
               let text = '';
-              lineEl.querySelectorAll('span').forEach(s => { text += s.textContent || ''; });
+              lineEl.querySelectorAll('span').forEach((s) => {
+                text += s.textContent || '';
+              });
               lines.push(text.slice(0, pane.width)); // crop to pane width
             });
           }
 
           // Extract title from DOM
-          const headerEl = document.querySelector(`[data-pane-id="${pane.tmuxId}"] .pane-tab-title`);
+          const headerEl = document.querySelector(
+            `[data-pane-id="${pane.tmuxId}"] .pane-tab-title`,
+          );
           const domTitle = headerEl ? headerEl.textContent || '' : '';
 
           result[pane.tmuxId] = {
@@ -121,15 +125,21 @@ async function assertContentMatch(page, label) {
         // Skip cursor check for inactive panes — their cursor position may be stale
         // after resize/scroll operations.
         // Skip cursor check entirely if UI reports 0,0 — cursor may not have synced yet.
-        const cursorSynced = ui.active && !(ui.cursorX === 0 && ui.cursorY === 0 && (tmux.cursorX !== 0 || tmux.cursorY !== 0));
+        const cursorSynced =
+          ui.active &&
+          !(ui.cursorX === 0 && ui.cursorY === 0 && (tmux.cursorX !== 0 || tmux.cursorY !== 0));
         if (cursorSynced) {
           if (tmux.cursorX !== ui.cursorX) {
-            lastErrors.push(`${prefix}Pane ${paneId} cursorX: tmux=${tmux.cursorX}, ui=${ui.cursorX}`);
+            lastErrors.push(
+              `${prefix}Pane ${paneId} cursorX: tmux=${tmux.cursorX}, ui=${ui.cursorX}`,
+            );
           }
           // Allow 2-row tolerance: resize, status bar allocation, and height
           // rounding can shift cursor positions by up to 2 rows.
           if (Math.abs(tmux.cursorY - ui.cursorY) > 2) {
-            lastErrors.push(`${prefix}Pane ${paneId} cursorY: tmux=${tmux.cursorY}, ui=${ui.cursorY}`);
+            lastErrors.push(
+              `${prefix}Pane ${paneId} cursorY: tmux=${tmux.cursorY}, ui=${ui.cursorY}`,
+            );
           }
         }
 
@@ -138,7 +148,11 @@ async function assertContentMatch(page, label) {
         // the current tmux borderTitle (e.g., "200x49" vs "136x22") because
         // the border format includes the pane size which changes on resize.
         // Strip dimension patterns before comparing.
-        const stripDims = (s) => s.replace(/\(\d+x\d+\)/, '').replace(/\s+/g, ' ').trim();
+        const stripDims = (s) =>
+          s
+            .replace(/\(\d+x\d+\)/, '')
+            .replace(/\s+/g, ' ')
+            .trim();
         const tmuxTitle = stripDims(tmux.borderTitle.trim());
         const domTitle = stripDims(ui.domTitle);
         // Skip title check if dom title is just the pane ID (borderTitle not yet received).
@@ -146,9 +160,15 @@ async function assertContentMatch(page, label) {
         // the UI intentionally falls back to "shell" when the command field hasn't synced.
         const SHELL_NAMES = new Set(['zsh', 'bash', 'fish', 'sh']);
         const isShellEquivalent = domTitle === 'shell' && SHELL_NAMES.has(tmuxTitle);
-        if (tmuxTitle && domTitle && domTitle !== paneId && tmuxTitle !== domTitle && !isShellEquivalent) {
+        if (
+          tmuxTitle &&
+          domTitle &&
+          domTitle !== paneId &&
+          tmuxTitle !== domTitle &&
+          !isShellEquivalent
+        ) {
           lastErrors.push(
-            `${prefix}Pane ${paneId} title: tmux=${JSON.stringify(tmuxTitle)}, dom=${JSON.stringify(domTitle)}`
+            `${prefix}Pane ${paneId} title: tmux=${JSON.stringify(tmuxTitle)}, dom=${JSON.stringify(domTitle)}`,
           );
         }
 
@@ -177,8 +197,8 @@ async function assertContentMatch(page, label) {
               if (dd.length < 3) {
                 dd.push(
                   `${prefix}Pane ${paneId} line ${ui_i}:\n` +
-                  `    tmux: ${JSON.stringify(tLine.slice(0, 80))}\n` +
-                  `    ui:   ${JSON.stringify(uLine.slice(0, 80))}`
+                    `    tmux: ${JSON.stringify(tLine.slice(0, 80))}\n` +
+                    `    ui:   ${JSON.stringify(uLine.slice(0, 80))}`,
                 );
               }
             }
@@ -196,7 +216,9 @@ async function assertContentMatch(page, label) {
         if (bestDiffCount > maxDiffAllowed) {
           lastErrors.push(...bestDiffDetails);
           if (bestDiffCount > 3) {
-            lastErrors.push(`${prefix}Pane ${paneId}: ${bestDiffCount - 3} more differing lines (${bestDiffCount}/${bestCompareLines})`);
+            lastErrors.push(
+              `${prefix}Pane ${paneId}: ${bestDiffCount - 3} more differing lines (${bestDiffCount}/${bestCompareLines})`,
+            );
           }
         }
       }
@@ -209,8 +231,7 @@ async function assertContentMatch(page, label) {
   }
 
   throw new Error(
-    `Content match failed after 5 attempts:\n` +
-    lastErrors.map(e => `  - ${e}`).join('\n')
+    `Content match failed after 5 attempts:\n` + lastErrors.map((e) => `  - ${e}`).join('\n'),
   );
 }
 
@@ -297,10 +318,14 @@ async function assertAltScreenMatch(page, sessionName, options = {}) {
     const flatUi = uiState.lines.join('\n');
     for (const marker of requireMarkers) {
       if (!flatTmux.includes(marker)) {
-        throw new Error(`assertAltScreenMatch: marker ${JSON.stringify(marker)} missing from tmux capture`);
+        throw new Error(
+          `assertAltScreenMatch: marker ${JSON.stringify(marker)} missing from tmux capture`,
+        );
       }
       if (!flatUi.includes(marker)) {
-        throw new Error(`assertAltScreenMatch: marker ${JSON.stringify(marker)} missing from UI DOM`);
+        throw new Error(
+          `assertAltScreenMatch: marker ${JSON.stringify(marker)} missing from UI DOM`,
+        );
       }
     }
   }

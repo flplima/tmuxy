@@ -137,9 +137,7 @@ async function run() {
 
       if (/FATAL:/.test(log)) {
         fataled = true;
-        const fatalLine = log
-          .split('\n')
-          .find((l) => l.includes('FATAL:'));
+        const fatalLine = log.split('\n').find((l) => l.includes('FATAL:'));
         console.warn(`FATAL emitted after ${(Date.now() - start) / 1000}s`);
         console.warn(`  ${fatalLine.trim()}`);
         console.warn(`  total connect attempts before giving up: ${connectCount}`);
@@ -151,7 +149,7 @@ async function run() {
       if (child.exitCode !== null) {
         throw new Error(
           `Binary exited (code=${child.exitCode}) without emitting FATAL.\n` +
-            `Log tail:\n${log.slice(-2000)}`
+            `Log tail:\n${log.slice(-2000)}`,
         );
       }
 
@@ -163,7 +161,7 @@ async function run() {
       throw new Error(
         `Did not see FATAL within ${HARD_TIMEOUT_MS / 1000}s (saw ${connectCount} connect attempts).\n` +
           `Either the bounded retry regressed, or the hostile config did not trigger the failure mode.\n` +
-          `Log tail:\n${readLog().slice(-2000)}`
+          `Log tail:\n${readLog().slice(-2000)}`,
       );
     }
 
@@ -171,7 +169,7 @@ async function run() {
       throw new Error(
         `FATAL fired but only ${connectCount} connect attempts logged. ` +
           `Suspicious — expected at least 2 retries before giving up. ` +
-          `Either the test isn't reproducing the failure mode, or the retry counter increments too aggressively.`
+          `Either the test isn't reproducing the failure mode, or the retry counter increments too aggressively.`,
       );
     }
   } finally {

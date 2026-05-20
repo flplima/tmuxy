@@ -12,7 +12,7 @@ const { tmuxQuery } = require('./cli');
  * Helper to wait for a given time
  */
 function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -27,14 +27,18 @@ async function getBrowser() {
     // Try CDP connection first (external Chrome with --remote-debugging-port)
     try {
       sharedBrowser = await chromium.connectOverCDP(`http://localhost:${CDP_PORT}`);
-      sharedBrowser.on('disconnected', () => { sharedBrowser = null; });
+      sharedBrowser.on('disconnected', () => {
+        sharedBrowser = null;
+      });
     } catch {
       // No external Chrome — launch our own headless instance
       sharedBrowser = await chromium.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
       });
-      sharedBrowser.on('disconnected', () => { sharedBrowser = null; });
+      sharedBrowser.on('disconnected', () => {
+        sharedBrowser = null;
+      });
     }
   }
 
@@ -101,10 +105,12 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
       await page.waitForFunction(
         () => {
           const logs = document.querySelectorAll('[role="log"]');
-          const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+          const content = Array.from(logs)
+            .map((l) => l.textContent || '')
+            .join('\n');
           return content.length > 5 && /[$#%>❯]/.test(content);
         },
-        { timeout: 5000, polling: 50 }
+        { timeout: 5000, polling: 50 },
       );
       await delay(DELAYS.SHORT);
       return url;
@@ -135,13 +141,15 @@ async function verifyRoundTrip(page, sessionName, timeout = 5000) {
     await page.waitForFunction(
       () => {
         const logs = document.querySelectorAll('[role="log"]');
-        const content = Array.from(logs).map(l => l.textContent || '').join('\n');
+        const content = Array.from(logs)
+          .map((l) => l.textContent || '')
+          .join('\n');
         const hasPrompt = content.length > 5 && /[$#%>❯]/.test(content);
         const snap = window.app?.getSnapshot?.();
         const connected = snap?.context?.connected;
         return hasPrompt && connected;
       },
-      { timeout, polling: 200 }
+      { timeout, polling: 200 },
     );
   } catch {
     // Non-fatal — navigateToSession already waited for the prompt.
@@ -176,10 +184,12 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
     await page.waitForFunction(
       () => {
         const logs = document.querySelectorAll('[role="log"]');
-        const content = Array.from(logs).map(l => l.textContent || '').join('');
+        const content = Array.from(logs)
+          .map((l) => l.textContent || '')
+          .join('');
         return content.length > 5 && /[$#%>❯]/.test(content);
       },
-      { timeout, polling: 50 }
+      { timeout, polling: 50 },
     );
   } catch {
     // Shell prompt not detected within timeout
@@ -187,10 +197,7 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
 
   // Phase 2: Wait for window.app to be available (XState machine loaded)
   try {
-    await page.waitForFunction(
-      () => !!window.app?.getSnapshot,
-      { timeout: 5000, polling: 100 }
-    );
+    await page.waitForFunction(() => !!window.app?.getSnapshot, { timeout: 5000, polling: 100 });
   } catch {
     throw new Error(`window.app not available after 5s for session '${sessionName}'`);
   }
@@ -232,17 +239,24 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
         return tabs.length === count;
       },
       expectedCount,
-      { timeout, polling: 50 }
+      { timeout, polling: 50 },
     );
   } catch {
     const diag = await page.evaluate(() => {
       const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
-      const tabInfo = Array.from(tabs).map(t => t.querySelector('button')?.getAttribute('aria-label'));
+      const tabInfo = Array.from(tabs).map((t) =>
+        t.querySelector('button')?.getAttribute('aria-label'),
+      );
       const snap = window.app?.getSnapshot();
-      const windows = snap?.context?.windows?.map(w => `${w.id}:${w.index}:${w.name}:a=${w.active}:pg=${w.windowType === "group"}:fl=${w.windowType === "float"}`);
+      const windows = snap?.context?.windows?.map(
+        (w) =>
+          `${w.id}:${w.index}:${w.name}:a=${w.active}:pg=${w.windowType === 'group'}:fl=${w.windowType === 'float'}`,
+      );
       return { count: tabs.length, tabInfo, windows };
     });
-    throw new Error(`Expected ${expectedCount} window tabs, found ${diag.count} (timeout ${timeout}ms)\n  DOM tabs: ${JSON.stringify(diag.tabInfo)}\n  XState windows: ${JSON.stringify(diag.windows)}`);
+    throw new Error(
+      `Expected ${expectedCount} window tabs, found ${diag.count} (timeout ${timeout}ms)\n  DOM tabs: ${JSON.stringify(diag.tabInfo)}\n  XState windows: ${JSON.stringify(diag.windows)}`,
+    );
   }
 }
 
@@ -262,7 +276,7 @@ async function waitForPaneCount(page, expectedCount, timeout = 3000) {
         return paneIds.length === count || logs.length === count;
       },
       expectedCount,
-      { timeout, polling: 50 }
+      { timeout, polling: 50 },
     );
     return true;
   } catch {

@@ -1194,9 +1194,7 @@ export const appMachine = setup({
             const selectWindowMatch = tail.match(/^select-window\s+-t\s+(\d+)$/);
             if (selectWindowMatch) {
               const targetIndex = parseInt(selectWindowMatch[1], 10);
-              const visibleWindows = context.windows.filter(
-                (w) => w.windowType === 'tab',
-              );
+              const visibleWindows = context.windows.filter((w) => w.windowType === 'tab');
               const targetWindow = visibleWindows.find((_, i) => i + 1 === targetIndex);
               if (targetWindow) {
                 tail = `select-window -t ${targetWindow.index}`;

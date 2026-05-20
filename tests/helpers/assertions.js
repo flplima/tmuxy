@@ -15,8 +15,12 @@ function verifyLayoutChanged(beforePanes, afterPanes) {
 
   return beforePanes.some((p, i) => {
     const newPane = afterPanes[i];
-    return p.x !== newPane.x || p.y !== newPane.y ||
-           p.width !== newPane.width || p.height !== newPane.height;
+    return (
+      p.x !== newPane.x ||
+      p.y !== newPane.y ||
+      p.width !== newPane.width ||
+      p.height !== newPane.height
+    );
   });
 }
 
@@ -42,8 +46,8 @@ async function getUISnapshot(page) {
       seenPaneIds.add(paneId);
 
       const rect = el.getBoundingClientRect();
-      const isActive = el.classList.contains('pane-active') ||
-                       el.querySelector('.pane-tab-active') !== null;
+      const isActive =
+        el.classList.contains('pane-active') || el.querySelector('.pane-tab-active') !== null;
 
       // Get terminal content for this pane
       const terminal = el.querySelector('[role="log"]');

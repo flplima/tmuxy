@@ -15,10 +15,10 @@ async function clickPaneGroupAdd(page) {
   if (!menuBtn) throw new Error('Pane header menu button (⋮) not found');
   await menuBtn.click();
   await delay(DELAYS.SHORT);
-  const addItem = await page.waitForSelector(
-    '[role="menuitem"] >> text=Add Pane to Group',
-    { state: 'visible', timeout: 5000 },
-  );
+  const addItem = await page.waitForSelector('[role="menuitem"] >> text=Add Pane to Group', {
+    state: 'visible',
+    timeout: 5000,
+  });
   if (!addItem) throw new Error('"Add Pane to Group" menu item not found');
   await addItem.click();
   await delay(DELAYS.SYNC);
@@ -55,7 +55,8 @@ async function getGroupTabCount(page) {
 async function clickGroupTab(page, index) {
   // Use Playwright's native click for better React event handling
   const tabs = await page.$$('.pane-tabs .pane-tab');
-  if (index >= tabs.length) throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
+  if (index >= tabs.length)
+    throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
   await tabs[index].click();
   await delay(DELAYS.SYNC);
 }
@@ -65,13 +66,14 @@ async function clickGroupTab(page, index) {
  */
 async function clickGroupTabClose(page, index) {
   const tabs = await page.$$('.pane-tabs .pane-tab');
-  if (index >= tabs.length) throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
+  if (index >= tabs.length)
+    throw new Error(`Group tab at index ${index} not found (${tabs.length} tabs)`);
   await tabs[index].click({ button: 'right' });
   // Wait for a visible "Close Pane" menu item
-  const closeItem = await page.waitForSelector(
-    '[role="menuitem"] >> text=Close Pane',
-    { state: 'visible', timeout: 5000 },
-  );
+  const closeItem = await page.waitForSelector('[role="menuitem"] >> text=Close Pane', {
+    state: 'visible',
+    timeout: 5000,
+  });
   if (!closeItem) throw new Error('Close Pane menu item not found in context menu');
   await closeItem.click();
   await delay(DELAYS.SYNC);
@@ -96,7 +98,7 @@ async function waitForGroupTabs(page, expectedCount, timeout = 30000) {
         return false;
       },
       expectedCount,
-      { timeout, polling: 100 }
+      { timeout, polling: 100 },
     );
     return true;
   } catch {
@@ -130,7 +132,8 @@ async function getGroupTabInfo(page) {
     return Array.from(tabs).map((tab, index) => ({
       index,
       title: tab.querySelector('.pane-tab-title')?.textContent?.trim() || '',
-      active: tab.classList.contains('pane-tab-active') || tab.classList.contains('pane-tab-selected'),
+      active:
+        tab.classList.contains('pane-tab-active') || tab.classList.contains('pane-tab-selected'),
     }));
   });
 }

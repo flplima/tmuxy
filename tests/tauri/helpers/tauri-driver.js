@@ -47,7 +47,7 @@ async function startTauriDriver() {
     } catch {
       // Not ready yet
     }
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
   }
 
   throw new Error(`tauri-driver did not start on port ${DRIVER_PORT} within 10 seconds`);

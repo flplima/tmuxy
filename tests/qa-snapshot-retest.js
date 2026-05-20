@@ -1,8 +1,18 @@
 /**
  * QA Snapshot Retest — focused on distinguishing real bugs from timing issues
  */
-const { getBrowser, navigateToSession, waitForPaneCount, delay, waitForSessionReady } = require('./helpers/browser');
-const { extractUIState, extractTmuxState, compareSnapshots } = require('./helpers/snapshot-compare');
+const {
+  getBrowser,
+  navigateToSession,
+  waitForPaneCount,
+  delay,
+  waitForSessionReady,
+} = require('./helpers/browser');
+const {
+  extractUIState,
+  extractTmuxState,
+  compareSnapshots,
+} = require('./helpers/snapshot-compare');
 const { focusTerminal, typeInTerminal, pressEnter } = require('./helpers/keyboard');
 const { splitPaneKeyboard, killPaneKeyboard } = require('./helpers/pane-ops');
 const { DELAYS } = require('./helpers/config');
@@ -28,10 +38,10 @@ async function main() {
     let ui = await extractUIState(page);
     let tmux = extractTmuxState(SESSION);
     let cmp = compareSnapshots(ui, tmux);
-    const failures1 = cmp.checks.filter(c => !c.pass);
+    const failures1 = cmp.checks.filter((c) => !c.pass);
     if (failures1.length > 0) {
       console.warn('STILL FAILS after 5s:');
-      failures1.forEach(c => console.warn(`  ${c.name}: ${c.details}`));
+      failures1.forEach((c) => console.warn(`  ${c.name}: ${c.details}`));
     } else {
       console.warn('PASSES with 5s settle');
     }
@@ -47,10 +57,10 @@ async function main() {
     ui = await extractUIState(page);
     tmux = extractTmuxState(SESSION);
     cmp = compareSnapshots(ui, tmux);
-    const failures2 = cmp.checks.filter(c => !c.pass);
+    const failures2 = cmp.checks.filter((c) => !c.pass);
     if (failures2.length > 0) {
       console.warn('Content mismatch at rest:');
-      failures2.forEach(c => console.warn(`  ${c.name}: ${c.details}`));
+      failures2.forEach((c) => console.warn(`  ${c.name}: ${c.details}`));
     } else {
       console.warn('PASSES at rest');
     }
@@ -76,7 +86,9 @@ async function main() {
     if (hasFloatOverlay) {
       // Click directly on the float's terminal
       const clicked = await page.evaluate(() => {
-        const floatTerminal = document.querySelector('.float-modal [role="log"], .modal-overlay.float-modal [role="log"]');
+        const floatTerminal = document.querySelector(
+          '.float-modal [role="log"], .modal-overlay.float-modal [role="log"]',
+        );
         if (floatTerminal) {
           floatTerminal.click();
           return true;
@@ -117,19 +129,22 @@ async function main() {
     for (const waitSec of [1, 2, 3, 5, 8]) {
       await delay(waitSec * 1000 - (waitSec > 1 ? (waitSec - 1) * 1000 : 0));
       ui = await extractUIState(page);
-      const newPane = ui?.panes?.find(p => !p.active);
+      const newPane = ui?.panes?.find((p) => !p.active);
       const paneId = newPane?.tmuxId;
       const content = paneId ? ui.paneContent[paneId] : [];
-      const hasContent = content?.some(l => l.trim().length > 0);
-      console.warn(`  ${waitSec}s: pane ${paneId} content=${hasContent ? 'YES' : 'EMPTY'} (${content?.filter(l => l.trim()).length || 0} non-empty lines)`);
+      const hasContent = content?.some((l) => l.trim().length > 0);
+      console.warn(
+        `  ${waitSec}s: pane ${paneId} content=${hasContent ? 'YES' : 'EMPTY'} (${content?.filter((l) => l.trim()).length || 0} non-empty lines)`,
+      );
       if (hasContent) break;
     }
-
   } catch (e) {
     console.error('Error:', e.message);
   } finally {
     if (page) {
-      try { await page._context.close(); } catch {}
+      try {
+        await page._context.close();
+      } catch {}
     }
     try {
       const { execSync } = require('child_process');
@@ -138,4 +153,7 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error('Unhandled:', e); process.exit(1); });
+main().catch((e) => {
+  console.error('Unhandled:', e);
+  process.exit(1);
+});

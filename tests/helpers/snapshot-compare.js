@@ -34,12 +34,12 @@ async function extractUIState(page) {
 
     // Windows (excluding group/float)
     const windows = (ctx.windows || [])
-      .filter(w => w.windowType === "tab")
-      .map(w => ({ id: w.id, index: w.index, name: w.name, active: w.active }));
+      .filter((w) => w.windowType === 'tab')
+      .map((w) => ({ id: w.id, index: w.index, name: w.name, active: w.active }));
 
     // Panes in active window
-    const visiblePanes = (ctx.panes || []).filter(p => p.windowId === ctx.activeWindowId);
-    const panes = visiblePanes.map(p => ({
+    const visiblePanes = (ctx.panes || []).filter((p) => p.windowId === ctx.activeWindowId);
+    const panes = visiblePanes.map((p) => ({
       tmuxId: p.tmuxId,
       x: p.x,
       y: p.y,
@@ -61,12 +61,15 @@ async function extractUIState(page) {
       const lines = [];
       if (p.content && Array.isArray(p.content)) {
         for (const cellLine of p.content) {
-          if (!Array.isArray(cellLine)) { lines.push(''); continue; }
-          lines.push(cellLine.map(cell => cell.c || '').join(''));
+          if (!Array.isArray(cellLine)) {
+            lines.push('');
+            continue;
+          }
+          lines.push(cellLine.map((cell) => cell.c || '').join(''));
         }
       }
       // Fallback: if XState content is all-empty, read from DOM
-      const hasContent = lines.some(l => l.trim().length > 0);
+      const hasContent = lines.some((l) => l.trim().length > 0);
       if (!hasContent) {
         const paneEl = document.querySelector(`[data-pane-id="${p.tmuxId}"] .terminal-content`);
         if (paneEl) {
@@ -92,10 +95,10 @@ async function extractUIState(page) {
     }
 
     // Determine active tab per group: the pane in the group that belongs to activeWindowId
-    const activeWindowPaneIds = new Set(visiblePanes.map(p => p.tmuxId));
+    const activeWindowPaneIds = new Set(visiblePanes.map((p) => p.tmuxId));
     const groupActiveTabs = {};
     for (const [groupId, group] of Object.entries(paneGroups)) {
-      const activePaneInGroup = group.paneIds.find(id => activeWindowPaneIds.has(id));
+      const activePaneInGroup = group.paneIds.find((id) => activeWindowPaneIds.has(id));
       groupActiveTabs[groupId] = activePaneInGroup || null;
     }
 
@@ -152,22 +155,23 @@ function extractTmuxState(sessionName) {
   try {
     // 1. List all windows, including @tmuxy-window-type and group panes.
     const winRaw = tmuxQuery(
-      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}"`
+      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}"`,
     );
-    const allWindows = winRaw.split('\n').filter(Boolean).map(line => {
-      const [id, index, name, active, windowType, groupPanesRaw] = line.split('|');
-      const groupPanes = groupPanesRaw
-        ? groupPanesRaw.split(/\s+/).filter(Boolean)
-        : null;
-      return {
-        id,
-        index: parseInt(index, 10),
-        name,
-        active: active === '1',
-        windowType: windowType || null,
-        groupPanes,
-      };
-    });
+    const allWindows = winRaw
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [id, index, name, active, windowType, groupPanesRaw] = line.split('|');
+        const groupPanes = groupPanesRaw ? groupPanesRaw.split(/\s+/).filter(Boolean) : null;
+        return {
+          id,
+          index: parseInt(index, 10),
+          name,
+          active: active === '1',
+          windowType: windowType || null,
+          groupPanes,
+        };
+      });
 
     // Separate windows by their @tmuxy-window-type
     const windows = [];
@@ -185,32 +189,35 @@ function extractTmuxState(sessionName) {
     }
 
     // Find active window
-    const activeWindow = allWindows.find(w => w.active);
+    const activeWindow = allWindows.find((w) => w.active);
     const activeWindowId = activeWindow?.id || null;
 
     // Check if the active window is a group or float window
-    const activeWindowIsGroupOrFloat = activeWindow &&
-      (activeWindow.windowType === 'group' || activeWindow.windowType === 'float');
+    const activeWindowIsGroupOrFloat =
+      activeWindow && (activeWindow.windowType === 'group' || activeWindow.windowType === 'float');
 
     // 2. List panes in active window
     const paneRaw = tmuxQuery(
-      `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_left}|#{pane_top}|#{pane_width}|#{pane_height}|#{cursor_x}|#{cursor_y}|#{pane_active}|#{pane_current_command}|#{pane_title}"`
+      `list-panes -t ${sessionName} -F "#{pane_id}|#{pane_left}|#{pane_top}|#{pane_width}|#{pane_height}|#{cursor_x}|#{cursor_y}|#{pane_active}|#{pane_current_command}|#{pane_title}"`,
     );
-    const panes = paneRaw.split('\n').filter(Boolean).map(line => {
-      const parts = line.split('|');
-      return {
-        tmuxId: parts[0],
-        x: parseInt(parts[1], 10),
-        y: parseInt(parts[2], 10),
-        width: parseInt(parts[3], 10),
-        height: parseInt(parts[4], 10),
-        cursorX: parseInt(parts[5], 10),
-        cursorY: parseInt(parts[6], 10),
-        active: parts[7] === '1',
-        command: parts[8],
-        title: parts.slice(9).join('|'), // title may contain |
-      };
-    });
+    const panes = paneRaw
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split('|');
+        return {
+          tmuxId: parts[0],
+          x: parseInt(parts[1], 10),
+          y: parseInt(parts[2], 10),
+          width: parseInt(parts[3], 10),
+          height: parseInt(parts[4], 10),
+          cursorX: parseInt(parts[5], 10),
+          cursorY: parseInt(parts[6], 10),
+          active: parts[7] === '1',
+          command: parts[8],
+          title: parts.slice(9).join('|'), // title may contain |
+        };
+      });
 
     // Active pane ID: when the active window is a group/float window, the
     // pane_active flag points to the group/float's active pane, not the
@@ -219,17 +226,22 @@ function extractTmuxState(sessionName) {
     let activePaneId;
     if (activeWindowIsGroupOrFloat) {
       // Query all panes across all windows to find active panes in visible windows
-      const visibleWindowIds = new Set(windows.map(w => w.id));
+      const visibleWindowIds = new Set(windows.map((w) => w.id));
       const allPanesForActive = tmuxQuery(
-        `list-panes -s -t ${sessionName} -F "#{pane_id}|#{window_id}|#{pane_active}"`
+        `list-panes -s -t ${sessionName} -F "#{pane_id}|#{window_id}|#{pane_active}"`,
       );
-      const visibleActivePanes = allPanesForActive.split('\n').filter(Boolean)
-        .map(line => { const [pid, wid, act] = line.split('|'); return { pid, wid, active: act === '1' }; })
-        .filter(p => visibleWindowIds.has(p.wid) && p.active);
+      const visibleActivePanes = allPanesForActive
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const [pid, wid, act] = line.split('|');
+          return { pid, wid, active: act === '1' };
+        })
+        .filter((p) => visibleWindowIds.has(p.wid) && p.active);
       // Each visible window has one active pane; pick the first one found
       activePaneId = visibleActivePanes.length > 0 ? visibleActivePanes[0].pid : null;
     } else {
-      activePaneId = panes.find(p => p.active)?.tmuxId || null;
+      activePaneId = panes.find((p) => p.active)?.tmuxId || null;
     }
 
     // 3. Capture pane content per visible pane
@@ -251,7 +263,7 @@ function extractTmuxState(sessionName) {
 
     // 4. List all panes across all windows (for group active tab detection)
     const allPanesRaw = tmuxQuery(
-      `list-panes -s -t ${sessionName} -F "#{pane_id}|#{window_id}|#{pane_current_command}"`
+      `list-panes -s -t ${sessionName} -F "#{pane_id}|#{window_id}|#{pane_current_command}"`,
     );
     const paneWindowMap = {};
     const paneCommandMap = {};
@@ -276,7 +288,7 @@ function extractTmuxState(sessionName) {
       paneGroups[gw.id] = { paneIds };
 
       // Active tab = the pane in this group whose window is the active window
-      const activeTab = paneIds.find(pid => paneWindowMap[pid] === activeWindowId);
+      const activeTab = paneIds.find((pid) => paneWindowMap[pid] === activeWindowId);
       groupActiveTabs[gw.id] = activeTab || null;
     }
 
@@ -290,7 +302,7 @@ function extractTmuxState(sessionName) {
 
     // 6. Float pane ids: each float window contains exactly one pane.
     const floatPaneIds = floatWindows
-      .map(fw => Object.keys(paneWindowMap).find(pid => paneWindowMap[pid] === fw.id))
+      .map((fw) => Object.keys(paneWindowMap).find((pid) => paneWindowMap[pid] === fw.id))
       .filter(Boolean)
       .sort();
 
@@ -338,7 +350,7 @@ function compareSnapshots(ui, tmux) {
     ui.windows.length === tmux.windows.length,
     ui.windows.length !== tmux.windows.length
       ? `UI: ${ui.windows.length}, tmux: ${tmux.windows.length}`
-      : undefined
+      : undefined,
   );
 
   // 2. Window names (by index)
@@ -351,7 +363,11 @@ function compareSnapshots(ui, tmux) {
         nameErrors.push(`index ${i}: UI="${uw.name}", tmux="${tw.name}"`);
       }
     }
-    check('Window names', nameErrors.length === 0, nameErrors.length > 0 ? nameErrors.join('; ') : undefined);
+    check(
+      'Window names',
+      nameErrors.length === 0,
+      nameErrors.length > 0 ? nameErrors.join('; ') : undefined,
+    );
   } else {
     check('Window names', false, 'Skipped (count mismatch)');
   }
@@ -362,7 +378,7 @@ function compareSnapshots(ui, tmux) {
     ui.meta.activeWindowId === tmux.meta.activeWindowId,
     ui.meta.activeWindowId !== tmux.meta.activeWindowId
       ? `UI: ${ui.meta.activeWindowId}, tmux: ${tmux.meta.activeWindowId}`
-      : undefined
+      : undefined,
   );
 
   // 4. Pane count
@@ -371,18 +387,18 @@ function compareSnapshots(ui, tmux) {
     ui.panes.length === tmux.panes.length,
     ui.panes.length !== tmux.panes.length
       ? `UI: ${ui.panes.length}, tmux: ${tmux.panes.length}`
-      : undefined
+      : undefined,
   );
 
   // 5. Pane IDs match
-  const uiPaneIds = ui.panes.map(p => p.tmuxId).sort();
-  const tmuxPaneIds = tmux.panes.map(p => p.tmuxId).sort();
+  const uiPaneIds = ui.panes.map((p) => p.tmuxId).sort();
+  const tmuxPaneIds = tmux.panes.map((p) => p.tmuxId).sort();
   check(
     'Pane IDs',
     uiPaneIds.join(',') === tmuxPaneIds.join(','),
     uiPaneIds.join(',') !== tmuxPaneIds.join(',')
       ? `UI: [${uiPaneIds}], tmux: [${tmuxPaneIds}]`
-      : undefined
+      : undefined,
   );
 
   // Only compare per-pane properties if IDs match
@@ -392,13 +408,19 @@ function compareSnapshots(ui, tmux) {
   if (idsMatch) {
     const posErrors = [];
     for (const uiPane of ui.panes) {
-      const tmuxPane = tmux.panes.find(p => p.tmuxId === uiPane.tmuxId);
+      const tmuxPane = tmux.panes.find((p) => p.tmuxId === uiPane.tmuxId);
       if (!tmuxPane) continue;
       if (uiPane.x !== tmuxPane.x || uiPane.y !== tmuxPane.y) {
-        posErrors.push(`${uiPane.tmuxId}: UI=(${uiPane.x},${uiPane.y}), tmux=(${tmuxPane.x},${tmuxPane.y})`);
+        posErrors.push(
+          `${uiPane.tmuxId}: UI=(${uiPane.x},${uiPane.y}), tmux=(${tmuxPane.x},${tmuxPane.y})`,
+        );
       }
     }
-    check('Pane positions', posErrors.length === 0, posErrors.length > 0 ? posErrors.join('; ') : undefined);
+    check(
+      'Pane positions',
+      posErrors.length === 0,
+      posErrors.length > 0 ? posErrors.join('; ') : undefined,
+    );
   } else {
     check('Pane positions', false, 'Skipped (ID mismatch)');
   }
@@ -407,13 +429,19 @@ function compareSnapshots(ui, tmux) {
   if (idsMatch) {
     const dimErrors = [];
     for (const uiPane of ui.panes) {
-      const tmuxPane = tmux.panes.find(p => p.tmuxId === uiPane.tmuxId);
+      const tmuxPane = tmux.panes.find((p) => p.tmuxId === uiPane.tmuxId);
       if (!tmuxPane) continue;
       if (uiPane.width !== tmuxPane.width || uiPane.height !== tmuxPane.height) {
-        dimErrors.push(`${uiPane.tmuxId}: UI=${uiPane.width}x${uiPane.height}, tmux=${tmuxPane.width}x${tmuxPane.height}`);
+        dimErrors.push(
+          `${uiPane.tmuxId}: UI=${uiPane.width}x${uiPane.height}, tmux=${tmuxPane.width}x${tmuxPane.height}`,
+        );
       }
     }
-    check('Pane dimensions', dimErrors.length === 0, dimErrors.length > 0 ? dimErrors.join('; ') : undefined);
+    check(
+      'Pane dimensions',
+      dimErrors.length === 0,
+      dimErrors.length > 0 ? dimErrors.join('; ') : undefined,
+    );
   } else {
     check('Pane dimensions', false, 'Skipped (ID mismatch)');
   }
@@ -424,15 +452,15 @@ function compareSnapshots(ui, tmux) {
     ui.meta.activePaneId === tmux.meta.activePaneId,
     ui.meta.activePaneId !== tmux.meta.activePaneId
       ? `UI: ${ui.meta.activePaneId}, tmux: ${tmux.meta.activePaneId}`
-      : undefined
+      : undefined,
   );
 
   // 9. Pane content (per pane)
   // Check if any pane has content at all — if the content pipeline hasn't
   // delivered data yet (e.g., fresh CI page), content/cursor checks pass
   // with a warning since we can't meaningfully compare.
-  const anyUiContent = Object.values(ui.paneContent).some(lines =>
-    lines.some(l => (l || '').trim().length > 0)
+  const anyUiContent = Object.values(ui.paneContent).some((lines) =>
+    lines.some((l) => (l || '').trim().length > 0),
   );
   if (idsMatch) {
     if (!anyUiContent) {
@@ -450,8 +478,8 @@ function compareSnapshots(ui, tmux) {
         const getNonEmpty = (lines) => {
           const seen = new Set();
           return (lines || [])
-            .map(l => (l || '').replace(/\s+$/, ''))
-            .filter(l => {
+            .map((l) => (l || '').replace(/\s+$/, ''))
+            .filter((l) => {
               if (l === '' || seen.has(l)) return false;
               seen.add(l);
               return true;
@@ -487,7 +515,11 @@ function compareSnapshots(ui, tmux) {
           );
         }
       }
-      check('Pane content', contentErrors.length === 0, contentErrors.length > 0 ? contentErrors.join('\n    ') : undefined);
+      check(
+        'Pane content',
+        contentErrors.length === 0,
+        contentErrors.length > 0 ? contentErrors.join('\n    ') : undefined,
+      );
     }
   } else {
     check('Pane content', false, 'Skipped (ID mismatch)');
@@ -501,15 +533,19 @@ function compareSnapshots(ui, tmux) {
     } else {
       const cursorErrors = [];
       for (const uiPane of ui.panes) {
-        const tmuxPane = tmux.panes.find(p => p.tmuxId === uiPane.tmuxId);
+        const tmuxPane = tmux.panes.find((p) => p.tmuxId === uiPane.tmuxId);
         if (!tmuxPane) continue;
         if (uiPane.cursorX !== tmuxPane.cursorX || uiPane.cursorY !== tmuxPane.cursorY) {
           cursorErrors.push(
-            `${uiPane.tmuxId}: UI=(${uiPane.cursorX},${uiPane.cursorY}), tmux=(${tmuxPane.cursorX},${tmuxPane.cursorY})`
+            `${uiPane.tmuxId}: UI=(${uiPane.cursorX},${uiPane.cursorY}), tmux=(${tmuxPane.cursorX},${tmuxPane.cursorY})`,
           );
         }
       }
-      check('Cursor positions', cursorErrors.length === 0, cursorErrors.length > 0 ? cursorErrors.join('; ') : undefined);
+      check(
+        'Cursor positions',
+        cursorErrors.length === 0,
+        cursorErrors.length > 0 ? cursorErrors.join('; ') : undefined,
+      );
     }
   } else {
     check('Cursor positions', false, 'Skipped (ID mismatch)');
@@ -522,20 +558,26 @@ function compareSnapshots(ui, tmux) {
   if (idsMatch) {
     const cmdErrors = [];
     for (const uiPane of ui.panes) {
-      const tmuxPane = tmux.panes.find(p => p.tmuxId === uiPane.tmuxId);
+      const tmuxPane = tmux.panes.find((p) => p.tmuxId === uiPane.tmuxId);
       if (!tmuxPane) continue;
       if (uiPane.command !== tmuxPane.command) {
-        cmdErrors.push(`${uiPane.tmuxId}: UI=${JSON.stringify(uiPane.command)}, tmux=${JSON.stringify(tmuxPane.command)}`);
+        cmdErrors.push(
+          `${uiPane.tmuxId}: UI=${JSON.stringify(uiPane.command)}, tmux=${JSON.stringify(tmuxPane.command)}`,
+        );
       }
     }
-    check('Pane commands', cmdErrors.length === 0, cmdErrors.length > 0 ? cmdErrors.join('; ') : undefined);
+    check(
+      'Pane commands',
+      cmdErrors.length === 0,
+      cmdErrors.length > 0 ? cmdErrors.join('; ') : undefined,
+    );
   } else {
     check('Pane commands', false, 'Skipped (ID mismatch)');
   }
 
   // 12. Group membership (same pane sets)
-  const uiGroupSets = Object.values(ui.paneGroups).map(g => [...g.paneIds].sort().join(','));
-  const tmuxGroupSets = Object.values(tmux.paneGroups).map(g => [...g.paneIds].sort().join(','));
+  const uiGroupSets = Object.values(ui.paneGroups).map((g) => [...g.paneIds].sort().join(','));
+  const tmuxGroupSets = Object.values(tmux.paneGroups).map((g) => [...g.paneIds].sort().join(','));
   uiGroupSets.sort();
   tmuxGroupSets.sort();
   check(
@@ -543,7 +585,7 @@ function compareSnapshots(ui, tmux) {
     uiGroupSets.join('|') === tmuxGroupSets.join('|'),
     uiGroupSets.join('|') !== tmuxGroupSets.join('|')
       ? `UI groups: [${uiGroupSets.join('], [')}], tmux groups: [${tmuxGroupSets.join('], [')}]`
-      : undefined
+      : undefined,
   );
 
   // 13. Group active tab
@@ -562,24 +604,34 @@ function compareSnapshots(ui, tmux) {
   for (const [setKey, uiGroup] of Object.entries(uiGroupsBySet)) {
     const tmuxGroup = tmuxGroupsBySet[setKey];
     if (tmuxGroup && uiGroup.activeTab !== tmuxGroup.activeTab) {
-      activeTabErrors.push(`Group [${setKey}]: UI active=${uiGroup.activeTab}, tmux active=${tmuxGroup.activeTab}`);
+      activeTabErrors.push(
+        `Group [${setKey}]: UI active=${uiGroup.activeTab}, tmux active=${tmuxGroup.activeTab}`,
+      );
     }
   }
-  check('Group active tab', activeTabErrors.length === 0, activeTabErrors.length > 0 ? activeTabErrors.join('; ') : undefined);
+  check(
+    'Group active tab',
+    activeTabErrors.length === 0,
+    activeTabErrors.length > 0 ? activeTabErrors.join('; ') : undefined,
+  );
 
   // 14. Group tab names vs pane commands
   // Compare the command reported by tmux for each grouped pane against the UI's pane command
   const tabNameErrors = [];
   for (const uiPane of ui.panes) {
     // Check if this pane is in any group
-    const inGroup = Object.values(ui.paneGroups).some(g => g.paneIds.includes(uiPane.tmuxId));
+    const inGroup = Object.values(ui.paneGroups).some((g) => g.paneIds.includes(uiPane.tmuxId));
     if (!inGroup) continue;
     const tmuxCommand = tmux.groupTabNames[uiPane.tmuxId];
     if (tmuxCommand !== undefined && uiPane.command !== tmuxCommand) {
       tabNameErrors.push(`${uiPane.tmuxId}: UI="${uiPane.command}", tmux="${tmuxCommand}"`);
     }
   }
-  check('Group tab names', tabNameErrors.length === 0, tabNameErrors.length > 0 ? tabNameErrors.join('; ') : undefined);
+  check(
+    'Group tab names',
+    tabNameErrors.length === 0,
+    tabNameErrors.length > 0 ? tabNameErrors.join('; ') : undefined,
+  );
 
   // 15. Float pane existence
   check(
@@ -587,11 +639,11 @@ function compareSnapshots(ui, tmux) {
     ui.floatPaneIds.join(',') === tmux.floatPaneIds.join(','),
     ui.floatPaneIds.join(',') !== tmux.floatPaneIds.join(',')
       ? `UI: [${ui.floatPaneIds}], tmux: [${tmux.floatPaneIds}]`
-      : undefined
+      : undefined,
   );
 
   return {
-    pass: checks.every(c => c.pass),
+    pass: checks.every((c) => c.pass),
     checks,
   };
 }

@@ -30,9 +30,7 @@ describe('CLI session commands', () => {
     test('shows not-supported message', () => {
       const { stdout, exitCode } = runCLI(['session', 'connect', '--web']);
       expect(exitCode).toBe(1);
-      expect(stdout).toContain(
-        'SSH connections are only available in the Tauri desktop app',
-      );
+      expect(stdout).toContain('SSH connections are only available in the Tauri desktop app');
     });
   });
 

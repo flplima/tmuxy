@@ -17,7 +17,6 @@ const {
   TMUXY_URL,
 } = require('./helpers');
 
-
 // ==================== Scenario 14: OSC Protocols ====================
 
 describe('Scenario 14: OSC Protocols', () => {
@@ -32,23 +31,31 @@ describe('Scenario 14: OSC Protocols', () => {
     await ctx.setupPage();
 
     // Step 1: OSC 8 hyperlink renders text
-    await runCommand(ctx.page,'echo -e "\\e]8;;http://example.com\\e\\\\Click Here\\e]8;;\\e\\\\"', 'Click Here');
+    await runCommand(
+      ctx.page,
+      'echo -e "\\e]8;;http://example.com\\e\\\\Click Here\\e]8;;\\e\\\\"',
+      'Click Here',
+    );
 
     // Step 2: Multiple links
-    await runCommand(ctx.page,'echo -e "\\e]8;;http://a.com\\e\\\\LinkA\\e]8;;\\e\\\\ \\e]8;;http://b.com\\e\\\\LinkB\\e]8;;\\e\\\\"', 'LinkA');
+    await runCommand(
+      ctx.page,
+      'echo -e "\\e]8;;http://a.com\\e\\\\LinkA\\e]8;;\\e\\\\ \\e]8;;http://b.com\\e\\\\LinkB\\e]8;;\\e\\\\"',
+      'LinkA',
+    );
     await waitForTerminalText(ctx.page, 'LinkB');
 
     // Step 3: Malformed OSC 8 - terminal should survive
     await typeInTerminal(ctx.page, 'echo -e "\\e]8;;http://broken.com\\e\\\\BROKEN_LINK"');
     await pressEnter(ctx.page);
     await delay(DELAYS.SYNC * 2);
-    await runCommand(ctx.page,'echo "AFTER_MALFORMED"', 'AFTER_MALFORMED', 15000);
+    await runCommand(ctx.page, 'echo "AFTER_MALFORMED"', 'AFTER_MALFORMED', 15000);
 
     // Step 4: OSC 52 doesn't crash
     await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;SGVsbG8=\\e\\\\"');
     await pressEnter(ctx.page);
     await delay(DELAYS.SYNC);
-    await runCommand(ctx.page,'echo "OSC52_OK"', 'OSC52_OK');
+    await runCommand(ctx.page, 'echo "OSC52_OK"', 'OSC52_OK');
 
     // Step 5: Multiple OSC 52 operations
     await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;Zmlyc3Q=\\e\\\\"');
@@ -60,7 +67,7 @@ describe('Scenario 14: OSC Protocols', () => {
     await typeInTerminal(ctx.page, 'echo -ne "\\e]52;c;dGhpcmQ=\\e\\\\"');
     await pressEnter(ctx.page);
     await delay(DELAYS.SYNC);
-    await runCommand(ctx.page,'echo "MULTI_OSC52_OK"', 'MULTI_OSC52_OK');
+    await runCommand(ctx.page, 'echo "MULTI_OSC52_OK"', 'MULTI_OSC52_OK');
   }, 180000);
 });
 
@@ -84,7 +91,11 @@ describe('Scenario 16: Unicode Rendering', () => {
     expect(boxText).toContain('BOX_BTM');
 
     // Step 2: CJK characters
-    await runCommand(ctx.page, 'echo "CJK_TEST: 你好世界 こんにちは 안녕하세요 END_CJK"', 'CJK_TEST');
+    await runCommand(
+      ctx.page,
+      'echo "CJK_TEST: 你好世界 こんにちは 안녕하세요 END_CJK"',
+      'CJK_TEST',
+    );
     const cjkText = await getTerminalText(ctx.page);
     expect(cjkText).toContain('CJK_TEST');
     expect(cjkText).toContain('END_CJK');
@@ -111,7 +122,11 @@ describe('Scenario 16: Unicode Rendering', () => {
     expect(statusText).toContain('Warn');
 
     // Step 7: Tree output with box-drawing
-    await runCommand(ctx.page, 'printf "├── src\\n│   ├── main.rs\\n│   └── lib.rs\\n└── Cargo.toml\\n"', 'src');
+    await runCommand(
+      ctx.page,
+      'printf "├── src\\n│   ├── main.rs\\n│   └── lib.rs\\n└── Cargo.toml\\n"',
+      'src',
+    );
     const treeText = await getTerminalText(ctx.page);
     expect(treeText).toContain('main.rs');
     expect(treeText).toContain('Cargo.toml');
@@ -137,11 +152,7 @@ describe('Scenario 16b: SGR 2 faint/dim attribute', () => {
     await ctx.setupPage();
 
     // Emit DIM_TEXT in faint, BRIGHT_TEXT in normal intensity.
-    await runCommand(
-      ctx.page,
-      'printf "\\e[2mDIM_TEXT\\e[22m BRIGHT_TEXT\\n"',
-      'DIM_TEXT',
-    );
+    await runCommand(ctx.page, 'printf "\\e[2mDIM_TEXT\\e[22m BRIGHT_TEXT\\n"', 'DIM_TEXT');
     await waitForTerminalText(ctx.page, 'BRIGHT_TEXT');
 
     // Locate the spans whose text *exactly* equals each marker — the
@@ -196,7 +207,11 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
 
       await ctx.setupPage();
 
-      await runCommand(ctx.page,'echo -e "\\e]8;;https://example.com\\e\\\\Click Here\\e]8;;\\e\\\\"', 'Click Here');
+      await runCommand(
+        ctx.page,
+        'echo -e "\\e]8;;https://example.com\\e\\\\Click Here\\e]8;;\\e\\\\"',
+        'Click Here',
+      );
 
       const text = await getTerminalText(ctx.page);
       expect(text).toContain('Click Here');
@@ -223,14 +238,18 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
 
       await ctx.setupPage();
 
-      await runCommand(ctx.page,'echo -e "\\e]8;;http://a.com\\e\\\\LinkA\\e]8;;\\e\\\\ \\e]8;;http://b.com\\e\\\\LinkB\\e]8;;\\e\\\\"', 'LinkA');
+      await runCommand(
+        ctx.page,
+        'echo -e "\\e]8;;http://a.com\\e\\\\LinkA\\e]8;;\\e\\\\ \\e]8;;http://b.com\\e\\\\LinkB\\e]8;;\\e\\\\"',
+        'LinkA',
+      );
 
       const text = await getTerminalText(ctx.page);
       expect(text).toContain('LinkA');
       expect(text).toContain('LinkB');
 
       const lines = text.split('\n');
-      const linkLine = lines.find(line => line.includes('LinkA') && line.includes('LinkB'));
+      const linkLine = lines.find((line) => line.includes('LinkA') && line.includes('LinkB'));
       expect(linkLine).toBeDefined();
     });
 
@@ -239,9 +258,9 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
 
       await ctx.setupPage();
 
-      await runCommand(ctx.page,'echo -e "\\e]8;;https://test.com\\e\\\\Unclosed"', 'Unclosed');
+      await runCommand(ctx.page, 'echo -e "\\e]8;;https://test.com\\e\\\\Unclosed"', 'Unclosed');
 
-      await runCommand(ctx.page,'echo "still_working"', 'still_working');
+      await runCommand(ctx.page, 'echo "still_working"', 'still_working');
     });
   });
 
@@ -254,9 +273,13 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
 
       await ctx.setupPage();
 
-      await runCommand(ctx.page,'echo -ne "\\e]52;c;dGVzdA==\\e\\\\"; echo "osc52_sent"', 'osc52_sent');
+      await runCommand(
+        ctx.page,
+        'echo -ne "\\e]52;c;dGVzdA==\\e\\\\"; echo "osc52_sent"',
+        'osc52_sent',
+      );
 
-      await runCommand(ctx.page,'echo "DONE"', 'DONE');
+      await runCommand(ctx.page, 'echo "DONE"', 'DONE');
     });
 
     test('Multiple OSC 52 operations in sequence', async () => {
@@ -264,11 +287,11 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
 
       await ctx.setupPage();
 
-      await runCommand(ctx.page,'echo -ne "\\e]52;c;Zmlyc3Q=\\e\\\\"; echo "osc1"', 'osc1');
-      await runCommand(ctx.page,'echo -ne "\\e]52;c;c2Vjb25k\\e\\\\"; echo "osc2"', 'osc2');
-      await runCommand(ctx.page,'echo -ne "\\e]52;c;dGhpcmQ=\\e\\\\"; echo "osc3"', 'osc3');
+      await runCommand(ctx.page, 'echo -ne "\\e]52;c;Zmlyc3Q=\\e\\\\"; echo "osc1"', 'osc1');
+      await runCommand(ctx.page, 'echo -ne "\\e]52;c;c2Vjb25k\\e\\\\"; echo "osc2"', 'osc2');
+      await runCommand(ctx.page, 'echo -ne "\\e]52;c;dGhpcmQ=\\e\\\\"; echo "osc3"', 'osc3');
 
-      await runCommand(ctx.page,'echo "sequence_done"', 'sequence_done');
+      await runCommand(ctx.page, 'echo "sequence_done"', 'sequence_done');
     });
   });
 });
@@ -283,7 +306,8 @@ describe('Scenario 23: Terminal Image Protocols', () => {
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
   // Minimal 1x1 red pixel PNG, base64
-  const TINY_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+  const TINY_PNG_B64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
 
   /**
    * Helper: get image placements from XState context for the active pane
@@ -294,7 +318,7 @@ describe('Scenario 23: Terminal Image Protocols', () => {
       if (!snap) return [];
       const ctx = snap.context;
       const activePaneId = ctx.activePaneId;
-      const pane = ctx.panes?.find(p => p.tmuxId === activePaneId);
+      const pane = ctx.panes?.find((p) => p.tmuxId === activePaneId);
       return pane?.images || [];
     });
   }
@@ -319,7 +343,7 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     // Send iTerm2 inline image sequence via printf
     // Format: ESC ] 1337 ; File=inline=1;width=10;height=5:<base64> BEL
     const cmd = `printf '\\e]1337;File=inline=1;width=10;height=5:${TINY_PNG_B64}\\a' && echo IMG_SENT`;
-    await runCommand(ctx.page,cmd, 'IMG_SENT');
+    await runCommand(ctx.page, cmd, 'IMG_SENT');
 
     // Verify the output marker is present (the printf command text may appear in prompt)
     const text = await getTerminalText(ctx.page);
@@ -349,7 +373,7 @@ describe('Scenario 23: Terminal Image Protocols', () => {
 
     // File download (no inline=1) — should be consumed but produce no image
     const cmd = `printf '\\e]1337;File=name=dGVzdA==:${TINY_PNG_B64}\\a' && echo DOWNLOAD_SENT`;
-    await runCommand(ctx.page,cmd, 'DOWNLOAD_SENT');
+    await runCommand(ctx.page, cmd, 'DOWNLOAD_SENT');
 
     await delay(DELAYS.SYNC * 2);
 
@@ -364,13 +388,13 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     // Sixel uses DCS (ESC P) which tmux intercepts rather than forwarding
     // to control mode. The sequence may leak as text. Verify terminal survives.
     const cmd = `printf '\\ePq#0;2;0;0;0~\\e\\\\' && echo SIXEL_OK`;
-    await runCommand(ctx.page,cmd, 'SIXEL_OK');
+    await runCommand(ctx.page, cmd, 'SIXEL_OK');
 
     // Verify via DOM or capture-pane fallback
     await waitForTerminalText(ctx.page, 'SIXEL_OK');
 
     // Terminal still functional after sixel
-    await runCommand(ctx.page,'echo AFTER_SIXEL', 'AFTER_SIXEL');
+    await runCommand(ctx.page, 'echo AFTER_SIXEL', 'AFTER_SIXEL');
   }, 60000);
 
   test('Mixed content: text + image + text renders correctly', async () => {
@@ -379,7 +403,7 @@ describe('Scenario 23: Terminal Image Protocols', () => {
 
     // Send text, then image, then more text
     const cmd = `echo BEFORE_IMG && printf '\\e]1337;File=inline=1;width=5;height=3:${TINY_PNG_B64}\\a' && echo AFTER_IMG`;
-    await runCommand(ctx.page,cmd, 'AFTER_IMG');
+    await runCommand(ctx.page, cmd, 'AFTER_IMG');
 
     // Verify both markers visible in DOM
     await waitForTerminalText(ctx.page, 'BEFORE_IMG');
@@ -395,7 +419,7 @@ describe('Scenario 23: Terminal Image Protocols', () => {
 
     // Create an image
     const cmd = `printf '\\e]1337;File=inline=1;width=5;height=3:${TINY_PNG_B64}\\a' && echo HTTP_TEST`;
-    await runCommand(ctx.page,cmd, 'HTTP_TEST');
+    await runCommand(ctx.page, cmd, 'HTTP_TEST');
 
     const images = await waitForImages(ctx.page);
     expect(images.length).toBeGreaterThanOrEqual(1);
@@ -437,13 +461,16 @@ describe('Scenario 23: Terminal Image Protocols', () => {
 // ==================== Widget Tests ====================
 
 // 1x1 red PNG, base64-encoded
-const RED_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+const RED_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
 
 // 1x1 blue PNG, base64-encoded
-const BLUE_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMCbHYQAAAABJRU5ErkJggg==';
+const BLUE_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMCbHYQAAAABJRU5ErkJggg==';
 
 // 1x1 green PNG, base64-encoded
-const GREEN_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+const GREEN_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 /**
  * Type a command in the terminal via browser keyboard (no output wait).
@@ -458,11 +485,10 @@ async function sendWidgetCommand(page, command) {
  * Wait for a CSS selector to appear in the page.
  */
 function waitForDomSelector(page, selector, timeout = 10000) {
-  return page.waitForFunction(
-    (sel) => document.querySelector(sel) !== null,
-    selector,
-    { timeout, polling: 200 }
-  );
+  return page.waitForFunction((sel) => document.querySelector(sel) !== null, selector, {
+    timeout,
+    polling: 200,
+  });
 }
 
 // Resolve tmuxy-widget path relative to this file (works in both dev and CI)
@@ -483,7 +509,7 @@ describe('Category 17: Widgets', () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
-      await sendWidgetCommand(wCtx.page,`(echo "${RED_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
+      await sendWidgetCommand(wCtx.page, `(echo "${RED_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
 
       await delay(2000);
       await waitForDomSelector(wCtx.page, '.widget-image', 30000);
@@ -518,15 +544,22 @@ describe('Category 17: Widgets', () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
-      await sendWidgetCommand(wCtx.page,`(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
+      await sendWidgetCommand(
+        wCtx.page,
+        `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`,
+      );
 
       await waitForDomSelector(wCtx.page, '.widget-image', 30000);
 
       const greenSignature = GREEN_PNG.slice(-30);
-      await wCtx.page.waitForFunction((sig) => {
-        const img = document.querySelector('.widget-image img');
-        return img && img.src && img.src.includes(sig);
-      }, greenSignature, { timeout: 30000, polling: 300 });
+      await wCtx.page.waitForFunction(
+        (sig) => {
+          const img = document.querySelector('.widget-image img');
+          return img && img.src && img.src.includes(sig);
+        },
+        greenSignature,
+        { timeout: 30000, polling: 300 },
+      );
 
       const finalSrc = await wCtx.page.evaluate(() => {
         const img = document.querySelector('.widget-image img');
@@ -544,16 +577,16 @@ describe('Category 17: Widgets', () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
-      await sendWidgetCommand(wCtx.page,'echo "hello world"');
+      await sendWidgetCommand(wCtx.page, 'echo "hello world"');
       await waitForTerminalText(wCtx.page, 'hello world');
 
-      const hasTerminal = await wCtx.page.evaluate(() =>
-        document.querySelector('[role="log"]') !== null
+      const hasTerminal = await wCtx.page.evaluate(
+        () => document.querySelector('[role="log"]') !== null,
       );
       expect(hasTerminal).toBe(true);
 
-      const hasWidget = await wCtx.page.evaluate(() =>
-        document.querySelector('.widget-image') !== null
+      const hasWidget = await wCtx.page.evaluate(
+        () => document.querySelector('.widget-image') !== null,
       );
       expect(hasWidget).toBe(false);
     });
@@ -562,17 +595,17 @@ describe('Category 17: Widgets', () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
-      await sendWidgetCommand(wCtx.page,`echo "test" | ${TMUXY_WIDGET} nonexistent_xyz`);
+      await sendWidgetCommand(wCtx.page, `echo "test" | ${TMUXY_WIDGET} nonexistent_xyz`);
 
       await delay(2000);
 
-      const hasTerminal = await wCtx.page.evaluate(() =>
-        document.querySelector('[role="log"]') !== null
+      const hasTerminal = await wCtx.page.evaluate(
+        () => document.querySelector('[role="log"]') !== null,
       );
       expect(hasTerminal).toBe(true);
 
-      const hasWidget = await wCtx.page.evaluate(() =>
-        document.querySelector('.widget-image') !== null
+      const hasWidget = await wCtx.page.evaluate(
+        () => document.querySelector('.widget-image') !== null,
       );
       expect(hasWidget).toBe(false);
     });

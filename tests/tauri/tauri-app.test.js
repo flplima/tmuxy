@@ -55,7 +55,7 @@ afterEach(async () => {
   }
 
   // Brief pause for cleanup
-  await new Promise(r => setTimeout(r, 1000));
+  await new Promise((r) => setTimeout(r, 1000));
 });
 
 /**
@@ -121,7 +121,6 @@ describe('IPC Commands', () => {
     await pressKey(driver, 'Enter');
     await waitForTerminalText(driver, marker);
   });
-
 
   test('split pane via IPC', async () => {
     await setupApp();
@@ -243,7 +242,7 @@ describe('Tauri Features', () => {
 
     // Verify Tauri API is available in the webview
     const hasTauriApi = await driver.execute(() => {
-      return !!(window.__TAURI_INTERNALS__?.invoke);
+      return !!window.__TAURI_INTERNALS__?.invoke;
     });
 
     expect(hasTauriApi).toBe(true);

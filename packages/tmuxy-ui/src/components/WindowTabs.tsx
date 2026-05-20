@@ -51,8 +51,7 @@ export function WindowTabs() {
     [rawWindows],
   );
 
-  const isSingleWindow =
-    allWindows.filter((w) => w.windowType === 'tab').length <= 1;
+  const isSingleWindow = allWindows.filter((w) => w.windowType === 'tab').length <= 1;
 
   const handleWindowClick = useCallback(
     (window: TmuxWindow) => {

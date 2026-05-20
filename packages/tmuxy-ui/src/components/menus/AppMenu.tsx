@@ -45,8 +45,7 @@ export function AppMenu() {
   const availableThemes = useAppSelector(selectAvailableThemes);
 
   const isSinglePane = visiblePanes.length <= 1;
-  const isSingleWindow =
-    windows.filter((w) => w.windowType === 'tab').length <= 1;
+  const isSingleWindow = windows.filter((w) => w.windowType === 'tab').length <= 1;
 
   const handleAction = (actionId: string) => {
     executeMenuAction(send, actionId);

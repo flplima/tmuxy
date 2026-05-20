@@ -43,24 +43,29 @@ describe('Scenario 17: Large Output Perf', () => {
 
     // Step 1: Rapid output (yes | head -500)
     const start1 = Date.now();
-    await runCommand(ctx.page,'yes | head -500 && echo DONE_YES', 'DONE_YES', 20000);
+    await runCommand(ctx.page, 'yes | head -500 && echo DONE_YES', 'DONE_YES', 20000);
     const elapsed1 = Date.now() - start1;
     expect(elapsed1).toBeLessThan(20000);
     expect(ctx.session.exists()).toBe(true);
 
     // Step 2: Large output (seq 1 2000)
     const start2 = Date.now();
-    await runCommand(ctx.page,'seq 1 2000 && echo SEQ_DONE', 'SEQ_DONE', 20000);
+    await runCommand(ctx.page, 'seq 1 2000 && echo SEQ_DONE', 'SEQ_DONE', 20000);
     const elapsed2 = Date.now() - start2;
     expect(elapsed2).toBeLessThan(20000);
     expect(ctx.session.exists()).toBe(true);
 
     // Step 3: Large scrollback accumulation
-    await runCommand(ctx.page,'for i in $(seq 1 200); do echo "line_$i"; done && echo SCROLL_DONE', 'SCROLL_DONE', 15000);
+    await runCommand(
+      ctx.page,
+      'for i in $(seq 1 200); do echo "line_$i"; done && echo SCROLL_DONE',
+      'SCROLL_DONE',
+      15000,
+    );
     expect(ctx.session.exists()).toBe(true);
 
     // Step 4: Verify responsive
-    await runCommand(ctx.page,'echo "STILL_RESPONSIVE"', 'STILL_RESPONSIVE');
+    await runCommand(ctx.page, 'echo "STILL_RESPONSIVE"', 'STILL_RESPONSIVE');
   }, 180000);
 });
 
@@ -109,14 +114,18 @@ describe('Scenario 18: Rapid Operations', () => {
     expect(await ctx.session.getPaneCount()).toBe(2);
 
     // Step 3: Split-close-split
-    const result = await withConsistencyChecks(ctx, async () => {
-      await splitPaneKeyboard(ctx.page, 'horizontal');
-      await delay(DELAYS.SYNC);
-      await killPaneKeyboard(ctx.page);
-      await delay(DELAYS.SYNC);
-      await splitPaneKeyboard(ctx.page, 'vertical');
-      await delay(DELAYS.SYNC);
-    }, { operationType: 'split' });
+    const result = await withConsistencyChecks(
+      ctx,
+      async () => {
+        await splitPaneKeyboard(ctx.page, 'horizontal');
+        await delay(DELAYS.SYNC);
+        await killPaneKeyboard(ctx.page);
+        await delay(DELAYS.SYNC);
+        await splitPaneKeyboard(ctx.page, 'vertical');
+        await delay(DELAYS.SYNC);
+      },
+      { operationType: 'split' },
+    );
     expect(await ctx.session.getPaneCount()).toBe(3);
     expect(result.glitch.summary.nodeFlickers).toBeLessThanOrEqual(4);
 
@@ -174,8 +183,9 @@ describe('Scenario 18: Rapid Operations', () => {
     await swapPaneKeyboard(ctx.page, 'down');
     await delay(DELAYS.SYNC);
     const panesAfterSwap = await ctx.session.getPaneInfo();
-    expect(panesAfterSwap[0].id !== firstPaneIdBefore ||
-           panesAfterSwap[0].y !== panesBefore[0].y).toBe(true);
+    expect(
+      panesAfterSwap[0].id !== firstPaneIdBefore || panesAfterSwap[0].y !== panesBefore[0].y,
+    ).toBe(true);
   }, 240000);
 });
 
@@ -232,7 +242,7 @@ describe('Scenario 19: Complex Workflow', () => {
     // Step 6: Send commands to verify panes alive
     await selectWindowKeyboard(ctx.page, windowInfo[0].index);
     await delay(DELAYS.LONG);
-    await runCommand(ctx.page,'echo "WIN1_OK"', 'WIN1_OK');
+    await runCommand(ctx.page, 'echo "WIN1_OK"', 'WIN1_OK');
 
     // Step 7: Zoom and unzoom
     await toggleZoomKeyboard(ctx.page);
@@ -265,7 +275,10 @@ describe('Scenario 20: Glitch Detection', () => {
     await ctx.setupPage();
 
     // Step 1: Horizontal split with glitch detection
-    await ctx.startGlitchDetection({ scope: '.pane-container', ignoreSelectors: ['.resize-divider'] });
+    await ctx.startGlitchDetection({
+      scope: '.pane-container',
+      ignoreSelectors: ['.resize-divider'],
+    });
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 2);
     await delay(DELAYS.SYNC);
@@ -290,7 +303,12 @@ describe('Scenario 20: Glitch Detection', () => {
     await ctx.startGlitchDetection({
       scope: '.pane-container',
       sizeJumpThreshold: 100,
-      ignoreSelectors: ['.terminal-content', '.terminal-line', '.terminal-cursor', '.resize-divider'],
+      ignoreSelectors: [
+        '.terminal-content',
+        '.terminal-line',
+        '.terminal-cursor',
+        '.resize-divider',
+      ],
     });
     await resizePaneKeyboard(ctx.page, 'D', 5);
     await delay(DELAYS.SYNC);
@@ -301,7 +319,7 @@ describe('Scenario 20: Glitch Detection', () => {
     await ctx.startGlitchDetection({ scope: '.pane-container' });
     const paneInfo = await ctx.page.evaluate(() => {
       const panes = document.querySelectorAll('.pane-layout-item');
-      return Array.from(panes).map(p => {
+      return Array.from(panes).map((p) => {
         const r = p.getBoundingClientRect();
         return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
       });
@@ -390,7 +408,12 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
       await ctx.startGlitchDetection({
         scope: '.pane-container',
         sizeJumpThreshold: 100,
-        ignoreSelectors: ['.terminal-content', '.terminal-line', '.terminal-cursor', '.resize-divider'],
+        ignoreSelectors: [
+          '.terminal-content',
+          '.terminal-line',
+          '.terminal-cursor',
+          '.resize-divider',
+        ],
       });
 
       ctx.session.runCommand(`resize-pane -t ${ctx.session.name} -D 5`);
@@ -419,7 +442,7 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
 
       const paneInfo = await ctx.page.evaluate(() => {
         const panes = document.querySelectorAll('.pane-layout-item');
-        return Array.from(panes).map(p => {
+        return Array.from(panes).map((p) => {
           const rect = p.getBoundingClientRect();
           return {
             x: rect.left + rect.width / 2,
@@ -524,8 +547,8 @@ describe('Category 15: Glitch Detection (Detailed)', () => {
 
       const result = await detector.stop();
 
-      const terminalMutations = result.nodes.filter(n =>
-        n.element?.includes('terminal') || n.target?.includes('terminal')
+      const terminalMutations = result.nodes.filter(
+        (n) => n.element?.includes('terminal') || n.target?.includes('terminal'),
       );
       expect(terminalMutations.length).toBe(0);
     }, 180000);

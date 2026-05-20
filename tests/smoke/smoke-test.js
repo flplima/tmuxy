@@ -76,8 +76,7 @@ function assertHealthyDebugLog() {
 
   if (/FATAL:/.test(contents)) {
     throw new Error(
-      `Debug log contains FATAL — bounded retry gave up.\n` +
-        `Tail:\n${contents.slice(-2000)}`
+      `Debug log contains FATAL — bounded retry gave up.\n` + `Tail:\n${contents.slice(-2000)}`,
     );
   }
 
@@ -86,7 +85,7 @@ function assertHealthyDebugLog() {
   if (connectCount > 2) {
     throw new Error(
       `Debug log shows ${connectCount} reconnects (expected ≤ 2). ` +
-        `Connection is unstable. Tail:\n${contents.slice(-2000)}`
+        `Connection is unstable. Tail:\n${contents.slice(-2000)}`,
     );
   }
 
@@ -175,7 +174,7 @@ async function smokeTest() {
     throw new Error(
       `Command output not visible in terminal within ${COMMAND_TIMEOUT}ms.\n` +
         `Expected marker "${marker}" to appear twice.\n` +
-        `Terminal content:\n${finalContent.slice(0, 500)}`
+        `Terminal content:\n${finalContent.slice(0, 500)}`,
     );
   } finally {
     if (driver) {

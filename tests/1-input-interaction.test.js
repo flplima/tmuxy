@@ -104,7 +104,7 @@ describe('Scenario 1: General Layout', () => {
       const snap = window.app?.getSnapshot();
       if (!snap?.context) return null;
       const c = snap.context;
-      const visiblePanes = (c.panes || []).filter(p => p.windowId === c.activeWindowId);
+      const visiblePanes = (c.panes || []).filter((p) => p.windowId === c.activeWindowId);
       return {
         charWidth: c.charWidth,
         charHeight: c.charHeight,
@@ -112,7 +112,7 @@ describe('Scenario 1: General Layout', () => {
         totalHeight: c.totalHeight,
         containerWidth: c.containerWidth,
         containerHeight: c.containerHeight,
-        panes: visiblePanes.map(p => ({
+        panes: visiblePanes.map((p) => ({
           id: p.tmuxId,
           x: p.x,
           y: p.y,
@@ -132,7 +132,7 @@ describe('Scenario 1: General Layout', () => {
       const container = document.querySelector('.pane-container');
       if (!container) return null;
       const cRect = container.getBoundingClientRect();
-      return Array.from(items).map(el => {
+      return Array.from(items).map((el) => {
         const r = el.getBoundingClientRect();
         return {
           id: el.getAttribute('data-pane-id'),
@@ -154,12 +154,12 @@ describe('Scenario 1: General Layout', () => {
     // Result: one column has 1 pane, the other has 2 stacked panes.
 
     // Verify 2 distinct left edges (two columns)
-    const leftEdges = [...new Set(sorted.map(r => Math.round(r.left)))];
+    const leftEdges = [...new Set(sorted.map((r) => Math.round(r.left)))];
     expect(leftEdges.length).toBe(2);
 
     // Group by column
-    const col1 = sorted.filter(r => Math.round(r.left) === leftEdges[0]);
-    const col2 = sorted.filter(r => Math.round(r.left) === leftEdges[1]);
+    const col1 = sorted.filter((r) => Math.round(r.left) === leftEdges[0]);
+    const col2 = sorted.filter((r) => Math.round(r.left) === leftEdges[1]);
     // One column has 1 pane, the other has 2 (order depends on which pane had focus)
     const singleCol = col1.length === 1 ? col1 : col2;
     const splitCol = col1.length === 2 ? col1 : col2;
@@ -179,7 +179,7 @@ describe('Scenario 1: General Layout', () => {
       const padLeft = onLeft ? 0 : hPadding;
       const padRight = onRight ? 0 : hPadding;
       const expectedWidth = Math.ceil(pane.width * charWidth) + padLeft + padRight;
-      const actual = actualRects.find(a => a.id === pane.id);
+      const actual = actualRects.find((a) => a.id === pane.id);
       expect(actual).toBeDefined();
       if (actual) {
         expect(Math.abs(actual.width - expectedWidth)).toBeLessThanOrEqual(tolerance);
@@ -418,8 +418,8 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     await ctx.page.mouse.click(clickX, clickY);
     let events = await readMouseEvents(2);
     expect(events.length).toBeGreaterThanOrEqual(2);
-    const press = events.find(e => e.type === 'press');
-    const release = events.find(e => e.type === 'release');
+    const press = events.find((e) => e.type === 'press');
+    const release = events.find((e) => e.type === 'release');
     expect(press).toBeDefined();
     expect(release).toBeDefined();
     expect(press.btn).toBe(0);
@@ -437,8 +437,8 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
     await ctx.page.mouse.wheel(0, capture2.charSize.charHeight * 2);
     await delay(DELAYS.SYNC);
     events = await readMouseEvents(2);
-    const scrollUps = events.filter(e => e.type === 'scroll_up');
-    const scrollDowns = events.filter(e => e.type === 'scroll_down');
+    const scrollUps = events.filter((e) => e.type === 'scroll_up');
+    const scrollDowns = events.filter((e) => e.type === 'scroll_down');
     expect(scrollUps.length).toBeGreaterThanOrEqual(1);
     expect(scrollDowns.length).toBeGreaterThanOrEqual(1);
     for (const evt of scrollUps) expect(evt.btn).toBe(64);
@@ -454,17 +454,19 @@ describe('Scenario 8: Mouse Drag & SGR', () => {
       const rect = content.getBoundingClientRect();
       const clientX = rect.left + 50;
       const clientY = rect.top + 50;
-      content.dispatchEvent(new MouseEvent('mousedown', {
-        button: 2,
-        clientX,
-        clientY,
-        bubbles: true,
-        cancelable: true,
-      }));
+      content.dispatchEvent(
+        new MouseEvent('mousedown', {
+          button: 2,
+          clientX,
+          clientY,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
     });
     // Wait for at least 1 new event (the right-click press)
     const allEvents = await readMouseEvents(eventsBefore.length + 1, 10000);
-    const rPress = allEvents.find(e => e.type === 'press' && e.btn === 2);
+    const rPress = allEvents.find((e) => e.type === 'press' && e.btn === 2);
     expect(rPress).toBeDefined();
     expect(rPress.btn).toBe(2);
 
@@ -722,10 +724,12 @@ describe('Scenario 21: Touch Scrolling', () => {
     await ctx.page.waitForFunction(
       () => {
         const logs = document.querySelectorAll('[role="log"]');
-        const content = Array.from(logs).map(l => l.textContent || '').join('');
+        const content = Array.from(logs)
+          .map((l) => l.textContent || '')
+          .join('');
         return content.length > 0;
       },
-      { timeout: 10000, polling: 100 }
+      { timeout: 10000, polling: 100 },
     );
     await focusPage(ctx.page);
     await runCommand(ctx.page, 'for i in $(seq 0 59); do echo "line-$i"; done', 'line-59');
@@ -820,7 +824,7 @@ describe('Scenario 21: Touch Scrolling', () => {
     // Get both pane positions
     const panePositions = await ctx.page.evaluate(() => {
       const panes = document.querySelectorAll('.pane-wrapper');
-      return Array.from(panes).map(p => {
+      return Array.from(panes).map((p) => {
         const r = p.getBoundingClientRect();
         return {
           id: p.getAttribute('data-pane-id'),
@@ -898,7 +902,9 @@ describe('Scenario 23: Multi-Viewport Layout', () => {
       // Wait for pane count to still be 3 after resize
       await waitForPaneCount(ctx.page, 3, 10000);
 
-      await assertLayoutInvariants(ctx.page, { label: `viewport ${vp.label} (${vp.width}x${vp.height})` });
+      await assertLayoutInvariants(ctx.page, {
+        label: `viewport ${vp.label} (${vp.width}x${vp.height})`,
+      });
     }
 
     // Restore default viewport

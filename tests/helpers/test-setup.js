@@ -46,8 +46,8 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   const ctx = {
     browser: null,
     page: null,
-    session: null,        // TmuxTestSession instance
-    testSession: null,    // Session name (for backwards compatibility)
+    session: null, // TmuxTestSession instance
+    testSession: null, // Session name (for backwards compatibility)
     browserAvailable: true,
     serverAvailable: true,
     glitchDetector: null, // GlitchDetector instance (when glitchDetection enabled)
@@ -83,10 +83,13 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       require('child_process').execSync('tmux has-session 2>/dev/null', { timeout: 5000 });
     } catch {
       try {
-        require('child_process').execSync('tmux new-session -d -s _warmup && tmux kill-session -t _warmup', {
-          timeout: 10000,
-          encoding: 'utf-8',
-        });
+        require('child_process').execSync(
+          'tmux new-session -d -s _warmup && tmux kill-session -t _warmup',
+          {
+            timeout: 10000,
+            encoding: 'utf-8',
+          },
+        );
       } catch {
         // tmux binary missing or other fatal error — let subsequent steps fail naturally
       }
@@ -276,9 +279,10 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       await delay(100);
     }
     // Keyboard split may have failed — fall back to CLI command
-    const cmd = direction === 'horizontal'
-      ? `split-window -t ${ctx.session.name}`
-      : `split-window -h -t ${ctx.session.name}`;
+    const cmd =
+      direction === 'horizontal'
+        ? `split-window -t ${ctx.session.name}`
+        : `split-window -h -t ${ctx.session.name}`;
     tmuxRun(cmd);
     const start2 = Date.now();
     while (Date.now() - start2 < 5000) {
@@ -291,12 +295,14 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
       const snap = window.app?.getSnapshot();
       if (!snap) return { error: 'no snapshot' };
       return {
-        panes: snap.context.panes?.map(p => `${p.tmuxId}:win=${p.windowId}`),
+        panes: snap.context.panes?.map((p) => `${p.tmuxId}:win=${p.windowId}`),
         activeWindowId: snap.context.activeWindowId,
-        windows: snap.context.windows?.map(w => `${w.id}:${w.name}:a=${w.active}`),
+        windows: snap.context.windows?.map((w) => `${w.id}:${w.name}:a=${w.active}`),
       };
     });
-    throw new Error(`setupTwoPanes: pane count did not reach 2 within 10s\nXState: ${JSON.stringify(debugState)}`);
+    throw new Error(
+      `setupTwoPanes: pane count did not reach 2 within 10s\nXState: ${JSON.stringify(debugState)}`,
+    );
   };
 
   /**
