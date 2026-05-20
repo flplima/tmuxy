@@ -118,7 +118,121 @@ pub async fn execute_prefix_binding(key: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn run_tmux_command(command: String) -> Result<String, String> {
+    // `new-window` (neww) crashes tmux 3.5a control mode when run as an external
+    // subprocess while a control-mode client is attached. Tmuxy's monitor is one
+    // such client. Rewrite to `split-window` + `break-pane -d`, which produces
+    // the same window without the crash. Mirrors the same intercept in the SSE
+    // server (packages/tmuxy-server/src/sse.rs).
+    let trimmed = command.trim_start();
+    if trimmed.starts_with("new-window") || trimmed.starts_with("neww") {
+        executor::new_window(&get_session())?;
+        return Ok(String::new());
+    }
     executor::run_tmux_command_for_session(&get_session(), &command)
+}
+
+/// Fetch a range of scrollback cells for copy mode.
+///
+/// Matches the SSE server's `get_scrollback_cells` command shape so the
+/// frontend can use the same FETCH_SCROLLBACK_CELLS path under Tauri.
+/// Without this command, copy mode in the Tauri build silently fails to
+/// load anything beyond the already-visible pane content.
+#[tauri::command]
+pub async fn get_scrollback_cells(pane_id: String, start: i64, end: i64) -> Result<Value, String> {
+    let width_output =
+        executor::execute_tmux_command(&["display-message", "-t", &pane_id, "-p", "#{pane_width}"])
+            .map_err(|e| format!("Failed to get pane width: {}", e))?;
+    let width: u32 = width_output.trim().parse().unwrap_or(80);
+
+    let history_output = executor::execute_tmux_command(&[
+        "display-message",
+        "-t",
+        &pane_id,
+        "-p",
+        "#{history_size}",
+    ])
+    .map_err(|e| format!("Failed to get history size: {}", e))?;
+    let history_size: u32 = history_output.trim().parse().unwrap_or(0);
+
+    let raw = executor::capture_pane_range(&pane_id, start, end)
+        .map_err(|e| format!("Failed to capture pane range: {}", e))?;
+
+    let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
+
+    Ok(serde_json::json!({
+        "cells": cells,
+        "historySize": history_size,
+        "start": start,
+        "end": end,
+        "width": width,
+    }))
+}
+
+#[tauri::command]
+pub async fn get_theme_settings() -> Result<Value, String> {
+    let theme = executor::execute_tmux_command(&["show-options", "-gqv", "@tmuxy-theme"])
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let mode = executor::execute_tmux_command(&["show-options", "-gqv", "@tmuxy-theme-mode"])
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    Ok(serde_json::json!({
+        "theme": if theme.is_empty() { "default".to_string() } else { theme },
+        "mode": if mode.is_empty() { "dark".to_string() } else { mode },
+    }))
+}
+
+#[tauri::command]
+pub async fn set_theme(name: String, mode: Option<String>) -> Result<(), String> {
+    executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme", &name])
+        .map_err(|e| format!("Failed to set theme: {}", e))?;
+    if let Some(m) = mode {
+        executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", &m])
+            .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_theme_mode(mode: String) -> Result<(), String> {
+    executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", &mode])
+        .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_themes_list() -> Result<Value, String> {
+    let themes_dir = session::config_dir().join("themes");
+    let mut names: Vec<String> = std::fs::read_dir(&themes_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            name.strip_suffix(".css").map(|n| n.to_string())
+        })
+        .collect();
+    names.sort();
+
+    let themes: Vec<Value> = names
+        .into_iter()
+        .map(|name| {
+            let display_name = name
+                .split('-')
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            serde_json::json!({ "name": name, "displayName": display_name })
+        })
+        .collect();
+
+    Ok(serde_json::json!(themes))
 }
 
 #[tauri::command]
