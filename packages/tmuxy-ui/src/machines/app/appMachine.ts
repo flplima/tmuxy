@@ -22,7 +22,23 @@ import {
   fromCallback,
   type AnyActorRef,
 } from 'xstate';
-import type { AppMachineContext, AllAppMachineEvents, PendingUpdate } from '../types';
+import type { AppMachineContext, AllAppMachineEvents } from '../types';
+import { createInitialContext } from './context';
+import { uiPrefsState } from './states/uiPrefs';
+import { uiPrefsActions } from './actions/uiPrefs';
+import { commandUiState } from './states/commandUi';
+import { commandUiActions } from './actions/commandUi';
+import { copyModeState } from './states/copyMode';
+import {
+  copyModeActions,
+  copyModeExitTimes,
+  COPY_MODE_REENTRY_COOLDOWN,
+} from './actions/copyMode';
+import {
+  groupsAndFloatsGlobalEvents,
+  groupsAndFloatsIdleEvents,
+} from './states/groupsAndFloats';
+import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import {
   parseCommand,
   calculatePrediction,
@@ -35,29 +51,16 @@ import {
   findMatchingRealPane,
   isOperationStale,
 } from './optimistic';
-import {
-  DEFAULT_SESSION_NAME,
-  DEFAULT_COLS,
-  DEFAULT_ROWS,
-  DEFAULT_CHAR_WIDTH,
-  DEFAULT_CHAR_HEIGHT,
-} from '../constants';
+import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import {
   transformServerState,
   buildGroupsFromWindows,
   buildFloatPanesFromWindows,
+  parseCommandPrompt,
+  parseDisplayMessage,
+  STATUS_MESSAGE_DURATION,
 } from './helpers';
-import { handleCopyModeKey } from '../../utils/copyModeKeys';
-import { mergeScrollbackChunk, getNeededChunk } from '../../utils/copyMode';
-import { applyTheme, applyThemeMode, saveThemeToStorage } from '../../utils/themeManager';
-import {
-  applyFontSize,
-  loadFontSizeFromStorage,
-  saveFontSizeToStorage,
-  increaseFontSize,
-  decreaseFontSize,
-  DEFAULT_FONT_SIZE,
-} from '../../utils/fontSizeManager';
+import { applyFontSize } from '../../utils/fontSizeManager';
 import type { CopyModeState, CellLine, ServerState } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -66,10 +69,9 @@ import type { KeyboardActorEvent } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 
-// Cooldown to prevent stale TMUX_STATE_UPDATE from re-entering copy mode
-// after client-side exit (tmux takes time to process -X cancel)
-const copyModeExitTimes = new Map<string, number>();
-const COPY_MODE_REENTRY_COOLDOWN = 2000;
+// copyModeExitTimes + COPY_MODE_REENTRY_COOLDOWN imported from ./actions/copyMode
+// (shared with TMUX_STATE_UPDATE reconciliation; will move into the layout state
+// when that migration lands).
 
 /**
  * Resolve relative window targets in tmux commands.
@@ -108,99 +110,7 @@ function updateActivationOrder(order: string[], paneId: string | null): string[]
   return [paneId, ...order.filter((id) => id !== paneId)];
 }
 
-/**
- * Parse a `command-prompt` command and extract -I (initial value), -p (prompt), and template.
- * Expands tmux format strings (#W, #S) from context.
- */
-function parseCommandPrompt(
-  command: string,
-  context: {
-    windows: { id: string; name: string }[];
-    activeWindowId: string | null;
-    sessionName: string;
-  },
-): { prompt: string; initialValue: string; template: string | null } {
-  let prompt = ':';
-  let initialValue = '';
-  let template: string | null = null;
-
-  // Tokenize respecting quoted strings
-  const tokens: string[] = [];
-  const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
-  let m;
-  while ((m = re.exec(command)) !== null) {
-    tokens.push(m[1] ?? m[2] ?? m[3]);
-  }
-
-  // Skip the "command-prompt" token
-  let i = tokens[0] === 'command-prompt' ? 1 : 0;
-  while (i < tokens.length) {
-    if (tokens[i] === '-I' && i + 1 < tokens.length) {
-      initialValue = tokens[++i];
-      i++;
-    } else if (tokens[i] === '-p' && i + 1 < tokens.length) {
-      prompt = tokens[++i];
-      i++;
-    } else if (tokens[i].startsWith('-')) {
-      // Skip other flags (e.g., -1, -t, etc.) — consume flag + possible arg
-      const flag = tokens[i];
-      i++;
-      // Flags that take an argument
-      if (/^-[tTFN]$/.test(flag) && i < tokens.length) {
-        i++;
-      }
-    } else {
-      // First non-flag token is the template
-      template = tokens[i];
-      i++;
-    }
-  }
-
-  // Expand tmux format strings
-  const activeWindow = context.windows.find((w) => w.id === context.activeWindowId);
-  const windowName = activeWindow?.name ?? '';
-  const expand = (s: string) => s.replace(/#W/g, windowName).replace(/#S/g, context.sessionName);
-
-  initialValue = expand(initialValue);
-  prompt = expand(prompt);
-
-  return { prompt, initialValue, template };
-}
-
-/**
- * Parse a `display-message` command and extract the message text.
- * Returns null if -p flag is present (output mode — should go to tmux).
- */
-function parseDisplayMessage(command: string): string | null {
-  const tokens: string[] = [];
-  const re = /'([^']*)'|"([^"]*)"|(\S+)/g;
-  let m;
-  while ((m = re.exec(command)) !== null) {
-    tokens.push(m[1] ?? m[2] ?? m[3]);
-  }
-
-  let i = tokens[0] === 'display-message' ? 1 : 0;
-  let hasOutputFlag = false;
-
-  while (i < tokens.length) {
-    if (tokens[i] === '-p') {
-      hasOutputFlag = true;
-      i++;
-    } else if (tokens[i].startsWith('-')) {
-      const flag = tokens[i];
-      i++;
-      if (/^-[tFc]$/.test(flag) && i < tokens.length) {
-        i++;
-      }
-    } else {
-      // First non-flag token is the message
-      if (hasOutputFlag) return null;
-      return tokens[i];
-    }
-  }
-
-  return null;
-}
+// parseCommandPrompt, parseDisplayMessage moved to ./helpers.ts
 
 /**
  * Detect a tab-navigation command (`select-window -t N`, `next-window`,
@@ -327,9 +237,6 @@ function stripActivePanePrefix(command: string): string {
   return m ? command.slice(m[0].length) : command;
 }
 
-/** Status message auto-clear delay in milliseconds */
-const STATUS_MESSAGE_DURATION = 5000;
-
 export const appMachine = setup({
   types: {
     context: {} as AppMachineContext,
@@ -342,79 +249,16 @@ export const appMachine = setup({
     dragMachine,
     resizeMachine,
   },
+  actions: {
+    ...uiPrefsActions,
+    ...commandUiActions,
+    ...copyModeActions,
+    ...groupsAndFloatsActions,
+  },
 }).createMachine({
   id: 'app',
   initial: 'connecting',
-  context: {
-    connected: false,
-    error: null,
-    fatalError: null,
-    log: [],
-    sessionName: DEFAULT_SESSION_NAME,
-    activeWindowId: null,
-    activePaneId: null,
-    panes: [],
-    windows: [],
-    totalWidth: 0,
-    totalHeight: 0,
-    paneGroups: {},
-    targetCols: DEFAULT_COLS,
-    targetRows: DEFAULT_ROWS,
-    drag: null,
-    resize: null,
-    resizeActive: false,
-    charWidth: DEFAULT_CHAR_WIDTH,
-    charHeight: DEFAULT_CHAR_HEIGHT,
-    connectionId: null,
-    defaultShell: 'bash',
-    statusLine: '',
-    pendingUpdate: null as PendingUpdate | null,
-    containerWidth: 0,
-    containerHeight: 0,
-    lastUpdateTime: 0,
-    // Float pane state
-    floatPanes: {},
-    focusedFloatPaneId: null,
-    // Animation settings — start disabled to prevent flash on initial load.
-    // Enabled after first TMUX_STATE_UPDATE settles (see idle state handler).
-    enableAnimations: false,
-    // Keybindings from server
-    keybindings: null,
-    // Client-side copy mode states per pane
-    copyModeStates: {},
-    // Optimistic updates (just track the operation for logging/debugging)
-    optimisticOperation: null,
-    // Timestamp of last layout command — used to suppress transient active pane
-    // changes during layout recomputation (tmux briefly reports different active pane)
-    lastLayoutCommandTime: 0,
-    // Suppress layout transitions during command-based resizes
-    suppressLayoutTransition: false,
-    // Stable React key overrides: maps real pane tmuxId → placeholder ID it morphed from
-    paneKeyOverrides: {},
-    // Per-window most-recently-active pane (used to pick optimistic focus on SELECT_TAB)
-    lastActivePaneByWindow: {},
-    // Optimistic SELECT_TAB pending — see PendingSelectTabAt docs
-    pendingSelectTabAt: null as number | null,
-    // Pane activation order (MRU first) — used for navigation tie-breaking
-    paneActivationOrder: [] as string[],
-    // In-flight pane-group swaps (newest last) — cumulative protection so a
-    // rapid follow-up click can't strip an earlier swap's freeze coverage.
-    groupSwitchDimOverrides: [],
-    // Command mode (client-side command prompt)
-    commandMode: null,
-    // Temporary status message (from display-message)
-    statusMessage: null,
-    // Theme settings
-    themeName: 'default',
-    themeMode: 'dark' as const,
-    availableThemes: [],
-    // App focus state (for keyboard capture gating)
-    appFocused: true,
-    // Prefix key active state (for statusline hint highlight)
-    prefixActive: false,
-    // Display settings
-    baseFontSize: loadFontSizeFromStorage(),
-  },
+  context: createInitialContext(),
   entry: [({ context }) => applyFontSize(context.baseFontSize)],
   invoke: [
     {
@@ -442,6 +286,13 @@ export const appMachine = setup({
     },
   ],
   on: {
+    // Per-state event handlers (parallel-state migration: Option D′).
+    // Each `<name>State.on` slice owns events whose context-field writes
+    // are restricted to that state per FIELD_OWNERS in ./context.ts.
+    ...uiPrefsState.on,
+    ...commandUiState.on,
+    ...groupsAndFloatsGlobalEvents,
+
     LOG_APPEND: {
       actions: assign(({ context, event }) => {
         const entry = {
@@ -524,12 +375,7 @@ export const appMachine = setup({
     STOP_OBSERVE_CONTAINER: {
       actions: sendTo('size', { type: 'STOP_OBSERVE' as const }),
     },
-    SET_ANIMATION_ROOT: {
-      actions: assign(() => ({})), // Handled by AppContext spawning
-    },
-    ENABLE_ANIMATIONS: {
-      actions: assign({ enableAnimations: true }),
-    },
+    // SET_ANIMATION_ROOT, ENABLE_ANIMATIONS — handled by uiPrefsState (see spread at end of on:)
 
     // Focus gating events
     APP_FOCUS: {
@@ -545,9 +391,7 @@ export const appMachine = setup({
       ],
     },
 
-    PREFIX_MODE_CHANGE: {
-      actions: assign(({ event }) => ({ prefixActive: event.active })),
-    },
+    // PREFIX_MODE_CHANGE — handled by commandUiState
 
     // Connection info events
     CONNECTION_INFO: {
@@ -557,84 +401,8 @@ export const appMachine = setup({
       })),
     },
 
-    // Command mode events (global — work in any state)
-    ENTER_COMMAND_MODE: {
-      actions: assign(({ event }) => ({
-        commandMode: {
-          prompt: event.prompt ?? ':',
-          input: event.initialValue ?? '',
-          template: event.template ?? null,
-        },
-      })),
-    },
-    COMMAND_MODE_SUBMIT: {
-      actions: enqueueActions(({ event, context, enqueue }) => {
-        const mode = context.commandMode;
-        if (!mode) return;
+    // Command mode + status message events — handled by commandUiState
 
-        // Build final command: replace %% in template with input, or use input directly
-        const finalCommand = mode.template
-          ? mode.template.replace(/%%/g, event.value)
-          : event.value;
-
-        // Clear command mode
-        enqueue(assign({ commandMode: null }));
-
-        if (!finalCommand.trim()) return;
-
-        // Check if the resulting command is display-message (without -p)
-        if (finalCommand.match(/^display-message\b/)) {
-          const msg = parseDisplayMessage(finalCommand);
-          if (msg !== null) {
-            enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
-            enqueue(({ self }) => {
-              setTimeout(() => {
-                self.send({ type: 'CLEAR_STATUS_MESSAGE' });
-              }, STATUS_MESSAGE_DURATION);
-            });
-            return;
-          }
-        }
-
-        // Check if the resulting command is command-prompt (recursive)
-        if (finalCommand.match(/^command-prompt\b/)) {
-          const parsed = parseCommandPrompt(finalCommand, context);
-          enqueue(
-            assign({
-              commandMode: {
-                prompt: parsed.prompt,
-                input: parsed.initialValue,
-                template: parsed.template,
-              },
-            }),
-          );
-          return;
-        }
-
-        // Send to tmux
-        enqueue(
-          sendTo('tmux', {
-            type: 'SEND_COMMAND' as const,
-            command: finalCommand,
-          }),
-        );
-      }),
-    },
-    COMMAND_MODE_CANCEL: {
-      actions: assign({ commandMode: null }),
-    },
-    SHOW_STATUS_MESSAGE: {
-      actions: [
-        assign(({ event }) => ({
-          statusMessage: { text: event.text, timestamp: Date.now() },
-        })),
-        ({ self }) => {
-          setTimeout(() => {
-            self.send({ type: 'CLEAR_STATUS_MESSAGE' });
-          }, STATUS_MESSAGE_DURATION);
-        },
-      ],
-    },
     // Single entry point for tab creation — re-raised as SEND_TMUX_COMMAND
     // so the "+" button and tab menu items pick up the same optimistic
     // prediction + reconciliation path that the prefix+c keybinding gets.
@@ -643,94 +411,9 @@ export const appMachine = setup({
         enqueue.raise({ type: 'SEND_TMUX_COMMAND', command: 'new-window' });
       }),
     },
-    CLEAR_STATUS_MESSAGE: {
-      actions: assign(({ context }) => {
-        // Only clear if the message is old enough (prevents clearing a newer message)
-        if (
-          context.statusMessage &&
-          Date.now() - context.statusMessage.timestamp >= STATUS_MESSAGE_DURATION - 100
-        ) {
-          return { statusMessage: null };
-        }
-        return {};
-      }),
-    },
 
     // Theme events (global — work in any state)
-    SET_THEME: {
-      actions: enqueueActions(({ event, context, enqueue }) => {
-        applyTheme(event.name, context.themeMode);
-        saveThemeToStorage(event.name, context.themeMode);
-        enqueue(assign({ themeName: event.name }));
-        enqueue(
-          sendTo('tmux', {
-            type: 'INVOKE' as const,
-            cmd: 'set_theme',
-            args: { name: event.name },
-          }),
-        );
-      }),
-    },
-    SET_THEME_MODE: {
-      actions: enqueueActions(({ event, context, enqueue }) => {
-        applyThemeMode(event.mode);
-        saveThemeToStorage(context.themeName, event.mode);
-        enqueue(assign({ themeMode: event.mode }));
-        enqueue(
-          sendTo('tmux', {
-            type: 'INVOKE' as const,
-            cmd: 'set_theme_mode',
-            args: { mode: event.mode },
-          }),
-        );
-        // Also persist theme name alongside mode
-        enqueue(
-          sendTo('tmux', {
-            type: 'INVOKE' as const,
-            cmd: 'set_theme',
-            args: { name: context.themeName, mode: event.mode },
-          }),
-        );
-      }),
-    },
-    THEME_SETTINGS_RECEIVED: {
-      actions: enqueueActions(({ event, enqueue }) => {
-        applyTheme(event.theme, event.mode);
-        saveThemeToStorage(event.theme, event.mode);
-        enqueue(assign({ themeName: event.theme, themeMode: event.mode }));
-      }),
-    },
-    THEMES_LIST_RECEIVED: {
-      actions: assign(({ event }) => ({ availableThemes: event.themes })),
-    },
-
-    // Display settings events (global — work in any state)
-    INCREASE_FONT_SIZE: {
-      actions: enqueueActions(({ context, enqueue }) => {
-        const newSize = increaseFontSize(context.baseFontSize);
-        applyFontSize(newSize);
-        saveFontSizeToStorage(newSize);
-        enqueue(assign({ baseFontSize: newSize }));
-        enqueue(sendTo('size', { type: 'REMEASURE' as const }));
-      }),
-    },
-    DECREASE_FONT_SIZE: {
-      actions: enqueueActions(({ context, enqueue }) => {
-        const newSize = decreaseFontSize(context.baseFontSize);
-        applyFontSize(newSize);
-        saveFontSizeToStorage(newSize);
-        enqueue(assign({ baseFontSize: newSize }));
-        enqueue(sendTo('size', { type: 'REMEASURE' as const }));
-      }),
-    },
-    RESET_FONT_SIZE: {
-      actions: enqueueActions(({ enqueue }) => {
-        applyFontSize(DEFAULT_FONT_SIZE);
-        saveFontSizeToStorage(DEFAULT_FONT_SIZE);
-        enqueue(assign({ baseFontSize: DEFAULT_FONT_SIZE }));
-        enqueue(sendTo('size', { type: 'REMEASURE' as const }));
-      }),
-    },
+    // Theme + font-size events — handled by uiPrefsState (see spread at end of on:)
 
     // Session events (global — work in any state)
     SWITCH_SESSION: {
@@ -768,19 +451,7 @@ export const appMachine = setup({
         });
       }),
     },
-    OPEN_SESSION_FLOAT: {
-      actions: sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command:
-          'split-window "tmuxy session switch --float" \\; break-pane -d -n "__float_session"',
-      }),
-    },
-    OPEN_CONNECT_FLOAT: {
-      actions: sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: 'split-window "tmuxy session connect" \\; break-pane -d -n "__float_connect"',
-      }),
-    },
+    // OPEN_SESSION_FLOAT, OPEN_CONNECT_FLOAT — handled by groupsAndFloatsGlobalEvents
     SESSION_SWITCH_REQUESTED: {
       actions: enqueueActions(({ event, enqueue }) => {
         enqueue(({ self }) => {
@@ -836,6 +507,10 @@ export const appMachine = setup({
 
     idle: {
       on: {
+        // Per-state handlers active only during idle (require a live connection).
+        ...copyModeState.on,
+        ...groupsAndFloatsIdleEvents,
+
         // Tmux Events
         TMUX_STATE_UPDATE: [
           {
@@ -2186,59 +1861,8 @@ export const appMachine = setup({
             })),
           ],
         },
-        CLOSE_FLOAT: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `kill-pane -t ${event.paneId}`,
-              }),
-            );
-            // Optimistically remove the float immediately (don't wait for state update)
-            const { [event.paneId]: _, ...remainingFloats } = context.floatPanes;
-            enqueue(assign({ floatPanes: remainingFloats }));
-            if (context.focusedFloatPaneId === event.paneId) {
-              // Focus the next remaining float, or clear float focus
-              const remaining = Object.values(remainingFloats);
-              const nextFocused =
-                remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
-              enqueue(assign({ focusedFloatPaneId: nextFocused }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_FOCUSED_FLOAT' as const,
-                  paneId: nextFocused,
-                }),
-              );
-            }
-          }),
-        },
-        CLOSE_TOP_FLOAT: {
-          actions: enqueueActions(({ context, enqueue }) => {
-            const floats = Object.values(context.floatPanes);
-            if (floats.length === 0) return;
-            const topFloat = floats[floats.length - 1];
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `kill-pane -t ${topFloat.paneId}`,
-              }),
-            );
-            // Optimistically remove the float immediately
-            const { [topFloat.paneId]: _, ...remainingFloats } = context.floatPanes;
-            enqueue(assign({ floatPanes: remainingFloats }));
-            // Clear float focus or focus the next float below
-            const remaining = Object.values(remainingFloats);
-            const nextFocused =
-              remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
-            enqueue(assign({ focusedFloatPaneId: nextFocused }));
-            enqueue(
-              sendTo('keyboard', {
-                type: 'UPDATE_FOCUSED_FLOAT' as const,
-                paneId: nextFocused,
-              }),
-            );
-          }),
-        },
+        // CLOSE_FLOAT, CLOSE_TOP_FLOAT — handled by groupsAndFloatsIdleEvents
+
         WRITE_TO_PANE: {
           actions: sendTo('tmux', ({ event }) => ({
             type: 'SEND_COMMAND' as const,
@@ -2284,533 +1908,11 @@ export const appMachine = setup({
           }),
         },
 
-        // Copy mode events
-        ENTER_COPY_MODE: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            const pane = context.panes.find((p) => p.tmuxId === event.paneId);
-            if (!pane) return;
-
-            const historySize = pane.historySize ?? 0;
-            const totalLines = historySize + pane.height;
-            const scrollTop = Math.max(0, totalLines - pane.height);
-
-            // Pre-populate lines Map with current terminal content
-            const lines = new Map<number, CellLine>();
-            for (let i = 0; i < pane.content.length; i++) {
-              lines.set(historySize + i, pane.content[i]);
-            }
-
-            // Mark the visible area as a loaded range
-            const loadedRanges: Array<[number, number]> =
-              pane.content.length > 0 ? [[historySize, historySize + pane.content.length - 1]] : [];
-
-            // Apply initial scroll offset
-            let initialScrollTop = scrollTop;
-            if (event.nativeScrollTop !== undefined) {
-              initialScrollTop = Math.max(0, Math.min(event.nativeScrollTop, scrollTop));
-            } else if (event.scrollLines) {
-              initialScrollTop = Math.max(0, scrollTop + event.scrollLines);
-            }
-
-            // Clamp initial cursor column to line content
-            const initRow = historySize + pane.cursorY;
-            const initLine = lines.get(initRow);
-            const initLineText = initLine
-              ? initLine
-                  .map((c) => c.c)
-                  .join('')
-                  .trimEnd()
-              : '';
-            const initCol =
-              initLineText.length > 0 ? Math.min(pane.cursorX, initLineText.length - 1) : 0;
-
-            const copyState: CopyModeState = {
-              lines,
-              totalLines,
-              historySize,
-              loadedRanges,
-              loading: true,
-              width: pane.width,
-              height: pane.height,
-              cursorRow: initRow,
-              cursorCol: initCol,
-              selectionMode: null,
-              selectionAnchor: null,
-              scrollTop: initialScrollTop,
-            };
-
-            enqueue(
-              assign({
-                copyModeStates: { ...context.copyModeStates, [event.paneId]: copyState },
-              }),
-            );
-
-            // Tell tmux to enter copy mode
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `copy-mode -t ${event.paneId}`,
-              }),
-            );
-
-            // Fetch the entire scrollback history. tmux returns only what
-            // exists, so cost scales with the live history size — not the
-            // 100k history-limit. Pre-fetching everything avoids the
-            // "wheel scrolls faster than the paginator" race where users
-            // saw partial history because incremental loads couldn't keep up.
-            enqueue(
-              sendTo('tmux', {
-                type: 'FETCH_SCROLLBACK_CELLS' as const,
-                paneId: event.paneId,
-                start: -historySize,
-                end: pane.height - 1,
-              }),
-            );
-
-            // Notify keyboard actor
-            enqueue(
-              sendTo('keyboard', {
-                type: 'UPDATE_COPY_MODE' as const,
-                active: true,
-                paneId: event.paneId,
-              }),
-            );
-          }),
-        },
-        EXIT_COPY_MODE: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            copyModeExitTimes.set(event.paneId, Date.now());
-            const newStates = { ...context.copyModeStates };
-            delete newStates[event.paneId];
-            enqueue(assign({ copyModeStates: newStates }));
-
-            // Tell tmux to exit copy mode
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `send-keys -t ${event.paneId} -X cancel`,
-              }),
-            );
-
-            // Notify keyboard actor
-            enqueue(
-              sendTo('keyboard', {
-                type: 'UPDATE_COPY_MODE' as const,
-                active: false,
-                paneId: null,
-              }),
-            );
-          }),
-        },
-        COPY_MODE_CHUNK_LOADED: {
-          actions: assign(({ event, context }) => {
-            const existing = context.copyModeStates[event.paneId];
-            if (!existing) return {};
-
-            const { lines, loadedRanges } = mergeScrollbackChunk(
-              existing.lines,
-              existing.loadedRanges,
-              event.cells,
-              event.historySize,
-              event.start,
-              event.end,
-            );
-
-            // historySize from server is authoritative — adjust positions if it changed
-            const totalLines = event.historySize + existing.height;
-            const histDiff = event.historySize - existing.historySize;
-
-            const updated: CopyModeState = {
-              ...existing,
-              lines,
-              loadedRanges,
-              totalLines,
-              historySize: event.historySize,
-              width: event.width,
-              loading: false,
-              // Shift scrollTop and cursorRow when historySize changed (stale pre-populated value)
-              scrollTop:
-                histDiff !== 0
-                  ? Math.max(
-                      0,
-                      Math.min(existing.scrollTop + histDiff, totalLines - existing.height),
-                    )
-                  : existing.scrollTop,
-              cursorRow:
-                histDiff !== 0
-                  ? Math.max(0, Math.min(existing.cursorRow + histDiff, totalLines - 1))
-                  : existing.cursorRow,
-            };
-
-            // Apply pending selection (from drag that started before chunk loaded)
-            if (existing.pendingSelection) {
-              const ps = existing.pendingSelection;
-              const absoluteRow = event.historySize + ps.row;
-              updated.selectionMode = ps.mode;
-              updated.selectionAnchor = { row: absoluteRow, col: ps.col };
-              updated.cursorRow = absoluteRow;
-              updated.cursorCol = ps.col;
-              updated.pendingSelection = undefined;
-            }
-
-            return { copyModeStates: { ...context.copyModeStates, [event.paneId]: updated } };
-          }),
-        },
-        COPY_MODE_CURSOR_MOVE: {
-          actions: assign(({ event, context }) => {
-            const existing = context.copyModeStates[event.paneId];
-            if (!existing) return {};
-
-            // Convert row to absolute: when `relative` is true (mouse-originated),
-            // always treat as visible-relative. Otherwise use heuristic.
-            const isRelative = event.relative === true ? true : event.row < existing.height;
-            const rawRow = isRelative ? existing.scrollTop + event.row : event.row;
-            const absoluteRow = Math.max(0, Math.min(rawRow, existing.totalLines - 1));
-
-            let scrollTop = existing.scrollTop;
-            if (absoluteRow < scrollTop) {
-              scrollTop = absoluteRow;
-            } else if (absoluteRow >= scrollTop + existing.height) {
-              scrollTop = absoluteRow - existing.height + 1;
-            }
-            scrollTop = Math.max(0, Math.min(scrollTop, existing.totalLines - existing.height));
-
-            // Clamp cursor column to line content (prevent cursor in empty cells)
-            const line = existing.lines.get(absoluteRow);
-            const lineText = line
-              ? line
-                  .map((c) => c.c)
-                  .join('')
-                  .trimEnd()
-              : '';
-            const clampedCol = lineText.length > 0 ? Math.min(event.col, lineText.length - 1) : 0;
-
-            const updated: CopyModeState = {
-              ...existing,
-              cursorRow: absoluteRow,
-              cursorCol: clampedCol,
-              scrollTop,
-            };
-
-            return { copyModeStates: { ...context.copyModeStates, [event.paneId]: updated } };
-          }),
-        },
-        COPY_MODE_SELECTION_START: {
-          actions: assign(({ event, context }) => {
-            const existing = context.copyModeStates[event.paneId];
-            if (!existing) return {};
-
-            // If copy mode hasn't loaded yet, store as pending
-            if (existing.totalLines === 0) {
-              return {
-                copyModeStates: {
-                  ...context.copyModeStates,
-                  [event.paneId]: {
-                    ...existing,
-                    pendingSelection: { mode: event.mode, row: event.row, col: event.col },
-                  },
-                },
-              };
-            }
-
-            // If row is small (visible-area-relative from mouse), convert to absolute
-            const absoluteRow =
-              event.row < existing.height ? existing.scrollTop + event.row : event.row;
-
-            // Clamp cursor column to line content
-            const line = existing.lines.get(absoluteRow);
-            const lineText = line
-              ? line
-                  .map((c) => c.c)
-                  .join('')
-                  .trimEnd()
-              : '';
-            const clampedCol = lineText.length > 0 ? Math.min(event.col, lineText.length - 1) : 0;
-
-            const updated: CopyModeState = {
-              ...existing,
-              selectionMode: event.mode,
-              selectionAnchor: { row: absoluteRow, col: clampedCol },
-              cursorRow: absoluteRow,
-              cursorCol: clampedCol,
-            };
-
-            return { copyModeStates: { ...context.copyModeStates, [event.paneId]: updated } };
-          }),
-        },
-        COPY_MODE_SELECTION_CLEAR: {
-          actions: assign(({ event, context }) => {
-            const existing = context.copyModeStates[event.paneId];
-            if (!existing) return {};
-
-            const updated: CopyModeState = {
-              ...existing,
-              selectionMode: null,
-              selectionAnchor: null,
-            };
-
-            return { copyModeStates: { ...context.copyModeStates, [event.paneId]: updated } };
-          }),
-        },
-        COPY_MODE_WORD_SELECT: {
-          actions: assign(({ event, context }) => {
-            const existing = context.copyModeStates[event.paneId];
-            if (!existing) return {};
-
-            // Convert visible-relative row to absolute
-            const absoluteRow =
-              event.row < existing.height ? existing.scrollTop + event.row : event.row;
-
-            const line = existing.lines.get(absoluteRow);
-            if (!line) return {};
-
-            const text = line.map((c) => c.c).join('');
-            let wordStart = event.col;
-            let wordEnd = event.col;
-
-            // Expand to word boundaries
-            // Broad mode: space-delimited (selects URLs, file paths)
-            const isWord = event.broad
-              ? (i: number) => i >= 0 && i < text.length && text[i] !== ' '
-              : (i: number) => i >= 0 && i < text.length && /\w/.test(text[i]);
-            if (isWord(event.col)) {
-              while (wordStart > 0 && isWord(wordStart - 1)) wordStart--;
-              while (wordEnd < text.length - 1 && isWord(wordEnd + 1)) wordEnd++;
-            }
-
-            return {
-              copyModeStates: {
-                ...context.copyModeStates,
-                [event.paneId]: {
-                  ...existing,
-                  selectionMode: 'char' as const,
-                  selectionAnchor: { row: absoluteRow, col: wordStart },
-                  cursorRow: absoluteRow,
-                  cursorCol: wordEnd,
-                },
-              },
-            };
-          }),
-        },
-        COPY_MODE_LINE_SELECT: {
-          actions: assign(({ event, context }) => {
-            const existing = context.copyModeStates[event.paneId];
-            if (!existing) return {};
-
-            // Convert visible-relative row to absolute
-            const absoluteRow =
-              event.row < existing.height ? existing.scrollTop + event.row : event.row;
-
-            return {
-              copyModeStates: {
-                ...context.copyModeStates,
-                [event.paneId]: {
-                  ...existing,
-                  selectionMode: 'line' as const,
-                  selectionAnchor: { row: absoluteRow, col: 0 },
-                  cursorRow: absoluteRow,
-                  cursorCol: existing.width - 1,
-                },
-              },
-            };
-          }),
-        },
-        COPY_MODE_SCROLL: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            const existing = context.copyModeStates[event.paneId];
-            if (!existing) return;
-
-            const maxScrollTop = existing.totalLines - existing.height;
-            const scrollTop = Math.max(0, Math.min(maxScrollTop, event.scrollTop));
-
-            // Exit copy mode when scrolled to the bottom (only if content is loaded
-            // and we actually scrolled down from a higher position)
-            if (
-              maxScrollTop > 0 &&
-              scrollTop >= maxScrollTop &&
-              existing.scrollTop < maxScrollTop &&
-              !existing.selectionMode
-            ) {
-              enqueue.raise({ type: 'EXIT_COPY_MODE', paneId: event.paneId });
-              return;
-            }
-
-            const updated: CopyModeState = {
-              ...existing,
-              scrollTop,
-            };
-
-            enqueue(
-              assign({
-                copyModeStates: { ...context.copyModeStates, [event.paneId]: updated },
-              }),
-            );
-
-            // Check if we need to load more content. Don't gate on
-            // `existing.loading`: the initial entry fetch is a single big
-            // request for the entire history, and during the seconds it
-            // takes for that response to arrive a fast wheel-scroll into
-            // unloaded rows left the user staring at empty space until
-            // the big fetch finally landed. Letting scroll-induced fetches
-            // race alongside the initial one means a smaller viewport-
-            // sized chunk lands much faster and fills the user's actual
-            // view. Duplicate-range responses are idempotent at the merge
-            // layer (Map.set on the same absolute row is a no-op).
-            const needed = getNeededChunk(
-              scrollTop,
-              existing.height,
-              existing.loadedRanges,
-              existing.historySize,
-              existing.totalLines,
-            );
-            if (needed) {
-              enqueue(
-                assign({
-                  copyModeStates: {
-                    ...context.copyModeStates,
-                    [event.paneId]: { ...updated, loading: true },
-                  },
-                }),
-              );
-              enqueue(
-                sendTo('tmux', {
-                  type: 'FETCH_SCROLLBACK_CELLS' as const,
-                  paneId: event.paneId,
-                  start: needed.start,
-                  end: needed.end,
-                }),
-              );
-            }
-          }),
-        },
-        COPY_MODE_YANK: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            const copyState = context.copyModeStates[event.paneId];
-            if (!copyState || !copyState.selectionMode) return;
-
-            // Clipboard write handled by keyboard actor's native copy event
-            // Exit copy mode
-            copyModeExitTimes.set(event.paneId, Date.now());
-            const newStates = { ...context.copyModeStates };
-            delete newStates[event.paneId];
-            enqueue(assign({ copyModeStates: newStates }));
-
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `send-keys -t ${event.paneId} -X cancel`,
-              }),
-            );
-
-            enqueue(
-              sendTo('keyboard', {
-                type: 'UPDATE_COPY_MODE' as const,
-                active: false,
-                paneId: null,
-              }),
-            );
-          }),
-        },
-        COPY_MODE_KEY: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            const paneId = context.activePaneId;
-            if (!paneId) return;
-            const copyState = context.copyModeStates[paneId];
-            if (!copyState) return;
-
-            const result = handleCopyModeKey(event.key, event.ctrlKey, event.shiftKey, copyState);
-
-            if (result.action === 'yank') {
-              // Clipboard write handled by keyboard actor's native copy event
-              copyModeExitTimes.set(paneId, Date.now());
-              const newStates = { ...context.copyModeStates };
-              delete newStates[paneId];
-              enqueue(assign({ copyModeStates: newStates }));
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `send-keys -t ${paneId} -X cancel`,
-                }),
-              );
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_COPY_MODE' as const,
-                  active: false,
-                  paneId: null,
-                }),
-              );
-              return;
-            }
-
-            if (result.action === 'exit') {
-              copyModeExitTimes.set(paneId, Date.now());
-              const newStates = { ...context.copyModeStates };
-              delete newStates[paneId];
-              enqueue(assign({ copyModeStates: newStates }));
-              enqueue(
-                sendTo('tmux', {
-                  type: 'SEND_COMMAND' as const,
-                  command: `send-keys -t ${paneId} -X cancel`,
-                }),
-              );
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_COPY_MODE' as const,
-                  active: false,
-                  paneId: null,
-                }),
-              );
-              return;
-            }
-
-            // Apply state updates
-            if (Object.keys(result.state).length > 0) {
-              const updated = { ...copyState, ...result.state } as CopyModeState;
-              enqueue(
-                assign({
-                  copyModeStates: { ...context.copyModeStates, [paneId]: updated },
-                }),
-              );
-
-              // Check if we need to load more content after cursor move
-              const needed = getNeededChunk(
-                updated.scrollTop,
-                updated.height,
-                updated.loadedRanges,
-                updated.historySize,
-                updated.totalLines,
-              );
-              if (needed && !updated.loading) {
-                enqueue(
-                  assign({
-                    copyModeStates: {
-                      ...context.copyModeStates,
-                      [paneId]: { ...updated, loading: true },
-                    },
-                  }),
-                );
-                enqueue(
-                  sendTo('tmux', {
-                    type: 'FETCH_SCROLLBACK_CELLS' as const,
-                    paneId,
-                    start: needed.start,
-                    end: needed.end,
-                  }),
-                );
-              }
-            }
-          }),
-        },
 
         // Re-filter expired entries (each switch schedules its own clear at
         // +750 ms; entries from rapid follow-up clicks stay until their own
         // timers fire, so this can't blindly nullify the array).
-        CLEAR_GROUP_SWITCH_OVERRIDE: {
-          actions: assign({
-            groupSwitchDimOverrides: ({ context }) =>
-              context.groupSwitchDimOverrides.filter((o) => Date.now() - o.timestamp < 750),
-          }),
-        },
+        // CLEAR_GROUP_SWITCH_OVERRIDE — handled by groupsAndFloatsIdleEvents
         // Clear layout transition suppression (fired after command-based resize settles)
         CLEAR_LAYOUT_TRANSITION_SUPPRESSION: {
           actions: assign({ suppressLayoutTransition: false }),
