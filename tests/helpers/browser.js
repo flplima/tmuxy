@@ -239,7 +239,7 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
       const tabs = document.querySelectorAll('.tab-name:not(.tab-add)');
       const tabInfo = Array.from(tabs).map(t => t.querySelector('button')?.getAttribute('aria-label'));
       const snap = window.app?.getSnapshot();
-      const windows = snap?.context?.windows?.map(w => `${w.id}:${w.index}:${w.name}:a=${w.active}:pg=${w.isPaneGroupWindow}:fl=${w.isFloatWindow}`);
+      const windows = snap?.context?.windows?.map(w => `${w.id}:${w.index}:${w.name}:a=${w.active}:pg=${w.windowType === "group"}:fl=${w.windowType === "float"}`);
       return { count: tabs.length, tabInfo, windows };
     });
     throw new Error(`Expected ${expectedCount} window tabs, found ${diag.count} (timeout ${timeout}ms)\n  DOM tabs: ${JSON.stringify(diag.tabInfo)}\n  XState windows: ${JSON.stringify(diag.windows)}`);

@@ -55,20 +55,35 @@ export interface ImagePlacement {
   protocol: 'iterm2' | 'sixel';
 }
 
+/**
+ * Window type as set on the tmux window via @tmuxy-window-type.
+ * `null` means foreign — tmuxy never created or adopted this window and
+ * filters it out everywhere.
+ */
+export type WindowType = 'tab' | 'float' | 'float-backdrop' | 'group';
+
 export interface TmuxWindow {
   /** Window ID (e.g., "@0") */
   id: string;
   index: number;
   name: string;
   active: boolean;
-  /** True if this is a hidden pane group window */
-  isPaneGroupWindow: boolean;
-  /** Pane IDs encoded in group window name (e.g., ["%4", "%6", "%7"]) */
-  paneGroupPaneIds: string[] | null;
-  /** True if this is a hidden float window */
-  isFloatWindow: boolean;
-  /** Pane ID if this is a float window (e.g., "%5") */
-  floatPaneId: string | null;
+  /** Window type. `null` = foreign (ignored by the UI). */
+  windowType: WindowType | null;
+  /** Group pane membership (@tmuxy-group-panes), e.g. ["%4","%6","%7"]. */
+  groupPanes: string[] | null;
+  /** Parent window id for floats (launcher) and backdrops (the float). */
+  floatParent: string | null;
+  /** Float width in cells (@tmuxy-float-width). */
+  floatWidth: number | null;
+  /** Float height in cells (@tmuxy-float-height). */
+  floatHeight: number | null;
+  /** Drawer direction for drawer-style floats. */
+  floatDrawer: string | null;
+  /** Backdrop style for floats. */
+  floatBg: string | null;
+  /** True when the float hides its header chrome. */
+  floatNoheader: boolean;
 }
 
 export interface TmuxState {
@@ -196,10 +211,14 @@ export interface ServerWindow {
   index: number;
   name: string;
   active: boolean;
-  is_pane_group_window: boolean;
-  pane_group_pane_ids?: string[] | null;
-  is_float_window?: boolean;
-  float_pane_id?: string | null;
+  window_type?: WindowType | null;
+  group_panes?: string[] | null;
+  float_parent?: string | null;
+  float_width?: number | null;
+  float_height?: number | null;
+  float_drawer?: string | null;
+  float_bg?: string | null;
+  float_noheader?: boolean;
 }
 
 export interface ServerState {
@@ -249,10 +268,14 @@ export interface PaneDelta {
 export interface WindowDelta {
   name?: string;
   active?: boolean;
-  is_pane_group_window?: boolean;
-  pane_group_pane_ids?: string[] | null;
-  is_float_window?: boolean;
-  float_pane_id?: string | null;
+  window_type?: WindowType | null;
+  group_panes?: string[] | null;
+  float_parent?: string | null;
+  float_width?: number | null;
+  float_height?: number | null;
+  float_drawer?: string | null;
+  float_bg?: string | null;
+  float_noheader?: boolean;
 }
 
 export interface ServerDelta {

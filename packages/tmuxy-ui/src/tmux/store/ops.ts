@@ -494,10 +494,14 @@ function predictNewWindow(snapshot: TmuxSnapshot, opId: string): PredictResult {
     index: maxIndex + 1,
     name: `Window ${maxIndex + 1}`,
     active: false,
-    isPaneGroupWindow: false,
-    paneGroupPaneIds: null,
-    isFloatWindow: false,
-    floatPaneId: null,
+    windowType: 'tab',
+    groupPanes: null,
+    floatParent: null,
+    floatWidth: null,
+    floatHeight: null,
+    floatDrawer: null,
+    floatBg: null,
+    floatNoheader: false,
   };
   const priorWindowIds = snapshot.windows.map((w) => w.id);
 
@@ -533,7 +537,7 @@ function predictSelectWindow(
   snapshot: TmuxSnapshot,
 ): PredictResult | null {
   if (!snapshot.activeWindowId) return null;
-  const visible = snapshot.windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow);
+  const visible = snapshot.windows.filter((w) => w.windowType === 'tab');
   if (visible.length === 0) return null;
 
   let target: TmuxWindow | undefined;

@@ -12,24 +12,47 @@ PANE_ID="$1"
 PANE_WIDTH="$2"
 PANE_HEIGHT="$3"
 
-# Check if active pane is already in a group
-EXISTING_GROUP=$(find_group_for_pane "$PANE_ID")
+# Check if active pane is already in a group (returns the group's window id)
+EXISTING_GROUP_WIN=$(find_group_for_pane "$PANE_ID")
 
-# Create new pane via split-window + break-pane
-# (tmux new-window crashes the server when called from run-shell with control mode attached)
+# Compute the new group membership before any tmux mutation so we can pass it
+# in a single atomic `break-pane ; set-option ; set-option` command — this
+# guarantees the window options are visible by the time the monitor processes
+# the WindowAdd event from break-pane.
+if [ -n "$EXISTING_GROUP_WIN" ]; then
+  CURRENT_PANES=$(parse_group_panes "$EXISTING_GROUP_WIN")
+fi
+
+# Create new pane via split-window (separate call — needs to return the pane id)
 NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}')
 
-if [ -n "$EXISTING_GROUP" ]; then
-  # Add to existing group: parse current panes, append new one, rename all windows
-  CURRENT_PANES=$(parse_group_panes "$EXISTING_GROUP")
-  # shellcheck disable=SC2086
-  NEW_GROUP_NAME=$(build_group_name $CURRENT_PANES "$NEW_PANE_ID")
-  _tmux break-pane -d -s "$NEW_PANE_ID" -n "$NEW_GROUP_NAME"
-  rename_group_windows "$EXISTING_GROUP" "$NEW_GROUP_NAME"
+# Break the new pane into its own window AND tag the window type + group panes
+# in one tmux command list. set-option `-t $NEW_PANE_ID` targets the pane's
+# window, which after break-pane is the freshly created group window.
+if [ -n "$EXISTING_GROUP_WIN" ]; then
+  GROUP_LIST="$CURRENT_PANES $NEW_PANE_ID"
 else
-  # New group with active pane + new pane
-  GROUP_NAME=$(build_group_name "$PANE_ID" "$NEW_PANE_ID")
-  _tmux break-pane -d -s "$NEW_PANE_ID" -n "$GROUP_NAME"
+  GROUP_LIST="$PANE_ID $NEW_PANE_ID"
+fi
+_tmux break-pane -d -s "$NEW_PANE_ID" -n group \; \
+  set-option -w -t "$NEW_PANE_ID" @tmuxy-window-type group \; \
+  set-option -w -t "$NEW_PANE_ID" @tmuxy-group-panes "$GROUP_LIST"
+
+NEW_WIN_ID=$(pane_window "$NEW_PANE_ID")
+
+if [ -n "$EXISTING_GROUP_WIN" ]; then
+  # Propagate the updated membership to every existing group window that
+  # mirrors the old membership (so navigation between mirrored panes sees
+  # the same group).
+  _tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}' \
+    | while IFS='|' read -r wid wtype wpanes; do
+        if [ "$wtype" != "group" ] || [ "$wid" = "$NEW_WIN_ID" ]; then
+          continue
+        fi
+        if [ "$wpanes" = "$CURRENT_PANES" ]; then
+          set_group_panes "$wid" $GROUP_LIST
+        fi
+      done
 fi
 
 # Resize the new window to match the source pane

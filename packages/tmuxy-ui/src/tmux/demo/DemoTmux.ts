@@ -39,6 +39,8 @@ interface FakeWindow {
   manualName: boolean; // true if renamed manually, prevents auto-update from cwd
   layout: LayoutNode;
   layoutCycle: number; // tracks position in layout cycle
+  windowType: 'tab' | 'float' | 'float-backdrop' | 'group';
+  groupPanes: string[] | null;
 }
 
 // ============================================
@@ -103,6 +105,8 @@ export class DemoTmux {
       manualName: false,
       layout: { type: 'leaf', paneId },
       layoutCycle: 0,
+      windowType: 'tab',
+      groupPanes: null,
     };
     this.windows.push(window);
 
@@ -114,7 +118,7 @@ export class DemoTmux {
     this.totalWidth = cols;
     this.totalHeight = rows;
     for (const win of this.windows) {
-      if (!win.name.startsWith('__group_')) {
+      if (win.windowType !== 'group') {
         this.applyLayout(win);
       }
     }
@@ -138,8 +142,8 @@ export class DemoTmux {
       const pos = posMap.get(pane.id);
       // Include panes from active window, float windows, and group windows
       const paneWindow = this.windows.find((w) => w.id === pane.windowId);
-      const isFloat = paneWindow?.name.startsWith('__float_') ?? false;
-      const isGroup = paneWindow?.name.startsWith('__group_') ?? false;
+      const isFloat = paneWindow?.windowType === 'float';
+      const isGroup = paneWindow?.windowType === 'group';
       if (pane.windowId !== this.activeWindowId && !isFloat && !isGroup) continue;
       // In zoom mode, only show the zoomed pane from the active window
       if (
@@ -173,22 +177,20 @@ export class DemoTmux {
       });
     }
 
-    const windows: ServerWindow[] = this.windows.map((w) => {
-      const isGroup = w.name.startsWith('__group_');
-      const isFloat = w.name.startsWith('__float_');
-      const groupPaneIds = isGroup ? this.parseGroupPaneIds(w.name) : null;
-      const floatPaneId = isFloat ? `%${w.name.slice('__float_'.length)}` : null;
-      return {
-        id: w.id,
-        index: w.index,
-        name: w.name,
-        active: w.id === this.activeWindowId,
-        is_pane_group_window: isGroup,
-        pane_group_pane_ids: groupPaneIds,
-        is_float_window: isFloat,
-        float_pane_id: floatPaneId,
-      };
-    });
+    const windows: ServerWindow[] = this.windows.map((w) => ({
+      id: w.id,
+      index: w.index,
+      name: w.name,
+      active: w.id === this.activeWindowId,
+      window_type: w.windowType,
+      group_panes: w.groupPanes,
+      float_parent: null,
+      float_width: null,
+      float_height: null,
+      float_drawer: null,
+      float_bg: null,
+      float_noheader: false,
+    }));
 
     return {
       session_name: this.sessionName,
@@ -343,6 +345,8 @@ export class DemoTmux {
       manualName: false,
       layout: { type: 'leaf', paneId },
       layoutCycle: 0,
+      windowType: 'tab',
+      groupPanes: null,
     };
     this.windows.push(window);
 
@@ -372,9 +376,7 @@ export class DemoTmux {
   }
 
   nextWindow(): boolean {
-    const visibleWindows = this.windows.filter(
-      (w) => !w.name.startsWith('__group_') && !w.name.startsWith('__float_'),
-    );
+    const visibleWindows = this.windows.filter((w) => w.windowType === 'tab');
     const currentIdx = visibleWindows.findIndex((w) => w.id === this.activeWindowId);
     if (currentIdx === -1) return false;
     const nextIdx = (currentIdx + 1) % visibleWindows.length;
@@ -382,9 +384,7 @@ export class DemoTmux {
   }
 
   previousWindow(): boolean {
-    const visibleWindows = this.windows.filter(
-      (w) => !w.name.startsWith('__group_') && !w.name.startsWith('__float_'),
-    );
+    const visibleWindows = this.windows.filter((w) => w.windowType === 'tab');
     const currentIdx = visibleWindows.findIndex((w) => w.id === this.activeWindowId);
     if (currentIdx === -1) return false;
     const prevIdx = (currentIdx - 1 + visibleWindows.length) % visibleWindows.length;
@@ -715,6 +715,8 @@ export class DemoTmux {
       manualName: false,
       layout: { type: 'leaf', paneId: targetId },
       layoutCycle: 0,
+      windowType: 'tab',
+      groupPanes: null,
     };
     this.windows.push(newWindow);
 
@@ -775,7 +777,6 @@ export class DemoTmux {
     };
     this.panes.set(paneId, pane);
 
-    // Float windows use __float_N naming convention
     const usedIndices = new Set(this.windows.map((w) => w.index));
     let index = 1000;
     while (usedIndices.has(index)) index++;
@@ -783,10 +784,12 @@ export class DemoTmux {
     const window: FakeWindow = {
       id: windowId,
       index,
-      name: `__float_${numericId}`,
+      name: 'float',
       manualName: true,
       layout: { type: 'leaf', paneId },
       layoutCycle: 0,
+      windowType: 'float',
+      groupPanes: null,
     };
     this.windows.push(window);
 
@@ -798,7 +801,7 @@ export class DemoTmux {
     const pane = this.panes.get(paneId);
     if (!pane) return false;
     const window = this.windows.find((w) => w.id === pane.windowId);
-    if (!window || !window.name.startsWith('__float_')) return false;
+    if (!window || window.windowType !== 'float') return false;
     return this.killWindow(window.id);
   }
 
@@ -830,7 +833,7 @@ export class DemoTmux {
     // Find existing group for this pane
     const existingGroup = this.findGroupForPane(targetId);
     const groupPaneIds = existingGroup
-      ? [...this.parseGroupPaneIds(existingGroup.name)!, newPaneId]
+      ? [...(existingGroup.groupPanes ?? []), newPaneId]
       : [targetId, newPaneId];
 
     // Create new pane in a hidden group window
@@ -849,20 +852,19 @@ export class DemoTmux {
     };
     this.panes.set(newPaneId, newPane);
 
-    // Build group window name
-    const groupName = this.buildGroupName(groupPaneIds);
-
     // Update or create group window
     if (existingGroup) {
-      existingGroup.name = groupName;
+      existingGroup.groupPanes = groupPaneIds;
     } else {
       const groupWindow: FakeWindow = {
         id: groupWindowId,
         index,
-        name: groupName,
+        name: 'group',
         manualName: true,
         layout: { type: 'leaf', paneId: newPaneId },
         layoutCycle: 0,
+        windowType: 'group',
+        groupPanes: groupPaneIds,
       };
       this.windows.push(groupWindow);
     }
@@ -887,7 +889,7 @@ export class DemoTmux {
     const groupWindow = this.findGroupForPane(targetId);
     if (!groupWindow) return false;
 
-    const groupPaneIds = this.parseGroupPaneIds(groupWindow.name);
+    const groupPaneIds = groupWindow.groupPanes;
     if (!groupPaneIds || groupPaneIds.length < 2) return false;
 
     // If the target is visible (in active window), swap another in first
@@ -902,13 +904,12 @@ export class DemoTmux {
     // Remove the pane
     this.panes.delete(targetId);
 
-    // Update group: remove this pane from the group name
+    // Update group membership; dissolve if only one pane left.
     const remainingIds = groupPaneIds.filter((id) => id !== targetId);
     if (remainingIds.length < 2) {
-      // Dissolve group — kill the group window
       this.killWindow(groupWindow.id);
     } else {
-      groupWindow.name = this.buildGroupName(remainingIds);
+      groupWindow.groupPanes = remainingIds;
     }
 
     return true;
@@ -926,7 +927,7 @@ export class DemoTmux {
     if (!activeWindow) return false;
 
     // Find which pane from the group is currently visible
-    const groupPaneIds = this.parseGroupPaneIds(groupWindow.name);
+    const groupPaneIds = groupWindow.groupPanes;
     if (!groupPaneIds) return false;
 
     const visibleId = groupPaneIds.find((id) => this.containsPane(activeWindow.layout, id));
@@ -942,7 +943,7 @@ export class DemoTmux {
     const groupWindow = this.findGroupForPane(targetId);
     if (!groupWindow) return false;
 
-    const groupPaneIds = this.parseGroupPaneIds(groupWindow.name);
+    const groupPaneIds = groupWindow.groupPanes;
     if (!groupPaneIds || groupPaneIds.length < 2) return false;
 
     const idx = groupPaneIds.indexOf(targetId);
@@ -964,7 +965,7 @@ export class DemoTmux {
     // Step 1: Check if active pane is in a group
     const groupWindow = this.findGroupForPane(this.activePaneId);
     if (groupWindow) {
-      const groupPaneIds = this.parseGroupPaneIds(groupWindow.name);
+      const groupPaneIds = groupWindow.groupPanes;
       if (groupPaneIds && groupPaneIds.length > 1) {
         // Find which pane from the group is visible in active window
         const visibleId = groupPaneIds.find((id) => this.containsPane(activeWindow.layout, id));
@@ -1002,7 +1003,7 @@ export class DemoTmux {
     const groupWindow = this.findGroupForPane(targetId);
     if (!groupWindow) return false;
 
-    const groupPaneIds = this.parseGroupPaneIds(groupWindow.name);
+    const groupPaneIds = groupWindow.groupPanes;
     if (!groupPaneIds || groupPaneIds.length < 2) return false;
 
     const idx = groupPaneIds.indexOf(targetId);
@@ -1014,25 +1015,9 @@ export class DemoTmux {
 
   /** Find the group window containing a pane */
   private findGroupForPane(paneId: string): FakeWindow | undefined {
-    const numericId = paneId.slice(1);
-    return this.windows.find((w) => {
-      if (!w.name.startsWith('__group_')) return false;
-      const ids = w.name.slice('__group_'.length).split('-');
-      return ids.includes(numericId);
-    });
-  }
-
-  /** Parse pane IDs from a group window name like __group_4-6-7 → ["%4", "%6", "%7"] */
-  private parseGroupPaneIds(name: string): string[] | null {
-    if (!name.startsWith('__group_')) return null;
-    const parts = name.slice('__group_'.length).split('-');
-    if (parts.length < 2) return null;
-    return parts.map((n) => `%${n}`);
-  }
-
-  /** Build a group window name from pane IDs */
-  private buildGroupName(paneIds: string[]): string {
-    return `__group_${paneIds.map((id) => id.slice(1)).join('-')}`;
+    return this.windows.find(
+      (w) => w.windowType === 'group' && (w.groupPanes ?? []).includes(paneId),
+    );
   }
 
   /** Swap a visible pane with a hidden group pane */

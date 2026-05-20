@@ -46,7 +46,7 @@ export function AppMenu() {
 
   const isSinglePane = visiblePanes.length <= 1;
   const isSingleWindow =
-    windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow).length <= 1;
+    windows.filter((w) => w.windowType === 'tab').length <= 1;
 
   const handleAction = (actionId: string) => {
     executeMenuAction(send, actionId);

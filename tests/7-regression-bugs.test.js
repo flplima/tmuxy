@@ -710,7 +710,7 @@ describe('Scenario: Tab switch shows panes instantly', () => {
         windowIdsWithPanes: cctx?.panes
           ? Array.from(new Set(cctx.panes.map((p) => p.windowId))).sort()
           : [],
-        windowCount: cctx?.windows?.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow).length ?? 0,
+        windowCount: cctx?.windows?.filter((w) => w.windowType === "tab").length ?? 0,
       };
     });
     expect(beforeSwitch.itemCount).toBeGreaterThanOrEqual(1);

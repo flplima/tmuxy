@@ -34,7 +34,7 @@ async function extractUIState(page) {
 
     // Windows (excluding group/float)
     const windows = (ctx.windows || [])
-      .filter(w => !w.isPaneGroupWindow && !w.isFloatWindow)
+      .filter(w => w.windowType === "tab")
       .map(w => ({ id: w.id, index: w.index, name: w.name, active: w.active }));
 
     // Panes in active window
@@ -150,27 +150,38 @@ async function extractUIState(page) {
  */
 function extractTmuxState(sessionName) {
   try {
-    // 1. List all windows
+    // 1. List all windows, including @tmuxy-window-type and group panes.
     const winRaw = tmuxQuery(
-      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}"`
+      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}"`
     );
     const allWindows = winRaw.split('\n').filter(Boolean).map(line => {
-      const [id, index, name, active] = line.split('|');
-      return { id, index: parseInt(index, 10), name, active: active === '1' };
+      const [id, index, name, active, windowType, groupPanesRaw] = line.split('|');
+      const groupPanes = groupPanesRaw
+        ? groupPanesRaw.split(/\s+/).filter(Boolean)
+        : null;
+      return {
+        id,
+        index: parseInt(index, 10),
+        name,
+        active: active === '1',
+        windowType: windowType || null,
+        groupPanes,
+      };
     });
 
-    // Separate visible, group, and float windows
+    // Separate windows by their @tmuxy-window-type
     const windows = [];
     const groupWindows = [];
     const floatWindows = [];
     for (const w of allWindows) {
-      if (w.name.startsWith('__group_')) {
+      if (w.windowType === 'group') {
         groupWindows.push(w);
-      } else if (w.name.startsWith('__float_')) {
+      } else if (w.windowType === 'float') {
         floatWindows.push(w);
-      } else {
+      } else if (w.windowType === 'tab') {
         windows.push(w);
       }
+      // foreign (no windowType) windows are ignored
     }
 
     // Find active window
@@ -179,7 +190,7 @@ function extractTmuxState(sessionName) {
 
     // Check if the active window is a group or float window
     const activeWindowIsGroupOrFloat = activeWindow &&
-      (activeWindow.name.startsWith('__group_') || activeWindow.name.startsWith('__float_'));
+      (activeWindow.windowType === 'group' || activeWindow.windowType === 'float');
 
     // 2. List panes in active window
     const paneRaw = tmuxQuery(
@@ -250,16 +261,15 @@ function extractTmuxState(sessionName) {
       paneCommandMap[paneId] = command;
     }
 
-    // 5. Parse __group_ window names → group membership
-    // Window name format: __group_N-N-N (e.g., __group_4-6-7 → ["%4", "%6", "%7"])
-    // Deduplicate by pane set: when a group tab is active, the same group name
+    // 5. Group membership comes from @tmuxy-group-panes on each group window.
+    // Deduplicate by pane set: when a group tab is active, the same group
     // appears in two windows (the hidden group window and the active window).
     const paneGroups = {};
     const groupActiveTabs = {};
     const seenPaneSets = new Set();
     for (const gw of groupWindows) {
-      const suffix = gw.name.replace('__group_', '');
-      const paneIds = suffix.split('-').map(n => `%${n}`);
+      const paneIds = gw.groupPanes || [];
+      if (paneIds.length < 2) continue;
       const paneSetKey = [...paneIds].sort().join(',');
       if (seenPaneSets.has(paneSetKey)) continue;
       seenPaneSets.add(paneSetKey);
@@ -278,13 +288,10 @@ function extractTmuxState(sessionName) {
       }
     }
 
-    // 6. Parse __float_ window names → float pane IDs
-    // Window name format: __float_N (e.g., __float_5 → "%5")
+    // 6. Float pane ids: each float window contains exactly one pane.
     const floatPaneIds = floatWindows
-      .map(fw => {
-        const n = fw.name.replace('__float_', '');
-        return `%${n}`;
-      })
+      .map(fw => Object.keys(paneWindowMap).find(pid => paneWindowMap[pid] === fw.id))
+      .filter(Boolean)
       .sort();
 
     return {

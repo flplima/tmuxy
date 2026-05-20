@@ -33,7 +33,7 @@ export const groupsAndFloatsActions = {
       sendTo('tmux', {
         type: 'SEND_COMMAND' as const,
         command:
-          'split-window "tmuxy session switch --float" \\; break-pane -d -n "__float_session"',
+          'split-window "tmuxy session switch --float" \\; break-pane -d -n session \\; set-option -w @tmuxy-window-type float',
       }),
     );
   }),
@@ -52,7 +52,8 @@ export const groupsAndFloatsActions = {
     enqueue(
       sendTo('tmux', {
         type: 'SEND_COMMAND' as const,
-        command: 'split-window "tmuxy session connect" \\; break-pane -d -n "__float_connect"',
+        command:
+          'split-window "tmuxy session connect" \\; break-pane -d -n connect \\; set-option -w @tmuxy-window-type float',
       }),
     );
   }),

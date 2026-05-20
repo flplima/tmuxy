@@ -1,7 +1,10 @@
 #!/bin/bash
-# Shared helpers for tmuxy shell scripts
-# Window name format: __group_{paneNum1}-{paneNum2}-{paneNum3}
-# Groups are derived entirely from window names — no env var needed.
+# Shared helpers for tmuxy shell scripts.
+#
+# Window typing is sourced from the @tmuxy-window-type window option, with
+# values: tab | float | float-backdrop | group. Group membership lives in
+# @tmuxy-group-panes (space-separated pane ids). Windows without @tmuxy-window-type
+# are foreign — tmuxy ignores them.
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -21,99 +24,75 @@ _tmux() {
   command tmux ${TMUX_SOCKET:+-L "$TMUX_SOCKET"} "$@"
 }
 
-# Build a group window name from a list of pane IDs
-# Args: paneId1 paneId2 ...
-# Output: __group_4-6-7 (strips % prefix, joins with -)
-build_group_name() {
-  local parts=""
-  for pid in "$@"; do
-    local num="${pid#%}"
-    if [ -n "$parts" ]; then
-      parts="${parts}-${num}"
-    else
-      parts="$num"
-    fi
-  done
-  echo "__group_${parts}"
+# Get the window type set on a window via @tmuxy-window-type.
+# Args: $1=window_id (e.g., @5)
+# Output: tab|float|float-backdrop|group  (empty if not set / foreign)
+window_type() {
+  _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
 }
 
-# Find the group window name containing a pane
-# Args: $1=paneId (e.g., %4)
-# Output: window name (e.g., __group_4-6-7) or empty string
+# Tag the current window with @tmuxy-window-type.
+# Args: $1=window_id  $2=type
+set_window_type() {
+  _tmux set-option -w -t "$1" @tmuxy-window-type "$2"
+}
+
+# Find the group window containing a given pane.
+# Args: $1=pane_id (e.g., %4)
+# Output: window id of the group (e.g., @5), or empty string.
 find_group_for_pane() {
   local pane_id="$1"
-  local pane_num="${pane_id#%}"
-
-  _tmux list-windows -F '#{window_name}' | while read -r wname; do
-    if [[ "$wname" != __group_* ]]; then
-      continue
-    fi
-    local rest="${wname#__group_}"
-    # Check if pane_num appears in the dash-separated list
-    local IFS='-'
-    for num in $rest; do
-      if [ "$num" = "$pane_num" ]; then
-        echo "$wname"
-        return
-      fi
-    done
-  done
+  _tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}' \
+    | while IFS='|' read -r wid wtype wpanes; do
+        if [ "$wtype" != "group" ]; then
+          continue
+        fi
+        for pid in $wpanes; do
+          if [ "$pid" = "$pane_id" ]; then
+            echo "$wid"
+            return
+          fi
+        done
+      done
 }
 
-# Parse pane IDs from a group window name
-# Args: $1=window_name (e.g., __group_4-6-7)
-# Output: space-separated pane IDs (e.g., %4 %6 %7)
+# Read the @tmuxy-group-panes list off a group window.
+# Args: $1=window_id of the group
+# Output: space-separated pane ids (e.g., %4 %6 %7)
 parse_group_panes() {
-  local wname="$1"
-  local rest="${wname#__group_}"
-  local IFS='-'
-  local result=""
-  for num in $rest; do
-    if [ -n "$result" ]; then
-      result="$result %${num}"
-    else
-      result="%${num}"
-    fi
-  done
-  echo "$result"
+  _tmux show-options -wqv -t "$1" @tmuxy-group-panes 2>/dev/null
 }
 
-# Find which pane from a list is in a visible (non-group, non-float) window.
-# The tmux "active" window can itself be a group window after a swap-pane,
-# so we check against all visible windows rather than just the active one.
+# Write the @tmuxy-group-panes list onto a group window.
+# Args: $1=window_id  $2..=pane ids
+set_group_panes() {
+  local wid="$1"
+  shift
+  local joined="$*"
+  _tmux set-option -w -t "$wid" @tmuxy-group-panes "$joined"
+}
+
+# Find which pane from a list lives in a visible tab window
+# (window_type == "tab"). Used to pick the pane to swap into view
+# when navigating within a group.
 # Args: paneId1 paneId2 ...
-# Output: the pane ID in a visible window, or empty string
+# Output: the pane id in a tab window, or empty string.
 find_visible_pane_from_list() {
-  local visible_wins
-  visible_wins=$(_tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
-    if [[ "$wname" != __group_* ]] && [[ "$wname" != __float_* ]]; then
-      echo "$wid"
-    fi
-  done)
+  local tab_wins
+  tab_wins=$(_tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}' \
+    | awk -F'|' '$2 == "tab" { print $1 }')
   local pane_list
   pane_list=$(_tmux list-panes -s -F '#{pane_id},#{window_id}')
 
   for pid in "$@"; do
     local win_id
     win_id=$(echo "$pane_list" | grep "^${pid}," | cut -d',' -f2)
-    if echo "$visible_wins" | grep -qx "$win_id"; then
+    if echo "$tab_wins" | grep -qx "$win_id"; then
       echo "$pid"
       return
     fi
   done
   echo ""
-}
-
-# Rename all windows with a given name to a new name
-# Args: $1=old_name $2=new_name
-rename_group_windows() {
-  local old_name="$1"
-  local new_name="$2"
-  _tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
-    if [ "$wname" = "$old_name" ]; then
-      _tmux rename-window -t "$wid" "$new_name"
-    fi
-  done
 }
 
 # Get active window ID
@@ -126,13 +105,10 @@ pane_window() {
   _tmux display-message -t "$1" -p '#{window_id}'
 }
 
-# List visible (non-group) window IDs, one per line
+# List visible (tab-typed) window IDs, one per line.
 list_visible_windows() {
-  _tmux list-windows -F '#{window_id} #{window_name}' | while read -r wid wname; do
-    if [[ "$wname" != __group_* ]]; then
-      echo "$wid"
-    fi
-  done
+  _tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}' \
+    | awk -F'|' '$2 == "tab" { print $1 }'
 }
 
 # Force a list-panes refresh (so server pushes new state to clients)

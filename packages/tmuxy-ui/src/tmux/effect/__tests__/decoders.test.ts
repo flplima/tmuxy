@@ -37,7 +37,7 @@ function fixtureWindow(id: string, overrides: Record<string, unknown> = {}) {
     index: 0,
     name: 'main',
     active: true,
-    is_pane_group_window: false,
+    window_type: 'tab',
     ...overrides,
   };
 }

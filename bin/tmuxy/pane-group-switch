@@ -10,15 +10,15 @@ source "$(dirname "$0")/_lib"
 
 TARGET_PANE="$1"
 
-# Find the group containing the target pane
-GROUP_NAME=$(find_group_for_pane "$TARGET_PANE")
+# Find the group window containing the target pane
+GROUP_WIN=$(find_group_for_pane "$TARGET_PANE")
 
-if [ -z "$GROUP_NAME" ]; then
+if [ -z "$GROUP_WIN" ]; then
   exit 0
 fi
 
-# Parse pane list and find visible pane
-PANE_IDS=$(parse_group_panes "$GROUP_NAME")
+# Parse pane list from the group window's @tmuxy-group-panes option
+PANE_IDS=$(parse_group_panes "$GROUP_WIN")
 # shellcheck disable=SC2086
 VISIBLE_PANE=$(find_visible_pane_from_list $PANE_IDS)
 

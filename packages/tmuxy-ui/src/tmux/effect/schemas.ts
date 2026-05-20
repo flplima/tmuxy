@@ -86,16 +86,23 @@ export const ServerPane = Schema.Struct({
   cursor_hidden: Schema.optional(Schema.Boolean),
 });
 
+/** Window type set on @tmuxy-window-type. Null = foreign window. */
+export const WindowType = Schema.Literal('tab', 'float', 'float-backdrop', 'group');
+
 /** Window metadata. */
 export const ServerWindow = Schema.Struct({
   id: Schema.String,
   index: Schema.Number,
   name: Schema.String,
   active: Schema.Boolean,
-  is_pane_group_window: Schema.Boolean,
-  pane_group_pane_ids: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
-  is_float_window: Schema.optional(Schema.Boolean),
-  float_pane_id: Schema.optional(Schema.NullOr(Schema.String)),
+  window_type: Schema.optional(Schema.NullOr(WindowType)),
+  group_panes: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
+  float_parent: Schema.optional(Schema.NullOr(Schema.String)),
+  float_width: Schema.optional(Schema.NullOr(Schema.Number)),
+  float_height: Schema.optional(Schema.NullOr(Schema.Number)),
+  float_drawer: Schema.optional(Schema.NullOr(Schema.String)),
+  float_bg: Schema.optional(Schema.NullOr(Schema.String)),
+  float_noheader: Schema.optional(Schema.Boolean),
 });
 
 /** Full server state snapshot. */
@@ -146,10 +153,14 @@ export const PaneDelta = Schema.Struct({
 export const WindowDelta = Schema.Struct({
   name: Schema.optional(Schema.String),
   active: Schema.optional(Schema.Boolean),
-  is_pane_group_window: Schema.optional(Schema.Boolean),
-  pane_group_pane_ids: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
-  is_float_window: Schema.optional(Schema.Boolean),
-  float_pane_id: Schema.optional(Schema.NullOr(Schema.String)),
+  window_type: Schema.optional(Schema.NullOr(WindowType)),
+  group_panes: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
+  float_parent: Schema.optional(Schema.NullOr(Schema.String)),
+  float_width: Schema.optional(Schema.NullOr(Schema.Number)),
+  float_height: Schema.optional(Schema.NullOr(Schema.Number)),
+  float_drawer: Schema.optional(Schema.NullOr(Schema.String)),
+  float_bg: Schema.optional(Schema.NullOr(Schema.String)),
+  float_noheader: Schema.optional(Schema.Boolean),
 });
 
 /** Server delta envelope. `null` value in panes/windows means removed. */

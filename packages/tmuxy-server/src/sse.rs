@@ -443,9 +443,12 @@ async fn handle_command(
             // neww crashes tmux 3.5a control mode — use split+break workaround.
             // Compound command: splitw makes the new pane active, then breakp
             // breaks it into its own window and switches to it (matching neww behavior).
-            // The ; ensures both run as a single atomic operation with no intermediate
-            // state notifications.
-            let cmd = format!("splitw -t {} ; breakp", session);
+            // set-option -w (no -t) operates on the newly active window, tagging it
+            // as a managed tab so the frontend keeps it in the tab strip.
+            let cmd = format!(
+                "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
+                session
+            );
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
         }
@@ -527,7 +530,10 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if key == "c" {
-                let cmd = format!("splitw -t {} ; breakp", session);
+                let cmd = format!(
+                    "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
+                    session
+                );
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
@@ -601,7 +607,10 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if command.starts_with("new-window") || command.starts_with("neww") {
-                let cmd = format!("splitw -t {} ; breakp", session);
+                let cmd = format!(
+                    "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
+                    session
+                );
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }

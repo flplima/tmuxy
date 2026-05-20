@@ -278,7 +278,39 @@ pub struct TmuxPane {
     pub cursor_hidden: bool,
 }
 
-/// A single tmux window (tab)
+/// Window type discriminator. Set on windows tmuxy created or has adopted.
+/// Windows without a type are foreign and tmuxy ignores them everywhere.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WindowType {
+    Tab,
+    Float,
+    FloatBackdrop,
+    Group,
+}
+
+impl WindowType {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "tab" => Some(WindowType::Tab),
+            "float" => Some(WindowType::Float),
+            "float-backdrop" => Some(WindowType::FloatBackdrop),
+            "group" => Some(WindowType::Group),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WindowType::Tab => "tab",
+            WindowType::Float => "float",
+            WindowType::FloatBackdrop => "float-backdrop",
+            WindowType::Group => "group",
+        }
+    }
+}
+
+/// A single tmux window (tab/float/group/foreign)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxWindow {
     /// Window ID (e.g., "@0")
@@ -286,66 +318,31 @@ pub struct TmuxWindow {
     pub index: u32,
     pub name: String,
     pub active: bool,
-    /// True if this is a hidden pane group window (name starts with "__group_")
-    pub is_pane_group_window: bool,
-    /// Pane IDs encoded in group window name (e.g., ["%4", "%6", "%7"])
+    /// Window type as set via @tmuxy-window-type. None = foreign window.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pane_group_pane_ids: Option<Vec<String>>,
-    /// True if this is a hidden float window (name starts with "__float_")
-    #[serde(default)]
-    pub is_float_window: bool,
-    /// Parent window ID for float window (from @float_parent option)
+    pub window_type: Option<WindowType>,
+    /// Group pane membership (from @tmuxy-group-panes), e.g. ["%4","%6","%7"].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_panes: Option<Vec<String>>,
+    /// Parent window ID for a float (the launcher window) or backdrop (the float).
+    /// Sourced from @tmuxy-float-parent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_parent: Option<String>,
-    /// Float window width in chars (from @float_width option)
+    /// Float width in cells (from @tmuxy-float-width).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_width: Option<u32>,
-    /// Float window height in chars (from @float_height option)
+    /// Float height in cells (from @tmuxy-float-height).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_height: Option<u32>,
-}
-
-/// Info parsed from a pane group window name
-pub struct PaneGroupWindowInfo {
-    /// Pane IDs encoded in the window name (new format: "__group_4-6-7")
-    pub pane_ids: Vec<String>,
-}
-
-/// Check if a window name matches the float window pattern: "__float_{title}"
-/// Returns true if the name starts with "__float_"
-pub fn is_float_window_name(name: &str) -> bool {
-    name.starts_with("__float_")
-}
-
-/// Parse a pane group window name.
-///
-/// Format: "__group_{paneNum1}-{paneNum2}-{paneNum3}" (e.g., "__group_4-6-7")
-///
-/// Returns None if the name doesn't match the pattern.
-pub fn parse_pane_group_window_name(name: &str) -> Option<PaneGroupWindowInfo> {
-    if !name.starts_with("__group_") {
-        return None;
-    }
-
-    let rest = &name[8..]; // Skip "__group_"
-
-    if rest.is_empty() {
-        return None;
-    }
-
-    // Format: rest contains only digits and '-' (e.g., "4-6-7")
-    if rest.chars().all(|c| c.is_ascii_digit() || c == '-') {
-        let pane_ids: Vec<String> = rest
-            .split('-')
-            .filter(|s| !s.is_empty())
-            .map(|s| format!("%{}", s))
-            .collect();
-        if pane_ids.len() >= 2 {
-            return Some(PaneGroupWindowInfo { pane_ids });
-        }
-    }
-
-    None
+    /// Drawer-style float direction (from @tmuxy-float-drawer).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_drawer: Option<String>,
+    /// Float backdrop style (from @tmuxy-float-bg).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_bg: Option<String>,
+    /// True if the float hides its header chrome (from @tmuxy-float-noheader).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub float_noheader: bool,
 }
 
 /// Tmux popup state
@@ -512,29 +509,35 @@ pub struct WindowDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_pane_group_window: Option<bool>,
+    pub window_type: Option<Option<WindowType>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pane_group_pane_ids: Option<Option<Vec<String>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_float_window: Option<bool>,
+    pub group_panes: Option<Option<Vec<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_parent: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_width: Option<Option<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_height: Option<Option<u32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_drawer: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_bg: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float_noheader: Option<bool>,
 }
 
 impl WindowDelta {
     pub fn is_empty(&self) -> bool {
         self.name.is_none()
             && self.active.is_none()
-            && self.is_pane_group_window.is_none()
-            && self.pane_group_pane_ids.is_none()
-            && self.is_float_window.is_none()
+            && self.window_type.is_none()
+            && self.group_panes.is_none()
             && self.float_parent.is_none()
             && self.float_width.is_none()
             && self.float_height.is_none()
+            && self.float_drawer.is_none()
+            && self.float_bg.is_none()
+            && self.float_noheader.is_none()
     }
 }
 
@@ -721,26 +724,24 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
         });
     }
 
-    // Convert window infos
+    // Polling mode doesn't fetch @tmuxy-* options. Without them, every window
+    // is treated as foreign (window_type: None) — polling is a legacy fallback
+    // used by capture_state callers that don't have control mode available.
     let windows: Vec<TmuxWindow> = window_infos
         .into_iter()
-        .map(|w| {
-            // Check if this is a pane group or float window
-            let pane_group_info = parse_pane_group_window_name(&w.name);
-            TmuxWindow {
-                id: w.id,
-                index: w.index,
-                name: w.name.clone(),
-                active: w.active,
-                is_pane_group_window: pane_group_info.is_some(),
-                pane_group_pane_ids: pane_group_info.map(|g| g.pane_ids),
-                is_float_window: is_float_window_name(&w.name),
-                // Float window options are only available in control mode (via list-windows)
-                // Polling mode doesn't support these
-                float_parent: None,
-                float_width: None,
-                float_height: None,
-            }
+        .map(|w| TmuxWindow {
+            id: w.id,
+            index: w.index,
+            name: w.name,
+            active: w.active,
+            window_type: None,
+            group_panes: None,
+            float_parent: None,
+            float_width: None,
+            float_height: None,
+            float_drawer: None,
+            float_bg: None,
+            float_noheader: false,
         })
         .collect();
 
@@ -780,38 +781,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_pane_group_window_name() {
-        // Format: "__group_{paneNum1}-{paneNum2}-..."
-        let info = parse_pane_group_window_name("__group_4-6-7").unwrap();
-        assert_eq!(
-            info.pane_ids,
-            vec!["%4".to_string(), "%6".to_string(), "%7".to_string()]
-        );
-
-        let info = parse_pane_group_window_name("__group_0-1").unwrap();
-        assert_eq!(info.pane_ids, vec!["%0".to_string(), "%1".to_string()]);
-
-        let info = parse_pane_group_window_name("__group_10-20-30-40").unwrap();
-        assert_eq!(info.pane_ids.len(), 4);
-        assert_eq!(info.pane_ids[0], "%10");
-
-        // Single pane number is not a valid group (needs 2+)
-        assert!(parse_pane_group_window_name("__group_4").is_none());
+    fn window_type_round_trip() {
+        for ty in [
+            WindowType::Tab,
+            WindowType::Float,
+            WindowType::FloatBackdrop,
+            WindowType::Group,
+        ] {
+            let s = ty.as_str();
+            assert_eq!(WindowType::parse(s), Some(ty));
+        }
+        assert_eq!(WindowType::parse("workspace"), None);
+        assert_eq!(WindowType::parse(""), None);
     }
 
     #[test]
-    fn test_parse_pane_group_window_name_invalid() {
-        assert!(parse_pane_group_window_name("workspace").is_none());
-        assert!(parse_pane_group_window_name("_workspace").is_none());
-        assert!(parse_pane_group_window_name("__workspace").is_none());
-        assert!(parse_pane_group_window_name("__%5_group_1").is_none());
-        assert!(parse_pane_group_window_name("__%123_group_42").is_none());
-        // Old format no longer supported
-        assert!(parse_pane_group_window_name("__group_g_abc12345_1").is_none());
-        assert!(parse_pane_group_window_name("__group_abc").is_none());
-        assert!(parse_pane_group_window_name("__group__1").is_none());
-        // Empty after prefix
-        assert!(parse_pane_group_window_name("__group_").is_none());
+    fn window_type_serializes_as_kebab() {
+        let ty = WindowType::FloatBackdrop;
+        let json = serde_json::to_string(&ty).unwrap();
+        assert_eq!(json, "\"float-backdrop\"");
+        let back: WindowType = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, WindowType::FloatBackdrop);
     }
 }
 

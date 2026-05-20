@@ -37,14 +37,14 @@ async function getTmuxState(page) {
   }
 
   try {
-    // Get windows: id, index, name, active, filtering out group/float windows
+    // Get windows: id, index, name, active, type. Filter to tab-typed only.
     const winRaw = tmuxQuery(
-      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}"`
+      `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}"`
     );
     const windows = winRaw.split('\n').filter(Boolean).map(line => {
-      const [id, index, name, active] = line.split('|');
-      return { id, index: parseInt(index, 10), name, active: active === '1' };
-    }).filter(w => !w.name.startsWith('__group_') && !w.name.startsWith('__float_'));
+      const [id, index, name, active, windowType] = line.split('|');
+      return { id, index: parseInt(index, 10), name, active: active === '1', windowType };
+    }).filter(w => w.windowType === 'tab');
 
     // Get panes for active window: id, active, cols, rows
     const paneRaw = tmuxQuery(
@@ -85,9 +85,9 @@ async function getUIState(page) {
     if (!snap?.context) return null;
     const ctx = snap.context;
 
-    // Windows (excluding group/float)
+    // Windows (only tab-typed)
     const windows = (ctx.windows || [])
-      .filter(w => !w.isPaneGroupWindow && !w.isFloatWindow)
+      .filter(w => w.windowType === 'tab')
       .map(w => ({ id: w.id, index: w.index, name: w.name, active: w.active }));
 
     // Panes in active window

@@ -240,11 +240,13 @@ export const selectWindows = createMemoizedSelector(
     }),
 );
 
-/** Windows visible in status bar (excludes pane group, float, and unnamed transient windows) */
+/** Windows visible in the status bar. Only tab-typed windows show as tabs;
+ *  group and float windows are hidden, and foreign (untagged) windows are
+ *  ignored entirely. */
 export const selectVisibleWindows = createMemoizedSelector(
   (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
   (context: AppMachineContext) =>
-    selectWindows(context).filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow && w.name !== ''),
+    selectWindows(context).filter((w) => w.windowType === 'tab' && w.name !== ''),
 );
 
 export function selectActiveWindowId(context: AppMachineContext): string | null {

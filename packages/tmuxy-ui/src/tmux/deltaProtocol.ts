@@ -282,11 +282,13 @@ function applyWindowDelta(window: ServerWindow, delta: WindowDelta): ServerWindo
     ...window,
     ...(delta.name !== undefined && { name: delta.name }),
     ...(delta.active !== undefined && { active: delta.active }),
-    ...(delta.is_pane_group_window !== undefined && {
-      is_pane_group_window: delta.is_pane_group_window,
-    }),
-    ...(delta.pane_group_pane_ids !== undefined && {
-      pane_group_pane_ids: delta.pane_group_pane_ids,
-    }),
+    ...(delta.window_type !== undefined && { window_type: delta.window_type }),
+    ...(delta.group_panes !== undefined && { group_panes: delta.group_panes }),
+    ...(delta.float_parent !== undefined && { float_parent: delta.float_parent }),
+    ...(delta.float_width !== undefined && { float_width: delta.float_width }),
+    ...(delta.float_height !== undefined && { float_height: delta.float_height }),
+    ...(delta.float_drawer !== undefined && { float_drawer: delta.float_drawer }),
+    ...(delta.float_bg !== undefined && { float_bg: delta.float_bg }),
+    ...(delta.float_noheader !== undefined && { float_noheader: delta.float_noheader }),
   };
 }

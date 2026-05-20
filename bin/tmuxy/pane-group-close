@@ -4,7 +4,7 @@
 #
 # If the pane is visible and others exist, swaps next pane in before killing.
 # If the pane is in a hidden group window, kills that window.
-# Renames remaining group windows to exclude the closed pane.
+# Updates @tmuxy-group-panes on the remaining group windows.
 
 set -euo pipefail
 source "$(dirname "$0")/_lib"
@@ -12,18 +12,18 @@ source "$(dirname "$0")/_lib"
 CLOSE_PANE="$1"
 ACTIVE_WIN=$(active_window)
 
-# Find the group containing this pane
-GROUP_NAME=$(find_group_for_pane "$CLOSE_PANE")
+# Find the group window containing this pane
+GROUP_WIN=$(find_group_for_pane "$CLOSE_PANE")
 
 # Not in a group - just kill the pane
-if [ -z "$GROUP_NAME" ]; then
+if [ -z "$GROUP_WIN" ]; then
   _tmux kill-pane -t "$CLOSE_PANE"
   refresh_panes
   exit 0
 fi
 
-# Parse pane list from group name
-PANE_IDS=$(parse_group_panes "$GROUP_NAME")
+# Parse pane list from the group's @tmuxy-group-panes option
+PANE_IDS=$(parse_group_panes "$GROUP_WIN")
 # shellcheck disable=SC2086
 set -- $PANE_IDS
 PANE_COUNT=$#
@@ -99,11 +99,27 @@ set -- $REMAINING
 REMAINING_COUNT=$#
 
 if [ "$REMAINING_COUNT" -ge 2 ]; then
-  # Rename remaining group windows to exclude the closed pane
-  # shellcheck disable=SC2086
-  NEW_GROUP_NAME=$(build_group_name $REMAINING)
-  rename_group_windows "$GROUP_NAME" "$NEW_GROUP_NAME"
+  # Update @tmuxy-group-panes on every surviving group window so each one
+  # has the same membership list.
+  _tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}' \
+    | while IFS='|' read -r wid wtype wpanes; do
+        if [ "$wtype" != "group" ]; then
+          continue
+        fi
+        # Membership matches if every surviving pane is in this window's group list.
+        matched=true
+        for pid in $REMAINING; do
+          if ! echo "$wpanes" | tr ' ' '\n' | grep -qx "$pid"; then
+            matched=false
+            break
+          fi
+        done
+        if [ "$matched" = true ]; then
+          # shellcheck disable=SC2086
+          set_group_panes "$wid" $REMAINING
+        fi
+      done
 fi
-# If <2 panes remain, the group window was already killed above — no rename needed
+# If <2 panes remain, the group window was already killed above — no update needed
 
 refresh_panes

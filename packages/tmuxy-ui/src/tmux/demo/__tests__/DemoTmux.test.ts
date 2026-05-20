@@ -258,7 +258,7 @@ describe('DemoTmux', () => {
       expect(win).toHaveProperty('index');
       expect(win).toHaveProperty('name');
       expect(win).toHaveProperty('active');
-      expect(win).toHaveProperty('is_pane_group_window');
+      expect(win).toHaveProperty('window_type');
     });
   });
 });

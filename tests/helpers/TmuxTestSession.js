@@ -261,8 +261,7 @@ class TmuxTestSession {
             index: w.index,
             name: w.name,
             active: w.active,
-            isPaneGroupWindow: w.isPaneGroupWindow,
-            isFloatWindow: w.isFloatWindow,
+            windowType: w.windowType,
           })),
           activeWindowId: ctx.activeWindowId,
           activePaneId: ctx.activePaneId,
@@ -320,7 +319,7 @@ class TmuxTestSession {
     if (this.page) {
       const state = await this._waitForBrowserState();
       if (state) {
-        return state.windows.filter(w => !w.isPaneGroupWindow && !w.isFloatWindow).length;
+        return state.windows.filter(w => w.windowType === "tab").length;
       }
       throw new Error('Browser state not available for getWindowCount');
     }
@@ -524,14 +523,13 @@ class TmuxTestSession {
       const state = await this._waitForBrowserState();
       if (state) {
         return state.windows
-          .filter(w => (includeGroups || !w.isPaneGroupWindow) && (includeFloats || !w.isFloatWindow))
+          .filter(w => (includeGroups || w.windowType !== "group") && (includeFloats || w.windowType !== "float"))
           .map(w => ({
             id: w.id,
             index: w.index,
             name: w.name,
             active: w.active,
-            isFloatWindow: w.isFloatWindow,
-            isPaneGroupWindow: w.isPaneGroupWindow,
+            windowType: w.windowType,
           }));
       }
       return [];

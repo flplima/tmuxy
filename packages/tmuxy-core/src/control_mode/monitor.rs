@@ -116,6 +116,11 @@ pub struct TmuxMonitor {
     /// Count of pending resize commands sent. When >0, the next PaneLayout
     /// changes are resize-triggered (SIGWINCH may produce stale %output).
     pending_resize_count: u32,
+
+    /// True once we've tagged every untagged window with @tmuxy-window-type.
+    /// Reset every connect; the first list-windows response triggers the
+    /// one-time auto-adopt of pre-existing windows.
+    window_tags_migrated: bool,
 }
 
 impl TmuxMonitor {
@@ -154,6 +159,7 @@ impl TmuxMonitor {
                 config,
                 command_rx,
                 pending_resize_count: 0,
+                window_tags_migrated: false,
             },
             command_tx,
         ))
@@ -198,7 +204,7 @@ impl TmuxMonitor {
 
         // Get list of windows (including float window options)
         self.connection
-            .send_command("list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@float_parent},#{@float_width},#{@float_height}'")
+            .send_command("list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},#{@tmuxy-group-panes}'")
             .await?;
 
         // Get list of panes with all details (for current session only)
@@ -428,6 +434,27 @@ impl TmuxMonitor {
                                 }
                             }
 
+                            // Auto-adopt every untagged window we see. Idempotent —
+                            // collect_window_tag_commands skips windows that already
+                            // have @tmuxy-window-type set AND eagerly mutates the
+                            // local WindowState so subsequent emissions don't show a
+                            // foreign-window flicker while the set-option round-trip
+                            // is in flight. Tracks `window_tags_migrated` only as a
+                            // log-noise gate so we don't print the message every tick.
+                            let tag_cmds = self.aggregator.collect_window_tag_commands();
+                            if !tag_cmds.is_empty() {
+                                if !self.window_tags_migrated {
+                                    eprintln!(
+                                        "[monitor] Auto-adopting {} untagged windows",
+                                        tag_cmds.len()
+                                    );
+                                    self.window_tags_migrated = true;
+                                }
+                                if let Err(e) = self.connection.send_commands_batch(&tag_cmds).await {
+                                    emitter.emit_error(format!("Failed to auto-adopt windows: {}", e));
+                                }
+                            }
+
                             // After WindowAdd, refresh panes first then windows.
                             // When break-pane creates a float window, LayoutChange on the
                             // source window removes the pane from self.panes via reconciliation.
@@ -450,7 +477,7 @@ impl TmuxMonitor {
                                         "#{selection_present},",
                                         "#{selection_start_x},#{selection_start_y},#{history_size}'"
                                     ).to_string(),
-                                    "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@float_parent},#{@float_width},#{@float_height}'".to_string(),
+                                    "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},#{@tmuxy-group-panes}'".to_string(),
                                 ];
                                 if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                                     emitter.emit_error(format!("Failed to refresh state after window add: {}", e));
@@ -722,7 +749,7 @@ impl TmuxMonitor {
                         // Heartbeat: full consistency check when no events for 10s
                         // Catches external changes (e.g., someone running `tmux kill-window` from another terminal)
                         let cmds = vec![
-                            "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@float_parent},#{@float_width},#{@float_height}'".to_string(),
+                            "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},#{@tmuxy-group-panes}'".to_string(),
                             concat!(
                                 "list-panes -s -F '",
                                 "#{pane_id},#{pane_index},",

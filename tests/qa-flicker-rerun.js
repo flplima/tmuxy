@@ -87,7 +87,7 @@ async function main() {
     // Check if float window still exists in tmux
     const floatWindows = await page.evaluate(() => {
       const snap = window.app?.getSnapshot();
-      return snap?.context?.windows?.filter(w => w.isFloatWindow).map(w => `${w.id}:${w.name}`) || [];
+      return snap?.context?.windows?.filter(w => w.windowType === "float").map(w => `${w.id}:${w.name}`) || [];
     });
     log(`  Remaining float windows in XState: ${JSON.stringify(floatWindows)}`);
 
@@ -152,7 +152,7 @@ async function main() {
     const preState = await page.evaluate(() => {
       const snap = window.app?.getSnapshot();
       return {
-        windows: snap?.context?.windows?.map(w => `${w.id}:${w.name}:float=${w.isFloatWindow}`) || [],
+        windows: snap?.context?.windows?.map(w => `${w.id}:${w.name}:float=${w.windowType === "float"}`) || [],
         tabCount: document.querySelectorAll('.tab-name:not(.tab-add)').length,
       };
     });

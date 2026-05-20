@@ -31,7 +31,7 @@ function makeState(overrides: Partial<ServerState> = {}): ServerState {
     active_window_id: '@0',
     active_pane_id: '%0',
     panes: [makePane()],
-    windows: [{ id: '@0', index: 1, name: 'test', active: true, is_pane_group_window: false }],
+    windows: [{ id: '@0', index: 1, name: 'test', active: true, window_type: 'tab' }],
     total_width: 80,
     total_height: 24,
     status_line: '',

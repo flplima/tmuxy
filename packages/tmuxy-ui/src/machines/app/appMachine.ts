@@ -127,7 +127,7 @@ function resolveTabNavTarget(
   context: AppMachineContext,
 ): { windowId: string; windowIndex: number } | null {
   if (!context.activeWindowId) return null;
-  const visibleWindows = context.windows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow);
+  const visibleWindows = context.windows.filter((w) => w.windowType === 'tab');
   if (visibleWindows.length === 0) return null;
 
   const trimmed = command.trim();
@@ -589,7 +589,7 @@ export const appMachine = setup({
                 }
               });
 
-              // Build float panes from windows with __float_ naming pattern
+              // Build float panes from float-typed windows (@tmuxy-window-type=float)
               const floatPanes = buildFloatPanesFromWindows(
                 transformed.windows,
                 transformed.panes,
@@ -693,7 +693,24 @@ export const appMachine = setup({
                 transformed.panes.length !== context.panes.length ||
                 transformed.activeWindowId !== context.activeWindowId ||
                 transformed.windows.length !== context.windows.length ||
-                transformed.windows.some((w, i) => w.name !== context.windows[i]?.name) ||
+                transformed.windows.some((w, i) => {
+                  const prev = context.windows[i];
+                  if (!prev) return true;
+                  if (w.name !== prev.name) return true;
+                  // Window-type and group membership flips need to rebuild
+                  // paneGroups too — without this, a window that arrives
+                  // initially untagged and later flips to windowType=group
+                  // (auto-adopt or set-option round-trip) never produces
+                  // a tab strip.
+                  if (w.windowType !== prev.windowType) return true;
+                  const a = w.groupPanes ?? [];
+                  const b = prev.groupPanes ?? [];
+                  if (a.length !== b.length) return true;
+                  for (let j = 0; j < a.length; j++) {
+                    if (a[j] !== b[j]) return true;
+                  }
+                  return false;
+                }) ||
                 transformed.panes.some(
                   (p) =>
                     p.windowId !== context.panes.find((cp) => cp.tmuxId === p.tmuxId)?.windowId,
@@ -745,7 +762,7 @@ export const appMachine = setup({
 
               // Prune dead floats: if a float's pane no longer exists in the
               // updated pane list, remove it. Handles external kills where the
-              // __float_ window disappears via %unlinked-window-close.
+              // float window disappears via %unlinked-window-close.
               const currentPaneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
               const deadFloatIds = Object.keys(floatPanes).filter(
                 (id) => !currentPaneIdSet.has(id),
@@ -1178,7 +1195,7 @@ export const appMachine = setup({
             if (selectWindowMatch) {
               const targetIndex = parseInt(selectWindowMatch[1], 10);
               const visibleWindows = context.windows.filter(
-                (w) => !w.isPaneGroupWindow && !w.isFloatWindow,
+                (w) => w.windowType === 'tab',
               );
               const targetWindow = visibleWindows.find((_, i) => i + 1 === targetIndex);
               if (targetWindow) {

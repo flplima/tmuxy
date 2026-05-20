@@ -8,7 +8,7 @@
 #   --bg dim|blur|none              Backdrop style
 #   --hide-header                   Hide the header bar
 #
-# Float-inside-float mode (called from within a __float_* window):
+# Float-inside-float mode (called from within a float-typed window):
 #   Runs the command directly in the current float pane (reuses the same slot).
 #
 # Interactive mode (no command args):
@@ -56,21 +56,43 @@ elif [ -z "$HEIGHT" ] && [ -n "$DRAWER" ]; then
   case "$DRAWER" in top|bottom) HEIGHT=40 ;; esac
 fi
 
-# Build window name with encoded options
-build_float_name() {
-  local pane_id="$1"
-  local pane_num="${pane_id#%}"
-  local name="__float_${pane_num}"
-  [ -n "$DRAWER" ]      && name="${name}_drawer_${DRAWER}"
-  [ -n "$BG" ]          && name="${name}_bg_${BG}"
-  [ -n "$HIDE_HEADER" ] && name="${name}_noheader"
-  echo "$name"
+# Build the compound `break-pane ; set-option ...` command list that atomically
+# moves a pane into its own window and tags that window as a float. Using a
+# single tmux command list means the @tmuxy-window-type option is visible
+# before the monitor sees the WindowAdd event and triggers a list-windows.
+# Args: $1=pane_id (used as -t target — after break-pane it lives in the new window)
+#       $2=parent_window_id
+# Echoes the full command line for use with `_tmux $(...)`.
+build_break_and_tag_float() {
+  local pane_id="$1" parent_wid="$2"
+  printf 'break-pane -d -s %s -n float' "$pane_id"
+  printf ' \\; set-option -w -t %s @tmuxy-window-type float' "$pane_id"
+  if [ -n "$parent_wid" ]; then
+    printf ' \\; set-option -w -t %s @tmuxy-float-parent %s' "$pane_id" "$parent_wid"
+  fi
+  if [ -n "$WIDTH" ]; then
+    printf ' \\; set-option -w -t %s @tmuxy-float-width %s' "$pane_id" "$WIDTH"
+  fi
+  if [ -n "$HEIGHT" ]; then
+    printf ' \\; set-option -w -t %s @tmuxy-float-height %s' "$pane_id" "$HEIGHT"
+  fi
+  if [ -n "$DRAWER" ]; then
+    printf ' \\; set-option -w -t %s @tmuxy-float-drawer %s' "$pane_id" "$DRAWER"
+  fi
+  if [ -n "$BG" ]; then
+    printf ' \\; set-option -w -t %s @tmuxy-float-bg %s' "$pane_id" "$BG"
+  fi
+  if [ -n "$HIDE_HEADER" ]; then
+    printf ' \\; set-option -w -t %s @tmuxy-float-noheader 1' "$pane_id"
+  fi
+  printf '\n'
 }
 
-# Detect if we're already inside a float pane
-CURRENT_WINDOW=$(_tmux display-message -p '#{window_name}')
+# Detect if we're already inside a float pane (by current window's type option)
+CURRENT_WIN=$(_tmux display-message -p '#{window_id}')
+CURRENT_TYPE=$(window_type "$CURRENT_WIN")
 
-if [[ "$CURRENT_WINDOW" == __float_* ]]; then
+if [ "$CURRENT_TYPE" = "float" ]; then
   # Already in a float — reuse the current slot instead of creating a new one
   if [ $# -eq 0 ]; then
     # Interactive mode inside float: replace current shell with a new one
@@ -100,8 +122,9 @@ if [ $# -eq 0 ]; then
     exit 1
   fi
 
-  FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
-  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} break-pane -d -s $NEW_PANE_ID -n $FLOAT_NAME"
+  # Atomic break + tag — see build_break_and_tag_float for why this matters.
+  BREAK_CMD=$(build_break_and_tag_float "$NEW_PANE_ID" "$CURRENT_WIN")
+  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} $BREAK_CMD"
 
   # Apply size via run-shell (non-fatal if pane killed concurrently)
   if [ -n "$WIDTH" ]; then
@@ -136,8 +159,8 @@ SCRIPT
   NEW_PANE_ID=$(cat "$TMPID")
   rm -f "$TMPID"
 
-  FLOAT_NAME=$(build_float_name "$NEW_PANE_ID")
-  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} break-pane -d -s $NEW_PANE_ID -n $FLOAT_NAME"
+  BREAK_CMD=$(build_break_and_tag_float "$NEW_PANE_ID" "$CURRENT_WIN")
+  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} $BREAK_CMD"
 
   if [ -n "$WIDTH" ]; then
     _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -x $WIDTH 2>/dev/null || true" 2>/dev/null || true

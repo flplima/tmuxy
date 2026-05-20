@@ -260,7 +260,7 @@ async function getWindowCount(driver) {
   return driver.execute(() => {
     const snap = window.app?.getSnapshot();
     if (!snap?.context) return 0;
-    return snap.context.windows?.filter(w => !w.isPaneGroupWindow && !w.isFloatWindow).length || 0;
+    return snap.context.windows?.filter(w => w.windowType === "tab").length || 0;
   });
 }
 

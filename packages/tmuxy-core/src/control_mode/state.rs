@@ -4,8 +4,8 @@
 
 use super::parser::ControlModeEvent;
 use crate::{
-    extract_cells_from_screen, extract_cells_with_urls, is_float_window_name,
-    parse_pane_group_window_name, PaneContent, TmuxPane, TmuxPopup, TmuxState, TmuxWindow,
+    extract_cells_from_screen, extract_cells_with_urls, PaneContent, TmuxPane, TmuxPopup,
+    TmuxState, TmuxWindow, WindowType,
 };
 use std::collections::HashMap;
 
@@ -485,14 +485,30 @@ pub struct WindowState {
     /// Layout string
     pub layout: String,
 
-    /// Float parent window ID (from @float_parent option)
+    /// Window type (Tab/Float/FloatBackdrop/Group) sourced from @tmuxy-window-type.
+    /// None = foreign window, ignored by the frontend.
+    pub window_type: Option<WindowType>,
+
+    /// Group pane membership from @tmuxy-group-panes (e.g. ["%4","%6","%7"]).
+    pub group_panes: Option<Vec<String>>,
+
+    /// Parent window ID for float / backdrop (@tmuxy-float-parent).
     pub float_parent: Option<String>,
 
-    /// Float width in chars (from @float_width option)
+    /// Float width in chars (from @tmuxy-float-width).
     pub float_width: Option<u32>,
 
-    /// Float height in chars (from @float_height option)
+    /// Float height in chars (from @tmuxy-float-height).
     pub float_height: Option<u32>,
+
+    /// Drawer-style float direction (@tmuxy-float-drawer).
+    pub float_drawer: Option<String>,
+
+    /// Float backdrop style (@tmuxy-float-bg).
+    pub float_bg: Option<String>,
+
+    /// True if float hides its header chrome (@tmuxy-float-noheader = 1).
+    pub float_noheader: bool,
 
     /// Active pane ID in this window (tracked from %window-pane-changed events)
     pub active_pane_id: Option<String>,
@@ -509,27 +525,33 @@ impl WindowState {
             name: String::new(),
             active: false,
             layout: String::new(),
+            window_type: None,
+            group_panes: None,
             float_parent: None,
             float_width: None,
             float_height: None,
+            float_drawer: None,
+            float_bg: None,
+            float_noheader: false,
             active_pane_id: None,
             zoomed: false,
         }
     }
 
     pub fn to_tmux_window(&self) -> TmuxWindow {
-        let pane_group_info = parse_pane_group_window_name(&self.name);
         TmuxWindow {
             id: self.id.clone(),
             index: self.index,
             name: self.name.clone(),
             active: self.active,
-            is_pane_group_window: pane_group_info.is_some(),
-            pane_group_pane_ids: pane_group_info.map(|g| g.pane_ids),
-            is_float_window: is_float_window_name(&self.name),
+            window_type: self.window_type,
+            group_panes: self.group_panes.clone(),
             float_parent: self.float_parent.clone(),
             float_width: self.float_width,
             float_height: self.float_height,
+            float_drawer: self.float_drawer.clone(),
+            float_bg: self.float_bg.clone(),
+            float_noheader: self.float_noheader,
         }
     }
 }
@@ -951,6 +973,40 @@ impl StateAggregator {
     /// Get the list of window IDs
     pub fn window_ids(&self) -> Vec<String> {
         self.windows.keys().cloned().collect()
+    }
+
+    /// Auto-adopt every untagged window: returns set-option commands to tag
+    /// each one, AND mutates the local `WindowState` so the very next state
+    /// emission already reflects the inferred type (no foreign-window flicker
+    /// while the set-option round-trip is in flight). Idempotent — windows
+    /// with `@tmuxy-window-type` already set are skipped.
+    ///
+    /// Name-based inference (defensive, in case set-option from a tmuxy script
+    /// hasn't propagated yet):
+    /// - `float` or `__float_*` → Float
+    /// - `group` or `__group_*` → Group
+    /// - anything else → Tab (auto-adopt: existing user windows become tabs)
+    pub fn collect_window_tag_commands(&mut self) -> Vec<String> {
+        let mut cmds = Vec::new();
+        for window in self.windows.values_mut() {
+            if window.window_type.is_some() {
+                continue;
+            }
+            let inferred = if window.name == "float" || window.name.starts_with("__float_") {
+                WindowType::Float
+            } else if window.name == "group" || window.name.starts_with("__group_") {
+                WindowType::Group
+            } else {
+                WindowType::Tab
+            };
+            window.window_type = Some(inferred);
+            cmds.push(format!(
+                "set-option -w -t {} @tmuxy-window-type {}",
+                window.id,
+                inferred.as_str()
+            ));
+        }
+        cmds
     }
 
     /// Check if any pane is currently in copy mode
@@ -1757,8 +1813,9 @@ impl StateAggregator {
         Some((pane_id_string, needs_capture))
     }
 
-    /// Parse a line from list-windows output.
-    /// Expected format: `@window_id,window_index,name,active,float_parent,float_width,float_height`
+    /// Parse a line from list-windows output. Expected format:
+    /// `@id,index,name,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,group_panes`
+    /// where every column after `active` is a `@tmuxy-*` user option that may be empty.
     fn parse_list_windows_line(&mut self, line: &str) {
         let parts: Vec<&str> = line.split(',').collect();
         if parts.len() < 4 {
@@ -1774,13 +1831,28 @@ impl StateAggregator {
         let name = parts[2].to_string();
         let active = parts[3] == "1";
 
-        // Parse float window options (may be empty)
-        let float_parent = parts
-            .get(4)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-        let float_width = parts.get(5).and_then(|s| s.parse::<u32>().ok());
-        let float_height = parts.get(6).and_then(|s| s.parse::<u32>().ok());
+        let opt = |idx: usize| -> Option<String> {
+            parts
+                .get(idx)
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        };
+
+        let window_type = opt(4).and_then(|s| WindowType::parse(&s));
+        let float_parent = opt(5);
+        let float_width = opt(6).and_then(|s| s.parse::<u32>().ok());
+        let float_height = opt(7).and_then(|s| s.parse::<u32>().ok());
+        let float_drawer = opt(8);
+        let float_bg = opt(9);
+        let float_noheader = opt(10).is_some_and(|s| s == "1");
+        // Group pane membership stored as space-separated (e.g. "%4 %6 %7")
+        // to avoid colliding with the comma-separated list-windows format.
+        let group_panes = opt(11).map(|s| {
+            s.split_whitespace()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+        });
 
         let window = self
             .windows
@@ -1790,9 +1862,14 @@ impl StateAggregator {
         window.index = index;
         window.name = name;
         window.active = active;
+        window.window_type = window_type;
+        window.group_panes = group_panes;
         window.float_parent = float_parent;
         window.float_width = float_width;
         window.float_height = float_height;
+        window.float_drawer = float_drawer;
+        window.float_bg = float_bg;
+        window.float_noheader = float_noheader;
 
         if active {
             self.active_window_id = Some(window_id.to_string());
@@ -2116,14 +2193,11 @@ impl StateAggregator {
         if prev.active != curr.active {
             delta.active = Some(curr.active);
         }
-        if prev.is_pane_group_window != curr.is_pane_group_window {
-            delta.is_pane_group_window = Some(curr.is_pane_group_window);
+        if prev.window_type != curr.window_type {
+            delta.window_type = Some(curr.window_type);
         }
-        if prev.pane_group_pane_ids != curr.pane_group_pane_ids {
-            delta.pane_group_pane_ids = Some(curr.pane_group_pane_ids.clone());
-        }
-        if prev.is_float_window != curr.is_float_window {
-            delta.is_float_window = Some(curr.is_float_window);
+        if prev.group_panes != curr.group_panes {
+            delta.group_panes = Some(curr.group_panes.clone());
         }
         if prev.float_parent != curr.float_parent {
             delta.float_parent = Some(curr.float_parent.clone());
@@ -2133,6 +2207,15 @@ impl StateAggregator {
         }
         if prev.float_height != curr.float_height {
             delta.float_height = Some(curr.float_height);
+        }
+        if prev.float_drawer != curr.float_drawer {
+            delta.float_drawer = Some(curr.float_drawer.clone());
+        }
+        if prev.float_bg != curr.float_bg {
+            delta.float_bg = Some(curr.float_bg.clone());
+        }
+        if prev.float_noheader != curr.float_noheader {
+            delta.float_noheader = Some(curr.float_noheader);
         }
 
         delta

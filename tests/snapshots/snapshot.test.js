@@ -255,7 +255,7 @@ test('tab bar matches visible windows', async () => {
 
     // Visible (non-group, non-float) windows from XState
     const visibleWindows = (windows || [])
-      .filter(w => !w.isPaneGroupWindow && !w.isFloatWindow)
+      .filter(w => w.windowType === "tab")
       .map(w => ({ index: w.index, name: w.name, active: w.active }))
       .sort((a, b) => a.index - b.index);
 

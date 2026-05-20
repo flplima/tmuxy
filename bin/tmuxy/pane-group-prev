@@ -7,14 +7,14 @@ source "$(dirname "$0")/_lib"
 
 PANE_ID="$1"
 
-# Find the group containing this pane
-GROUP_NAME=$(find_group_for_pane "$PANE_ID")
+# Find the group window containing this pane
+GROUP_WIN=$(find_group_for_pane "$PANE_ID")
 
-if [ -z "$GROUP_NAME" ]; then
+if [ -z "$GROUP_WIN" ]; then
   exit 0
 fi
 
-PANE_IDS=$(parse_group_panes "$GROUP_NAME")
+PANE_IDS=$(parse_group_panes "$GROUP_WIN")
 # shellcheck disable=SC2086
 set -- $PANE_IDS
 PANE_COUNT=$#

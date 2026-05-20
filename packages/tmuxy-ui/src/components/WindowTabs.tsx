@@ -52,7 +52,7 @@ export function WindowTabs() {
   );
 
   const isSingleWindow =
-    allWindows.filter((w) => !w.isPaneGroupWindow && !w.isFloatWindow).length <= 1;
+    allWindows.filter((w) => w.windowType === 'tab').length <= 1;
 
   const handleWindowClick = useCallback(
     (window: TmuxWindow) => {
