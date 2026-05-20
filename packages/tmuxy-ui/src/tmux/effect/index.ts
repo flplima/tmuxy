@@ -19,3 +19,9 @@ export {
   type SseEvent,
   type SseStreamOptions,
 } from './sseStream';
+export {
+  CompoundOps,
+  createAndRenameWindow,
+  withTemporaryWindow,
+  type CompoundOpsContext,
+} from './compoundOps';
