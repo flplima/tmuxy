@@ -4,6 +4,7 @@ import type { TmuxAdapter, ServerState, KeyBindings } from '../../tmux/types';
 import {
   toEffectAdapter,
   type AdapterError,
+  Schemas,
 } from '../../tmux/effect';
 
 export type TmuxActorEvent =
@@ -150,12 +151,15 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       } else if (event.type === 'FETCH_INITIAL_STATE') {
         logCommand(`get_initial_state cols=${event.cols} rows=${event.rows}`);
         run(
-          eff.invoke<ServerState>('get_initial_state', {
+          // Schema-decoded: any wire-format drift surfaces as ProtocolError,
+          // distinguishable from network/tmux failures in TMUX_ERROR.tagged.
+          eff.decodingInvoke('get_initial_state', Schemas.ServerState, {
             cols: event.cols,
             rows: event.rows,
           }),
           {
-            onSuccess: (state) => parent.send({ type: 'TMUX_STATE_UPDATE', state }),
+            onSuccess: (state) =>
+              parent.send({ type: 'TMUX_STATE_UPDATE', state: state as ServerState }),
             logPrefix: 'get_initial_state',
           },
         );

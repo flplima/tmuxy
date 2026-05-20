@@ -104,6 +104,55 @@ describe('toEffectAdapter', () => {
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
+  it('decodingInvoke returns decoded value when payload matches the schema', async () => {
+    const { Schema } = await import('effect');
+    const adapter = makeStubAdapter({
+      invoke: (async () => ({ count: 3, label: 'ok' })) as TmuxAdapter['invoke'],
+    });
+    const schema = Schema.Struct({ count: Schema.Number, label: Schema.String });
+    const eff = toEffectAdapter(adapter);
+    const exit = await Effect.runPromiseExit(eff.decodingInvoke('some_cmd', schema));
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value).toEqual({ count: 3, label: 'ok' });
+    }
+  });
+
+  it('decodingInvoke surfaces ProtocolError (not TmuxError) when payload fails to decode', async () => {
+    const { Schema } = await import('effect');
+    const adapter = makeStubAdapter({
+      invoke: (async () => ({ count: 'three' })) as TmuxAdapter['invoke'],
+    });
+    const schema = Schema.Struct({ count: Schema.Number });
+    const eff = toEffectAdapter(adapter);
+    const exit = await Effect.runPromiseExit(eff.decodingInvoke('some_cmd', schema));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const json = JSON.stringify(exit.cause);
+      expect(json).toMatch(/ProtocolError/);
+      // Command name preserved in the reason for debuggability
+      expect(json).toMatch(/some_cmd/);
+    }
+  });
+
+  it('decodingInvoke surfaces TmuxError (not ProtocolError) when the underlying invoke rejects', async () => {
+    const { Schema } = await import('effect');
+    const adapter = makeStubAdapter({
+      invoke: (async () => {
+        throw { error: 'no such command' };
+      }) as TmuxAdapter['invoke'],
+    });
+    const schema = Schema.Struct({ count: Schema.Number });
+    const eff = toEffectAdapter(adapter);
+    const exit = await Effect.runPromiseExit(eff.decodingInvoke('bogus_cmd', schema));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const json = JSON.stringify(exit.cause);
+      expect(json).toMatch(/TmuxError/);
+      expect(json).not.toMatch(/ProtocolError/);
+    }
+  });
+
   it('typed errors enable exhaustive pattern matching on _tag', async () => {
     const adapter = makeStubAdapter({
       invoke: (async () => {
