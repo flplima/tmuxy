@@ -3,16 +3,35 @@
  *
  * Owns context fields: panes, windows, activeWindowId, activePaneId,
  * paneActivationOrder, lastActivePaneByWindow, optimisticOperation,
- * paneKeyOverrides, pendingSelectTabAt, pendingUpdate.
+ * paneKeyOverrides, pendingSelectTabAt, pendingUpdate, lastLayoutCommandTime,
+ * drag, resize, resizeActive, suppressLayoutTransition.
  *
- * Includes optimistic split/navigate/swap/new-window/select-window logic
- * (uses ../optimistic/ helpers internally).
+ * Migrated events (these spread into states.idle.on):
+ *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
+ *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED, RESIZE_ERROR,
+ *   DRAG_STATE_UPDATE, DRAG_ERROR, CLEAR_LAYOUT_TRANSITION_SUPPRESSION.
  *
- * Placeholder for Task #10 migration — the largest. Not yet wired into appMachine.
+ * Cross-cutting / orchestrator events remain inline in appMachine.ts —
+ * see the JSDoc on layoutActions for the explicit list.
  */
 
 export const layoutState = {
-  on: {},
-};
+  on: {
+    SEND_KEYS: { actions: 'layout_sendKeysToTmux' },
+    CLOSE_PANE: { actions: 'layout_closePane' },
+    ZOOM_PANE: { actions: 'layout_zoomPane' },
+    WRITE_TO_PANE: { actions: 'layout_writeToPane' },
+    SELECT_TAB: { actions: 'layout_selectTab' },
+    KEY_PRESS: { actions: 'layout_forwardKeyToDragResize' },
+    RESIZE_STATE_UPDATE: { actions: 'layout_applyResizeState' },
+    RESIZE_COMPLETED: { actions: 'layout_resizeCompleted' },
+    RESIZE_ERROR: { actions: 'layout_resizeError' },
+    DRAG_STATE_UPDATE: { actions: 'layout_dragStateUpdate' },
+    DRAG_ERROR: { actions: 'layout_dragError' },
+    CLEAR_LAYOUT_TRANSITION_SUPPRESSION: {
+      actions: 'layout_clearLayoutTransitionSuppression',
+    },
+  },
+} as const;
 
 export const layoutSelectors = {};

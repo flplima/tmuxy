@@ -9,11 +9,7 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import {
-  parseCommandPrompt,
-  parseDisplayMessage,
-  STATUS_MESSAGE_DURATION,
-} from '../helpers';
+import { parseCommandPrompt, parseDisplayMessage, STATUS_MESSAGE_DURATION } from '../helpers';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -36,15 +32,21 @@ export const commandUiActions = {
   }),
 
   commandUi_submitCommandMode: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ event, context, enqueue }) => {
     if (event.type !== 'COMMAND_MODE_SUBMIT') return;
     const mode = context.commandMode;
     if (!mode) return;
 
-    const finalCommand = mode.template
-      ? mode.template.replace(/%%/g, event.value)
-      : event.value;
+    const finalCommand = mode.template ? mode.template.replace(/%%/g, event.value) : event.value;
 
     enqueue(assign({ commandMode: null }));
 
@@ -90,7 +92,15 @@ export const commandUiActions = {
   }),
 
   commandUi_showStatusMessage: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ event, enqueue }) => {
     if (event.type !== 'SHOW_STATUS_MESSAGE') return;
     enqueue(

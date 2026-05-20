@@ -206,6 +206,87 @@ Rules an action that flips focus must follow:
 
 Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_TAB` (pane-group tab clicks) in `appMachine.ts`. Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these via `resolveTabNavTarget` / `resolvePaneGroupNavTarget` so they share the same optimism.
 
+### Parallel-state decomposition (Option D′)
+
+`appMachine.ts` is decomposed into per-concern files under `tmuxy-ui/src/machines/app/`:
+
+```
+machines/app/
+├── appMachine.ts          # Parent: lifecycle (connecting / idle / removingPane),
+│                          # actor wiring, cross-cutting orchestrators
+│                          # (SEND_TMUX_COMMAND optimistic intercept,
+│                          # TMUX_STATE_UPDATE reconciliation, FOCUS_PANE,
+│                          # SELECT_PANE_GROUP_TAB, DRAG_START, COPY_SELECTION,
+│                          # CREATE_TAB).
+├── context.ts             # createInitialContext() and FIELD_OWNERS registry
+├── tmuxStateSlices.ts     # Per-state slice helpers for TMUX_STATE_UPDATE
+│                          # (sliceCopyModeStates, sliceStatusLine,
+│                          # sliceActivationOrder, sliceLastActivePaneByWindow,
+│                          # detectRemovedPanes).
+├── helpers.ts             # transformServerState, parseCommandPrompt,
+│                          # parseDisplayMessage, STATUS_MESSAGE_DURATION.
+├── states/                # One file per parallel state — exports the state
+│   │                      # config (on: slice) referenced by named actions.
+│   ├── uiPrefs.ts         # theme, font size, animations
+│   ├── commandUi.ts       # command mode, status messages, prefix indicator
+│   ├── copyMode.ts        # client-side copy mode (per-pane CopyModeState)
+│   ├── groupsAndFloats.ts # pane groups, float panes, group-switch freeze
+│   └── layout.ts          # panes, windows, focus, drag/resize, optimistic
+├── actions/               # Named action implementations referenced by
+│                          # states/<name>.ts via string IDs. Spread into
+│                          # setup({ actions: { ...uiPrefsActions, ... }}).
+└── guards/                # Named guards (currently empty placeholders).
+```
+
+**One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
+`AppMachineContext` field to its owning state (`'layout' | 'copyMode' |
+'groupsAndFloats' | 'commandUi' | 'uiPrefs' | 'parent'`). The
+`tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
+enforces this: any `assign({...})` inside a `states/<name>.ts` or
+`actions/<name>.ts` file may only mutate fields owned by `<name>`.
+Cross-cutting handlers that legitimately span states opt out with a
+`// cross-cutting: <reason>` comment on the assign.
+
+Action names are prefixed with the owning state (`uiPrefs_applyTheme`,
+`layout_selectTab`, etc.) so they don't collide when merged into the
+parent's `setup({ actions })` block.
+
+### Effect-based protocol boundary
+
+The async/IO layer between adapters and `tmuxActor` uses Effect for typed
+errors, structured concurrency, and schema-validated decoding. Files under
+`tmuxy-ui/src/tmux/effect/`:
+
+- **`AdapterError.ts`** — Tagged union failure type:
+  `TransportError | ProtocolError | TmuxError | Cancelled`. The Rust backend's
+  `{ error: '...' }` rejection shape is auto-classified as `TmuxError`.
+- **`EffectTmuxAdapter.ts`** — `toEffectAdapter(adapter)` wraps the
+  Promise-based `TmuxAdapter` interface into Effect-returning methods.
+  `decodingInvoke(cmd, schema, args)` composes invoke + Schema.decodeUnknown
+  so decode failures surface as `ProtocolError`, distinct from network
+  (`TransportError`) and tmux command failures (`TmuxError`).
+- **`schemas.ts`** — Effect Schema mirrors of the wire shapes
+  (`ServerState`, `ServerDelta`, `StateUpdate`, `KeyBindings`, and substructures).
+- **`decoders.ts`** — `decodeStateUpdate / decodeServerState / decodeServerDelta /
+  decodeKeyBindings` — each `(raw: unknown) => Effect<T, ProtocolError>`.
+- **`sseStream.ts`** — `eventSourceStream(url, {events})` returns
+  `Stream<SseEvent, AdapterError>` over browser EventSource, with deterministic
+  cleanup via `Effect.acquireRelease` and composable retry via `Stream.retry`.
+- **`compoundOps.ts`** — Reference compound operations like
+  `createAndRenameWindow` and `withTemporaryWindow` that demonstrate
+  multi-step transactions with explicit rollback.
+
+**tmuxActor** consumes the Effect facade: every adapter call runs through
+`Effect.runPromiseExit`, and errors tunnel to the parent machine as
+`TMUX_ERROR { error: <display string>, tagged?: <AdapterError> }`.
+Consumers can `switch (event.tagged?._tag)` for typed handling or fall back
+to `event.error` for logging.
+
+**Cancellable scrollback (Phase E4).** `FETCH_SCROLLBACK_CELLS` runs as an
+`Effect.runFork` fiber tracked in a `Map<paneId, RuntimeFiber>`. A new
+fetch for the same pane interrupts the prior fiber so its
+`onSuccess` never fires — stale results never reach the parent.
+
 ### React Integration
 
 Components consume the machine via hooks defined in `tmuxy-ui/src/machines/AppContext.tsx`:

@@ -70,14 +70,11 @@ export function createAndRenameWindow(
     const ctx = yield* CompoundOps;
 
     // Step 1: create the window and capture its tmux ID via -P -F.
-    const created = yield* ctx.invoke<{ window_id?: string } | string>(
-      'run_tmux_command',
-      { command: 'new-window -P -F "#{window_id}"' },
-    );
+    const created = yield* ctx.invoke<{ window_id?: string } | string>('run_tmux_command', {
+      command: 'new-window -P -F "#{window_id}"',
+    });
     const windowId =
-      typeof created === 'string'
-        ? created.trim()
-        : (created?.window_id ?? '').trim();
+      typeof created === 'string' ? created.trim() : (created?.window_id ?? '').trim();
     if (!windowId) {
       // The Rust backend should always return a window_id; if it doesn't,
       // there's nothing to clean up since we don't know what was created.
@@ -127,15 +124,12 @@ export function withTemporaryWindow<A, E>(
 ): Effect.Effect<A, E | AdapterError, CompoundOps> {
   return Effect.gen(function* () {
     const ctx = yield* CompoundOps;
-    return yield* Effect.acquireUseRelease(
-      createAndRenameWindow(name),
-      use,
-      (windowId) =>
-        ctx
-          .invoke<void>('run_tmux_command', { command: `kill-window -t ${windowId}` })
-          // Cleanup failure is logged but never overrides the use-block's
-          // outcome — the operation succeeded or failed for its own reason.
-          .pipe(Effect.catchAll(() => Effect.void)),
+    return yield* Effect.acquireUseRelease(createAndRenameWindow(name), use, (windowId) =>
+      ctx
+        .invoke<void>('run_tmux_command', { command: `kill-window -t ${windowId}` })
+        // Cleanup failure is logged but never overrides the use-block's
+        // outcome — the operation succeeded or failed for its own reason.
+        .pipe(Effect.catchAll(() => Effect.void)),
     );
   });
 }

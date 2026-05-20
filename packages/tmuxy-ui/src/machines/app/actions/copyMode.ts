@@ -24,110 +24,112 @@ export const copyModeExitTimes = new Map<string, number>();
 export const COPY_MODE_REENTRY_COOLDOWN = 2000;
 
 export const copyModeActions = {
-  copyMode_enter: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
-  >(({ event, context, enqueue }) => {
-    if (event.type !== 'ENTER_COPY_MODE') return;
-    const pane = context.panes.find((p) => p.tmuxId === event.paneId);
-    if (!pane) return;
+  copyMode_enter: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
+    ({ event, context, enqueue }) => {
+      if (event.type !== 'ENTER_COPY_MODE') return;
+      const pane = context.panes.find((p) => p.tmuxId === event.paneId);
+      if (!pane) return;
 
-    const historySize = pane.historySize ?? 0;
-    const totalLines = historySize + pane.height;
-    const scrollTop = Math.max(0, totalLines - pane.height);
+      const historySize = pane.historySize ?? 0;
+      const totalLines = historySize + pane.height;
+      const scrollTop = Math.max(0, totalLines - pane.height);
 
-    const lines = new Map<number, CellLine>();
-    for (let i = 0; i < pane.content.length; i++) {
-      lines.set(historySize + i, pane.content[i]);
-    }
+      const lines = new Map<number, CellLine>();
+      for (let i = 0; i < pane.content.length; i++) {
+        lines.set(historySize + i, pane.content[i]);
+      }
 
-    const loadedRanges: Array<[number, number]> =
-      pane.content.length > 0 ? [[historySize, historySize + pane.content.length - 1]] : [];
+      const loadedRanges: Array<[number, number]> =
+        pane.content.length > 0 ? [[historySize, historySize + pane.content.length - 1]] : [];
 
-    let initialScrollTop = scrollTop;
-    if (event.nativeScrollTop !== undefined) {
-      initialScrollTop = Math.max(0, Math.min(event.nativeScrollTop, scrollTop));
-    } else if (event.scrollLines) {
-      initialScrollTop = Math.max(0, scrollTop + event.scrollLines);
-    }
+      let initialScrollTop = scrollTop;
+      if (event.nativeScrollTop !== undefined) {
+        initialScrollTop = Math.max(0, Math.min(event.nativeScrollTop, scrollTop));
+      } else if (event.scrollLines) {
+        initialScrollTop = Math.max(0, scrollTop + event.scrollLines);
+      }
 
-    const initRow = historySize + pane.cursorY;
-    const initLine = lines.get(initRow);
-    const initLineText = initLine
-      ? initLine.map((c) => c.c).join('').trimEnd()
-      : '';
-    const initCol =
-      initLineText.length > 0 ? Math.min(pane.cursorX, initLineText.length - 1) : 0;
+      const initRow = historySize + pane.cursorY;
+      const initLine = lines.get(initRow);
+      const initLineText = initLine
+        ? initLine
+            .map((c) => c.c)
+            .join('')
+            .trimEnd()
+        : '';
+      const initCol = initLineText.length > 0 ? Math.min(pane.cursorX, initLineText.length - 1) : 0;
 
-    const copyState: CopyModeState = {
-      lines,
-      totalLines,
-      historySize,
-      loadedRanges,
-      loading: true,
-      width: pane.width,
-      height: pane.height,
-      cursorRow: initRow,
-      cursorCol: initCol,
-      selectionMode: null,
-      selectionAnchor: null,
-      scrollTop: initialScrollTop,
-    };
+      const copyState: CopyModeState = {
+        lines,
+        totalLines,
+        historySize,
+        loadedRanges,
+        loading: true,
+        width: pane.width,
+        height: pane.height,
+        cursorRow: initRow,
+        cursorCol: initCol,
+        selectionMode: null,
+        selectionAnchor: null,
+        scrollTop: initialScrollTop,
+      };
 
-    enqueue(
-      assign({
-        copyModeStates: { ...context.copyModeStates, [event.paneId]: copyState },
-      }),
-    );
+      enqueue(
+        assign({
+          copyModeStates: { ...context.copyModeStates, [event.paneId]: copyState },
+        }),
+      );
 
-    enqueue(
-      sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: `copy-mode -t ${event.paneId}`,
-      }),
-    );
+      enqueue(
+        sendTo('tmux', {
+          type: 'SEND_COMMAND' as const,
+          command: `copy-mode -t ${event.paneId}`,
+        }),
+      );
 
-    enqueue(
-      sendTo('tmux', {
-        type: 'FETCH_SCROLLBACK_CELLS' as const,
-        paneId: event.paneId,
-        start: -historySize,
-        end: pane.height - 1,
-      }),
-    );
+      enqueue(
+        sendTo('tmux', {
+          type: 'FETCH_SCROLLBACK_CELLS' as const,
+          paneId: event.paneId,
+          start: -historySize,
+          end: pane.height - 1,
+        }),
+      );
 
-    enqueue(
-      sendTo('keyboard', {
-        type: 'UPDATE_COPY_MODE' as const,
-        active: true,
-        paneId: event.paneId,
-      }),
-    );
-  }),
+      enqueue(
+        sendTo('keyboard', {
+          type: 'UPDATE_COPY_MODE' as const,
+          active: true,
+          paneId: event.paneId,
+        }),
+      );
+    },
+  ),
 
-  copyMode_exit: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
-  >(({ event, context, enqueue }) => {
-    if (event.type !== 'EXIT_COPY_MODE') return;
-    copyModeExitTimes.set(event.paneId, Date.now());
-    const newStates = { ...context.copyModeStates };
-    delete newStates[event.paneId];
-    enqueue(assign({ copyModeStates: newStates }));
+  copyMode_exit: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
+    ({ event, context, enqueue }) => {
+      if (event.type !== 'EXIT_COPY_MODE') return;
+      copyModeExitTimes.set(event.paneId, Date.now());
+      const newStates = { ...context.copyModeStates };
+      delete newStates[event.paneId];
+      enqueue(assign({ copyModeStates: newStates }));
 
-    enqueue(
-      sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: `send-keys -t ${event.paneId} -X cancel`,
-      }),
-    );
+      enqueue(
+        sendTo('tmux', {
+          type: 'SEND_COMMAND' as const,
+          command: `send-keys -t ${event.paneId} -X cancel`,
+        }),
+      );
 
-    enqueue(
-      sendTo('keyboard', {
-        type: 'UPDATE_COPY_MODE' as const,
-        active: false,
-        paneId: null,
-      }),
-    );
-  }),
+      enqueue(
+        sendTo('keyboard', {
+          type: 'UPDATE_COPY_MODE' as const,
+          active: false,
+          paneId: null,
+        }),
+      );
+    },
+  ),
 
   copyMode_chunkLoaded: assign<Ctx, Evt, undefined, Evt, never>(({ event, context }) => {
     if (event.type !== 'COPY_MODE_CHUNK_LOADED') return {};
@@ -195,7 +197,12 @@ export const copyModeActions = {
     scrollTop = Math.max(0, Math.min(scrollTop, existing.totalLines - existing.height));
 
     const line = existing.lines.get(absoluteRow);
-    const lineText = line ? line.map((c) => c.c).join('').trimEnd() : '';
+    const lineText = line
+      ? line
+          .map((c) => c.c)
+          .join('')
+          .trimEnd()
+      : '';
     const clampedCol = lineText.length > 0 ? Math.min(event.col, lineText.length - 1) : 0;
 
     const updated: CopyModeState = {
@@ -225,11 +232,15 @@ export const copyModeActions = {
       };
     }
 
-    const absoluteRow =
-      event.row < existing.height ? existing.scrollTop + event.row : event.row;
+    const absoluteRow = event.row < existing.height ? existing.scrollTop + event.row : event.row;
 
     const line = existing.lines.get(absoluteRow);
-    const lineText = line ? line.map((c) => c.c).join('').trimEnd() : '';
+    const lineText = line
+      ? line
+          .map((c) => c.c)
+          .join('')
+          .trimEnd()
+      : '';
     const clampedCol = lineText.length > 0 ? Math.min(event.col, lineText.length - 1) : 0;
 
     const updated: CopyModeState = {
@@ -262,8 +273,7 @@ export const copyModeActions = {
     const existing = context.copyModeStates[event.paneId];
     if (!existing) return {};
 
-    const absoluteRow =
-      event.row < existing.height ? existing.scrollTop + event.row : event.row;
+    const absoluteRow = event.row < existing.height ? existing.scrollTop + event.row : event.row;
 
     const line = existing.lines.get(absoluteRow);
     if (!line) return {};
@@ -299,8 +309,7 @@ export const copyModeActions = {
     const existing = context.copyModeStates[event.paneId];
     if (!existing) return {};
 
-    const absoluteRow =
-      event.row < existing.height ? existing.scrollTop + event.row : event.row;
+    const absoluteRow = event.row < existing.height ? existing.scrollTop + event.row : event.row;
 
     return {
       copyModeStates: {
@@ -316,178 +325,178 @@ export const copyModeActions = {
     };
   }),
 
-  copyMode_scroll: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
-  >(({ event, context, enqueue }) => {
-    if (event.type !== 'COPY_MODE_SCROLL') return;
-    const existing = context.copyModeStates[event.paneId];
-    if (!existing) return;
+  copyMode_scroll: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
+    ({ event, context, enqueue }) => {
+      if (event.type !== 'COPY_MODE_SCROLL') return;
+      const existing = context.copyModeStates[event.paneId];
+      if (!existing) return;
 
-    const maxScrollTop = existing.totalLines - existing.height;
-    const scrollTop = Math.max(0, Math.min(maxScrollTop, event.scrollTop));
+      const maxScrollTop = existing.totalLines - existing.height;
+      const scrollTop = Math.max(0, Math.min(maxScrollTop, event.scrollTop));
 
-    if (
-      maxScrollTop > 0 &&
-      scrollTop >= maxScrollTop &&
-      existing.scrollTop < maxScrollTop &&
-      !existing.selectionMode
-    ) {
-      enqueue.raise({ type: 'EXIT_COPY_MODE', paneId: event.paneId });
-      return;
-    }
+      if (
+        maxScrollTop > 0 &&
+        scrollTop >= maxScrollTop &&
+        existing.scrollTop < maxScrollTop &&
+        !existing.selectionMode
+      ) {
+        enqueue.raise({ type: 'EXIT_COPY_MODE', paneId: event.paneId });
+        return;
+      }
 
-    const updated: CopyModeState = {
-      ...existing,
-      scrollTop,
-    };
+      const updated: CopyModeState = {
+        ...existing,
+        scrollTop,
+      };
 
-    enqueue(
-      assign({
-        copyModeStates: { ...context.copyModeStates, [event.paneId]: updated },
-      }),
-    );
-
-    const needed = getNeededChunk(
-      scrollTop,
-      existing.height,
-      existing.loadedRanges,
-      existing.historySize,
-      existing.totalLines,
-    );
-    if (needed) {
       enqueue(
         assign({
-          copyModeStates: {
-            ...context.copyModeStates,
-            [event.paneId]: { ...updated, loading: true },
-          },
-        }),
-      );
-      enqueue(
-        sendTo('tmux', {
-          type: 'FETCH_SCROLLBACK_CELLS' as const,
-          paneId: event.paneId,
-          start: needed.start,
-          end: needed.end,
-        }),
-      );
-    }
-  }),
-
-  copyMode_yank: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
-  >(({ event, context, enqueue }) => {
-    if (event.type !== 'COPY_MODE_YANK') return;
-    const copyState = context.copyModeStates[event.paneId];
-    if (!copyState || !copyState.selectionMode) return;
-
-    copyModeExitTimes.set(event.paneId, Date.now());
-    const newStates = { ...context.copyModeStates };
-    delete newStates[event.paneId];
-    enqueue(assign({ copyModeStates: newStates }));
-
-    enqueue(
-      sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
-        command: `send-keys -t ${event.paneId} -X cancel`,
-      }),
-    );
-
-    enqueue(
-      sendTo('keyboard', {
-        type: 'UPDATE_COPY_MODE' as const,
-        active: false,
-        paneId: null,
-      }),
-    );
-  }),
-
-  copyMode_key: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
-  >(({ event, context, enqueue }) => {
-    if (event.type !== 'COPY_MODE_KEY') return;
-    const paneId = context.activePaneId;
-    if (!paneId) return;
-    const copyState = context.copyModeStates[paneId];
-    if (!copyState) return;
-
-    const result = handleCopyModeKey(event.key, event.ctrlKey, event.shiftKey, copyState);
-
-    if (result.action === 'yank') {
-      copyModeExitTimes.set(paneId, Date.now());
-      const newStates = { ...context.copyModeStates };
-      delete newStates[paneId];
-      enqueue(assign({ copyModeStates: newStates }));
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `send-keys -t ${paneId} -X cancel`,
-        }),
-      );
-      enqueue(
-        sendTo('keyboard', {
-          type: 'UPDATE_COPY_MODE' as const,
-          active: false,
-          paneId: null,
-        }),
-      );
-      return;
-    }
-
-    if (result.action === 'exit') {
-      copyModeExitTimes.set(paneId, Date.now());
-      const newStates = { ...context.copyModeStates };
-      delete newStates[paneId];
-      enqueue(assign({ copyModeStates: newStates }));
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `send-keys -t ${paneId} -X cancel`,
-        }),
-      );
-      enqueue(
-        sendTo('keyboard', {
-          type: 'UPDATE_COPY_MODE' as const,
-          active: false,
-          paneId: null,
-        }),
-      );
-      return;
-    }
-
-    if (Object.keys(result.state).length > 0) {
-      const updated = { ...copyState, ...result.state } as CopyModeState;
-      enqueue(
-        assign({
-          copyModeStates: { ...context.copyModeStates, [paneId]: updated },
+          copyModeStates: { ...context.copyModeStates, [event.paneId]: updated },
         }),
       );
 
       const needed = getNeededChunk(
-        updated.scrollTop,
-        updated.height,
-        updated.loadedRanges,
-        updated.historySize,
-        updated.totalLines,
+        scrollTop,
+        existing.height,
+        existing.loadedRanges,
+        existing.historySize,
+        existing.totalLines,
       );
-      if (needed && !updated.loading) {
+      if (needed) {
         enqueue(
           assign({
             copyModeStates: {
               ...context.copyModeStates,
-              [paneId]: { ...updated, loading: true },
+              [event.paneId]: { ...updated, loading: true },
             },
           }),
         );
         enqueue(
           sendTo('tmux', {
             type: 'FETCH_SCROLLBACK_CELLS' as const,
-            paneId,
+            paneId: event.paneId,
             start: needed.start,
             end: needed.end,
           }),
         );
       }
-    }
-  }),
+    },
+  ),
+
+  copyMode_yank: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
+    ({ event, context, enqueue }) => {
+      if (event.type !== 'COPY_MODE_YANK') return;
+      const copyState = context.copyModeStates[event.paneId];
+      if (!copyState || !copyState.selectionMode) return;
+
+      copyModeExitTimes.set(event.paneId, Date.now());
+      const newStates = { ...context.copyModeStates };
+      delete newStates[event.paneId];
+      enqueue(assign({ copyModeStates: newStates }));
+
+      enqueue(
+        sendTo('tmux', {
+          type: 'SEND_COMMAND' as const,
+          command: `send-keys -t ${event.paneId} -X cancel`,
+        }),
+      );
+
+      enqueue(
+        sendTo('keyboard', {
+          type: 'UPDATE_COPY_MODE' as const,
+          active: false,
+          paneId: null,
+        }),
+      );
+    },
+  ),
+
+  copyMode_key: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
+    ({ event, context, enqueue }) => {
+      if (event.type !== 'COPY_MODE_KEY') return;
+      const paneId = context.activePaneId;
+      if (!paneId) return;
+      const copyState = context.copyModeStates[paneId];
+      if (!copyState) return;
+
+      const result = handleCopyModeKey(event.key, event.ctrlKey, event.shiftKey, copyState);
+
+      if (result.action === 'yank') {
+        copyModeExitTimes.set(paneId, Date.now());
+        const newStates = { ...context.copyModeStates };
+        delete newStates[paneId];
+        enqueue(assign({ copyModeStates: newStates }));
+        enqueue(
+          sendTo('tmux', {
+            type: 'SEND_COMMAND' as const,
+            command: `send-keys -t ${paneId} -X cancel`,
+          }),
+        );
+        enqueue(
+          sendTo('keyboard', {
+            type: 'UPDATE_COPY_MODE' as const,
+            active: false,
+            paneId: null,
+          }),
+        );
+        return;
+      }
+
+      if (result.action === 'exit') {
+        copyModeExitTimes.set(paneId, Date.now());
+        const newStates = { ...context.copyModeStates };
+        delete newStates[paneId];
+        enqueue(assign({ copyModeStates: newStates }));
+        enqueue(
+          sendTo('tmux', {
+            type: 'SEND_COMMAND' as const,
+            command: `send-keys -t ${paneId} -X cancel`,
+          }),
+        );
+        enqueue(
+          sendTo('keyboard', {
+            type: 'UPDATE_COPY_MODE' as const,
+            active: false,
+            paneId: null,
+          }),
+        );
+        return;
+      }
+
+      if (Object.keys(result.state).length > 0) {
+        const updated = { ...copyState, ...result.state } as CopyModeState;
+        enqueue(
+          assign({
+            copyModeStates: { ...context.copyModeStates, [paneId]: updated },
+          }),
+        );
+
+        const needed = getNeededChunk(
+          updated.scrollTop,
+          updated.height,
+          updated.loadedRanges,
+          updated.historySize,
+          updated.totalLines,
+        );
+        if (needed && !updated.loading) {
+          enqueue(
+            assign({
+              copyModeStates: {
+                ...context.copyModeStates,
+                [paneId]: { ...updated, loading: true },
+              },
+            }),
+          );
+          enqueue(
+            sendTo('tmux', {
+              type: 'FETCH_SCROLLBACK_CELLS' as const,
+              paneId,
+              start: needed.start,
+              end: needed.end,
+            }),
+          );
+        }
+      }
+    },
+  ),
 };

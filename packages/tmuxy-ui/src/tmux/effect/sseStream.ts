@@ -27,11 +27,7 @@
  */
 
 import { Effect, Stream } from 'effect';
-import {
-  type AdapterError,
-  TransportError,
-  classifyAdapterError,
-} from './AdapterError';
+import { type AdapterError, TransportError, classifyAdapterError } from './AdapterError';
 
 /**
  * One emit from an SSE Stream. `name` is the SSE `event:` field

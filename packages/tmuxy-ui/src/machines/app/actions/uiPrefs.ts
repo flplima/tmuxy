@@ -48,7 +48,15 @@ export const uiPrefsActions = {
   ),
 
   uiPrefs_applyThemeMode: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ event, context, enqueue }) => {
     if (event.type !== 'SET_THEME_MODE') return;
     applyThemeMode(event.mode);
@@ -71,7 +79,15 @@ export const uiPrefsActions = {
   }),
 
   uiPrefs_acceptThemeSettings: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ event, enqueue }) => {
     if (event.type !== 'THEME_SETTINGS_RECEIVED') return;
     applyTheme(event.theme, event.mode);
@@ -85,7 +101,15 @@ export const uiPrefsActions = {
   }),
 
   uiPrefs_increaseFontSize: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ context, enqueue }) => {
     const newSize = increaseFontSize(context.baseFontSize);
     applyFontSize(newSize);
@@ -95,7 +119,15 @@ export const uiPrefsActions = {
   }),
 
   uiPrefs_decreaseFontSize: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ context, enqueue }) => {
     const newSize = decreaseFontSize(context.baseFontSize);
     applyFontSize(newSize);
@@ -105,7 +137,15 @@ export const uiPrefsActions = {
   }),
 
   uiPrefs_resetFontSize: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ enqueue }) => {
     applyFontSize(DEFAULT_FONT_SIZE);
     saveFontSizeToStorage(DEFAULT_FONT_SIZE);

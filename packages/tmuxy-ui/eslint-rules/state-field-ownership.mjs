@@ -31,9 +31,6 @@ const FIELD_OWNERS = {
   containerWidth: 'parent',
   containerHeight: 'parent',
   lastUpdateTime: 'parent',
-  drag: 'parent',
-  resize: 'parent',
-  resizeActive: 'parent',
 
   // ---- layout ----
   panes: 'layout',
@@ -47,6 +44,10 @@ const FIELD_OWNERS = {
   pendingSelectTabAt: 'layout',
   pendingUpdate: 'layout',
   lastLayoutCommandTime: 'layout',
+  drag: 'layout',
+  resize: 'layout',
+  resizeActive: 'layout',
+  suppressLayoutTransition: 'layout',
 
   // ---- copyMode ----
   copyModeStates: 'copyMode',
@@ -69,7 +70,6 @@ const FIELD_OWNERS = {
   availableThemes: 'uiPrefs',
   baseFontSize: 'uiPrefs',
   enableAnimations: 'uiPrefs',
-  suppressLayoutTransition: 'uiPrefs',
 };
 
 const STATE_FILE_REGEX = /\/machines\/app\/(?:states|actions)\/([a-zA-Z0-9_-]+)\.ts$/;
@@ -156,6 +156,18 @@ export default {
         if (node.arguments.length === 0) return;
         const keys = findAssignPayloadKeys(node.arguments[0]);
 
+        // Escape hatch: comment `cross-cutting:` somewhere on the line of
+        // the `assign(...)` call lets a handler legitimately write fields
+        // owned by another state. Required for genuinely-cross-cutting
+        // handlers (e.g. FOCUS_PANE clearing focusedFloatPaneId, optimistic
+        // group swaps writing both panes and groupSwitchDimOverrides).
+        const sourceCode = context.sourceCode ?? context.getSourceCode?.();
+        const comments = sourceCode?.getCommentsInside?.(node) ?? [];
+        const beforeComments = sourceCode?.getCommentsBefore?.(node) ?? [];
+        const isCrossCutting = [...comments, ...beforeComments].some((c) =>
+          /cross-cutting:/i.test(c.value),
+        );
+
         for (const { name, node: keyNode } of keys) {
           if (!(name in FIELD_OWNERS)) {
             context.report({
@@ -167,6 +179,7 @@ export default {
           }
           const owner = FIELD_OWNERS[name];
           if (owner === currentState) continue;
+          if (isCrossCutting) continue;
           if (owner === 'parent') {
             context.report({
               node: keyNode,

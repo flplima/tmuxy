@@ -19,7 +19,15 @@ type Evt = AllAppMachineEvents;
 
 export const groupsAndFloatsActions = {
   groupsAndFloats_openSessionFloat: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ enqueue }) => {
     enqueue(
       sendTo('tmux', {
@@ -31,7 +39,15 @@ export const groupsAndFloatsActions = {
   }),
 
   groupsAndFloats_openConnectFloat: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ enqueue }) => {
     enqueue(
       sendTo('tmux', {
@@ -42,7 +58,15 @@ export const groupsAndFloatsActions = {
   }),
 
   groupsAndFloats_closeFloat: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ event, context, enqueue }) => {
     if (event.type !== 'CLOSE_FLOAT') return;
     enqueue(
@@ -55,8 +79,7 @@ export const groupsAndFloatsActions = {
     enqueue(assign({ floatPanes: remainingFloats }));
     if (context.focusedFloatPaneId === event.paneId) {
       const remaining = Object.values(remainingFloats);
-      const nextFocused =
-        remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
+      const nextFocused = remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
       enqueue(assign({ focusedFloatPaneId: nextFocused }));
       enqueue(
         sendTo('keyboard', {
@@ -68,7 +91,15 @@ export const groupsAndFloatsActions = {
   }),
 
   groupsAndFloats_closeTopFloat: enqueueActions<
-    Ctx, Evt, undefined, Evt, never, never, never, never, never
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
   >(({ context, enqueue }) => {
     const floats = Object.values(context.floatPanes);
     if (floats.length === 0) return;
@@ -82,8 +113,7 @@ export const groupsAndFloatsActions = {
     const { [topFloat.paneId]: _removed, ...remainingFloats } = context.floatPanes;
     enqueue(assign({ floatPanes: remainingFloats }));
     const remaining = Object.values(remainingFloats);
-    const nextFocused =
-      remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
+    const nextFocused = remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
     enqueue(assign({ focusedFloatPaneId: nextFocused }));
     enqueue(
       sendTo('keyboard', {

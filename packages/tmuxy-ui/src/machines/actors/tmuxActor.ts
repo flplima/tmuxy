@@ -1,11 +1,7 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { Cause, Effect, Exit, Fiber } from 'effect';
 import type { TmuxAdapter, ServerState, KeyBindings } from '../../tmux/types';
-import {
-  toEffectAdapter,
-  type AdapterError,
-  Schemas,
-} from '../../tmux/effect';
+import { toEffectAdapter, type AdapterError, Schemas } from '../../tmux/effect';
 
 export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
@@ -87,11 +83,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         const tagged = failure.value;
         const display = adapterErrorToString(tagged);
         if (opts.silentFail) {
-          console.error(
-            `[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`,
-            tagged._tag,
-            display,
-          );
+          console.error(`[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`, tagged._tag, display);
           return;
         }
         if (opts.logPrefix) logError(`${opts.logPrefix} -> ${display}`);
@@ -238,30 +230,24 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         const fiber: Fiber.RuntimeFiber<unknown, AdapterError> = Effect.runFork(program);
         scrollbackFibers.set(event.paneId, fiber);
       } else if (event.type === 'FETCH_THEME_SETTINGS') {
-        run(
-          eff.invoke<{ theme: string; mode: string }>('get_theme_settings', {}),
-          {
-            onSuccess: (result) => {
-              parent.send({
-                type: 'THEME_SETTINGS_RECEIVED',
-                theme: result.theme || 'default',
-                mode: (result.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light',
-              });
-            },
-            logPrefix: 'get_theme_settings',
-            silentFail: true,
+        run(eff.invoke<{ theme: string; mode: string }>('get_theme_settings', {}), {
+          onSuccess: (result) => {
+            parent.send({
+              type: 'THEME_SETTINGS_RECEIVED',
+              theme: result.theme || 'default',
+              mode: (result.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light',
+            });
           },
-        );
+          logPrefix: 'get_theme_settings',
+          silentFail: true,
+        });
       } else if (event.type === 'FETCH_THEMES_LIST') {
-        run(
-          eff.invoke<Array<{ name: string; displayName: string }>>('get_themes_list', {}),
-          {
-            onSuccess: (themes) =>
-              parent.send({ type: 'THEMES_LIST_RECEIVED', themes: themes || [] }),
-            logPrefix: 'get_themes_list',
-            silentFail: true,
-          },
-        );
+        run(eff.invoke<Array<{ name: string; displayName: string }>>('get_themes_list', {}), {
+          onSuccess: (themes) =>
+            parent.send({ type: 'THEMES_LIST_RECEIVED', themes: themes || [] }),
+          logPrefix: 'get_themes_list',
+          silentFail: true,
+        });
       } else if (event.type === 'SWITCH_SESSION') {
         run(eff.switchSession(event.sessionName), {
           logPrefix: `switch-session ${event.sessionName}`,
