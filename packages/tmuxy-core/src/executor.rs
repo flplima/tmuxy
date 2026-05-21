@@ -121,10 +121,23 @@ pub fn split_pane_vertical(session_name: &str) -> Result<(), String> {
 
 pub fn new_window(session_name: &str) -> Result<(), String> {
     // `new-window` (neww) crashes tmux 3.5a when control mode is attached.
-    // Use `split-window` + `break-pane -d` instead, which achieves the same
-    // result without crashing.
+    // Use `split-window` + `break-pane -d -P` instead, which achieves the
+    // same result without crashing. `-P -F '#{window_id}'` prints the new
+    // window's id so we can tag it with @tmuxy-window-type=tab without
+    // racing the control-mode auto-adopt.
     execute_tmux_command(&["split-window", "-t", session_name])?;
-    execute_tmux_command(&["break-pane", "-d"])?;
+    let new_window_id = execute_tmux_command(&["break-pane", "-d", "-P", "-F", "#{window_id}"])?;
+    let new_window_id = new_window_id.trim();
+    if !new_window_id.is_empty() {
+        let _ = execute_tmux_command(&[
+            "set-option",
+            "-w",
+            "-t",
+            new_window_id,
+            "@tmuxy-window-type",
+            "tab",
+        ]);
+    }
     Ok(())
 }
 
