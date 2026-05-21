@@ -19,9 +19,19 @@ fn read_tmuxy_option(name: &str) -> Option<String> {
         }
     }
 
-    let config_path = session::config_dir().join("tmuxy.conf");
-    let content = std::fs::read_to_string(&config_path).ok()?;
-    parse_option_from_config(&content, name)
+    // Fall back to parsing the config files in tmux's source order (defaults
+    // first, then user conf, then app-managed state) — last assignment wins,
+    // matching what `source-file` would resolve to.
+    let dir = session::config_dir();
+    let mut found: Option<String> = None;
+    for filename in ["tmuxy.defaults.conf", "tmuxy.conf", "tmuxy.state.conf"] {
+        if let Ok(content) = std::fs::read_to_string(dir.join(filename)) {
+            if let Some(v) = parse_option_from_config(&content, name) {
+                found = Some(v);
+            }
+        }
+    }
+    found
 }
 
 /// Best-effort parser for `set [-g|-ga|-gu|-s|-sg|...] @name value` lines in a
@@ -111,6 +121,10 @@ fn apply_window_effects(window: &tauri::WebviewWindow) {
         .and_then(|s| s.parse::<f64>().ok())
         .map(|v| v.clamp(0.0, 1.0));
 
+    let active_pane_opacity = read_tmuxy_option("@tmuxy-active-pane-opacity")
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v.clamp(0.0, 1.0));
+
     let vibrancy = read_tmuxy_option("@tmuxy-vibrancy")
         .and_then(|s| parse_vibrancy(&s).map(|effect| (s, effect)));
 
@@ -143,6 +157,13 @@ fn apply_window_effects(window: &tauri::WebviewWindow) {
         js_parts.push(format!(
             "document.documentElement.style.setProperty('--window-opacity', '{}')",
             opacity
+        ));
+    }
+
+    if let Some(o) = active_pane_opacity {
+        js_parts.push(format!(
+            "document.documentElement.style.setProperty('--active-pane-opacity', '{}')",
+            o
         ));
     }
 

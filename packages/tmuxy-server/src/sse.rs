@@ -742,9 +742,17 @@ async fn handle_command(
                 .unwrap_or("default");
             executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme", name])
                 .map_err(|e| format!("Failed to set theme: {}", e))?;
-            if let Some(mode) = args.get("mode").and_then(|v| v.as_str()) {
-                executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", mode])
+            let mode = args.get("mode").and_then(|v| v.as_str());
+            if let Some(m) = mode {
+                executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", m])
                     .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+            }
+            // Persist so the choice survives a tmux server restart.
+            if let Err(e) = tmuxy_core::session::write_managed_state(Some(name), mode) {
+                eprintln!(
+                    "Warning: could not persist theme to tmuxy.state.conf: {}",
+                    e
+                );
             }
             Ok(serde_json::json!(null))
         }
@@ -787,6 +795,12 @@ async fn handle_command(
             let mode = args.get("mode").and_then(|v| v.as_str()).unwrap_or("dark");
             executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", mode])
                 .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+            if let Err(e) = tmuxy_core::session::write_managed_state(None, Some(mode)) {
+                eprintln!(
+                    "Warning: could not persist theme mode to tmuxy.state.conf: {}",
+                    e
+                );
+            }
             Ok(serde_json::json!(null))
         }
         "ping" => {

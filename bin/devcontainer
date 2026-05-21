@@ -135,7 +135,12 @@ echo ""
 
 INIT_SCRIPT='
     ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf
-    mkdir -p ~/.local/bin
+    mkdir -p ~/.config/tmuxy ~/.local/bin
+    # Symlink both conf files into the XDG path so edits in the repo take
+    # effect immediately. The Rust ensure_config skips overwriting when the
+    # target is a symlink, so it leaves these alone.
+    ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.config/tmuxy/tmuxy.conf
+    ln -sf /tmuxy/.devcontainer/.tmuxy.defaults.conf ~/.config/tmuxy/tmuxy.defaults.conf
     ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy
     gh auth setup-git 2>/dev/null
     git -C /tmuxy remote set-url origin "$(git -C /tmuxy remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null

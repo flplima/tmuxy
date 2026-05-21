@@ -471,10 +471,16 @@
   opacity: 0.7;
 }
 
-/* Active pane: same dark-gray tone as the inactive border, but fully opaque. */
+/* Active pane background. Uses --active-pane-opacity from @tmuxy-active-pane-opacity
+   in tmuxy.conf (falls back to --window-opacity) so the active pane reads as a
+   slightly more transparent window over the rest of the layout — without this,
+   the active/inactive distinction is hard to see at a glance under vibrancy. */
 .pane-layout-item.pane-active {
   outline-color: var(--pane-active-border, var(--border-medium));
-  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
+  background-color: rgba(
+    var(--window-bg-rgb),
+    var(--active-pane-opacity, var(--window-opacity, 1))
+  );
 }
 
 /* Copy mode: distinct bright-green outline so the mode is unmistakable. */

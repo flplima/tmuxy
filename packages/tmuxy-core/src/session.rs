@@ -73,9 +73,17 @@ pub fn tmux_bin() -> String {
     }
 }
 
-/// Default tmuxy configuration content.
-/// Embedded at compile time from .devcontainer/.tmuxy.conf.
-const DEFAULT_CONFIG: &str = include_str!("../../../.devcontainer/.tmuxy.conf");
+/// Shipped defaults — overwritten on every app launch so users get new
+/// defaults (new bindings, new options) without merge work. Users never
+/// edit this file; their overrides live in `tmuxy.conf` which sources
+/// this one first.
+const DEFAULT_DEFAULTS_CONF: &str = include_str!("../../../.devcontainer/.tmuxy.defaults.conf");
+
+/// User-editable config template — written ONLY when `tmuxy.conf` does not
+/// already exist. Sources `tmuxy.defaults.conf` first, then leaves space
+/// for the user's customizations, then sources `tmuxy.state.conf` for
+/// app-managed values (theme, opacity overrides set via the UI).
+const DEFAULT_USER_CONF: &str = include_str!("../../../.devcontainer/.tmuxy.conf");
 
 /// Bundled theme CSS files, embedded at compile time. Mirrored to
 /// ~/.config/tmuxy/themes/ on first run by [`ensure_themes`] so the user
@@ -245,55 +253,151 @@ pub fn get_config_path() -> Option<PathBuf> {
     None
 }
 
-/// Ensure the default config exists at ~/.config/tmuxy/tmuxy.conf.
-/// Creates the directory and file with defaults if they don't exist.
+/// Ensure the shipped defaults and user config exist at
+/// ~/.config/tmuxy/. Three files participate:
+///
+///   - `tmuxy.defaults.conf` — shipped baseline. **Overwritten every
+///     launch** so improvements (new bindings, new options) land without
+///     any user merge work. The user's `tmuxy.conf` sources this first.
+///   - `tmuxy.conf` — user-editable. Created from the shipped template
+///     only if it doesn't already exist. Sources defaults, leaves space
+///     for overrides, then sources state.
+///   - `tmuxy.state.conf` — app-managed state (theme, etc.). Not created
+///     here; written by [`write_managed_state`] when the UI changes it.
+///     The user conf sources this last with `-q` so a missing file is OK.
 ///
 /// Also migrates configs written by older tmuxy releases (≤0.0.4) that
-/// referenced helper scripts via the relative path `bin/tmuxy/…`. Those
-/// paths only resolved when tmuxy was launched from the project root —
-/// the .app bundle's working directory is `/`, so Ctrl+hjkl navigation
-/// and pane-group commands silently no-op'd. We rewrite to the absolute
-/// `$HOME/.config/tmuxy/bin/tmuxy/…` path that [`ensure_bin_scripts`]
-/// materializes, leaving any user customizations elsewhere in the file
-/// intact.
+/// referenced helper scripts via the relative path `bin/tmuxy/…`.
 pub fn ensure_config() -> PathBuf {
     let dir = config_dir();
-    let config_path = dir.join("tmuxy.conf");
+    let user_path = dir.join("tmuxy.conf");
+    let defaults_path = dir.join("tmuxy.defaults.conf");
 
-    if !config_path.exists() {
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            eprintln!("Warning: could not create config dir {:?}: {}", dir, e);
-            return config_path;
-        }
-        if let Err(e) = std::fs::write(&config_path, DEFAULT_CONFIG) {
-            eprintln!(
-                "Warning: could not write default config to {:?}: {}",
-                config_path, e
-            );
-        } else {
-            eprintln!("Created default config at {:?}", config_path);
-        }
-        return config_path;
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("Warning: could not create config dir {:?}: {}", dir, e);
+        return user_path;
     }
 
-    // Migrate stale relative bin paths in pre-existing user configs.
-    if let Ok(existing) = std::fs::read_to_string(&config_path) {
-        let migrated = migrate_bin_paths(&existing);
-        let migrated = repair_doubled_bin_paths(&migrated);
-        let migrated = migrate_tab_bindings(&migrated);
-        if migrated != existing {
-            if let Err(e) = std::fs::write(&config_path, &migrated) {
+    // Always refresh the defaults file — it's app-owned, not user-owned.
+    // Skip the rewrite if it's a symlink so the dev-container workflow
+    // (symlink to the repo's checked-in defaults) keeps working.
+    let defaults_is_symlink = std::fs::symlink_metadata(&defaults_path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    if !defaults_is_symlink {
+        let needs_defaults_write = match std::fs::read_to_string(&defaults_path) {
+            Ok(existing) => existing != DEFAULT_DEFAULTS_CONF,
+            Err(_) => true,
+        };
+        if needs_defaults_write {
+            if let Err(e) = std::fs::write(&defaults_path, DEFAULT_DEFAULTS_CONF) {
                 eprintln!(
-                    "Warning: could not migrate config at {:?}: {}",
-                    config_path, e
+                    "Warning: could not write {:?}: {}",
+                    defaults_path.file_name().unwrap_or_default(),
+                    e
                 );
             } else {
-                eprintln!("Migrated tmuxy.conf at {:?}", config_path);
+                eprintln!("Refreshed tmuxy.defaults.conf at {:?}", defaults_path);
             }
         }
     }
 
-    config_path
+    // Create the user-editable conf only if it doesn't exist.
+    if !user_path.exists() {
+        if let Err(e) = std::fs::write(&user_path, DEFAULT_USER_CONF) {
+            eprintln!(
+                "Warning: could not write default user config to {:?}: {}",
+                user_path, e
+            );
+        } else {
+            eprintln!("Created tmuxy.conf at {:?}", user_path);
+        }
+        return user_path;
+    }
+
+    // Migrate stale relative bin paths in pre-existing user configs. Skip
+    // when the path is a symlink (devcontainer workflow) so we don't write
+    // through to the repo-checked-in file.
+    let user_is_symlink = std::fs::symlink_metadata(&user_path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    if !user_is_symlink {
+        if let Ok(existing) = std::fs::read_to_string(&user_path) {
+            let migrated = migrate_bin_paths(&existing);
+            let migrated = repair_doubled_bin_paths(&migrated);
+            let migrated = migrate_tab_bindings(&migrated);
+            if migrated != existing {
+                if let Err(e) = std::fs::write(&user_path, &migrated) {
+                    eprintln!(
+                        "Warning: could not migrate config at {:?}: {}",
+                        user_path, e
+                    );
+                } else {
+                    eprintln!("Migrated tmuxy.conf at {:?}", user_path);
+                }
+            }
+        }
+    }
+
+    user_path
+}
+
+/// Update one field in app-managed state at `~/.config/tmuxy/tmuxy.state.conf`
+/// so the next tmux server source-files it on startup. Without this, picking
+/// a theme only sets a live tmux global option — the moment the server dies
+/// (last session closes, app fully quits) the choice is lost.
+///
+/// Reads the existing state file (if present) so unspecified fields are
+/// preserved. Pass `Some` for whichever fields you're updating; pass `None`
+/// to leave them as-is. The file is small and rewritten from scratch each
+/// call rather than diffed in place.
+pub fn write_managed_state(
+    theme: Option<&str>,
+    theme_mode: Option<&str>,
+) -> std::io::Result<PathBuf> {
+    let dir = config_dir();
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("tmuxy.state.conf");
+
+    let (mut existing_theme, mut existing_mode) = read_managed_state(&path);
+    if let Some(t) = theme {
+        existing_theme = Some(t.to_string());
+    }
+    if let Some(m) = theme_mode {
+        existing_mode = Some(m.to_string());
+    }
+
+    let mut body = String::from(
+        "# tmuxy.state.conf — managed by the tmuxy app. Do not hand-edit.\n\
+         # Sourced last by tmuxy.conf so it overrides anything set above.\n\n",
+    );
+    if let Some(t) = existing_theme {
+        body.push_str(&format!("set -g @tmuxy-theme {}\n", t));
+    }
+    if let Some(m) = existing_mode {
+        body.push_str(&format!("set -g @tmuxy-theme-mode {}\n", m));
+    }
+    std::fs::write(&path, body)?;
+    Ok(path)
+}
+
+/// Parse the managed state file. Returns (theme, theme_mode); each field is
+/// `None` if the file doesn't exist or doesn't set that option.
+fn read_managed_state(path: &std::path::Path) -> (Option<String>, Option<String>) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (None, None);
+    };
+    let mut theme = None;
+    let mut mode = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("set -g @tmuxy-theme-mode ") {
+            mode = Some(rest.trim().to_string());
+        } else if let Some(rest) = trimmed.strip_prefix("set -g @tmuxy-theme ") {
+            theme = Some(rest.trim().to_string());
+        }
+    }
+    (theme, mode)
 }
 
 /// Repair `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/…` doubled

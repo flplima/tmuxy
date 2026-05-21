@@ -186,9 +186,18 @@ pub async fn get_theme_settings() -> Result<Value, String> {
 pub async fn set_theme(name: String, mode: Option<String>) -> Result<(), String> {
     executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme", &name])
         .map_err(|e| format!("Failed to set theme: {}", e))?;
-    if let Some(m) = mode {
-        executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", &m])
+    if let Some(ref m) = mode {
+        executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", m])
             .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+    }
+    // Persist to tmuxy.state.conf so the choice survives a tmux server
+    // restart (e.g. fully quitting the app). Failure here is non-fatal —
+    // the live tmux option is already set, just won't outlive the server.
+    if let Err(e) = session::write_managed_state(Some(&name), mode.as_deref()) {
+        eprintln!(
+            "Warning: could not persist theme to tmuxy.state.conf: {}",
+            e
+        );
     }
     Ok(())
 }
@@ -197,6 +206,12 @@ pub async fn set_theme(name: String, mode: Option<String>) -> Result<(), String>
 pub async fn set_theme_mode(mode: String) -> Result<(), String> {
     executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", &mode])
         .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+    if let Err(e) = session::write_managed_state(None, Some(&mode)) {
+        eprintln!(
+            "Warning: could not persist theme mode to tmuxy.state.conf: {}",
+            e
+        );
+    }
     Ok(())
 }
 
