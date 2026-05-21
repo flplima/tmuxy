@@ -107,10 +107,7 @@ async function waitForAppReady(driver, timeout = 30000) {
 }
 
 /**
- * Wait for window.app (XState machine) to be available AND for at least
- * one 'tab' window to have arrived in context. Without the second check,
- * tests that read getWindowCount immediately race the auto-adopt path
- * that tags the initial window as @tmuxy-window-type tab.
+ * Wait for window.app (XState machine) to be available.
  *
  * @param {WebdriverIO.Browser} driver
  * @param {number} timeout
@@ -119,14 +116,12 @@ async function waitForXState(driver, timeout = 15000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const ready = await driver.execute(() => {
-      const snap = window.app?.getSnapshot?.();
-      if (!snap?.context) return false;
-      return (snap.context.windows || []).some((w) => w.windowType === 'tab');
+      return !!window.app?.getSnapshot;
     });
     if (ready) return;
     await driver.pause(200);
   }
-  throw new Error(`window.app not ready (no tab window) within ${timeout}ms`);
+  throw new Error(`window.app not available within ${timeout}ms`);
 }
 
 /**

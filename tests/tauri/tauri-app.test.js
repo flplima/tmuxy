@@ -138,7 +138,10 @@ describe('IPC Commands', () => {
   test('new window via IPC', async () => {
     await setupApp();
 
-    expect(await getWindowCount(driver)).toBe(1);
+    // Wait for the initial window to be auto-tagged as `tab` before counting —
+    // setupApp returns once window.app exists, but the auto-adopt that stamps
+    // @tmuxy-window-type on pre-existing windows is one event-loop hop behind.
+    await waitForWindowCount(driver, 1);
 
     await invokeCommand(driver, 'new_window');
     await waitForWindowCount(driver, 2);
@@ -167,7 +170,7 @@ describe('IPC Commands', () => {
   test('run_tmux_command rewrites new-window to splitw+breakp', async () => {
     await setupApp();
 
-    expect(await getWindowCount(driver)).toBe(1);
+    await waitForWindowCount(driver, 1);
 
     await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
     await waitForWindowCount(driver, 2);
