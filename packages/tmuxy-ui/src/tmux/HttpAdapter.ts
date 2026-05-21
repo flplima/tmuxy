@@ -261,7 +261,42 @@ export class HttpAdapter implements TmuxAdapter {
     // Non-send-keys command: flush all pending batches first to preserve ordering
     this.keyBatcher.flushAll();
 
+    // run_tmux_command is a mutating call that MUST reach the monitor's
+    // command channel in issue order. axum spawns each POST as its own task,
+    // so two concurrent invokes can call `tx.send()` in the reverse order
+    // they were issued from the frontend — and a `split-window -h` that
+    // raced past a `select-window -t @B` would split the previous tab. Chain
+    // through `sendQueue` so HTTP POSTs leave the browser one at a time.
+    if (cmd === 'run_tmux_command') {
+      return this.enqueueSerialInvoke<T>(cmd, args);
+    }
+
     return this.invokeInternal(cmd, args);
+  }
+
+  /**
+   * Chain an invoke onto the serial sendQueue so it runs only after every
+   * earlier mutating command has completed its POST. Errors are caught on
+   * the queue chain so a single failure doesn't deadlock subsequent commands,
+   * but they're re-thrown on the returned promise so the caller still sees
+   * them.
+   */
+  private enqueueSerialInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    let resolveOuter!: (value: T | PromiseLike<T>) => void;
+    let rejectOuter!: (reason: unknown) => void;
+    const outer = new Promise<T>((res, rej) => {
+      resolveOuter = res;
+      rejectOuter = rej;
+    });
+    this.sendQueue = this.sendQueue.then(async () => {
+      try {
+        const result = await this.invokeInternal<T>(cmd, args);
+        resolveOuter(result);
+      } catch (err) {
+        rejectOuter(err);
+      }
+    });
+    return outer;
   }
 
   // Serialized send queue: ensures keystroke HTTP requests are sent one at a

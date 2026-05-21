@@ -169,6 +169,13 @@ export class TauriAdapter implements TmuxAdapter {
     return this.reconnectingState;
   }
 
+  // Serial queue for mutating commands so they reach the Tauri executor in
+  // issue order. Same rationale as HttpAdapter: tauri::invoke spawns each
+  // command as its own task and tmux's external subprocess calls have no
+  // cross-command ordering guarantee. A `split-window -h` racing past a
+  // `select-window -t @B` would split the previous tab.
+  private sendQueue: Promise<void> = Promise.resolve();
+
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     const { invoke } = await import('@tauri-apps/api/core');
 
@@ -186,6 +193,24 @@ export class TauriAdapter implements TmuxAdapter {
 
     // Non-send-keys command: flush all pending batches first to preserve ordering
     this.keyBatcher?.flushAll();
+
+    if (cmd === 'run_tmux_command') {
+      let resolveOuter!: (value: T | PromiseLike<T>) => void;
+      let rejectOuter!: (reason: unknown) => void;
+      const outer = new Promise<T>((res, rej) => {
+        resolveOuter = res;
+        rejectOuter = rej;
+      });
+      this.sendQueue = this.sendQueue.then(async () => {
+        try {
+          const result = await invoke<T>(cmd, args);
+          resolveOuter(result);
+        } catch (err) {
+          rejectOuter(err);
+        }
+      });
+      return outer;
+    }
 
     return invoke(cmd, args);
   }
