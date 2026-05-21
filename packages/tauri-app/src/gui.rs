@@ -651,7 +651,13 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
         .title("tmuxy")
         .inner_size(800.0, 600.0)
         .resizable(true)
-        .fullscreen(false);
+        .fullscreen(false)
+        // macOS swallows the first click on an inactive window — only the
+        // os-level focus changes, the webview never sees the mousedown. With
+        // `accept_first_mouse(true)` the click flows through, so clicking
+        // an inactive pane to bring tmuxy back to the foreground also makes
+        // that pane active in one motion instead of two.
+        .accept_first_mouse(true);
 
     if !opaque {
         builder = builder.transparent(true);
