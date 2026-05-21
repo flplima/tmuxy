@@ -765,6 +765,55 @@ describe('Op predictions — tmux-output shape', () => {
     expect(newWin.index).toBe(8);
   });
 
+  it('NewWindow prediction creates a full-viewport pane and focuses the new tab', () => {
+    const m = modelFromSnapshot({
+      panes: [],
+      windows: [
+        {
+          id: '@5',
+          index: 5,
+          name: 'a',
+          active: true,
+          windowType: 'tab',
+          groupPanes: null,
+          floatParent: null,
+          floatWidth: null,
+          floatHeight: null,
+          floatDrawer: null,
+          floatBg: null,
+          floatNoheader: false,
+        },
+      ],
+      activePaneId: null,
+      activeWindowId: '@5',
+      totalWidth: 160,
+      totalHeight: 48,
+      statusLine: '',
+      sessionName: 'tmuxy',
+    });
+    const r = predict(
+      { _tag: 'NewWindow' },
+      m.committed,
+      { defaultShell: 'bash', paneActivationOrder: [] },
+      'opNW2',
+    )!;
+    const next = r.patch(m.committed);
+    const newWin = next.windows.find((w) => w.id.startsWith('__placeholder_'))!;
+    const newPane = next.panes.find((p) => p.windowId === newWin.id)!;
+    // Pane must match the full viewport, not inherit half-split dimensions.
+    expect(newPane.x).toBe(0);
+    expect(newPane.y).toBe(0);
+    expect(newPane.width).toBe(160);
+    expect(newPane.height).toBe(48);
+    // The new tab is focused optimistically.
+    expect(next.activeWindowId).toBe(newWin.id);
+    expect(next.activePaneId).toBe(newPane.tmuxId);
+    expect(newWin.active).toBe(true);
+    // Prior tab is no longer the active one in the predicted snapshot.
+    const priorWin = next.windows.find((w) => w.id === '@5')!;
+    expect(priorWin.active).toBe(false);
+  });
+
   it('reconcile after sessionName change still cleanly matches new ops', async () => {
     const fake = makeFakeAdapter();
     const store = await Effect.runPromise(

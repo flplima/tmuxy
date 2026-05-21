@@ -25,16 +25,24 @@ describe('CLI tab subcommands', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'create']);
       expect(exitCode).toBe(0);
       // Routes through run-shell with a compound splitw+breakp command so
-      // it doesn't crash tmux 3.5a when control mode is attached.
+      // it doesn't crash tmux 3.5a when control mode is attached. The
+      // set-option tags the new window as a managed tab so the frontend
+      // picks it up on the next list-windows refresh.
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux splitw \\; breakp']);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        'tmux splitw \\; breakp \\; set-option -w @tmuxy-window-type tab',
+      ]);
     });
 
     test('creates tab with name', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'create', 'my-tab']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux splitw \\; breakp -n 'my-tab'"]);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux splitw \\; breakp -n 'my-tab' \\; set-option -w @tmuxy-window-type tab",
+      ]);
     });
   });
 

@@ -21,10 +21,12 @@ describe('CLI run escape hatch', () => {
       const { stdout, stderr, exitCode, tmuxCalls } = runCLI(['run', 'new-window']);
       expect(exitCode).toBe(0);
       expect(stderr).toContain('new-window intercepted for safety');
-      // Should use split-window + break-pane instead
-      expect(tmuxCalls).toHaveLength(2);
+      // Should use split-window + break-pane (+ display-message to look up
+      // the new window id for the @tmuxy-window-type tag).
+      expect(tmuxCalls).toHaveLength(3);
       expect(tmuxCalls[0].args[0]).toBe('split-window');
       expect(tmuxCalls[1].args[0]).toBe('break-pane');
+      expect(tmuxCalls[2].args[0]).toBe('display-message');
       expect(stdout.trim()).toBe('%99');
     });
 
@@ -32,7 +34,7 @@ describe('CLI run escape hatch', () => {
       const { stderr, exitCode, tmuxCalls } = runCLI(['run', 'neww']);
       expect(exitCode).toBe(0);
       expect(stderr).toContain('new-window intercepted');
-      expect(tmuxCalls).toHaveLength(2);
+      expect(tmuxCalls).toHaveLength(3);
     });
 
     test('intercepts new-window with -n name', () => {

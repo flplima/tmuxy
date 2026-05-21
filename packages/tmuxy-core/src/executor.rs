@@ -125,10 +125,41 @@ pub fn new_window(session_name: &str) -> Result<(), String> {
     // same result without crashing. `-P -F '#{window_id}'` prints the new
     // window's id so we can tag it with @tmuxy-window-type=tab without
     // racing the control-mode auto-adopt.
+    //
+    // The new window inherits the size of the broken-out pane (half the
+    // source window after splitw), so we explicitly resize it to match the
+    // source window's full dimensions before the user sees it.
+    let size_output = execute_tmux_command(&[
+        "display-message",
+        "-t",
+        session_name,
+        "-p",
+        "#{window_width}x#{window_height}",
+    ])
+    .unwrap_or_default();
+    let (cols, rows) = size_output
+        .trim()
+        .split_once('x')
+        .and_then(|(c, r)| Some((c.parse::<u32>().ok()?, r.parse::<u32>().ok()?)))
+        .unwrap_or((0, 0));
+
     execute_tmux_command(&["split-window", "-t", session_name])?;
     let new_window_id = execute_tmux_command(&["break-pane", "-d", "-P", "-F", "#{window_id}"])?;
     let new_window_id = new_window_id.trim();
     if !new_window_id.is_empty() {
+        if cols > 0 && rows > 0 {
+            let cols_s = cols.to_string();
+            let rows_s = rows.to_string();
+            let _ = execute_tmux_command(&[
+                "resize-window",
+                "-t",
+                new_window_id,
+                "-x",
+                &cols_s,
+                "-y",
+                &rows_s,
+            ]);
+        }
         let _ = execute_tmux_command(&[
             "set-option",
             "-w",

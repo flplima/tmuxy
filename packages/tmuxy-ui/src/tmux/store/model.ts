@@ -137,6 +137,22 @@ export function applyServerSnapshot(
           }
         } else if (op.op._tag === 'NewWindow') {
           claimedWindows.add(verdict.realId);
+          // Map the new window's single pane to the placeholder pane id so
+          // PaneLayout's React key survives the optimistic→real swap without
+          // unmount/remount flicker.
+          const placeholderPaneId = (op.meta as { placeholderPaneId?: string }).placeholderPaneId;
+          if (placeholderPaneId) {
+            const newPane = committed.panes.find(
+              (p) => p.windowId === verdict.realId && !claimedPanes.has(p.tmuxId),
+            );
+            if (newPane) {
+              paneKeyOverrides = {
+                ...paneKeyOverrides,
+                [newPane.tmuxId]: placeholderPaneId,
+              };
+              claimedPanes.add(newPane.tmuxId);
+            }
+          }
         }
       }
       continue;

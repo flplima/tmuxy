@@ -440,15 +440,7 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         "new_window" => {
-            // neww crashes tmux 3.5a control mode — use split+break workaround.
-            // Compound command: splitw makes the new pane active, then breakp
-            // breaks it into its own window and switches to it (matching neww behavior).
-            // set-option -w (no -t) operates on the newly active window, tagging it
-            // as a managed tab so the frontend keeps it in the tab strip.
-            let cmd = format!(
-                "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
-                session
-            );
+            let cmd = build_new_window_command(state, session).await;
             send_via_control_mode(state, session, &cmd).await?;
             Ok(serde_json::json!(null))
         }
@@ -530,10 +522,7 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if key == "c" {
-                let cmd = format!(
-                    "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
-                    session
-                );
+                let cmd = build_new_window_command(state, session).await;
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
@@ -607,10 +596,7 @@ async fn handle_command(
 
             // neww crashes tmux 3.5a control mode — use split+break workaround
             if command.starts_with("new-window") || command.starts_with("neww") {
-                let cmd = format!(
-                    "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
-                    session
-                );
+                let cmd = build_new_window_command(state, session).await;
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
             }
@@ -863,6 +849,34 @@ fn compute_min_client_size(sizes: &HashMap<u64, (u32, u32)>) -> (u32, u32) {
     let min_cols = sizes.values().map(|(c, _)| *c).min().unwrap_or(80);
     let min_rows = sizes.values().map(|(_, r)| *r).min().unwrap_or(24);
     (min_cols, min_rows)
+}
+
+/// Build the `new-window` rewrite (splitw + breakp + resizew + window-tag).
+/// `resizew` targets the current window, which is the new one after `breakp`,
+/// so the new window matches the viewport at creation rather than inheriting
+/// the half-width post-split size or the 200x50 control-mode PTY default.
+async fn build_new_window_command(state: &Arc<AppState>, session: &str) -> String {
+    let resize = {
+        let sessions = state.sessions.read().await;
+        sessions.get(session).and_then(|s| {
+            if s.client_sizes.is_empty() {
+                None
+            } else {
+                Some(compute_min_client_size(&s.client_sizes))
+            }
+        })
+    };
+    if let Some((cols, rows)) = resize {
+        format!(
+            "splitw -t {} ; breakp ; resizew -x {} -y {} ; set-option -w @tmuxy-window-type tab",
+            session, cols, rows
+        )
+    } else {
+        format!(
+            "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
+            session
+        )
+    }
 }
 
 /// Store a client's viewport size and resize the tmux session.

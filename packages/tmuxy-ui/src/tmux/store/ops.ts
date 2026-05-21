@@ -54,7 +54,7 @@ export function predict(
     case 'Swap':
       return predictSwap(op, snapshot);
     case 'NewWindow':
-      return predictNewWindow(snapshot, opId);
+      return predictNewWindow(snapshot, ctx, opId);
     case 'SelectWindow':
       return predictSelectWindow(op, snapshot);
     case 'RawCommand':
@@ -486,14 +486,19 @@ function positionClose(
 // NewWindow
 // ============================================
 
-function predictNewWindow(snapshot: TmuxSnapshot, opId: string): PredictResult {
+function predictNewWindow(
+  snapshot: TmuxSnapshot,
+  ctx: PredictContext,
+  opId: string,
+): PredictResult {
   const maxIndex = snapshot.windows.reduce((m, w) => Math.max(m, w.index), -1);
-  const placeholderId = `__placeholder_${opId}`;
-  const placeholder: TmuxWindow = {
-    id: placeholderId,
+  const placeholderWindowId = `__placeholder_${opId}`;
+  const placeholderPaneId = `__placeholder_pane_${opId}`;
+  const placeholderWindow: TmuxWindow = {
+    id: placeholderWindowId,
     index: maxIndex + 1,
     name: `Window ${maxIndex + 1}`,
-    active: false,
+    active: true,
     windowType: 'tab',
     groupPanes: null,
     floatParent: null,
@@ -503,13 +508,40 @@ function predictNewWindow(snapshot: TmuxSnapshot, opId: string): PredictResult {
     floatBg: null,
     floatNoheader: false,
   };
+  // Size the placeholder pane to the current viewport so the new tab renders
+  // full-width immediately instead of waiting for the server's resize delta.
+  // Fall back to the active pane's window dimensions if totalWidth/Height
+  // aren't populated yet (initial-load case).
+  let cols = snapshot.totalWidth;
+  let rows = snapshot.totalHeight;
+  if (cols <= 0 || rows <= 0) {
+    const activeWindow = snapshot.windows.find((w) => w.id === snapshot.activeWindowId);
+    const sibling = snapshot.panes.find((p) => p.windowId === activeWindow?.id);
+    if (sibling) {
+      cols = sibling.x + sibling.width;
+      rows = sibling.y + sibling.height;
+    }
+  }
+  const placeholderPane: TmuxPane = makePlaceholderPane(
+    placeholderPaneId,
+    placeholderWindowId,
+    ctx.defaultShell,
+    { x: 0, y: 0, width: cols, height: rows },
+  );
+
   const priorWindowIds = snapshot.windows.map((w) => w.id);
 
-  const patch: Patch = (s) => ({ ...s, windows: [...s.windows, placeholder] });
+  const patch: Patch = (s) => ({
+    ...s,
+    windows: [...s.windows.map((w) => ({ ...w, active: false })), placeholderWindow],
+    panes: [...s.panes, placeholderPane],
+    activeWindowId: placeholderWindowId,
+    activePaneId: placeholderPaneId,
+  });
 
   return {
     patch,
-    meta: { placeholderId, priorWindowIds },
+    meta: { placeholderWindowId, placeholderPaneId, priorWindowIds },
   };
 }
 
@@ -522,7 +554,11 @@ function reconcileNewWindow(
   const prior = new Set(meta.priorWindowIds as string[]);
   if (windows.length === 0) return { _tag: 'pending' };
   const candidate = windows.find(
-    (w) => !prior.has(w.id) && !w.id.startsWith('__placeholder_') && !claimedRealIds.has(w.id),
+    (w) =>
+      !prior.has(w.id) &&
+      !w.id.startsWith('__placeholder_') &&
+      !claimedRealIds.has(w.id) &&
+      w.windowType === 'tab',
   );
   if (candidate) return { _tag: 'matched', realId: candidate.id };
   return { _tag: 'pending' };
