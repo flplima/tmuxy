@@ -19,17 +19,30 @@ fn read_tmuxy_option(name: &str) -> Option<String> {
         }
     }
 
-    // Fall back to parsing the config files in tmux's source order (defaults
-    // first, then user conf, then app-managed state) — last assignment wins,
-    // matching what `source-file` would resolve to.
+    // Fall back to parsing the config files in tmux's source order
+    // (defaults first, then user conf) — last assignment wins, matching what
+    // `source-file` would resolve to. App-managed state lives in
+    // tmuxy.state.json and is applied via set-option at session-init time,
+    // so it wins over both files at runtime; check it last here so the
+    // fallback matches that ordering for the not-yet-connected path.
     let dir = session::config_dir();
     let mut found: Option<String> = None;
-    for filename in ["tmuxy.defaults.conf", "tmuxy.conf", "tmuxy.state.conf"] {
+    for filename in ["tmuxy.defaults.conf", "tmuxy.conf"] {
         if let Ok(content) = std::fs::read_to_string(dir.join(filename)) {
             if let Some(v) = parse_option_from_config(&content, name) {
                 found = Some(v);
             }
         }
+    }
+    // tmuxy.state.json overrides — translate known keys to their @tmuxy-* option.
+    let state = session::read_managed_state();
+    let state_value = match name {
+        "@tmuxy-theme" => state.theme,
+        "@tmuxy-theme-mode" => state.theme_mode,
+        _ => None,
+    };
+    if state_value.is_some() {
+        found = state_value;
     }
     found
 }

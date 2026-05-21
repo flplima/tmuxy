@@ -342,62 +342,103 @@ pub fn ensure_config() -> PathBuf {
     user_path
 }
 
-/// Update one field in app-managed state at `~/.config/tmuxy/tmuxy.state.conf`
-/// so the next tmux server source-files it on startup. Without this, picking
-/// a theme only sets a live tmux global option — the moment the server dies
-/// (last session closes, app fully quits) the choice is lost.
+/// App-managed state persisted to `~/.config/tmuxy/tmuxy.state.json`.
 ///
-/// Reads the existing state file (if present) so unspecified fields are
-/// preserved. Pass `Some` for whichever fields you're updating; pass `None`
-/// to leave them as-is. The file is small and rewritten from scratch each
-/// call rather than diffed in place.
+/// Read on startup by [`apply_managed_state`] which translates each set field
+/// into a `set-option -g` against tmux, so a theme picked through the UI
+/// survives a tmux server restart (fully quitting the app, last session
+/// closing, etc.).
+///
+/// Unknown JSON keys are tolerated and preserved on write — this is the
+/// forwards-compatibility hatch when older binaries read state files written
+/// by newer ones. Add new fields freely; just don't rename existing ones
+/// without a migration.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ManagedState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_mode: Option<String>,
+    /// Preserve unknown keys across roundtrips so a newer build's state file
+    /// isn't truncated when read+written by an older one.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Path to the JSON state file inside the user's config dir. Does not check
+/// for existence — callers handle missing files.
+pub fn managed_state_path() -> PathBuf {
+    config_dir().join("tmuxy.state.json")
+}
+
+/// Read the managed state from disk. Returns a default (all-None) struct if
+/// the file is missing or unparseable rather than erroring — losing app
+/// state should never crash startup.
+pub fn read_managed_state() -> ManagedState {
+    let path = managed_state_path();
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return ManagedState::default();
+    };
+    match serde_json::from_str::<ManagedState>(&text) {
+        Ok(state) => state,
+        Err(e) => {
+            eprintln!(
+                "Warning: could not parse {:?} ({}); using defaults",
+                path, e
+            );
+            ManagedState::default()
+        }
+    }
+}
+
+/// Update one field in the JSON state file. Reads the existing file (if
+/// any) so unspecified fields are preserved; pass `Some` for whichever
+/// fields you're updating, `None` to leave them as-is.
 pub fn write_managed_state(
     theme: Option<&str>,
     theme_mode: Option<&str>,
 ) -> std::io::Result<PathBuf> {
     let dir = config_dir();
     std::fs::create_dir_all(&dir)?;
-    let path = dir.join("tmuxy.state.conf");
+    let path = managed_state_path();
 
-    let (mut existing_theme, mut existing_mode) = read_managed_state(&path);
+    let mut state = read_managed_state();
     if let Some(t) = theme {
-        existing_theme = Some(t.to_string());
+        state.theme = Some(t.to_string());
     }
     if let Some(m) = theme_mode {
-        existing_mode = Some(m.to_string());
+        state.theme_mode = Some(m.to_string());
     }
 
-    let mut body = String::from(
-        "# tmuxy.state.conf — managed by the tmuxy app. Do not hand-edit.\n\
-         # Sourced last by tmuxy.conf so it overrides anything set above.\n\n",
-    );
-    if let Some(t) = existing_theme {
-        body.push_str(&format!("set -g @tmuxy-theme {}\n", t));
-    }
-    if let Some(m) = existing_mode {
-        body.push_str(&format!("set -g @tmuxy-theme-mode {}\n", m));
-    }
-    std::fs::write(&path, body)?;
+    let body = serde_json::to_string_pretty(&state)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(&path, format!("{}\n", body))?;
     Ok(path)
 }
 
-/// Parse the managed state file. Returns (theme, theme_mode); each field is
-/// `None` if the file doesn't exist or doesn't set that option.
-fn read_managed_state(path: &std::path::Path) -> (Option<String>, Option<String>) {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return (None, None);
-    };
-    let mut theme = None;
-    let mut mode = None;
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("set -g @tmuxy-theme-mode ") {
-            mode = Some(rest.trim().to_string());
-        } else if let Some(rest) = trimmed.strip_prefix("set -g @tmuxy-theme ") {
-            theme = Some(rest.trim().to_string());
+/// Push every set field in the JSON state file into tmux as a global option,
+/// so the running server's `show-options -gqv @tmuxy-theme` (etc.) returns
+/// the persisted value. Called once during session init — failure on any
+/// individual `set-option` is logged but doesn't abort startup.
+pub fn apply_managed_state(session_name: &str) {
+    let state = read_managed_state();
+    let pairs: [(Option<&str>, &str); 2] = [
+        (state.theme.as_deref(), "@tmuxy-theme"),
+        (state.theme_mode.as_deref(), "@tmuxy-theme-mode"),
+    ];
+    for (value, option) in pairs {
+        let Some(v) = value else { continue };
+        if let Err(e) = crate::executor::execute_tmux_command(&[
+            "set-option",
+            "-t",
+            session_name,
+            "-g",
+            option,
+            v,
+        ]) {
+            eprintln!("Warning: failed to apply {}={}: {}", option, v, e);
         }
     }
-    (theme, mode)
 }
 
 /// Repair `$HOME/.config/tmuxy/$HOME/.config/tmuxy/bin/tmuxy/…` doubled
@@ -841,6 +882,11 @@ pub fn create_or_attach(session_name: &str) -> Result<(), String> {
         // Source config for existing session
         let _ = source_config(session_name);
     }
+    // Re-apply persisted app state (theme, etc.). Runs whether the session
+    // was just created or already existed — in both cases tmux's globals
+    // may have been reset (fresh server) or carry stale values from a prior
+    // tmuxy build. Failure is logged inside the helper, not returned.
+    apply_managed_state(session_name);
     Ok(())
 }
 
@@ -919,5 +965,38 @@ mod tests {
             .find(|l| l.contains("@tmuxy-opacity"))
             .expect("opacity line");
         assert!(opacity_line.ends_with("0.8"));
+    }
+
+    #[test]
+    fn managed_state_serde_roundtrips() {
+        let state = ManagedState {
+            theme: Some("dracula".into()),
+            theme_mode: Some("dark".into()),
+            extra: serde_json::Map::new(),
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        let parsed: ManagedState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.theme.as_deref(), Some("dracula"));
+        assert_eq!(parsed.theme_mode.as_deref(), Some("dark"));
+    }
+
+    #[test]
+    fn managed_state_preserves_unknown_keys_across_roundtrip() {
+        // Newer-tmuxy fields should survive an old-tmuxy read+write so we don't
+        // truncate state when an old binary touches a new file.
+        let input = r#"{"theme":"gruvbox","future_field":"keep me","nested":{"a":1}}"#;
+        let parsed: ManagedState = serde_json::from_str(input).unwrap();
+        let out = serde_json::to_string(&parsed).unwrap();
+        assert!(out.contains("\"future_field\":\"keep me\""));
+        assert!(out.contains("\"nested\""));
+        assert!(out.contains("\"theme\":\"gruvbox\""));
+    }
+
+    #[test]
+    fn managed_state_skips_unset_fields_on_serialize() {
+        let state = ManagedState::default();
+        let json = serde_json::to_string(&state).unwrap();
+        // Empty struct must not write nulls — older readers might choke on them.
+        assert_eq!(json, "{}");
     }
 }
