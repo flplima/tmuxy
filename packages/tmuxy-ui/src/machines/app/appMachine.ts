@@ -1238,10 +1238,17 @@ export const appMachine = setup({
             // dispatch — the placeholder→real-id swap in PaneLayout would
             // otherwise transition the React key change as a fade-in/out. The
             // post-confirm TMUX_MODEL_UPDATE re-enables animations naturally
-            // (the same `enableAnimations` settle path runs as before).
+            // (the same `enableAnimations` settle path runs as before). Same
+            // logic for multi-step pane-group/float shell scripts: the server
+            // settles their intermediate window events into a single delta,
+            // but the resulting active-pane swap can still trigger a CSS
+            // transition we don't want.
             const isSplit = /^(split-window|splitw)\b/.test(tail);
             const isNew = /^(new-window|neww)\b/.test(tail);
-            if (isSplit || isNew) {
+            const isMultiStepRunShell =
+              /^run-shell\b/.test(tail) &&
+              /pane-group-(add|close|switch|next|prev)|float-create/.test(tail);
+            if (isSplit || isNew || isMultiStepRunShell) {
               enqueue(assign({ enableAnimations: false }));
             }
 

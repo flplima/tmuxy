@@ -814,10 +814,23 @@ impl TmuxMonitor {
                             // Frontend sends \; for shell compatibility, convert to ; for control mode
                             let unescaped = command.replace(" \\; ", " ; ");
 
-                            // Settling is disabled — all events emit immediately.
-                            // The splitw;breakp workaround produces intermediate events
-                            // but the frontend handles them correctly via its dedup logic.
-                            let is_compound = false;
+                            // run-shell scripts that do multiple tmux mutations in
+                            // sequence (pane-group-add, pane-group-close, etc.)
+                            // produce intermediate window/layout events the frontend
+                            // would render as a brief split before settling on the
+                            // group layout. Activate the aggregator's settling
+                            // mechanism so window emissions stay suppressed until
+                            // the script finishes and the consolidated state can
+                            // be emitted in one pass.
+                            let is_compound = is_multi_step_run_shell(&unescaped);
+                            if is_compound {
+                                let now = tokio::time::Instant::now();
+                                settling_started = Some(now);
+                                settling_awaiting_first_event = true;
+                                settling_until = Some(now + settling_max);
+                                self.aggregator.set_suppress_window_emissions(true);
+                                eprintln!("[monitor] Settling armed for multi-step run-shell");
+                            }
 
                             if let Err(e) = self.connection.send_command(&unescaped).await {
                                 emitter.emit_error(format!("Failed to run command: {}", e));
@@ -877,6 +890,28 @@ impl TmuxMonitor {
     }
 }
 
+/// True when a control-mode command will run a tmuxy bash script that mutates
+/// tmux state across multiple separate tmux calls (split → break → set-option
+/// → swap → resize, etc.). Each step fires its own %layout-change / %window-add
+/// event; without settling, the frontend renders the intermediate split before
+/// the script lands on the final group layout. Matching by script name (not by
+/// "run-shell" alone) avoids false positives on harmless one-shot scripts like
+/// event-emit or list-* helpers.
+fn is_multi_step_run_shell(command: &str) -> bool {
+    if !command.contains("run-shell") {
+        return false;
+    }
+    const MULTI_STEP_SCRIPTS: &[&str] = &[
+        "pane-group-add",
+        "pane-group-close",
+        "pane-group-switch",
+        "pane-group-next",
+        "pane-group-prev",
+        "float-create",
+    ];
+    MULTI_STEP_SCRIPTS.iter().any(|s| command.contains(s))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -904,5 +939,33 @@ mod tests {
         let config = MonitorConfig::default();
         assert_eq!(config.sync_interval, Duration::from_millis(500));
         assert!(!config.create_session);
+    }
+
+    #[test]
+    fn test_is_multi_step_run_shell_matches_pane_group_scripts() {
+        // Real-world commands the frontend sends through SEND_TMUX_COMMAND.
+        assert!(is_multi_step_run_shell(
+            "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/pane-group-add %3 80 24\""
+        ));
+        assert!(is_multi_step_run_shell(
+            "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/pane-group-close %3\""
+        ));
+        assert!(is_multi_step_run_shell(
+            "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/float-create lazygit\""
+        ));
+    }
+
+    #[test]
+    fn test_is_multi_step_run_shell_skips_one_shot_commands() {
+        // Plain run-shell to one-shot helpers shouldn't arm settling.
+        assert!(!is_multi_step_run_shell("run-shell \"echo hello\""));
+        assert!(!is_multi_step_run_shell(
+            "run-shell \"tmuxy/bin/tmuxy/event-emit foo\""
+        ));
+        // Non-run-shell commands never arm.
+        assert!(!is_multi_step_run_shell("splitw -h"));
+        assert!(!is_multi_step_run_shell(
+            "splitw ; breakp ; set-option -w @tmuxy-window-type tab"
+        ));
     }
 }
