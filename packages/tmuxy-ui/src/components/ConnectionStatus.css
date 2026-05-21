@@ -1,0 +1,37 @@
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  font-family: var(--theme-font-family, monospace);
+  user-select: none;
+  pointer-events: none;
+}
+
+.connection-status-reconnecting {
+  background-color: rgba(255, 176, 0, 0.16);
+  color: rgba(255, 176, 0, 0.95);
+  border: 1px solid rgba(255, 176, 0, 0.4);
+}
+
+.connection-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  animation: connection-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes connection-status-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}

@@ -125,11 +125,15 @@ For high-frequency terminal output (e.g., `yes | head -500`):
 
 ### appMachine
 
-The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Three top-level states:
+The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Five top-level states arranged as a connection lifecycle:
 
-- **`connecting`** — Waiting for backend connection. Transitions to `idle` on `TMUX_CONNECTED`.
-- **`idle`** — Main operational state. Handles all normal interactions.
+- **`connecting`** — Initial. Waiting for the backend handshake. Transitions to `idle` on `TMUX_CONNECTED`.
+- **`idle`** — Live and operational. Handles all normal interactions. The "syncing" sub-flavor — connected, but with one or more optimistic ops in flight — is a derived flag (`tmuxStore.model.ops.length > 0`) surfaced to selectors; it does not gate any handlers, so the user never feels a perceptible mode change when an op is pending.
 - **`removingPane`** — Transient state for pane removal animations. Returns to `idle` when done.
+- **`reconnecting`** — The adapter detected the SSE/Tauri channel dropped and is retrying. Distinct from `connecting` so the UI keeps the stale layout mounted and overlays a "reconnecting…" banner. Transitions to `idle` on `TMUX_RECONNECTED` (next live snapshot) or `disconnected` on `TMUX_DISCONNECTED` / `TMUX_FATAL`.
+- **`disconnected`** — Terminal. Backend gave up or an explicit disconnect happened. The status screen reads `fatalError` to show a non-recoverable banner. No auto-recovery; an adapter-initiated `TMUX_RECONNECTING` is still accepted, so a server that comes back later can pull the UI out of this state.
+
+Reconnection flow: the adapter (`HttpAdapter` / `TauriAdapter`) tracks the retry attempt count and fires `onReconnection(true, attempt)` on every drop. `tmuxActor` forwards this as `TMUX_RECONNECTING { attempt }`; the machine assigns `context.reconnectAttempt` and transitions to `reconnecting`. When the channel recovers, the adapter fires `onReconnection(false, 0)` → `TMUX_RECONNECTED` → back to `idle`. Pending optimistic ops carry across reconnection: the store's `applyServerSnapshot` runs against the first post-recovery full state and reconciles or rolls back each op (stale ops older than `OP_STALE_TIMEOUT_MS` are dropped in that same pass).
 
 ### Machine Context
 

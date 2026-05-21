@@ -10,16 +10,20 @@
 
 import { useCallback } from 'react';
 import type { RenderTabline } from '../App';
-import { useAppSelector, selectGridDimensions } from '../machines/AppContext';
+import { useAppSelector, useAppState, selectGridDimensions } from '../machines/AppContext';
+import { selectReconnectAttempt } from '../machines/selectors';
 import { isTauri } from '../tmux/adapters';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
+import { ConnectionStatus } from './ConnectionStatus';
 import './StatusBar.css';
 
 const isMacTauri = isTauri() && typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
 
 export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) {
   const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
+  const isReconnecting = useAppState('reconnecting');
+  const reconnectAttempt = useAppSelector(selectReconnectAttempt);
 
   const contentWidth = totalWidth > 0 ? totalWidth * charWidth : undefined;
 
@@ -64,6 +68,7 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
         style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
       >
         {renderTabline ? renderTabline({ children: defaultContent }) : defaultContent}
+        <ConnectionStatus reconnecting={isReconnecting} reconnectAttempt={reconnectAttempt} />
       </div>
     </div>
   );

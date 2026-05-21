@@ -116,6 +116,13 @@ export interface AppMachineContext {
    * will arrive on this monitor.
    */
   fatalError: string | null;
+  /**
+   * Adapter's current reconnect attempt count. 0 = channel is live or has
+   * never dropped. >0 = SSE/Tauri channel dropped and the adapter is
+   * retrying. Surfaced in the UI as a banner while in the `reconnecting`
+   * state and cleared on TMUX_RECONNECTED.
+   */
+  reconnectAttempt: number;
   /** Recent commands sent and errors received (debug log shown on status screen) */
   log: LogEntry[];
   sessionName: string;
@@ -337,6 +344,18 @@ export type TmuxErrorEvent = {
 };
 export type TmuxFatalEvent = { type: 'TMUX_FATAL'; message: string };
 export type TmuxDisconnectedEvent = { type: 'TMUX_DISCONNECTED' };
+/**
+ * Adapter detected the SSE/Tauri channel dropped but is retrying. Distinct
+ * from TMUX_DISCONNECTED (gave up) and TMUX_FATAL (no recovery possible).
+ * `attempt` increments per retry — the UI shows it in the reconnect banner.
+ */
+export type TmuxReconnectingEvent = { type: 'TMUX_RECONNECTING'; attempt: number };
+/**
+ * Adapter recovered the channel after one or more failed attempts. The
+ * appMachine returns to the live idle/syncing branch and the store
+ * reconciles pending ops against the next full server snapshot.
+ */
+export type TmuxReconnectedEvent = { type: 'TMUX_RECONNECTED' };
 export type ConnectionInfoEvent = {
   type: 'CONNECTION_INFO';
   connectionId: number;
@@ -551,6 +570,8 @@ export type AppMachineEvent =
   | TmuxErrorEvent
   | TmuxFatalEvent
   | TmuxDisconnectedEvent
+  | TmuxReconnectingEvent
+  | TmuxReconnectedEvent
   | ConnectionInfoEvent
   | KeybindingsReceivedEvent
   | DragStartEvent

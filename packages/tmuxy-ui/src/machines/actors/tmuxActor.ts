@@ -127,6 +127,17 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       parent.send({ type: 'TMUX_FATAL', message });
     });
 
+    // SSE/Tauri channel dropped or recovered. Adapter tracks the attempt
+    // count; we surface it as a state-machine event so the UI can show a
+    // banner while the channel is down and clear it on recovery.
+    const unsubscribeReconnection = adapter.onReconnection((reconnecting, attempt) => {
+      if (reconnecting) {
+        parent.send({ type: 'TMUX_RECONNECTING', attempt });
+      } else {
+        parent.send({ type: 'TMUX_RECONNECTED' });
+      }
+    });
+
     const unsubscribeKeyBindings = adapter.onKeyBindings((keybindings: KeyBindings) => {
       parent.send({ type: 'KEYBINDINGS_RECEIVED', keybindings });
     });
@@ -284,6 +295,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       unsubscribeError();
       unsubscribeLog();
       unsubscribeFatal();
+      unsubscribeReconnection();
       unsubscribeKeyBindings();
       unsubscribeConnectionInfo();
       // Interrupt any pending scrollback fetches so they don't try to

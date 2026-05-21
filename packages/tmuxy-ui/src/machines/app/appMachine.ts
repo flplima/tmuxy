@@ -320,10 +320,24 @@ export const appMachine = setup({
     },
     // Backend gave up reconnecting. The status screen reads `fatalError` to
     // show a non-recoverable banner instead of the "connecting…" spinner.
+    // Target the `disconnected` terminal state so live-only event handlers
+    // (idle, reconnecting, syncing) all stop firing.
     TMUX_FATAL: {
+      target: '.disconnected',
       actions: assign(({ event }) => ({
         fatalError: event.message,
         connected: false,
+      })),
+    },
+    // SSE/Tauri adapter detected the channel dropped and is retrying.
+    // Global so the transition fires from any live state (idle, syncing,
+    // removingPane). The reconnecting state shares idle's handlers via the
+    // event spreads below, just with a banner mounted.
+    TMUX_RECONNECTING: {
+      target: '.reconnecting',
+      actions: assign(({ event }) => ({
+        connected: false,
+        reconnectAttempt: event.attempt,
       })),
     },
     // Size events (handled globally, in any state)
@@ -1117,7 +1131,7 @@ export const appMachine = setup({
           }),
         },
         TMUX_DISCONNECTED: {
-          target: 'connecting',
+          target: 'disconnected',
           actions: assign({ connected: false, enableAnimations: false }),
         },
 
@@ -1862,8 +1876,76 @@ export const appMachine = setup({
           }),
         },
         TMUX_DISCONNECTED: {
-          target: 'connecting',
+          target: 'disconnected',
           actions: assign({ connected: false, pendingUpdate: null, enableAnimations: false }),
+        },
+      },
+    },
+
+    /**
+     * SSE/Tauri channel dropped and the adapter is retrying. Distinct from
+     * `connecting` (cold start, no prior state) so the UI can show a "lost
+     * connection, retrying…" banner over the stale layout instead of the
+     * full status screen. State updates that arrive during reconnection
+     * still flow through the idle handlers via the shared event spreads —
+     * TMUX_RECONNECTED swaps back to idle once a fresh server snapshot
+     * lands, and the store's reconciler runs against pending ops then.
+     */
+    reconnecting: {
+      on: {
+        TMUX_RECONNECTED: {
+          target: 'idle',
+          actions: assign({ connected: true, reconnectAttempt: 0, error: null }),
+        },
+        TMUX_DISCONNECTED: {
+          target: 'disconnected',
+          actions: assign({ connected: false, pendingUpdate: null, enableAnimations: false }),
+        },
+        // Still ingest server state during the reconnecting window — when the
+        // channel comes back, the first full snapshot triggers reconciliation
+        // through the TmuxStore's normal path.
+        TMUX_STATE_UPDATE: {
+          actions: sendTo('tmuxStore', ({ event }) => ({
+            type: 'RECONCILE_SERVER' as const,
+            state: event.state,
+          })),
+        },
+        TMUX_MODEL_UPDATE: {
+          actions: assign(({ event }) => {
+            const transformed = snapshotFromModel(event.model);
+            return {
+              panes: transformed.panes,
+              windows: transformed.windows,
+              activePaneId: transformed.activePaneId,
+              activeWindowId: transformed.activeWindowId,
+              statusLine: transformed.statusLine,
+              totalWidth: transformed.totalWidth,
+              totalHeight: transformed.totalHeight,
+            };
+          }),
+        },
+      },
+    },
+
+    /**
+     * Terminal connection state. Reached on TMUX_FATAL (backend gave up) or
+     * an explicit TMUX_DISCONNECTED. The status screen reads `fatalError`
+     * (set by the global TMUX_FATAL handler) to show a non-recoverable
+     * banner. No auto-recovery — the user reloads the page or restarts the
+     * server. Live-state handlers (idle, syncing, reconnecting) are
+     * intentionally absent so dispatch attempts no-op cleanly.
+     */
+    disconnected: {
+      on: {
+        // Adapter may resume on its own (e.g. server restart while page open)
+        // — accept the reconnection signal so we re-enter the live branch.
+        TMUX_RECONNECTING: {
+          target: 'reconnecting',
+          actions: assign(({ event }) => ({ reconnectAttempt: event.attempt })),
+        },
+        TMUX_CONNECTED: {
+          target: 'idle',
+          actions: assign({ connected: true, fatalError: null, error: null }),
         },
       },
     },
