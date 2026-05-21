@@ -49,6 +49,6 @@
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/tmuxy,type=bind,consistency=delegated",
   "workspaceFolder": "/tmuxy",
-  "postCreateCommand": "npm install && ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf && ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy && .devcontainer/persist-claude-login.sh",
-  "postStartCommand": "npm start"
+  "postCreateCommand": "npm install && ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf && ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy",
+  "postStartCommand": ".devcontainer/persist-claude-login.sh && npm start"
 }

@@ -1,31 +1,56 @@
 #!/usr/bin/env bash
-# Symlink ~/.claude.json into the persisted ~/.claude volume so Claude Code's
-# login/onboarding state survives container rebuilds.
+# Persist ~/.claude.json (onboarding flag, oauthAccount, MCP/trust settings) into
+# the ~/.claude/ named volume so Claude Code's welcome screen doesn't re-appear
+# after a container restart.
 #
-# Why this is needed:
-#   - ~/.claude/ (incl. .credentials.json with OAuth refresh token) is on a
-#     named volume.
-#   - ~/.claude.json (onboarding flag, oauthAccount, MCP/trust settings) sits
-#     at $HOME/.claude.json, OUTSIDE the volume. CLAUDE_CONFIG_DIR does not
-#     relocate it. Docker named volumes can only target directories.
-#   - Solution: keep the real file inside the volume at ~/.claude/.claude.json
-#     and symlink ~/.claude.json -> that path.
+# Why the previous symlink approach failed:
+#   Claude Code writes ~/.claude.json atomically (write tmpfile + rename). The
+#   rename REPLACES the symlink with a regular file in $HOME, which lives in
+#   the container's writable layer and gets wiped on container recreation.
+#
+# Strategy here:
+#   1. On start, restore ~/.claude.json from the volume copy.
+#   2. Run a background polling daemon that copies ~/.claude.json → volume
+#      whenever the home-dir file is newer. 2s poll is fine — onboarding
+#      state changes rarely, and we just need the latest copy in the volume
+#      before the user stops the container.
+#
+# Must be idempotent and safe to re-run on every container start.
 set -euo pipefail
 
-REAL=/home/user/.claude/.claude.json
-LINK=/home/user/.claude.json
+HOME_FILE=/home/user/.claude.json
+VOLUME_FILE=/home/user/.claude/.claude.json
+DAEMON_PID_FILE=/home/user/.claude/.persist-daemon.pid
 
-# First-run migration: if the canonical path holds a real file (created during
-# image build or a previous interactive login) and the volume copy doesn't
-# exist yet, move it into the volume so the data isn't lost.
-if [ -f "$LINK" ] && [ ! -L "$LINK" ] && [ ! -e "$REAL" ]; then
-  mv "$LINK" "$REAL"
+# Stop any prior daemon from a previous container generation. The PID file
+# lives in the volume, so it survives restarts; the actual process does not,
+# so the kill will usually fail benignly.
+if [ -f "$DAEMON_PID_FILE" ]; then
+  kill "$(cat "$DAEMON_PID_FILE")" 2>/dev/null || true
+  rm -f "$DAEMON_PID_FILE"
 fi
 
-# Ensure the volume copy exists so the symlink resolves on first start.
-if [ ! -e "$REAL" ]; then
-  install -m 600 /dev/null "$REAL"
-  echo '{}' > "$REAL"
+# Decide which copy is canonical. The newer one wins:
+#   - On fresh container start: writable layer is empty → no $HOME_FILE (or an
+#     empty default) → volume copy is newer → restore volume → home.
+#   - When this script runs mid-session (e.g. previous daemon already synced
+#     state up to the volume but the user has since made changes): home file
+#     is newer → copy up so we don't clobber recent state.
+#   - First run on a fresh volume: only $HOME_FILE exists → seed the volume.
+if [ -s "$HOME_FILE" ] && [ "$HOME_FILE" -nt "$VOLUME_FILE" ]; then
+  cp "$HOME_FILE" "$VOLUME_FILE"
+elif [ -s "$VOLUME_FILE" ]; then
+  cp "$VOLUME_FILE" "$HOME_FILE"
+  chmod 600 "$HOME_FILE"
 fi
 
-ln -sf "$REAL" "$LINK"
+# Start the background sync daemon. setsid detaches from the current TTY so
+# it survives the postStartCommand finishing.
+setsid bash -c '
+  while sleep 2; do
+    if [ -s "'"$HOME_FILE"'" ] && [ "'"$HOME_FILE"'" -nt "'"$VOLUME_FILE"'" ]; then
+      cp "'"$HOME_FILE"'" "'"$VOLUME_FILE"'" 2>/dev/null || true
+    fi
+  done
+' </dev/null >/dev/null 2>&1 &
+echo $! > "$DAEMON_PID_FILE"
