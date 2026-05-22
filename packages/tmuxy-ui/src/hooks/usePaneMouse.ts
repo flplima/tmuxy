@@ -399,6 +399,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       }
 
       // Alternate screen (vim, less) and mouse tracking need line-quantized input.
+      // Forward to the app — never enter copy mode while the app owns the screen.
       if (alternateOn || mouseAnyFlag) {
         e.preventDefault();
         wheelRemainder.current += e.deltaY;
@@ -431,6 +432,13 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
+      // Tmux is in some pane mode (e.g. server-side copy-mode entered before
+      // the client caught up). Treat as alt-screen — don't re-enter copy mode.
+      if (inMode) {
+        e.preventDefault();
+        return;
+      }
+
       // Normal mode: scroll up with history enters copy mode directly
       if (historySize > 0 && e.deltaY < 0) {
         e.preventDefault();
@@ -452,6 +460,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       alternateOn,
       mouseAnyFlag,
       copyModeActive,
+      inMode,
       pixelToCell,
       scrollRef,
       historySize,

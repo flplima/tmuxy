@@ -2,9 +2,13 @@
  * scrollUtils - Shared scroll command logic for wheel and touch handlers
  *
  * Encapsulates the three-mode scroll routing:
- * 1. Alternate screen (vim, less, htop) → send Up/Down arrow keys
- * 2. Mouse tracking (apps requesting mouse) → send SGR wheel events
+ * 1. Mouse tracking (apps requesting mouse, e.g. nvim with `mouse=a`) → SGR wheel events
+ * 2. Alternate screen without mouse (vim with `mouse=`, less) → Up/Down arrow keys
  * 3. Normal shell → proxy pixel delta to scroll container (native copy mode)
+ *
+ * Mouse tracking takes precedence over alternate-screen: when the app explicitly
+ * enabled mouse reporting, it expects raw mouse events, not synthetic arrow keys
+ * (which would move the cursor in nvim, not scroll the viewport).
  */
 
 import type { AppMachineEvent } from '../machines/types';
@@ -39,12 +43,7 @@ export function sendScrollLines(opts: ScrollCommandOptions): boolean {
   const isScrollUp = lines < 0;
   const absLines = Math.abs(lines);
 
-  if (alternateOn) {
-    const key = isScrollUp ? 'Up' : 'Down';
-    for (let i = 0; i < absLines; i++) {
-      send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} ${key}` });
-    }
-  } else {
+  if (mouseAnyFlag) {
     // Mouse tracking mode: send SGR wheel events
     const button = isScrollUp ? 64 : 65;
     for (let i = 0; i < absLines; i++) {
@@ -52,6 +51,11 @@ export function sendScrollLines(opts: ScrollCommandOptions): boolean {
         type: 'SEND_COMMAND',
         command: `run-shell -b 'printf "\\033[<${button};${cellX + 1};${cellY + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
       });
+    }
+  } else {
+    const key = isScrollUp ? 'Up' : 'Down';
+    for (let i = 0; i < absLines; i++) {
+      send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} ${key}` });
     }
   }
 
