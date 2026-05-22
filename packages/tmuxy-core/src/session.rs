@@ -410,8 +410,7 @@ pub fn write_managed_state(
         state.theme_mode = Some(m.to_string());
     }
 
-    let body = serde_json::to_string_pretty(&state)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let body = serde_json::to_string_pretty(&state).map_err(std::io::Error::other)?;
     std::fs::write(&path, format!("{}\n", body))?;
     Ok(path)
 }
