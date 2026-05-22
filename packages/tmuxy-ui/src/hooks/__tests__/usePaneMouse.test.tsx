@@ -72,8 +72,7 @@ describe('usePaneMouse.handleWheel', () => {
     expect(enterCopy).toBeUndefined();
     // Should have sent SGR mouse wheel events
     const sgrEvents = events.filter(
-      (e) =>
-        e.type === 'SEND_COMMAND' && (e as { command: string }).command.includes('\\033[<64'),
+      (e) => e.type === 'SEND_COMMAND' && (e as { command: string }).command.includes('\\033[<64'),
     );
     expect(sgrEvents.length).toBeGreaterThan(0);
   });
