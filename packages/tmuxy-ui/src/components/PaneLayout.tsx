@@ -96,7 +96,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     const maxX = containerWidth - paneContentWidth;
     return {
       x: Math.max(0, Math.min(idealX, maxX)),
-      y: Math.max(0, (containerHeight - paneContentHeight) / 2),
+      // Round to integer pixels so pane tops sit on whole-pixel rows —
+      // matches the Math.round applied to `left` in getPaneStyle and
+      // avoids sub-pixel anti-aliasing across cell-row boundaries.
+      y: Math.round(Math.max(0, (containerHeight - paneContentHeight) / 2)),
     };
   }, [totalWidth, totalHeight, charWidth, charHeight, containerWidth, containerHeight]);
 

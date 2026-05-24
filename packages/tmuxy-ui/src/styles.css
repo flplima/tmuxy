@@ -124,7 +124,9 @@
 
   /* Sizes — scale with --tmuxy-font-size so chrome heights match terminal text */
   --statusbar-height: calc(var(--tmuxy-font-size, 15px) * 2.4);
-  --pane-header-height: calc(var(--tmuxy-font-size, 15px) * 1.4);
+  /* Header is the tmux pane-border-status row: exactly 1 cell row tall,
+     independent of font size. Keep in sync with CHAR_HEIGHT (constants/layout.ts). */
+  --pane-header-height: var(--line-height-terminal);
 
   /* Border Radius */
   --radius-sm: 3px;
@@ -592,8 +594,7 @@
   display: flex;
   align-items: center;
   height: var(--pane-header-height);
-  margin-top: 0;
-  margin-bottom: 4px;
+  margin: 0;
   /* Same dark-gray tone as the inactive pane outline, at reduced opacity. */
   background-color: color-mix(
     in srgb,
