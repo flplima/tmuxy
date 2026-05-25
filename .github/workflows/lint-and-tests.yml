@@ -22,14 +22,7 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+      - uses: swatinem/rust-cache@v2
 
       - name: Install Tauri system dependencies
         run: |
@@ -39,7 +32,7 @@ jobs:
             libjavascriptcoregtk-4.1-dev librsvg2-dev
 
       - name: Install npm dependencies
-        run: npm install
+        run: npm ci
 
       # --- Formatting ---
 
@@ -69,8 +62,39 @@ jobs:
         run: npx tsc --noEmit
         working-directory: packages/tmuxy-ui
 
-  tests:
+  unit-tests:
     runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Vitest
+        run: npm test -- --run
+
+  # E2E + snapshot suites run in parallel — one matrix entry per suite,
+  # one runner per suite. Previously these were serial inside a single
+  # job (~10 min total); matrix puts walltime at max-of-suites.
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - { name: snapshots, path: 'tests/snapshots/' }
+          - { name: '1-input', path: 'tests/1-input-interaction.test.js' }
+          - { name: '2-layout', path: 'tests/2-layout-navigation.test.js' }
+          - { name: '3-rendering', path: 'tests/3-rendering-protocols.test.js' }
+          - { name: '4-session', path: 'tests/4-session-connectivity.test.js' }
+          - { name: '5-stress', path: 'tests/5-stress-stability.test.js' }
+    name: e2e (${{ matrix.suite.name }})
 
     steps:
       - uses: actions/checkout@v6
@@ -82,14 +106,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+      - uses: swatinem/rust-cache@v2
 
       - name: Install system dependencies
         run: |
@@ -97,40 +114,40 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison fzf \
             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev \
-            webkit2gtk-driver xvfb x11-utils
+            libjavascriptcoregtk-4.1-dev librsvg2-dev
 
-      # Build tmux 3.5a from source (Ubuntu apt has 3.4; control mode differs)
-      - name: Install tmux 3.5a
+      # Cache tmux 3.5a binary so we don't recompile from source every run.
+      # Build cost is ~30-60s; cache restore is ~2s.
+      - name: Cache tmux 3.5a
+        id: tmux-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ runner.os }}-tmux-3.5a-v1
+
+      - name: Build tmux 3.5a (cache miss)
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
         run: |
           curl -sL https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz | tar xz
           cd tmux-3.5a && ./configure && make -j$(nproc) && sudo make install
           cd .. && rm -rf tmux-3.5a
-          tmux -V
 
-      - name: Install tauri-driver
-        run: cargo install tauri-driver
+      - name: Confirm tmux version
+        run: tmux -V
 
       - name: Install npm dependencies
-        run: npm install
+        run: npm ci
 
       - name: Install Chromium
         run: npx playwright install chromium --with-deps
-
-      # --- Unit Tests ---
-
-      - name: Vitest
-        run: npm test -- --run
-
-      # --- Build ---
 
       - name: Build frontend
         run: npm run build -w tmuxy-ui
 
       - name: Build server (release)
         run: cargo build --release -p tmuxy-server
-
-      # --- E2E Tests ---
 
       - name: Start server
         run: |
@@ -151,40 +168,49 @@ jobs:
             check();
           "
 
-      - name: "Snapshot: UI ↔ tmux state"
-        run: npx jest --forceExit tests/snapshots/
-
-      # Clean up tmux state between test suites.
-      # The snapshot test's session/monitor may still be alive (2s grace period).
-      # Kill the tmux server to ensure a clean state for E2E tests.
-      - name: Reset tmux between suites
-        run: tmux kill-server 2>/dev/null; sleep 3
-        if: always()
-
-      - name: "E2E: 1 – Input & Interaction"
-        run: npx jest --forceExit tests/1-input-interaction.test.js
-
-      - name: "E2E: 2 – Layout & Navigation"
-        run: npx jest --forceExit tests/2-layout-navigation.test.js
-
-      - name: "E2E: 3 – Rendering & Protocols"
-        run: npx jest --forceExit tests/3-rendering-protocols.test.js
-
-      - name: "E2E: 4 – Session & Connectivity"
-        run: npx jest --forceExit tests/4-session-connectivity.test.js
-
-      - name: "E2E: 5 – Stress & Stability"
-        run: npx jest --forceExit tests/5-stress-stability.test.js
+      - name: Run ${{ matrix.suite.name }}
+        run: npx jest --forceExit ${{ matrix.suite.path }}
 
       - name: Server logs (debug)
         if: failure()
         run: cat /tmp/tmuxy-server.log | tail -2000
 
-      # --- Tauri Tests ---
+  # Tauri E2E runs as its own parallel job. Previously chained after the
+  # E2E suite, adding ~3 min to the critical path. Still builds a debug
+  # Tauri binary (different profile from build-app's release), but no
+  # longer sits on the longest job.
+  tauri-e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev \
+            webkit2gtk-driver xvfb x11-utils
+
+      - name: Install tauri-driver
+        run: cargo install tauri-driver
+
+      - name: Install npm dependencies
+        run: npm ci
 
       - name: Build Tauri app (debug)
         run: npx tauri build --debug --no-bundle
         working-directory: packages/tauri-app
 
-      - name: "Tauri E2E tests"
+      - name: Tauri E2E tests
         run: npm run test:tauri
