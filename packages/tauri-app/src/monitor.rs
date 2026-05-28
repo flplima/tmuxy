@@ -1,7 +1,9 @@
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
-use tmuxy_core::control_mode::{LogKind, LogSink, MonitorConfig, StateEmitter, TmuxMonitor};
+use tmuxy_core::control_mode::{
+    LogKind, LogSink, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor,
+};
 use tmuxy_core::StateUpdate;
 
 /// Get session name from environment or use default
@@ -23,6 +25,24 @@ impl Default for KeyBindingsState {
     fn default() -> Self {
         Self(Arc::new(RwLock::new(None)))
     }
+}
+
+/// Live handle to the running control-mode monitor.
+///
+/// `cmd_tx` is the channel for issuing tmux mutations through the existing
+/// CC connection. Spawning external `tmux <cmd>` while CC is attached crashes
+/// tmux 3.5a — see CLAUDE.md and `docs/TMUX.md`. The SSE server avoids this
+/// by routing every mutation through `MonitorCommand::RunCommand`; the Tauri
+/// app now does the same.
+///
+/// `last_client_size` is the most recent viewport size the frontend reported.
+/// `run_tmux_command` uses it when rewriting `new-window` so the broken-out
+/// window matches the visible viewport instead of inheriting the half-width
+/// post-`splitw` size or the 200x50 control-mode PTY default.
+#[derive(Clone, Default)]
+pub struct MonitorState {
+    pub cmd_tx: Arc<RwLock<Option<MonitorCommandSender>>>,
+    pub last_client_size: Arc<RwLock<Option<(u32, u32)>>>,
 }
 
 /// Tauri emitter that broadcasts state changes to the frontend
@@ -84,10 +104,15 @@ impl StateEmitter for TauriEmitter {
 }
 
 /// Start control mode monitoring for tmux state changes
-pub async fn start_monitoring(app: AppHandle) {
+pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
     let emitter = Arc::new(TauriEmitter::new(app.clone()));
     let log_sink: Arc<dyn LogSink> = emitter.clone();
     let session = get_session();
+
+    // Start the tmux server in $HOME so the user's shell rc files cd to a
+    // sensible cwd. Without this, a Finder/Spotlight launch hands tmuxy a cwd
+    // of "/" (launchd default) which propagates into every new pane.
+    let working_dir = std::env::var_os("HOME").map(std::path::PathBuf::from);
 
     let config = MonitorConfig {
         session,
@@ -98,7 +123,7 @@ pub async fn start_monitoring(app: AppHandle) {
         throttle_interval: Duration::from_millis(16),
         throttle_threshold: 20,
         rate_window: Duration::from_millis(100),
-        working_dir: None,
+        working_dir,
     };
 
     // Reconnect with exponential backoff, bounded by MAX_CONSECUTIVE_FAILURES.
@@ -124,11 +149,25 @@ pub async fn start_monitoring(app: AppHandle) {
 
     loop {
         match TmuxMonitor::connect(config.clone(), Some(&log_sink)).await {
-            Ok((mut monitor, _cmd_tx)) => {
+            Ok((mut monitor, cmd_tx)) => {
+                // Publish the live command channel so #[tauri::command]
+                // handlers can route mutations through control mode instead
+                // of spawning external tmux subprocesses (which races with
+                // CC mode and crashes tmux 3.5a — surfaced to users as a
+                // TransportError on actions like New Tab).
+                if let Ok(mut guard) = monitor_state.cmd_tx.write() {
+                    *guard = Some(cmd_tx);
+                }
                 emit_keybindings(&app);
                 let started = std::time::Instant::now();
                 monitor.run(emitter.as_ref()).await;
                 let lived = started.elapsed();
+                // Connection is gone — drop the stale sender so the next
+                // mutation falls back to the external path instead of
+                // sending into a dead channel.
+                if let Ok(mut guard) = monitor_state.cmd_tx.write() {
+                    *guard = None;
+                }
                 tmuxy_core::debug_log::log(&format!(
                     "[monitor] run() returned after {:?} (failures so far: {})",
                     lived, consecutive_failures

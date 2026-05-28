@@ -1,8 +1,9 @@
 use serde_json::Value;
 use tauri::State;
+use tmuxy_core::control_mode::MonitorCommand;
 use tmuxy_core::{executor, session};
 
-use crate::monitor::KeyBindingsState;
+use crate::monitor::{KeyBindingsState, MonitorState};
 
 /// Get session name from environment or use default
 fn get_session() -> String {
@@ -31,7 +32,17 @@ pub async fn get_initial_state(cols: Option<u32>, rows: Option<u32>) -> Result<V
 }
 
 #[tauri::command]
-pub async fn set_client_size(cols: u32, rows: u32) -> Result<(), String> {
+pub async fn set_client_size(
+    state: State<'_, MonitorState>,
+    cols: u32,
+    rows: u32,
+) -> Result<(), String> {
+    // Cache the size so the next run_tmux_command("new-window") can size
+    // the broken-out window to match the viewport. Without this the new
+    // window inherits the half-width post-`splitw` size and looks tiny.
+    if let Ok(mut size) = state.last_client_size.write() {
+        *size = Some((cols, rows));
+    }
     executor::resize_window(&get_session(), cols, rows)
 }
 
@@ -56,8 +67,13 @@ pub async fn split_pane_vertical() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn new_window() -> Result<(), String> {
-    executor::new_window(&get_session())
+pub async fn new_window(state: State<'_, MonitorState>) -> Result<(), String> {
+    // Reuse the same CC-routed rewrite as `run_tmux_command("new-window")`
+    // so callers that hit this dedicated command don't slip back into the
+    // external-subprocess path that races with control mode.
+    run_tmux_command(state, "new-window".to_string())
+        .await
+        .map(|_| ())
 }
 
 #[tauri::command]
@@ -117,14 +133,45 @@ pub async fn execute_prefix_binding(key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn run_tmux_command(command: String) -> Result<String, String> {
+pub async fn run_tmux_command(
+    state: State<'_, MonitorState>,
+    command: String,
+) -> Result<String, String> {
     // `new-window` (neww) crashes tmux 3.5a control mode when run as an external
     // subprocess while a control-mode client is attached. Tmuxy's monitor is one
     // such client. Rewrite to `split-window` + `break-pane -d`, which produces
     // the same window without the crash. Mirrors the same intercept in the SSE
     // server (packages/tmuxy-server/src/sse.rs).
+    //
+    // We push the rewrite through the monitor's CC connection — even the
+    // intermediate split-window + break-pane subprocesses race with CC and
+    // can crash the server (surfaced as a TransportError when the Tauri
+    // invoke promise rejects). Going through the same connection that's
+    // already attached avoids the race entirely.
     let trimmed = command.trim_start();
     if trimmed.starts_with("new-window") || trimmed.starts_with("neww") {
+        let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
+        if let Some(tx) = cmd_tx {
+            let session = get_session();
+            let size = state.last_client_size.read().ok().and_then(|g| *g);
+            let rewrite = match size {
+                Some((cols, rows)) => format!(
+                    "splitw -t {} ; breakp ; resizew -x {} -y {} ; set-option -w @tmuxy-window-type tab",
+                    session, cols, rows
+                ),
+                None => format!(
+                    "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
+                    session
+                ),
+            };
+            tx.send(MonitorCommand::RunCommand { command: rewrite })
+                .await
+                .map_err(|e| format!("Monitor channel error: {}", e))?;
+            return Ok(String::new());
+        }
+        // CC connection isn't up yet (very early startup). The external
+        // path is the only option here; if it crashes tmux, the reconnect
+        // loop will recover.
         executor::new_window(&get_session())?;
         return Ok(String::new());
     }

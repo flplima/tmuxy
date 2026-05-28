@@ -21,6 +21,10 @@ declare global {
   interface Window {
     getSnapshot: () => string[];
     getTmuxSnapshot: () => Promise<string[]>;
+    /** Last N events sent to the app machine (for the Debug menu). */
+    getRecentEvents: () => Array<{ timestamp: number; type: string; event: unknown }>;
+    /** Wrapped by AppContext so every send is captured into the ring buffer. */
+    __tmuxyRecordEvent?: (event: unknown) => void;
     // XState actor reference (dev mode only, set in AppContext.tsx)
     app?: {
       getSnapshot: () => { context: AppState };
@@ -29,6 +33,20 @@ declare global {
         unsubscribe: () => void;
       };
     };
+  }
+}
+
+const MAX_RECENT_EVENTS = 200;
+const recentEvents: Array<{ timestamp: number; type: string; event: unknown }> = [];
+
+function recordEvent(event: unknown): void {
+  const type =
+    typeof event === 'object' && event !== null && 'type' in event
+      ? String((event as { type: unknown }).type)
+      : 'unknown';
+  recentEvents.push({ timestamp: Date.now(), type, event });
+  if (recentEvents.length > MAX_RECENT_EVENTS) {
+    recentEvents.splice(0, recentEvents.length - MAX_RECENT_EVENTS);
   }
 }
 
@@ -267,4 +285,6 @@ async function fetchTmuxSnapshot(): Promise<string[]> {
 export function initDebugHelpers(): void {
   window.getSnapshot = buildSnapshot;
   window.getTmuxSnapshot = fetchTmuxSnapshot;
+  window.getRecentEvents = () => recentEvents.slice();
+  window.__tmuxyRecordEvent = recordEvent;
 }

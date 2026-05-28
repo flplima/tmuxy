@@ -2,7 +2,7 @@
  * AppMenu - Application-level hamburger menu with submenus
  *
  * Uses @szhsin/react-menu for menu rendering.
- * 6 submenus: Pane, Tab, Session, Theme, View, Help
+ * Submenus: Pane, Tab, Session, Theme, View, Debug, Help
  * Keybinding labels are derived from server-provided keybindings.
  *
  * TODO: Add native Tauri menu integration (useNativeMenu). For now, always show
@@ -162,11 +162,68 @@ export function AppMenu() {
         <MenuItem onClick={() => send({ type: 'RESET_FONT_SIZE' })}>Make Text Normal Size</MenuItem>
       </SubMenu>
 
+      <SubMenu label="Debug">
+        <MenuItem
+          onClick={() =>
+            copyToClipboard('state', (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }))
+          }
+        >
+          Copy XState Snapshot
+        </MenuItem>
+        <MenuItem
+          onClick={() =>
+            copyToClipboard('events', (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }))
+          }
+        >
+          Copy Recent Events
+        </MenuItem>
+        <MenuItem
+          onClick={() =>
+            copyToClipboard('dom', (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }))
+          }
+        >
+          Copy DOM Snapshot
+        </MenuItem>
+      </SubMenu>
+
       <SubMenu label="Help">
         <MenuItem onClick={() => handleAction('help-github')}>
           Tmuxy on GitHub<span className="menu-external">{'\u2197'}</span>
         </MenuItem>
       </SubMenu>
     </Menu>
+  );
+}
+
+/**
+ * Copy a debug payload to the system clipboard via navigator.clipboard.
+ * Mirrors the native Tauri Debug menu so the Web build (and Tauri's hamburger
+ * menu fallback) can hand users the same state dump for bug reports.
+ */
+function copyToClipboard(
+  kind: 'state' | 'events' | 'dom',
+  showMessage: (text: string) => void,
+): void {
+  let payload: string;
+  let label: string;
+  try {
+    if (kind === 'state') {
+      payload = JSON.stringify(window.app?.getSnapshot?.()?.context ?? null, null, 2);
+      label = 'Copied XState snapshot to clipboard';
+    } else if (kind === 'events') {
+      const events = window.getRecentEvents?.() ?? [];
+      payload = JSON.stringify(events, null, 2);
+      label = `Copied ${events.length} recent events to clipboard`;
+    } else {
+      payload = (window.getSnapshot?.() ?? []).join('\n');
+      label = 'Copied DOM snapshot to clipboard';
+    }
+  } catch (e) {
+    showMessage(`Could not read debug data: ${String(e)}`);
+    return;
+  }
+  navigator.clipboard.writeText(payload).then(
+    () => showMessage(label),
+    (e: unknown) => showMessage(`Clipboard write failed: ${String(e)}`),
   );
 }

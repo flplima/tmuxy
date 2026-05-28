@@ -157,11 +157,18 @@ export function AppProvider({
     }),
   );
 
-  // Expose XState actor for debugging and E2E tests
+  // Expose XState actor for debugging and E2E tests. Also tap `send` so the
+  // Debug menu's "Copy Recent Events" can show what was dispatched. The tap
+  // checks the recorder at call time (it's installed by initDebugHelpers in
+  // App.tsx, which runs first), so an unset recorder is a no-op.
   useMemo(() => {
-    if (typeof window !== 'undefined') {
-      (window as unknown as { app: typeof actorRef }).app = actorRef;
-    }
+    if (typeof window === 'undefined') return;
+    const originalSend = actorRef.send.bind(actorRef);
+    (actorRef as { send: (event: unknown) => void }).send = (event: unknown) => {
+      window.__tmuxyRecordEvent?.(event);
+      return originalSend(event as Parameters<typeof originalSend>[0]);
+    };
+    (window as unknown as { app: typeof actorRef }).app = actorRef;
   }, [actorRef]);
 
   return (

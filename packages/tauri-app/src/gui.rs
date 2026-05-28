@@ -512,6 +512,43 @@ fn build_app_menu(
         .close_window()
         .build()?;
 
+    // --- Debug ---
+    // Exposes the same getSnapshot()/getRecentEvents() helpers we attach to
+    // `window` for the browser console. Surfacing them in the OS menu means
+    // bug reports can include a state dump without the user needing to open
+    // devtools (which the production WebView build doesn't ship).
+    let debug_menu = SubmenuBuilder::new(app, "Debug")
+        .item(&MenuItem::with_id(
+            app,
+            "debug-copy-state",
+            "Copy XState Snapshot",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "debug-copy-events",
+            "Copy Recent Events",
+            true,
+            None::<&str>,
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            "debug-copy-dom",
+            "Copy DOM Snapshot",
+            true,
+            None::<&str>,
+        )?)
+        .separator()
+        .item(&MenuItem::with_id(
+            app,
+            "debug-copy-backend-log",
+            "Copy Backend Log",
+            true,
+            None::<&str>,
+        )?)
+        .build()?;
+
     // --- Help ---
     let help_menu = SubmenuBuilder::new(app, "Help")
         .item(&MenuItem::with_id(
@@ -547,6 +584,7 @@ fn build_app_menu(
         .item(&view_menu)
         .item(&edit_menu)
         .item(&window_menu)
+        .item(&debug_menu)
         .item(&help_menu)
         .build()?;
 
@@ -625,12 +663,67 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
     }
 
     // Help: copy / reveal the debug log file
-    if id == "help-copy-logs" {
+    if id == "help-copy-logs" || id == "debug-copy-backend-log" {
         copy_logs_to_clipboard(app_handle);
         return;
     }
     if id == "help-reveal-log-file" {
         reveal_log_file();
+        return;
+    }
+
+    // Debug: copy frontend-side data (XState, DOM, events) to the clipboard.
+    // The data lives in the WebView so we eval the read + clipboard write
+    // there. The menu click is a fresh user gesture, which is enough for
+    // navigator.clipboard.writeText() to succeed on macOS WKWebView.
+    if let Some(js) = match id {
+        "debug-copy-state" => Some(
+            r#"(() => {
+                try {
+                    const snap = window.app?.getSnapshot?.();
+                    const payload = JSON.stringify(snap?.context ?? null, null, 2);
+                    navigator.clipboard.writeText(payload).then(
+                        () => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Copied XState snapshot to clipboard' }),
+                        (e) => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Clipboard write failed: ' + e })
+                    );
+                } catch (e) {
+                    window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Could not read XState snapshot: ' + e });
+                }
+            })()"#,
+        ),
+        "debug-copy-events" => Some(
+            r#"(() => {
+                try {
+                    const events = window.getRecentEvents?.() ?? [];
+                    const payload = JSON.stringify(events, null, 2);
+                    navigator.clipboard.writeText(payload).then(
+                        () => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Copied ' + events.length + ' recent events to clipboard' }),
+                        (e) => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Clipboard write failed: ' + e })
+                    );
+                } catch (e) {
+                    window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Could not read recent events: ' + e });
+                }
+            })()"#,
+        ),
+        "debug-copy-dom" => Some(
+            r#"(() => {
+                try {
+                    const lines = window.getSnapshot?.() ?? [];
+                    const payload = lines.join('\n');
+                    navigator.clipboard.writeText(payload).then(
+                        () => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Copied DOM snapshot to clipboard' }),
+                        (e) => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Clipboard write failed: ' + e })
+                    );
+                } catch (e) {
+                    window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Could not read DOM snapshot: ' + e });
+                }
+            })()"#,
+        ),
+        _ => None,
+    } {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.eval(js);
+        }
         return;
     }
 
@@ -868,6 +961,7 @@ pub fn run() {
         // launched from Finder can grab ~/tmuxy-debug.log without a terminal.
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(monitor::KeyBindingsState::default())
+        .manage(monitor::MonitorState::default())
         .setup(|app| {
             // Log environment for debugging Finder vs CLI launch differences
             tmuxy_core::debug_log::log("=== tmuxy starting ===");
@@ -1012,10 +1106,14 @@ pub fn run() {
                 ));
             }
 
-            // Start control mode monitoring in background
+            // Start control mode monitoring in background. The monitor
+            // owns the live CC connection's command channel — handing the
+            // shared MonitorState into the loop lets #[tauri::command]
+            // handlers route mutations through that channel.
             let app_handle = app.handle().clone();
+            let monitor_state = app.state::<monitor::MonitorState>().inner().clone();
             tauri::async_runtime::spawn(async move {
-                monitor::start_monitoring(app_handle).await;
+                monitor::start_monitoring(app_handle, monitor_state).await;
             });
 
             Ok(())
