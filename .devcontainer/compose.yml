@@ -30,12 +30,16 @@ services:
     environment:
       - CHROME_CDP_URL=http://localhost:9222
       - TMUX_SESSION=dev
+      - CLAUDE_CONFIG_DIR=/home/user/.claude
       - GIT_CONFIG_GLOBAL=/home/user/.config/git/config
     security_opt:
       - no-new-privileges:true
     shm_size: 1g
     mem_limit: 6g
-    command: bash -c "npm start && claude --dangerously-skip-permissions"
+    # Restore ~/.claude.json (onboarding flag + oauthAccount) from the volume
+    # and start its backup daemon before launching Claude — otherwise each run
+    # re-prompts for login and replays the intro. See persist-claude-login.sh.
+    command: bash -c "/home/user/.devcontainer/persist-claude-login.sh || true; npm start && claude --dangerously-skip-permissions"
 
 volumes:
   tmuxy-cargo-registry:

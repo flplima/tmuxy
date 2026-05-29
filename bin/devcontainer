@@ -134,6 +134,12 @@ echo "==> Port map:   localhost:$HOST_PORT -> container:9000"
 echo ""
 
 INIT_SCRIPT='
+    # Restore ~/.claude.json (Claude Code onboarding flag + oauthAccount) from
+    # the persisted volume copy and start the backup daemon. .claude.json lives
+    # in $HOME, NOT in the ~/.claude volume, and CLAUDE_CONFIG_DIR does not
+    # relocate it — so without this restore every fresh container re-prompts
+    # for login and replays the welcome/intro screen.
+    /tmuxy/.devcontainer/persist-claude-login.sh || true
     ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf
     mkdir -p ~/.config/tmuxy ~/.local/bin
     # Symlink both conf files into the XDG path so edits in the repo take
@@ -172,6 +178,7 @@ exec docker run $TTY_FLAG --rm \
     -e CONTAINER_NAME="$CONTAINER_NAME" \
     -e CHROME_CDP_URL=http://host.docker.internal:9222 \
     -e TMUX_SESSION=dev \
+    -e CLAUDE_CONFIG_DIR=/home/user/.claude \
     -e GIT_CONFIG_GLOBAL=/home/user/.config/git/config \
     -w /tmuxy \
     -u user \

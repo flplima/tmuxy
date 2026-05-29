@@ -32,8 +32,10 @@
     // Credentials are NOT mounted from host. Log in once inside the
     // container; named volumes persist auth across rebuilds.
     // Note: ~/.claude.json (onboarding state, OAuth account, MCP config)
-    // lives outside ~/.claude/ and Docker named volumes can't target a
-    // single file — postCreateCommand symlinks it into the .claude volume.
+    // lives in $HOME, outside the ~/.claude volume, and CLAUDE_CONFIG_DIR
+    // does NOT relocate it. Docker named volumes can't target a single
+    // file either — so persist-claude-login.sh (postStartCommand) restores
+    // it from a volume copy on start and backs it up via a polling daemon.
     "source=tmuxy-gh-config,target=/home/user/.config/gh,type=volume",
     "source=tmuxy-claude-config,target=/home/user/.claude,type=volume",
     "source=tmuxy-ssh,target=/home/user/.ssh,type=volume",
