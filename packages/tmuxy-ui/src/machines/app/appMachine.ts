@@ -927,25 +927,23 @@ export const appMachine = setup({
                       end: newPane.height - 1,
                     }),
                   );
-                  enqueue(
-                    sendTo('keyboard', {
-                      type: 'UPDATE_COPY_MODE' as const,
-                      active: true,
-                      paneId: newPane.tmuxId,
-                    }),
-                  );
                 }
                 // Detect tmux exiting copy mode — clean up client-side copy mode
                 if (!newPane.inMode && prevPane?.inMode && context.copyModeStates[newPane.tmuxId]) {
                   updatedCopyModeStates = { ...updatedCopyModeStates };
                   delete updatedCopyModeStates[newPane.tmuxId];
-                  enqueue(
-                    sendTo('keyboard', {
-                      type: 'UPDATE_COPY_MODE' as const,
-                      active: false,
-                      paneId: null,
-                    }),
-                  );
+                }
+              }
+
+              // Prune copy mode state for panes that no longer exist — e.g. the
+              // user closed a pane while it was in copy mode. Keyboard copy-mode
+              // routing is derived from copyModeStates[activePaneId], so leaving a
+              // stale entry could keep keys routed to a dead pane's copy mode
+              // during the brief window before activePaneId moves to a live pane.
+              for (const staleId of Object.keys(updatedCopyModeStates)) {
+                if (!currentPaneIdSet.has(staleId)) {
+                  updatedCopyModeStates = { ...updatedCopyModeStates };
+                  delete updatedCopyModeStates[staleId];
                 }
               }
 
@@ -1639,13 +1637,6 @@ export const appMachine = setup({
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
                   command: `send-keys -t ${paneId} -X cancel`,
-                }),
-              );
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_COPY_MODE' as const,
-                  active: false,
-                  paneId: null,
                 }),
               );
               return;

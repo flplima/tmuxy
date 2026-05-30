@@ -21,14 +21,28 @@ pub async fn process_key(key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_initial_state(cols: Option<u32>, rows: Option<u32>) -> Result<Value, String> {
+pub async fn get_initial_state(
+    state: State<'_, MonitorState>,
+    cols: Option<u32>,
+    rows: Option<u32>,
+) -> Result<Value, String> {
     // Resize if dimensions provided
     if let (Some(c), Some(r)) = (cols, rows) {
         let _ = executor::resize_window(&get_session(), c, r);
+
+        // Cache the viewport size so the FIRST `new-window` after startup sizes
+        // the broken-out window to match the viewport. Otherwise `last_client_size`
+        // stays None until a later resize fires `set_client_size`, and a tab
+        // created before that inherits the half-width post-`splitw` size or the
+        // 200x50 control-mode PTY default — appearing too small until the user
+        // resizes the OS window. The SSE server populates client sizes here too.
+        if let Ok(mut cached) = state.last_client_size.write() {
+            *cached = Some((c, r));
+        }
     }
 
-    let state = tmuxy_core::capture_window_state_for_session(&get_session())?;
-    serde_json::to_value(state).map_err(|e| e.to_string())
+    let snapshot = tmuxy_core::capture_window_state_for_session(&get_session())?;
+    serde_json::to_value(snapshot).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -175,6 +189,27 @@ pub async fn run_tmux_command(
         executor::new_window(&get_session())?;
         return Ok(String::new());
     }
+
+    // Multi-command batches (newline-joined) — e.g. the multiline-paste sequence
+    // the keyboard actor builds (`send-keys -l 'line1'` / `send-keys Enter` / …)
+    // — MUST go through the control-mode connection. tmux control mode reads each
+    // line as a separate command, executing the batch atomically and in order. An
+    // external `sh -c "tmux <batch>"` subprocess can't: only the first line gets a
+    // `tmux` prefix, so the remaining `send-keys` lines are mangled into the shell
+    // (the literal "send-keys …" text the user sees pasted on every linebreak).
+    // The SSE server already routes these through `MonitorCommand::RunCommand`.
+    if command.contains('\n') {
+        let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
+        if let Some(tx) = cmd_tx {
+            tx.send(MonitorCommand::RunCommand { command })
+                .await
+                .map_err(|e| format!("Monitor channel error: {}", e))?;
+            return Ok(String::new());
+        }
+        // CC connection isn't up yet — fall through to the external path, which
+        // at least lands the first line rather than dropping the paste entirely.
+    }
+
     executor::run_tmux_command_for_session(&get_session(), &command)
 }
 

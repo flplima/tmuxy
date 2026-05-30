@@ -21,7 +21,6 @@ export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
   | { type: 'UPDATE_ACTIVE_PANE'; paneId: string | null }
   | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
-  | { type: 'UPDATE_COPY_MODE'; active: boolean; paneId: string | null }
   | { type: 'UPDATE_ENABLED'; enabled: boolean }
   | { type: 'UPDATE_FOCUSED_FLOAT'; paneId: string | null };
 
@@ -113,7 +112,6 @@ export function createKeyboardActor() {
     let isComposing = false;
     let inPrefixMode = false;
     let prefixTimeout: ReturnType<typeof setTimeout> | null = null;
-    let copyModeActive = false;
     // Text pending copy via native clipboard event
     let pendingCopyText: string | null = null;
 
@@ -225,23 +223,35 @@ export function createKeyboardActor() {
         }
       }
 
+      // Copy mode is per-pane and derived (not synced): a pane is in copy mode
+      // iff the *currently active* pane has a CopyModeState. Deriving this fresh
+      // on every keydown — rather than tracking a pushed boolean — means
+      // switching to another pane, or closing the copy-mode pane, instantly
+      // stops routing keys to copy mode without any event plumbing to keep in
+      // sync. A focused float always takes priority, so its keys are never
+      // hijacked by an underlying pane's copy mode.
+      let activeCopyState: CopyModeState | undefined;
+      if (!focusedFloatPaneId) {
+        try {
+          const snapshot = input.parent.getSnapshot() as {
+            context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
+          };
+          const ctx = snapshot?.context;
+          const copyPaneId = ctx?.activePaneId;
+          activeCopyState = copyPaneId ? ctx?.copyModeStates?.[copyPaneId] : undefined;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      const copyModeActive = !!activeCopyState;
+
       // Cmd+C / Ctrl+C: copy selection to clipboard (if in copy mode with selection)
       // or send SIGINT (if not in copy mode / no selection)
       if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
         if (copyModeActive) {
           // Extract text for the native copy event handler
-          try {
-            const snapshot = input.parent.getSnapshot() as {
-              context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
-            };
-            const ctx = snapshot?.context;
-            const paneId = ctx?.activePaneId;
-            const copyState = paneId ? ctx?.copyModeStates?.[paneId] : undefined;
-            if (copyState?.selectionMode && copyState?.selectionAnchor) {
-              pendingCopyText = extractSelectedText(copyState);
-            }
-          } catch (_) {
-            /* ignore */
+          if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
+            pendingCopyText = extractSelectedText(activeCopyState);
           }
           // Don't preventDefault — let browser fire native copy event
         } else {
@@ -258,20 +268,10 @@ export function createKeyboardActor() {
         event.preventDefault();
         // For yank keys (y, Enter), copy to clipboard via native copy event
         if (event.key === 'y' || event.key === 'Enter') {
-          try {
-            const snapshot = input.parent.getSnapshot() as {
-              context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
-            };
-            const ctx = snapshot?.context;
-            const paneId = ctx?.activePaneId;
-            const copyState = paneId ? ctx?.copyModeStates?.[paneId] : undefined;
-            if (copyState?.selectionMode && copyState?.selectionAnchor) {
-              pendingCopyText = extractSelectedText(copyState);
-              // Trigger native copy event (our copy handler will set clipboardData)
-              document.execCommand('copy');
-            }
-          } catch (_) {
-            /* ignore */
+          if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
+            pendingCopyText = extractSelectedText(activeCopyState);
+            // Trigger native copy event (our copy handler will set clipboardData)
+            document.execCommand('copy');
           }
         }
         input.parent.send({
@@ -556,8 +556,6 @@ export function createKeyboardActor() {
         prefixBindings = new Map(kb.prefix_bindings.map((b) => [b.key, b.command]));
         prefixRepeatKeys = new Set(kb.prefix_bindings.filter((b) => b.repeat).map((b) => b.key));
         rootBindings = new Map(kb.root_bindings.map((b) => [b.key, b.command]));
-      } else if (event.type === 'UPDATE_COPY_MODE') {
-        copyModeActive = event.active;
       } else if (event.type === 'UPDATE_ENABLED') {
         enabled = event.enabled;
       } else if (event.type === 'UPDATE_FOCUSED_FLOAT') {

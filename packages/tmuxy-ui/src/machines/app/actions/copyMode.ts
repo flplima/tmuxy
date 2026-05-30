@@ -95,14 +95,6 @@ export const copyModeActions = {
           end: pane.height - 1,
         }),
       );
-
-      enqueue(
-        sendTo('keyboard', {
-          type: 'UPDATE_COPY_MODE' as const,
-          active: true,
-          paneId: event.paneId,
-        }),
-      );
     },
   ),
 
@@ -118,14 +110,6 @@ export const copyModeActions = {
         sendTo('tmux', {
           type: 'SEND_COMMAND' as const,
           command: `send-keys -t ${event.paneId} -X cancel`,
-        }),
-      );
-
-      enqueue(
-        sendTo('keyboard', {
-          type: 'UPDATE_COPY_MODE' as const,
-          active: false,
-          paneId: null,
         }),
       );
     },
@@ -400,14 +384,6 @@ export const copyModeActions = {
           command: `send-keys -t ${event.paneId} -X cancel`,
         }),
       );
-
-      enqueue(
-        sendTo('keyboard', {
-          type: 'UPDATE_COPY_MODE' as const,
-          active: false,
-          paneId: null,
-        }),
-      );
     },
   ),
 
@@ -432,13 +408,6 @@ export const copyModeActions = {
             command: `send-keys -t ${paneId} -X cancel`,
           }),
         );
-        enqueue(
-          sendTo('keyboard', {
-            type: 'UPDATE_COPY_MODE' as const,
-            active: false,
-            paneId: null,
-          }),
-        );
         return;
       }
 
@@ -451,13 +420,6 @@ export const copyModeActions = {
           sendTo('tmux', {
             type: 'SEND_COMMAND' as const,
             command: `send-keys -t ${paneId} -X cancel`,
-          }),
-        );
-        enqueue(
-          sendTo('keyboard', {
-            type: 'UPDATE_COPY_MODE' as const,
-            active: false,
-            paneId: null,
           }),
         );
         return;

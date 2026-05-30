@@ -20,6 +20,8 @@ When copy mode is **active**, the keyboard actor calls `preventDefault()` on eve
 
 When copy mode is **inactive**, keys pass through to tmux normally.
 
+Copy mode is **per-pane**. The keyboard actor derives "is copy mode active" on each keydown from whether the **currently active pane** has a `CopyModeState` (`copyModeStates[activePaneId]`) — it does not track a separate flag. This means switching to another pane, or closing the pane that was in copy mode, immediately resumes normal input routing for the now-active pane; no event needs to fire to "turn off" copy mode. A focused float always takes priority, so an underlying pane's copy mode never captures the float's keys. Stale `copyModeStates` entries for removed panes are pruned on the next model update.
+
 ## Entry and Exit
 
 **Entry triggers:**
