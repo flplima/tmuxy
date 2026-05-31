@@ -271,7 +271,12 @@ impl ControlModeConnection {
         // exactly what `tmux -CC` requires (it calls tcgetattr(STDIN_FILENO)
         // and refuses to run without a real TTY). Same code path for both
         // platforms; no `script`, no `/bin/sh -c`, no shell quoting.
+        // tmux_bin() returns a shell-style string ("/path/to/tmux -L <socket>"),
+        // useful for human-readable log lines. The actual spawn must use just
+        // the binary path because pty_process::Command::new treats its argument
+        // as an exact filename — `-L <socket>` lives in `tmux_args` below.
         let tmux_bin_str = crate::session::tmux_bin();
+        let tmux_path_str = crate::session::tmux_path();
 
         let (pty, pts) = pty_process::open().map_err(|e| {
             let msg = format!("Failed to open pty: {}", e);
@@ -325,7 +330,15 @@ impl ControlModeConnection {
             ]);
         }
 
-        let shell_desc = format!("{} {}", tmux_bin_str, tmux_args.join(" "));
+        // tmux_bin_str already includes `-L <socket>` when TMUX_SOCKET is set,
+        // and so do tmux_args — strip the leading `-L … ` pair from tmux_args
+        // for the log so we don't print the flag twice.
+        let log_args: Vec<&str> = if tmux_args.first().map(|s| s.as_str()) == Some("-L") {
+            tmux_args.iter().skip(2).map(String::as_str).collect()
+        } else {
+            tmux_args.iter().map(String::as_str).collect()
+        };
+        let shell_desc = format!("{} {}", tmux_bin_str, log_args.join(" "));
         crate::debug_log::log(&format!("connect(): pty spawn: {}", shell_desc));
         log_to(log, LogKind::Command, shell_desc.clone());
 
@@ -339,7 +352,7 @@ impl ControlModeConnection {
         // "command not found", the window dies, tmux emits %exit, and we
         // reconnect in a tight loop. Same hazard for any user .zshrc/.bashrc
         // line that calls a Homebrew binary at startup.
-        let mut cmd = pty_process::Command::new(tmux_bin_str);
+        let mut cmd = pty_process::Command::new(tmux_path_str);
         cmd = cmd.args(&tmux_args);
         if std::env::var_os("TERM").is_none() {
             cmd = cmd.env("TERM", "xterm-256color");
