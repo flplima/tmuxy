@@ -40,6 +40,7 @@ import * as WindowTabsStories from '../../components/WindowTabs.stories';
 import * as TmuxStatusBarStories from '../../components/TmuxStatusBar.stories';
 import * as FilePickerStories from '../../components/FilePicker.stories';
 import * as PaneHeaderStories from '../../components/PaneHeader.stories';
+import * as FloatPaneStories from '../../components/FloatPane.stories';
 import * as AppStories from '../App.stories';
 
 beforeAll(() => {
@@ -86,6 +87,7 @@ const PROVIDER_STORY_MODULES: Record<string, StoryModule> = {
   TmuxStatusBar: TmuxStatusBarStories,
   FilePicker: FilePickerStories,
   PaneHeader: PaneHeaderStories,
+  FloatPane: FloatPaneStories,
   App: AppStories,
 };
 
