@@ -5,7 +5,9 @@
  *
  * On macOS Tauri: hides the hamburger menu (native menu bar is used instead),
  * adds spacing for the traffic light window buttons, and makes the bar draggable
- * via Tauri's startDragging() JS API on mousedown.
+ * via Tauri's startDragging() JS API on mousedown. The second mousedown of a
+ * double-click toggles window zoom instead, since startDragging() swallows the
+ * native dblclick event before it can reach onDoubleClick.
  */
 
 import { useCallback } from 'react';
@@ -28,24 +30,32 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
   const contentWidth = totalWidth > 0 ? totalWidth * charWidth : undefined;
 
   // On macOS Tauri, mousedown on the statusbar starts window dragging
-  // via the Tauri JS API (data-tauri-drag-region doesn't work reliably)
+  // via the Tauri JS API (data-tauri-drag-region doesn't work reliably).
+  // The second mousedown of a double-click toggles zoom instead — calling
+  // startDragging() swallows the native dblclick event, so we check the
+  // click count here rather than relying on onDoubleClick.
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!isMacTauri || e.buttons !== 1) return;
-    // Don't drag if clicking on an interactive element
     const target = e.target as HTMLElement;
     if (target.closest('button, [role="tab"], .tab-add, .app-menu-button')) return;
+
+    if (e.detail === 2) {
+      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+        getCurrentWindow().toggleMaximize();
+      });
+      return;
+    }
 
     import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
       getCurrentWindow().startDragging();
     });
   }, []);
 
-  // Double-click on the bar zooms the window (toggle maximize), matching
-  // the native macOS / Windows / Linux titlebar gesture. Same interactive-
-  // element exclusion as the drag handler so clicks on tabs/buttons don't
-  // accidentally maximize.
+  // On non-macOS Tauri, startDragging isn't called so the native dblclick
+  // event still fires — handle it here to toggle maximize, matching the
+  // native Windows / Linux titlebar gesture.
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-    if (!isTauri()) return;
+    if (!isTauri() || isMacTauri) return;
     const target = e.target as HTMLElement;
     if (target.closest('button, [role="tab"], .tab-add, .app-menu-button')) return;
 
