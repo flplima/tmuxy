@@ -11,22 +11,6 @@ pub const VITE_PORT: u16 = 9001;
 /// Port for Next.js demo dev server
 pub const DEMO_PORT: u16 = 9002;
 
-/// Find an available port starting from 9000, incrementing until one is free.
-/// Override with PORT env var.
-pub fn get_port() -> u16 {
-    if let Some(port) = std::env::var("PORT").ok().and_then(|p| p.parse().ok()) {
-        return port;
-    }
-
-    for port in 9000..9100u16 {
-        if std::net::TcpListener::bind(("0.0.0.0", port)).is_ok() {
-            return port;
-        }
-    }
-
-    9000
-}
-
 /// Handle to a dev child process for cleanup
 #[cfg(unix)]
 pub struct ViteChild {

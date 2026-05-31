@@ -43,7 +43,7 @@ pub enum ServerAction {
 pub async fn run(args: ServerArgs) {
     let dev_mode = args.dev || std::env::var("TMUXY_DEV").is_ok();
     match args.action {
-        None if dev_mode => start_dev_server().await,
+        None if dev_mode => start_dev_server(args.port).await,
         None => start_server(args.port, args.host).await,
         Some(ServerAction::Stop) => stop_server(),
         Some(ServerAction::Status) => server_status(),
@@ -51,7 +51,37 @@ pub async fn run(args: ServerArgs) {
 }
 
 /// Start the development server with Vite and demo proxies
-async fn start_dev_server() {
+async fn start_dev_server(requested_port: u16) {
+    // Honor PORT env (legacy) when present, otherwise fall back to the CLI arg.
+    let port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(requested_port);
+
+    // Vite (strictPort: true, port 9001) and the demo dev server (port 9002)
+    // bind to hard-coded ports. If tmuxy-server is told to bind one of those,
+    // it wins the race; Vite fails silently, and the `/proxy_to_vite` fallback
+    // then loops back to tmuxy-server itself — browser EventSources 404 on
+    // /events while `curl` (different headers/timing) appears to work. Bail
+    // early with an actionable message instead of letting that happen.
+    if port == dev::VITE_PORT || port == dev::DEMO_PORT {
+        let role = if port == dev::VITE_PORT {
+            "Vite"
+        } else {
+            "demo"
+        };
+        eprintln!(
+            "[dev] FATAL: port {} collides with the hard-coded {} dev server port.",
+            port, role
+        );
+        eprintln!(
+            "[dev] Choose a port other than {} or {} (e.g. DEV_PORT=9000) and restart.",
+            dev::VITE_PORT,
+            dev::DEMO_PORT
+        );
+        std::process::exit(1);
+    }
+
     tmuxy_core::session::ensure_config();
     // Materialize bundled CLI dispatcher and helper scripts so the in-config
     // `command-alias` entries (Ctrl+hjkl nav, pane groups, etc.) and the
@@ -93,7 +123,6 @@ async fn start_dev_server() {
         }))
         .with_state(state);
 
-    let port = dev::get_port();
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     println!("tmuxy dev server running at http://localhost:{}", port);
     println!(
