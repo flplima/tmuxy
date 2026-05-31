@@ -39,6 +39,9 @@ __snapshots__/
 .next/
 out/
 
+# Storybook
+storybook-static/
+
 # Core dumps (e.g., zsh crashes during dev)
 core
 core.*
