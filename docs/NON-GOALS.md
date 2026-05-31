@@ -43,13 +43,7 @@ We do NOT implement browser-style find-in-page for terminal content. Users searc
 
 **Why?** Search requires a buffer to search through. We don't maintain one.
 
-### 5. Image Protocols
-
-We do NOT actively support iTerm2 inline image protocols. Exploratory parser and renderer code exists in the frontend (`richContentParser.ts`, `RichContent.tsx`) but is currently unused — these components are not wired into the rendering pipeline. Full support would require a sideband channel to intercept image sequences before tmux strips them.
-
-**Maybe later:** If demand exists and a sideband channel is implemented.
-
-### 6. Local Echo / Input Prediction
+### 5. Local Echo / Input Prediction
 
 We do NOT predict keystrokes locally to reduce perceived latency (like mosh does). Every keystroke round-trips through tmux.
 
@@ -59,7 +53,7 @@ We do NOT predict keystrokes locally to reduce perceived latency (like mosh does
 - Adds significant complexity
 - Risk of prediction errors
 
-### 7. Binary Protocol / Compression
+### 6. Binary Protocol / Compression
 
 We use JSON over SSE/HTTP, not binary encoding (MessagePack, Protobuf) or compression.
 
@@ -68,13 +62,13 @@ We use JSON over SSE/HTTP, not binary encoding (MessagePack, Protobuf) or compre
 - JSON is debuggable and simple
 - Premature optimization
 
-### 8. Unicode Width Calculation
+### 7. Unicode Width Calculation
 
 We do NOT maintain our own `wcwidth` tables for character width calculation. Tmux renders the grid; we display it.
 
 **Exception:** If we implement custom text selection, we may need width info. Until then, tmux handles it.
 
-### 9. Canvas/WebGL Rendering
+### 8. Canvas/WebGL Rendering
 
 We use DOM rendering (spans), not canvas or WebGL.
 
@@ -84,11 +78,11 @@ We use DOM rendering (spans), not canvas or WebGL.
 - Accessibility (screen readers) works with DOM
 - Canvas/WebGL is premature optimization
 
-### 10. Cross-Session Features (Revised)
+### 9. Cross-Session Features (Revised)
 
 Session switching is supported via `tmuxy session switch` and the status bar session picker. One tmuxy instance connects to one session at a time, but can switch between sessions without page reload.
 
-### 11. SSH via Web Server
+### 10. SSH via Web Server
 
 SSH connections (remote server attachment) are only available in the Tauri desktop app. The web server accesses the host's local tmux; there is no browser-to-SSH tunnel.
 
@@ -101,6 +95,7 @@ SSH connections (remote server attachment) are only available in the Tauri deskt
 - Support tmux window/pane operations (split, resize, close, navigate)
 - Provide a clean, modern UI for tmux
 - Parse OSC sequences for hyperlinks and clipboard (targeted, not full emulation)
+- Decode terminal image protocols (iTerm2 OSC 1337, Kitty Graphics, Sixel) and render them as inline `<img>` placements — see [RICH-RENDERING.md](RICH-RENDERING.md)
 - Auto-reconnect on connection drop
 - Handle flow control for stability
 
@@ -118,4 +113,4 @@ Until then, we stay focused on being the best tmux UI, not another terminal emul
 ## Related
 
 - [COPY-MODE.md](COPY-MODE.md) — Client-side copy mode (the one scrollback-like feature we do implement)
-- [RICH-RENDERING.md](RICH-RENDERING.md) — Image protocol research and current status (mostly inactive)
+- [RICH-RENDERING.md](RICH-RENDERING.md) — Image protocol support (iTerm2, Kitty, Sixel) and OSC 8 hyperlinks

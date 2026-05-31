@@ -1,4 +1,10 @@
-import type { ServerState, ServerPane, ServerWindow, PaneContent } from '../types';
+import type {
+  ServerState,
+  ServerPane,
+  ServerWindow,
+  PaneContent,
+  ServerImagePlacement,
+} from '../types';
 import { LifoShell } from './LifoShell';
 
 // ============================================
@@ -30,6 +36,8 @@ interface FakePane {
   shell: LifoShell;
   command: string;
   title: string;
+  /** Image placements injected into this pane (storybook / test-only path). */
+  images?: ServerImagePlacement[];
 }
 
 interface FakeWindow {
@@ -41,6 +49,21 @@ interface FakeWindow {
   layoutCycle: number; // tracks position in layout cycle
   windowType: 'tab' | 'float' | 'float-backdrop' | 'group';
   groupPanes: string[] | null;
+  // Float options (only meaningful when windowType === 'float'). Mirror the
+  // @tmuxy-float-* tmux window options the real CLI sets via bin/tmuxy/float-create.
+  floatDrawer?: 'left' | 'right' | 'top' | 'bottom' | null;
+  floatBg?: 'dim' | 'blur' | 'none' | null;
+  floatNoheader?: boolean;
+  floatWidth?: number | null;
+  floatHeight?: number | null;
+}
+
+export interface CreateFloatOptions {
+  drawer?: 'left' | 'right' | 'top' | 'bottom';
+  bg?: 'dim' | 'blur' | 'none';
+  hideHeader?: boolean;
+  width?: number;
+  height?: number;
 }
 
 // ============================================
@@ -174,6 +197,7 @@ export class DemoTmux {
         history_size: pane.shell.getHistorySize(),
         cursor_shape: 0,
         cursor_hidden: false,
+        images: pane.images,
       });
     }
 
@@ -185,11 +209,11 @@ export class DemoTmux {
       window_type: w.windowType,
       group_panes: w.groupPanes,
       float_parent: null,
-      float_width: null,
-      float_height: null,
-      float_drawer: null,
-      float_bg: null,
-      float_noheader: false,
+      float_width: w.floatWidth ?? null,
+      float_height: w.floatHeight ?? null,
+      float_drawer: w.floatDrawer ?? null,
+      float_bg: w.floatBg ?? null,
+      float_noheader: w.floatNoheader ?? false,
     }));
 
     return {
@@ -755,14 +779,34 @@ export class DemoTmux {
   // Float Panes
   // ============================================
 
-  createFloat(): string | null {
+  /**
+   * Attach an image placement to a pane. Storybook stories and tests use
+   * this to simulate the result of the Rust backend parsing an OSC 1337 /
+   * Kitty / Sixel sequence — the placement flows through ServerPane.images
+   * → the app machine → Terminal.tsx exactly like a real one.
+   *
+   * The frontend renders `<img src="/api/images/<paneNum>/<imageId>">`; in
+   * Storybook we override that URL via `window.__tmuxyImageSrc` so the
+   * image bytes can be a data URL the story registered.
+   */
+  attachImage(paneId: string, placement: ServerImagePlacement): boolean {
+    const pane = this.panes.get(paneId);
+    if (!pane) return false;
+    pane.images = pane.images ?? [];
+    pane.images.push(placement);
+    this.onAsyncUpdate?.();
+    return true;
+  }
+
+  createFloat(options: CreateFloatOptions = {}): string | null {
     const paneId = this.allocPaneId();
     const windowId = this.allocWindowId();
     const numericId = parseInt(paneId.slice(1));
 
-    // Float panes are smaller than full size
-    const floatW = Math.min(80, Math.floor(this.totalWidth * 0.75));
-    const floatH = Math.min(20, Math.floor(this.totalHeight * 0.75));
+    // Float panes are smaller than full size. Caller-provided width/height
+    // are in tmux columns/rows; otherwise default to ~75% of the surface.
+    const floatW = options.width ?? Math.min(80, Math.floor(this.totalWidth * 0.75));
+    const floatH = options.height ?? Math.min(20, Math.floor(this.totalHeight * 0.75));
 
     const shell = this.makeShell(floatW, floatH);
     shell.writePrompt();
@@ -790,6 +834,11 @@ export class DemoTmux {
       layoutCycle: 0,
       windowType: 'float',
       groupPanes: null,
+      floatDrawer: options.drawer ?? null,
+      floatBg: options.bg ?? null,
+      floatNoheader: options.hideHeader ?? false,
+      floatWidth: options.width ?? null,
+      floatHeight: options.height ?? null,
     };
     this.windows.push(window);
 

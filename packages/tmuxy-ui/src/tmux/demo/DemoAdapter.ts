@@ -504,6 +504,56 @@ export class DemoAdapter implements TmuxAdapter {
         this.tmux.breakPane();
         break;
 
+      case 'tmuxy-image-attach': {
+        // Storybook/test helper. Real images flow through the Rust image
+        // parser; this is a shortcut for demo scenarios.
+        // Usage: tmuxy-image-attach <paneId> <protocol> <id> <colsxrows>
+        //        [<row>,<col>]
+        const paneId = parts[1];
+        const protocol = parts[2] as 'iterm2' | 'kitty' | 'sixel';
+        const id = Number(parts[3]);
+        const dims = (parts[4] ?? '40x20').split('x').map((n) => Number(n));
+        const pos = (parts[5] ?? '0,0').split(',').map((n) => Number(n));
+        if (paneId && protocol && Number.isFinite(id)) {
+          this.tmux.attachImage(paneId, {
+            id,
+            row: pos[0] ?? 0,
+            col: pos[1] ?? 0,
+            width_cells: dims[0] ?? 40,
+            height_cells: dims[1] ?? 20,
+            protocol,
+          });
+        }
+        break;
+      }
+
+      case 'tmuxy-float-create': {
+        // Mirror bin/tmuxy/float-create option parsing.
+        // Usage: tmuxy-float-create [--left|--right|--top|--bottom]
+        //                           [--width N] [--height N]
+        //                           [--bg dim|blur|none]
+        //                           [--hide-header]
+        const opts: import('./DemoTmux').CreateFloatOptions = {};
+        for (let i = 1; i < parts.length; i++) {
+          const p = parts[i];
+          if (p === '--left') opts.drawer = 'left';
+          else if (p === '--right') opts.drawer = 'right';
+          else if (p === '--top') opts.drawer = 'top';
+          else if (p === '--bottom') opts.drawer = 'bottom';
+          else if (p === '--hide-header') opts.hideHeader = true;
+          else if (p === '--width' && i + 1 < parts.length) {
+            opts.width = Number(parts[++i]);
+          } else if (p === '--height' && i + 1 < parts.length) {
+            opts.height = Number(parts[++i]);
+          } else if (p === '--bg' && i + 1 < parts.length) {
+            const v = parts[++i];
+            if (v === 'dim' || v === 'blur' || v === 'none') opts.bg = v;
+          }
+        }
+        this.tmux.createFloat(opts);
+        break;
+      }
+
       case 'tmuxy-pane-group-add':
         this.tmux.groupAdd();
         break;

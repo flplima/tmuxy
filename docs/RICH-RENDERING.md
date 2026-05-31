@@ -1,190 +1,124 @@
-# Rich Terminal Rendering in Tmuxy
+# Rich Terminal Rendering
 
-This document summarizes research on terminal image protocols and rich content rendering capabilities that can be implemented in tmuxy.
+Tmuxy intercepts terminal escape sequences that would otherwise be passed through to (or dropped by) tmux and renders them as real DOM elements. The browser shows actual `<a>` for hyperlinks, `<img>` for inline images, and clipboard requests round-trip through `navigator.clipboard`.
 
-## Overview
+This document covers what's supported, how the pipeline works, and how to test each protocol.
 
-Since tmuxy captures terminal output before rendering in the browser, we can intercept escape sequences that would be ignored/stripped by tmux and handle them specially. The browser can render actual `<img>` elements, `<a>` hyperlinks, and custom components.
+## Supported protocols
 
-## Image Protocols Comparison
+| Protocol | DCS / OSC / APC | Backend | Frontend | Notes |
+|----------|----------------|---------|----------|-------|
+| **OSC 8 — Hyperlinks** | `ESC ] 8 ; … ; <url> ST` | `control_mode/osc.rs` (style on cell) | `TerminalLine.tsx` → `<a href>` | Requires `terminal-features "*:hyperlinks"` in tmux |
+| **OSC 1337 — iTerm2 Inline Images** | `ESC ] 1337 ; File=… : <base64> BEL` | `control_mode/images.rs::try_parse_iterm2` | `Terminal.tsx` → `<img src="/api/images/…">` | Base64 of any browser-renderable format |
+| **APC _G — Kitty Graphics** | `ESC _ G <keys> ; <payload> ESC \` | `control_mode/images.rs::try_parse_kitty` | same | Supports chunked transfer (`m=1`/`m=0`) and formats `f=24`/`f=32`/`f=100` |
+| **DCS Pq — Sixel** | `ESC P q … ESC \` | `control_mode/images.rs::try_parse_sixel` | same | Decoded by `icy_sixel`, re-encoded as PNG before serving |
+| **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `control_mode/osc.rs` (event) | `clipboardActor` writes via `navigator.clipboard` | Outbound only — pasting back is not implemented |
 
-| Protocol | Quality | Speed | Support | Notes |
-|----------|---------|-------|---------|-------|
-| **iTerm2** | Excellent | Fast | iTerm2, WezTerm, many others | Simpler protocol, widely adopted |
-| **Sixel** | Limited (palette-based, 0-100 color range) | Slower | Oldest, broadest support | tmux has `--enable-sixel` support |
+OSC 8 has been supported for a long time. The image protocols and the OSC 52 path landed together (see the `images.rs` parser and its companion route in `tmuxy-server`). The frontend `richContentParser.ts` / `RichContent.tsx` modules predate this work and are used only for widget markdown rendering, not for inline image decoding.
 
-**Recommendation**: Support iTerm2 as primary (simple, good compatibility). Sixel has broadest support but is primitive and wasteful.
+## How tmux preserves the sequences
 
-## Protocol Specifications
+Tmuxy speaks **tmux control mode** (`-CC`), and tmux forwards every escape sequence the running application emits inside `%output` events on stdout. That includes passthrough payloads. Earlier versions of this document claimed image escapes were stripped — that was wrong. The Rust parser sits on top of the control-mode byte stream and never needs to touch the pty directly.
 
-### 1. OSC 8 Hyperlinks
+Two tmux options matter:
 
-Clickable links with custom text. Widely supported by modern terminals.
+- `set -g allow-passthrough on` — required so tmux doesn't refuse to relay the sequences. Tmuxy's bundled `~/.tmuxy.conf` sets this.
+- `set -g default-terminal "tmux-256color"` (or another terminfo entry that does **not** include image capabilities) — keeps tmux from trying to act on the sequences itself.
 
-**Format:**
-```
-ESC ] 8 ; params ; <url> ST <link text> ESC ] 8 ; ; ST
-```
+The parser is permissive about line wrapping and stray printable bytes between chunked Kitty packets, since tmux re-flows output around its own column wrapping.
 
-- `ESC ]` = OSC (Operating System Command) introducer
-- `8` = hyperlink command
-- `params` = optional parameters (e.g., `id=xyz` for grouping)
-- `url` = the target URL
-- `ST` = String Terminator (`ESC \` or `BEL`)
-- Text between the two sequences becomes the clickable link
-
-**Example:**
-```
-\x1b]8;;https://example.com\x1b\\Click here\x1b]8;;\x1b\\
-```
-
-**Applications using OSC 8:**
-- GCC 10+ (error messages linking to docs)
-- `ls --hyperlink`
-- `grep` with `--color`
-- Rich (Python library)
-- Many CLI tools
-
-**References:**
-- [OSC 8 Specification](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda)
-- [OSC 8 Adoption Tracker](https://github.com/Alhadis/OSC8-Adoption)
-
-### 2. iTerm2 Inline Images Protocol
-
-Simple protocol for displaying images inline.
-
-**Format:**
-```
-ESC ] 1337 ; File=<args> : <base64 data> BEL
-```
-
-**Arguments:**
-- `name=<base64 filename>` - Optional filename
-- `size=<bytes>` - File size in bytes
-- `width=<n>` / `height=<n>` - Display dimensions (cells, pixels, or percentage)
-- `preserveAspectRatio=1` - Maintain aspect ratio
-- `inline=1` - Display inline (required for images)
-
-**Example:**
-```
-\x1b]1337;File=inline=1;width=auto;height=auto:<base64_image_data>\x07
-```
-
-**References:**
-- [iTerm2 Inline Images Documentation](https://iterm2.com/documentation-images.html)
-
-## Other Rich Rendering Opportunities
-
-### Desktop Notifications (OSC 9/777)
-```
-ESC ] 9 ; <message> ST        # Windows Terminal
-ESC ] 777 ; notify ; <title> ; <body> ST  # rxvt-unicode
-```
-
-### Clipboard Operations (OSC 52)
-```
-ESC ] 52 ; c ; <base64_data> ST   # Set clipboard
-ESC ] 52 ; c ; ? ST               # Query clipboard
-```
-
-### Progress Bars (ConEmu style)
-```
-ESC ] 9 ; 4 ; <state> ; <progress> ST
-```
-- state: 0=hidden, 1=default, 2=error, 3=indeterminate, 4=warning
-
-### Semantic Zones (iTerm2/FinalTerm)
-Mark prompt, command, output regions for navigation:
-```
-ESC ] 133 ; A ST  # Start of prompt
-ESC ] 133 ; B ST  # End of prompt, start of command
-ESC ] 133 ; C ST  # End of command, start of output
-ESC ] 133 ; D ; <exit_code> ST  # End of output
-```
-
-### Current Directory (OSC 7)
-```
-ESC ] 7 ; file://<hostname>/<path> ST
-```
-
-## Implementation Architecture
+## End-to-end pipeline
 
 ```
-┌─────────────────┐     ┌──────────────────────────────────────┐
-│  tmux output    │────▶│  Rust Backend (escape parser)        │
-│  (raw escapes)  │     │  - Detect image/OSC sequences        │
-│                 │     │  - Extract & decode payloads         │
-│                 │     │  - Send structured data to frontend  │
-└─────────────────┘     └──────────────────────────────────────┘
-                                          │
-                                          ▼
-                        ┌──────────────────────────────────────┐
-                        │  React Frontend                      │
-                        │  - Terminal.tsx renders ANSI text    │
-                        │  - <img> for image sequences         │
-                        │  - <a> for OSC 8 hyperlinks          │
-                        │  - Custom components for widgets     │
-                        └──────────────────────────────────────┘
+running app
+   │ writes escape bytes
+   ▼
+tmux (-CC, passthrough)
+   │ wraps as %output %<pane> <bytes>
+   ▼
+tmuxy-core / control_mode/parser.rs
+   │ feeds raw payload to
+   ▼
+control_mode/images.rs::ImageParser::process
+   │ ─► extracts payload, decodes, stores image bytes in pane state
+   │ ─► returns ImageProcessResult { stripped: bytes_to_render,
+   │                                  new_placements: [(id, StoredImage)…] }
+   ▼
+ServerPane.images  (snake_case, serialized over SSE)
+   │
+   ▼
+appMachine.helpers::transformServerState  (snake → camel via camelize())
+   │
+   ▼
+TmuxPane.images : ImagePlacement[]
+   │
+   ▼
+TerminalPane.tsx → Terminal.tsx
+   │ renders <img class="terminal-image"
+   │              src="/api/images/<paneNum>/<imageId>"
+   │              data-protocol="iterm2|kitty|sixel"
+   │              style="top: …; left: …; width: …; height: …" />
+   ▼
+GET /api/images/{pane_id}/{image_id}
+   │ served by tmuxy-server (see api_routes in state.rs)
+   ▼
+stored bytes (already in the format the browser expects: PNG/JPEG/WebP)
 ```
 
-## Implementation Priority
+`ImageParser` keeps the raw bytes per `(pane_id, image_id)` so that re-renders, viewport changes, and reconnects all read the same content. Sixel input is converted to PNG once at parse time so the server doesn't repeat the decode on every fetch.
 
-### Phase 1: Quick Wins
-1. **OSC 8 Hyperlinks** - Parse and render as `<a href>` (easy, high value)
-2. **iTerm2 inline images** - Simpler protocol, base64 → `<img src="data:...">`
+## Placement geometry
 
-### Phase 2: Enhanced Features
-4. Desktop notifications (OSC 9/777)
-5. Clipboard operations (OSC 52)
-6. Semantic zones for better navigation
-7. Progress bar indicators
+Each `ImagePlacement` carries:
 
-### Phase 3: Tmuxy-Exclusive Features
-8. Interactive widgets (buttons, forms)
-9. Markdown rendering blocks
-10. Chart/graph rendering (D3.js, Chart.js)
-11. LaTeX math formulas
-12. Syntax-highlighted code blocks
+- `id` — monotonic per-pane image counter, matches the URL path
+- `row`, `col` — top-left cell coordinates within the pane grid
+- `width_cells`, `height_cells` — bounding box in terminal cells
+- `protocol` — one of `iterm2`, `kitty`, `sixel`
 
-## Current Implementation Status
-
-| Feature | Status | Works via tmux | Notes |
-|---------|--------|----------------|-------|
-| **OSC 8 Hyperlinks** | ✅ Working | ✅ | Rust backend parses OSC 8 → `cell.style.url` → `TerminalLine.tsx` renders `<a>` tags. Requires `terminal-features "hyperlinks"` in tmux config |
-| **iTerm2 Images** | ❌ Inactive | ❌ | Frontend parser/renderer exist in `richContentParser.ts` and `RichContent.tsx` but are unused (dead code). `allow-passthrough` forwards to outer terminal, not captured |
-
-### tmux Limitations
-
-tmux's `allow-passthrough` mode forwards escape sequences to the outer terminal but does **not** retain them in the capture buffer. This means:
-
-1. **OSC 8 Hyperlinks** - Work because tmux has native support via `terminal-features "hyperlinks"`. These sequences are kept in the buffer and captured by `capture-pane -e`.
-
-2. **Image Protocols (iTerm2, Sixel)** - Don't work because:
-   - Passthrough sequences bypass the capture buffer entirely
-   - `capture-pane` never sees them
-
-### Future Solutions for Images
-
-1. **Tauri Desktop App** - Connect directly to a pty without tmux; all protocols would work
-2. **Sideband Channel** - Backend intercepts image sequences before tmux and sends via separate SSE event
-3. **tmux Plugin** - Custom tmux plugin to capture and forward image data
+The frontend positions the `<img>` absolutely inside `.terminal-images` using `calc(<n> * var(--cell-width|height))`, so the image stays anchored to the same cell range as the surrounding text reflows. When `width=auto` / `height=auto` is requested, the parser converts pixels to cells using the pane's current cell size estimate.
 
 ## Testing
 
-### OSC 8 Hyperlinks (Working)
+### Manual
+
 ```bash
-# In a tmux session with tmuxy config
+# OSC 8 hyperlink
 printf '\e]8;;https://example.com\e\\Click me\e]8;;\e\\\n'
 ls --hyperlink=auto
+
+# iTerm2 inline image (requires `imgcat` from iTerm2 utilities, or any
+# tool that emits OSC 1337 File=…)
+imgcat path/to/image.png
+
+# Kitty graphics protocol
+kitten icat path/to/image.png   # the official client
+# or any application using zellij / ranger's kitty image preview
+
+# Sixel
+img2sixel path/to/image.png
+chafa --format sixel path/to/image.png
 ```
 
-### iTerm2 Images (Not working via tmux)
-```bash
-# Would work in direct terminal, not via tmux
-imgcat image.png
-```
+Inside a real tmuxy session, each of these renders the image inline in the pane.
+
+### Automated
+
+- **Rust unit tests** (`tmuxy-core/src/control_mode/images.rs`) cover the parsers and placement geometry — including chunked Kitty transfers, RGBA-to-PNG conversion, and Sixel decode.
+- **Storybook interaction tests** in `tmuxy-ui/src/components/ImageProtocols.stories.tsx` use the demo adapter's `tmuxy-image-attach` helper to inject placements and verify the rendered `<img>` element (one story per protocol plus a multi-protocol story and a split-pane story). The byte source is stubbed via `window.__tmuxyImageSrc`.
+- **E2E** runs a real tmux session, emits each protocol with a shell command, and asserts the `<img>` shows up in the page (see `tests/`).
+
+## Other rich-rendering opportunities
+
+These are documented because they reuse the same passthrough pipeline; whether to implement them is a product decision, not a technical one.
+
+- **OSC 9 / OSC 777 — Desktop notifications**
+- **OSC 9;4 — ConEmu progress bars**
+- **OSC 133 — FinalTerm semantic zones** (prompt / command / output markers)
+- **OSC 7 — Working-directory hints** (already partially wired for tab titles)
 
 ## Related
 
-- [NON-GOALS.md](NON-GOALS.md) — Image protocols listed as a non-goal (inactive dead code)
-- [TMUX.md](TMUX.md) — tmux limitations that prevent image protocol support
+- [TMUX.md](TMUX.md) — control-mode protocol and version quirks
+- [DATA-FLOW.md](DATA-FLOW.md) — SSE/HTTP delivery of placements and image bytes
+- [NON-GOALS.md](NON-GOALS.md) — what we still deliberately don't render

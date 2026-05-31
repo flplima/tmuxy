@@ -11,6 +11,29 @@ import { cursorShapeToMode } from '../utils/cursorShape';
 import type { CursorMode } from './Cursor';
 import type { PaneContent, CellLine, ImagePlacement } from '../tmux/types';
 
+/**
+ * Resolve the URL the browser should load for a given image placement.
+ * In production this points at the server's `/api/images/...` route. Tests
+ * and Storybook stories can override the resolver by setting
+ * `window.__tmuxyImageSrc` — useful for serving data:/blob: URLs without
+ * standing up a real backend.
+ */
+function resolveImageSrc(paneId: string, imageId: number): string {
+  const numericPaneId = paneId.replace('%', '');
+  if (typeof window !== 'undefined') {
+    const override = (
+      window as unknown as {
+        __tmuxyImageSrc?: (paneId: string, imageId: number) => string | undefined;
+      }
+    ).__tmuxyImageSrc;
+    if (override) {
+      const resolved = override(paneId, imageId);
+      if (resolved) return resolved;
+    }
+  }
+  return `/api/images/${numericPaneId}/${imageId}`;
+}
+
 interface TerminalProps {
   content: PaneContent;
   cursorX?: number;
@@ -169,8 +192,10 @@ export const Terminal: React.FC<TerminalProps> = ({
             <img
               key={img.id}
               className="terminal-image"
-              src={`/api/images/${paneId.replace('%', '')}/${img.id}`}
+              src={resolveImageSrc(paneId, img.id)}
               alt=""
+              data-protocol={img.protocol}
+              data-image-id={img.id}
               style={{
                 position: 'absolute',
                 top: `calc(${img.row} * var(--cell-height))`,

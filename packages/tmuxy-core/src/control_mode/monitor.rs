@@ -917,6 +917,9 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
+    // Reusable test fixture — kept for future StateEmitter tests even though
+    // none of the current tests instantiate it.
+    #[allow(dead_code)]
     struct TestEmitter {
         updates: Arc<Mutex<Vec<StateUpdate>>>,
         errors: Arc<Mutex<Vec<String>>>,

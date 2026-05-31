@@ -52,7 +52,7 @@ export interface ImagePlacement {
   col: number;
   widthCells: number;
   heightCells: number;
-  protocol: 'iterm2' | 'sixel';
+  protocol: 'iterm2' | 'kitty' | 'sixel';
 }
 
 /**
@@ -203,7 +203,7 @@ export interface ServerImagePlacement {
   col: number;
   width_cells: number;
   height_cells: number;
-  protocol: 'iterm2' | 'sixel';
+  protocol: 'iterm2' | 'kitty' | 'sixel';
 }
 
 export interface ServerWindow {

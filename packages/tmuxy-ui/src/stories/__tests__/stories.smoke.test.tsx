@@ -41,6 +41,7 @@ import * as TmuxStatusBarStories from '../../components/TmuxStatusBar.stories';
 import * as FilePickerStories from '../../components/FilePicker.stories';
 import * as PaneHeaderStories from '../../components/PaneHeader.stories';
 import * as FloatPaneStories from '../../components/FloatPane.stories';
+import * as ImageProtocolsStories from '../../components/ImageProtocols.stories';
 import * as AppStories from '../App.stories';
 
 beforeAll(() => {
@@ -88,6 +89,7 @@ const PROVIDER_STORY_MODULES: Record<string, StoryModule> = {
   FilePicker: FilePickerStories,
   PaneHeader: PaneHeaderStories,
   FloatPane: FloatPaneStories,
+  ImageProtocols: ImageProtocolsStories,
   App: AppStories,
 };
 
