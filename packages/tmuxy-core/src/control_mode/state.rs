@@ -1189,13 +1189,24 @@ impl StateAggregator {
             &event,
             ControlModeEvent::WindowAdd { .. } | ControlModeEvent::UnlinkedWindowAdd { .. }
         );
-        let result = self.process_event(event);
+        let mut result = self.process_event(event);
         let mut effects = Vec::new();
 
         // Auto-adopt before anything else so emissions reflect tagged state.
+        // When we tag windows on a step where process_event reported
+        // state_changed=false (e.g. WindowAdd, which intentionally defers its
+        // own emit), promote the step to a window-typed state change. Without
+        // this, the frontend sees an untagged window until the next
+        // state-changing event arrives — which can be 15s+ in CI under tmux
+        // 3.4 when the CC stream is busy with sync_initial_state.
         let tag_cmds = self.collect_window_tag_commands();
-        if !tag_cmds.is_empty() {
+        let tagged_any = !tag_cmds.is_empty();
+        if tagged_any {
             effects.push(SideEffect::AdoptUntaggedWindows(tag_cmds));
+            if !result.state_changed {
+                result.state_changed = true;
+                result.change_type = ChangeType::Window;
+            }
         }
 
         // Image / clipboard side effects fire before list-pane refreshes so

@@ -328,11 +328,17 @@ async function waitForPaneCount(driver, expected, timeout = 10000) {
 /**
  * Wait for window count to reach expected value.
  *
+ * Default 30s because the initial auto-adopt of `@tmuxy-window-type=tab` runs
+ * after the monitor's first list-windows round-trip, and the CC stream can be
+ * busy at startup (sync_initial_state + theme/scrollback calls from the Tauri
+ * Ctx/Tower stack). Local tmux 3.5a settles in <3s; CI's tmux 3.4 routinely
+ * takes 10s+ before the first state emission with windowType populated lands.
+ *
  * @param {WebdriverIO.Browser} driver
  * @param {number} expected
  * @param {number} timeout
  */
-async function waitForWindowCount(driver, expected, timeout = 10000) {
+async function waitForWindowCount(driver, expected, timeout = 30000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const count = await getWindowCount(driver);
