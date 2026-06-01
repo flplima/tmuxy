@@ -739,31 +739,52 @@ async fn handle_command(
             start,
             end,
         } => {
-            // Get pane width from display-message
-            let width_output = executor::execute_tmux_command(&[
-                "display-message",
-                "-t",
-                &pane_id,
-                "-p",
-                "#{pane_width}",
-            ])
+            // Apply the standard retry policy to the three queries that build a
+            // single scrollback response. Capture-pane in particular sometimes
+            // races a pending layout change and returns transient io::Error;
+            // the policy retries those without surfacing them to the client.
+            let policy = tmuxy_core::RetryPolicy::standard();
+            let pane_id_for_width = pane_id.clone();
+            let width_output = tmuxy_core::retry_with(policy, move || {
+                let pane_id = pane_id_for_width.clone();
+                async move {
+                    executor::execute_tmux_command(&[
+                        "display-message",
+                        "-t",
+                        &pane_id,
+                        "-p",
+                        "#{pane_width}",
+                    ])
+                }
+            })
+            .await
             .map_err(|e| format!("Failed to get pane width: {}", e))?;
             let width: u32 = width_output.trim().parse().unwrap_or(80);
 
-            // Get history size
-            let history_output = executor::execute_tmux_command(&[
-                "display-message",
-                "-t",
-                &pane_id,
-                "-p",
-                "#{history_size}",
-            ])
+            let pane_id_for_history = pane_id.clone();
+            let history_output = tmuxy_core::retry_with(policy, move || {
+                let pane_id = pane_id_for_history.clone();
+                async move {
+                    executor::execute_tmux_command(&[
+                        "display-message",
+                        "-t",
+                        &pane_id,
+                        "-p",
+                        "#{history_size}",
+                    ])
+                }
+            })
+            .await
             .map_err(|e| format!("Failed to get history size: {}", e))?;
             let history_size: u32 = history_output.trim().parse().unwrap_or(0);
 
-            // Capture the range
-            let raw = executor::capture_pane_range(&pane_id, start, end)
-                .map_err(|e| format!("Failed to capture pane range: {}", e))?;
+            let pane_id_for_capture = pane_id.clone();
+            let raw = tmuxy_core::retry_with(policy, move || {
+                let pane_id = pane_id_for_capture.clone();
+                async move { executor::capture_pane_range(&pane_id, start, end) }
+            })
+            .await
+            .map_err(|e| format!("Failed to capture pane range: {}", e))?;
 
             // Parse into cells
             let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
