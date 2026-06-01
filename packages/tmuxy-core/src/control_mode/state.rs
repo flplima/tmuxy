@@ -94,6 +94,10 @@ pub struct ProcessEventResult {
     pub change_type: ChangeType,
     /// Newly decoded images: (pane_id, vec of (image_id, StoredImage))
     pub new_images: Vec<(String, Vec<(u32, super::images::StoredImage)>)>,
+    /// OSC 52 clipboard write requests from the terminal application.
+    /// Each entry is (pane_id, decoded text). Forwarded to the emitter so
+    /// the frontend can mirror the request into the system clipboard.
+    pub clipboard_writes: Vec<(String, String)>,
 }
 
 /// State of a single pane with terminal emulation
@@ -1037,12 +1041,15 @@ impl StateAggregator {
     pub fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
         match event {
             ControlModeEvent::Output { pane_id, content } => {
-                let (changed, new_imgs) = self.handle_output(&pane_id, &content);
+                let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, &content);
                 let new_images = if new_imgs.is_empty() {
                     Vec::new()
                 } else {
                     vec![(pane_id.clone(), new_imgs)]
                 };
+                let clipboard_writes = clipboard
+                    .map(|text| vec![(pane_id.clone(), text)])
+                    .unwrap_or_default();
                 ProcessEventResult {
                     state_changed: changed,
                     panes_needing_refresh: Vec::new(),
@@ -1054,18 +1061,22 @@ impl StateAggregator {
                         ChangeType::None
                     },
                     new_images,
+                    clipboard_writes,
                 }
             }
 
             ControlModeEvent::ExtendedOutput {
                 pane_id, content, ..
             } => {
-                let (changed, new_imgs) = self.handle_output(&pane_id, &content);
+                let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, &content);
                 let new_images = if new_imgs.is_empty() {
                     Vec::new()
                 } else {
                     vec![(pane_id.clone(), new_imgs)]
                 };
+                let clipboard_writes = clipboard
+                    .map(|text| vec![(pane_id.clone(), text)])
+                    .unwrap_or_default();
                 ProcessEventResult {
                     state_changed: changed,
                     panes_needing_refresh: Vec::new(),
@@ -1077,6 +1088,7 @@ impl StateAggregator {
                         ChangeType::None
                     },
                     new_images,
+                    clipboard_writes,
                 }
             }
 
@@ -1422,7 +1434,7 @@ impl StateAggregator {
         &mut self,
         pane_id: &str,
         content: &[u8],
-    ) -> (bool, Vec<(u32, super::images::StoredImage)>) {
+    ) -> (bool, Vec<(u32, super::images::StoredImage)>, Option<String>) {
         // Only process output for panes we know about from list-panes.
         // This prevents creating panes from other tmux sessions.
         // Panes are added via parse_list_panes_line() which sets window_id.
@@ -1432,7 +1444,7 @@ impl StateAggregator {
             // pending — processing %output now would accumulate stale content
             // from the old window before the authoritative capture arrives.
             if self.panes_moved_window.contains(pane_id) {
-                return (false, Vec::new());
+                return (false, Vec::new(), None);
             }
             // Only process if pane has a valid window_id (was seen in list-panes)
             if !pane.window_id.is_empty() {
@@ -1445,7 +1457,9 @@ impl StateAggregator {
                     .filter(|(id, _)| !store_before.contains(id))
                     .map(|(id, img)| (*id, img.clone()))
                     .collect();
-                return (true, new_imgs);
+                // Drain any OSC 52 clipboard request the app emitted in this chunk.
+                let clipboard = pane.osc_parser.take_clipboard();
+                return (true, new_imgs, clipboard);
             }
         }
         // Buffer output for panes not yet created in state.
@@ -1459,7 +1473,7 @@ impl StateAggregator {
                 *buf = buf[start..].to_vec();
             }
         }
-        (false, Vec::new())
+        (false, Vec::new(), None)
     }
 
     /// Handle layout change and return list of pane IDs that need content refresh.
@@ -2337,5 +2351,54 @@ impl StateAggregator {
 impl Default for StateAggregator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Manually seat a pane in the aggregator so handle_output() processes it
+    /// (handle_output rejects panes that haven't been seen in list-panes).
+    fn seed_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
+        let mut pane = PaneState::new(pane_id, 80, 24);
+        pane.window_id = window_id.to_string();
+        agg.panes.insert(pane_id.to_string(), pane);
+    }
+
+    #[test]
+    fn osc52_clipboard_write_propagates_to_result() {
+        // OSC 52 base64-encoded "hello world" payload — what an app like
+        // `printf '\e]52;c;%s\e\\' "$(printf hello\ world | base64)'` sends.
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+
+        let event = ControlModeEvent::Output {
+            pane_id: "%0".to_string(),
+            content: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07".to_vec(),
+        };
+
+        let result = agg.process_event(event);
+
+        assert_eq!(
+            result.clipboard_writes,
+            vec![("%0".to_string(), "hello world".to_string())],
+            "OSC 52 sequence must surface as a clipboard write on the event result"
+        );
+    }
+
+    #[test]
+    fn output_without_osc52_yields_no_clipboard_write() {
+        // Sanity check that the new field doesn't fire on plain output.
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+
+        let event = ControlModeEvent::Output {
+            pane_id: "%0".to_string(),
+            content: b"hello\r\n".to_vec(),
+        };
+
+        let result = agg.process_event(event);
+        assert!(result.clipboard_writes.is_empty());
     }
 }

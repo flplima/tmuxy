@@ -43,6 +43,11 @@ pub trait StateEmitter: super::log::LogSink {
     /// Default implementation discards images (for emitters that don't need them).
     fn store_images(&self, _pane_id: &str, _images: Vec<(u32, super::images::StoredImage)>) {}
 
+    /// Called when an OSC 52 clipboard request is decoded from terminal output.
+    /// `text` is the UTF-8 string the application asked to place on the system
+    /// clipboard. Default implementation discards the request.
+    fn write_clipboard(&self, _pane_id: &str, _text: String) {}
+
     /// Called after initial state sync completes (config sourced, settings enforced).
     /// Default implementation does nothing.
     fn on_initial_sync_complete(&self) {}
@@ -308,12 +313,22 @@ impl TmuxMonitor {
             tokio::time::Instant::now() + self.config.sync_interval + Duration::from_secs(1);
 
         // Adaptive throttling state for output events
-        // - First event always emits immediately
         // - Track event rate over 100ms window
-        // - If high throughput (>20 events/100ms), throttle at 16ms
-        // - Otherwise, emit immediately for low latency typing
+        // - If high throughput (>20 events/100ms), throttle at throttle_interval
+        // - Otherwise, true trailing-edge debounce (16ms) coalesces clear+redraw
+        //   bursts from TUI apps (Ink-based UIs like Gemini) so the cleared
+        //   intermediate state never reaches the renderer between %output events.
         let mut last_output_emit = Instant::now() - self.config.throttle_interval;
         let mut pending_output_emit = false;
+        // Trailing-edge debounce trackers (low-throughput mode):
+        // - last_output_event_at resets on every new event, so the timer fires
+        //   only after events stop for `low_throughput_debounce`.
+        // - pending_output_first_at bounds the total wait via `pending_output_max`,
+        //   so a steady drip of events still produces a visible update.
+        let mut last_output_event_at: Option<Instant> = None;
+        let mut pending_output_first_at: Option<Instant> = None;
+        let low_throughput_debounce = Duration::from_millis(16);
+        let pending_output_max = Duration::from_millis(100);
         let mut rate_window_start = Instant::now();
         let mut rate_event_count: u32 = 0;
         let throttle_enabled = !self.config.throttle_interval.is_zero();
@@ -350,9 +365,14 @@ impl TmuxMonitor {
         let _settling_await_timeout = Duration::from_millis(2000);
 
         loop {
-            // Calculate throttle timeout
-            // High throughput: use configured throttle_interval (e.g. 32ms)
-            // Low throughput: use 4ms debounce to batch rapid %output bursts
+            // Calculate throttle timeout.
+            // High throughput: rate-limit at throttle_interval (e.g. 32ms).
+            // Low throughput: trailing-edge debounce — fire only when no new
+            // %output events arrive for `low_throughput_debounce`, capped by
+            // `pending_output_max` so a steady drip still emits. This is what
+            // prevents Ink-based TUIs (Gemini CLI) from rendering the cleared
+            // intermediate state when they do ESC[2J + cursor home + redraw
+            // across multiple %output events.
             let throttle_sleep = if pending_output_emit && throttle_enabled {
                 if in_throttle_mode {
                     let elapsed = last_output_emit.elapsed();
@@ -362,14 +382,17 @@ impl TmuxMonitor {
                         self.config.throttle_interval - elapsed
                     }
                 } else {
-                    // Low throughput: 4ms debounce
-                    let low_debounce = Duration::from_millis(4);
-                    let elapsed = last_output_emit.elapsed();
-                    if elapsed >= low_debounce {
-                        Duration::ZERO
-                    } else {
-                        low_debounce - elapsed
-                    }
+                    let now = Instant::now();
+                    let since_last_event = last_output_event_at
+                        .map(|t| now.duration_since(t))
+                        .unwrap_or(Duration::ZERO);
+                    let since_first_pending = pending_output_first_at
+                        .map(|t| now.duration_since(t))
+                        .unwrap_or(Duration::ZERO);
+                    let remaining_debounce =
+                        low_throughput_debounce.saturating_sub(since_last_event);
+                    let remaining_max = pending_output_max.saturating_sub(since_first_pending);
+                    remaining_debounce.min(remaining_max)
                 }
             } else {
                 Duration::from_secs(3600) // Effectively infinite
@@ -432,6 +455,12 @@ impl TmuxMonitor {
                                 if !images.is_empty() {
                                     emitter.store_images(pane_id, images.clone());
                                 }
+                            }
+
+                            // Forward OSC 52 clipboard writes so the frontend can mirror
+                            // them into the system clipboard via navigator.clipboard.
+                            for (pane_id, text) in result.clipboard_writes.iter().cloned() {
+                                emitter.write_clipboard(&pane_id, text);
                             }
 
                             // Auto-adopt every untagged window we see. Idempotent —
@@ -610,10 +639,18 @@ impl TmuxMonitor {
                                             }
                                             last_output_emit = Instant::now();
                                             pending_output_emit = false;
+                                            pending_output_first_at = None;
+                                            last_output_event_at = None;
                                         }
                                     } else {
-                                        // Low throughput (typing): use short debounce (4ms) to
-                                        // batch rapid %output bursts within a single frame
+                                        // Low throughput: trailing-edge debounce.
+                                        // Reset last_output_event_at on every event so a
+                                        // burst (clear + redraw) coalesces into one emit.
+                                        let now = Instant::now();
+                                        if pending_output_first_at.is_none() {
+                                            pending_output_first_at = Some(now);
+                                        }
+                                        last_output_event_at = Some(now);
                                         pending_output_emit = true;
                                     }
                                 } else if matches!(result.change_type, ChangeType::PaneLayout) {
@@ -627,6 +664,8 @@ impl TmuxMonitor {
                                     }
                                     last_output_emit = Instant::now();
                                     pending_output_emit = false;
+                                    pending_output_first_at = None;
+                                    last_output_event_at = None;
                                     pending_layout_emit = false;
                                 }
                             }
@@ -646,6 +685,8 @@ impl TmuxMonitor {
                     }
                     last_output_emit = Instant::now();
                     pending_output_emit = false;
+                    pending_output_first_at = None;
+                    last_output_event_at = None;
                 }
 
                 // Layout debounce timer - coalesce rapid layout changes (zoom-out)

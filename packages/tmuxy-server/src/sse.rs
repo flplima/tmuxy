@@ -88,6 +88,14 @@ impl StateEmitter for SseEmitter {
             }
         }
     }
+
+    fn write_clipboard(&self, pane_id: &str, text: String) {
+        let event = SseEvent::Clipboard {
+            pane_id: pane_id.to_string(),
+            text,
+        };
+        let _ = self.tx.send(serde_json::to_string(&event).unwrap());
+    }
 }
 
 // ============================================
@@ -119,6 +127,10 @@ enum SseEvent {
     Log { kind: LogKind, message: String },
     #[serde(rename = "fatal")]
     Fatal { message: String },
+    /// OSC 52 clipboard request from a terminal application.
+    /// Frontend mirrors the text into the system clipboard via navigator.clipboard.
+    #[serde(rename = "clipboard")]
+    Clipboard { pane_id: String, text: String },
 }
 
 // ============================================
@@ -290,6 +302,7 @@ pub async fn sse_handler(
                                     SseEvent::KeyBindings(_) => "keybindings",
                                     SseEvent::Log { .. } => "log",
                                     SseEvent::Fatal { .. } => "fatal",
+                                    SseEvent::Clipboard { .. } => "clipboard",
                                 };
 
                                 // For state updates, use delta seq as event ID
@@ -1411,5 +1424,25 @@ async fn start_monitoring_polling(tx: broadcast::Sender<String>) {
                 let _ = tx.send(serde_json::to_string(&event).unwrap());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round-trip the Clipboard variant so SSE consumers can rely on the
+    /// `event=clipboard` discriminator + `{ pane_id, text }` payload shape.
+    #[test]
+    fn clipboard_event_serializes_with_expected_shape() {
+        let evt = SseEvent::Clipboard {
+            pane_id: "%4".to_string(),
+            text: "hello world".to_string(),
+        };
+        let json = serde_json::to_string(&evt).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["event"], "clipboard");
+        assert_eq!(parsed["data"]["pane_id"], "%4");
+        assert_eq!(parsed["data"]["text"], "hello world");
     }
 }

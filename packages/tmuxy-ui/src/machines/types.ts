@@ -356,6 +356,11 @@ export type TmuxReconnectingEvent = { type: 'TMUX_RECONNECTING'; attempt: number
  * reconciles pending ops against the next full server snapshot.
  */
 export type TmuxReconnectedEvent = { type: 'TMUX_RECONNECTED' };
+/**
+ * OSC 52 clipboard write request emitted by a terminal application.
+ * The appMachine forwards the payload to navigator.clipboard.writeText.
+ */
+export type TmuxClipboardEvent = { type: 'TMUX_CLIPBOARD'; paneId: string; text: string };
 export type ConnectionInfoEvent = {
   type: 'CONNECTION_INFO';
   connectionId: number;
@@ -572,6 +577,7 @@ export type AppMachineEvent =
   | TmuxDisconnectedEvent
   | TmuxReconnectingEvent
   | TmuxReconnectedEvent
+  | TmuxClipboardEvent
   | ConnectionInfoEvent
   | KeybindingsReceivedEvent
   | DragStartEvent

@@ -91,6 +91,18 @@ impl StateEmitter for TauriEmitter {
         }
     }
 
+    /// Forward an OSC 52 clipboard request to the frontend so it can write the
+    /// payload via the WebView's navigator.clipboard. We could also use the
+    /// tauri-plugin-clipboard-manager directly here, but doing it in the WebView
+    /// keeps focus/transient activation context attached to the renderer, which
+    /// is what some platforms require for clipboard access.
+    fn write_clipboard(&self, pane_id: &str, text: String) {
+        let payload = serde_json::json!({ "pane_id": pane_id, "text": text });
+        if let Err(e) = self.app.emit("tmux-clipboard", &payload) {
+            eprintln!("Failed to emit clipboard: {}", e);
+        }
+    }
+
     /// Re-emit keybindings after sync_initial_state has source-file'd
     /// the user's tmuxy.conf. Without this, the frontend latches the
     /// prefix it read at start_monitoring time (before the config was

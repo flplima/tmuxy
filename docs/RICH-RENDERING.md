@@ -12,9 +12,9 @@ This document covers what's supported, how the pipeline works, and how to test e
 | **OSC 1337 — iTerm2 Inline Images** | `ESC ] 1337 ; File=… : <base64> BEL` | `control_mode/images.rs::try_parse_iterm2` | `Terminal.tsx` → `<img src="/api/images/…">` | Base64 of any browser-renderable format |
 | **APC _G — Kitty Graphics** | `ESC _ G <keys> ; <payload> ESC \` | `control_mode/images.rs::try_parse_kitty` | same | Supports chunked transfer (`m=1`/`m=0`) and formats `f=24`/`f=32`/`f=100` |
 | **DCS Pq — Sixel** | `ESC P q … ESC \` | `control_mode/images.rs::try_parse_sixel` | same | Decoded by `icy_sixel`, re-encoded as PNG before serving |
-| **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `control_mode/osc.rs` (event) | `clipboardActor` writes via `navigator.clipboard` | Outbound only — pasting back is not implemented |
+| **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `control_mode/osc.rs` parser → `StateEmitter::write_clipboard` → SSE `clipboard` event (web) / `tmux-clipboard` (Tauri) | `TmuxAdapter.onClipboard` → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. Storybook coverage: `App/Resilience > ClipboardOSC52`. |
 
-OSC 8 has been supported for a long time. The image protocols and the OSC 52 path landed together (see the `images.rs` parser and its companion route in `tmuxy-server`). The frontend `richContentParser.ts` / `RichContent.tsx` modules predate this work and are used only for widget markdown rendering, not for inline image decoding.
+OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser (see the `images.rs` and `osc.rs` parsers), but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. The frontend `richContentParser.ts` / `RichContent.tsx` modules predate this work and are used only for widget markdown rendering, not for inline image decoding.
 
 ## How tmux preserves the sequences
 

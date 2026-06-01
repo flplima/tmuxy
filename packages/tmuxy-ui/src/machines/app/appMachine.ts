@@ -318,6 +318,24 @@ export const appMachine = setup({
         return { log: next };
       }),
     },
+    // OSC 52 clipboard write request from a terminal application. Mirror it
+    // into the system clipboard via navigator.clipboard. Fire-and-forget —
+    // a denied permission shouldn't break the rest of the machine. Updates
+    // `lastClipboardWrite` so tests/UI can observe the most recent payload
+    // without re-reading the system clipboard.
+    TMUX_CLIPBOARD: {
+      actions: ({ event }) => {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          void navigator.clipboard.writeText(event.text).catch((err) => {
+            console.warn('[appMachine] OSC 52 clipboard write rejected:', err);
+          });
+        }
+        const win = globalThis as unknown as {
+          __tmuxyLastClipboard?: { paneId: string; text: string };
+        };
+        win.__tmuxyLastClipboard = { paneId: event.paneId, text: event.text };
+      },
+    },
     // Backend gave up reconnecting. The status screen reads `fatalError` to
     // show a non-recoverable banner instead of the "connecting…" spinner.
     // Target the `disconnected` terminal state so live-only event handlers

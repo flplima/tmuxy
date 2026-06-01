@@ -7,6 +7,7 @@ import type {
   KeyBindingsListener,
   LogListener,
   FatalListener,
+  ClipboardListener,
   KeyBindings,
 } from '../types';
 import { DemoTmux } from './DemoTmux';
@@ -98,6 +99,21 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
 export interface DemoAdapterOptions {
   /** Tmux commands to run after initial state is loaded (e.g. split-window, new-window) */
   initCommands?: string[];
+  /**
+   * Artificial delay (ms) applied to every `run_tmux_command` invocation
+   * before the command runs and state is emitted. Used by storybook stories
+   * to verify optimistic-update UI behaves smoothly during slow backends.
+   * Defaults to 0 (synchronous).
+   */
+  commandDelayMs?: number;
+  /**
+   * Callback consulted before each `run_tmux_command` invocation. Returning a
+   * string causes the promise to reject with `{ error: <string> }`, mimicking
+   * tmux's stderr surfacing (see `classifyAdapterError`). Returning false /
+   * null / undefined lets the command run normally. Used by stories to assert
+   * the UI rolls back optimistic state on tmux rejections.
+   */
+  failCommand?: (command: string) => string | false | null | undefined;
 }
 
 export class DemoAdapter implements TmuxAdapter {
@@ -117,12 +133,28 @@ export class DemoAdapter implements TmuxAdapter {
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
+  private clipboardListeners = new Set<ClipboardListener>();
+  private commandDelayMs: number;
+  private failCommand: DemoAdapterOptions['failCommand'];
 
   constructor(options?: DemoAdapterOptions) {
     this.tmux = new DemoTmux();
     this.tmux.setOnAsyncUpdate(() => this.emitState());
     this.initCommands = options?.initCommands ?? [];
     this.savedInitCommands = [...this.initCommands];
+    this.commandDelayMs = options?.commandDelayMs ?? 0;
+    this.failCommand = options?.failCommand;
+  }
+
+  /**
+   * Storybook/test escape hatch — push an OSC 52 clipboard write to
+   * subscribers without going through the demo shell. Mirrors what the real
+   * Rust backend does when an app like `printf '\e]52;c;…\e\\' …` runs in a
+   * tmuxy pane. Used by ClipboardOSC52 stories so the test doesn't need a
+   * live tmux process.
+   */
+  public emitClipboard(paneId: string, text: string): void {
+    this.clipboardListeners.forEach((l) => l(paneId, text));
   }
 
   async connect(): Promise<void> {
@@ -192,7 +224,22 @@ export class DemoAdapter implements TmuxAdapter {
 
       case 'run_tmux_command': {
         const command = args?.command as string;
-        if (command) this.handleTmuxCommand(command);
+        if (!command) return null as T;
+        if (this.failCommand) {
+          const reason = this.failCommand(command);
+          if (typeof reason === 'string') {
+            if (this.commandDelayMs > 0) {
+              await new Promise<void>((r) => setTimeout(r, this.commandDelayMs));
+            }
+            // Match the Rust backend's shape: { error: "..." } so
+            // classifyAdapterError → TmuxError flows through identically.
+            throw { error: reason };
+          }
+        }
+        if (this.commandDelayMs > 0) {
+          await new Promise<void>((r) => setTimeout(r, this.commandDelayMs));
+        }
+        this.handleTmuxCommand(command);
         return null as T;
       }
 
@@ -291,6 +338,11 @@ export class DemoAdapter implements TmuxAdapter {
 
   onFatal(_listener: FatalListener): () => void {
     return () => {};
+  }
+
+  onClipboard(listener: ClipboardListener): () => void {
+    this.clipboardListeners.add(listener);
+    return () => this.clipboardListeners.delete(listener);
   }
 
   private emitState(): void {

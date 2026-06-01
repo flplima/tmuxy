@@ -148,6 +148,14 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       },
     );
 
+    // OSC 52 clipboard requests from terminal applications. Optional on the
+    // adapter (older adapters don't expose it); fall back to a noop unsubscribe.
+    const unsubscribeClipboard = adapter.onClipboard
+      ? adapter.onClipboard((paneId: string, text: string) => {
+          parent.send({ type: 'TMUX_CLIPBOARD', paneId, text });
+        })
+      : () => {};
+
     run(eff.connect(), {
       onSuccess: () => {
         logInfo('Connected to tmux backend');
@@ -298,6 +306,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       unsubscribeReconnection();
       unsubscribeKeyBindings();
       unsubscribeConnectionInfo();
+      unsubscribeClipboard();
       // Interrupt any pending scrollback fetches so they don't try to
       // send to a dead parent or hold a reference to the adapter.
       for (const fiber of scrollbackFibers.values()) {

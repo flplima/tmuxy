@@ -303,6 +303,11 @@ export type StateListener = (state: ServerState) => void;
 export type ErrorListener = (error: string) => void;
 export type ConnectionInfoListener = (connectionId: number, defaultShell: string) => void;
 export type ReconnectionListener = (reconnecting: boolean, attempt: number) => void;
+/**
+ * OSC 52 clipboard request from a terminal application. The frontend mirrors
+ * the payload into the system clipboard via `navigator.clipboard.writeText`.
+ */
+export type ClipboardListener = (paneId: string, text: string) => void;
 
 /** Streamed progress entry kind from the backend (matches `LogKind` in Rust) */
 export type LogEntryKind = 'command' | 'output' | 'info' | 'error';
@@ -327,6 +332,12 @@ export interface TmuxAdapter {
   onLog(listener: LogListener): () => void;
   /** Terminal failure — backend gave up reconnecting. No further events expected. */
   onFatal(listener: FatalListener): () => void;
+  /**
+   * OSC 52 clipboard write request from a terminal application. Optional —
+   * adapters that don't implement it are treated as "no clipboard plumbing"
+   * by the rest of the app. Returns an unsubscribe function when supported.
+   */
+  onClipboard?(listener: ClipboardListener): () => void;
   switchSession?(sessionName: string): Promise<void>;
 }
 

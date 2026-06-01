@@ -8,6 +8,7 @@ import {
   LogListener,
   LogEntryKind,
   FatalListener,
+  ClipboardListener,
   ServerState,
   StateUpdate,
   KeyBindings,
@@ -65,6 +66,7 @@ export class HttpAdapter implements TmuxAdapter {
   private keyBindingsListeners = new Set<KeyBindingsListener>();
   private logListeners = new Set<LogListener>();
   private fatalListeners = new Set<FatalListener>();
+  private clipboardListeners = new Set<ClipboardListener>();
   private fatal = false;
 
   // Delta protocol state
@@ -147,6 +149,20 @@ export class HttpAdapter implements TmuxAdapter {
           this.notifyError(message);
         } catch {
           // Not a JSON error event, might be connection error
+        }
+      });
+
+      // OSC 52 clipboard write requests from terminal applications.
+      // Mirrored into the system clipboard via navigator.clipboard.writeText.
+      this.eventSource.addEventListener('clipboard', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const payload = data.data || data;
+          const paneId = String(payload.pane_id ?? '');
+          const text = String(payload.text ?? '');
+          this.notifyClipboard(paneId, text);
+        } catch (e) {
+          console.error('Failed to parse clipboard event:', e);
         }
       });
 
@@ -401,6 +417,11 @@ export class HttpAdapter implements TmuxAdapter {
     return () => this.fatalListeners.delete(listener);
   }
 
+  onClipboard(listener: ClipboardListener): () => void {
+    this.clipboardListeners.add(listener);
+    return () => this.clipboardListeners.delete(listener);
+  }
+
   async switchSession(newSession: string): Promise<void> {
     sessionOverride = newSession;
     this.currentState = null;
@@ -486,5 +507,9 @@ export class HttpAdapter implements TmuxAdapter {
 
   private notifyFatal(message: string): void {
     this.fatalListeners.forEach((listener) => listener(message));
+  }
+
+  private notifyClipboard(paneId: string, text: string): void {
+    this.clipboardListeners.forEach((listener) => listener(paneId, text));
   }
 }

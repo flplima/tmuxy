@@ -7,7 +7,7 @@
  * not.
  */
 
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useEffect, type ReactNode } from 'react';
 import { TmuxyProvider, TmuxyApp, DemoAdapter, type AppConfig, type RenderTabline } from '../lib';
 
 export interface AppHarnessProps {
@@ -21,6 +21,22 @@ export interface AppHarnessProps {
   width?: number | string;
   /** Optional tabline renderer (e.g. for traffic-light mocks) */
   renderTabline?: RenderTabline;
+  /**
+   * Artificial delay (ms) applied to every run_tmux_command. Used to verify
+   * optimistic updates remain smooth while the backend is slow.
+   */
+  commandDelayMs?: number;
+  /**
+   * Callback consulted before each tmux command. Returning a string causes the
+   * adapter to reject the command with that error, simulating a real tmux
+   * stderr response. Used to verify optimistic-state rollback behaviour.
+   */
+  failCommand?: (command: string) => string | false | null | undefined;
+  /**
+   * Exposes the live DemoAdapter back to the test so it can call helpers like
+   * `emitClipboard` for OSC 52 verification without needing a real backend.
+   */
+  onAdapterReady?: (adapter: DemoAdapter) => void;
 }
 
 /**
@@ -34,8 +50,17 @@ export function AppHarness({
   height = 600,
   width = '100%',
   renderTabline,
+  commandDelayMs,
+  failCommand,
+  onAdapterReady,
 }: AppHarnessProps) {
-  const adapter = useMemo(() => new DemoAdapter({ initCommands }), [initCommands]);
+  const adapter = useMemo(
+    () => new DemoAdapter({ initCommands, commandDelayMs, failCommand }),
+    [initCommands, commandDelayMs, failCommand],
+  );
+  useEffect(() => {
+    if (onAdapterReady) onAdapterReady(adapter);
+  }, [adapter, onAdapterReady]);
   return (
     <div
       style={{

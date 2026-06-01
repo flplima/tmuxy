@@ -141,3 +141,17 @@ RUN mkdir -p /home/user/.config/gh /home/user/.config/git /home/user/.claude \
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 RUN npm install -g pm2 agent-browser \
     && if [ "$(dpkg --print-architecture)" != "arm64" ]; then agent-browser install; fi
+
+# Pre-fetch Playwright's bundled Chromium so `scripts/probe-stories.mjs`
+# (the storybook play-function probe) works out of the box. The agent-browser
+# install above only covers the agent-browser CLI's own Chromium copy; the
+# `playwright` package's direct `chromium.launch()` API reads from
+# ~/.cache/ms-playwright, which is empty otherwise and triggers the
+# "Executable doesn't exist" error CLAUDE.md flags. The pinned version
+# matches the `playwright` devDependency in packages/tmuxy-ui — bump them
+# together. ARM64 still has no bundled binary; the probe falls back to
+# system chromium via the env var above.
+ARG PLAYWRIGHT_VERSION=1.58.2
+RUN if [ "$(dpkg --print-architecture)" != "arm64" ]; then \
+        npx --yes "playwright@${PLAYWRIGHT_VERSION}" install chromium; \
+    fi
