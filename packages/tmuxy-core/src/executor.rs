@@ -1,7 +1,8 @@
 use std::process::Command;
 use tracing::{debug, trace};
 
-use crate::DEFAULT_SESSION_NAME;
+use crate::constants::tmux_options;
+use crate::{WindowType, DEFAULT_SESSION_NAME};
 
 /// Information about a single pane
 #[derive(Debug, Clone)]
@@ -166,8 +167,8 @@ pub fn new_window(session_name: &str) -> Result<(), String> {
             "-w",
             "-t",
             new_window_id,
-            "@tmuxy-window-type",
-            "tab",
+            tmux_options::WINDOW_TYPE,
+            WindowType::Tab.as_str(),
         ]);
     }
     Ok(())

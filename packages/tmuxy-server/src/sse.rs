@@ -14,6 +14,7 @@ use std::convert::Infallible;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
+use tmuxy_core::constants::tmux_options;
 use tmuxy_core::control_mode::{
     LogKind, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
 };
@@ -753,11 +754,12 @@ async fn handle_command(
                 .map_err(|e| format!("Failed to serialize directory entries: {}", e))
         }
         "get_theme_settings" => {
-            let theme = executor::execute_tmux_command(&["show-options", "-gqv", "@tmuxy-theme"])
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default();
+            let theme =
+                executor::execute_tmux_command(&["show-options", "-gqv", tmux_options::THEME])
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
             let mode =
-                executor::execute_tmux_command(&["show-options", "-gqv", "@tmuxy-theme-mode"])
+                executor::execute_tmux_command(&["show-options", "-gqv", tmux_options::THEME_MODE])
                     .map(|s| s.trim().to_string())
                     .unwrap_or_default();
             Ok(serde_json::json!({
@@ -770,11 +772,11 @@ async fn handle_command(
                 .get("name")
                 .and_then(|v| v.as_str())
                 .unwrap_or("default");
-            executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme", name])
+            executor::execute_tmux_command(&["set-option", "-g", tmux_options::THEME, name])
                 .map_err(|e| format!("Failed to set theme: {}", e))?;
             let mode = args.get("mode").and_then(|v| v.as_str());
             if let Some(m) = mode {
-                executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", m])
+                executor::execute_tmux_command(&["set-option", "-g", tmux_options::THEME_MODE, m])
                     .map_err(|e| format!("Failed to set theme mode: {}", e))?;
             }
             // Persist so the choice survives a tmux server restart.
@@ -820,7 +822,7 @@ async fn handle_command(
         }
         "set_theme_mode" => {
             let mode = args.get("mode").and_then(|v| v.as_str()).unwrap_or("dark");
-            executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", mode])
+            executor::execute_tmux_command(&["set-option", "-g", tmux_options::THEME_MODE, mode])
                 .map_err(|e| format!("Failed to set theme mode: {}", e))?;
             if let Err(e) = tmuxy_core::session::write_managed_state(None, Some(mode)) {
                 warn!(error = %e, "could not persist theme mode to tmuxy.state.conf");

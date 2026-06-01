@@ -1,0 +1,136 @@
+//! Shared constants for tmuxy-core.
+//!
+//! Centralises the magic strings that previously appeared scattered across
+//! `monitor.rs`, `state.rs`, `parser.rs`, and `executor.rs`. Splitting them out
+//! makes the wire vocabulary obvious at a glance and ensures a typo can't
+//! diverge a sender from its reader.
+//!
+//! The high-level types live in this module — the lower-level enums for window
+//! kinds (already typed) live in `lib.rs::WindowType`. The string forms of
+//! `WindowType` continue to be canonical via `WindowType::as_str` /
+//! `WindowType::parse`; this module just re-exports the kebab spellings for
+//! consumers (e.g. the tmux options module) that need the literal value
+//! independent of the enum.
+
+/// User-option keys tmuxy sets on tmux windows and the global session.
+/// All of these are `@tmuxy-*` so they can't collide with vanilla tmux options
+/// or with user-installed plugins.
+///
+/// Use these constants instead of string literals when constructing tmux
+/// commands like `set -w @tmuxy-window-type tab` or format strings like
+/// `#{@tmuxy-window-type}`.
+pub mod tmux_options {
+    /// Type discriminator on every adopted window. See [`crate::WindowType`].
+    pub const WINDOW_TYPE: &str = "@tmuxy-window-type";
+
+    /// Window ID this float/backdrop is anchored to.
+    pub const FLOAT_PARENT: &str = "@tmuxy-float-parent";
+    /// Float dimensions in terminal cells.
+    pub const FLOAT_WIDTH: &str = "@tmuxy-float-width";
+    pub const FLOAT_HEIGHT: &str = "@tmuxy-float-height";
+    /// Drawer attachment edge (`top`/`bottom`/`left`/`right`).
+    pub const FLOAT_DRAWER: &str = "@tmuxy-float-drawer";
+    /// Backdrop style for the float (currently `dim`/`blur`/none).
+    pub const FLOAT_BG: &str = "@tmuxy-float-bg";
+    /// `1` to suppress the float's header chrome.
+    pub const FLOAT_NOHEADER: &str = "@tmuxy-float-noheader";
+
+    /// CSV of pane IDs belonging to a group window (e.g. `%4,%6,%7`).
+    pub const GROUP_PANES: &str = "@tmuxy-group-panes";
+
+    /// Active CSS theme name (file stem under `~/.config/tmuxy/themes/`).
+    pub const THEME: &str = "@tmuxy-theme";
+    /// Theme mode: `dark` / `light`.
+    pub const THEME_MODE: &str = "@tmuxy-theme-mode";
+
+    /// Subset of `@tmuxy-*` window options the monitor requests in every
+    /// `list-windows -F` call. Kept here so the format-string in
+    /// `monitor.rs` stays in lockstep with the parser that consumes it.
+    pub const WINDOW_LIST_FORMAT_OPTIONS: &[&str] = &[
+        WINDOW_TYPE,
+        FLOAT_PARENT,
+        FLOAT_WIDTH,
+        FLOAT_HEIGHT,
+        FLOAT_DRAWER,
+        FLOAT_BG,
+        FLOAT_NOHEADER,
+        GROUP_PANES,
+    ];
+}
+
+/// Compile-time format strings the monitor passes to `list-windows -F` and
+/// `list-panes -F`. Both forms appear verbatim in multiple places; sharing the
+/// constants ensures the parser (`StateAggregator::process_event`) only ever
+/// has to handle one column layout.
+pub mod tmux_formats {
+    /// `list-windows -F '<...>'` format. Trailing `'` is included so callers can
+    /// inline this constant inside `format!("list-windows -F '{}'")` patterns
+    /// without re-typing the quotes; we expose the full single-quoted form via
+    /// [`LIST_WINDOWS_CMD`] for convenience.
+    pub const LIST_WINDOWS_FIELDS: &str = concat!(
+        "#{window_id},#{window_index},#{window_name},#{window_active},",
+        "#{@tmuxy-window-type},#{@tmuxy-float-parent},",
+        "#{@tmuxy-float-width},#{@tmuxy-float-height},",
+        "#{@tmuxy-float-drawer},#{@tmuxy-float-bg},",
+        "#{@tmuxy-float-noheader},#{@tmuxy-group-panes}",
+    );
+
+    pub const LIST_WINDOWS_CMD: &str = concat!(
+        "list-windows -F '",
+        "#{window_id},#{window_index},#{window_name},#{window_active},",
+        "#{@tmuxy-window-type},#{@tmuxy-float-parent},",
+        "#{@tmuxy-float-width},#{@tmuxy-float-height},",
+        "#{@tmuxy-float-drawer},#{@tmuxy-float-bg},",
+        "#{@tmuxy-float-noheader},#{@tmuxy-group-panes}'",
+    );
+
+    /// `list-panes -s -F '<...>'` format. The session-scope flag (`-s`) is
+    /// included so the monitor never accidentally drops to window scope.
+    pub const LIST_PANES_CMD: &str = concat!(
+        "list-panes -s -F '",
+        "#{pane_id},#{pane_index},",
+        "#{pane_left},#{pane_top},",
+        "#{pane_width},#{pane_height},",
+        "#{cursor_x},#{cursor_y},",
+        "#{pane_active},#{pane_current_command},#{pane_title},",
+        "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
+        "#{scroll_position},",
+        "#{window_id},#{T:pane-border-format},",
+        "#{alternate_on},#{mouse_any_flag},",
+        "#{selection_present},",
+        "#{selection_start_x},#{selection_start_y},#{history_size}'",
+    );
+}
+
+/// Control-mode event prefixes emitted by `tmux -CC` on its stdout.
+///
+/// Each constant matches the literal token tmux writes (including the leading
+/// `%`). Use these in `starts_with` / `strip_prefix` checks in
+/// `control_mode::parser` instead of repeated string literals — a typo will
+/// then be a compile error rather than a silently dropped event.
+pub mod control_events {
+    pub const BEGIN: &str = "%begin ";
+    pub const END: &str = "%end ";
+    pub const ERROR: &str = "%error ";
+    pub const OUTPUT: &str = "%output ";
+    pub const EXTENDED_OUTPUT: &str = "%extended-output ";
+    pub const LAYOUT_CHANGE: &str = "%layout-change ";
+    pub const WINDOW_ADD: &str = "%window-add ";
+    pub const WINDOW_CLOSE: &str = "%window-close ";
+    pub const UNLINKED_WINDOW_ADD: &str = "%unlinked-window-add ";
+    pub const UNLINKED_WINDOW_CLOSE: &str = "%unlinked-window-close ";
+    pub const UNLINKED_WINDOW_RENAMED: &str = "%unlinked-window-renamed ";
+    pub const WINDOW_RENAMED: &str = "%window-renamed ";
+    pub const WINDOW_PANE_CHANGED: &str = "%window-pane-changed ";
+    pub const PANE_MODE_CHANGED: &str = "%pane-mode-changed ";
+    pub const SESSION_CHANGED: &str = "%session-changed ";
+    pub const SESSION_RENAMED: &str = "%session-renamed ";
+    pub const SESSIONS_CHANGED: &str = "%sessions-changed";
+    pub const SESSION_WINDOW_CHANGED: &str = "%session-window-changed ";
+    pub const PAUSE: &str = "%pause ";
+    pub const CONTINUE: &str = "%continue ";
+    pub const CLIENT_DETACHED: &str = "%client-detached ";
+    pub const CLIENT_SESSION_CHANGED: &str = "%client-session-changed ";
+    pub const EXIT: &str = "%exit";
+    pub const SUBSCRIPTION_CHANGED: &str = "%subscription-changed ";
+}

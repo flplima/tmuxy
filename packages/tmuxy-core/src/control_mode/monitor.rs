@@ -8,6 +8,7 @@
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 use super::parser::ControlModeEvent;
 use super::state::{ChangeType, StateAggregator};
+use crate::constants::tmux_formats;
 use crate::{StateUpdate, TmuxState};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -212,25 +213,12 @@ impl TmuxMonitor {
 
         // Get list of windows (including float window options)
         self.connection
-            .send_command("list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},#{@tmuxy-group-panes}'")
+            .send_command(tmux_formats::LIST_WINDOWS_CMD)
             .await?;
 
         // Get list of panes with all details (for current session only)
         self.connection
-            .send_command(concat!(
-                "list-panes -s -F '",
-                "#{pane_id},#{pane_index},",
-                "#{pane_left},#{pane_top},",
-                "#{pane_width},#{pane_height},",
-                "#{cursor_x},#{cursor_y},",
-                "#{pane_active},#{pane_current_command},#{pane_title},",
-                "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
-                "#{scroll_position},",
-                "#{window_id},#{T:pane-border-format},",
-                "#{alternate_on},#{mouse_any_flag},",
-                "#{selection_present},",
-                "#{selection_start_x},#{selection_start_y},#{history_size}'"
-            ))
+            .send_command(tmux_formats::LIST_PANES_CMD)
             .await?;
 
         // Capture current content of each pane
@@ -493,21 +481,8 @@ impl TmuxMonitor {
                             // triggers state emission (where buildFloatPanesFromWindows runs).
                             if is_window_add {
                                 let cmds = vec![
-                                    concat!(
-                                        "list-panes -s -F '",
-                                        "#{pane_id},#{pane_index},",
-                                        "#{pane_left},#{pane_top},",
-                                        "#{pane_width},#{pane_height},",
-                                        "#{cursor_x},#{cursor_y},",
-                                        "#{pane_active},#{pane_current_command},#{pane_title},",
-                                        "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
-                                        "#{scroll_position},",
-                                        "#{window_id},#{T:pane-border-format},",
-                                        "#{alternate_on},#{mouse_any_flag},",
-                                        "#{selection_present},",
-                                        "#{selection_start_x},#{selection_start_y},#{history_size}'"
-                                    ).to_string(),
-                                    "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},#{@tmuxy-group-panes}'".to_string(),
+                                    tmux_formats::LIST_PANES_CMD.to_string(),
+                                    tmux_formats::LIST_WINDOWS_CMD.to_string(),
                                 ];
                                 if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                                     emitter.emit_error(format!("Failed to refresh state after window add: {}", e));
@@ -536,22 +511,7 @@ impl TmuxMonitor {
                                     self.aggregator.queue_captures(&result.panes_needing_refresh)
                                 };
 
-                                let mut commands: Vec<String> = vec![
-                                    concat!(
-                                        "list-panes -s -F '",
-                                        "#{pane_id},#{pane_index},",
-                                        "#{pane_left},#{pane_top},",
-                                        "#{pane_width},#{pane_height},",
-                                        "#{cursor_x},#{cursor_y},",
-                                        "#{pane_active},#{pane_current_command},#{pane_title},",
-                                        "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
-                                        "#{scroll_position},",
-                                        "#{window_id},#{T:pane-border-format},",
-                                        "#{alternate_on},#{mouse_any_flag},",
-                                        "#{selection_present},",
-                                        "#{selection_start_x},#{selection_start_y},#{history_size}'"
-                                    ).to_string(),
-                                ];
+                                let mut commands: Vec<String> = vec![tmux_formats::LIST_PANES_CMD.to_string()];
                                 // Only send capture commands for panes that were actually queued
                                 commands.extend(
                                     queued_panes
@@ -731,21 +691,7 @@ impl TmuxMonitor {
                 // Deferred metadata sync: refresh pane commands after output settles
                 _ = tokio::time::sleep_until(metadata_sync_at.unwrap_or(tokio::time::Instant::now() + Duration::from_secs(3600))), if metadata_sync_at.is_some() => {
                     metadata_sync_at = None;
-                    let cmd = concat!(
-                        "list-panes -s -F '",
-                        "#{pane_id},#{pane_index},",
-                        "#{pane_left},#{pane_top},",
-                        "#{pane_width},#{pane_height},",
-                        "#{cursor_x},#{cursor_y},",
-                        "#{pane_active},#{pane_current_command},#{pane_title},",
-                        "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
-                        "#{scroll_position},",
-                        "#{window_id},#{T:pane-border-format},",
-                        "#{alternate_on},#{mouse_any_flag},",
-                        "#{selection_present},",
-                        "#{selection_start_x},#{selection_start_y},#{history_size}'"
-                    );
-                    if let Err(e) = self.connection.send_command(cmd).await {
+                    if let Err(e) = self.connection.send_command(tmux_formats::LIST_PANES_CMD).await {
                         emitter.emit_error(format!("Failed to sync metadata: {}", e));
                     }
                 }
@@ -759,22 +705,7 @@ impl TmuxMonitor {
                     if in_copy_mode {
                         let copy_pane_info = self.aggregator.get_copy_mode_pane_info();
                         let copy_pane_ids: Vec<String> = copy_pane_info.iter().map(|(id, _, _)| id.clone()).collect();
-                        let mut cmds = vec![
-                            concat!(
-                                "list-panes -s -F '",
-                                "#{pane_id},#{pane_index},",
-                                "#{pane_left},#{pane_top},",
-                                "#{pane_width},#{pane_height},",
-                                "#{cursor_x},#{cursor_y},",
-                                "#{pane_active},#{pane_current_command},#{pane_title},",
-                                "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
-                                "#{scroll_position},",
-                                "#{window_id},#{T:pane-border-format},",
-                                "#{alternate_on},#{mouse_any_flag},",
-                                "#{selection_present},",
-                                "#{selection_start_x},#{selection_start_y},#{history_size}'"
-                            ).to_string(),
-                        ];
+                        let mut cmds = vec![tmux_formats::LIST_PANES_CMD.to_string()];
                         // Capture content for each pane in copy mode with scroll offset
                         for (pane_id, scroll_pos, height) in &copy_pane_info {
                             if *scroll_pos > 0 {
@@ -794,21 +725,8 @@ impl TmuxMonitor {
                         // Heartbeat: full consistency check when no events for 10s
                         // Catches external changes (e.g., someone running `tmux kill-window` from another terminal)
                         let cmds = vec![
-                            "list-windows -F '#{window_id},#{window_index},#{window_name},#{window_active},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},#{@tmuxy-group-panes}'".to_string(),
-                            concat!(
-                                "list-panes -s -F '",
-                                "#{pane_id},#{pane_index},",
-                                "#{pane_left},#{pane_top},",
-                                "#{pane_width},#{pane_height},",
-                                "#{cursor_x},#{cursor_y},",
-                                "#{pane_active},#{pane_current_command},#{pane_title},",
-                                "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
-                                "#{scroll_position},",
-                                "#{window_id},#{T:pane-border-format},",
-                                "#{alternate_on},#{mouse_any_flag},",
-                                "#{selection_present},",
-                                "#{selection_start_x},#{selection_start_y},#{history_size}'"
-                            ).to_string(),
+                            tmux_formats::LIST_WINDOWS_CMD.to_string(),
+                            tmux_formats::LIST_PANES_CMD.to_string(),
                         ];
                         if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                             emitter.emit_error(format!("Failed to heartbeat sync: {}", e));

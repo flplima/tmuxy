@@ -1006,8 +1006,9 @@ impl StateAggregator {
             };
             window.window_type = Some(inferred);
             cmds.push(format!(
-                "set-option -w -t {} @tmuxy-window-type {}",
+                "set-option -w -t {} {} {}",
                 window.id,
+                crate::constants::tmux_options::WINDOW_TYPE,
                 inferred.as_str()
             ));
         }

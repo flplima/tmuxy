@@ -3,6 +3,8 @@ use std::process::Command;
 use std::sync::OnceLock;
 use tracing::{info, warn};
 
+use crate::constants::tmux_options;
+
 /// Resolved path to the tmux binary, cached after first lookup.
 static TMUX_PATH: OnceLock<String> = OnceLock::new();
 
@@ -414,8 +416,8 @@ pub fn write_managed_state(
 pub fn apply_managed_state(session_name: &str) {
     let state = read_managed_state();
     let pairs: [(Option<&str>, &str); 2] = [
-        (state.theme.as_deref(), "@tmuxy-theme"),
-        (state.theme_mode.as_deref(), "@tmuxy-theme-mode"),
+        (state.theme.as_deref(), tmux_options::THEME),
+        (state.theme_mode.as_deref(), tmux_options::THEME_MODE),
     ];
     for (value, option) in pairs {
         let Some(v) = value else { continue };
@@ -834,8 +836,8 @@ pub fn create_session(session_name: &str) -> Result<(), String> {
             "-w",
             "-t",
             &target,
-            "@tmuxy-window-type",
-            "tab",
+            tmux_options::WINDOW_TYPE,
+            crate::WindowType::Tab.as_str(),
         ])
         .output();
 
