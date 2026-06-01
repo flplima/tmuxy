@@ -4710,7 +4710,6 @@ version = "0.0.10-alpha.23"
 dependencies = [
  "clap",
  "nix",
- "serde",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -5108,7 +5107,6 @@ dependencies = [
  "png 0.18.1",
  "proptest",
  "pty-process",
- "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -5141,7 +5139,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
