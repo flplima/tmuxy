@@ -19,6 +19,7 @@ use tmuxy_core::control_mode::{
 };
 use tmuxy_core::{executor, StateUpdate};
 use tokio::sync::broadcast;
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::state::{find_workspace_root, AppState, SessionConnections};
 
@@ -196,21 +197,18 @@ pub async fn sse_handler(
         // Start monitor if not already running, or restart if it died
         let needs_monitor = match &session_conns.monitor_handle {
             None => {
-                eprintln!("[sse] No monitor handle for session '{}'", session);
+                debug!(%session, "no monitor handle yet");
                 true
             }
             Some(handle) => {
                 let finished = handle.is_finished();
-                eprintln!(
-                    "[sse] Monitor handle for session '{}': finished={}",
-                    session, finished
-                );
+                trace!(%session, finished, "monitor handle status");
                 finished
             }
         };
         if needs_monitor {
             if session_conns.monitor_handle.is_some() {
-                eprintln!("[sse] Monitor for session '{}' died, restarting", session);
+                warn!(%session, "monitor died, restarting");
                 session_conns.monitor_handle = None;
                 session_conns.monitor_command_tx = None;
             }
@@ -222,7 +220,7 @@ pub async fn sse_handler(
                 start_monitoring(monitor_tx, monitor_session, monitor_state).await;
             });
             session_conns.monitor_handle = Some(handle);
-            eprintln!("[sse] Started monitor for session '{}'", session);
+            info!(%session, "started monitor");
         }
 
         session_rx
@@ -244,10 +242,7 @@ pub async fn sse_handler(
         tokio::spawn(async move {
             // Wait for the stream to be dropped (sender dropped = Err)
             let _ = drop_rx.await;
-            eprintln!(
-                "[sse] Client {} disconnected from session '{}', running cleanup",
-                conn_id, cleanup_session
-            );
+            info!(conn_id, session = %cleanup_session, "client disconnected, running cleanup");
             cleanup_connection(&cleanup_state, &cleanup_session, conn_id).await;
         });
     }
@@ -330,7 +325,7 @@ pub async fn sse_handler(
                             }
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
-                            eprintln!("[sse] Client {} lagged by {} messages", conn_id, n);
+                            warn!(conn_id, lagged = n, "client lagged behind broadcast");
                         }
                         Err(broadcast::error::RecvError::Closed) => {
                             break;
@@ -600,10 +595,7 @@ async fn handle_command(
             // Block raw resize-window commands from clients — resize must go through
             // set_client_size to prevent stale SSE connections from overriding sizes.
             if command.starts_with("resize-window") || command.starts_with("resizew") {
-                eprintln!(
-                    "[sse] Client {} blocked resize command (use set_client_size): {}",
-                    conn_id, command
-                );
+                warn!(conn_id, %command, "blocked resize command (use set_client_size)");
                 return Ok(serde_json::json!(null));
             }
 
@@ -631,10 +623,7 @@ async fn handle_command(
                 })
                 .await
                 .map_err(|e| format!("Monitor channel error: {}", e))?;
-                eprintln!(
-                    "[sse] Client {} sent command via control mode: {}",
-                    conn_id, command
-                );
+                trace!(conn_id, %command, "client sent command via control mode");
 
                 // After source-file, re-broadcast keybindings (prefix key may have changed)
                 if is_source_file {
@@ -762,10 +751,7 @@ async fn handle_command(
             }
             // Persist so the choice survives a tmux server restart.
             if let Err(e) = tmuxy_core::session::write_managed_state(Some(name), mode) {
-                eprintln!(
-                    "Warning: could not persist theme to tmuxy.state.conf: {}",
-                    e
-                );
+                warn!(error = %e, "could not persist theme to tmuxy.state.conf");
             }
             Ok(serde_json::json!(null))
         }
@@ -809,10 +795,7 @@ async fn handle_command(
             executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", mode])
                 .map_err(|e| format!("Failed to set theme mode: {}", e))?;
             if let Err(e) = tmuxy_core::session::write_managed_state(None, Some(mode)) {
-                eprintln!(
-                    "Warning: could not persist theme mode to tmuxy.state.conf: {}",
-                    e
-                );
+                warn!(error = %e, "could not persist theme mode to tmuxy.state.conf");
             }
             Ok(serde_json::json!(null))
         }
@@ -840,10 +823,7 @@ async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
     let sessions = state.sessions.read().await;
     if let Some(session_conn) = sessions.get(session) {
         let _ = session_conn.state_tx.send(msg);
-        eprintln!(
-            "[sse] Broadcast refreshed keybindings for session {}",
-            session
-        );
+        debug!(%session, "broadcast refreshed keybindings");
     }
 }
 
@@ -909,8 +889,9 @@ async fn build_new_window_command(state: &Arc<AppState>, session: &str) -> Strin
 /// Store a client's viewport size and resize the tmux session.
 /// Skips the resize command if the computed minimum is the same as the last resize
 /// to prevent feedback loops when multiple clients have different viewport sizes.
+#[instrument(skip(state), fields(%session))]
 async fn set_client_size(state: &Arc<AppState>, session: &str, conn_id: u64, cols: u32, rows: u32) {
-    eprintln!("[size] Client {} set size: {}x{}", conn_id, cols, rows);
+    trace!(conn_id, cols, rows, "client set size");
     let (min_size, command_tx) = {
         let mut sessions = state.sessions.write().await;
         if let Some(session_conns) = sessions.get_mut(session) {
@@ -922,7 +903,7 @@ async fn set_client_size(state: &Arc<AppState>, session: &str, conn_id: u64, col
                 return;
             }
             session_conns.last_resize = Some(min);
-            eprintln!("[size] All clients: {:?}", sizes);
+            trace!(?sizes, "all client sizes");
             (Some(min), session_conns.monitor_command_tx.clone())
         } else {
             (None, None)
@@ -930,7 +911,7 @@ async fn set_client_size(state: &Arc<AppState>, session: &str, conn_id: u64, col
     };
 
     if let Some((min_cols, min_rows)) = min_size {
-        eprintln!("[size] Resizing to min: {}x{}", min_cols, min_rows);
+        debug!(min_cols, min_rows, "resizing to min");
         if let Some(tx) = command_tx {
             match tx
                 .send(MonitorCommand::ResizeWindow {
@@ -939,17 +920,14 @@ async fn set_client_size(state: &Arc<AppState>, session: &str, conn_id: u64, col
                 })
                 .await
             {
-                Ok(_) => eprintln!("[size] Resize command sent via monitor"),
+                Ok(_) => trace!("resize command sent via monitor"),
                 Err(e) => {
-                    eprintln!(
-                        "[size] Monitor channel error: {}, falling back to executor",
-                        e
-                    );
+                    warn!(error = %e, "monitor channel error, falling back to executor");
                     let _ = executor::resize_window(session, min_cols, min_rows);
                 }
             }
         } else {
-            eprintln!("[size] No monitor channel yet, skipping resize");
+            debug!("no monitor channel yet, skipping resize");
         }
     }
 }
@@ -971,10 +949,7 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
             if session_conns.connections.is_empty() {
                 // Don't immediately kill the monitor — a page reload will reconnect
                 // within a few seconds. Defer cleanup to give new clients a chance.
-                eprintln!(
-                    "[cleanup] Last client for session '{}' disconnected, deferring monitor cleanup (2s grace period)",
-                    session
-                );
+                info!(%session, "last client disconnected, deferring monitor cleanup (2s grace period)");
                 deferred = true;
             } else if had_size && !session_conns.client_sizes.is_empty() {
                 // Recompute minimum size for remaining clients
@@ -1001,19 +976,13 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
                 if let Some(session_conns) = sessions.get_mut(&session) {
                     if session_conns.connections.is_empty() {
                         // Still no clients after grace period — clean up for real
-                        eprintln!(
-                            "[cleanup] No clients reconnected for session '{}' after grace period, stopping monitor",
-                            session
-                        );
+                        info!(%session, "no clients reconnected after grace period, stopping monitor");
                         let handle = session_conns.monitor_handle.take();
                         let tx = session_conns.monitor_command_tx.take();
                         sessions.remove(&session);
                         (tx, handle)
                     } else {
-                        eprintln!(
-                            "[cleanup] Client reconnected for session '{}' during grace period, keeping monitor alive",
-                            session
-                        );
+                        debug!(%session, "client reconnected during grace period, keeping monitor alive");
                         (None, None)
                     }
                 } else {
@@ -1024,9 +993,9 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
             // Stop the monitor if cleanup proceeded
             if let Some(handle) = monitor_handle {
                 if handle.is_finished() {
-                    eprintln!("[cleanup] Monitor task already finished (session was killed)");
+                    debug!("monitor task already finished (session was killed)");
                 } else if let Some(ref tx) = cmd_tx {
-                    eprintln!("[cleanup] Sending graceful shutdown to monitor");
+                    info!("sending graceful shutdown to monitor");
                     let _ = tx.send(MonitorCommand::Shutdown).await;
                     // Poll for completion instead of fixed sleep
                     for _ in 0..20 {
@@ -1036,11 +1005,9 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                     if !handle.is_finished() {
-                        eprintln!(
-                            "[cleanup] Monitor task still running after graceful shutdown (not aborting)"
-                        );
+                        warn!("monitor task still running after graceful shutdown (not aborting)");
                     } else {
-                        eprintln!("[cleanup] Monitor task finished gracefully");
+                        debug!("monitor task finished gracefully");
                     }
                 }
             }
@@ -1188,10 +1155,7 @@ async fn start_monitoring_control_mode(
             }
         };
         if !has_clients {
-            eprintln!(
-                "[monitor] Session '{}' has no clients, stopping monitor loop",
-                session
-            );
+            info!(%session, "no clients, stopping monitor loop");
             // Clean up the session entry so a fresh monitor can start next time
             let mut sessions = state.sessions.write().await;
             sessions.remove(&session);
@@ -1214,17 +1178,11 @@ async fn start_monitoring_control_mode(
             if !session_exists {
                 if ever_ran_successfully {
                     // Session was intentionally destroyed (e.g., kill-session from test cleanup)
-                    eprintln!(
-                        "[monitor] tmux session '{}' no longer exists (was running), stopping monitor loop",
-                        session
-                    );
+                    info!(%session, "tmux session no longer exists (was running), stopping monitor loop");
                     break;
                 }
                 // Session died before ever running — recreate it
-                eprintln!(
-                    "[monitor] tmux session '{}' died before running, will recreate",
-                    session
-                );
+                warn!(%session, "tmux session died before running, will recreate");
                 connect_config.create_session = true;
             } else {
                 // Session exists, just attach
@@ -1270,10 +1228,7 @@ async fn start_monitoring_control_mode(
                         tmuxy_core::control_mode::INITIAL_PTY_ROWS,
                         working_dir
                     );
-                    eprintln!(
-                        "[monitor] Creating session '{}' via existing CC client for '{}'",
-                        session, via_session
-                    );
+                    info!(%session, %via_session, "creating session via existing CC client");
                     let _ = tx
                         .send(tmuxy_core::control_mode::MonitorCommand::RunCommand {
                             command: create_cmd,
@@ -1292,10 +1247,7 @@ async fn start_monitoring_control_mode(
                             .unwrap_or(false);
                         if exists {
                             created = true;
-                            eprintln!(
-                                "[monitor] Session '{}' created successfully via CC",
-                                session
-                            );
+                            info!(%session, "session created successfully via CC");
                             break;
                         }
                     }
@@ -1303,10 +1255,7 @@ async fn start_monitoring_control_mode(
                         // Session exists, just attach (no creation needed)
                         connect_config.create_session = false;
                     } else {
-                        eprintln!(
-                            "[monitor] Session '{}' creation via CC timed out, falling back to direct creation",
-                            session
-                        );
+                        warn!(%session, "session creation via CC timed out, falling back to direct creation");
                         // Fall through with create_session still true
                     }
                 }
@@ -1319,15 +1268,12 @@ async fn start_monitoring_control_mode(
                 let stored = {
                     let mut sessions = state.sessions.write().await;
                     if let Some(session_conns) = sessions.get_mut(&session) {
-                        eprintln!("[monitor] Storing command_tx for session '{}'", session);
+                        debug!(%session, "storing command_tx");
                         session_conns.monitor_command_tx = Some(command_tx);
                         true
                     } else {
                         // Session was cleaned up between connect and now
-                        eprintln!(
-                            "[monitor] Session '{}' gone before storing command_tx, stopping",
-                            session
-                        );
+                        warn!(%session, "session gone before storing command_tx, stopping");
                         false
                     }
                 };
@@ -1369,7 +1315,7 @@ async fn start_monitoring_control_mode(
                         message: final_msg.clone(),
                     };
                     let _ = tx.send(serde_json::to_string(&event).unwrap());
-                    eprintln!("[monitor] FATAL for session '{}': {}", session, final_msg);
+                    error!(%session, msg = %final_msg, "monitor FATAL");
                     let mut sessions = state.sessions.write().await;
                     sessions.remove(&session);
                     return;

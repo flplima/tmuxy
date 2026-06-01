@@ -6,6 +6,7 @@ use clap::{Args, Subcommand};
 use rust_embed::Embed;
 use std::sync::Arc;
 use tokio::signal;
+use tracing::{error, warn};
 
 use crate::dev;
 use crate::state::AppState;
@@ -70,14 +71,15 @@ async fn start_dev_server(requested_port: u16) {
         } else {
             "demo"
         };
-        eprintln!(
-            "[dev] FATAL: port {} collides with the hard-coded {} dev server port.",
-            port, role
+        error!(
+            port,
+            %role,
+            "FATAL: port collides with the hard-coded dev server port"
         );
-        eprintln!(
-            "[dev] Choose a port other than {} or {} (e.g. DEV_PORT=9000) and restart.",
-            dev::VITE_PORT,
-            dev::DEMO_PORT
+        error!(
+            vite_port = dev::VITE_PORT,
+            demo_port = dev::DEMO_PORT,
+            "choose a different port (e.g. DEV_PORT=9000) and restart"
         );
         std::process::exit(1);
     }
@@ -266,12 +268,12 @@ fn stop_server() {
                         println!("Sent SIGTERM to server (pid {})", pid);
                         remove_pid_file();
                     }
-                    Err(e) => eprintln!("Failed to stop server (pid {}): {}", pid, e),
+                    Err(e) => error!(pid, error = %e, "failed to stop server"),
                 }
             }
 
             #[cfg(not(unix))]
-            eprintln!("Stop not supported on this platform");
+            error!("Stop not supported on this platform");
         }
         None => println!("Server is not running (no PID file found)"),
     }
@@ -297,12 +299,12 @@ async fn bind_with_retry(addr: std::net::SocketAddr, max_retries: u32) -> tokio:
         match tokio::net::TcpListener::bind(addr).await {
             Ok(listener) => return listener,
             Err(e) if attempt < max_retries => {
-                eprintln!(
-                    "[server] Port {} in use, retrying in 1s ({}/{}): {}",
-                    addr.port(),
-                    attempt + 1,
+                warn!(
+                    port = addr.port(),
+                    attempt = attempt + 1,
                     max_retries,
-                    e
+                    error = %e,
+                    "port in use, retrying in 1s"
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }

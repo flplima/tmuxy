@@ -4,6 +4,7 @@ use axum::response::Response;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tracing::{error, warn};
 
 /// Port for Vite dev server
 pub const VITE_PORT: u16 = 9001;
@@ -116,7 +117,7 @@ async fn proxy_to_port(port: u16, req: Request) -> Response {
                 .unwrap_or_else(|_| Response::new(Body::empty()))
         }
         Err(e) => {
-            eprintln!("[dev] Proxy error: {}", e);
+            warn!(error = %e, "dev proxy error");
             Response::builder()
                 .status(axum::http::StatusCode::BAD_GATEWAY)
                 .body(Body::from(format!("Proxy error: {}", e)))
@@ -172,7 +173,7 @@ pub async fn spawn_dev_server(
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
-            eprintln!("Failed to spawn {} dev server: {}", label, e);
+            error!(%label, error = %e, "failed to spawn dev server");
             return None;
         }
     };
@@ -197,7 +198,7 @@ pub async fn spawn_dev_server(
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                eprintln!("[{}] {}", label_err, line);
+                warn!(target: "tmuxy::dev", label = %label_err, "{}", line);
             }
         });
     }
@@ -207,11 +208,11 @@ pub async fn spawn_dev_server(
         match child.wait().await {
             Ok(status) => {
                 if !status.success() {
-                    eprintln!("[{}] Process exited with status: {}", label_wait, status);
+                    warn!(label = %label_wait, %status, "dev process exited unsuccessfully");
                 }
             }
             Err(e) => {
-                eprintln!("[{}] Error waiting for process: {}", label_wait, e);
+                error!(label = %label_wait, error = %e, "error waiting for dev process");
             }
         }
     });

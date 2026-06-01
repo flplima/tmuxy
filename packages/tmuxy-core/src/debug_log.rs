@@ -32,10 +32,16 @@ fn timestamp() -> String {
     format!("{:02}:{:02}:{:02}.{:03}", hours, mins, s, ms)
 }
 
-/// Write a line to the debug log and stderr.
+/// Write a line to the debug log and emit it via tracing.
+///
+/// `tracing::info!` replaces the legacy `eprintln!` so stderr output now flows
+/// through the global subscriber (configured in `tmuxy-server/src/main.rs` and
+/// the Tauri app's main). The file at `~/tmuxy-debug.log` is still written
+/// directly — it's the breadcrumb trail macOS users attach when reporting
+/// Finder-vs-CLI launch differences.
 pub fn log(msg: &str) {
+    tracing::info!(target: "tmuxy::debug_log", "{}", msg);
     let line = format!("[tmuxy {}] {}", timestamp(), msg);
-    eprintln!("{}", line);
     let _lock = LOG_MUTEX.lock().ok();
     if let Ok(mut f) = OpenOptions::new()
         .create(true)

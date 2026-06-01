@@ -9,6 +9,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{mpsc, Mutex};
+use tracing::{error, info, warn};
 
 /// Helper to conditionally emit a log entry to an optional sink.
 fn log_to(sink: Option<&Arc<dyn LogSink>>, kind: LogKind, msg: impl Into<String>) {
@@ -586,15 +587,15 @@ impl ControlModeConnection {
         let timeout = tokio::time::Duration::from_millis(3000);
         match tokio::time::timeout(timeout, self.child.wait()).await {
             Ok(Ok(_)) => {
-                eprintln!("[control_mode] Graceful detach successful");
+                info!("graceful detach successful");
             }
             Ok(Err(e)) => {
-                eprintln!("[control_mode] Error waiting for exit: {}", e);
+                error!(error = %e, "error waiting for exit");
             }
             Err(_) => {
                 // Timeout — do NOT kill. The process will be reaped eventually
                 // or cleaned up when the server process exits.
-                eprintln!("[control_mode] Graceful detach timed out (process may linger)");
+                warn!("graceful detach timed out (process may linger)");
             }
         }
     }

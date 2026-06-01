@@ -1,4 +1,5 @@
 use std::process::Command;
+use tracing::{debug, trace};
 
 use crate::DEFAULT_SESSION_NAME;
 
@@ -287,10 +288,7 @@ pub fn resize_pane(pane_id: &str, direction: &str, adjustment: u32) -> Result<()
 /// Resize all tmux windows in the session to specific dimensions (columns x rows).
 /// This ensures hidden windows (e.g., pane group containers) stay in sync with the viewport.
 pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<(), String> {
-    eprintln!(
-        "[resize_window] session={} cols={} rows={}",
-        session_name, cols, rows
-    );
+    debug!(%session_name, cols, rows, "resize_window");
     let cols_str = cols.to_string();
     let rows_str = rows.to_string();
 
@@ -298,7 +296,7 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<(), Str
     let output = execute_tmux_command(&["list-windows", "-t", session_name, "-F", "#{window_id}"])?;
 
     let window_ids: Vec<&str> = output.trim().lines().filter(|l| !l.is_empty()).collect();
-    eprintln!("[resize_window] window_ids={:?}", window_ids);
+    trace!(?window_ids, "resize_window window ids");
     if window_ids.is_empty() {
         return Ok(());
     }
@@ -318,9 +316,9 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<(), Str
         args.push(&rows_str);
     }
 
-    eprintln!("[resize_window] executing: tmux {:?}", args);
+    trace!(?args, "resize_window executing tmux");
     let result = execute_tmux_command(&args);
-    eprintln!("[resize_window] result={:?}", result);
+    trace!(?result, "resize_window result");
     result?;
     Ok(())
 }

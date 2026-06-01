@@ -11,6 +11,7 @@ use super::state::{ChangeType, StateAggregator};
 use crate::{StateUpdate, TmuxState};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tracing::{debug, info, instrument, trace, warn};
 
 /// Commands that can be sent to the monitor from external code
 #[derive(Debug)]
@@ -135,6 +136,7 @@ impl TmuxMonitor {
     /// `log` receives streaming progress entries (each tmux invocation, its
     /// output, and any retry decisions). Pass `None` if the caller doesn't
     /// surface these to a UI.
+    #[instrument(skip(log), fields(session = %config.session))]
     pub async fn connect(
         config: MonitorConfig,
         log: Option<&std::sync::Arc<dyn super::log::LogSink>>,
@@ -171,6 +173,7 @@ impl TmuxMonitor {
     }
 
     /// Synchronize initial state by querying tmux.
+    #[instrument(skip(self), fields(session = %self.config.session))]
     pub async fn sync_initial_state(&mut self) -> Result<(), String> {
         // Set window-size to manual BEFORE resizing, so the resize doesn't
         // trigger SIGWINCH to the shell (which causes prompt redraw %output
@@ -290,6 +293,7 @@ impl TmuxMonitor {
     ///
     /// This is the main loop that processes control mode events and emits state changes.
     /// It runs until the connection is closed or an error occurs.
+    #[instrument(skip(self, emitter), fields(session = %self.config.session))]
     pub async fn run<E: StateEmitter>(&mut self, emitter: &E) {
         // Sync initial state
         if let Err(e) = self.sync_initial_state().await {
@@ -398,14 +402,13 @@ impl TmuxMonitor {
                 Duration::from_secs(3600) // Effectively infinite
             };
 
-            // eprintln!("[monitor] Entering select!");
             tokio::select! {
                 // Process control mode events
                 event = self.connection.recv() => {
                     match event {
                         Some(ControlModeEvent::Exit { reason }) => {
                             let msg = reason.unwrap_or_else(|| "disconnected".to_string());
-                            eprintln!("[monitor] CC Exit event: {}", msg);
+                            warn!(reason = %msg, "control mode exit event");
                             emitter.emit_error(format!("Control mode exited: {}", msg));
                             break;
                         }
@@ -420,9 +423,10 @@ impl TmuxMonitor {
                             // from updating session_name and emitting cross-session state.
                             if let ControlModeEvent::SessionChanged { ref session_name, .. } = event {
                                 if !self.config.session.is_empty() && *session_name != self.config.session {
-                                    eprintln!(
-                                        "[monitor] Suppressing SessionChanged to '{}' (expected '{}')",
-                                        session_name, self.config.session
+                                    debug!(
+                                        actual = %session_name,
+                                        expected = %self.config.session,
+                                        "suppressing SessionChanged for foreign session"
                                     );
                                     continue;
                                 }
@@ -444,7 +448,7 @@ impl TmuxMonitor {
                             match &event {
                                 ControlModeEvent::Output { .. } | ControlModeEvent::CommandResponse { .. } => {}
                                 other => {
-                                    eprintln!("[monitor] Event: {:?}", other);
+                                    trace!(event = ?other, "control mode event");
                                 }
                             }
 
@@ -473,10 +477,7 @@ impl TmuxMonitor {
                             let tag_cmds = self.aggregator.collect_window_tag_commands();
                             if !tag_cmds.is_empty() {
                                 if !self.window_tags_migrated {
-                                    eprintln!(
-                                        "[monitor] Auto-adopting {} untagged windows",
-                                        tag_cmds.len()
-                                    );
+                                    info!(count = tag_cmds.len(), "auto-adopting untagged windows");
                                     self.window_tags_migrated = true;
                                 }
                                 if let Err(e) = self.connection.send_commands_batch(&tag_cmds).await {
@@ -587,7 +588,7 @@ impl TmuxMonitor {
                                         // First window event after compound command — start real timer
                                         settling_awaiting_first_event = false;
                                         settling_started = Some(now);
-                                        eprintln!("[monitor] Settling: first event received, starting debounce timer");
+                                        debug!("settling: first event received, starting debounce timer");
                                     }
                                     let max_deadline = settling_started.unwrap() + settling_max;
                                     let debounced = now + settling_debounce;
@@ -671,7 +672,7 @@ impl TmuxMonitor {
                             }
                         }
                         None => {
-                            eprintln!("[monitor] Control mode recv() returned None - connection closed");
+                            warn!("control mode recv() returned None - connection closed");
                             emitter.emit_error("Control mode connection closed".to_string());
                             break;
                         }
@@ -703,19 +704,18 @@ impl TmuxMonitor {
                     if settling_awaiting_first_event {
                         // Safety timeout: no window events arrived after compound command
                         // Clear settling and let future events through normally
-                        eprintln!("[monitor] Settling: safety timeout, no events received from compound command");
+                        warn!("settling: safety timeout, no events received from compound command");
                         self.aggregator.set_suppress_window_emissions(false);
                     } else {
-                        // Log the window count before and after emission
                         let window_count = self.aggregator.window_count();
-                        eprintln!("[monitor] Settling complete (windows={}), emitting consolidated state", window_count);
+                        debug!(windows = window_count, "settling complete, emitting consolidated state");
                         match self.aggregator.force_emit() {
                             Some(update) => {
                                 emitter.emit_state(update);
-                                eprintln!("[monitor] Settling: emitted state update");
+                                trace!("settling: emitted state update");
                             }
                             None => {
-                                eprintln!("[monitor] Settling: force_emit returned None (no delta vs prev_state)");
+                                trace!("settling: force_emit returned None (no delta vs prev_state)");
                             }
                         }
                     }
@@ -819,10 +819,10 @@ impl TmuxMonitor {
 
                 // Handle external commands (resize, etc.)
                 cmd = self.command_rx.recv() => {
-                    eprintln!("[monitor] Received command: {:?}", cmd);
+                    trace!(?cmd, "received monitor command");
                     match cmd {
                         Some(MonitorCommand::ResizeWindow { cols, rows }) => {
-                            eprintln!("[monitor] Processing ResizeWindow: {}x{}", cols, rows);
+                            debug!(cols, rows, "processing ResizeWindow");
                             // Resize ALL windows in the session. With window-size manual,
                             // each window tracks its own size independently. Without
                             // resizing all windows, pre-existing or background windows
@@ -835,13 +835,13 @@ impl TmuxMonitor {
                                     emitter.emit_error(format!("Failed to resize window: {}", e));
                                 } else {
                                     self.pending_resize_count += 1;
-                                    eprintln!("[monitor] Sent resize command: {}", resize_cmd);
+                                    trace!(cmd = %resize_cmd, "sent resize command");
                                 }
                             } else {
                                 let cmds: Vec<String> = window_ids.iter()
                                     .map(|wid| format!("resizew -t {} -x {} -y {}", wid, cols, rows))
                                     .collect();
-                                eprintln!("[monitor] Resizing {} windows", cmds.len());
+                                debug!(count = cmds.len(), "resizing windows");
                                 if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                                     emitter.emit_error(format!("Failed to resize windows: {}", e));
                                 } else {
@@ -850,7 +850,7 @@ impl TmuxMonitor {
                             }
                         }
                         Some(MonitorCommand::RunCommand { command }) => {
-                            eprintln!("[monitor] Processing RunCommand: {}", command);
+                            debug!(%command, "processing RunCommand");
                             // Control mode expects raw tmux commands without shell escaping
                             // Frontend sends \; for shell compatibility, convert to ; for control mode
                             let unescaped = command.replace(" \\; ", " ; ");
@@ -870,7 +870,7 @@ impl TmuxMonitor {
                                 settling_awaiting_first_event = true;
                                 settling_until = Some(now + settling_max);
                                 self.aggregator.set_suppress_window_emissions(true);
-                                eprintln!("[monitor] Settling armed for multi-step run-shell");
+                                debug!("settling armed for multi-step run-shell");
                             }
 
                             if let Err(e) = self.connection.send_command(&unescaped).await {
@@ -883,24 +883,24 @@ impl TmuxMonitor {
                                     self.aggregator.set_suppress_window_emissions(false);
                                 }
                             } else {
-                                eprintln!("[monitor] Sent command via control mode: {}", unescaped);
+                                trace!(cmd = %unescaped, "sent command via control mode");
                             }
                         }
                         Some(MonitorCommand::Shutdown) => {
-                            eprintln!("[monitor] Received shutdown command, gracefully closing");
+                            info!("received shutdown command, gracefully closing");
                             self.connection.graceful_close().await;
                             break;
                         }
                         None => {
                             // Command channel closed, stop monitoring
-                            eprintln!("[monitor] Command channel closed, stopping");
+                            warn!("command channel closed, stopping");
                             break;
                         }
                     }
                 }
             }
         }
-        eprintln!("[monitor] run() exiting");
+        info!("run() exiting");
     }
 
     /// Send a tmux command through control mode.

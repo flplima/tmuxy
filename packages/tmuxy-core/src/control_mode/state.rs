@@ -8,6 +8,7 @@ use crate::{
     TmuxState, TmuxWindow, WindowType,
 };
 use std::collections::HashMap;
+use tracing::warn;
 
 /// Safe wrapper around vt100::Parser::process that catches panics from
 /// internal vt100 bugs (e.g., subtract overflow in grid.rs col_wrap).
@@ -21,7 +22,7 @@ fn safe_process(terminal: &mut vt100::Parser, data: &[u8]) {
         unsafe { &mut *terminal_ptr }.process(data);
     }));
     if result.is_err() {
-        eprintln!("[vt100] caught panic during process(), terminal state may be stale");
+        warn!("vt100 caught panic during process(), terminal state may be stale");
     }
 }
 
@@ -1261,10 +1262,7 @@ impl StateAggregator {
                         // Dead pane IDs stay in the queue as placeholders for
                         // in-flight capture commands; this correctly consumes them.
                         let pane_id = self.pending_captures.pop_front();
-                        eprintln!(
-                            "[state] Capture command failed, popping pending capture: {:?}",
-                            pane_id
-                        );
+                        warn!(?pane_id, "capture command failed, popping pending capture");
                     } else {
                         // Check if this looks like capture-pane output
                         let is_capture_output = self.looks_like_capture_output(&output);

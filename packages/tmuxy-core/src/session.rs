@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
+use tracing::{info, warn};
 
 /// Resolved path to the tmux binary, cached after first lookup.
 static TMUX_PATH: OnceLock<String> = OnceLock::new();
@@ -274,7 +275,7 @@ pub fn ensure_config() -> PathBuf {
     let defaults_path = dir.join("tmuxy.defaults.conf");
 
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        eprintln!("Warning: could not create config dir {:?}: {}", dir, e);
+        warn!(?dir, error = %e, "could not create config dir");
         return user_path;
     }
 
@@ -291,13 +292,13 @@ pub fn ensure_config() -> PathBuf {
         };
         if needs_defaults_write {
             if let Err(e) = std::fs::write(&defaults_path, DEFAULT_DEFAULTS_CONF) {
-                eprintln!(
-                    "Warning: could not write {:?}: {}",
-                    defaults_path.file_name().unwrap_or_default(),
-                    e
+                warn!(
+                    file = ?defaults_path.file_name().unwrap_or_default(),
+                    error = %e,
+                    "could not write defaults file"
                 );
             } else {
-                eprintln!("Refreshed tmuxy.defaults.conf at {:?}", defaults_path);
+                info!(path = ?defaults_path, "refreshed tmuxy.defaults.conf");
             }
         }
     }
@@ -305,12 +306,9 @@ pub fn ensure_config() -> PathBuf {
     // Create the user-editable conf only if it doesn't exist.
     if !user_path.exists() {
         if let Err(e) = std::fs::write(&user_path, DEFAULT_USER_CONF) {
-            eprintln!(
-                "Warning: could not write default user config to {:?}: {}",
-                user_path, e
-            );
+            warn!(path = ?user_path, error = %e, "could not write default user config");
         } else {
-            eprintln!("Created tmuxy.conf at {:?}", user_path);
+            info!(path = ?user_path, "created tmuxy.conf");
         }
         return user_path;
     }
@@ -328,12 +326,9 @@ pub fn ensure_config() -> PathBuf {
             let migrated = migrate_tab_bindings(&migrated);
             if migrated != existing {
                 if let Err(e) = std::fs::write(&user_path, &migrated) {
-                    eprintln!(
-                        "Warning: could not migrate config at {:?}: {}",
-                        user_path, e
-                    );
+                    warn!(path = ?user_path, error = %e, "could not migrate config");
                 } else {
-                    eprintln!("Migrated tmuxy.conf at {:?}", user_path);
+                    info!(path = ?user_path, "migrated tmuxy.conf");
                 }
             }
         }
@@ -382,10 +377,7 @@ pub fn read_managed_state() -> ManagedState {
     match serde_json::from_str::<ManagedState>(&text) {
         Ok(state) => state,
         Err(e) => {
-            eprintln!(
-                "Warning: could not parse {:?} ({}); using defaults",
-                path, e
-            );
+            warn!(?path, error = %e, "could not parse managed state file, using defaults");
             ManagedState::default()
         }
     }
@@ -435,7 +427,7 @@ pub fn apply_managed_state(session_name: &str) {
             option,
             v,
         ]) {
-            eprintln!("Warning: failed to apply {}={}: {}", option, v, e);
+            warn!(%option, value = %v, error = %e, "failed to apply managed state option");
         }
     }
 }
@@ -532,10 +524,7 @@ pub fn ensure_themes() -> PathBuf {
     let themes_dir = config_dir().join("themes");
 
     if let Err(e) = std::fs::create_dir_all(&themes_dir) {
-        eprintln!(
-            "Warning: could not create themes dir {:?}: {}",
-            themes_dir, e
-        );
+        warn!(dir = ?themes_dir, error = %e, "could not create themes dir");
         return themes_dir;
     }
 
@@ -543,10 +532,7 @@ pub fn ensure_themes() -> PathBuf {
         let path = themes_dir.join(name);
         if !path.exists() {
             if let Err(e) = std::fs::write(&path, content) {
-                eprintln!(
-                    "Warning: could not write bundled theme to {:?}: {}",
-                    path, e
-                );
+                warn!(?path, error = %e, "could not write bundled theme");
             }
         }
     }
@@ -555,7 +541,7 @@ pub fn ensure_themes() -> PathBuf {
         let path = themes_dir.join(name);
         if path.exists() {
             if let Err(e) = std::fs::remove_file(&path) {
-                eprintln!("Warning: could not remove retired theme {:?}: {}", path, e);
+                warn!(?path, error = %e, "could not remove retired theme");
             }
         }
     }
@@ -580,21 +566,18 @@ pub fn ensure_bin_scripts() -> PathBuf {
     let bin = bin_dir();
 
     if let Err(e) = std::fs::create_dir_all(&bin) {
-        eprintln!("Warning: could not create bin dir {:?}: {}", bin, e);
+        warn!(dir = ?bin, error = %e, "could not create bin dir");
         return bin;
     }
     if let Err(e) = std::fs::create_dir_all(bin.join("tmuxy")) {
-        eprintln!("Warning: could not create bin/tmuxy dir {:?}: {}", bin, e);
+        warn!(dir = ?bin, error = %e, "could not create bin/tmuxy dir");
         return bin;
     }
 
     for (rel_path, content) in BUNDLED_BIN_SCRIPTS {
         let path = bin.join(rel_path);
         if let Err(e) = std::fs::write(&path, content) {
-            eprintln!(
-                "Warning: could not write bundled script to {:?}: {}",
-                path, e
-            );
+            warn!(?path, error = %e, "could not write bundled script");
             continue;
         }
         #[cfg(unix)]
