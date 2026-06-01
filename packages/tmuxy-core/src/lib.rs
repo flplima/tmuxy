@@ -1,10 +1,13 @@
 pub mod constants;
 pub mod control_mode;
+pub mod ctx;
 pub mod debug_log;
 pub mod error;
 pub mod executor;
 pub mod retry;
 pub mod session;
+
+pub use ctx::{Clock, Ctx, FileSystem, TmuxCommand};
 
 pub use error::{Result as TmuxResult, TmuxError};
 pub use retry::{retry_with, RetryPolicy};
