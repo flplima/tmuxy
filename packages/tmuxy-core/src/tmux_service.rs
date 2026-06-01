@@ -18,6 +18,11 @@ use std::time::Duration;
 use tower::{Service, ServiceBuilder, ServiceExt};
 use tracing::{instrument, trace};
 
+/// Default per-call deadline for `Ctx::tmux_call`. Five seconds covers every
+/// observed tmux roundtrip on the supported targets while keeping a wedged
+/// `display-message` from hanging the UI's command queue indefinitely.
+pub const TMUX_CALL_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Request type carried through the tower stack.
 #[derive(Debug, Clone)]
 pub struct TmuxRequest {

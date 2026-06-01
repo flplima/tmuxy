@@ -68,6 +68,40 @@ impl Ctx {
             retry_policy: RetryPolicy::standard(),
         })
     }
+
+    /// Canonical async tmux dispatch through the standard Tower stack
+    /// (`TraceLayer → RetryLayer → TimeoutLayer → TmuxService`). Used by every
+    /// async caller — server SSE handlers and Tauri commands alike — so the
+    /// resilience floor (retry on transient io, 5s per-call deadline, tracing
+    /// span) is identical regardless of frontend.
+    ///
+    /// Sync `executor::*` helpers continue to call tmux directly because they
+    /// cannot await; this method is for async paths only.
+    pub async fn tmux_call(&self, args: Vec<String>, op_name: &str) -> Result<String, TmuxError> {
+        self.tmux_call_with_policy(args, op_name, self.retry_policy)
+            .await
+    }
+
+    /// Same as `tmux_call` but with a caller-chosen retry policy. The
+    /// scrollback-fetch path uses this to keep its dedicated standard policy
+    /// even if a future `Ctx::live()` swaps in a different default.
+    pub async fn tmux_call_with_policy(
+        &self,
+        args: Vec<String>,
+        op_name: &str,
+        policy: RetryPolicy,
+    ) -> Result<String, TmuxError> {
+        use tower::{Service, ServiceExt};
+        let mut svc = crate::tmux_service::build_tmux_stack(
+            self.tmux.clone(),
+            crate::tmux_service::TMUX_CALL_TIMEOUT,
+            policy,
+        );
+        svc.ready()
+            .await?
+            .call(crate::tmux_service::TmuxRequest::with_name(args, op_name))
+            .await
+    }
 }
 
 // =============================================================================

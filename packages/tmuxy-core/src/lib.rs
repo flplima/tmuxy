@@ -9,7 +9,7 @@ pub mod session;
 pub mod tmux_service;
 
 pub use ctx::{Clock, Ctx, FileSystem, TmuxCommand};
-pub use tmux_service::{build_tmux_stack, TmuxRequest, TmuxService};
+pub use tmux_service::{build_tmux_stack, TmuxRequest, TmuxService, TMUX_CALL_TIMEOUT};
 
 pub use error::{Result as TmuxResult, TmuxError};
 pub use retry::{retry_with, RetryPolicy};

@@ -962,6 +962,10 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(monitor::KeyBindingsState::default())
         .manage(monitor::MonitorState::default())
+        // Shared execution context — handed to TmuxMonitor on connect AND used
+        // by async Tauri commands for retried+timed-out tmux dispatch via the
+        // Tower stack. Mirrors AppState::ctx on the server side.
+        .manage(tmuxy_core::Ctx::live())
         .setup(|app| {
             // Log environment for debugging Finder vs CLI launch differences
             tmuxy_core::debug_log::log("=== tmuxy starting ===");

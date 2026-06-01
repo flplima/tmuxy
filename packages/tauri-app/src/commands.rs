@@ -1,7 +1,8 @@
 use serde_json::Value;
+use std::sync::Arc;
 use tauri::State;
 use tmuxy_core::control_mode::MonitorCommand;
-use tmuxy_core::{executor, session};
+use tmuxy_core::{executor, session, Ctx};
 
 use crate::monitor::{KeyBindingsState, MonitorState};
 
@@ -220,20 +221,40 @@ pub async fn run_tmux_command(
 /// Without this command, copy mode in the Tauri build silently fails to
 /// load anything beyond the already-visible pane content.
 #[tauri::command]
-pub async fn get_scrollback_cells(pane_id: String, start: i64, end: i64) -> Result<Value, String> {
-    let width_output =
-        executor::execute_tmux_command(&["display-message", "-t", &pane_id, "-p", "#{pane_width}"])
-            .map_err(|e| format!("Failed to get pane width: {}", e))?;
+pub async fn get_scrollback_cells(
+    ctx: State<'_, Arc<Ctx>>,
+    pane_id: String,
+    start: i64,
+    end: i64,
+) -> Result<Value, String> {
+    let width_output = ctx
+        .tmux_call(
+            vec![
+                "display-message".into(),
+                "-t".into(),
+                pane_id.clone(),
+                "-p".into(),
+                "#{pane_width}".into(),
+            ],
+            "get_pane_width",
+        )
+        .await
+        .map_err(|e| format!("Failed to get pane width: {}", e))?;
     let width: u32 = width_output.trim().parse().unwrap_or(80);
 
-    let history_output = executor::execute_tmux_command(&[
-        "display-message",
-        "-t",
-        &pane_id,
-        "-p",
-        "#{history_size}",
-    ])
-    .map_err(|e| format!("Failed to get history size: {}", e))?;
+    let history_output = ctx
+        .tmux_call(
+            vec![
+                "display-message".into(),
+                "-t".into(),
+                pane_id.clone(),
+                "-p".into(),
+                "#{history_size}".into(),
+            ],
+            "get_history_size",
+        )
+        .await
+        .map_err(|e| format!("Failed to get history size: {}", e))?;
     let history_size: u32 = history_output.trim().parse().unwrap_or(0);
 
     let raw = executor::capture_pane_range(&pane_id, start, end)
@@ -251,11 +272,29 @@ pub async fn get_scrollback_cells(pane_id: String, start: i64, end: i64) -> Resu
 }
 
 #[tauri::command]
-pub async fn get_theme_settings() -> Result<Value, String> {
-    let theme = executor::execute_tmux_command(&["show-options", "-gqv", "@tmuxy-theme"])
+pub async fn get_theme_settings(ctx: State<'_, Arc<Ctx>>) -> Result<Value, String> {
+    let theme = ctx
+        .tmux_call(
+            vec![
+                "show-options".into(),
+                "-gqv".into(),
+                "@tmuxy-theme".into(),
+            ],
+            "get_theme",
+        )
+        .await
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
-    let mode = executor::execute_tmux_command(&["show-options", "-gqv", "@tmuxy-theme-mode"])
+    let mode = ctx
+        .tmux_call(
+            vec![
+                "show-options".into(),
+                "-gqv".into(),
+                "@tmuxy-theme-mode".into(),
+            ],
+            "get_theme_mode",
+        )
+        .await
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
     Ok(serde_json::json!({
@@ -265,12 +304,34 @@ pub async fn get_theme_settings() -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn set_theme(name: String, mode: Option<String>) -> Result<(), String> {
-    executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme", &name])
-        .map_err(|e| format!("Failed to set theme: {}", e))?;
+pub async fn set_theme(
+    ctx: State<'_, Arc<Ctx>>,
+    name: String,
+    mode: Option<String>,
+) -> Result<(), String> {
+    ctx.tmux_call(
+        vec![
+            "set-option".into(),
+            "-g".into(),
+            "@tmuxy-theme".into(),
+            name.clone(),
+        ],
+        "set_theme",
+    )
+    .await
+    .map_err(|e| format!("Failed to set theme: {}", e))?;
     if let Some(ref m) = mode {
-        executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", m])
-            .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+        ctx.tmux_call(
+            vec![
+                "set-option".into(),
+                "-g".into(),
+                "@tmuxy-theme-mode".into(),
+                m.clone(),
+            ],
+            "set_theme_mode",
+        )
+        .await
+        .map_err(|e| format!("Failed to set theme mode: {}", e))?;
     }
     // Persist to tmuxy.state.conf so the choice survives a tmux server
     // restart (e.g. fully quitting the app). Failure here is non-fatal —
@@ -285,9 +346,18 @@ pub async fn set_theme(name: String, mode: Option<String>) -> Result<(), String>
 }
 
 #[tauri::command]
-pub async fn set_theme_mode(mode: String) -> Result<(), String> {
-    executor::execute_tmux_command(&["set-option", "-g", "@tmuxy-theme-mode", &mode])
-        .map_err(|e| format!("Failed to set theme mode: {}", e))?;
+pub async fn set_theme_mode(ctx: State<'_, Arc<Ctx>>, mode: String) -> Result<(), String> {
+    ctx.tmux_call(
+        vec![
+            "set-option".into(),
+            "-g".into(),
+            "@tmuxy-theme-mode".into(),
+            mode.clone(),
+        ],
+        "set_theme_mode",
+    )
+    .await
+    .map_err(|e| format!("Failed to set theme mode: {}", e))?;
     if let Err(e) = session::write_managed_state(None, Some(&mode)) {
         eprintln!(
             "Warning: could not persist theme mode to tmuxy.state.conf: {}",
