@@ -29,6 +29,34 @@ use crate::state::{find_workspace_root, AppState, SessionConnections};
 // SSE State Emitter (Adapter Pattern)
 // ============================================
 
+/// Extract the SSE `event:` discriminator from an already-serialised JSON
+/// payload. We peek at the `event` field rather than deserialising into the
+/// full `SseEvent` enum because the discriminator is the only thing we need
+/// and StateUpdate / Box<...> deserialisation is expensive on the hot path.
+/// Falls back to `"state-update"` for unknown shapes to match the legacy
+/// fallback behaviour.
+fn sse_event_type(payload: &str) -> &'static str {
+    // serde_json::from_str is faster than a full enum decode because we stop
+    // at the first matching field, but we still avoid building a Value if we
+    // can — match the literal `"event":"..."` substring.
+    if let Some(idx) = payload.find("\"event\":\"") {
+        let rest = &payload[idx + "\"event\":\"".len()..];
+        if let Some(end) = rest.find('"') {
+            return match &rest[..end] {
+                "state-update" => "state-update",
+                "error" => "error",
+                "connection-info" => "connection-info",
+                "keybindings" => "keybindings",
+                "log" => "log",
+                "fatal" => "fatal",
+                "clipboard" => "clipboard",
+                _ => "state-update",
+            };
+        }
+    }
+    "state-update"
+}
+
 /// Serialize an `SseEvent` (or compatible serde value) into a wire-format
 /// JSON string, logging — rather than panicking — on failure.
 ///
@@ -48,22 +76,30 @@ fn encode_event<T: Serialize>(event: &T) -> Option<String> {
 
 /// Emitter that broadcasts state changes to SSE clients
 pub struct SseEmitter {
-    tx: broadcast::Sender<String>,
+    broadcast: Arc<crate::state::SessionBroadcast>,
     app_state: Arc<AppState>,
 }
 
 impl SseEmitter {
-    pub fn new(tx: broadcast::Sender<String>, app_state: Arc<AppState>) -> Self {
-        Self { tx, app_state }
+    pub fn new(broadcast: Arc<crate::state::SessionBroadcast>, app_state: Arc<AppState>) -> Self {
+        Self {
+            broadcast,
+            app_state,
+        }
+    }
+
+    /// Encode + broadcast in one shot — drops the message on serialize failure
+    /// (already logged by `encode_event`).
+    fn send_event(&self, event: &SseEvent) {
+        if let Some(s) = encode_event(event) {
+            self.broadcast.broadcast(s);
+        }
     }
 }
 
 impl LogSink for SseEmitter {
     fn log(&self, kind: LogKind, message: String) {
-        let event = SseEvent::Log { kind, message };
-        if let Some(s) = encode_event(&event) {
-            let _ = self.tx.send(s);
-        }
+        self.send_event(&SseEvent::Log { kind, message });
     }
 }
 
@@ -77,17 +113,11 @@ impl StateEmitter for SseEmitter {
                 guard.retain(|(pane_id, _), _| active_pane_ids.contains(pane_id.as_str()));
             }
         }
-        let event = SseEvent::StateUpdate(Box::new(update));
-        if let Some(s) = encode_event(&event) {
-            let _ = self.tx.send(s);
-        }
+        self.send_event(&SseEvent::StateUpdate(Box::new(update)));
     }
 
     fn emit_error(&self, error: String) {
-        let event = SseEvent::Error { message: error };
-        if let Some(s) = encode_event(&event) {
-            let _ = self.tx.send(s);
-        }
+        self.send_event(&SseEvent::Error { message: error });
     }
 
     fn on_initial_sync_complete(&self) {
@@ -97,10 +127,7 @@ impl StateEmitter for SseEmitter {
             prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
             root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
         };
-        let kb_event = SseEvent::KeyBindings(keybindings);
-        if let Some(s) = encode_event(&kb_event) {
-            let _ = self.tx.send(s);
-        }
+        self.send_event(&SseEvent::KeyBindings(keybindings));
     }
 
     fn store_images(
@@ -118,13 +145,10 @@ impl StateEmitter for SseEmitter {
     }
 
     fn write_clipboard(&self, pane_id: &str, text: String) {
-        let event = SseEvent::Clipboard {
+        self.send_event(&SseEvent::Clipboard {
             pane_id: pane_id.to_string(),
             text,
-        };
-        if let Some(s) = encode_event(&event) {
-            let _ = self.tx.send(s);
-        }
+        });
     }
 }
 
@@ -191,10 +215,20 @@ pub struct SessionQuery {
 pub async fn sse_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SessionQuery>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let session = query
         .session
         .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
+
+    // Browser passes the id of the last event it received via the standard
+    // `Last-Event-Id` header on reconnect. If we can find it in the per-session
+    // ring buffer, we replay the missing events. If the id is older than the
+    // buffer head (or absent), the live stream takes over from the next event.
+    let last_event_id: Option<u64> = headers
+        .get("last-event-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok());
 
     // Generate unique connection ID
     let conn_id = state.next_conn_id.fetch_add(1, Ordering::SeqCst);
@@ -205,7 +239,7 @@ pub async fn sse_handler(
     // (which would trigger %session-changed and contaminate the original session's state).
 
     // Register connection and get/create shared session resources
-    let session_rx = {
+    let (session_rx, session_broadcast) = {
         let mut sessions = state.sessions.write().await;
         let session_conns = sessions
             .entry(session.clone())
@@ -214,7 +248,8 @@ pub async fn sse_handler(
         session_conns.connections.push(conn_id);
 
         // Subscribe to shared session state channel
-        let session_rx = session_conns.state_tx.subscribe();
+        let session_rx = session_conns.broadcast.subscribe();
+        let session_broadcast = session_conns.broadcast.clone();
 
         // Start monitor if not already running, or restart if it died
         let needs_monitor = match &session_conns.monitor_handle {
@@ -236,19 +271,19 @@ pub async fn sse_handler(
             }
             let monitor_session = session.clone();
             let monitor_state = state.clone();
-            let monitor_tx = session_conns.state_tx.clone();
+            let monitor_broadcast = session_conns.broadcast.clone();
             // Track in the structured `JoinSet` so `shutdown_signal` drains it
             // on Ctrl+C. We also keep a `JoinHandle` separately on the
             // `SessionConnections` so the deferred-cleanup path can poll
             // `is_finished` / drive graceful shutdown of just one session.
             let handle = tokio::spawn(async move {
-                start_monitoring(monitor_tx, monitor_session, monitor_state).await;
+                start_monitoring(monitor_broadcast, monitor_session, monitor_state).await;
             });
             session_conns.monitor_handle = Some(handle);
             info!(%session, "started monitor");
         }
 
-        session_rx
+        (session_rx, session_broadcast)
     };
 
     // Create the SSE stream
@@ -318,47 +353,48 @@ pub async fn sse_handler(
 
         let mut session_rx = session_rx;
 
+        // Last-Event-Id replay: if the client reconnected with a known seq,
+        // dump everything in the ring buffer above that seq before entering the
+        // live loop. If the requested seq is older than the buffer head (or no
+        // header at all), we can't fill the gap from cache alone — the live
+        // stream will just resume from the next event, and the client falls
+        // back to its full state on the next StateUpdate::Full broadcast.
+        let mut last_replayed: u64 = last_event_id.unwrap_or(0);
+        let oldest = session_broadcast.oldest_seq();
+        let buffer_can_serve = match (last_event_id, oldest) {
+            (Some(le), Some(old)) => le >= old.saturating_sub(1),
+            _ => false,
+        };
+        if buffer_can_serve {
+            let replay = session_broadcast.replay_since(last_event_id.unwrap_or(0));
+            for (seq, msg) in replay {
+                let event_type = sse_event_type(&msg);
+                last_replayed = seq;
+                yield Ok(Event::default()
+                    .event(event_type)
+                    .id(seq.to_string())
+                    .data(msg));
+            }
+        }
+
         loop {
             tokio::select! {
                 // Handle session-specific state changes
                 result = session_rx.recv() => {
                     match result {
-                        Ok(msg) => {
-                            // Parse the message to extract delta seq for Last-Event-Id
-                            if let Ok(event) = serde_json::from_str::<SseEvent>(&msg) {
-                                let event_type = match &event {
-                                    SseEvent::StateUpdate(_) => "state-update",
-                                    SseEvent::Error { .. } => "error",
-                                    SseEvent::ConnectionInfo { .. } => "connection-info",
-                                    SseEvent::KeyBindings(_) => "keybindings",
-                                    SseEvent::Log { .. } => "log",
-                                    SseEvent::Fatal { .. } => "fatal",
-                                    SseEvent::Clipboard { .. } => "clipboard",
-                                };
-
-                                // For state updates, use delta seq as event ID
-                                if let SseEvent::StateUpdate(update) = &event {
-                                    if let StateUpdate::Delta { delta, .. } = update.as_ref() {
-                                        yield Ok(Event::default()
-                                            .event(event_type)
-                                            .id(delta.seq.to_string())
-                                            .data(msg));
-                                    } else {
-                                        yield Ok(Event::default()
-                                            .event(event_type)
-                                            .data(msg));
-                                    }
-                                } else {
-                                    yield Ok(Event::default()
-                                        .event(event_type)
-                                        .data(msg));
-                                }
-                            } else {
-                                // Fallback for unparseable messages
-                                yield Ok(Event::default()
-                                    .event("state-update")
-                                    .data(msg));
+                        Ok((seq, msg)) => {
+                            // Dedupe against the replay window — broadcast subscription
+                            // happens before we read the ring buffer, so the receiver
+                            // may queue messages already yielded above.
+                            if seq <= last_replayed {
+                                continue;
                             }
+                            last_replayed = seq;
+                            let event_type = sse_event_type(&msg);
+                            yield Ok(Event::default()
+                                .event(event_type)
+                                .id(seq.to_string())
+                                .data(msg));
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
                             warn!(conn_id, lagged = n, "client lagged behind broadcast");
@@ -839,7 +875,7 @@ async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
     };
     let sessions = state.sessions.read().await;
     if let Some(session_conn) = sessions.get(session) {
-        let _ = session_conn.state_tx.send(msg);
+        session_conn.broadcast.broadcast(msg);
         debug!(%session, "broadcast refreshed keybindings");
     }
 }
@@ -1129,7 +1165,7 @@ pub fn list_directory(path: &str) -> Result<Vec<DirectoryEntry>, String> {
 // ============================================
 
 pub async fn start_monitoring(
-    tx: broadcast::Sender<String>,
+    broadcast: Arc<crate::state::SessionBroadcast>,
     session: String,
     state: Arc<AppState>,
 ) {
@@ -1138,18 +1174,18 @@ pub async fn start_monitoring(
         .unwrap_or(true);
 
     if use_control_mode {
-        start_monitoring_control_mode(tx, session, state).await;
+        start_monitoring_control_mode(broadcast, session, state).await;
     } else {
-        start_monitoring_polling(tx).await;
+        start_monitoring_polling(broadcast).await;
     }
 }
 
 async fn start_monitoring_control_mode(
-    tx: broadcast::Sender<String>,
+    broadcast: Arc<crate::state::SessionBroadcast>,
     session: String,
     state: Arc<AppState>,
 ) {
-    let emitter = Arc::new(SseEmitter::new(tx.clone(), Arc::clone(&state)));
+    let emitter = Arc::new(SseEmitter::new(broadcast.clone(), Arc::clone(&state)));
     let log_sink: Arc<dyn LogSink> = emitter.clone();
 
     let config = MonitorConfig {
@@ -1370,7 +1406,7 @@ async fn start_monitoring_control_mode(
                         message: final_msg.clone(),
                     };
                     if let Some(s) = encode_event(&event) {
-                        let _ = tx.send(s);
+                        broadcast.broadcast(s);
                     }
                     error!(%session, msg = %final_msg, "monitor FATAL");
                     let mut sessions = state.sessions.write().await;
@@ -1391,7 +1427,7 @@ async fn start_monitoring_control_mode(
     }
 }
 
-async fn start_monitoring_polling(tx: broadcast::Sender<String>) {
+async fn start_monitoring_polling(broadcast: Arc<crate::state::SessionBroadcast>) {
     let mut interval = tokio::time::interval(Duration::from_millis(100));
     let mut previous_hash = String::new();
 
@@ -1424,7 +1460,7 @@ async fn start_monitoring_polling(tx: broadcast::Sender<String>) {
                 if current_hash != previous_hash {
                     let event = SseEvent::StateUpdate(Box::new(StateUpdate::Full { state }));
                     if let Some(s) = encode_event(&event) {
-                        let _ = tx.send(s);
+                        broadcast.broadcast(s);
                     }
                     previous_hash = current_hash;
                 }
@@ -1434,7 +1470,7 @@ async fn start_monitoring_polling(tx: broadcast::Sender<String>) {
                     message: e.to_string(),
                 };
                 if let Some(s) = encode_event(&event) {
-                    let _ = tx.send(s);
+                    broadcast.broadcast(s);
                 }
             }
         }
