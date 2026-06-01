@@ -13,7 +13,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use proptest::prelude::*;
-use tmuxy_core::control_mode::{ControlModeEvent, StateAggregator};
+use std::collections::HashSet;
+use tmuxy_core::control_mode::{ChangeType, ControlModeEvent, SideEffect, StateAggregator};
 
 /// Generate a synthetic `Output` event with a small randomised payload.
 /// Pane id values are biased to a small pool so the aggregator actually has
@@ -115,5 +116,115 @@ proptest! {
         prop_assert!(agg.is_suppressing_window_emissions());
         agg.set_suppress_window_emissions(false);
         prop_assert!(!agg.is_suppressing_window_emissions());
+    }
+
+    /// State-delta consistency: every `EmitState` effect must carry a non-None
+    /// change_type that matches the step's overall change_type. Catches the
+    /// regression where a refactor of `step` drops the change-type plumbing
+    /// and the monitor's throttle policy starts treating layout changes as
+    /// generic.
+    #[test]
+    fn emit_state_change_matches_step_change(
+        events in prop::collection::vec(any_event_strategy(), 1..30)
+    ) {
+        let mut agg = StateAggregator::new();
+        for ev in events {
+            let result = agg.step(ev);
+            for effect in &result.effects {
+                if let SideEffect::EmitState { change } = effect {
+                    prop_assert_ne!(change.clone(), ChangeType::None,
+                        "EmitState must carry a real change type");
+                    prop_assert_eq!(change.clone(), result.change_type.clone(),
+                        "EmitState change must match step's reported change_type");
+                }
+            }
+        }
+    }
+
+    /// Window-add ↔ capture-pane reconciliation: every WindowAdd step must
+    /// emit RefreshAfterWindowAdd, and that effect type must arrive BEFORE
+    /// any EmitState in the same step (so the monitor issues list-panes
+    /// before tmux can race a layout-change emission). Catches a regression
+    /// where the SideEffect ordering documented in `state::SideEffect` gets
+    /// inverted.
+    #[test]
+    fn window_add_refresh_precedes_any_emit(
+        // A "warmup" sequence to put the aggregator in non-trivial state,
+        // then a window-add.
+        warmup in prop::collection::vec(any_event_strategy(), 0..10),
+        window_id in prop::sample::select(vec!["@7", "@8", "@9"]),
+    ) {
+        let mut agg = StateAggregator::new();
+        for ev in warmup {
+            let _ = agg.step(ev);
+        }
+        let result = agg.step(ControlModeEvent::WindowAdd {
+            window_id: window_id.to_string(),
+        });
+        let refresh_idx = result.effects.iter().position(|e|
+            matches!(e, SideEffect::RefreshAfterWindowAdd));
+        let emit_idx = result.effects.iter().position(|e|
+            matches!(e, SideEffect::EmitState { .. }));
+        prop_assert!(refresh_idx.is_some(),
+            "WindowAdd must emit RefreshAfterWindowAdd");
+        if let (Some(r), Some(e)) = (refresh_idx, emit_idx) {
+            prop_assert!(r < e,
+                "RefreshAfterWindowAdd ({}) must precede EmitState ({}) in effect order",
+                r, e);
+        }
+    }
+
+    /// Out-of-order capture queue: queue_captures is idempotent against
+    /// repeats — already-queued pane ids are skipped, never duplicated. This
+    /// protects the FIFO matching scheme described in `queue_captures`'s
+    /// docblock; a duplicate enqueue would shift every subsequent capture
+    /// response onto the wrong pane.
+    #[test]
+    fn queue_captures_is_idempotent_across_repeats(
+        pane_ids in prop::collection::vec(
+            prop::sample::select(vec!["%0", "%1", "%2"]).prop_map(String::from),
+            1..20,
+        ),
+    ) {
+        let mut agg = StateAggregator::new();
+        let unique: HashSet<String> = pane_ids.iter().cloned().collect();
+        let queued = agg.queue_captures(&pane_ids);
+        // First call queues each distinct id exactly once.
+        prop_assert_eq!(queued.len(), unique.len(),
+            "first queue should match the number of distinct ids");
+        // Second call queues nothing — the queue already has them.
+        let requeued = agg.queue_captures(&pane_ids);
+        prop_assert!(requeued.is_empty(),
+            "re-queueing the same ids should be a no-op");
+    }
+
+    /// When window emissions are suppressed, no SideEffect::EmitState should
+    /// fire for window/layout events. Mirrors the settling-window behaviour
+    /// the monitor relies on to batch compound-command intermediates.
+    #[test]
+    fn suppressed_window_events_do_not_emit_state(
+        window_ids in prop::collection::vec(
+            prop::sample::select(vec!["@0", "@1", "@2"]).prop_map(String::from),
+            1..10,
+        ),
+    ) {
+        let mut agg = StateAggregator::new();
+        // Pre-populate so closes don't get filtered as no-ops.
+        for w in &window_ids {
+            agg.step(ControlModeEvent::WindowAdd { window_id: w.clone() });
+        }
+        agg.set_suppress_window_emissions(true);
+        for w in &window_ids {
+            let result = agg.step(ControlModeEvent::WindowClose { window_id: w.clone() });
+            let has_emit = result.effects.iter().any(|e|
+                matches!(e, SideEffect::EmitState { .. }));
+            prop_assert!(!has_emit,
+                "WindowClose under suppression must not emit; got effects: {:?}",
+                result.effects);
+            // The change_type still reflects the underlying mutation so the
+            // monitor's settling timer can extend.
+            prop_assert_eq!(result.change_type, ChangeType::Window,
+                "change_type must still report Window when suppressed");
+        }
     }
 }

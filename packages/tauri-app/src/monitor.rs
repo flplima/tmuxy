@@ -159,8 +159,13 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
 
     let mut consecutive_failures: u32 = 0;
 
+    // Build once and clone the Arc per reconnect attempt — the live ctx is
+    // cheap to share and lets the Tauri app participate in the same Ctx
+    // substitution that tests use elsewhere.
+    let ctx = tmuxy_core::Ctx::live();
+
     loop {
-        match TmuxMonitor::connect(config.clone(), Some(&log_sink)).await {
+        match TmuxMonitor::connect(config.clone(), Some(&log_sink), ctx.clone()).await {
             Ok((mut monitor, cmd_tx)) => {
                 // Publish the live command channel so #[tauri::command]
                 // handlers can route mutations through control mode instead

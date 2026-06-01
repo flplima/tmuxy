@@ -101,16 +101,27 @@ pub struct ProcessEventResult {
     pub clipboard_writes: Vec<(String, String)>,
 }
 
+/// Outcome of a single `StateAggregator::step` call.
+///
+/// Effects describe the I/O the runtime must perform. `change_type` is also
+/// returned out-of-band because the monitor's settling state machine needs to
+/// see *every* change (including suppressed ones), not just the ones that
+/// flowed through into an `EmitState` effect. Without this, the settling
+/// timer wouldn't extend during compound commands while window emissions are
+/// suppressed.
+#[derive(Debug, Clone, Default)]
+pub struct StepResult {
+    pub effects: Vec<SideEffect>,
+    pub change_type: ChangeType,
+    pub state_changed: bool,
+}
+
 /// Typed side effect emitted by the sans-IO state machine.
 ///
 /// The aggregator never performs I/O itself — it only describes what the
 /// runtime (currently `TmuxMonitor`) must do. This makes the state machine
 /// fully testable without tokio: drive it with synthetic events and assert
 /// on the returned `Vec<SideEffect>`.
-///
-/// Phase 3.11 introduces this as an additive layer on top of `process_event`.
-/// The `step` method wraps `process_event` and turns its untyped tuples into
-/// `SideEffect` values; the monitor can adopt them at its own pace.
 #[derive(Debug, Clone)]
 pub enum SideEffect {
     /// Send a tmux command through control mode. The runtime is expected to
@@ -1082,16 +1093,18 @@ impl StateAggregator {
     }
 
     /// Sans-IO entry point. Drives the aggregator with one control-mode event
-    /// and returns a vector of typed `SideEffect`s that the runtime must
-    /// execute. The aggregator does no I/O itself — every command send,
-    /// state emit, image store, and clipboard write is described, not
-    /// performed.
+    /// and returns a `StepResult` describing every I/O action the runtime must
+    /// perform plus the `change_type` of this step.
     ///
-    /// Internally delegates to `process_event` + `collect_window_tag_commands`
-    /// for backward-compatibility with the legacy untyped result struct that
-    /// `TmuxMonitor::on_control_event` still consumes; once the monitor
-    /// migrates to `step`, the old API can be retired.
-    pub fn step(&mut self, event: ControlModeEvent) -> Vec<SideEffect> {
+    /// The aggregator does no I/O itself — every command send, state emit,
+    /// image store, and clipboard write is described, not performed. This
+    /// makes the state machine fully testable without tokio: drive it with
+    /// synthetic events and assert on the returned effects.
+    ///
+    /// `change_type` is always populated (even when `state_changed` is false)
+    /// so the monitor's settling state machine can extend its deadline on
+    /// window/layout changes that are currently being suppressed.
+    pub fn step(&mut self, event: ControlModeEvent) -> StepResult {
         let is_window_add = matches!(
             &event,
             ControlModeEvent::WindowAdd { .. } | ControlModeEvent::UnlinkedWindowAdd { .. }
@@ -1142,7 +1155,24 @@ impl StateAggregator {
             });
         }
 
-        effects
+        StepResult {
+            effects,
+            change_type: result.change_type,
+            state_changed: result.state_changed,
+        }
+    }
+
+    /// Time-driven transitions. The current aggregator has no internal
+    /// timers — settling/throttle/debounce timing lives in the monitor's
+    /// `RunState`. `tick` is a no-op today, exposed so future SideEffect
+    /// variants like `ScheduleEmit { at }` can be folded in without changing
+    /// the public API.
+    ///
+    /// The `_now` parameter exists for symmetry with the planned design;
+    /// tests can already substitute it via `FakeClock::now()` so call sites
+    /// don't reach for `Instant::now()` directly.
+    pub fn tick(&mut self, _now: std::time::Instant) -> Vec<SideEffect> {
+        Vec::new()
     }
 
     /// Process a control mode event.

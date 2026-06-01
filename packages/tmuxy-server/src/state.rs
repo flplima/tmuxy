@@ -9,10 +9,13 @@ use axum::{
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 use tmuxy_core::control_mode::{MonitorCommandSender, StoredImage};
+use tmuxy_core::{build_tmux_stack, Ctx, RetryPolicy, TmuxRequest};
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
+use tower::{Service, ServiceExt};
 use tower_http::cors::{Any, CorsLayer};
 
 /// Number of recent broadcast messages retained per session for
@@ -212,6 +215,12 @@ impl SessionConnections {
     }
 }
 
+/// Per-call deadline applied by every dispatch through `AppState::tmux_call`.
+/// Tmux operations are interactive; 5s is generously above any legitimate
+/// response while still surfacing a stuck `display-message` before the user
+/// gives up.
+pub const TMUX_CALL_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct AppState {
     /// Per-session connection tracking
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
@@ -228,23 +237,35 @@ pub struct AppState {
     /// `tokio::select!` against `shutdown.cancelled()` so it exits its
     /// long-running loop promptly.
     pub shutdown: CancellationToken,
+    /// Execution context (`tmux`/`clock`/`fs` capabilities behind trait objects).
+    /// Threaded into `TmuxMonitor` and reused for ad-hoc tmux dispatch via the
+    /// Tower stack. Production uses `Ctx::live()`; tests substitute a mock ctx.
+    pub ctx: Arc<Ctx>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
-        Self {
-            sessions: RwLock::new(HashMap::new()),
-            next_conn_id: AtomicU64::new(1),
-            image_store: RwLock::new(HashMap::new()),
-            join_set: Mutex::new(JoinSet::new()),
-            shutdown: CancellationToken::new(),
-        }
+        Self::with_ctx(Ctx::live())
     }
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Construct with an explicit context. Used by tests that want to swap in
+    /// `MockTmux`/`FakeClock`/`InMemoryFs` while keeping the same server
+    /// wiring otherwise.
+    pub fn with_ctx(ctx: Arc<Ctx>) -> Self {
+        Self {
+            sessions: RwLock::new(HashMap::new()),
+            next_conn_id: AtomicU64::new(1),
+            image_store: RwLock::new(HashMap::new()),
+            join_set: Mutex::new(JoinSet::new()),
+            shutdown: CancellationToken::new(),
+            ctx,
+        }
     }
 
     /// Spawn a background task into the shutdown-tracked `JoinSet`.
@@ -257,6 +278,45 @@ impl AppState {
         F: std::future::Future<Output = ()> + Send + 'static,
     {
         self.join_set.lock().await.spawn(fut);
+    }
+
+    /// Dispatch a one-off tmux command through the standard Tower stack
+    /// (`TraceLayer → RetryLayer → TimeoutLayer → TmuxService`). This is the
+    /// canonical replacement for ad-hoc `executor::execute_tmux_command` calls
+    /// from async handlers — it picks up retries on transient io errors, a
+    /// 5-second per-call deadline, and span instrumentation in one place.
+    ///
+    /// Sync helpers in `tmuxy_core::executor` continue to call the subprocess
+    /// directly because they cannot await; this method is for async paths only.
+    pub async fn tmux_call(
+        &self,
+        args: Vec<String>,
+        op_name: &str,
+    ) -> Result<String, tmuxy_core::TmuxError> {
+        let mut svc = build_tmux_stack(
+            self.ctx.tmux.clone(),
+            TMUX_CALL_TIMEOUT,
+            self.ctx.retry_policy,
+        );
+        svc.ready()
+            .await?
+            .call(TmuxRequest::with_name(args, op_name))
+            .await
+    }
+
+    /// Same as `tmux_call` but with a caller-chosen retry policy. Used by
+    /// scrollback-fetch where the standard 3-attempt backoff is the contract.
+    pub async fn tmux_call_with_policy(
+        &self,
+        args: Vec<String>,
+        op_name: &str,
+        policy: RetryPolicy,
+    ) -> Result<String, tmuxy_core::TmuxError> {
+        let mut svc = build_tmux_stack(self.ctx.tmux.clone(), TMUX_CALL_TIMEOUT, policy);
+        svc.ready()
+            .await?
+            .call(TmuxRequest::with_name(args, op_name))
+            .await
     }
 }
 

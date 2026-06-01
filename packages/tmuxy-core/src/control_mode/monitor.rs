@@ -7,10 +7,12 @@
 
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 use super::parser::ControlModeEvent;
-use super::state::{ChangeType, StateAggregator};
+use super::state::{ChangeType, SideEffect, StateAggregator};
 use crate::constants::tmux_formats;
+use crate::ctx::Ctx;
 use crate::error::TmuxError;
 use crate::{StateUpdate, TmuxState};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, trace, warn};
@@ -156,9 +158,13 @@ struct RunState {
 }
 
 impl RunState {
-    fn new(config: &MonitorConfig) -> Self {
+    /// `now_std` comes from the injected `Ctx::clock` so tests can advance time
+    /// deterministically. `now_async` is the tokio reactor's monotonic clock,
+    /// which is fixed to the real reactor — fakes for it would need
+    /// `tokio::time::pause`, which is a higher-cost test-hook than the std
+    /// clock and is left to follow-up work.
+    fn new(config: &MonitorConfig, now_std: Instant) -> Self {
         let now_async = tokio::time::Instant::now();
-        let now_std = Instant::now();
         Self {
             idle_threshold: Duration::from_secs(10),
             copy_mode_sync_interval: Duration::from_millis(50),
@@ -194,19 +200,19 @@ impl RunState {
     /// Compute the sleep duration for the throttle-tick branch.
     /// `Duration::from_secs(3600)` is the "effectively infinite" sentinel; the
     /// `if pending_output_emit` guard on the branch is what actually parks us.
-    fn compute_throttle_sleep(&self, config: &MonitorConfig) -> Duration {
+    /// `now` comes from `Ctx::clock` so tests can drive the deadline math.
+    fn compute_throttle_sleep(&self, config: &MonitorConfig, now: Instant) -> Duration {
         if !(self.pending_output_emit && self.throttle_enabled) {
             return LONG_SLEEP;
         }
         if self.in_throttle_mode {
-            let elapsed = self.last_output_emit.elapsed();
+            let elapsed = now.saturating_duration_since(self.last_output_emit);
             if elapsed >= config.throttle_interval {
                 Duration::ZERO
             } else {
                 config.throttle_interval - elapsed
             }
         } else {
-            let now = Instant::now();
             let since_last_event = self
                 .last_output_event_at
                 .map(|t| now.duration_since(t))
@@ -224,8 +230,8 @@ impl RunState {
     }
 
     /// Mark a fresh output emission — reset the debounce / rate-tracking trackers.
-    fn mark_emitted(&mut self) {
-        self.last_output_emit = Instant::now();
+    fn mark_emitted(&mut self, now: Instant) {
+        self.last_output_emit = now;
         self.pending_output_emit = false;
         self.pending_output_first_at = None;
         self.last_output_event_at = None;
@@ -233,8 +239,7 @@ impl RunState {
 
     /// Slide the rate-tracking window and toggle high/low throughput mode based
     /// on the hysteresis threshold.
-    fn update_rate(&mut self, config: &MonitorConfig) {
-        let now = Instant::now();
+    fn update_rate(&mut self, config: &MonitorConfig, now: Instant) {
         if now.duration_since(self.rate_window_start) > config.rate_window {
             let exit_threshold = config.throttle_threshold / 2;
             if self.in_throttle_mode && self.rate_event_count <= exit_threshold {
@@ -253,13 +258,15 @@ impl RunState {
     }
 
     /// On window/layout events during settling, extend the debounce deadline
-    /// but never beyond the safety ceiling.
-    fn maybe_extend_settling(&mut self, result: &super::state::ProcessEventResult) {
+    /// but never beyond the safety ceiling. `change` comes from the typed
+    /// `StepResult` so this still fires for changes that were suppressed
+    /// from emission (we still need to extend settling for them).
+    fn maybe_extend_settling(&mut self, change: &ChangeType) {
         if self.settling_until.is_none() {
             return;
         }
         let is_window_event = matches!(
-            result.change_type,
+            change,
             ChangeType::Window | ChangeType::PaneLayout | ChangeType::PaneFocus
         );
         if !is_window_event {
@@ -324,6 +331,10 @@ pub struct TmuxMonitor {
     /// Reset every connect; the first list-windows response triggers the
     /// one-time auto-adopt of pre-existing windows.
     window_tags_migrated: bool,
+
+    /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
+    /// inside the loop so tests can advance time with `FakeClock`.
+    ctx: Arc<Ctx>,
 }
 
 impl TmuxMonitor {
@@ -333,10 +344,11 @@ impl TmuxMonitor {
     /// `log` receives streaming progress entries (each tmux invocation, its
     /// output, and any retry decisions). Pass `None` if the caller doesn't
     /// surface these to a UI.
-    #[instrument(skip(log), fields(session = %config.session))]
+    #[instrument(skip(log, ctx), fields(session = %config.session))]
     pub async fn connect(
         config: MonitorConfig,
         log: Option<&std::sync::Arc<dyn super::log::LogSink>>,
+        ctx: Arc<Ctx>,
     ) -> Result<(Self, MonitorCommandSender), TmuxError> {
         // Serialize control mode attachment to prevent concurrent operations
         // that crash tmux 3.5a (multiple CC clients racing to attach).
@@ -364,6 +376,7 @@ impl TmuxMonitor {
                 command_rx,
                 pending_resize_count: 0,
                 window_tags_migrated: false,
+                ctx,
             },
             command_tx,
         ))
@@ -489,10 +502,10 @@ impl TmuxMonitor {
         // SseEmitter uses this to broadcast keybindings with correct prefix key.
         emitter.on_initial_sync_complete();
 
-        let mut rs = RunState::new(&self.config);
+        let mut rs = RunState::new(&self.config, self.ctx.clock.now());
 
         loop {
-            let throttle_sleep = rs.compute_throttle_sleep(&self.config);
+            let throttle_sleep = rs.compute_throttle_sleep(&self.config, self.ctx.clock.now());
             let settling_deadline = rs
                 .settling_until
                 .unwrap_or_else(|| tokio::time::Instant::now() + LONG_SLEEP);
@@ -546,23 +559,23 @@ impl TmuxMonitor {
 
     /// Dispatch a single control-mode event. Returns `false` to stop the loop.
     ///
-    /// Preserves the original ordering invariants:
-    ///   1. Foreign `%session-changed` events are suppressed before any state mutation.
-    ///   2. Image / clipboard side effects fire immediately after `process_event` so
-    ///      late-arriving emissions can still consume their pane state.
-    ///   3. Window-tag commands are sent before any list-panes/list-windows refresh so
-    ///      the auto-adoption is reflected on the next emission.
-    ///   4. `list-panes` precedes `list-windows` after a window-add (see commit log of
-    ///      `30a4dd2` / `e2e9e76`): float panes are gone from `self.panes` after the
-    ///      source-window layout change; list-panes must restore them before
-    ///      `list-windows` triggers a state emission.
+    /// Drives the sans-IO aggregator via `step(event) -> StepResult` and runs
+    /// every typed `SideEffect` the result describes. The aggregator emits
+    /// effects in the load-bearing order documented on `state::SideEffect`;
+    /// the dispatcher below preserves that ordering 1:1, so:
+    ///   1. Foreign `%session-changed` events are filtered before mutation.
+    ///   2. `AdoptUntaggedWindows` runs first so emissions reflect tagged state.
+    ///   3. Images / clipboard fire before list-pane refreshes.
+    ///   4. `RefreshAfterWindowAdd` issues list-panes BEFORE list-windows.
+    ///   5. `RefreshPanes` issues list-panes before per-pane capture-pane.
+    ///   6. `EmitState` arrives last and triggers the throttle/debounce policy.
     async fn on_control_event<E: StateEmitter>(
         &mut self,
         emitter: &E,
         rs: &mut RunState,
         event: Option<ControlModeEvent>,
     ) -> bool {
-        match event {
+        let event = match event {
             Some(ControlModeEvent::Exit { reason }) => {
                 let msg = reason.unwrap_or_else(|| "disconnected".to_string());
                 warn!(reason = %msg, "control mode exit event");
@@ -574,97 +587,94 @@ impl TmuxMonitor {
                 emitter.emit_error("Control mode connection closed".to_string());
                 return false;
             }
-            Some(event) => {
-                rs.last_event_at = tokio::time::Instant::now();
+            Some(ev) => ev,
+        };
 
-                // Guard: suppress %session-changed events for other sessions. Creating
-                // a new tmux session (even from a separate process) fires
-                // %session-changed on ALL control mode clients. Suppress these to
-                // prevent the aggregator from updating session_name and emitting
-                // cross-session state.
-                if let ControlModeEvent::SessionChanged {
-                    ref session_name, ..
-                } = event
-                {
-                    if !self.config.session.is_empty() && *session_name != self.config.session {
-                        debug!(
-                            actual = %session_name,
-                            expected = %self.config.session,
-                            "suppressing SessionChanged for foreign session"
-                        );
-                        return true;
-                    }
-                }
+        rs.last_event_at = tokio::time::Instant::now();
 
-                let is_window_add = matches!(
-                    &event,
-                    ControlModeEvent::WindowAdd { .. } | ControlModeEvent::UnlinkedWindowAdd { .. }
+        // Guard: suppress %session-changed events for other sessions. Creating
+        // a new tmux session (even from a separate process) fires
+        // %session-changed on ALL control mode clients. Suppress these to
+        // prevent the aggregator from updating session_name and emitting
+        // cross-session state.
+        if let ControlModeEvent::SessionChanged {
+            ref session_name, ..
+        } = event
+        {
+            if !self.config.session.is_empty() && *session_name != self.config.session {
+                debug!(
+                    actual = %session_name,
+                    expected = %self.config.session,
+                    "suppressing SessionChanged for foreign session"
                 );
+                return true;
+            }
+        }
 
-                match &event {
-                    ControlModeEvent::Output { .. } | ControlModeEvent::CommandResponse { .. } => {}
-                    other => {
-                        trace!(event = ?other, "control mode event");
+        match &event {
+            ControlModeEvent::Output { .. } | ControlModeEvent::CommandResponse { .. } => {}
+            other => {
+                trace!(event = ?other, "control mode event");
+            }
+        }
+
+        let step = self.aggregator.step(event);
+
+        for effect in step.effects {
+            match effect {
+                SideEffect::AdoptUntaggedWindows(cmds) => {
+                    if !self.window_tags_migrated {
+                        info!(count = cmds.len(), "auto-adopting untagged windows");
+                        self.window_tags_migrated = true;
+                    }
+                    if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+                        emitter.emit_error(format!("Failed to auto-adopt windows: {}", e));
                     }
                 }
-
-                let result = self.aggregator.process_event(event);
-
-                // Forward newly decoded images to the emitter for HTTP retrieval
-                for (pane_id, images) in &result.new_images {
+                SideEffect::StoreImages { pane_id, images } => {
                     if !images.is_empty() {
-                        emitter.store_images(pane_id, images.clone());
+                        emitter.store_images(&pane_id, images);
                     }
                 }
-
-                // Forward OSC 52 clipboard writes
-                for (pane_id, text) in result.clipboard_writes.iter().cloned() {
+                SideEffect::WriteClipboard { pane_id, text } => {
                     emitter.write_clipboard(&pane_id, text);
                 }
-
-                self.adopt_untagged_windows(emitter).await;
-
-                if is_window_add {
+                SideEffect::RefreshAfterWindowAdd => {
                     self.refresh_after_window_add(emitter).await;
                 }
-
-                if !result.panes_needing_refresh.is_empty() {
-                    self.refresh_panes(emitter, &result).await;
+                SideEffect::RefreshPanes { pane_ids } => {
+                    self.refresh_panes(emitter, &step.change_type, &pane_ids)
+                        .await;
                 }
-
-                if let ChangeType::FlowPause { ref pane_id } = result.change_type {
-                    let continue_cmd = format!("refresh-client -A '{}:continue'", pane_id);
-                    if let Err(e) = self.connection.send_command(&continue_cmd).await {
+                SideEffect::ResumePane(pane_id) => {
+                    let cmd = format!("refresh-client -A '{}:continue'", pane_id);
+                    if let Err(e) = self.connection.send_command(&cmd).await {
                         emitter.emit_error(format!("Failed to resume pane {}: {}", pane_id, e));
                     }
                 }
-
-                rs.maybe_extend_settling(&result);
-
-                if result.state_changed {
-                    self.handle_state_change(emitter, rs, &result);
+                SideEffect::EmitState { change } => {
+                    self.handle_state_change(emitter, rs, &change);
+                }
+                // Variants reserved for future migrations — the current monitor
+                // routes raw commands through dedicated paths, so these are
+                // unreachable today. They stay in the enum so the API is
+                // stable as more I/O migrates onto effects.
+                SideEffect::SendTmuxCommand(cmd) => {
+                    if let Err(e) = self.connection.send_command(&cmd).await {
+                        emitter.emit_error(format!("Failed to send command: {}", e));
+                    }
+                }
+                SideEffect::SendTmuxBatch(cmds) => {
+                    if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+                        emitter.emit_error(format!("Failed to batch send: {}", e));
+                    }
                 }
             }
         }
-        true
-    }
 
-    /// Auto-adopt every untagged window. Idempotent — `collect_window_tag_commands`
-    /// skips windows already tagged and eagerly mutates the local `WindowState` so
-    /// subsequent emissions don't show a foreign-window flicker while the
-    /// set-option round-trip is in flight.
-    async fn adopt_untagged_windows<E: StateEmitter>(&mut self, emitter: &E) {
-        let tag_cmds = self.aggregator.collect_window_tag_commands();
-        if tag_cmds.is_empty() {
-            return;
-        }
-        if !self.window_tags_migrated {
-            info!(count = tag_cmds.len(), "auto-adopting untagged windows");
-            self.window_tags_migrated = true;
-        }
-        if let Err(e) = self.connection.send_commands_batch(&tag_cmds).await {
-            emitter.emit_error(format!("Failed to auto-adopt windows: {}", e));
-        }
+        rs.maybe_extend_settling(&step.change_type);
+
+        true
     }
 
     /// After WindowAdd: list-panes BEFORE list-windows. break-pane creating a float
@@ -687,18 +697,16 @@ impl TmuxMonitor {
     async fn refresh_panes<E: StateEmitter>(
         &mut self,
         emitter: &E,
-        result: &super::state::ProcessEventResult,
+        change: &ChangeType,
+        pane_ids: &[String],
     ) {
-        let queued_panes = if self.pending_resize_count > 0
-            && matches!(result.change_type, super::ChangeType::PaneLayout)
-        {
-            self.pending_resize_count -= 1;
-            self.aggregator
-                .queue_resize_captures(&result.panes_needing_refresh)
-        } else {
-            self.aggregator
-                .queue_captures(&result.panes_needing_refresh)
-        };
+        let queued_panes =
+            if self.pending_resize_count > 0 && matches!(change, ChangeType::PaneLayout) {
+                self.pending_resize_count -= 1;
+                self.aggregator.queue_resize_captures(pane_ids)
+            } else {
+                self.aggregator.queue_captures(pane_ids)
+            };
 
         let mut commands: Vec<String> = vec![tmux_formats::LIST_PANES_CMD.to_string()];
         commands.extend(
@@ -717,39 +725,41 @@ impl TmuxMonitor {
         &mut self,
         emitter: &E,
         rs: &mut RunState,
-        result: &super::state::ProcessEventResult,
+        change: &ChangeType,
     ) {
-        let is_output_event = matches!(result.change_type, ChangeType::PaneOutput { .. });
+        let is_output_event = matches!(change, ChangeType::PaneOutput { .. });
+        let now = self.ctx.clock.now();
 
         if is_output_event {
             rs.metadata_sync_at = Some(tokio::time::Instant::now() + rs.metadata_sync_delay);
         }
 
         if is_output_event && rs.throttle_enabled {
-            rs.update_rate(&self.config);
+            rs.update_rate(&self.config, now);
             if rs.in_throttle_mode {
                 rs.pending_output_emit = true;
-                if rs.last_output_emit.elapsed() >= self.config.throttle_interval {
+                if now.saturating_duration_since(rs.last_output_emit)
+                    >= self.config.throttle_interval
+                {
                     if let Some(update) = self.aggregator.to_state_update() {
                         emitter.emit_state(update);
                     }
-                    rs.mark_emitted();
+                    rs.mark_emitted(now);
                 }
             } else {
-                let now = Instant::now();
                 if rs.pending_output_first_at.is_none() {
                     rs.pending_output_first_at = Some(now);
                 }
                 rs.last_output_event_at = Some(now);
                 rs.pending_output_emit = true;
             }
-        } else if matches!(result.change_type, ChangeType::PaneLayout) {
+        } else if matches!(change, ChangeType::PaneLayout) {
             rs.pending_layout_emit = true;
         } else {
             if let Some(update) = self.aggregator.to_state_update() {
                 emitter.emit_state(update);
             }
-            rs.mark_emitted();
+            rs.mark_emitted(now);
             rs.pending_layout_emit = false;
         }
     }
@@ -759,7 +769,7 @@ impl TmuxMonitor {
         if let Some(update) = self.aggregator.to_state_update() {
             emitter.emit_state(update);
         }
-        rs.mark_emitted();
+        rs.mark_emitted(self.ctx.clock.now());
     }
 
     /// Layout debounce window expired — flush the coalesced layout state.
@@ -767,7 +777,7 @@ impl TmuxMonitor {
         if let Some(update) = self.aggregator.to_state_update() {
             emitter.emit_state(update);
         }
-        rs.last_output_emit = Instant::now();
+        rs.last_output_emit = self.ctx.clock.now();
         rs.pending_layout_emit = false;
     }
 
@@ -1027,5 +1037,165 @@ mod tests {
         assert!(!is_multi_step_run_shell(
             "splitw ; breakp ; set-option -w @tmuxy-window-type tab"
         ));
+    }
+
+    // =========================================================================
+    // RunState helper tests (Phase 3.6 follow-up).
+    //
+    // These exercise the pure functions extracted from `run()` directly,
+    // without spinning a tmux process. Time advancement is simulated by
+    // passing explicit `Instant` values — no tokio, no sleeps.
+    // =========================================================================
+
+    fn run_state_with_now(now: Instant) -> (MonitorConfig, RunState) {
+        let cfg = MonitorConfig {
+            throttle_interval: Duration::from_millis(32),
+            throttle_threshold: 20,
+            rate_window: Duration::from_millis(100),
+            ..MonitorConfig::default()
+        };
+        let rs = RunState::new(&cfg, now);
+        (cfg, rs)
+    }
+
+    #[test]
+    fn compute_throttle_sleep_returns_long_sleep_when_nothing_pending() {
+        let now = Instant::now();
+        let (cfg, rs) = run_state_with_now(now);
+        assert_eq!(rs.compute_throttle_sleep(&cfg, now), LONG_SLEEP);
+    }
+
+    #[test]
+    fn compute_throttle_sleep_zero_when_throttle_interval_already_passed() {
+        let now = Instant::now();
+        let (cfg, mut rs) = run_state_with_now(now);
+        rs.pending_output_emit = true;
+        rs.in_throttle_mode = true;
+        // Pretend we last emitted >>throttle_interval ago.
+        rs.last_output_emit = now - cfg.throttle_interval - Duration::from_millis(10);
+        assert_eq!(
+            rs.compute_throttle_sleep(&cfg, now),
+            Duration::ZERO,
+            "if the throttle window has elapsed, sleep should be zero"
+        );
+    }
+
+    #[test]
+    fn compute_throttle_sleep_remaining_interval_when_recent_emit() {
+        let now = Instant::now();
+        let (cfg, mut rs) = run_state_with_now(now);
+        rs.pending_output_emit = true;
+        rs.in_throttle_mode = true;
+        rs.last_output_emit = now - Duration::from_millis(10);
+        let remaining = rs.compute_throttle_sleep(&cfg, now);
+        assert!(remaining > Duration::ZERO);
+        assert!(remaining <= cfg.throttle_interval);
+    }
+
+    #[test]
+    fn mark_emitted_resets_pending_trackers() {
+        let now = Instant::now();
+        let (_cfg, mut rs) = run_state_with_now(now);
+        rs.pending_output_emit = true;
+        rs.pending_output_first_at = Some(now);
+        rs.last_output_event_at = Some(now);
+        let later = now + Duration::from_millis(50);
+        rs.mark_emitted(later);
+        assert_eq!(rs.last_output_emit, later);
+        assert!(!rs.pending_output_emit);
+        assert_eq!(rs.pending_output_first_at, None);
+        assert_eq!(rs.last_output_event_at, None);
+    }
+
+    #[test]
+    fn update_rate_enters_throttle_above_threshold() {
+        let now = Instant::now();
+        let (cfg, mut rs) = run_state_with_now(now);
+        assert!(!rs.in_throttle_mode);
+        // Push the counter past `throttle_threshold` within the same window.
+        // The first call resets `rate_window_start` to `now`, so subsequent
+        // calls accumulate. We loop one past the threshold to cross it.
+        for _ in 0..=cfg.throttle_threshold {
+            rs.update_rate(&cfg, now);
+        }
+        assert!(
+            rs.in_throttle_mode,
+            "exceeding throttle_threshold should flip the mode"
+        );
+    }
+
+    #[test]
+    fn update_rate_exits_throttle_when_rate_drops() {
+        let now = Instant::now();
+        let (cfg, mut rs) = run_state_with_now(now);
+        rs.in_throttle_mode = true;
+        rs.rate_event_count = 0;
+        rs.rate_window_start = now;
+        // Advance the clock past the rate window so update_rate evaluates
+        // the hysteresis on the previous window's count (zero) and exits.
+        let after_window = now + cfg.rate_window + Duration::from_millis(10);
+        rs.update_rate(&cfg, after_window);
+        assert!(
+            !rs.in_throttle_mode,
+            "a fully-quiet rate window should exit throttle mode"
+        );
+    }
+
+    #[test]
+    fn maybe_extend_settling_noop_when_not_armed() {
+        let now = Instant::now();
+        let (_cfg, mut rs) = run_state_with_now(now);
+        rs.maybe_extend_settling(&ChangeType::Window);
+        assert!(rs.settling_until.is_none());
+    }
+
+    #[test]
+    fn maybe_extend_settling_extends_on_window_event() {
+        let now = Instant::now();
+        let (_cfg, mut rs) = run_state_with_now(now);
+        let armed_at = tokio::time::Instant::now();
+        rs.settling_started = Some(armed_at);
+        rs.settling_awaiting_first_event = true;
+        rs.settling_until = Some(armed_at + rs.settling_max);
+        let before = rs.settling_until;
+        rs.maybe_extend_settling(&ChangeType::Window);
+        assert!(
+            !rs.settling_awaiting_first_event,
+            "first event should clear the awaiting flag"
+        );
+        assert!(
+            rs.settling_until.unwrap() <= before.unwrap(),
+            "first event sets the debounce-relative deadline (which is <= safety max)"
+        );
+    }
+
+    #[test]
+    fn maybe_extend_settling_ignores_non_window_changes() {
+        let now = Instant::now();
+        let (_cfg, mut rs) = run_state_with_now(now);
+        let armed_at = tokio::time::Instant::now();
+        rs.settling_started = Some(armed_at);
+        rs.settling_awaiting_first_event = true;
+        rs.settling_until = Some(armed_at + rs.settling_max);
+        rs.maybe_extend_settling(&ChangeType::PaneOutput {
+            pane_id: "%0".into(),
+        });
+        assert!(
+            rs.settling_awaiting_first_event,
+            "output events should not consume the first-event flag"
+        );
+    }
+
+    #[test]
+    fn clear_settling_resets_all_trackers() {
+        let now = Instant::now();
+        let (_cfg, mut rs) = run_state_with_now(now);
+        rs.settling_until = Some(tokio::time::Instant::now());
+        rs.settling_started = Some(tokio::time::Instant::now());
+        rs.settling_awaiting_first_event = true;
+        rs.clear_settling();
+        assert!(rs.settling_until.is_none());
+        assert!(rs.settling_started.is_none());
+        assert!(!rs.settling_awaiting_first_event);
     }
 }

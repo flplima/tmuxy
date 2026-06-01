@@ -739,52 +739,67 @@ async fn handle_command(
             start,
             end,
         } => {
-            // Apply the standard retry policy to the three queries that build a
-            // single scrollback response. Capture-pane in particular sometimes
-            // races a pending layout change and returns transient io::Error;
-            // the policy retries those without surfacing them to the client.
+            // Route the three queries that build one scrollback response through
+            // the Tower stack — picks up the standard retry policy, a 5s
+            // per-call deadline, and tracing in one place. Capture-pane in
+            // particular sometimes races a pending layout change and returns
+            // transient io::Error; the retry layer absorbs those.
             let policy = tmuxy_core::RetryPolicy::standard();
-            let pane_id_for_width = pane_id.clone();
-            let width_output = tmuxy_core::retry_with(policy, move || {
-                let pane_id = pane_id_for_width.clone();
-                async move {
-                    executor::execute_tmux_command(&[
-                        "display-message",
-                        "-t",
-                        &pane_id,
-                        "-p",
-                        "#{pane_width}",
-                    ])
-                }
-            })
-            .await
-            .map_err(|e| format!("Failed to get pane width: {}", e))?;
+            let width_output = state
+                .tmux_call_with_policy(
+                    vec![
+                        "display-message".into(),
+                        "-t".into(),
+                        pane_id.clone(),
+                        "-p".into(),
+                        "#{pane_width}".into(),
+                    ],
+                    "scrollback:pane_width",
+                    policy,
+                )
+                .await
+                .map_err(|e| format!("Failed to get pane width: {}", e))?;
             let width: u32 = width_output.trim().parse().unwrap_or(80);
 
-            let pane_id_for_history = pane_id.clone();
-            let history_output = tmuxy_core::retry_with(policy, move || {
-                let pane_id = pane_id_for_history.clone();
-                async move {
-                    executor::execute_tmux_command(&[
-                        "display-message",
-                        "-t",
-                        &pane_id,
-                        "-p",
-                        "#{history_size}",
-                    ])
-                }
-            })
-            .await
-            .map_err(|e| format!("Failed to get history size: {}", e))?;
+            let history_output = state
+                .tmux_call_with_policy(
+                    vec![
+                        "display-message".into(),
+                        "-t".into(),
+                        pane_id.clone(),
+                        "-p".into(),
+                        "#{history_size}".into(),
+                    ],
+                    "scrollback:history_size",
+                    policy,
+                )
+                .await
+                .map_err(|e| format!("Failed to get history size: {}", e))?;
             let history_size: u32 = history_output.trim().parse().unwrap_or(0);
 
-            let pane_id_for_capture = pane_id.clone();
-            let raw = tmuxy_core::retry_with(policy, move || {
-                let pane_id = pane_id_for_capture.clone();
-                async move { executor::capture_pane_range(&pane_id, start, end) }
-            })
-            .await
-            .map_err(|e| format!("Failed to capture pane range: {}", e))?;
+            // capture-pane wants the special `-S start -E end` form built
+            // inline so dispatch directly through the stack rather than the
+            // sync `capture_pane_range` helper.
+            let start_s = start.to_string();
+            let end_s = end.to_string();
+            let raw = state
+                .tmux_call_with_policy(
+                    vec![
+                        "capture-pane".into(),
+                        "-t".into(),
+                        pane_id.clone(),
+                        "-p".into(),
+                        "-e".into(),
+                        "-S".into(),
+                        start_s,
+                        "-E".into(),
+                        end_s,
+                    ],
+                    "scrollback:capture",
+                    policy,
+                )
+                .await
+                .map_err(|e| format!("Failed to capture pane range: {}", e))?;
 
             // Parse into cells
             let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
@@ -803,24 +818,60 @@ async fn handle_command(
                 .map_err(|e| format!("Failed to serialize directory entries: {}", e))
         }
         ClientCommand::GetThemeSettings => {
-            let theme =
-                executor::execute_tmux_command(&["show-options", "-gqv", tmux_options::THEME])
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_default();
-            let mode =
-                executor::execute_tmux_command(&["show-options", "-gqv", tmux_options::THEME_MODE])
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_default();
+            let theme = state
+                .tmux_call(
+                    vec![
+                        "show-options".into(),
+                        "-gqv".into(),
+                        tmux_options::THEME.into(),
+                    ],
+                    "theme:get",
+                )
+                .await
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            let mode = state
+                .tmux_call(
+                    vec![
+                        "show-options".into(),
+                        "-gqv".into(),
+                        tmux_options::THEME_MODE.into(),
+                    ],
+                    "theme-mode:get",
+                )
+                .await
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
             Ok(serde_json::json!({
                 "theme": if theme.is_empty() { "default".to_string() } else { theme },
                 "mode": if mode.is_empty() { "dark".to_string() } else { mode },
             }))
         }
         ClientCommand::SetTheme { name, mode } => {
-            executor::execute_tmux_command(&["set-option", "-g", tmux_options::THEME, &name])
+            state
+                .tmux_call(
+                    vec![
+                        "set-option".into(),
+                        "-g".into(),
+                        tmux_options::THEME.into(),
+                        name.clone(),
+                    ],
+                    "theme:set",
+                )
+                .await
                 .map_err(|e| format!("Failed to set theme: {}", e))?;
             if let Some(ref m) = mode {
-                executor::execute_tmux_command(&["set-option", "-g", tmux_options::THEME_MODE, m])
+                state
+                    .tmux_call(
+                        vec![
+                            "set-option".into(),
+                            "-g".into(),
+                            tmux_options::THEME_MODE.into(),
+                            m.clone(),
+                        ],
+                        "theme-mode:set",
+                    )
+                    .await
                     .map_err(|e| format!("Failed to set theme mode: {}", e))?;
             }
             // Persist so the choice survives a tmux server restart.
@@ -865,7 +916,17 @@ async fn handle_command(
             Ok(serde_json::json!(themes))
         }
         ClientCommand::SetThemeMode { mode } => {
-            executor::execute_tmux_command(&["set-option", "-g", tmux_options::THEME_MODE, &mode])
+            state
+                .tmux_call(
+                    vec![
+                        "set-option".into(),
+                        "-g".into(),
+                        tmux_options::THEME_MODE.into(),
+                        mode.clone(),
+                    ],
+                    "theme-mode:set",
+                )
+                .await
                 .map_err(|e| format!("Failed to set theme mode: {}", e))?;
             if let Err(e) = tmuxy_core::session::write_managed_state(None, Some(&mode)) {
                 warn!(error = %e, "could not persist theme mode to tmuxy.state.conf");
@@ -1359,7 +1420,7 @@ async fn start_monitoring_control_mode(
             }
         }
 
-        match TmuxMonitor::connect(connect_config, Some(&log_sink)).await {
+        match TmuxMonitor::connect(connect_config, Some(&log_sink), state.ctx.clone()).await {
             Ok((mut monitor, command_tx)) => {
                 // Store command_tx so cleanup_connection can send Shutdown
                 let stored = {

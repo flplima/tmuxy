@@ -2,11 +2,11 @@
 //!
 //! Drives the aggregator with synthetic events and asserts the typed
 //! `SideEffect` values it emits. No tokio, no real tmux, no real time —
-//! just `step(event) -> Vec<SideEffect>`.
+//! just `step(event) -> StepResult`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use tmuxy_core::control_mode::{ControlModeEvent, SideEffect, StateAggregator};
+use tmuxy_core::control_mode::{ChangeType, ControlModeEvent, SideEffect, StateAggregator};
 
 fn variant_names(effects: &[SideEffect]) -> Vec<&'static str> {
     effects
@@ -30,23 +30,23 @@ fn empty_event_yields_no_effects() {
     let mut agg = StateAggregator::new();
     // SessionsChanged carries no payload and shouldn't trigger captures or
     // emissions on its own.
-    let effects = agg.step(ControlModeEvent::SessionsChanged);
+    let result = agg.step(ControlModeEvent::SessionsChanged);
     assert!(
-        variant_names(&effects)
+        variant_names(&result.effects)
             .iter()
             .all(|v| *v == "EmitState" || *v == "AdoptUntaggedWindows"),
         "unexpected side effects: {:?}",
-        variant_names(&effects)
+        variant_names(&result.effects)
     );
 }
 
 #[test]
 fn window_add_yields_refresh_after_window_add() {
     let mut agg = StateAggregator::new();
-    let effects = agg.step(ControlModeEvent::WindowAdd {
+    let result = agg.step(ControlModeEvent::WindowAdd {
         window_id: "@5".to_string(),
     });
-    let variants = variant_names(&effects);
+    let variants = variant_names(&result.effects);
     assert!(
         variants.contains(&"RefreshAfterWindowAdd"),
         "expected RefreshAfterWindowAdd in {:?}",
@@ -57,10 +57,10 @@ fn window_add_yields_refresh_after_window_add() {
 #[test]
 fn unlinked_window_add_also_yields_refresh_after_window_add() {
     let mut agg = StateAggregator::new();
-    let effects = agg.step(ControlModeEvent::UnlinkedWindowAdd {
+    let result = agg.step(ControlModeEvent::UnlinkedWindowAdd {
         window_id: "@7".to_string(),
     });
-    let variants = variant_names(&effects);
+    let variants = variant_names(&result.effects);
     // tmux 3.5a emits %unlinked-window-add for the break-pane workaround we
     // use as new-window replacement — both event kinds must hit the same
     // ordering invariant.
@@ -98,4 +98,37 @@ fn step_never_returns_empty_variant_pattern_for_known_events() {
     for ev in events {
         let _ = agg.step(ev);
     }
+}
+
+#[test]
+fn change_type_is_surfaced_even_when_state_changed_is_false() {
+    // Pre-condition: a window exists so close can suppress-but-still-flag.
+    let mut agg = StateAggregator::new();
+    agg.step(ControlModeEvent::WindowAdd {
+        window_id: "@9".into(),
+    });
+    // Arming suppression mirrors the monitor's compound-command settling.
+    agg.set_suppress_window_emissions(true);
+    let result = agg.step(ControlModeEvent::WindowClose {
+        window_id: "@9".into(),
+    });
+    assert!(
+        !result.state_changed,
+        "expected state_changed=false while suppression is on"
+    );
+    assert_eq!(
+        result.change_type,
+        ChangeType::Window,
+        "monitor's settling timer needs to see Window changes even when suppressed"
+    );
+}
+
+#[test]
+fn tick_is_a_noop_today_but_callable() {
+    let mut agg = StateAggregator::new();
+    let effects = agg.tick(std::time::Instant::now());
+    assert!(
+        effects.is_empty(),
+        "tick has no time-driven internal state yet"
+    );
 }
