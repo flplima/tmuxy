@@ -133,7 +133,11 @@ pub fn extract_cells_with_urls(
         let mut line: Vec<TerminalCell> = Vec::with_capacity(cols as usize);
 
         for col in 0..cols {
-            let cell = screen.cell(row, col).unwrap();
+            // `screen.cell` only returns None when row/col exceed the grid bounds,
+            // which the `0..rows` / `0..cols` loops guarantee against.
+            let Some(cell) = screen.cell(row, col) else {
+                continue;
+            };
             // vt100 returns empty string for unwritten cells; use space to preserve
             // column alignment when characters are joined on the frontend
             let raw_content = cell.contents();
@@ -777,6 +781,7 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -806,6 +811,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod vt100_capture_test {
     #[test]
     fn test_capture_pane_first_line() {

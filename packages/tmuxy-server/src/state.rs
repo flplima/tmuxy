@@ -1,7 +1,8 @@
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    response::Response,
+    http::StatusCode,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
@@ -12,6 +13,34 @@ use tmuxy_core::control_mode::{MonitorCommandSender, StoredImage};
 use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
+
+/// Build an HTTP response from a status, content-type, and body.
+///
+/// `Response::builder().body()` only returns `Err` when a header value contains
+/// invalid bytes (control characters, non-ASCII, etc.). All callers in this
+/// module pass static `&'static str` mime types, so the unwrap path is
+/// effectively unreachable — but if a future caller somehow injects a bad
+/// header value we'd rather return a 500 than panic the server thread.
+fn build_response(status: StatusCode, mime: &str, body: impl Into<Body>) -> Response {
+    Response::builder()
+        .status(status)
+        .header("Content-Type", mime)
+        .body(body.into())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// Convenience: build a `application/json` response from a serializable value.
+/// Serialization errors round-trip as a 500 with a plain-text fallback body.
+fn json_response(status: StatusCode, value: &serde_json::Value) -> Response {
+    match serde_json::to_string(value) {
+        Ok(body) => build_response(status, "application/json", body),
+        Err(_) => build_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "text/plain; charset=utf-8",
+            "internal server error: failed to serialize JSON response",
+        ),
+    }
+}
 
 /// Tracks connections and shared resources for a single tmux session
 pub struct SessionConnections {
@@ -115,18 +144,11 @@ async fn file_handler(Query(query): Query<FileQuery>) -> Response {
         _ => "text/plain; charset=utf-8",
     };
     match std::fs::read(path) {
-        Ok(content) => Response::builder()
-            .status(axum::http::StatusCode::OK)
-            .header("Content-Type", content_type)
-            .body(Body::from(content))
-            .unwrap(),
-        Err(e) => Response::builder()
-            .status(axum::http::StatusCode::NOT_FOUND)
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                serde_json::json!({ "error": format!("{}", e) }).to_string(),
-            ))
-            .unwrap(),
+        Ok(content) => build_response(StatusCode::OK, content_type, content),
+        Err(e) => json_response(
+            StatusCode::NOT_FOUND,
+            &serde_json::json!({ "error": format!("{}", e) }),
+        ),
     }
 }
 
@@ -139,19 +161,14 @@ async fn directory_handler(Query(query): Query<DirectoryQuery>) -> Response {
     let path = query.path.unwrap_or_else(|| "/".to_string());
 
     match crate::sse::list_directory(&path) {
-        Ok(entries) => Response::builder()
-            .status(axum::http::StatusCode::OK)
-            .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_string(&entries).unwrap()))
-            .unwrap(),
-        Err(e) => {
-            let error = serde_json::json!({ "error": e });
-            Response::builder()
-                .status(axum::http::StatusCode::BAD_REQUEST)
-                .header("Content-Type", "application/json")
-                .body(Body::from(error.to_string()))
-                .unwrap()
-        }
+        Ok(entries) => match serde_json::to_value(&entries) {
+            Ok(v) => json_response(StatusCode::OK, &v),
+            Err(e) => json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &serde_json::json!({ "error": e.to_string() }),
+            ),
+        },
+        Err(e) => json_response(StatusCode::BAD_REQUEST, &serde_json::json!({ "error": e })),
     }
 }
 
@@ -175,14 +192,12 @@ async fn snapshot_handler(Query(query): Query<SnapshotQuery>) -> Response {
     } else if debug_path.exists() {
         debug_path
     } else {
-        let json = serde_json::json!({
-            "error": "tmux-capture binary not found. Run: cargo build -p tmuxy-core --bin tmux-capture",
-        });
-        return Response::builder()
-            .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
-            .header("Content-Type", "application/json")
-            .body(Body::from(json.to_string()))
-            .unwrap();
+        return json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &serde_json::json!({
+                "error": "tmux-capture binary not found. Run: cargo build -p tmuxy-core --bin tmux-capture",
+            }),
+        );
     };
 
     let output = match std::process::Command::new(&binary_path)
@@ -192,26 +207,22 @@ async fn snapshot_handler(Query(query): Query<SnapshotQuery>) -> Response {
     {
         Ok(output) => output,
         Err(e) => {
-            let json = serde_json::json!({
-                "error": format!("Failed to run tmux-capture: {}", e),
-            });
-            return Response::builder()
-                .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
-                .header("Content-Type", "application/json")
-                .body(Body::from(json.to_string()))
-                .unwrap();
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &serde_json::json!({
+                    "error": format!("Failed to run tmux-capture: {}", e),
+                }),
+            );
         }
     };
 
     if !output.status.success() {
-        let json = serde_json::json!({
-            "error": format!("tmux-capture failed: {}", String::from_utf8_lossy(&output.stderr)),
-        });
-        return Response::builder()
-            .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
-            .header("Content-Type", "application/json")
-            .body(Body::from(json.to_string()))
-            .unwrap();
+        return json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &serde_json::json!({
+                "error": format!("tmux-capture failed: {}", String::from_utf8_lossy(&output.stderr)),
+            }),
+        );
     }
 
     let relative_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -222,29 +233,21 @@ async fn snapshot_handler(Query(query): Query<SnapshotQuery>) -> Response {
             let lines: Vec<&str> = content.lines().collect();
             let rows = lines.len();
             let cols = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-
-            let json = serde_json::json!({
-                "rows": rows,
-                "cols": cols,
-                "lines": lines,
-            });
-
-            Response::builder()
-                .status(axum::http::StatusCode::OK)
-                .header("Content-Type", "application/json")
-                .body(Body::from(json.to_string()))
-                .unwrap()
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({
+                    "rows": rows,
+                    "cols": cols,
+                    "lines": lines,
+                }),
+            )
         }
-        Err(e) => {
-            let json = serde_json::json!({
+        Err(e) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &serde_json::json!({
                 "error": format!("Failed to read snapshot file '{}': {}", snapshot_path.display(), e),
-            });
-            Response::builder()
-                .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
-                .header("Content-Type", "application/json")
-                .body(Body::from(json.to_string()))
-                .unwrap()
-        }
+            }),
+        ),
     }
 }
 
@@ -256,18 +259,15 @@ async fn image_handler(
     let key = (format!("%{}", pane_id), image_id);
     match store.get(&key) {
         Some(img) => Response::builder()
-            .status(axum::http::StatusCode::OK)
+            .status(StatusCode::OK)
             .header("Content-Type", &img.mime_type)
             .header("Cache-Control", "public, max-age=3600")
             .body(Body::from(img.data.clone()))
-            .unwrap(),
-        None => Response::builder()
-            .status(axum::http::StatusCode::NOT_FOUND)
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                serde_json::json!({ "error": "image not found" }).to_string(),
-            ))
-            .unwrap(),
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        None => json_response(
+            StatusCode::NOT_FOUND,
+            &serde_json::json!({ "error": "image not found" }),
+        ),
     }
 }
 
@@ -303,11 +303,7 @@ async fn themes_handler() -> Response {
         })
         .collect();
 
-    Response::builder()
-        .status(axum::http::StatusCode::OK)
-        .header("Content-Type", "application/json")
-        .body(Body::from(serde_json::to_string(&json).unwrap()))
-        .unwrap()
+    json_response(StatusCode::OK, &serde_json::Value::Array(json))
 }
 
 /// Find the workspace root (directory with package.json containing "workspaces")
@@ -331,5 +327,7 @@ pub fn find_workspace_root() -> std::path::PathBuf {
             }
             None
         })
-        .unwrap_or_else(|| std::env::current_dir().unwrap())
+        .unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        })
 }

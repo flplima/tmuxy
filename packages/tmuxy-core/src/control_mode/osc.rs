@@ -264,6 +264,7 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, &'static str> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

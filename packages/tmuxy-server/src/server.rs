@@ -135,10 +135,12 @@ async fn start_dev_server(requested_port: u16) {
 
     let listener = bind_with_retry(addr, 5).await;
 
-    axum::serve(listener, app)
+    if let Err(e) = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(vec![vite_child, demo_child]))
         .await
-        .unwrap();
+    {
+        error!(error = %e, "axum serve loop exited with error");
+    }
 }
 
 /// Start the production server with embedded frontend assets
@@ -161,10 +163,12 @@ async fn start_server(port: u16, host: String) {
 
     let listener = bind_with_retry(addr, 5).await;
 
-    axum::serve(listener, app)
+    if let Err(e) = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(vec![]))
         .await
-        .unwrap();
+    {
+        error!(error = %e, "axum serve loop exited with error");
+    }
 
     remove_pid_file();
 }
@@ -174,20 +178,27 @@ async fn serve_embedded(uri: axum::http::Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
+    // Response::builder().body() returns Err only for invalid header values, which
+    // none of these literal mime types can produce — fall back to a 500 on the
+    // off-chance the embedded asset's mime string somehow becomes invalid.
+    let build_response = |status: StatusCode, mime: &str, body: Vec<u8>| {
+        Response::builder()
+            .status(status)
+            .header("Content-Type", mime)
+            .body(Body::from(body))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+    };
+
     if let Some(file) = FrontendAssets::get(path) {
         let mime = mime_for_path(path);
-        Response::builder()
-            .status(StatusCode::OK)
-            .header("Content-Type", mime)
-            .body(Body::from(file.data.into_owned()))
-            .unwrap()
+        build_response(StatusCode::OK, mime, file.data.into_owned())
     } else if let Some(index) = FrontendAssets::get("index.html") {
         // SPA fallback
-        Response::builder()
-            .status(StatusCode::OK)
-            .header("Content-Type", "text/html; charset=utf-8")
-            .body(Body::from(index.data.into_owned()))
-            .unwrap()
+        build_response(
+            StatusCode::OK,
+            "text/html; charset=utf-8",
+            index.data.into_owned(),
+        )
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
@@ -317,6 +328,11 @@ async fn bind_with_retry(addr: std::net::SocketAddr, max_retries: u32) -> tokio:
 }
 
 async fn shutdown_signal(children: Vec<Option<dev::ViteChild>>) {
+    // Signal handler installation only fails on platforms without sigaction (none we
+    // target) or when the process has already taken too many file descriptors —
+    // either way, a server that can't react to Ctrl+C is unusable, so panic is
+    // the right call.
+    #[allow(clippy::expect_used)]
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -324,6 +340,7 @@ async fn shutdown_signal(children: Vec<Option<dev::ViteChild>>) {
     };
 
     #[cfg(unix)]
+    #[allow(clippy::expect_used)]
     let terminate = async {
         signal::unix::signal(signal::unix::SignalKind::terminate())
             .expect("failed to install signal handler")

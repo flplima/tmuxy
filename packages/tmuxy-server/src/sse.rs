@@ -27,6 +27,23 @@ use crate::state::{find_workspace_root, AppState, SessionConnections};
 // SSE State Emitter (Adapter Pattern)
 // ============================================
 
+/// Serialize an `SseEvent` (or compatible serde value) into a wire-format
+/// JSON string, logging — rather than panicking — on failure.
+///
+/// `serde_json::to_string` only fails on `serde::Serialize` impls that error
+/// out, which our event types can't do (every field is a plain type). If a
+/// future variant ever does, we'd rather drop one message than crash the
+/// monitor task that owns the broadcast channel.
+fn encode_event<T: Serialize>(event: &T) -> Option<String> {
+    match serde_json::to_string(event) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            error!(error = %e, "failed to serialize SSE event");
+            None
+        }
+    }
+}
+
 /// Emitter that broadcasts state changes to SSE clients
 pub struct SseEmitter {
     tx: broadcast::Sender<String>,
@@ -42,7 +59,9 @@ impl SseEmitter {
 impl LogSink for SseEmitter {
     fn log(&self, kind: LogKind, message: String) {
         let event = SseEvent::Log { kind, message };
-        let _ = self.tx.send(serde_json::to_string(&event).unwrap());
+        if let Some(s) = encode_event(&event) {
+            let _ = self.tx.send(s);
+        }
     }
 }
 
@@ -57,12 +76,16 @@ impl StateEmitter for SseEmitter {
             }
         }
         let event = SseEvent::StateUpdate(Box::new(update));
-        let _ = self.tx.send(serde_json::to_string(&event).unwrap());
+        if let Some(s) = encode_event(&event) {
+            let _ = self.tx.send(s);
+        }
     }
 
     fn emit_error(&self, error: String) {
         let event = SseEvent::Error { message: error };
-        let _ = self.tx.send(serde_json::to_string(&event).unwrap());
+        if let Some(s) = encode_event(&event) {
+            let _ = self.tx.send(s);
+        }
     }
 
     fn on_initial_sync_complete(&self) {
@@ -73,7 +96,9 @@ impl StateEmitter for SseEmitter {
             root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
         };
         let kb_event = SseEvent::KeyBindings(keybindings);
-        let _ = self.tx.send(serde_json::to_string(&kb_event).unwrap());
+        if let Some(s) = encode_event(&kb_event) {
+            let _ = self.tx.send(s);
+        }
     }
 
     fn store_images(
@@ -95,7 +120,9 @@ impl StateEmitter for SseEmitter {
             pane_id: pane_id.to_string(),
             text,
         };
-        let _ = self.tx.send(serde_json::to_string(&event).unwrap());
+        if let Some(s) = encode_event(&event) {
+            let _ = self.tx.send(s);
+        }
     }
 }
 
@@ -262,9 +289,9 @@ pub async fn sse_handler(
             connection_id: conn_id,
             default_shell,
         };
-        yield Ok(Event::default()
-            .event("connection-info")
-            .data(serde_json::to_string(&conn_info).unwrap()));
+        if let Some(s) = encode_event(&conn_info) {
+            yield Ok(Event::default().event("connection-info").data(s));
+        }
 
         // Send keybindings to each new SSE client. For reconnecting clients
         // (monitor already running, config already sourced), this is the only
@@ -276,9 +303,9 @@ pub async fn sse_handler(
             root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
         };
         let kb_event = SseEvent::KeyBindings(keybindings);
-        yield Ok(Event::default()
-            .event("keybindings")
-            .data(serde_json::to_string(&kb_event).unwrap()));
+        if let Some(s) = encode_event(&kb_event) {
+            yield Ok(Event::default().event("keybindings").data(s));
+        }
 
         let mut session_rx = session_rx;
 
@@ -413,7 +440,7 @@ async fn handle_command(
                 set_client_size(state, session, conn_id, cols, rows).await;
             }
             let state = tmuxy_core::capture_window_state_for_session(session)?;
-            Ok(serde_json::to_value(state).unwrap())
+            serde_json::to_value(state).map_err(|e| format!("Failed to serialize state: {}", e))
         }
         "set_client_size" => {
             let cols = args.get("cols").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
@@ -722,7 +749,8 @@ async fn handle_command(
         "list_directory" => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
             let entries = list_directory(path)?;
-            Ok(serde_json::to_value(entries).unwrap())
+            serde_json::to_value(entries)
+                .map_err(|e| format!("Failed to serialize directory entries: {}", e))
         }
         "get_theme_settings" => {
             let theme = executor::execute_tmux_command(&["show-options", "-gqv", "@tmuxy-theme"])
@@ -819,7 +847,9 @@ async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
         root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
     };
     let kb_event = SseEvent::KeyBindings(keybindings);
-    let msg = serde_json::to_string(&kb_event).unwrap();
+    let Some(msg) = encode_event(&kb_event) else {
+        return;
+    };
     let sessions = state.sessions.read().await;
     if let Some(session_conn) = sessions.get(session) {
         let _ = session_conn.state_tx.send(msg);
@@ -1205,14 +1235,15 @@ async fn start_monitoring_control_mode(
                 // Find an existing running monitor to route through
                 let existing_tx = {
                     let sessions = state.sessions.read().await;
-                    sessions
-                        .iter()
-                        .find(|(name, conns)| {
-                            *name != &session && conns.monitor_command_tx.is_some()
-                        })
-                        .map(|(name, conns)| {
-                            (name.clone(), conns.monitor_command_tx.clone().unwrap())
-                        })
+                    sessions.iter().find_map(|(name, conns)| {
+                        if name == &session {
+                            return None;
+                        }
+                        conns
+                            .monitor_command_tx
+                            .clone()
+                            .map(|tx| (name.clone(), tx))
+                    })
                 };
 
                 if let Some((via_session, tx)) = existing_tx {
@@ -1314,7 +1345,9 @@ async fn start_monitoring_control_mode(
                     let event = SseEvent::Fatal {
                         message: final_msg.clone(),
                     };
-                    let _ = tx.send(serde_json::to_string(&event).unwrap());
+                    if let Some(s) = encode_event(&event) {
+                        let _ = tx.send(s);
+                    }
                     error!(%session, msg = %final_msg, "monitor FATAL");
                     let mut sessions = state.sessions.write().await;
                     sessions.remove(&session);
@@ -1361,19 +1394,24 @@ async fn start_monitoring_polling(tx: broadcast::Sender<String>) {
 
                 if current_hash != previous_hash {
                     let event = SseEvent::StateUpdate(Box::new(StateUpdate::Full { state }));
-                    let _ = tx.send(serde_json::to_string(&event).unwrap());
+                    if let Some(s) = encode_event(&event) {
+                        let _ = tx.send(s);
+                    }
                     previous_hash = current_hash;
                 }
             }
             Err(e) => {
                 let event = SseEvent::Error { message: e };
-                let _ = tx.send(serde_json::to_string(&event).unwrap());
+                if let Some(s) = encode_event(&event) {
+                    let _ = tx.send(s);
+                }
             }
         }
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

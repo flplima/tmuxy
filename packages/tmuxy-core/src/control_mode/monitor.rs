@@ -590,7 +590,11 @@ impl TmuxMonitor {
                                         settling_started = Some(now);
                                         debug!("settling: first event received, starting debounce timer");
                                     }
-                                    let max_deadline = settling_started.unwrap() + settling_max;
+                                    // settling_started is Some by construction here: either it was
+                                    // already set when the compound command armed settling, or the
+                                    // branch immediately above just set it. Fall back to `now` for
+                                    // total belt-and-braces safety.
+                                    let max_deadline = settling_started.unwrap_or(now) + settling_max;
                                     let debounced = now + settling_debounce;
                                     // Extend but don't exceed the safety timeout
                                     settling_until = Some(debounced.min(max_deadline));
@@ -954,6 +958,7 @@ fn is_multi_step_run_shell(command: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};

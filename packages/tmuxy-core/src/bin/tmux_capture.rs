@@ -3,6 +3,8 @@
 //! Captures the visual state of a tmux session by attaching via a pseudo-terminal
 //! with exact dimensions matching the session, then reading the rendered output.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use nix::pty::{openpty, OpenptyResult};
 use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::waitpid;

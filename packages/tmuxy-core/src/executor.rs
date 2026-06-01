@@ -635,7 +635,10 @@ fn convert_tmux_style_to_ansi(input: &str) -> String {
                             chars.next();
                             break;
                         }
-                        style.push(chars.next().unwrap());
+                        // peek() returned Some, so next() is guaranteed Some.
+                        if let Some(c) = chars.next() {
+                            style.push(c);
+                        }
                     }
                     let ansi = tmux_style_to_ansi(&style);
                     result.push_str(&ansi);
@@ -1280,6 +1283,7 @@ pub fn process_key(session_name: &str, key: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
