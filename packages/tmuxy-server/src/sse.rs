@@ -237,7 +237,10 @@ pub async fn sse_handler(
             let monitor_session = session.clone();
             let monitor_state = state.clone();
             let monitor_tx = session_conns.state_tx.clone();
-
+            // Track in the structured `JoinSet` so `shutdown_signal` drains it
+            // on Ctrl+C. We also keep a `JoinHandle` separately on the
+            // `SessionConnections` so the deferred-cleanup path can poll
+            // `is_finished` / drive graceful shutdown of just one session.
             let handle = tokio::spawn(async move {
                 start_monitoring(monitor_tx, monitor_session, monitor_state).await;
             });
@@ -257,16 +260,27 @@ pub async fn sse_handler(
     // and when the generator is dropped, the sender is dropped, signaling the cleanup task.
     let (drop_tx, drop_rx) = tokio::sync::oneshot::channel::<()>();
 
-    // Spawn cleanup task that fires when the stream is dropped (client disconnect)
+    // Spawn cleanup task that fires when the stream is dropped (client disconnect).
+    // Tracked in `AppState::join_set` so server shutdown drains it instead of
+    // leaving it dangling on Ctrl+C.
     {
         let cleanup_state = state.clone();
         let cleanup_session = session.clone();
-        tokio::spawn(async move {
-            // Wait for the stream to be dropped (sender dropped = Err)
-            let _ = drop_rx.await;
-            info!(conn_id, session = %cleanup_session, "client disconnected, running cleanup");
-            cleanup_connection(&cleanup_state, &cleanup_session, conn_id).await;
-        });
+        let shutdown = state.shutdown.clone();
+        state
+            .spawn(async move {
+                tokio::select! {
+                    _ = drop_rx => {
+                        info!(conn_id, session = %cleanup_session, "client disconnected, running cleanup");
+                        cleanup_connection(&cleanup_state, &cleanup_session, conn_id).await;
+                    }
+                    _ = shutdown.cancelled() => {
+                        // Server shutting down — skip the cleanup chore; the
+                        // monitor's own shutdown path will tear down the session.
+                    }
+                }
+            })
+            .await;
     }
 
     let stream = async_stream::stream! {
@@ -967,12 +981,24 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
         (resize, cmd_tx, deferred)
     };
 
-    // Defer monitor cleanup: wait 5 seconds, then check if clients reconnected
+    // Defer monitor cleanup: wait 2 seconds, then check if clients reconnected.
+    // Tracked in `AppState::join_set` so the grace-period sleep doesn't survive
+    // server shutdown. The grace period itself is a UX feature (page reload
+    // reconnects within ~1s) — kept for that reason, not as orphan-prevention.
     if needs_deferred_cleanup {
-        let state = state.clone();
+        let state_owned = state.clone();
         let session = session.to_string();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(2)).await;
+        let shutdown = state.shutdown.clone();
+        state
+            .spawn(async move {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                    _ = shutdown.cancelled() => {
+                        debug!(%session, "shutdown signalled during grace period, aborting cleanup");
+                        return;
+                    }
+                }
+                let state = state_owned;
 
             let (cmd_tx, monitor_handle) = {
                 let mut sessions = state.sessions.write().await;
@@ -1014,7 +1040,8 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
                     }
                 }
             }
-        });
+            })
+            .await;
         return;
     }
 
@@ -1146,8 +1173,17 @@ async fn start_monitoring_control_mode(
     // Bound consecutive connect failures so we don't hammer a broken tmux
     // forever. Reset on successful long-running monitor.run().
     let mut consecutive_failures: u32 = 0;
+    let shutdown = state.shutdown.clone();
 
     loop {
+        // Server shutdown signalled — exit promptly instead of reconnecting.
+        if shutdown.is_cancelled() {
+            info!(%session, "shutdown signalled, stopping monitor loop");
+            let mut sessions = state.sessions.write().await;
+            sessions.remove(&session);
+            break;
+        }
+
         // Stop reconnecting if session was cleaned up (no more clients)
         let has_clients = {
             let sessions = state.sessions.read().await;
@@ -1345,7 +1381,12 @@ async fn start_monitoring_control_mode(
         }
 
         is_first_connect = false;
-        tokio::time::sleep(backoff).await;
+        // Cancellable backoff — Ctrl+C during retry shouldn't have to wait out
+        // the full sleep before the next loop iteration sees the cancellation.
+        tokio::select! {
+            _ = tokio::time::sleep(backoff) => {}
+            _ = shutdown.cancelled() => {}
+        }
         backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
     }
 }

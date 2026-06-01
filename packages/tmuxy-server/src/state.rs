@@ -10,8 +10,9 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tmuxy_core::control_mode::{MonitorCommandSender, StoredImage};
-use tokio::sync::{broadcast, RwLock};
-use tokio::task::JoinHandle;
+use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::task::{JoinHandle, JoinSet};
+use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 
 /// Build an HTTP response from a status, content-type, and body.
@@ -85,6 +86,15 @@ pub struct AppState {
     pub next_conn_id: AtomicU64,
     /// Shared image store: (pane_id, image_id) -> StoredImage
     pub image_store: RwLock<HashMap<(String, u32), StoredImage>>,
+    /// Structured shutdown: every background task spawned by the server lives
+    /// in this `JoinSet`. `server::shutdown_signal` calls
+    /// `join_set.shutdown().await` after firing `shutdown.cancel()` so we drain
+    /// to completion instead of leaking orphans on Ctrl+C.
+    pub join_set: Mutex<JoinSet<()>>,
+    /// Cancellation token broadcast to every spawned task. Each task should
+    /// `tokio::select!` against `shutdown.cancelled()` so it exits its
+    /// long-running loop promptly.
+    pub shutdown: CancellationToken,
 }
 
 impl Default for AppState {
@@ -93,6 +103,8 @@ impl Default for AppState {
             sessions: RwLock::new(HashMap::new()),
             next_conn_id: AtomicU64::new(1),
             image_store: RwLock::new(HashMap::new()),
+            join_set: Mutex::new(JoinSet::new()),
+            shutdown: CancellationToken::new(),
         }
     }
 }
@@ -100,6 +112,18 @@ impl Default for AppState {
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Spawn a background task into the shutdown-tracked `JoinSet`.
+    ///
+    /// Callers should incorporate `self.shutdown.cancelled()` into the
+    /// future's branching so the task exits promptly when shutdown fires.
+    /// Tasks that drop naturally (oneshot cleanup chores) don't need it.
+    pub async fn spawn<F>(&self, fut: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.join_set.lock().await.spawn(fut);
     }
 }
 

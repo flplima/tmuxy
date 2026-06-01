@@ -123,7 +123,7 @@ async fn start_dev_server(requested_port: u16) {
         .fallback_service(tower::service_fn(|req: Request| async move {
             Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
         }))
-        .with_state(state);
+        .with_state(state.clone());
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     println!("tmuxy dev server running at http://localhost:{}", port);
@@ -136,7 +136,7 @@ async fn start_dev_server(requested_port: u16) {
     let listener = bind_with_retry(addr, 5).await;
 
     if let Err(e) = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(vec![vite_child, demo_child]))
+        .with_graceful_shutdown(shutdown_signal(state, vec![vite_child, demo_child]))
         .await
     {
         error!(error = %e, "axum serve loop exited with error");
@@ -153,7 +153,7 @@ async fn start_server(port: u16, host: String) {
 
     let app = crate::state::api_routes()
         .fallback(serve_embedded)
-        .with_state(state);
+        .with_state(state.clone());
 
     let addr: std::net::SocketAddr = format!("{}:{}", host, port)
         .parse()
@@ -164,7 +164,7 @@ async fn start_server(port: u16, host: String) {
     let listener = bind_with_retry(addr, 5).await;
 
     if let Err(e) = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(vec![]))
+        .with_graceful_shutdown(shutdown_signal(state, vec![]))
         .await
     {
         error!(error = %e, "axum serve loop exited with error");
@@ -327,7 +327,7 @@ async fn bind_with_retry(addr: std::net::SocketAddr, max_retries: u32) -> tokio:
     unreachable!()
 }
 
-async fn shutdown_signal(children: Vec<Option<dev::ViteChild>>) {
+async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChild>>) {
     // Signal handler installation only fails on platforms without sigaction (none we
     // target) or when the process has already taken too many file descriptors —
     // either way, a server that can't react to Ctrl+C is unusable, so panic is
@@ -357,6 +357,21 @@ async fn shutdown_signal(children: Vec<Option<dev::ViteChild>>) {
     }
 
     println!("\nShutting down...");
+
+    // Structured shutdown: broadcast cancellation, then drain every tracked
+    // background task. Tasks already check `state.shutdown.cancelled()` in
+    // their select branches so the cancel fires the actual exit; the drain
+    // here is just a join-to-completion safety net.
+    state.shutdown.cancel();
+    let mut join_set = state.join_set.lock().await;
+    let mut drained = 0usize;
+    while let Some(res) = join_set.join_next().await {
+        if let Err(e) = res {
+            tracing::warn!(error = %e, "joined task exited with error");
+        }
+        drained += 1;
+    }
+    tracing::info!(tasks = drained, "structured shutdown complete");
 
     for child in children.into_iter().flatten() {
         child.kill();
