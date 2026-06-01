@@ -101,6 +101,49 @@ pub struct ProcessEventResult {
     pub clipboard_writes: Vec<(String, String)>,
 }
 
+/// Typed side effect emitted by the sans-IO state machine.
+///
+/// The aggregator never performs I/O itself — it only describes what the
+/// runtime (currently `TmuxMonitor`) must do. This makes the state machine
+/// fully testable without tokio: drive it with synthetic events and assert
+/// on the returned `Vec<SideEffect>`.
+///
+/// Phase 3.11 introduces this as an additive layer on top of `process_event`.
+/// The `step` method wraps `process_event` and turns its untyped tuples into
+/// `SideEffect` values; the monitor can adopt them at its own pace.
+#[derive(Debug, Clone)]
+pub enum SideEffect {
+    /// Send a tmux command through control mode. The runtime is expected to
+    /// dispatch this via `ControlModeConnection::send_command(s)`.
+    SendTmuxCommand(String),
+    /// Send multiple commands as a single batched write.
+    SendTmuxBatch(Vec<String>),
+    /// Capture-pane is needed for these pane ids — emit list-panes first,
+    /// then capture each. Surfaced as its own variant so the monitor can
+    /// preserve the ordering invariant documented in `refresh_panes`.
+    RefreshPanes { pane_ids: Vec<String> },
+    /// After a window-add event, refresh both list-panes and list-windows.
+    /// Order is load-bearing (see `refresh_after_window_add`).
+    RefreshAfterWindowAdd,
+    /// Auto-adopt every untagged window with the supplied `set-option`
+    /// commands. Idempotent — `collect_window_tag_commands` skips already
+    /// tagged windows.
+    AdoptUntaggedWindows(Vec<String>),
+    /// Indicate the runtime should emit a state update if the aggregator has
+    /// one queued. The variant carries the `ChangeType` so the runtime can
+    /// pick the right emission strategy (throttle, debounce, immediate).
+    EmitState { change: ChangeType },
+    /// Resume a paused pane (flow control).
+    ResumePane(String),
+    /// Forward a freshly-decoded image set to the emitter.
+    StoreImages {
+        pane_id: String,
+        images: Vec<(u32, super::images::StoredImage)>,
+    },
+    /// Forward an OSC 52 clipboard write to the system clipboard.
+    WriteClipboard { pane_id: String, text: String },
+}
+
 /// State of a single pane with terminal emulation
 pub struct PaneState {
     /// Pane ID (e.g., "%0")
@@ -1036,6 +1079,70 @@ impl StateAggregator {
             .filter(|p| p.in_mode && !p.window_id.is_empty())
             .map(|p| (p.id.clone(), p.scroll_position, p.height))
             .collect()
+    }
+
+    /// Sans-IO entry point. Drives the aggregator with one control-mode event
+    /// and returns a vector of typed `SideEffect`s that the runtime must
+    /// execute. The aggregator does no I/O itself — every command send,
+    /// state emit, image store, and clipboard write is described, not
+    /// performed.
+    ///
+    /// Internally delegates to `process_event` + `collect_window_tag_commands`
+    /// for backward-compatibility with the legacy untyped result struct that
+    /// `TmuxMonitor::on_control_event` still consumes; once the monitor
+    /// migrates to `step`, the old API can be retired.
+    pub fn step(&mut self, event: ControlModeEvent) -> Vec<SideEffect> {
+        let is_window_add = matches!(
+            &event,
+            ControlModeEvent::WindowAdd { .. } | ControlModeEvent::UnlinkedWindowAdd { .. }
+        );
+        let result = self.process_event(event);
+        let mut effects = Vec::new();
+
+        // Auto-adopt before anything else so emissions reflect tagged state.
+        let tag_cmds = self.collect_window_tag_commands();
+        if !tag_cmds.is_empty() {
+            effects.push(SideEffect::AdoptUntaggedWindows(tag_cmds));
+        }
+
+        // Image / clipboard side effects fire before list-pane refreshes so
+        // that consumers see the same ordering as the legacy monitor path.
+        for (pane_id, images) in result.new_images.iter() {
+            if !images.is_empty() {
+                effects.push(SideEffect::StoreImages {
+                    pane_id: pane_id.clone(),
+                    images: images.clone(),
+                });
+            }
+        }
+        for (pane_id, text) in result.clipboard_writes.iter() {
+            effects.push(SideEffect::WriteClipboard {
+                pane_id: pane_id.clone(),
+                text: text.clone(),
+            });
+        }
+
+        if is_window_add {
+            effects.push(SideEffect::RefreshAfterWindowAdd);
+        }
+
+        if !result.panes_needing_refresh.is_empty() {
+            effects.push(SideEffect::RefreshPanes {
+                pane_ids: result.panes_needing_refresh.clone(),
+            });
+        }
+
+        if let ChangeType::FlowPause { ref pane_id } = result.change_type {
+            effects.push(SideEffect::ResumePane(pane_id.clone()));
+        }
+
+        if result.state_changed {
+            effects.push(SideEffect::EmitState {
+                change: result.change_type.clone(),
+            });
+        }
+
+        effects
     }
 
     /// Process a control mode event.
