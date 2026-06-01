@@ -4,10 +4,11 @@
 //! filesystem access.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#![cfg(feature = "test-support")]
 
 use std::time::Duration;
 use tmuxy_core::ctx::test_ctx;
-use tmuxy_core::{Clock, FileSystem, TmuxCommand};
+use tmuxy_core::{Clock, FileSystem};
 
 /// A small piece of consumer code that takes a `Ctx` and combines all three
 /// capabilities. Stand-in for what Phase 4.9b's port of `session.rs::create_or_attach`
@@ -41,5 +42,6 @@ async fn ctx_flows_through_full_substitution() {
     // new value — proves the clock substitution flows through Arc<Ctx>.
     clock.advance(Duration::from_millis(250));
     let stamp_after = ctx.clock.now();
-    assert_eq!(stamp_after - stamp_before, Duration::from_millis(250));
+    let elapsed: Duration = stamp_after.duration_since(stamp_before);
+    assert_eq!(elapsed, Duration::from_millis(250));
 }

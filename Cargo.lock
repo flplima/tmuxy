@@ -5098,6 +5098,7 @@ dependencies = [
 name = "tmuxy-core"
 version = "0.0.10-alpha.23"
 dependencies = [
+ "async-trait",
  "backon",
  "base64 0.22.1",
  "dirs",
@@ -5112,6 +5113,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tower",
  "tracing",
  "vt100",
 ]

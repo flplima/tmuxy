@@ -6,8 +6,10 @@ pub mod error;
 pub mod executor;
 pub mod retry;
 pub mod session;
+pub mod tmux_service;
 
 pub use ctx::{Clock, Ctx, FileSystem, TmuxCommand};
+pub use tmux_service::{build_tmux_stack, TmuxRequest, TmuxService};
 
 pub use error::{Result as TmuxResult, TmuxError};
 pub use retry::{retry_with, RetryPolicy};
