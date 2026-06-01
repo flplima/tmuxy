@@ -26,6 +26,9 @@ png = "0.18"
 # Standards-compliant base64 decoder for kitty/iTerm2 image payloads.
 base64 = "0.22"
 
+[dev-dependencies]
+proptest = "1"
+
 [lints]
 workspace = true
 
