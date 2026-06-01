@@ -7,17 +7,24 @@ This document describes how data moves through tmuxy in different deployment sce
 The web version uses two HTTP endpoints on the Axum server:
 
 **`GET /events?session=<name>`** — Server-Sent Events stream (server-to-client):
-- `connection-info` — Connection ID, session token, default shell (sent on connect)
+- `connection-info` — Connection ID and default shell (sent on connect)
 - `keybindings` — Prefix key and all key bindings from tmux config
 - `state-update` — Full state snapshots and incremental deltas (serialized JSON)
-- `error` — Error notifications
+- `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
+- `log`, `error`, `fatal` — Diagnostic and error notifications
 
 **`POST /commands?session=<name>`** — HTTP POST (client-to-server):
-- Authenticated via `X-Session-Token` header (received from the SSE `connection-info` event)
 - Request body: `{ "cmd": "command_name", "args": {...} }`
 - Response: `{ "result": ... }` or `{ "error": "message" }`
+- **No authentication** — see [SECURITY.md](SECURITY.md). Network reachability is the only gate.
 
-SSE was chosen over WebSocket because: server-to-client is the dominant direction, `EventSource` has built-in browser reconnection, SSE works through all proxies/CDNs, and event IDs enable resumption after brief disconnects via delta sequence numbers.
+SSE was chosen over WebSocket because: server-to-client is the dominant direction, `EventSource` has built-in browser reconnection, SSE works through all proxies/CDNs, and the standard `Last-Event-Id` mechanism gives us a clean reconnect path (see below).
+
+### SSE resync via `Last-Event-Id`
+
+Every event the server broadcasts is tagged with a monotonic per-session sequence id (set as the SSE `id:` field). `EventSource` persists the last received id across reconnects and sends it back as the `Last-Event-Id` request header on retry. The server keeps a small ring buffer of recent events per session and replays everything strictly newer than the supplied id before resuming the live stream. If the client's id is older than the buffer head (long disconnect), the next full-state snapshot covers the gap — no client-side panic, no data corruption.
+
+This is independent from the delta protocol's own `seq` field: the SSE id keeps the *transport* in sync after a reconnect; the delta `seq` keeps the *application state* in sync after each individual update.
 
 ## Transport: Tauri IPC (Desktop Version)
 
@@ -38,11 +45,11 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 ## Connection Lifecycle (Web)
 
 1. Client opens SSE connection: `GET /events?session=<name>`
-2. Server generates a unique `connection_id` and a random session token (128-bit hex)
+2. Server assigns a unique `connection_id`
 3. Server checks if a `TmuxMonitor` exists for the session:
    - **No monitor:** Spawns a new monitor (connects `tmux -CC`), stores handle in `SessionConnections`
-   - **Has monitor:** Subscribes to the existing broadcast channel
-4. Client receives `connection-info` event with connection ID, token, and default shell
+   - **Has monitor:** Subscribes to the existing broadcast channel and replays from the ring buffer if the client supplied a `Last-Event-Id`
+4. Client receives `connection-info` event with connection ID and default shell
 5. Client sends `get_initial_state` (via HTTP POST) with its viewport size (cols, rows)
 6. Server stores the client size, computes the minimum viewport across all clients, and sends a resize command through the monitor's control mode connection
 7. Client receives full state snapshot, then incremental deltas as tmux state changes
@@ -63,50 +70,64 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 tmux server
     │ control mode stdout (%output, %layout-change, etc.)
     ▼
-TmuxMonitor → StateAggregator → StateUpdate
-    │                                │
-    │                     ┌──────────┴──────────┐
-    │                     │   StateEmitter trait │
-    │                     └──────────┬──────────┘
-    │                     ┌──────────┴──────────┐
-    ▼                     ▼                     ▼
-                  SseEmitter              TauriEmitter
-              (broadcast channel)        (app.emit())
-                    │                         │
-              ┌─────┼─────┐                   │
-              ▼     ▼     ▼                   ▼
-          Client1 Client2 Client3      Tauri frontend
+TmuxMonitor                              ← runtime (drives the aggregator,
+    │                                      executes the SideEffects it returns)
+    │  aggregator.step(event) → SideEffect[]
+    ▼
+StateAggregator (sans-IO state machine)
+    │  no I/O of its own — only describes what should happen
+    ▼
+SideEffect dispatch (refresh-panes, emit-state, store-image, ...)
+    │
+    │  emit_state path:
+    ▼                     ┌─────────────────────┐
+                          │   StateEmitter trait │
+                          └──────────┬──────────┘
+              ┌──────────────────────┴──────────────────────┐
+              ▼                                             ▼
+         SseEmitter                                  TauriEmitter
+   (per-session ring buffer + broadcast)            (app.emit())
+              │                                             │
+        ┌─────┼─────┐                                       │
+        ▼     ▼     ▼                                       ▼
+    Client1 Client2 Client3                          Tauri frontend
 ```
 
-The monitor's event loop uses `tokio::select!` with multiple branches:
-- **Control mode events** — Process pane output, layout changes, window events
-- **Throttle timer** — Emit buffered output at 16ms intervals during high-throughput periods
-- **Settling timer** — Debounce compound commands (e.g., `splitw ; breakp`) before emitting
-- **Sync timer** — Poll cursor position during copy mode (50ms) or heartbeat when idle (15s)
-- **Command channel** — Handle resize, run-command, and shutdown requests from the frontend
+The monitor multiplexes control-mode events with timer-driven flushes (throttle, settling, layout debounce, periodic sync) and external commands (resize, run-command, shutdown). The exact set of `tokio::select!` arms drifts as we tune timings; the durable contract is:
+- The aggregator decides **what** state effects exist.
+- The monitor decides **when** to flush them (throttle / debounce / settle).
+- The emitter decides **where** they go (SSE broadcast vs Tauri event).
 
 ## Command Execution Flow
+
+Frontend `adapter.invoke(cmd, args)` is decoded into a typed `ClientCommand` variant on the server (or routed straight through Tauri IPC). Mutating commands route through the monitor's control-mode connection — never through external subprocesses, because external `tmux` calls crash tmux 3.5a when a control-mode client is attached (see [TMUX.md](TMUX.md)).
+
+Read-only async tmux dispatch (e.g., scrollback fetch, theme get/set) flows through the Tower stack (`AppState::tmux_call`) so it picks up the standard timeout, retry, and tracing in one place. Sync helpers in `executor::*` remain for CLI/blocking contexts.
 
 ```
 Frontend
     │ adapter.invoke(cmd, args)
     ▼
-┌────────────────────────────────────┐
-│  Backend                           │
-│  ┌──────────────┐  ┌────────────┐  │
-│  │ Web: POST    │  │ Tauri:     │  │
-│  │ /commands    │  │ invoke()   │  │
-│  └──────┬───────┘  └─────┬──────┘  │
-│         ▼                ▼         │
-│  send_via_control    executor or   │
-│  _mode()             control mode  │
-└─────────┬────────────────┬─────────┘
-          └────────┬───────┘
-                   ▼
-          Monitor stdin → tmux
+┌──────────────────────────────────────────┐
+│  Backend                                 │
+│  ┌──────────────┐    ┌────────────────┐  │
+│  │ Web: POST    │    │ Tauri:         │  │
+│  │ /commands    │    │ invoke()       │  │
+│  └──────┬───────┘    └─────────┬──────┘  │
+│         ▼                      ▼         │
+│   ClientCommand variant   Tauri command  │
+│         │                      │         │
+│   ┌─────┴──────┐               │         │
+│   ▼            ▼               ▼         │
+│  Tower      Monitor       Monitor or     │
+│  stack      command       executor       │
+│ (async      channel       (per use case) │
+│  tmux)      (mutations)                  │
+└─────────┬────────────────────────┬───────┘
+          └────────────┬───────────┘
+                       ▼
+              Monitor stdin → tmux
 ```
-
-The web server routes all state-modifying commands through `send_via_control_mode()` in `tmuxy-server/src/sse.rs`, which sends `MonitorCommand::RunCommand` through the monitor's command channel. The Tauri app calls `tmuxy-core` functions directly — some through the executor (subprocess), some through control mode.
 
 ## Delta Protocol
 
@@ -216,15 +237,15 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 **Data flow:**
 1. User runs `tmuxy server` on the VM (binds to `0.0.0.0:9000` by default)
 2. User opens `https://vm-ip:9000` in their browser (requires a reverse proxy for HTTPS — see below)
-3. Browser opens SSE connection to `/events?session=<name>`, receives session token
-4. All subsequent commands use HTTP POST with the session token
+3. Browser opens SSE connection to `/events?session=<name>`
+4. All subsequent commands use HTTP POST to `/commands?session=<name>`
 5. State updates stream via SSE in real-time
 
 **Security considerations (critical):**
 
 The tmuxy server has **no built-in authentication** and **no TLS**. Exposing it directly on a public IP means:
 - Anyone who discovers the IP and port can connect to and control your tmux session
-- Session tokens are transmitted in cleartext (interceptable)
+- All traffic is in cleartext (eavesdropping reveals terminal content and lets attackers inject commands)
 - `run-shell` commands allow arbitrary code execution on the server
 - File reading endpoints have no path restrictions
 
@@ -258,7 +279,7 @@ Beyond the core SSE/HTTP protocol, the web server exposes:
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/events` | GET | SSE stream (state updates, connection info) |
-| `/commands` | POST | tmux commands (authenticated via session token) |
+| `/commands` | POST | tmux commands (no authentication — see SECURITY.md) |
 | `/api/snapshot` | GET | UI-vs-tmux consistency snapshot (testing/debugging) |
 | `/api/file` | GET | Read file contents (used by widget panes) |
 | `/api/directory` | GET | List directory contents (used by widget panes) |

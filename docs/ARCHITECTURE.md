@@ -21,7 +21,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
                └─────────────┬─────────────┘
 ┌────────────────────────────▼────────────────────────────┐
 │  tmuxy-core (Rust library)                              │
-│  TmuxMonitor → StateAggregator → ControlModeConnection  │
+│  Runtime ↔ sans-IO state machine ↔ tmux -CC connection  │
 └────────────────────────────┬────────────────────────────┘
                              │ control mode (tmux -CC)
 ┌────────────────────────────▼────────────────────────────┐
@@ -29,9 +29,9 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 └─────────────────────────────────────────────────────────┘
 ```
 
-**tmuxy-core** — Rust library that manages tmux control mode connections. Contains `TmuxMonitor` (event loop), `StateAggregator` (event processing), `ControlModeConnection` (stdin/stdout to `tmux -CC`), and the executor module for safe subprocess calls. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for details.
+**tmuxy-core** — Rust library that manages tmux control mode connections. Owns the sans-IO state aggregator, the `TmuxMonitor` runtime that drives it against a live `tmux -CC` subprocess, a substitutable execution context (`Ctx`) for I/O capabilities, and a Tower middleware stack for async tmux dispatch (timeout + retry + tracing in one place). Synchronous subprocess helpers in `executor` are kept for CLI/blocking paths. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for details.
 
-**tmuxy-server** — Axum HTTP server providing SSE streaming, HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and session tokens. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
+**tmuxy-server** — Axum HTTP server providing SSE streaming (with `Last-Event-Id` resync), HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and structured shutdown. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
 
 **tmuxy-ui** — React frontend using XState for all state management. Communicates with the backend via an adapter pattern (`TmuxAdapter` interface). Includes an in-browser demo engine (`DemoAdapter`, `DemoTmux`, `DemoShell`) for the demo site. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
 
@@ -67,51 +67,22 @@ Like native tmux, when multiple browser clients connect to the same session, the
 
 5. **Delta protocol** — After the initial full state snapshot, the server sends incremental deltas (changed panes, windows) to minimize bandwidth.
 
-6. **Adaptive throttling** — The monitor throttles state emissions during high-frequency output (>20 events per 100ms) at 16ms intervals (~60fps), and emits immediately during low-frequency interactions for responsive typing feedback.
+6. **Adaptive throttling** — The monitor throttles state emissions during high-frequency output (~60fps cap), and emits immediately during low-frequency interactions for responsive typing feedback. Tunables live on `MonitorConfig`.
 
-## File Structure
+7. **Sans-IO core, runtime at the edges** — The state aggregator is pure: events in, typed `SideEffect`s out, no I/O of its own. The runtime executes those effects against a substitutable `Ctx` (clock / tmux / filesystem trait objects). Tests can drive the aggregator without spinning a real tmux.
 
-```
-packages/
-├── tmuxy-core/
-│   └── src/
-│       ├── control_mode/
-│       │   ├── connection.rs   # ControlModeConnection (tmux -CC)
-│       │   ├── monitor.rs      # TmuxMonitor, MonitorCommand, StateEmitter
-│       │   ├── state.rs        # StateAggregator, PaneState, layout parsing
-│       │   └── parser.rs       # Control mode event parser
-│       ├── executor.rs         # Subprocess tmux commands (safe operations only)
-│       └── session.rs          # Session lifecycle (create, destroy, check)
-├── tmuxy-server/
-│   └── src/
-│       ├── main.rs             # Entry point, mod declarations
-│       ├── server.rs           # Server startup (prod + dev), PID management, shutdown
-│       ├── state.rs            # AppState, SessionConnections, api_routes()
-│       ├── sse.rs              # SSE streaming, HTTP commands, SseEmitter
-│       └── dev.rs              # ViteChild, dev server proxy, port discovery
-├── tmuxy-ui/
-│   └── src/
-│       ├── machines/
-│       │   ├── app/appMachine.ts   # Main XState machine
-│       │   ├── actors/             # tmuxActor, keyboardActor, sizeActor
-│       │   ├── drag/               # Pane drag child machine
-│       │   ├── resize/             # Pane resize child machine
-│       │   ├── AppContext.tsx       # Provider, hooks (useAppSelector, etc.)
-│       │   └── selectors.ts        # State selectors for components
-│       ├── tmux/
-│       │   ├── types.ts            # TmuxAdapter, TmuxPane, TmuxWindow
-│       │   ├── adapters.ts         # HttpAdapter, TauriAdapter
-│       │   ├── effect/             # Effect-based adapter facade (typed errors, schemas, SSE Stream)
-│       │   ├── store/              # Tier-3 TmuxClientModel + Effect-managed store
-│       │   │                       # (typed ops, predict/reconcile, rollback)
-│       │   └── demo/               # In-browser demo engine
-│       └── components/             # React components (Terminal, PaneLayout, etc.)
-└── tauri-app/
-    └── src/
-        ├── main.rs                 # Tauri app setup, command registration
-        ├── commands.rs             # Tauri IPC command handlers
-        └── monitor.rs              # TauriEmitter, control mode monitoring
-```
+8. **Policy as data** — Retry and timeout for async tmux dispatch are values, not hard-coded constants. They flow through a Tower middleware stack (`TraceLayer → RetryLayer → TimeoutLayer → TmuxService`) with one composition point in code.
+
+## Crate layout
+
+Each crate's source tree is one `ls packages/<crate>/src` away — the durable thing to know is **what each crate owns**, not which files happen to currently exist.
+
+| Crate | Owns |
+|-------|------|
+| `tmuxy-core` | `tmux -CC` subprocess management, control-mode event parsing, the sans-IO state aggregator, `TmuxMonitor` runtime, substitutable `Ctx` (clock/tmux/fs), retry policy, Tower middleware stack, typed `TmuxError`. |
+| `tmuxy-server` | Axum HTTP server, SSE streaming with `Last-Event-Id` resync, typed `ClientCommand` enum for the HTTP POST endpoint, per-session client tracking, structured shutdown, embedded frontend assets (prod) or Vite proxy (dev). |
+| `tmuxy-ui` | React frontend, XState machine, optimistic `TmuxClientModel`, Effect-based adapter facade with typed errors, in-browser demo engine. |
+| `tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` + `Ctx` plumbing as the server; transport is native IPC instead of SSE/HTTP. |
 
 ## Related Documentation
 

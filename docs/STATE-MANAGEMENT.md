@@ -16,108 +16,85 @@ The backend maintains the **authoritative** tmux state. The frontend maintains a
 
 ## Backend State (Rust)
 
+The backend is the **authoritative** owner of tmux state. Everything below is a layer that exists to make that ownership testable, resilient, and shareable across multiple clients. Component shape and field-by-field details live in the source — this section describes **roles and contracts**.
+
 ### AppState
 
-The top-level server state, defined in `tmuxy-server/src/state.rs`. Holds:
+Top-level server state. Holds the per-session connection map, the execution context (`Ctx` — see below) for substitutable I/O, structured-shutdown handles (`JoinSet` + `CancellationToken`), and the shared image store. Exposes `tmux_call(args, op_name)` as the canonical async tmux entry point — every async handler routes through it rather than calling subprocesses directly.
 
-- `sessions` — A `HashMap<String, SessionConnections>` mapping session names to their connection state. Protected by `RwLock` for concurrent access.
-- `next_conn_id` — Atomic counter for generating unique connection IDs (starts at 1).
-- `sse_tokens` — Maps session tokens to `(connection_id, session_name)` pairs for HTTP POST authentication.
+See `tmuxy-server/src/state.rs`.
 
 ### SessionConnections
 
-Per-session connection tracking, also in `tmuxy-server/src/state.rs`. One instance per tmux session, shared by all clients connected to that session:
+One per tmux session, shared by every client connected to that session. Owns the list of connected client IDs, each client's reported viewport size (for minimum-size computation), the channel to the session's `TmuxMonitor`, and the `SessionBroadcast` — a broadcast sender plus a ring-buffer + monotonic sequence id used for SSE `Last-Event-Id` resync (see [DATA-FLOW.md](DATA-FLOW.md)).
 
-- `connections` — Ordered list of active connection IDs.
-- `client_sizes` — Each client's reported viewport size (cols, rows) for minimum-size computation.
-- `last_resize` — Last resize dimensions sent to tmux (avoids redundant commands).
-- `monitor_command_tx` — Channel sender for commands to the session's `TmuxMonitor`.
-- `state_tx` — Broadcast channel (capacity 100) for state updates, shared by all SSE clients.
-- `monitor_handle` — Tokio task handle for the monitor (used to detect if the monitor has exited).
+Same file as `AppState`.
 
-### TmuxMonitor
+### TmuxMonitor — the runtime
 
-The core event loop, defined in `tmuxy-core/src/control_mode/monitor.rs`. Maintains a persistent `tmux -CC attach-session` subprocess:
+The bridge between the sans-IO state machine and a live `tmux -CC` subprocess. Receives control-mode events, drives the aggregator step-by-step, and executes the typed `SideEffect`s the aggregator returns (sending tmux commands, refreshing panes, emitting state). Multiplexes control-mode events, periodic syncs, the settling/throttle/debounce timers, and external commands from the frontend.
 
-- `connection` — The `ControlModeConnection` (stdin/stdout to the tmux subprocess).
-- `aggregator` — The `StateAggregator` that processes control mode events into state updates.
-- `config` — `MonitorConfig` with session name, sync intervals, throttle settings.
-- `command_rx` — Receiver for `MonitorCommand` messages from the frontend.
+Takes an `Arc<Ctx>` so the clock, tmux dispatch, and filesystem are substitutable — tests can drive the loop without spinning a real tmux. The reconnect loop in the server/Tauri paths re-creates the monitor on disconnect with the same ctx.
 
-The event loop uses `tokio::select!` with five branches: control mode events, throttle timer, settling timer, sync timer, and command channel. See [DATA-FLOW.md](DATA-FLOW.md) for the flow diagram.
+See `tmuxy-core/src/control_mode/monitor.rs`. The split into per-event handler methods (`on_control_event`, `on_throttle_tick`, `on_settling_timeout`, etc.) is purely organisational — the docblocks on each method spell out the load-bearing ordering invariants.
 
 ### MonitorCommand
 
-Enum with three variants (in `tmuxy-core/src/control_mode/monitor.rs`):
-
-- `ResizeWindow { cols, rows }` — Resize all windows in the session.
-- `RunCommand { command }` — Run an arbitrary tmux command through control mode stdin.
-- `Shutdown` — Gracefully disconnect (sends `detach-client`, waits for clean exit).
+The typed envelope external code uses to drive the monitor (resize the window, run a tmux command through control mode, gracefully shut down). See the enum in `monitor.rs`; new variants get docblocks explaining *when* you'd send them, since the variant name alone isn't usually enough.
 
 ### ControlModeConnection
 
-Manages the `tmux -CC` subprocess, defined in `tmuxy-core/src/control_mode/connection.rs`:
+Manages the `tmux -CC` subprocess and the stdin/stdout framing on top of it. Spawns the subprocess under a PTY (via `script`), runs a background parser task that converts stdout lines into `ControlModeEvent`s, and exposes `send_command` / `send_commands_batch` for writes. `graceful_close()` always sends `detach-client` and waits — abrupt kills crash tmux 3.5a (see [TMUX.md](TMUX.md)).
 
-- Spawns `tmux -CC` via a `script` wrapper for PTY allocation (initial size: 200x50).
-- Spawns a background parser task that reads stdout line-by-line and converts to `ControlModeEvent` values.
-- Provides `send_command()` and `send_commands_batch()` for writing to stdin.
-- `graceful_close()` sends `detach-client` and waits — never kills the process abruptly (to avoid crashing tmux 3.5a).
+See `tmuxy-core/src/control_mode/connection.rs`.
 
-### StateAggregator
+### StateAggregator — sans-IO state machine
 
-Processes raw control mode events into structured state, defined in `tmuxy-core/src/control_mode/state.rs`. This is the largest component:
+The heart of the system. Consumes `ControlModeEvent`s and returns typed `SideEffect`s (`AdoptUntaggedWindows`, `RefreshPanes`, `EmitState { change }`, `StoreImages`, `WriteClipboard`, etc.). Performs no I/O itself — every command send, every emit, every image store is described, not performed. The runtime (`TmuxMonitor`) is what actually executes them.
 
-- `panes` — `HashMap<String, PaneState>` indexed by pane ID (`%0`, `%1`, etc.). Each `PaneState` contains a `vt100::Parser` terminal emulator, an `OscParser` for hyperlinks/clipboard, raw output buffer, position/size, cursor, metadata, copy mode state, and flow control flags.
-- `windows` — `HashMap<String, WindowState>` indexed by window ID (`@0`, `@1`, etc.).
-- `active_window_id` — Current active window.
-- `pending_captures` — FIFO queue of pane IDs awaiting `capture-pane` responses.
-- `prev_state` — Previous state snapshot for delta computation.
-- `delta_seq` — Sequence number for delta ordering.
-- `popup` — Active popup state (requires tmux PR #4361).
-- `suppress_window_emissions` — Suppresses intermediate states during compound commands.
+This separation is what makes the aggregator testable without tokio: drive it with synthetic event sequences and assert on the returned effects. The settling mechanism (window-emission suppression during compound commands) lives here as a sticky flag the runtime arms/disarms; the time-based debounce/safety timer that decides *when* to disarm still lives in the monitor.
 
-Key methods:
-- `process_event()` — Takes a `ControlModeEvent`, updates internal state, returns what changed and which panes need refresh.
-- `to_state_update()` — Computes a `StateUpdate` (full or delta) by diffing against `prev_state`.
-- `force_emit()` — Clears suppression and emits consolidated state (called after settling).
+`step(event) -> StepResult` is the public entry point. `tick(now)` is reserved for future time-driven transitions and currently returns no effects.
 
-### StateUpdate and TmuxState
+See `tmuxy-core/src/control_mode/state.rs` and the `SideEffect` enum's docblocks for the ordering invariants the runtime relies on.
 
-The data structures sent to the frontend (defined in `tmuxy-core/src/lib.rs`):
+### Ctx — execution context
 
-**`StateUpdate`** is an enum: `Full { state: TmuxState }` for complete snapshots (initial sync, reconnection) or `Delta { delta: TmuxDelta }` for incremental updates.
+A small bundle of substitutable capabilities (`TmuxCommand`, `Clock`, `FileSystem`) plus a `RetryPolicy`. Production uses `Ctx::live()` (real subprocess, system clock, on-disk FS). Tests use `test_ctx()` (mock tmux that records argvs, fake clock, in-memory FS) — gated behind a `test-support` cargo feature so external integration tests can pull in the mocks.
 
-**`TmuxState`** contains: `session_name`, `active_window_id`, `active_pane_id`, `panes` (list of `TmuxPane`), `windows` (list of `TmuxWindow`), `total_width/height`, `status_line` (rendered with ANSI escapes), and `popup`.
+See `tmuxy-core/src/ctx.rs`.
 
-**`TmuxDelta`** contains only changed fields: `seq` (ordering), modified/removed panes and windows, new panes/windows, active pane/window changes, status line, dimensions, and popup state. `None` values mean "no change"; `Some(None)` means "removed".
+### Tower stack — async tmux call boundary
 
-### StateEmitter Trait
+Async hot paths that need to dispatch one-off tmux commands go through a Tower middleware stack: `TraceLayer → RetryLayer → TimeoutLayer → TmuxService`. `build_tmux_stack(ctx_tmux, timeout, policy)` is the single composition point; `AppState::tmux_call` is the consumer-side helper. Configuration (per-call timeout, retry policy) is changed in one place.
 
-Adapter pattern for different backends, defined in `tmuxy-core/src/control_mode/monitor.rs`:
+Sync `executor::*` helpers continue to call subprocesses directly because they cannot await — they're used from CLI paths and from background `spawn_blocking` contexts. The Tower stack is for the async paths.
 
-- `emit_state(StateUpdate)` — Emit a state change.
-- `emit_error(String)` — Emit an error message.
+See `tmuxy-core/src/tmux_service.rs`.
 
-Two implementations:
-- `SseEmitter` (in `tmuxy-server/src/sse.rs`) — Serializes to JSON and sends through the session's broadcast channel to all SSE clients.
-- `TauriEmitter` (in `tauri-app/src/monitor.rs`) — Emits Tauri events via `app.emit()` to the desktop frontend.
+### StateUpdate, TmuxState, TmuxDelta
 
-### Settling Mechanism
+The wire-shaped types the backend emits. `StateUpdate` is either a `Full` snapshot (initial sync, full resync) or a `Delta` (sequenced incremental change). The delta encoding distinguishes "no change" from "removed" so the frontend's reconciliation is unambiguous.
 
-When compound commands are sent (e.g., `splitw ; breakp`), tmux fires multiple events in rapid succession. The settling mechanism prevents flashing intermediate states:
+See `tmuxy-core/src/lib.rs`. The TypeScript mirrors live in `tmuxy-ui/src/tmux/effect/schemas.ts` and are validated via Effect Schema on every receive.
 
-- When a command is sent, `settling_until` is set to `now + 100ms` (debounce).
-- Window/layout emissions are suppressed during settling.
-- Each new event resets the debounce timer (up to a 500ms maximum).
-- When the timer expires, `force_emit()` sends the consolidated final state.
+### StateEmitter trait
 
-### Adaptive Throttling
+The seam between the monitor and a specific transport. Two implementations:
+- `SseEmitter` (`tmuxy-server/src/sse.rs`) — broadcasts via `SessionBroadcast` to every SSE client in the session.
+- `TauriEmitter` (`tauri-app/src/monitor.rs`) — emits Tauri events to the desktop frontend.
 
-For high-frequency terminal output (e.g., `yes | head -500`):
+The trait keeps `TmuxMonitor` transport-agnostic; adding a third transport means implementing the trait, nothing else.
 
-- The monitor tracks event rate over a 100ms window.
-- If >20 events arrive in 100ms: switch to throttle mode, buffer output, and emit at 16ms intervals (~60fps).
-- Below the threshold: emit immediately for low-latency typing feedback.
+### Settling, throttling, debouncing
+
+Three timing policies the monitor applies on top of the aggregator's effects. All are about *when* to flush state, not *what* the state contains.
+
+- **Settling** suppresses intermediate window/layout emissions while a compound command (`splitw ; breakp ; set-option ...`) is mid-flight. The aggregator owns the suppression flag; the monitor owns the debounce/safety timer that decides when to disarm it.
+- **Adaptive throttling** caps state emissions during high-frequency output (rate-window hysteresis with a ~60fps ceiling) so terminal-output bursts don't drown the SSE channel. Below the threshold, emissions are immediate for low-latency typing feedback.
+- **Layout debounce** coalesces rapid layout changes (e.g., zoom-out cascades) into a single emission.
+
+Tunables live on `MonitorConfig`. The exact durations + thresholds drift as we tune for real workloads; the durable contract is "the aggregator is correct; the monitor decides cadence."
 
 ---
 

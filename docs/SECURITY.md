@@ -18,18 +18,9 @@ If any of these assumptions are violated, the risks described below apply.
 
 ## Authentication
 
-### Session Tokens
+**The web server performs no authentication of any kind.** Any client that can reach the server's network port can open an SSE connection, send arbitrary commands via `POST /commands`, and read filesystem entries via `/api/file` / `/api/directory`. There are no session tokens, no API keys, no cookies, and no per-user permissions.
 
-The web server generates a 128-bit random hex token (via `rand::thread_rng()`, cryptographically sound) for each SSE connection. The token is sent in the `connection-info` SSE event and must be included as the `X-Session-Token` header on all HTTP POST commands. Tokens are stored server-side in `AppState::sse_tokens` and destroyed on client disconnect.
-
-### No User Authentication
-
-There is **no user authentication**. Any client that can reach the server's network port can:
-1. Open an SSE connection to `/events?session=<name>` (unauthenticated)
-2. Receive a valid session token
-3. Use that token to send arbitrary commands
-
-The session token prevents cross-session interference (a token for session A cannot control session B) but does not authenticate users.
+This is by design — tmuxy is intended to run on a trusted network (loopback, LAN, SSH tunnel, VPN, or behind an authenticating reverse proxy). The threat model assumes everyone who can reach the server is authorized to control it.
 
 ### Tauri Desktop App
 
@@ -52,9 +43,9 @@ The Tauri app has no network-level authentication concerns — all communication
 
 ### 2. No TLS/HTTPS (High)
 
-**Risk:** All communication is over plain HTTP. Session tokens, terminal content, and commands are transmitted in cleartext.
+**Risk:** All communication is over plain HTTP. Terminal content and commands are transmitted in cleartext.
 
-**Impact:** Network eavesdropping can capture session tokens (granting full session control), observe all terminal output, and see all keystrokes sent to tmux.
+**Impact:** Network eavesdropping can observe all terminal output and see all keystrokes sent to tmux. Combined with the lack of authentication (#1), any observer on-path can also inject commands.
 
 **Mitigation:**
 - Use a reverse proxy (nginx, Caddy) with TLS certificates for HTTPS
@@ -63,11 +54,11 @@ The Tauri app has no network-level authentication concerns — all communication
 
 ### 3. Arbitrary Command Execution (High)
 
-**Risk:** Authenticated clients can send any tmux command, including `run-shell` which executes arbitrary shell commands within the tmux server process.
+**Risk:** Any client that reaches the server can send any tmux command, including `run-shell` which executes arbitrary shell commands within the tmux server process.
 
 **Impact:** Full shell access as the user running the tmux server. Can read/write files, start processes, modify system state.
 
-**Context:** This is by design — tmuxy is a tmux UI, and tmux provides full shell access. However, if a session token leaks (via network interception, browser dev tools, or logs), anyone with the token has this access.
+**Context:** This is by design — tmuxy is a tmux UI, and tmux provides full shell access. Combined with #1 (no authentication), network reachability alone is sufficient for code execution.
 
 ### 4. Unrestricted File Access (High)
 
@@ -89,7 +80,7 @@ The Tauri app has no network-level authentication concerns — all communication
 
 **Risk:** CORS headers allow requests from any origin (`Access-Control-Allow-Origin: *`).
 
-**Impact:** A malicious website could make requests to a locally-running tmuxy server if it can guess the port. Mitigated by the session token requirement — the attacker would need both network access and a valid token.
+**Impact:** A malicious website opened by a user who is also running tmuxy locally could make cross-origin requests to the tmuxy server if it can guess the port. With no authentication (#1), guessing the port is the only barrier.
 
 ### 7. No Audit Logging (Medium)
 
@@ -172,7 +163,6 @@ Browser → HTTPS → nginx/Caddy (+ auth) → HTTP → tmuxy server → tmux
 - **Do NOT** expose tmuxy directly on a public IP without authentication
 - **Do NOT** run tmuxy as root
 - **Do NOT** use tmuxy on shared/multi-tenant servers without network isolation
-- **Do NOT** rely on session tokens as the sole security layer — they are not a substitute for authentication
 - **Do NOT** store secrets (API keys, passwords, SSH passphrases) in tmux sessions that are connected to tmuxy on a network
 
 ## Future Security Improvements
@@ -185,7 +175,7 @@ These are not currently implemented but would improve the security posture:
 - **Read-only mode** — View terminal output without command execution
 - **Audit logging** — Log all commands and client connections
 - **Path restrictions** — Limit `/api/file` and `/api/directory` to specific directories
-- **Rate limiting** — Prevent brute-force token guessing and command flooding
+- **Rate limiting** — Prevent command flooding
 
 ## Related
 
