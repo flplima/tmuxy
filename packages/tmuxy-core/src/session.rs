@@ -4,6 +4,9 @@ use std::sync::OnceLock;
 use tracing::{info, warn};
 
 use crate::constants::tmux_options;
+use crate::error::TmuxError;
+
+type Result<T> = std::result::Result<T, TmuxError>;
 
 /// Resolved path to the tmux binary, cached after first lookup.
 static TMUX_PATH: OnceLock<String> = OnceLock::new();
@@ -759,7 +762,7 @@ pub fn refresh_launcher(exe_path: &std::path::Path) {
 /// Read a theme CSS file by name from ~/.config/tmuxy/themes/<name>.css.
 /// Falls back to the bundled copy if the user's directory doesn't have it
 /// (e.g. they deleted a default but the menu still references it).
-pub fn read_theme_css(name: &str) -> Result<String, String> {
+pub fn read_theme_css(name: &str) -> Result<String> {
     let path = config_dir().join("themes").join(format!("{}.css", name));
     if let Ok(content) = std::fs::read_to_string(&path) {
         return Ok(content);
@@ -772,10 +775,10 @@ pub fn read_theme_css(name: &str) -> Result<String, String> {
         }
     }
 
-    Err(format!("theme '{}' not found", name))
+    Err(TmuxError::other(format!("theme '{}' not found", name)))
 }
 
-pub fn session_exists(session_name: &str) -> Result<bool, String> {
+pub fn session_exists(session_name: &str) -> Result<bool> {
     crate::debug_log::log_cmd(
         "has-session",
         tmux_path(),
@@ -792,7 +795,7 @@ pub fn session_exists(session_name: &str) -> Result<bool, String> {
     Ok(output.status.success())
 }
 
-pub fn create_session(session_name: &str) -> Result<(), String> {
+pub fn create_session(session_name: &str) -> Result<()> {
     let config_path = get_config_path();
 
     let mut args = vec!["new-session", "-d", "-s", session_name];
@@ -818,11 +821,11 @@ pub fn create_session(session_name: &str) -> Result<(), String> {
     crate::debug_log::log_cmd_result("create-session", output.status.code(), &stdout, &stderr);
 
     if !output.status.success() {
-        return Err(format!(
+        return Err(TmuxError::other(format!(
             "tmux new-session failed (exit {}): {}",
             output.status.code().unwrap_or(-1),
             stderr.trim()
-        ));
+        )));
     }
 
     // Tag the freshly-created window so the frontend sees a 'tab' window
@@ -845,7 +848,7 @@ pub fn create_session(session_name: &str) -> Result<(), String> {
 }
 
 /// Source the tmuxy config file in an existing session
-pub fn source_config(_session_name: &str) -> Result<(), String> {
+pub fn source_config(_session_name: &str) -> Result<()> {
     let Some(config_path) = get_config_path() else {
         return Ok(()); // No config to source
     };
@@ -859,7 +862,7 @@ pub fn source_config(_session_name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn create_or_attach(session_name: &str) -> Result<(), String> {
+pub fn create_or_attach(session_name: &str) -> Result<()> {
     if !session_exists(session_name)? {
         create_session(session_name)?;
     } else {
@@ -874,7 +877,7 @@ pub fn create_or_attach(session_name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn kill_session(session_name: &str) -> Result<(), String> {
+pub fn kill_session(session_name: &str) -> Result<()> {
     tmux_command()
         .args(["kill-session", "-t", session_name])
         .output()

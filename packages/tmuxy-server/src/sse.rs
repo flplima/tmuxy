@@ -1333,6 +1333,21 @@ async fn start_monitoring_control_mode(
                 }
             }
             Err(e) => {
+                // Variant-aware recovery:
+                // - `SessionNotFound` after the session was already destroyed (e.g. external
+                //   `tmux kill-session`) means the user intentionally tore it down. Surface
+                //   and exit instead of looping forever trying to attach.
+                // - Everything else (`Timeout`, `ProcessExited`, `Io`, generic `ControlMode`)
+                //   is retried with exponential backoff up to `MAX_CONSECUTIVE_FAILURES`.
+                if matches!(e, tmuxy_core::TmuxError::SessionNotFound { .. })
+                    && ever_ran_successfully
+                {
+                    info!(%session, error = %e, "session destroyed externally, stopping monitor loop");
+                    let mut sessions = state.sessions.write().await;
+                    sessions.remove(&session);
+                    return;
+                }
+
                 consecutive_failures += 1;
                 emitter.emit_error(format!(
                     "Failed to connect to control mode (attempt {} of {}): {}",
@@ -1403,7 +1418,9 @@ async fn start_monitoring_polling(tx: broadcast::Sender<String>) {
                 }
             }
             Err(e) => {
-                let event = SseEvent::Error { message: e };
+                let event = SseEvent::Error {
+                    message: e.to_string(),
+                };
                 if let Some(s) = encode_event(&event) {
                     let _ = tx.send(s);
                 }

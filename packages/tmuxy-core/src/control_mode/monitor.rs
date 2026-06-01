@@ -9,6 +9,7 @@ use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROW
 use super::parser::ControlModeEvent;
 use super::state::{ChangeType, StateAggregator};
 use crate::constants::tmux_formats;
+use crate::error::TmuxError;
 use crate::{StateUpdate, TmuxState};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -141,7 +142,7 @@ impl TmuxMonitor {
     pub async fn connect(
         config: MonitorConfig,
         log: Option<&std::sync::Arc<dyn super::log::LogSink>>,
-    ) -> Result<(Self, MonitorCommandSender), String> {
+    ) -> Result<(Self, MonitorCommandSender), TmuxError> {
         // Serialize control mode attachment to prevent concurrent operations
         // that crash tmux 3.5a (multiple CC clients racing to attach).
         // `tmux -CC new-session -A` (when create_session is true) handles
@@ -175,7 +176,7 @@ impl TmuxMonitor {
 
     /// Synchronize initial state by querying tmux.
     #[instrument(skip(self), fields(session = %self.config.session))]
-    pub async fn sync_initial_state(&mut self) -> Result<(), String> {
+    pub async fn sync_initial_state(&mut self) -> Result<(), TmuxError> {
         // Set window-size to manual BEFORE resizing, so the resize doesn't
         // trigger SIGWINCH to the shell (which causes prompt redraw %output
         // that races with our capture-pane responses).
@@ -233,7 +234,7 @@ impl TmuxMonitor {
     /// Sends `set` commands directly to the attached tmux session so they take
     /// effect immediately, regardless of what the user's config file contains.
     /// This does NOT modify any config file on disk.
-    async fn enforce_settings(&mut self) -> Result<(), String> {
+    async fn enforce_settings(&mut self) -> Result<(), TmuxError> {
         let settings = [
             // CRITICAL: PaneLayout assumes border-status top — without it,
             // y=0 panes lose 1 row of content (the header steals from terminal area).
@@ -828,7 +829,7 @@ impl TmuxMonitor {
     /// Send a tmux command through control mode.
     ///
     /// Returns the command number for tracking the response.
-    pub async fn send_command(&mut self, cmd: &str) -> Result<u32, String> {
+    pub async fn send_command(&mut self, cmd: &str) -> Result<u32, TmuxError> {
         self.connection.send_command(cmd).await
     }
 
@@ -843,7 +844,7 @@ impl TmuxMonitor {
     }
 
     /// Kill the monitor connection.
-    pub async fn kill(&mut self) -> Result<(), String> {
+    pub async fn kill(&mut self) -> Result<(), TmuxError> {
         self.connection.kill().await
     }
 

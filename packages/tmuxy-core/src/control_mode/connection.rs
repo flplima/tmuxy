@@ -4,6 +4,7 @@
 
 use super::log::{LogKind, LogSink};
 use super::parser::{ControlModeEvent, Parser};
+use crate::error::TmuxError;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -193,7 +194,7 @@ impl ControlModeConnection {
         working_dir: Option<&std::path::Path>,
         log: Option<&Arc<dyn LogSink>>,
         create_if_missing: bool,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TmuxError> {
         let tmux_path = crate::session::tmux_path();
         log_to(log, LogKind::Info, format!("tmux binary: {}", tmux_path));
 
@@ -238,26 +239,24 @@ impl ControlModeConnection {
                         "(failed to list)".to_string()
                     }
                 };
-                return Err(format!(
-                    "Session '{}' does not exist\n\
-                      command: {}\n\
-                      tmux binary: {}\n\
-                      stderr: {}\n\
-                      existing sessions: {}",
-                    session_name,
-                    has_session_cmd,
-                    tmux_path,
-                    if stderr.is_empty() {
-                        "(empty)"
-                    } else {
-                        stderr.trim()
-                    },
-                    if sessions.is_empty() {
-                        "(none)"
-                    } else {
-                        &sessions
-                    },
-                ));
+                return Err(TmuxError::SessionNotFound {
+                    name: format!(
+                        "{} (command: {}, tmux binary: {}, stderr: {}, existing sessions: {})",
+                        session_name,
+                        has_session_cmd,
+                        tmux_path,
+                        if stderr.is_empty() {
+                            "(empty)"
+                        } else {
+                            stderr.trim()
+                        },
+                        if sessions.is_empty() {
+                            "(none)"
+                        } else {
+                            &sessions
+                        },
+                    ),
+                });
             }
         }
 
@@ -429,14 +428,14 @@ impl ControlModeConnection {
                         if tail.is_empty() { "(empty)" } else { &tail }
                     ),
                 );
-                return Err(format!(
-                    "Control mode connection died immediately for session '{}'\n\
-                      command: {}\n\
-                      output: {}",
-                    session_name,
-                    shell_desc,
-                    if tail.is_empty() { "(empty)" } else { &tail },
-                ));
+                return Err(TmuxError::ProcessExited {
+                    reason: format!(
+                        "control mode died immediately for session '{}' (command: {}, output: {})",
+                        session_name,
+                        shell_desc,
+                        if tail.is_empty() { "(empty)" } else { &tail },
+                    ),
+                });
             }
             Err(_) => {
                 let _ = child.kill().await;
@@ -450,14 +449,10 @@ impl ControlModeConnection {
                         if tail.is_empty() { "(empty)" } else { &tail }
                     ),
                 );
-                return Err(format!(
-                    "Control mode timed out (10s) for session '{}'\n\
-                      command: {}\n\
-                      output: {}",
-                    session_name,
-                    shell_desc,
-                    if tail.is_empty() { "(empty)" } else { &tail },
-                ));
+                return Err(TmuxError::Timeout {
+                    operation: format!("control mode connect to session '{}'", session_name),
+                    after: Duration::from_secs(10),
+                });
             }
         }
 
@@ -475,7 +470,7 @@ impl ControlModeConnection {
     /// Commands are sent as plain text followed by newline.
     /// The response will come as a `CommandResponse` event.
     /// Returns the command number that tmux will use in the response.
-    pub async fn send_command(&mut self, cmd: &str) -> Result<u32, String> {
+    pub async fn send_command(&mut self, cmd: &str) -> Result<u32, TmuxError> {
         // Note: tmux command numbers start at 0, and we track them in sync.
         // We capture the current counter value BEFORE incrementing so it matches
         // what tmux will report in the %begin/%end response.
@@ -500,13 +495,14 @@ impl ControlModeConnection {
     /// Append captured subprocess stderr to an io::Error message.
     /// Gives the user concrete evidence of *why* the pipe broke instead of
     /// the generic "Broken pipe (os error 32)".
-    async fn enrich_io_error(&self, prefix: &str, e: &std::io::Error) -> String {
+    async fn enrich_io_error(&self, prefix: &str, e: &std::io::Error) -> TmuxError {
         let stderr = drain_recent_output(&self.recent_output).await;
-        if stderr.is_empty() {
+        let msg = if stderr.is_empty() {
             format!("{}: {}", prefix, e)
         } else {
             format!("{}: {} | subprocess stderr: {}", prefix, e, stderr)
-        }
+        };
+        TmuxError::other(msg)
     }
 
     /// Send multiple tmux commands in a batch with a single flush.
@@ -514,7 +510,7 @@ impl ControlModeConnection {
     /// More efficient than calling send_command multiple times because
     /// it reduces system calls by batching writes and flushing once.
     /// Returns the command number of the first command (what tmux will report).
-    pub async fn send_commands_batch(&mut self, commands: &[String]) -> Result<u32, String> {
+    pub async fn send_commands_batch(&mut self, commands: &[String]) -> Result<u32, TmuxError> {
         if commands.is_empty() {
             return Ok(self.command_counter);
         }
@@ -563,11 +559,8 @@ impl ControlModeConnection {
     }
 
     /// Kill the control mode connection.
-    pub async fn kill(&mut self) -> Result<(), String> {
-        self.child
-            .kill()
-            .await
-            .map_err(|e| format!("Failed to kill tmux control mode: {}", e))
+    pub async fn kill(&mut self) -> Result<(), TmuxError> {
+        self.child.kill().await.map_err(TmuxError::Io)
     }
 
     /// Gracefully close the control mode connection.

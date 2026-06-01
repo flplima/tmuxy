@@ -12,12 +12,12 @@ fn get_session() -> String {
 
 #[tauri::command]
 pub async fn send_keys_to_tmux(keys: String) -> Result<(), String> {
-    executor::send_keys(&get_session(), &keys)
+    executor::send_keys(&get_session(), &keys).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn process_key(key: String) -> Result<(), String> {
-    tmuxy_core::process_key(&get_session(), &key)
+    tmuxy_core::process_key(&get_session(), &key).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -57,27 +57,27 @@ pub async fn set_client_size(
     if let Ok(mut size) = state.last_client_size.write() {
         *size = Some((cols, rows));
     }
-    executor::resize_window(&get_session(), cols, rows)
+    executor::resize_window(&get_session(), cols, rows).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn initialize_session() -> Result<(), String> {
-    session::create_or_attach(&get_session())
+    session::create_or_attach(&get_session()).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_scrollback_history() -> Result<String, String> {
-    executor::capture_pane_with_history(&get_session())
+    executor::capture_pane_with_history(&get_session()).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn split_pane_horizontal() -> Result<(), String> {
-    executor::split_pane_horizontal(&get_session())
+    executor::split_pane_horizontal(&get_session()).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn split_pane_vertical() -> Result<(), String> {
-    executor::split_pane_vertical(&get_session())
+    executor::split_pane_vertical(&get_session()).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -92,42 +92,42 @@ pub async fn new_window(state: State<'_, MonitorState>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn select_pane(direction: String) -> Result<(), String> {
-    executor::select_pane(&get_session(), &direction)
+    executor::select_pane(&get_session(), &direction).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn select_window(window: String) -> Result<(), String> {
-    executor::select_window(&get_session(), &window)
+    executor::select_window(&get_session(), &window).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn next_window() -> Result<(), String> {
-    executor::next_window(&get_session())
+    executor::next_window(&get_session()).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn previous_window() -> Result<(), String> {
-    executor::previous_window(&get_session())
+    executor::previous_window(&get_session()).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn kill_pane() -> Result<(), String> {
-    executor::kill_pane(&get_session())
+    executor::kill_pane(&get_session()).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn kill_window() -> Result<(), String> {
-    executor::kill_window(&get_session())
+    executor::kill_window(&get_session()).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn select_pane_by_id(pane_id: String) -> Result<(), String> {
-    executor::select_pane_by_id(&pane_id)
+    executor::select_pane_by_id(&pane_id).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn scroll_pane(pane_id: String, direction: String, amount: u32) -> Result<(), String> {
-    executor::scroll_pane(&pane_id, &direction, amount)
+    executor::scroll_pane(&pane_id, &direction, amount).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -138,12 +138,12 @@ pub async fn send_mouse_event(
     x: u32,
     y: u32,
 ) -> Result<(), String> {
-    executor::send_mouse_event(&pane_id, &event_type, button, x, y)
+    executor::send_mouse_event(&pane_id, &event_type, button, x, y).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn execute_prefix_binding(key: String) -> Result<(), String> {
-    executor::execute_prefix_binding(&get_session(), &key)
+    executor::execute_prefix_binding(&get_session(), &key).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -210,7 +210,7 @@ pub async fn run_tmux_command(
         // at least lands the first line rather than dropping the paste entirely.
     }
 
-    executor::run_tmux_command_for_session(&get_session(), &command)
+    executor::run_tmux_command_for_session(&get_session(), &command).map_err(Into::into)
 }
 
 /// Fetch a range of scrollback cells for copy mode.
@@ -338,12 +338,12 @@ pub async fn resize_pane(
     direction: String,
     adjustment: u32,
 ) -> Result<(), String> {
-    executor::resize_pane(&pane_id, &direction, adjustment)
+    executor::resize_pane(&pane_id, &direction, adjustment).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn resize_window(cols: u32, rows: u32) -> Result<(), String> {
-    executor::resize_window(&get_session(), cols, rows)
+    executor::resize_window(&get_session(), cols, rows).map_err(Into::into)
 }
 
 #[tauri::command]

@@ -1,8 +1,11 @@
 pub mod constants;
 pub mod control_mode;
 pub mod debug_log;
+pub mod error;
 pub mod executor;
 pub mod session;
+
+pub use error::{Result as TmuxResult, TmuxError};
 
 use serde::{Deserialize, Serialize};
 
@@ -395,11 +398,6 @@ pub struct TmuxState {
     pub popup: Option<TmuxPopup>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TmuxError {
-    pub message: String,
-}
-
 /// Delta update for a single pane (only changed fields)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PaneDelta {
@@ -664,12 +662,12 @@ pub enum StateUpdate {
 }
 
 /// Capture the state of all panes in the current window
-pub fn capture_state() -> Result<TmuxState, String> {
+pub fn capture_state() -> Result<TmuxState, TmuxError> {
     capture_state_for_session(DEFAULT_SESSION_NAME)
 }
 
 /// Capture the state of all panes in a specific session's current window
-pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String> {
+pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, TmuxError> {
     let pane_infos = executor::get_all_panes_info(session_name)?;
     let window_infos = executor::get_windows(session_name)?;
 
@@ -773,11 +771,11 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, String
 }
 
 // Alias for backwards compatibility
-pub fn capture_window_state() -> Result<TmuxState, String> {
+pub fn capture_window_state() -> Result<TmuxState, TmuxError> {
     capture_state()
 }
 
-pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState, String> {
+pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState, TmuxError> {
     capture_state_for_session(session_name)
 }
 
