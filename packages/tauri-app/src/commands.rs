@@ -275,11 +275,7 @@ pub async fn get_scrollback_cells(
 pub async fn get_theme_settings(ctx: State<'_, Arc<Ctx>>) -> Result<Value, String> {
     let theme = ctx
         .tmux_call(
-            vec![
-                "show-options".into(),
-                "-gqv".into(),
-                "@tmuxy-theme".into(),
-            ],
+            vec!["show-options".into(), "-gqv".into(), "@tmuxy-theme".into()],
             "get_theme",
         )
         .await
