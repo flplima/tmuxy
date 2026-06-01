@@ -36,6 +36,14 @@ echo "[dev] Port: $PORT, Socket: ${SOCKET:-default}"
 echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src"
 echo ""
 
+echo "[dev] Cleaning old Rust build artifacts..."
+if command -v cargo-sweep >/dev/null 2>&1; then
+    cargo sweep --time 7 -r . 2>/dev/null || true
+else
+    echo "[dev] Note: 'cargo sweep' not found. Run 'cargo install cargo-sweep' to enable automatic artifact cleanup."
+fi
+echo ""
+
 # Ensure the tmux server has a session so it stays alive between test cycles.
 if [ -n "$SOCKET" ]; then
     tmux -L "$SOCKET" has-session -t tmuxy 2>/dev/null \
