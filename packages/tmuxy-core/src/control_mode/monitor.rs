@@ -148,13 +148,6 @@ struct RunState {
     // Layout debouncing
     pending_layout_emit: bool,
     layout_debounce: Duration,
-
-    // Compound-command settling
-    settling_until: Option<tokio::time::Instant>,
-    settling_started: Option<tokio::time::Instant>,
-    settling_awaiting_first_event: bool,
-    settling_debounce: Duration,
-    settling_max: Duration,
 }
 
 impl RunState {
@@ -188,12 +181,6 @@ impl RunState {
 
             pending_layout_emit: false,
             layout_debounce: Duration::from_millis(16),
-
-            settling_until: None,
-            settling_started: None,
-            settling_awaiting_first_event: false,
-            settling_debounce: Duration::from_millis(100),
-            settling_max: Duration::from_millis(500),
         }
     }
 
@@ -255,52 +242,6 @@ impl RunState {
                 self.in_throttle_mode = true;
             }
         }
-    }
-
-    /// On window/layout events during settling, extend the debounce deadline
-    /// but never beyond the safety ceiling. `change` comes from the typed
-    /// `StepResult` so this still fires for changes that were suppressed
-    /// from emission (we still need to extend settling for them).
-    fn maybe_extend_settling(&mut self, change: &ChangeType) {
-        if self.settling_until.is_none() {
-            return;
-        }
-        let is_window_event = matches!(
-            change,
-            ChangeType::Window | ChangeType::PaneLayout | ChangeType::PaneFocus
-        );
-        if !is_window_event {
-            return;
-        }
-        let now = tokio::time::Instant::now();
-        if self.settling_awaiting_first_event {
-            self.settling_awaiting_first_event = false;
-            self.settling_started = Some(now);
-            debug!("settling: first event received, starting debounce timer");
-        }
-        let max_deadline = self.settling_started.unwrap_or(now) + self.settling_max;
-        let debounced = now + self.settling_debounce;
-        self.settling_until = Some(debounced.min(max_deadline));
-    }
-
-    /// Arm the settling state for a multi-step compound command. Suppresses
-    /// window emissions until the timer fires (handled by `clear_settling` plus
-    /// `set_suppress_window_emissions(false)` at the timeout site).
-    fn arm_settling(&mut self, aggregator: &mut StateAggregator) {
-        let now = tokio::time::Instant::now();
-        self.settling_started = Some(now);
-        self.settling_awaiting_first_event = true;
-        self.settling_until = Some(now + self.settling_max);
-        aggregator.set_suppress_window_emissions(true);
-    }
-
-    /// Reset all settling trackers. Caller is responsible for calling
-    /// `aggregator.set_suppress_window_emissions(false)` once the consolidated
-    /// emit has happened (done inline in `on_settling_timeout`).
-    fn clear_settling(&mut self) {
-        self.settling_until = None;
-        self.settling_started = None;
-        self.settling_awaiting_first_event = false;
     }
 }
 
@@ -506,9 +447,11 @@ impl TmuxMonitor {
 
         loop {
             let throttle_sleep = rs.compute_throttle_sleep(&self.config, self.ctx.clock.now());
-            let settling_deadline = rs
-                .settling_until
-                .unwrap_or_else(|| tokio::time::Instant::now() + LONG_SLEEP);
+            let settling_sleep = self
+                .aggregator
+                .settling_deadline()
+                .map(|d| d.saturating_duration_since(self.ctx.clock.now()))
+                .unwrap_or(LONG_SLEEP);
             let metadata_deadline = rs
                 .metadata_sync_at
                 .unwrap_or_else(|| tokio::time::Instant::now() + LONG_SLEEP);
@@ -531,9 +474,10 @@ impl TmuxMonitor {
                     self.on_layout_debounce(emitter, &mut rs);
                 }
 
-                // Settling timer - emit consolidated state after compound command events settle
-                _ = tokio::time::sleep_until(settling_deadline), if rs.settling_until.is_some() => {
-                    self.on_settling_timeout(emitter, &mut rs);
+                // Settling timer — `aggregator.tick(now)` drains the consolidated
+                // emit after compound-command events settle.
+                _ = tokio::time::sleep(settling_sleep), if self.aggregator.is_settling() => {
+                    self.on_settling_tick(emitter, &mut rs);
                 }
 
                 // Deferred metadata sync: refresh pane commands after output settles
@@ -548,7 +492,7 @@ impl TmuxMonitor {
 
                 // Handle external commands (resize, etc.)
                 cmd = self.command_rx.recv() => {
-                    if !self.on_command(emitter, &mut rs, cmd).await {
+                    if !self.on_command(emitter, cmd).await {
                         break;
                     }
                 }
@@ -618,7 +562,7 @@ impl TmuxMonitor {
             }
         }
 
-        let step = self.aggregator.step(event);
+        let step = self.aggregator.step_at(event, self.ctx.clock.now());
 
         for effect in step.effects {
             match effect {
@@ -671,8 +615,6 @@ impl TmuxMonitor {
                 }
             }
         }
-
-        rs.maybe_extend_settling(&step.change_type);
 
         true
     }
@@ -781,29 +723,25 @@ impl TmuxMonitor {
         rs.pending_layout_emit = false;
     }
 
-    /// Settling window expired — emit the consolidated post-compound-command state.
-    fn on_settling_timeout<E: StateEmitter>(&mut self, emitter: &E, rs: &mut RunState) {
-        if rs.settling_awaiting_first_event {
-            // Safety timeout: no window events arrived after compound command
-            warn!("settling: safety timeout, no events received from compound command");
-            self.aggregator.set_suppress_window_emissions(false);
-        } else {
-            let window_count = self.aggregator.window_count();
-            debug!(
-                windows = window_count,
-                "settling complete, emitting consolidated state"
-            );
-            match self.aggregator.force_emit() {
-                Some(update) => {
-                    emitter.emit_state(update);
-                    trace!("settling: emitted state update");
+    /// Settling deadline reached — drain `aggregator.tick(now)`. The aggregator
+    /// owns settling state now, so the only thing the monitor does is dispatch
+    /// the effects (today: at most one immediate `EmitState`).
+    fn on_settling_tick<E: StateEmitter>(&mut self, emitter: &E, rs: &mut RunState) {
+        let effects = self.aggregator.tick(self.ctx.clock.now());
+        if effects.is_empty() {
+            trace!("settling tick: safety timeout or already cleared, no emit");
+            return;
+        }
+        for effect in effects {
+            match effect {
+                SideEffect::EmitState { change } => {
+                    self.handle_state_change(emitter, rs, &change);
                 }
-                None => {
-                    trace!("settling: force_emit returned None (no delta vs prev_state)");
+                other => {
+                    warn!(?other, "unexpected settling tick effect (future expansion)");
                 }
             }
         }
-        rs.clear_settling();
     }
 
     /// Deferred metadata refresh fired — request a fresh `list-panes` so
@@ -866,7 +804,6 @@ impl TmuxMonitor {
     async fn on_command<E: StateEmitter>(
         &mut self,
         emitter: &E,
-        rs: &mut RunState,
         cmd: Option<MonitorCommand>,
     ) -> bool {
         trace!(?cmd, "received monitor command");
@@ -901,15 +838,14 @@ impl TmuxMonitor {
                 let unescaped = command.replace(" \\; ", " ; ");
                 let is_compound = is_multi_step_run_shell(&unescaped);
                 if is_compound {
-                    rs.arm_settling(&mut self.aggregator);
+                    self.aggregator.arm_settling(self.ctx.clock.now());
                     debug!("settling armed for multi-step run-shell");
                 }
 
                 if let Err(e) = self.connection.send_command(&unescaped).await {
                     emitter.emit_error(format!("Failed to run command: {}", e));
                     if is_compound {
-                        rs.clear_settling();
-                        self.aggregator.set_suppress_window_emissions(false);
+                        self.aggregator.clear_settling();
                     }
                 } else {
                     trace!(cmd = %unescaped, "sent command via control mode");
@@ -1139,63 +1075,5 @@ mod tests {
             !rs.in_throttle_mode,
             "a fully-quiet rate window should exit throttle mode"
         );
-    }
-
-    #[test]
-    fn maybe_extend_settling_noop_when_not_armed() {
-        let now = Instant::now();
-        let (_cfg, mut rs) = run_state_with_now(now);
-        rs.maybe_extend_settling(&ChangeType::Window);
-        assert!(rs.settling_until.is_none());
-    }
-
-    #[test]
-    fn maybe_extend_settling_extends_on_window_event() {
-        let now = Instant::now();
-        let (_cfg, mut rs) = run_state_with_now(now);
-        let armed_at = tokio::time::Instant::now();
-        rs.settling_started = Some(armed_at);
-        rs.settling_awaiting_first_event = true;
-        rs.settling_until = Some(armed_at + rs.settling_max);
-        let before = rs.settling_until;
-        rs.maybe_extend_settling(&ChangeType::Window);
-        assert!(
-            !rs.settling_awaiting_first_event,
-            "first event should clear the awaiting flag"
-        );
-        assert!(
-            rs.settling_until.unwrap() <= before.unwrap(),
-            "first event sets the debounce-relative deadline (which is <= safety max)"
-        );
-    }
-
-    #[test]
-    fn maybe_extend_settling_ignores_non_window_changes() {
-        let now = Instant::now();
-        let (_cfg, mut rs) = run_state_with_now(now);
-        let armed_at = tokio::time::Instant::now();
-        rs.settling_started = Some(armed_at);
-        rs.settling_awaiting_first_event = true;
-        rs.settling_until = Some(armed_at + rs.settling_max);
-        rs.maybe_extend_settling(&ChangeType::PaneOutput {
-            pane_id: "%0".into(),
-        });
-        assert!(
-            rs.settling_awaiting_first_event,
-            "output events should not consume the first-event flag"
-        );
-    }
-
-    #[test]
-    fn clear_settling_resets_all_trackers() {
-        let now = Instant::now();
-        let (_cfg, mut rs) = run_state_with_now(now);
-        rs.settling_until = Some(tokio::time::Instant::now());
-        rs.settling_started = Some(tokio::time::Instant::now());
-        rs.settling_awaiting_first_event = true;
-        rs.clear_settling();
-        assert!(rs.settling_until.is_none());
-        assert!(rs.settling_started.is_none());
-        assert!(!rs.settling_awaiting_first_event);
     }
 }

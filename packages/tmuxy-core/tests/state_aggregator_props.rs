@@ -227,4 +227,67 @@ proptest! {
                 "change_type must still report Window when suppressed");
         }
     }
+
+    /// Settling timer end-to-end: regardless of how many window-typed events
+    /// arrive inside the settling window, `tick(now)` past the deadline must
+    /// (a) clear suppression, (b) clear `is_settling`, and (c) emit at most
+    /// one consolidated `EmitState`. This is the property that was previously
+    /// untestable because the timing lived on the monitor's `RunState`.
+    #[test]
+    fn settling_window_emits_at_most_once_and_clears(
+        // Up to 12 window-typed events inside the settling window. We seed
+        // the aggregator with matching WindowAdds beforehand so each Close
+        // produces a real ChangeType::Window.
+        window_ids in prop::collection::vec(
+            prop::sample::select(vec!["@0", "@1", "@2", "@3"]).prop_map(String::from),
+            0..12,
+        ),
+        // Per-event time offset inside the settling window.
+        offsets in prop::collection::vec(0u64..400, 0..12),
+    ) {
+        let mut agg = StateAggregator::new();
+        let t0 = std::time::Instant::now();
+        let seeded: HashSet<&str> = ["@0", "@1", "@2", "@3"].into_iter().collect();
+        for w in &seeded {
+            agg.step_at(
+                ControlModeEvent::WindowAdd { window_id: (*w).to_string() },
+                t0,
+            );
+        }
+        agg.arm_settling(t0);
+
+        let pairs: Vec<(String, u64)> = window_ids.iter().cloned().zip(offsets).collect();
+        for (w, off) in &pairs {
+            // Skip Closes for already-closed windows so process_event stays well-typed.
+            let _ = agg.step_at(
+                ControlModeEvent::WindowClose { window_id: w.clone() },
+                t0 + std::time::Duration::from_millis(*off),
+            );
+        }
+
+        // While inside the settling window, EmitState must NOT have escaped:
+        // we can verify this indirectly by inspecting that suppression is still
+        // active (or already cleared if the safety ceiling expired internally
+        // — but with our fixed offsets ≤ 400ms < 500ms safety max, suppression
+        // should remain armed).
+        if agg.is_settling() {
+            prop_assert!(agg.is_suppressing_window_emissions(),
+                "while settling is armed, suppression must remain set");
+        }
+
+        // Advance to well past the safety ceiling and tick once.
+        let post_deadline = t0 + std::time::Duration::from_secs(2);
+        let effects = agg.tick(post_deadline);
+
+        prop_assert!(!agg.is_settling(),
+            "tick past deadline must clear settling");
+        prop_assert!(!agg.is_suppressing_window_emissions(),
+            "tick past deadline must clear suppression");
+
+        let emit_count = effects.iter().filter(|e|
+            matches!(e, SideEffect::EmitState { .. })).count();
+        prop_assert!(emit_count <= 1,
+            "at most one consolidated EmitState per settling window; got {}",
+            emit_count);
+    }
 }

@@ -856,7 +856,20 @@ pub struct StateAggregator {
     /// %layout-change creates the pane. This buffer holds that early output
     /// so parse_layout() can replay it when the pane is created.
     early_output: HashMap<String, Vec<u8>>,
+
+    /// Compound-command settling state. When armed (`settling_until.is_some()`),
+    /// window/layout emissions are suppressed and the aggregator's `tick(now)`
+    /// is responsible for firing the consolidated state emit when the deadline
+    /// expires. Logic that used to live on `monitor::RunState`.
+    settling_until: Option<std::time::Instant>,
+    settling_started: Option<std::time::Instant>,
+    settling_awaiting_first_event: bool,
 }
+
+/// Per-event debounce window during settling.
+pub(crate) const SETTLING_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(100);
+/// Safety ceiling — settling cannot extend past this from the arm point.
+pub(crate) const SETTLING_MAX: std::time::Duration = std::time::Duration::from_millis(500);
 
 impl StateAggregator {
     pub fn new() -> Self {
@@ -877,6 +890,9 @@ impl StateAggregator {
             suppress_window_emissions: false,
             panes_moved_window: std::collections::HashSet::new(),
             early_output: HashMap::new(),
+            settling_until: None,
+            settling_started: None,
+            settling_awaiting_first_event: false,
         }
     }
 
@@ -899,6 +915,9 @@ impl StateAggregator {
             suppress_window_emissions: false,
             panes_moved_window: std::collections::HashSet::new(),
             early_output: HashMap::new(),
+            settling_until: None,
+            settling_started: None,
+            settling_awaiting_first_event: false,
         }
     }
 
@@ -929,6 +948,60 @@ impl StateAggregator {
     pub fn force_emit(&mut self) -> Option<crate::StateUpdate> {
         self.suppress_window_emissions = false;
         self.to_state_update()
+    }
+
+    /// Arm settling for a multi-step compound command (e.g. `splitw ; breakp`).
+    /// Suppresses window/layout emissions until `tick(now)` fires the
+    /// consolidated emit, or until `clear_settling()` is called explicitly.
+    /// `now` is sourced from `Ctx::clock` so tests can drive timing.
+    pub fn arm_settling(&mut self, now: std::time::Instant) {
+        self.settling_started = Some(now);
+        self.settling_awaiting_first_event = true;
+        self.settling_until = Some(now + SETTLING_MAX);
+        self.suppress_window_emissions = true;
+    }
+
+    /// Current settling deadline, if armed. Callers (the monitor) use this to
+    /// compute a wakeup; expiry is processed by `tick(now)`.
+    pub fn settling_deadline(&self) -> Option<std::time::Instant> {
+        self.settling_until
+    }
+
+    /// Whether settling is currently armed. Lets the monitor decide if it
+    /// should enable the settling-wakeup branch in its select loop.
+    pub fn is_settling(&self) -> bool {
+        self.settling_until.is_some()
+    }
+
+    /// Clear settling without firing an emit. Used by the monitor when a
+    /// `RunCommand` send fails so we don't leave the aggregator suppressed.
+    pub fn clear_settling(&mut self) {
+        self.settling_until = None;
+        self.settling_started = None;
+        self.settling_awaiting_first_event = false;
+        self.suppress_window_emissions = false;
+    }
+
+    /// On window/layout events during settling, extend the debounce deadline
+    /// but never past the safety ceiling. Called internally from `step`.
+    fn maybe_extend_settling(&mut self, change: &ChangeType, now: std::time::Instant) {
+        if self.settling_until.is_none() {
+            return;
+        }
+        let is_window_event = matches!(
+            change,
+            ChangeType::Window | ChangeType::PaneLayout | ChangeType::PaneFocus
+        );
+        if !is_window_event {
+            return;
+        }
+        if self.settling_awaiting_first_event {
+            self.settling_awaiting_first_event = false;
+            self.settling_started = Some(now);
+        }
+        let max_deadline = self.settling_started.unwrap_or(now) + SETTLING_MAX;
+        let debounced = now + SETTLING_DEBOUNCE;
+        self.settling_until = Some(debounced.min(max_deadline));
     }
 
     /// Refresh status line if dirty, otherwise use cached value.
@@ -1105,6 +1178,13 @@ impl StateAggregator {
     /// so the monitor's settling state machine can extend its deadline on
     /// window/layout changes that are currently being suppressed.
     pub fn step(&mut self, event: ControlModeEvent) -> StepResult {
+        self.step_at(event, std::time::Instant::now())
+    }
+
+    /// Like `step`, but accepts an explicit `now` so callers (the monitor)
+    /// can drive settling extension from `Ctx::clock` and tests can advance
+    /// time deterministically.
+    pub fn step_at(&mut self, event: ControlModeEvent, now: std::time::Instant) -> StepResult {
         let is_window_add = matches!(
             &event,
             ControlModeEvent::WindowAdd { .. } | ControlModeEvent::UnlinkedWindowAdd { .. }
@@ -1155,6 +1235,11 @@ impl StateAggregator {
             });
         }
 
+        // Extend settling AFTER computing effects — extension is driven by the
+        // computed `change_type`, including the suppressed `state_changed=false`
+        // case where settling still needs to be kept alive.
+        self.maybe_extend_settling(&result.change_type, now);
+
         StepResult {
             effects,
             change_type: result.change_type,
@@ -1162,17 +1247,32 @@ impl StateAggregator {
         }
     }
 
-    /// Time-driven transitions. The current aggregator has no internal
-    /// timers — settling/throttle/debounce timing lives in the monitor's
-    /// `RunState`. `tick` is a no-op today, exposed so future SideEffect
-    /// variants like `ScheduleEmit { at }` can be folded in without changing
-    /// the public API.
-    ///
-    /// The `_now` parameter exists for symmetry with the planned design;
-    /// tests can already substitute it via `FakeClock::now()` so call sites
-    /// don't reach for `Instant::now()` directly.
-    pub fn tick(&mut self, _now: std::time::Instant) -> Vec<SideEffect> {
-        Vec::new()
+    /// Time-driven transitions. Today this drains the settling deadline: when
+    /// `now` is past `settling_until`, the aggregator clears its settling
+    /// state, unsuppresses window emissions, and (if any events actually
+    /// arrived during the window) yields a consolidated `EmitState`. If the
+    /// safety ceiling fires with no events ever observed, the suppression
+    /// flag is cleared silently — no emit, no foot-gun for the runtime.
+    pub fn tick(&mut self, now: std::time::Instant) -> Vec<SideEffect> {
+        let Some(deadline) = self.settling_until else {
+            return Vec::new();
+        };
+        if now < deadline {
+            return Vec::new();
+        }
+        let was_awaiting = self.settling_awaiting_first_event;
+        self.settling_until = None;
+        self.settling_started = None;
+        self.settling_awaiting_first_event = false;
+        self.suppress_window_emissions = false;
+        if was_awaiting {
+            // Safety timeout — no events arrived after the compound command.
+            // Nothing to emit; just leave the aggregator unsuppressed.
+            return Vec::new();
+        }
+        vec![SideEffect::EmitState {
+            change: ChangeType::Full,
+        }]
     }
 
     /// Process a control mode event.
