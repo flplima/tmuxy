@@ -15,7 +15,7 @@ import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 import type { CopyModeState, CellLine } from '../../../tmux/types';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
-import { mergeScrollbackChunk, getNeededChunk } from '../../../utils/copyMode';
+import { mergeScrollbackChunk, getNeededChunk, isWrappedRow } from '../../../utils/copyMode';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -295,14 +295,30 @@ export const copyModeActions = {
 
     const absoluteRow = event.row < existing.height ? existing.scrollTop + event.row : event.row;
 
+    // Expand across wrapped rows so triple-click selects the whole logical
+    // line: walk up while the row above wrapped into this one, and down while
+    // this row wraps into the next. Unloaded rows aren't wrapped, so the walk
+    // stops at gaps in the loaded scrollback.
+    let startRow = absoluteRow;
+    while (startRow > 0 && isWrappedRow(existing.lines.get(startRow - 1), existing.width)) {
+      startRow--;
+    }
+    let endRow = absoluteRow;
+    while (
+      endRow < existing.totalLines - 1 &&
+      isWrappedRow(existing.lines.get(endRow), existing.width)
+    ) {
+      endRow++;
+    }
+
     return {
       copyModeStates: {
         ...context.copyModeStates,
         [event.paneId]: {
           ...existing,
           selectionMode: 'line' as const,
-          selectionAnchor: { row: absoluteRow, col: 0 },
-          cursorRow: absoluteRow,
+          selectionAnchor: { row: startRow, col: 0 },
+          cursorRow: endRow,
           cursorCol: existing.width - 1,
         },
       },

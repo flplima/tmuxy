@@ -139,6 +139,36 @@ describe('copyMode state', () => {
     expect(updated.cursorCol).toBe(updated.width - 1);
   });
 
+  it('COPY_MODE_LINE_SELECT expands across wrapped rows', () => {
+    // rows 10+11 are one logical line wrapped at width 80 (row 10 is full
+    // width); row 12 is a separate line. Triple-clicking row 11 should select
+    // the whole wrapped line (rows 10–11) and stop before row 12.
+    const lines = new Map<number, CellLine>();
+    lines.set(10, makeLine('x'.repeat(80)));
+    lines.set(11, makeLine('tail'));
+    lines.set(12, makeLine('next'));
+    const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
+      copyModeStates: {
+        '%1': makeCopyState({
+          lines,
+          totalLines: 13,
+          height: 3,
+          loadedRanges: [[10, 12]],
+          scrollTop: 10,
+        }),
+      },
+    });
+    const ctx = sendAndGetContext(actor, {
+      type: 'COPY_MODE_LINE_SELECT',
+      paneId: '%1',
+      row: 1, // visible-relative → absolute row 11
+    });
+    const updated = ctx.copyModeStates['%1'];
+    expect(updated.selectionMode).toBe('line');
+    expect(updated.selectionAnchor?.row).toBe(10);
+    expect(updated.cursorRow).toBe(11);
+  });
+
   it('COPY_MODE_CURSOR_MOVE clamps within total lines', () => {
     const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
       copyModeStates: { '%1': makeCopyState({ totalLines: 12 }) },

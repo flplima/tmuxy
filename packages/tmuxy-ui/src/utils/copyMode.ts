@@ -2,15 +2,30 @@
  * copyMode - Text extraction utilities for client-side copy mode
  */
 
-import type { CopyModeState } from '../tmux/types';
+import type { CopyModeState, CellLine } from '../tmux/types';
+
+/**
+ * Whether a physical row is a wrapped continuation of a logical line.
+ *
+ * The backend trims trailing blank cells from each row, so only a line whose
+ * content reached the last column keeps all `width` cells. A row that fills
+ * the full width therefore wrapped onto the next row with no logical line
+ * break — the same notion tmux tracks with its per-line wrapped flag.
+ */
+export function isWrappedRow(line: CellLine | undefined, width: number): boolean {
+  return !!line && line.length >= width;
+}
 
 /**
  * Extract selected text from copy mode state.
  * For char mode: first line from anchor col, last line to cursor col, middle lines full.
  * For line mode: all selected lines are full width (trailing spaces trimmed).
+ *
+ * Rows that wrapped (filled the full width) are joined to the next row without
+ * a newline, so a selection spanning a wrapped logical line copies as one line.
  */
 export function extractSelectedText(state: CopyModeState): string {
-  const { selectionAnchor, selectionMode, cursorRow, cursorCol, lines } = state;
+  const { selectionAnchor, selectionMode, cursorRow, cursorCol, lines, width } = state;
 
   if (!selectionAnchor || !selectionMode) return '';
 
@@ -24,34 +39,34 @@ export function extractSelectedText(state: CopyModeState): string {
     [startRow, startCol, endRow, endCol] = [endRow, endCol, startRow, startCol];
   }
 
-  const result: string[] = [];
+  let output = '';
 
   for (let row = startRow; row <= endRow; row++) {
     const line = lines.get(row);
-    if (!line) {
-      result.push('');
-      continue;
+    const lineText = line ? line.map((c) => c.c).join('') : '';
+
+    let segment: string;
+    if (selectionMode === 'line' || (row !== startRow && row !== endRow)) {
+      segment = lineText;
+    } else if (startRow === endRow) {
+      segment = lineText.slice(startCol, endCol + 1);
+    } else if (row === startRow) {
+      segment = lineText.slice(startCol);
+    } else {
+      segment = lineText.slice(0, endCol + 1);
     }
 
-    const lineText = line.map((c) => c.c).join('');
-
-    if (selectionMode === 'line') {
-      result.push(lineText.trimEnd());
+    // A wrapped row continues onto the next with no line break; trim trailing
+    // blanks and emit a newline only at a true logical line boundary.
+    if (row < endRow && isWrappedRow(line, width)) {
+      output += segment;
     } else {
-      // char mode
-      if (startRow === endRow) {
-        result.push(lineText.slice(startCol, endCol + 1).trimEnd());
-      } else if (row === startRow) {
-        result.push(lineText.slice(startCol).trimEnd());
-      } else if (row === endRow) {
-        result.push(lineText.slice(0, endCol + 1).trimEnd());
-      } else {
-        result.push(lineText.trimEnd());
-      }
+      output += segment.trimEnd();
+      if (row < endRow) output += '\n';
     }
   }
 
-  return result.join('\n');
+  return output;
 }
 
 /**
