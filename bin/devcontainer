@@ -54,7 +54,13 @@ fi
 
 if [ "$BUILD_ONLY" = 1 ] || ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
     echo "Building devcontainer image..."
-    docker build -t "$IMAGE_NAME" -f "$DOCKERFILE" .
+    # Build container `user` with the host's uid/gid so the bind-mounted
+    # workspace (/tmuxy) is writable inside the container — otherwise a
+    # non-1000 host account leaves /tmuxy read-only to `user`.
+    docker build -t "$IMAGE_NAME" -f "$DOCKERFILE" \
+        --build-arg HOST_UID="$(id -u)" \
+        --build-arg HOST_GID="$(id -g)" \
+        .
     [ "$BUILD_ONLY" = 1 ] && exit 0
 fi
 
@@ -71,19 +77,20 @@ docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 # an older image (built before these dirs existed) is stuck root-owned —
 # which breaks `gh auth login`, `claude login`, etc.
 #
-# This throwaway root container chowns the volumes to user:user. Mounting at
-# the real target paths preserves Docker's "copy image content into an empty
-# volume" behavior, so fresh volumes still inherit the image's pre-created
-# dirs correctly.
+# This throwaway root container runs the shared fix-credential-ownership.sh
+# (which detects root and skips sudo). Mounting the credential volumes at their
+# real target paths preserves Docker's "copy image content into an empty volume"
+# behavior, so fresh volumes still inherit the image's pre-created dirs.
 # ---------------------------------------------------------------------------
 docker run --rm \
     -v tmuxy-gh-config:/home/user/.config/gh \
     -v tmuxy-claude-config:/home/user/.claude \
     -v tmuxy-ssh:/home/user/.ssh \
     -v tmuxy-git-config:/home/user/.config/git \
+    -v "$(pwd)/.devcontainer/fix-credential-ownership.sh:/fix-credential-ownership.sh:ro" \
     --user root \
     "$IMAGE_NAME" \
-    sh -c 'chown -R user:user /home/user/.config/gh /home/user/.claude /home/user/.ssh /home/user/.config/git; chmod 700 /home/user/.ssh' \
+    bash /fix-credential-ownership.sh \
     >/dev/null
 
 # ---------------------------------------------------------------------------
