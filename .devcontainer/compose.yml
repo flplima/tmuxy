@@ -3,19 +3,17 @@ services:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
-      # Match container `user` to the host uid/gid so the bind-mounted /tmuxy
-      # is writable. Run `HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose
-      # build`; defaults to the base image's 1000 when unset.
-      args:
-        HOST_UID: ${HOST_UID:-1000}
-        HOST_GID: ${HOST_GID:-1000}
     image: tmuxy-dev
     network_mode: host
     init: true          # Proper init process to reap zombie processes
     pids_limit: 50000   # Safety buffer for process count
     stdin_open: true
     tty: true
-    user: user
+    # Start as root so the remap-user.sh entrypoint can match `user` to the
+    # host uid/gid (keeping the bind-mounted /tmuxy writable for any developer);
+    # it drops to `user` before running the command.
+    user: root
+    entrypoint: /usr/local/bin/remap-user.sh
     working_dir: /tmuxy
     volumes:
       # Project workspace
@@ -40,12 +38,11 @@ services:
       - GIT_CONFIG_GLOBAL=/home/user/.config/git/config
     shm_size: 1g
     mem_limit: 6g
-    # Repair credential-volume ownership (root-owned/stale-UID volumes), then
-    # restore ~/.claude.json (onboarding flag + oauthAccount) from the volume and
+    # Credential-volume ownership is repaired by the remap-user.sh entrypoint.
+    # Restore ~/.claude.json (onboarding flag + oauthAccount) from the volume and
     # start its backup daemon before launching Claude — otherwise each run
-    # re-prompts for login and replays the intro. See fix-credential-ownership.sh
-    # and persist-claude-login.sh.
-    command: bash -c "/home/user/.devcontainer/fix-credential-ownership.sh || true; /home/user/.devcontainer/persist-claude-login.sh || true; npm start && claude --dangerously-skip-permissions"
+    # re-prompts for login and replays the intro. See persist-claude-login.sh.
+    command: bash -c "/home/user/.devcontainer/persist-claude-login.sh || true; npm start && claude --dangerously-skip-permissions"
 
 volumes:
   tmuxy-cargo-registry:

@@ -7,24 +7,13 @@ FROM node:22
 ARG TZ
 ENV TZ="$TZ"
 
-# Host uid/gid that owns the workspace bind mount. The base `node` user is
-# 1000; when the host repo is owned by a different uid (any non-1000 host
-# account), the bind-mounted /tmuxy would be read-only to the container user
-# — forcing fallbacks like a separate writable clone. bin/devcontainer and
-# compose.yml pass the real host values; the 1000 default preserves the base
-# image's identity when unset.
-ARG HOST_UID=1000
-ARG HOST_GID=1000
-
-# Rename the base image's built-in `node` user/group to `user`, move its home
-# directory, and remap it to the host uid/gid so the workspace bind mount stays
-# writable. Done before anything else so all subsequent steps (and the chowns
-# below, which resolve `user` by name) reference the final identity.
+# Rename the base image's built-in `node` user/group to `user` (uid/gid 1000)
+# and move its home directory. Done before anything else so all subsequent
+# steps can reference the renamed identity. The uid is left at the base 1000;
+# remap-user.sh adjusts it to the host's at container start (see below), so the
+# image stays uid-agnostic across developers.
 RUN usermod -l user -d /home/user -m node \
-    && groupmod -n user node \
-    && groupmod -g "${HOST_GID}" user \
-    && usermod -u "${HOST_UID}" -g "${HOST_GID}" user \
-    && chown -R "${HOST_UID}:${HOST_GID}" /home/user
+    && groupmod -n user node
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -114,10 +103,16 @@ RUN ARCH=$(dpkg --print-architecture) && \
     wget -q "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -O /usr/local/bin/yq && \
     chmod +x /usr/local/bin/yq
 
-# Trust the workspace bind mount. The HOST_UID/HOST_GID remap above normally
-# makes container `user` own /tmuxy outright; this is a belt-and-suspenders
-# fallback for builds left at the default uid against a non-matching host,
-# silencing git's "dubious ownership" check.
+# Runtime uid remap: remap-user.sh runs as root at container start, matches
+# `user` to the workspace bind mount's owner so /tmuxy is writable for any host
+# uid, then drops to `user`. Invoked as the entrypoint by bin/devcontainer and
+# compose.yml; the VS Code path uses updateRemoteUserUID instead.
+COPY .devcontainer/remap-user.sh /usr/local/bin/remap-user.sh
+RUN chmod +x /usr/local/bin/remap-user.sh
+
+# Trust the workspace bind mount. remap-user.sh normally makes `user` own
+# /tmuxy outright; this is a belt-and-suspenders fallback (e.g. a root-owned
+# mount that skips the remap) that silences git's "dubious ownership" check.
 RUN git config --system --add safe.directory /tmuxy
 
 # Switch to non-root user

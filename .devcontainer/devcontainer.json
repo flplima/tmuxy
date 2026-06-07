@@ -27,8 +27,8 @@
   },
   "remoteUser": "user",
   // Remap `user` to the host uid/gid on create so the bind-mounted /tmuxy is
-  // writable. The raw bin/devcontainer / docker-compose paths instead pass
-  // HOST_UID/HOST_GID build args; this covers the VS Code Dev Containers path.
+  // writable. This covers the VS Code Dev Containers path; the bin/devcontainer
+  // and docker-compose paths do the equivalent at runtime via remap-user.sh.
   "updateRemoteUserUID": true,
   "mounts": [
     "source=tmuxy-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
