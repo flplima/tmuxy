@@ -27,9 +27,10 @@ body {
    semi-transparent pane bg. */
 :root {
   --window-opacity: 1;
-  /* Active-pane background opacity. Falls back to --window-opacity when
-     unset; Tauri overrides from @tmuxy-active-pane-opacity in tmuxy.conf. */
-  --active-pane-opacity: 1;
+  /* Active-pane background opacity (of --bg-dark). Tauri overrides from
+     @tmuxy-active-pane-opacity in tmuxy.conf; defaults to 0.8 so the active
+     pane reads as a slightly-translucent dark surface. */
+  --active-pane-opacity: 0.8;
 }
 
 /* Vibrancy mode: fully transparent backgrounds so native glass effect shows through.

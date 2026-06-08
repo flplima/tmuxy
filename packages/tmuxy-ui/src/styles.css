@@ -473,21 +473,26 @@
   opacity: 0.7;
 }
 
-/* Active pane background. Uses --active-pane-opacity from @tmuxy-active-pane-opacity
-   in tmuxy.conf (falls back to --window-opacity) so the active pane reads as a
-   slightly more transparent window over the rest of the layout — without this,
-   the active/inactive distinction is hard to see at a glance under vibrancy. */
+/* Active pane background: the theme's default dark bg at 80% opacity (default),
+   so the active pane reads as a distinct, slightly-translucent surface over the
+   rest of the layout. No outline — the bg alone carries the active/inactive
+   distinction (inactive panes are dimmed to 0.7 opacity and carry no bg). The
+   opacity is configurable via @tmuxy-active-pane-opacity (Tauri injects
+   --active-pane-opacity); it defaults to 0.8 here so the look holds even when
+   that variable is unset (e.g. in Storybook/demo). */
 .pane-layout-item.pane-active {
-  outline-color: var(--pane-active-border, var(--border-medium));
-  background-color: rgba(
-    var(--window-bg-rgb),
-    var(--active-pane-opacity, var(--window-opacity, 1))
+  outline: none;
+  background-color: color-mix(
+    in srgb,
+    var(--bg-dark) calc(var(--active-pane-opacity, 0.8) * 100%),
+    transparent
   );
 }
 
-/* Copy mode: distinct bright-green outline so the mode is unmistakable. */
+/* Copy mode: distinct bright-green outline so the mode is unmistakable. The
+   base active rule drops the outline, so re-establish the full outline here. */
 .pane-layout-item.pane-active.pane-copy-mode {
-  outline-color: var(--term-bright-green);
+  outline: 1px solid var(--term-bright-green);
 }
 
 .pane-layout-item.pane-dragging {
