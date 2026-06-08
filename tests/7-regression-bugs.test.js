@@ -1292,3 +1292,99 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
     expect(stableTxt).toContain('BETA_TAB');
   });
 });
+
+// ==================== Scenario: Tab switch converges on idle terminal ====================
+
+describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll, ctx.hookTimeout);
+  beforeEach(ctx.beforeEach, ctx.hookTimeout);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // Ground truth straight from tmux: the window tmux itself considers active.
+  const tmuxActiveWindow = () => {
+    const out = require('child_process')
+      .execSync(`tmux list-windows -t ${ctx.session.name} -F '#{window_id}|#{window_active}'`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+      })
+      .trim();
+    const active = out
+      .split('\n')
+      .map((l) => l.split('|'))
+      .find(([, a]) => a === '1');
+    return active ? active[0] : null;
+  };
+
+  const clickAddTab = async () => {
+    await ctx.page.click('.tab-add');
+  };
+  const clickTab = async (idx) => {
+    const tabs = await ctx.page.$$('.tab-name:not(.tab-add)');
+    await tabs[idx].click();
+  };
+  const tabCount = async () => (await ctx.page.$$('.tab-name:not(.tab-add)')).length;
+
+  // Assert the UI's rendered active tab agrees with tmux reality. `activeWindowId`
+  // drives which panes render, so any divergence means the user sees the wrong tab.
+  const assertConverged = (label) => async () => {
+    const state = await ctx.page.evaluate(() => {
+      const c = window.app?.getSnapshot()?.context;
+      const tabs = (c?.windows || []).filter((w) => w.windowType === 'tab');
+      const flagged = tabs.filter((w) => w.active).map((w) => w.id);
+      const activePaneWindow = (c?.panes || []).find((p) => p.tmuxId === c.activePaneId)?.windowId;
+      return { activeWindowId: c?.activeWindowId, flagged, activePaneWindow };
+    });
+    const truth = tmuxActiveWindow();
+    expect(`${label}: ${state.activeWindowId}`).toBe(`${label}: ${truth}`);
+    expect(`${label}: ${JSON.stringify(state.flagged)}`).toBe(`${label}: ${JSON.stringify([truth])}`);
+    expect(`${label}: ${state.activePaneWindow}`).toBe(`${label}: ${truth}`);
+  };
+
+  test('Creating tabs then switching keeps the rendered tab in sync with tmux', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // BUG: the optimistic `activeWindowId` flip on tab switch was only ever
+    // reconciled by a *future* server snapshot. Creating tabs (the splitw+breakp
+    // new-window path) leaves the UI's window indices briefly lagging tmux's, so
+    // a click can send `select-window -t <staleIndex>` that no-ops in tmux
+    // (already on that index) — no state change, no snapshot. The optimistic flip
+    // to the *predicted* window then stuck forever: the UI rendered the wrong
+    // tab's panes while tmux and the per-window active flags pointed elsewhere.
+    // The fix schedules a timer-driven reconciliation that snaps `activeWindowId`
+    // back to server truth once the optimistic grace elapses, even with no
+    // follow-up snapshot.
+
+    // Build 4 tabs via the "+" button (real user path → new-window).
+    for (let i = 0; i < 3; i++) {
+      await clickAddTab();
+      await delay(DELAYS.SYNC);
+    }
+    await waitForWindowCount(ctx.page, 4, 15000);
+    await assertConverged('after create')();
+
+    // The terminal is idle (no command output), so nothing but the fix's timer
+    // can reconcile a mispredicted switch. Switch through every tab, then rapid
+    // first<->last — the patterns that surfaced the divergence in the wild.
+    const n = await tabCount();
+    for (let round = 0; round < 2; round++) {
+      for (let i = 0; i < n; i++) {
+        await clickTab(i);
+        await delay(150);
+      }
+      await delay(DELAYS.SYNC);
+      await assertConverged(`round ${round} switch-all`)();
+
+      for (let k = 0; k < 3; k++) {
+        await clickTab(0);
+        await delay(80);
+        await clickTab(n - 1);
+        await delay(80);
+      }
+      await delay(DELAYS.SYNC);
+      await assertConverged(`round ${round} rapid-switch`)();
+    }
+  }, 240000);
+});

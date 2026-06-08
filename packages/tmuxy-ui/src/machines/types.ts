@@ -459,6 +459,19 @@ export type SelectTabEvent = {
   windowIndex: number;
 };
 
+/**
+ * Self-sent after a SELECT_TAB's optimistic grace period to guarantee the
+ * pin resolves even when no server snapshot follows (idle terminal). Without
+ * this, a wrong optimistic `activeWindowId` would stick forever, since the
+ * grace logic only re-evaluates on incoming TMUX_MODEL_UPDATE snapshots.
+ * `scheduledAt` matches the `pendingSelectTabAt` stamped at flip time so a
+ * superseded switch (newer SELECT_TAB) is ignored.
+ */
+export type ReconcileSelectTabEvent = {
+  type: 'RECONCILE_SELECT_TAB';
+  scheduledAt: number;
+};
+
 // Copy mode events
 export type EnterCopyModeEvent = {
   type: 'ENTER_COPY_MODE';
@@ -620,6 +633,7 @@ export type AppMachineEvent =
   | SelectPaneGroupTabEvent
   | CreateTabEvent
   | SelectTabEvent
+  | ReconcileSelectTabEvent
   | ZoomPaneEvent
   | CloseFloatEvent
   | CloseTopFloatEvent

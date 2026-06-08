@@ -33,7 +33,7 @@ import { copyModeActions, copyModeExitTimes, COPY_MODE_REENTRY_COOLDOWN } from '
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
-import { layoutActions } from './actions/layout';
+import { layoutActions, SELECT_TAB_GRACE_MS } from './actions/layout';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import type { TmuxClientModel, TmuxSnapshot } from '../../tmux/store';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
@@ -660,7 +660,6 @@ export const appMachine = setup({
               // Cleared on the first snapshot that confirms our target.
               // Tight window — panes stay mounted across tab switches now, so
               // any residual bounce is a cheap CSS class flip, not a remount.
-              const SELECT_TAB_GRACE_MS = 200;
               let pendingSelectTabAt = context.pendingSelectTabAt;
               if (pendingSelectTabAt !== null) {
                 const elapsed = Date.now() - pendingSelectTabAt;
