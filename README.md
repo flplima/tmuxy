@@ -41,7 +41,9 @@ In the web app, communication happens via HTTP/SSE. It is fast, I promise you. B
   └───────────┘ └───────────┘
 ```
 
-## install (macOS)
+## install
+
+### macOS
 
 ```bash
 brew install --cask flplima/tap/tmuxy
@@ -57,6 +59,20 @@ If you grabbed the DMG directly from the [Releases page](https://github.com/flpl
 ```bash
 xattr -dr com.apple.quarantine /Applications/tmuxy.app
 ```
+
+### Linux
+
+Homebrew casks are macOS-only, so on Linux install the formula (no `--cask`):
+
+```bash
+brew install flplima/tap/tmuxy
+```
+
+This installs the AppImage as the `tmuxy` command. Running it needs FUSE
+(`libfuse2` on Debian/Ubuntu) at runtime.
+
+Prefer a native package? Grab the `.deb` or `.AppImage` directly from the
+[Releases page](https://github.com/flplima/tmuxy/releases).
 
 ## getting started (development)
 

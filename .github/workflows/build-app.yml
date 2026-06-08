@@ -337,3 +337,85 @@ jobs:
             git commit -m "chore: bump tmuxy to v${VERSION}"
             git push origin HEAD
           fi
+
+  # --- Bump Homebrew Formula (only on tag push, after the cask is pushed) ---
+  #
+  # Homebrew casks are macOS-only; Linux Homebrew installs from formulae.
+  # This pushes a Formula/tmuxy.rb to flplima/homebrew-tap so Linux users can
+  # `brew install flplima/tap/tmuxy`. The formula installs the release
+  # AppImage as the `tmuxy` binary. Runs after bump-cask (not in parallel) so
+  # the two jobs don't race pushing to the same tap repo.
+
+  bump-formula:
+    needs: [release, bump-cask]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: tmuxy-linux-appimage
+          path: appimage
+
+      - name: Compute version + sha256
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          APPIMAGE=$(ls appimage/*.AppImage | head -1)
+          SHA=$(sha256sum "$APPIMAGE" | awk '{print $1}')
+          echo "version=$VERSION"  >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA"       >> "$GITHUB_OUTPUT"
+          echo "appimage_name=$(basename "$APPIMAGE")" >> "$GITHUB_OUTPUT"
+          echo "Bumping formula: v$VERSION sha256=$SHA from $(basename "$APPIMAGE")"
+
+      - name: Push updated formula to flplima/homebrew-tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA256: ${{ steps.meta.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 \
+            "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/flplima/homebrew-tap.git" tap
+          cd tap
+          mkdir -p Formula
+
+          # Single-quoted heredoc so bash leaves Ruby `#{version}` interpolation
+          # untouched. Placeholders sed-replaced below.
+          cat > Formula/tmuxy.rb <<'FORMULA'
+          class Tmuxy < Formula
+            desc "Web-based tmux interface"
+            homepage "https://github.com/flplima/tmuxy"
+            version "__VERSION__"
+            url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_amd64.AppImage"
+            sha256 "__SHA256__"
+
+            depends_on :linux
+            depends_on "tmux"
+
+            def install
+              # Brew stages the downloaded AppImage under its original name.
+              # Install it as the `tmuxy` executable. The AppImage is
+              # self-contained; running it needs FUSE (libfuse2) at runtime.
+              bin.install "tmuxy_#{version}_amd64.AppImage" => "tmuxy"
+            end
+
+            test do
+              assert_path_exists bin/"tmuxy"
+            end
+          end
+          FORMULA
+
+          sed -i "s/__VERSION__/${VERSION}/g" Formula/tmuxy.rb
+          sed -i "s/__SHA256__/${SHA256}/g"  Formula/tmuxy.rb
+
+          git config user.name  "tmuxy-cask-bumper[bot]"
+          git config user.email "tmuxy-cask-bumper@users.noreply.github.com"
+          git add Formula/tmuxy.rb
+
+          if git diff --staged --quiet; then
+            echo "Formula already at v${VERSION}; nothing to push."
+          else
+            git commit -m "chore: bump tmuxy formula to v${VERSION}"
+            git push origin HEAD
+          fi
