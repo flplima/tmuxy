@@ -214,14 +214,14 @@ Order matters: push main first so the tag's commit is on the remote when the tag
 ### 5. Wait for tag-triggered Build App run
 Pushing the tag triggers a **second** `Build App` run (this one with `github.ref = refs/tags/v...`). This run executes `build` → `release` → `bump-cask` → `bump-formula`. Watch it with `gh run list --workflow build-app.yml --limit 5` — the new row has `head_branch = v<new-version>`.
 
-- The `release` job downloads the build artifacts and creates a GitHub Release with `tmuxy_<version>_amd64.AppImage`, `tmuxy_<version>_amd64.deb`, and `tmuxy_<version>_universal.dmg` attached.
+- The `release` job downloads the build artifacts and creates a GitHub Release with both Linux architectures — `tmuxy_<version>_amd64.AppImage`, `tmuxy_<version>_aarch64.AppImage`, `tmuxy_<version>_amd64.deb`, `tmuxy_<version>_arm64.deb` — plus `tmuxy_<version>_universal.dmg` attached. The `build` matrix produces the two Linux arches on the `ubuntu-22.04` (amd64) and `ubuntu-22.04-arm` (arm64) runners.
 - The `bump-cask` job downloads the `.dmg`, computes sha256, and pushes an updated `Casks/tmuxy.rb` to `flplima/homebrew-tap` (macOS install).
-- The `bump-formula` job downloads the `.AppImage`, computes sha256, and pushes an updated `Formula/tmuxy.rb` to `flplima/homebrew-tap` (Linux install). It runs **after** `bump-cask` (sequential, not parallel) so the two jobs don't race pushing to the same tap repo.
+- The `bump-formula` job downloads **both** Linux AppImages, computes a sha256 for each, and pushes an updated `Formula/tmuxy.rb` (with `on_arm`/`on_intel` url+sha256 blocks) to `flplima/homebrew-tap` (Linux install). It runs **after** `bump-cask` (sequential, not parallel) so the two jobs don't race pushing to the same tap repo.
 
 **This run is what makes `brew install --cask flplima/tap/tmuxy` (macOS) and `brew install flplima/tap/tmuxy` (Linux) pick up the new version.** Until it finishes green, brew still points at the previous tag.
 
 ### 6. Verify brew is ready
-- `gh release view v<new-version>` should list 3 assets (`.AppImage`, `.deb`, `.dmg`).
+- `gh release view v<new-version>` should list 5 assets (amd64 + aarch64 `.AppImage`, amd64 + arm64 `.deb`, `.dmg`).
 - The latest commits on `flplima/homebrew-tap` should be `chore: bump tmuxy to v<new-version>` (cask) and `chore: bump tmuxy formula to v<new-version>` (formula).
 - A macOS user running `brew update && brew upgrade --cask flplima/tap/tmuxy`, or a Linux user running `brew update && brew upgrade flplima/tap/tmuxy`, should now get the new build.
 

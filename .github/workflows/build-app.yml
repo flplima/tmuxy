@@ -15,11 +15,19 @@ jobs:
       matrix:
         include:
           - platform: linux
+            arch: amd64
             os: ubuntu-22.04
             rust-targets: ''
             tauri-args: ''
             binary: target/release/tmuxy
+          - platform: linux
+            arch: arm64
+            os: ubuntu-22.04-arm
+            rust-targets: ''
+            tauri-args: ''
+            binary: target/release/tmuxy
           - platform: macos
+            arch: universal
             os: macos-latest
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
             tauri-args: '--target universal-apple-darwin'
@@ -189,7 +197,7 @@ jobs:
         if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v6
         with:
-          name: tmuxy-linux-appimage
+          name: tmuxy-linux-appimage-${{ matrix.arch }}
           path: target/release/bundle/appimage/*.AppImage
           if-no-files-found: warn
 
@@ -197,7 +205,7 @@ jobs:
         if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v6
         with:
-          name: tmuxy-linux-deb
+          name: tmuxy-linux-deb-${{ matrix.arch }}
           path: target/release/bundle/deb/*.deb
           if-no-files-found: warn
 
@@ -353,26 +361,34 @@ jobs:
     steps:
       - uses: actions/download-artifact@v6
         with:
-          name: tmuxy-linux-appimage
-          path: appimage
+          name: tmuxy-linux-appimage-amd64
+          path: appimage-amd64
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: tmuxy-linux-appimage-arm64
+          path: appimage-arm64
 
       - name: Compute version + sha256
         id: meta
         run: |
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          APPIMAGE=$(ls appimage/*.AppImage | head -1)
-          SHA=$(sha256sum "$APPIMAGE" | awk '{print $1}')
-          echo "version=$VERSION"  >> "$GITHUB_OUTPUT"
-          echo "sha256=$SHA"       >> "$GITHUB_OUTPUT"
-          echo "appimage_name=$(basename "$APPIMAGE")" >> "$GITHUB_OUTPUT"
-          echo "Bumping formula: v$VERSION sha256=$SHA from $(basename "$APPIMAGE")"
+          AMD=$(ls appimage-amd64/*.AppImage | head -1)
+          ARM=$(ls appimage-arm64/*.AppImage | head -1)
+          SHA_AMD=$(sha256sum "$AMD" | awk '{print $1}')
+          SHA_ARM=$(sha256sum "$ARM" | awk '{print $1}')
+          echo "version=$VERSION"      >> "$GITHUB_OUTPUT"
+          echo "sha256_amd=$SHA_AMD"   >> "$GITHUB_OUTPUT"
+          echo "sha256_arm=$SHA_ARM"   >> "$GITHUB_OUTPUT"
+          echo "Bumping formula: v$VERSION amd64=$SHA_AMD arm64=$SHA_ARM"
 
       - name: Push updated formula to flplima/homebrew-tap
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.meta.outputs.version }}
-          SHA256: ${{ steps.meta.outputs.sha256 }}
+          SHA256_AMD: ${{ steps.meta.outputs.sha256_amd }}
+          SHA256_ARM: ${{ steps.meta.outputs.sha256_arm }}
         run: |
           set -euo pipefail
           git clone --depth 1 \
@@ -387,17 +403,26 @@ jobs:
             desc "Web-based tmux interface"
             homepage "https://github.com/flplima/tmuxy"
             version "__VERSION__"
-            url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_amd64.AppImage"
-            sha256 "__SHA256__"
 
             depends_on :linux
             depends_on "tmux"
 
+            on_arm do
+              url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_aarch64.AppImage"
+              sha256 "__SHA256_ARM__"
+            end
+
+            on_intel do
+              url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_amd64.AppImage"
+              sha256 "__SHA256_AMD__"
+            end
+
             def install
-              # Brew stages the downloaded AppImage under its original name.
-              # Install it as the `tmuxy` executable. The AppImage is
-              # self-contained; running it needs FUSE (libfuse2) at runtime.
-              bin.install "tmuxy_#{version}_amd64.AppImage" => "tmuxy"
+              # Brew stages the downloaded AppImage under its original name
+              # (the arch suffix varies). Install whichever was fetched as
+              # the `tmuxy` executable. The AppImage is self-contained;
+              # running it needs FUSE (libfuse2) at runtime.
+              bin.install Dir["tmuxy_*.AppImage"].first => "tmuxy"
             end
 
             test do
@@ -406,8 +431,9 @@ jobs:
           end
           FORMULA
 
-          sed -i "s/__VERSION__/${VERSION}/g" Formula/tmuxy.rb
-          sed -i "s/__SHA256__/${SHA256}/g"  Formula/tmuxy.rb
+          sed -i "s/__VERSION__/${VERSION}/g"      Formula/tmuxy.rb
+          sed -i "s/__SHA256_AMD__/${SHA256_AMD}/g" Formula/tmuxy.rb
+          sed -i "s/__SHA256_ARM__/${SHA256_ARM}/g" Formula/tmuxy.rb
 
           git config user.name  "tmuxy-cask-bumper[bot]"
           git config user.email "tmuxy-cask-bumper@users.noreply.github.com"
