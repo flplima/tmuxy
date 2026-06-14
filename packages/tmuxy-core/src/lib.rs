@@ -302,6 +302,9 @@ pub enum WindowType {
     Float,
     FloatBackdrop,
     Group,
+    /// The left sidebar's hidden window (runs the `tmuxy tree` TUI). Excluded
+    /// from the tab bar like floats/groups; rendered in the UI as a left drawer.
+    Sidebar,
 }
 
 impl WindowType {
@@ -311,6 +314,7 @@ impl WindowType {
             "float" => Some(WindowType::Float),
             "float-backdrop" => Some(WindowType::FloatBackdrop),
             "group" => Some(WindowType::Group),
+            "sidebar" => Some(WindowType::Sidebar),
             _ => None,
         }
     }
@@ -321,6 +325,7 @@ impl WindowType {
             WindowType::Float => "float",
             WindowType::FloatBackdrop => "float-backdrop",
             WindowType::Group => "group",
+            WindowType::Sidebar => "sidebar",
         }
     }
 }
@@ -798,6 +803,7 @@ mod tests {
             WindowType::Float,
             WindowType::FloatBackdrop,
             WindowType::Group,
+            WindowType::Sidebar,
         ] {
             let s = ty.as_str();
             assert_eq!(WindowType::parse(s), Some(ty));

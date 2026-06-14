@@ -1117,6 +1117,7 @@ impl StateAggregator {
     /// hasn't propagated yet):
     /// - `float` or `__float_*` → Float
     /// - `group` or `__group_*` → Group
+    /// - `__sidebar` → Sidebar
     /// - anything else → Tab (auto-adopt: existing user windows become tabs)
     pub fn collect_window_tag_commands(&mut self) -> Vec<String> {
         let mut cmds = Vec::new();
@@ -1128,6 +1129,8 @@ impl StateAggregator {
                 WindowType::Float
             } else if window.name == "group" || window.name.starts_with("__group_") {
                 WindowType::Group
+            } else if window.name == "__sidebar" {
+                WindowType::Sidebar
             } else {
                 WindowType::Tab
             };

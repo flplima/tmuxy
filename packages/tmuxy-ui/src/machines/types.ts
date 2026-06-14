@@ -157,6 +157,14 @@ export interface AppMachineContext {
   floatPanes: Record<string, FloatPaneState>;
   /** Pane ID of the currently focused float (keyboard routes here instead of session) */
   focusedFloatPaneId: string | null;
+  /** Whether the left sidebar drawer is open (the hidden window stays alive when closed) */
+  sidebarOpen: boolean;
+  /**
+   * Pane ID of the sidebar when it holds keyboard focus (keys route to the tree
+   * TUI). The sidebar pane id itself is derived from windows via
+   * `selectSidebarPaneId`, not stored here.
+   */
+  focusedSidebarPaneId: string | null;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /** Keybindings received from the server */
@@ -445,6 +453,11 @@ export type CreateTabEvent = { type: 'CREATE_TAB' };
 export type ZoomPaneEvent = { type: 'ZOOM_PANE'; paneId: string };
 export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: string };
 export type CloseTopFloatEvent = { type: 'CLOSE_TOP_FLOAT' };
+
+// Sidebar (left drawer running the `tmuxy tree` TUI)
+export type ToggleSidebarEvent = { type: 'TOGGLE_SIDEBAR' };
+export type FocusSidebarEvent = { type: 'FOCUS_SIDEBAR' };
+export type BlurSidebarEvent = { type: 'BLUR_SIDEBAR' };
 export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: string };
 
 /**
@@ -637,6 +650,9 @@ export type AppMachineEvent =
   | ZoomPaneEvent
   | CloseFloatEvent
   | CloseTopFloatEvent
+  | ToggleSidebarEvent
+  | FocusSidebarEvent
+  | BlurSidebarEvent
   | WriteToPaneEvent
   | EnterCommandModeEvent
   | CommandModeSubmitEvent

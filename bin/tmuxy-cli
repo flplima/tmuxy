@@ -58,10 +58,21 @@ Commands:
   nav         Navigate across groups, splits, and tabs
   widget      Display widgets (image, markdown)
   event       Event queue for inter-agent coordination (emit, wait, list)
+  tree        Open the sidebar tree view (tabs + panes)
   run         Run any tmux command safely
   server      Production server operations
 
 Run 'tmuxy <command> --help' for details.
+EOF
+}
+
+usage_tree() {
+  cat <<'EOF'
+Usage: tmuxy tree
+
+Open an interactive tree view of all tabs and their panes. Navigate with
+j/k or the arrow keys, Enter (or a mouse click) to activate a tab/pane.
+This is the same TUI the left sidebar renders.
 EOF
 }
 
@@ -443,8 +454,11 @@ cmd_tab() {
         esac
       done
       if $json; then
-        tmux list-windows -F '#{window_id},#{window_index},#{window_name},#{window_panes},#{window_active}' | \
-          awk -F',' 'BEGIN{printf "["} NR>1{printf ","} {printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", $1, $2, $3, $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
+        # Include @tmuxy-window-type ($6) so we can drop tmuxy's hidden windows
+        # (floats, groups, the sidebar). Keep "tab" and untagged/foreign ("")
+        # windows so this still works in a plain (non-tmuxy) session.
+        tmux list-windows -F '#{window_id},#{window_index},#{window_name},#{window_panes},#{window_active},#{@tmuxy-window-type}' | \
+          awk -F',' 'BEGIN{printf "["; n=0} $6!="float" && $6!="float-backdrop" && $6!="group" && $6!="sidebar"{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", $1, $2, $3, $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
       else
         tmux list-windows
       fi
@@ -761,6 +775,13 @@ case "${1:-}" in
   event)
     shift
     cmd_event "$@"
+    ;;
+  tree)
+    shift
+    case "${1:-}" in
+      --help|-h) usage_tree ;;
+      *) exec "$(find_server_binary)" tree "$@" ;;
+    esac
     ;;
   run)
     shift

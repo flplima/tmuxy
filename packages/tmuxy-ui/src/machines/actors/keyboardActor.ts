@@ -22,7 +22,8 @@ export type KeyboardActorEvent =
   | { type: 'UPDATE_ACTIVE_PANE'; paneId: string | null }
   | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
   | { type: 'UPDATE_ENABLED'; enabled: boolean }
-  | { type: 'UPDATE_FOCUSED_FLOAT'; paneId: string | null };
+  | { type: 'UPDATE_FOCUSED_FLOAT'; paneId: string | null }
+  | { type: 'UPDATE_FOCUSED_SIDEBAR'; paneId: string | null };
 
 export interface KeyboardActorInput {
   parent: AnyActorRef;
@@ -108,6 +109,8 @@ export function createKeyboardActor() {
     let sessionName = 'tmuxy';
     let activePaneId: string | null = null;
     let focusedFloatPaneId: string | null = null;
+    // When set, the sidebar's tree-TUI pane holds focus; keys route to it.
+    let focusedSidebarPaneId: string | null = null;
     let enabled = true;
     let isComposing = false;
     let inPrefixMode = false;
@@ -133,7 +136,8 @@ export function createKeyboardActor() {
       ? setupMobileKeyboard((text) => {
           if (!enabled) return;
           const escaped = escapeLiteralText(text);
-          const mobileTarget = focusedFloatPaneId ?? activePaneId ?? sessionName;
+          const mobileTarget =
+            focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${mobileTarget} -l ${escaped}`,
@@ -223,6 +227,15 @@ export function createKeyboardActor() {
         }
       }
 
+      // Ctrl+/ toggles the left sidebar. Handled fully client-side so it works
+      // regardless of which pane has focus and never reaches tmux. (A matching
+      // `bind -n C-/` in tmuxy.conf only fires for native, non-web clients.)
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key === '/') {
+        event.preventDefault();
+        input.parent.send({ type: 'TOGGLE_SIDEBAR' });
+        return;
+      }
+
       // Copy mode is per-pane and derived (not synced): a pane is in copy mode
       // iff the *currently active* pane has a CopyModeState. Deriving this fresh
       // on every keydown — rather than tracking a pushed boolean — means
@@ -231,7 +244,7 @@ export function createKeyboardActor() {
       // sync. A focused float always takes priority, so its keys are never
       // hijacked by an underlying pane's copy mode.
       let activeCopyState: CopyModeState | undefined;
-      if (!focusedFloatPaneId) {
+      if (!focusedFloatPaneId && !focusedSidebarPaneId) {
         try {
           const snapshot = input.parent.getSnapshot() as {
             context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
@@ -297,6 +310,13 @@ export function createKeyboardActor() {
 
       event.preventDefault();
 
+      // Escape returns focus from the sidebar to the panes (the drawer stays
+      // open; the tree window is hidden, not killed).
+      if (event.key === 'Escape' && focusedSidebarPaneId) {
+        input.parent.send({ type: 'BLUR_SIDEBAR' });
+        return;
+      }
+
       // Escape closes the focused float instead of being sent to tmux
       if (event.key === 'Escape' && focusedFloatPaneId) {
         input.parent.send({ type: 'CLOSE_FLOAT', paneId: focusedFloatPaneId });
@@ -314,7 +334,8 @@ export function createKeyboardActor() {
         if (inPrefixMode) {
           // Double prefix sends literal prefix key to the shell
           resetPrefixMode();
-          const prefixTarget = focusedFloatPaneId ?? activePaneId ?? sessionName;
+          const prefixTarget =
+            focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${prefixTarget} ${prefixKey}`,
@@ -375,7 +396,7 @@ export function createKeyboardActor() {
           // aligns tmux's view with ours before the binding executes; for
           // bindings that carry their own target (e.g., `select-pane -L`), the
           // prepend is a harmless no-op since the binding overrides it.
-          const target = focusedFloatPaneId ?? activePaneId;
+          const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId;
           const command = target
             ? `select-pane -t ${target} \\; ${bindingCommand}`
             : bindingCommand;
@@ -425,7 +446,7 @@ export function createKeyboardActor() {
         // Same prefix-pin treatment as prefix bindings — root bindings (bind -n)
         // also run against tmux's server-side active pane and need the
         // post-tab-switch / post-group-swap race guarded the same way.
-        const target = focusedFloatPaneId ?? activePaneId;
+        const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId;
         const command = target ? `select-pane -t ${target} \\; ${rootCommand}` : rootCommand;
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
@@ -447,7 +468,7 @@ export function createKeyboardActor() {
       // Target priority: focused float > active pane ID > session name
       // Using activePaneId ensures input reaches the correct pane immediately
       // after an optimistic tab switch (before tmux processes select-window).
-      const target = focusedFloatPaneId ?? activePaneId ?? sessionName;
+      const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId ?? sessionName;
       // Use literal mode (-l) for single printable chars to avoid tmux syntax interpretation
       let command: string;
       if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
@@ -504,7 +525,7 @@ export function createKeyboardActor() {
       const lines = text.split('\n');
       const commands: string[] = [];
 
-      const pasteTarget = focusedFloatPaneId ?? activePaneId ?? sessionName;
+      const pasteTarget = focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId ?? sessionName;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (line.length > 0) {
@@ -560,6 +581,8 @@ export function createKeyboardActor() {
         enabled = event.enabled;
       } else if (event.type === 'UPDATE_FOCUSED_FLOAT') {
         focusedFloatPaneId = event.paneId;
+      } else if (event.type === 'UPDATE_FOCUSED_SIDEBAR') {
+        focusedSidebarPaneId = event.paneId;
       }
     });
 

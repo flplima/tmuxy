@@ -12,6 +12,7 @@ import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
 import { FloatContainer } from './components/FloatPane';
+import { Sidebar } from './components/Sidebar';
 import {
   useAppSelector,
   useAppSend,
@@ -22,7 +23,10 @@ import {
   selectFatalError,
   selectLog,
   selectContainerSize,
+  selectCharSize,
+  selectSidebarPaneId,
 } from './machines/AppContext';
+import { SIDEBAR_COLS } from './machines/constants';
 import type { LogEntry } from './machines/types';
 import { initDebugHelpers } from './utils/debug';
 
@@ -114,6 +118,9 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const fatalError = useAppSelector(selectFatalError);
   const log = useAppSelector(selectLog);
   const containerSize = useAppSelector(selectContainerSize);
+  const { charWidth } = useAppSelector(selectCharSize);
+  const sidebarOpen = useAppSelector((ctx) => ctx.sidebarOpen);
+  const sidebarPaneId = useAppSelector(selectSidebarPaneId);
   const isConnecting = useAppState('connecting');
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
@@ -166,7 +173,18 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   return (
     <div ref={appContainerRef} className="app-container">
       <StatusBar renderTabline={renderTabline} />
-      <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
+      <div
+        ref={containerRef}
+        className="pane-container"
+        style={{
+          position: 'relative',
+          // When the sidebar is open, inset the pane area by the drawer width.
+          // The ResizeObserver reports the reduced contentRect width, so the
+          // tmux size adapts automatically — and panes never render under the
+          // drawer. Derived from the same cols × charWidth as the drawer.
+          ...(sidebarOpen && sidebarPaneId ? { paddingLeft: SIDEBAR_COLS * charWidth + 8 } : null),
+        }}
+      >
         {!showLayout ? (
           <StatusScreen
             error={error}
@@ -179,6 +197,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
             <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
             {/* Float panes overlay - renders above tiled panes */}
             <FloatContainer />
+            {/* Left sidebar drawer (tmuxy tree) */}
+            <Sidebar />
           </>
         )}
       </div>

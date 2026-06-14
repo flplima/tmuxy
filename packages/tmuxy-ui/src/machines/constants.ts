@@ -29,6 +29,14 @@ export const DEFAULT_ROWS = 24;
 /** Default session name */
 export const DEFAULT_SESSION_NAME = 'tmuxy';
 
+/**
+ * Width of the left sidebar drawer, in columns. The React drawer width and the
+ * sidebar tmux pane width both derive from this × charWidth, so they stay in
+ * lockstep across font-size changes. Must match `bin/tmuxy/sidebar-create`'s
+ * default `--width`.
+ */
+export const SIDEBAR_COLS = 30;
+
 /** Duration for pane enter/exit animations (ms) */
 export const PANE_ANIMATION_DURATION = 125;
 

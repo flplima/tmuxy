@@ -159,7 +159,9 @@ exec docker run $TTY_FLAG --rm \
     -e TMUX_SESSION=dev \
     -e CLAUDE_CONFIG_DIR=/home/user/.claude \
     -e GIT_CONFIG_GLOBAL=/home/user/.config/git/config \
+    -e NODE_OPTIONS="--max-old-space-size=2048" \
     -w /tmuxy \
     --user root \
+    --entrypoint /usr/local/bin/remap-user.sh \
     "$IMAGE_NAME" \
-    /usr/local/bin/remap-user.sh bash -lic "${INIT_SCRIPT}${CONTAINER_CMD:-exec bash -l}"
+    bash -lic "${INIT_SCRIPT}${CONTAINER_CMD:-exec bash -l}"

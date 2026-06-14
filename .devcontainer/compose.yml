@@ -36,8 +36,9 @@ services:
       - TMUX_SESSION=dev
       - CLAUDE_CONFIG_DIR=/home/user/.claude
       - GIT_CONFIG_GLOBAL=/home/user/.config/git/config
+      - NODE_OPTIONS=--max-old-space-size=2048
     shm_size: 1g
-    mem_limit: 6g
+    mem_limit: 12g
     # Credential-volume ownership is repaired by the remap-user.sh entrypoint.
     # Restore ~/.claude.json (onboarding flag + oauthAccount) from the volume and
     # start its backup daemon before launching Claude — otherwise each run

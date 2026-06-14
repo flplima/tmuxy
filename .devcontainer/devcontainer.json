@@ -11,7 +11,7 @@
   },
   "runArgs": [
     "--init",
-    "--memory=6g",
+    "--memory=12g",
     "--shm-size=1g",
     "--pids-limit=50000"
   ],
@@ -47,7 +47,7 @@
     "source=tmuxy-git-config,target=/home/user/.config/git,type=volume"
   ],
   "containerEnv": {
-    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "NODE_OPTIONS": "--max-old-space-size=2048",
     "CLAUDE_CONFIG_DIR": "/home/user/.claude",
     "CHROME_CDP_URL": "http://localhost:9222",
     "TMUX_SESSION": "dev",

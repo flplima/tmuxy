@@ -253,6 +253,21 @@ export function selectActiveWindowId(context: AppMachineContext): string | null 
   return context.activeWindowId;
 }
 
+/**
+ * Pane id of the sidebar's hidden window (windowType === 'sidebar'), or null
+ * when no sidebar window exists. There is at most one; the window holds exactly
+ * one pane (the `tmuxy tree` TUI). Derived rather than stored in context.
+ */
+export const selectSidebarPaneId = createMemoizedSelector(
+  (ctx: AppMachineContext) => [ctx.windows, ctx.panes] as const,
+  (context: AppMachineContext): string | null => {
+    const window = context.windows.find((w) => w.windowType === 'sidebar');
+    if (!window) return null;
+    const pane = context.panes.find((p) => p.windowId === window.id);
+    return pane ? pane.tmuxId : null;
+  },
+);
+
 // ============================================
 // Connection Selectors
 // ============================================
@@ -467,11 +482,16 @@ function selectHiddenWindowPanesUncached(context: AppMachineContext): TmuxPane[]
     }
   }
 
+  // The sidebar pane lives in its own hidden window and is rendered only in the
+  // drawer — never as a tiled (display:none) pane.
+  const sidebarPaneId = selectSidebarPaneId(context);
+
   const result: TmuxPane[] = [];
   for (const pane of panes) {
     if (pane.windowId === activeWindowId) continue;
     if (floatPanes[pane.tmuxId]) continue;
     if (hiddenGroupPaneIds.has(pane.tmuxId)) continue;
+    if (pane.tmuxId === sidebarPaneId) continue;
     result.push(pane);
   }
   return result.sort((a, b) => (a.tmuxId < b.tmuxId ? -1 : a.tmuxId > b.tmuxId ? 1 : 0));
@@ -483,6 +503,7 @@ export const selectHiddenWindowPanes = createMemoizedSelector(
     paneGroups: ctx.paneGroups,
     activeWindowId: ctx.activeWindowId,
     floatPanes: ctx.floatPanes,
+    windows: ctx.windows,
   }),
   selectHiddenWindowPanesUncached,
 );

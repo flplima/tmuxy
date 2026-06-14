@@ -17,6 +17,7 @@ import { selectReconnectAttempt } from '../machines/selectors';
 import { isTauri } from '../tmux/adapters';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
+import { SidebarToggle } from './SidebarToggle';
 import { ConnectionStatus } from './ConnectionStatus';
 import './StatusBar.css';
 
@@ -37,7 +38,7 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!isMacTauri || e.buttons !== 1) return;
     const target = e.target as HTMLElement;
-    if (target.closest('button, [role="tab"], .tab-add, .app-menu-button')) return;
+    if (target.closest('button, [role="tab"], .tab-add, .app-menu-button, .sidebar-toggle')) return;
 
     if (e.detail === 2) {
       import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
@@ -57,7 +58,7 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (!isTauri() || isMacTauri) return;
     const target = e.target as HTMLElement;
-    if (target.closest('button, [role="tab"], .tab-add, .app-menu-button')) return;
+    if (target.closest('button, [role="tab"], .tab-add, .app-menu-button, .sidebar-toggle')) return;
 
     import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
       getCurrentWindow().toggleMaximize();
@@ -67,6 +68,7 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
   const defaultContent = (
     <>
       {isMacTauri ? <div className="traffic-light-spacer" /> : <AppMenu />}
+      <SidebarToggle />
       <WindowTabs />
     </>
   );
