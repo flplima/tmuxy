@@ -28,6 +28,36 @@
   width: 100%;
 }
 
+/* Sidebar toggle - icon button between the app menu and the tab list */
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-subtle);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.sidebar-toggle:hover {
+  color: var(--text-muted);
+  background-color: var(--bg-medium);
+}
+
+.sidebar-toggle-active {
+  color: var(--term-white);
+  background-color: var(--bg-medium);
+}
+
 /* Tab list */
 .tab-list {
   display: flex;

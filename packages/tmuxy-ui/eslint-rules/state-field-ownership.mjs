@@ -56,6 +56,8 @@ const FIELD_OWNERS = {
   floatPanes: 'groupsAndFloats',
   focusedFloatPaneId: 'groupsAndFloats',
   groupSwitchDimOverrides: 'groupsAndFloats',
+  sidebarOpen: 'groupsAndFloats',
+  focusedSidebarPaneId: 'groupsAndFloats',
 
   // ---- commandUi ----
   commandMode: 'commandUi',

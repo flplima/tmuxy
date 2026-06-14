@@ -1,5 +1,9 @@
 const { runCLI } = require('./helpers/run-cli');
-const { LIST_WINDOWS_OUTPUT, LIST_WINDOWS_JSON } = require('./helpers/fixtures');
+const {
+  LIST_WINDOWS_OUTPUT,
+  LIST_WINDOWS_JSON,
+  LIST_WINDOWS_WITH_HIDDEN_OUTPUT,
+} = require('./helpers/fixtures');
 
 describe('CLI tab subcommands', () => {
   describe('tab list', () => {
@@ -16,6 +20,17 @@ describe('CLI tab subcommands', () => {
       });
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
+      expect(parsed).toEqual(LIST_WINDOWS_JSON);
+    });
+
+    test('--json excludes hidden windows (float/group/sidebar)', () => {
+      const { stdout, exitCode } = runCLI(['tab', 'list', '--json'], {
+        env: { MOCK_TMUX_LIST_WINDOWS: LIST_WINDOWS_WITH_HIDDEN_OUTPUT },
+      });
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout);
+      // Only the two real tabs survive; the float, group, and sidebar windows
+      // are filtered out so the tree view never lists tmuxy's own chrome.
       expect(parsed).toEqual(LIST_WINDOWS_JSON);
     });
   });

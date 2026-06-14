@@ -45,6 +45,7 @@ import {
   STATUS_MESSAGE_DURATION,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
+import { selectSidebarPaneId } from '../selectors';
 import type { CopyModeState, CellLine } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -223,6 +224,19 @@ function resolvePaneGroupNavTarget(
   if (!target || target === visibleId) return null;
 
   return { paneId: target };
+}
+
+/**
+ * Detect a horizontal pane-nav command (Ctrl+h / Ctrl+l → `tmuxy-nav-left/right`
+ * or the expanded `run-shell .../nav left|right` form). Returns the direction or
+ * null. Used for the sidebar boundary: Ctrl+h from the leftmost pane focuses the
+ * open sidebar; Ctrl+l from a focused sidebar returns to the panes.
+ */
+function navDirection(command: string): 'left' | 'right' | null {
+  const trimmed = command.trim();
+  if (trimmed.match(/^tmuxy-nav-left\b/) || trimmed.match(/\/nav\s+left\b/)) return 'left';
+  if (trimmed.match(/^tmuxy-nav-right\b/) || trimmed.match(/\/nav\s+right\b/)) return 'right';
+  return null;
 }
 
 /**
@@ -1244,6 +1258,16 @@ export const appMachine = setup({
               return;
             }
 
+            // Sidebar boundary (while focused): Ctrl+l returns focus to the
+            // panes; Ctrl+h is a no-op (nothing further left). Checked before
+            // group nav so leaving the sidebar always works, even when the
+            // underlying active pane happens to be in a group.
+            const navDir = navDirection(tail);
+            if (context.focusedSidebarPaneId !== null && navDir) {
+              if (navDir === 'right') enqueue.raise({ type: 'BLUR_SIDEBAR' });
+              return;
+            }
+
             // Same routing for pane-group nav (prev/next): share the
             // optimistic swap + keyboard re-target path with TAB clicks so
             // `<prefix> -` and friends don't lag the visible state.
@@ -1254,6 +1278,17 @@ export const appMachine = setup({
                 paneId: groupNavTarget.paneId,
               });
               return;
+            }
+
+            // Sidebar boundary (entering): Ctrl+h from the leftmost pane focuses
+            // the open sidebar instead of doing a tmux `select-pane -L` no-op.
+            // After group nav so group cycling still wins for grouped panes.
+            if (navDir === 'left' && context.sidebarOpen && selectSidebarPaneId(context)) {
+              const activePane = context.panes.find((p) => p.tmuxId === context.activePaneId);
+              if (activePane && activePane.x === 0) {
+                enqueue.raise({ type: 'FOCUS_SIDEBAR' });
+                return;
+              }
             }
 
             // Drag-time swaps: the drag machine already pre-shuffled pane

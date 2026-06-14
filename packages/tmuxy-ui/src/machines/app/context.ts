@@ -90,6 +90,8 @@ export const FIELD_OWNERS = {
   floatPanes: 'groupsAndFloats',
   focusedFloatPaneId: 'groupsAndFloats',
   groupSwitchDimOverrides: 'groupsAndFloats',
+  sidebarOpen: 'groupsAndFloats',
+  focusedSidebarPaneId: 'groupsAndFloats',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -143,6 +145,8 @@ export function createInitialContext(): AppMachineContext {
     lastUpdateTime: 0,
     floatPanes: {},
     focusedFloatPaneId: null,
+    sidebarOpen: false,
+    focusedSidebarPaneId: null,
     enableAnimations: false,
     keybindings: null,
     copyModeStates: {},

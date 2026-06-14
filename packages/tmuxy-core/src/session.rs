@@ -182,6 +182,10 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
     ),
     ("tmuxy/stack", include_str!("../../../bin/tmuxy/stack")),
     (
+        "tmuxy/sidebar-create",
+        include_str!("../../../bin/tmuxy/sidebar-create"),
+    ),
+    (
         "tmuxy/session-connect",
         include_str!("../../../bin/tmuxy/session-connect"),
     ),

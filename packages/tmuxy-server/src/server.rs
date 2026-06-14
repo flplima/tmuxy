@@ -39,6 +39,10 @@ pub enum ServerAction {
     Stop,
     /// Show server status
     Status,
+    /// Run the sidebar tree TUI (backs `tmuxy tree`). Hidden: meant to run
+    /// inside a tmux pane, not invoked directly by users.
+    #[command(hide = true)]
+    Tree,
 }
 
 pub async fn run(args: ServerArgs) {
@@ -48,6 +52,12 @@ pub async fn run(args: ServerArgs) {
         None => start_server(args.port, args.host).await,
         Some(ServerAction::Stop) => stop_server(),
         Some(ServerAction::Status) => server_status(),
+        Some(ServerAction::Tree) => {
+            if let Err(e) = crate::tree::run_tree_tui() {
+                eprintln!("tmuxy tree: {e}");
+                std::process::exit(1);
+            }
+        }
     }
 }
 
