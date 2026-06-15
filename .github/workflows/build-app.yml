@@ -448,47 +448,19 @@ jobs:
               bin.install Dir["tmuxy_*.AppImage"].first => "tmuxy"
             end
 
-            def post_install
-              # Create a .desktop file so tmuxy appears in the OS app menu.
-              apps = share/"applications"
-              apps.mkpath
-              (apps/"tmuxy.desktop").write <<~DESKTOP
-                [Desktop Entry]
-                Name=tmuxy
-                Comment=Web-based tmux interface
-                Exec=#{bin}/tmuxy gui
-                Icon=tmuxy
-                Terminal=false
-                Type=Application
-                Categories=System;TerminalEmulator;
-                StartupWMClass=tmuxy
-              DESKTOP
-
-              # Extract icons from the AppImage and install all resolutions.
-              system "#{bin}/tmuxy", "--appimage-extract", "usr/share/icons"
-              Dir["squashfs-root/usr/share/icons/hicolor/*/apps/tmuxy.png"].each do |icon|
-                size = File.basename(File.dirname(File.dirname(icon)))
-                dest = share/"icons/hicolor"/size/"apps"
-                dest.mkpath
-                cp icon, dest/"tmuxy.png"
-              end
-              rm_rf "squashfs-root"
-
-              # Linuxbrew's share/ isn't on the standard XDG search path,
-              # so symlink into ~/.local/share/ where desktop environments
-              # actually look for .desktop files and icons.
-              user_apps = Pathname.new(Dir.home)/".local/share/applications"
-              user_apps.mkpath
-              ln_sf apps/"tmuxy.desktop", user_apps/"tmuxy.desktop"
-
-              user_icons = Pathname.new(Dir.home)/".local/share/icons"
-              (share/"icons/hicolor").children.select(&:directory?).each do |size_dir|
-                src = size_dir/"apps/tmuxy.png"
-                next unless src.exist?
-                dest = user_icons/"hicolor"/size_dir.basename/"apps"
-                dest.mkpath
-                ln_sf src, dest/"tmuxy.png"
-              end
+            # Homebrew 6.0+ sandboxes post_install ($HOME is read-only),
+            # so .desktop/icon install runs outside brew via caveats.
+            def caveats
+              <<~EOS
+                To add tmuxy to your application menu, run once:
+                  #{bin}/tmuxy --appimage-extract usr/share 2>/dev/null; \\
+                  mkdir -p ~/.local/share/applications ~/.local/share/icons; \\
+                  sed 's|Exec=.*|Exec=#{bin}/tmuxy gui|;s|Icon=.*|Icon=tmuxy|;s|StartupWMClass=.*|StartupWMClass=tmuxy|' \\
+                    squashfs-root/usr/share/applications/tmuxy.desktop \\
+                    > ~/.local/share/applications/tmuxy.desktop; \\
+                  cp -r squashfs-root/usr/share/icons/hicolor ~/.local/share/icons/; \\
+                  rm -rf squashfs-root
+              EOS
             end
 
             test do
