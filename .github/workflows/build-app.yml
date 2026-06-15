@@ -323,39 +323,29 @@ jobs:
               # Record the app binary path and install a CLI wrapper at
               # ~/.local/bin/tmuxy so `tmuxy pane list` etc. work immediately
               # after install, without opening the GUI first.
-              system_command "/bin/bash", args: ["-c", <<~SH], sudo: false
-                set -eu
-                EXEC_PATH="#{appdir}/tmuxy.app/Contents/MacOS/tmuxy"
-                CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy"
-                BIN_DIR="$HOME/.local/bin"
+              exec_path = "#{appdir}/tmuxy.app/Contents/MacOS/tmuxy"
+              config_dir = Pathname.new(Dir.home)/".config/tmuxy"
+              config_dir.mkpath
+              (config_dir/"launcher").write "#{exec_path}\n"
 
-                mkdir -p "$CONFIG_DIR" "$BIN_DIR"
-                printf '%s\\n' "$EXEC_PATH" > "$CONFIG_DIR/launcher"
-
-                cat > "$BIN_DIR/tmuxy" <<'WRAPPER'
-#!/bin/sh
-set -eu
-LAUNCHER_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher"
-if [ ! -f "$LAUNCHER_FILE" ]; then
-  echo 'tmuxy: no launcher recorded yet — open the app once via Finder/GUI.' >&2
-  exit 1
-fi
-EXEC_PATH="$(cat "$LAUNCHER_FILE")"
-if [ "$#" -gt 0 ]; then
-  exec "$EXEC_PATH" "$@"
-fi
-case "$(uname -s)" in
-  Darwin)
-    APP_PATH="${EXEC_PATH%%/Contents/MacOS/*}"
-    if [ "$APP_PATH" != "$EXEC_PATH" ] && [ -d "$APP_PATH" ]; then
-      exec /usr/bin/open "$APP_PATH"
-    fi
-    ;;
-esac
-exec "$EXEC_PATH"
-WRAPPER
-                chmod +x "$BIN_DIR/tmuxy"
-              SH
+              bin_dir = Pathname.new(Dir.home)/".local/bin"
+              bin_dir.mkpath
+              wrapper = bin_dir/"tmuxy"
+              wrapper.write "#!/bin/sh\n" \
+                "set -eu\n" \
+                "LAUNCHER_FILE=\"${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher\"\n" \
+                "if [ ! -f \"$LAUNCHER_FILE\" ]; then\n" \
+                "  echo 'tmuxy: no launcher recorded — open the app once first.' >&2\n" \
+                "  exit 1\n" \
+                "fi\n" \
+                "EXEC_PATH=\"$(cat \"$LAUNCHER_FILE\")\"\n" \
+                "if [ \"$#\" -gt 0 ]; then exec \"$EXEC_PATH\" \"$@\"; fi\n" \
+                "APP_PATH=\"${EXEC_PATH%%/Contents/MacOS/*}\"\n" \
+                "if [ \"$APP_PATH\" != \"$EXEC_PATH\" ] && [ -d \"$APP_PATH\" ]; then\n" \
+                "  exec /usr/bin/open \"$APP_PATH\"\n" \
+                "fi\n" \
+                "exec \"$EXEC_PATH\"\n"
+              wrapper.chmod 0o755
             end
 
             zap trash: [
