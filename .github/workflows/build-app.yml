@@ -278,7 +278,6 @@ jobs:
           SHA=$(sha256sum "$DMG" | awk '{print $1}')
           echo "version=$VERSION"  >> "$GITHUB_OUTPUT"
           echo "sha256=$SHA"       >> "$GITHUB_OUTPUT"
-          echo "dmg_name=$(basename "$DMG")" >> "$GITHUB_OUTPUT"
           echo "Bumping cask: v$VERSION sha256=$SHA from $(basename "$DMG")"
 
       - name: Push updated cask to flplima/homebrew-tap

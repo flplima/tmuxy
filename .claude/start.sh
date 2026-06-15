@@ -67,7 +67,7 @@ step_done "Started prod server (port 9000)"
 
 step_start "Compiling prod server"
 for i in $(seq 1 180); do
-  curl -s http://localhost:9000/health >/dev/null 2>&1 && break
+  curl -fs http://localhost:9000/ >/dev/null 2>&1 && break
   if [ "$i" -eq 180 ]; then
     step_fail "Prod server timed out — check: pm2 logs"
     exit 1
@@ -88,7 +88,7 @@ step_done "Started dev server (port 9001)"
 
 step_start "Waiting for dev server"
 for i in $(seq 1 60); do
-  curl -s http://localhost:9001/health >/dev/null 2>&1 && break
+  curl -fs http://localhost:9001/ >/dev/null 2>&1 && break
   if [ "$i" -eq 60 ]; then
     step_fail "Dev server timed out — check: pm2 logs"
     exit 1

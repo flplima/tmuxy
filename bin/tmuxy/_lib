@@ -31,12 +31,6 @@ window_type() {
   _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
 }
 
-# Tag the current window with @tmuxy-window-type.
-# Args: $1=window_id  $2=type
-set_window_type() {
-  _tmux set-option -w -t "$1" @tmuxy-window-type "$2"
-}
-
 # Find the group window containing a given pane.
 # Args: $1=pane_id (e.g., %4)
 # Output: window id of the group (e.g., @5), or empty string.
@@ -103,12 +97,6 @@ active_window() {
 # Get a pane's window ID
 pane_window() {
   _tmux display-message -t "$1" -p '#{window_id}'
-}
-
-# List visible (tab-typed) window IDs, one per line.
-list_visible_windows() {
-  _tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}' \
-    | awk -F'|' '$2 == "tab" { print $1 }'
 }
 
 # Force a list-panes refresh (so server pushes new state to clients)
