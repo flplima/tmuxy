@@ -120,6 +120,11 @@ pub fn run_server(args: Vec<String>) {
         server: server::ServerArgs,
     }
 
+    // Match the standalone `tmuxy-server` binary: without a subscriber, every
+    // server log — including the fatal dev-mode port-collision message — is
+    // silently dropped, so `tmuxy server` would exit with no diagnostic output.
+    tmuxy_server::init_logging();
+
     // Build synthetic argv: "tmuxy-server" + everything after "server"
     let mut argv = vec!["tmuxy-server".to_string()];
     argv.extend(args.into_iter().skip(1)); // skip "server"

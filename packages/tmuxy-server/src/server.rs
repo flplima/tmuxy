@@ -79,7 +79,7 @@ async fn start_dev_server(requested_port: u16) {
         error!(
             vite_port = dev::VITE_PORT,
             demo_port = dev::DEMO_PORT,
-            "choose a different port (e.g. DEV_PORT=9000) and restart"
+            "choose a different port (e.g. --port 9000 or PORT=9000) and restart"
         );
         std::process::exit(1);
     }
