@@ -9,11 +9,7 @@ services:
     pids_limit: 50000   # Safety buffer for process count
     stdin_open: true
     tty: true
-    # Start as root so the remap-user.sh entrypoint can match `user` to the
-    # host uid/gid (keeping the bind-mounted /tmuxy writable for any developer);
-    # it drops to `user` before running the command.
-    user: root
-    entrypoint: /usr/local/bin/remap-user.sh
+    user: "${UID:-1000}:${GID:-1000}"
     working_dir: /tmuxy
     volumes:
       # Project workspace
@@ -38,7 +34,6 @@ services:
       - GIT_CONFIG_GLOBAL=/home/user/.config/git/config
     shm_size: 1g
     mem_limit: 6g
-    # Credential-volume ownership is repaired by the remap-user.sh entrypoint.
     # Restore ~/.claude.json (onboarding flag + oauthAccount) from the volume and
     # start its backup daemon before launching Claude — otherwise each run
     # re-prompts for login and replays the intro. See persist-claude-login.sh.

@@ -54,8 +54,6 @@ fi
 
 if [ "$BUILD_ONLY" = 1 ] || ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
     echo "Building devcontainer image..."
-    # The image is uid-agnostic: remap-user.sh matches `user` to the host at
-    # container start (see the run command below), so no per-host build args.
     docker build -t "$IMAGE_NAME" -f "$DOCKERFILE" .
     [ "$BUILD_ONLY" = 1 ] && exit 0
 fi
@@ -160,6 +158,6 @@ exec docker run $TTY_FLAG --rm \
     -e CLAUDE_CONFIG_DIR=/home/user/.claude \
     -e GIT_CONFIG_GLOBAL=/home/user/.config/git/config \
     -w /tmuxy \
-    --user root \
+    --user "$(id -u):$(id -g)" \
     "$IMAGE_NAME" \
-    /usr/local/bin/remap-user.sh bash -lic "${INIT_SCRIPT}${CONTAINER_CMD:-exec bash -l}"
+    bash -lic "${INIT_SCRIPT}${CONTAINER_CMD:-exec bash -l}"

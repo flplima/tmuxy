@@ -319,6 +319,43 @@ jobs:
               system_command "/usr/bin/xattr",
                              args: ["-dr", "com.apple.quarantine", "#{appdir}/tmuxy.app"],
                              sudo: false
+
+              # Record the app binary path and install a CLI wrapper at
+              # ~/.local/bin/tmuxy so `tmuxy pane list` etc. work immediately
+              # after install, without opening the GUI first.
+              system_command "/bin/bash", args: ["-c", <<~SH], sudo: false
+                set -eu
+                EXEC_PATH="#{appdir}/tmuxy.app/Contents/MacOS/tmuxy"
+                CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy"
+                BIN_DIR="$HOME/.local/bin"
+
+                mkdir -p "$CONFIG_DIR" "$BIN_DIR"
+                printf '%s\\n' "$EXEC_PATH" > "$CONFIG_DIR/launcher"
+
+                cat > "$BIN_DIR/tmuxy" <<'WRAPPER'
+#!/bin/sh
+set -eu
+LAUNCHER_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher"
+if [ ! -f "$LAUNCHER_FILE" ]; then
+  echo 'tmuxy: no launcher recorded yet — open the app once via Finder/GUI.' >&2
+  exit 1
+fi
+EXEC_PATH="$(cat "$LAUNCHER_FILE")"
+if [ "$#" -gt 0 ]; then
+  exec "$EXEC_PATH" "$@"
+fi
+case "$(uname -s)" in
+  Darwin)
+    APP_PATH="${EXEC_PATH%%/Contents/MacOS/*}"
+    if [ "$APP_PATH" != "$EXEC_PATH" ] && [ -d "$APP_PATH" ]; then
+      exec /usr/bin/open "$APP_PATH"
+    fi
+    ;;
+esac
+exec "$EXEC_PATH"
+WRAPPER
+                chmod +x "$BIN_DIR/tmuxy"
+              SH
             end
 
             zap trash: [
@@ -418,11 +455,50 @@ jobs:
             end
 
             def install
-              # Brew stages the downloaded AppImage under its original name
-              # (the arch suffix varies). Install whichever was fetched as
-              # the `tmuxy` executable. The AppImage is self-contained;
-              # running it needs FUSE (libfuse2) at runtime.
               bin.install Dir["tmuxy_*.AppImage"].first => "tmuxy"
+            end
+
+            def post_install
+              # Create a .desktop file so tmuxy appears in the OS app menu.
+              apps = share/"applications"
+              apps.mkpath
+              (apps/"tmuxy.desktop").write <<~DESKTOP
+                [Desktop Entry]
+                Name=tmuxy
+                Comment=Web-based tmux interface
+                Exec=#{bin}/tmuxy gui
+                Icon=tmuxy
+                Terminal=false
+                Type=Application
+                Categories=System;TerminalEmulator;
+                StartupWMClass=tmuxy
+              DESKTOP
+
+              # Extract icons from the AppImage and install all resolutions.
+              system "#{bin}/tmuxy", "--appimage-extract", "usr/share/icons"
+              Dir["squashfs-root/usr/share/icons/hicolor/*/apps/tmuxy.png"].each do |icon|
+                size = File.basename(File.dirname(File.dirname(icon)))
+                dest = share/"icons/hicolor"/size/"apps"
+                dest.mkpath
+                cp icon, dest/"tmuxy.png"
+              end
+              rm_rf "squashfs-root"
+
+              # Linuxbrew's share/ isn't on the standard XDG search path,
+              # so symlink into ~/.local/share/ where desktop environments
+              # actually look for .desktop files and icons.
+              user_apps = Pathname.new(Dir.home)/".local/share/applications"
+              user_apps.mkpath
+              ln_sf apps/"tmuxy.desktop", user_apps/"tmuxy.desktop"
+
+              user_icons = Pathname.new(Dir.home)/".local/share/icons"
+              (share/"icons/hicolor").children.select(&:directory?).each do |size_dir|
+                src = size_dir/"apps/tmuxy.png"
+                next unless src.exist?
+                dest = user_icons/"hicolor"/size_dir.basename/"apps"
+                dest.mkpath
+                ln_sf src, dest/"tmuxy.png"
+              end
             end
 
             test do

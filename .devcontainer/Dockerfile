@@ -9,9 +9,8 @@ ENV TZ="$TZ"
 
 # Rename the base image's built-in `node` user/group to `user` (uid/gid 1000)
 # and move its home directory. Done before anything else so all subsequent
-# steps can reference the renamed identity. The uid is left at the base 1000;
-# remap-user.sh adjusts it to the host's at container start (see below), so the
-# image stays uid-agnostic across developers.
+# steps can reference the renamed identity. The container is started with
+# --user "$(id -u):$(id -g)" so the host uid matches automatically.
 RUN usermod -l user -d /home/user -m node \
     && groupmod -n user node
 
@@ -103,16 +102,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
     wget -q "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -O /usr/local/bin/yq && \
     chmod +x /usr/local/bin/yq
 
-# Runtime uid remap: remap-user.sh runs as root at container start, matches
-# `user` to the workspace bind mount's owner so /tmuxy is writable for any host
-# uid, then drops to `user`. Invoked as the entrypoint by bin/devcontainer and
-# compose.yml; the VS Code path uses updateRemoteUserUID instead.
-COPY .devcontainer/remap-user.sh /usr/local/bin/remap-user.sh
-RUN chmod +x /usr/local/bin/remap-user.sh
-
-# Trust the workspace bind mount. remap-user.sh normally makes `user` own
-# /tmuxy outright; this is a belt-and-suspenders fallback (e.g. a root-owned
-# mount that skips the remap) that silences git's "dubious ownership" check.
+# Trust the workspace bind mount so git doesn't complain about "dubious ownership"
+# when the container user's uid differs from the bind mount owner.
 RUN git config --system --add safe.directory /tmuxy
 
 # Switch to non-root user
