@@ -154,6 +154,8 @@ RUN npm install -g pm2 agent-browser \
 # the dev build so we can run a second instance on port 9001 for comparison/testing.
 RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ENV PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH
+# AppImages need FUSE, which isn't available in Docker — extract-and-run instead.
+ENV APPIMAGE_EXTRACT_AND_RUN=1
 RUN brew install flplima/tap/tmuxy
 
 # Pre-fetch Playwright's bundled Chromium so `scripts/probe-stories.mjs`

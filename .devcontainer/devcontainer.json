@@ -52,7 +52,8 @@
     "CHROME_CDP_URL": "http://localhost:9222",
     "TMUX_SESSION": "dev",
     "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
-    "GIT_CONFIG_GLOBAL": "/home/user/.config/git/config"
+    "GIT_CONFIG_GLOBAL": "/home/user/.config/git/config",
+    "APPIMAGE_EXTRACT_AND_RUN": "1"
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/tmuxy,type=bind,consistency=delegated",
   "workspaceFolder": "/tmuxy",
