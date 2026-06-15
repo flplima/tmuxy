@@ -25,6 +25,7 @@
       }
     }
   },
+  "forwardPorts": [9001],
   "remoteUser": "user",
   // Remap `user` to the host uid/gid on create so the bind-mounted /tmuxy is
   // writable. The bin/devcontainer and docker-compose paths pass --user directly.
@@ -56,5 +57,5 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/tmuxy,type=bind,consistency=delegated",
   "workspaceFolder": "/tmuxy",
   "postCreateCommand": "npm install && ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf && ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy",
-  "postStartCommand": ".devcontainer/fix-credential-ownership.sh && .devcontainer/persist-claude-login.sh && npm start"
+  "postStartCommand": ".devcontainer/fix-credential-ownership.sh && .devcontainer/persist-claude-login.sh && npm start && pm2 start '/home/linuxbrew/.linuxbrew/bin/tmuxy-server --port 9001' --name tmuxy-brew"
 }

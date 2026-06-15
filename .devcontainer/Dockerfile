@@ -102,6 +102,10 @@ RUN ARCH=$(dpkg --print-architecture) && \
     wget -q "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -O /usr/local/bin/yq && \
     chmod +x /usr/local/bin/yq
 
+# Pre-create /home/linuxbrew owned by user so the Homebrew installer (run as
+# non-root below) doesn't need sudo to create it.
+RUN mkdir -p /home/linuxbrew && chown user:user /home/linuxbrew
+
 # Trust the workspace bind mount so git doesn't complain about "dubious ownership"
 # when the container user's uid differs from the bind mount owner.
 RUN git config --system --add safe.directory /tmuxy
@@ -121,7 +125,7 @@ COPY --chown=user:user .devcontainer/.zshrc /home/user/.zshrc
 
 # Add local bin, cargo, and npm global bin to profile (login shells, including non-interactive)
 # `yolo` shortcut mirrors the zsh function in .zshrc — needed because bin/devcontainer drops into bash.
-RUN echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/user/.profile \
+RUN echo 'export PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/user/.profile \
     && echo 'yolo() { claude --dangerously-skip-permissions "$@"; }' >> /home/user/.profile
 
 # Claude Code (native installer)
@@ -145,6 +149,12 @@ RUN mkdir -p /home/user/.config/gh /home/user/.config/git /home/user/.claude \
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 RUN npm install -g pm2 agent-browser \
     && if [ "$(dpkg --print-architecture)" != "arm64" ]; then agent-browser install; fi
+
+# Homebrew (Linuxbrew) — used to install the released tmuxy binary alongside
+# the dev build so we can run a second instance on port 9001 for comparison/testing.
+RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+ENV PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH
+RUN brew install flplima/tap/tmuxy
 
 # Pre-fetch Playwright's bundled Chromium so `scripts/probe-stories.mjs`
 # (the storybook play-function probe) works out of the box. The agent-browser
