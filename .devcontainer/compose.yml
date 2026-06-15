@@ -16,8 +16,6 @@ services:
       - ..:/tmuxy
       # Container config files
       - ../.devcontainer:/home/user/.devcontainer:ro
-      # Dotfiles scripts (tmux-run, etc.)
-      - ~/dotfiles/scripts:/home/user/dotfiles/scripts:ro
       # Credentials are NOT mounted from host — log in once inside the
       # container; named volumes below persist auth across restarts.
       - tmuxy-gh-config:/home/user/.config/gh
@@ -33,7 +31,7 @@ services:
       - CLAUDE_CONFIG_DIR=/home/user/.claude
       - GIT_CONFIG_GLOBAL=/home/user/.config/git/config
     shm_size: 1g
-    mem_limit: 6g
+    mem_limit: 12g
     # Restore ~/.claude.json (onboarding flag + oauthAccount) from the volume and
     # start its backup daemon before launching Claude — otherwise each run
     # re-prompts for login and replays the intro. See persist-claude-login.sh.

@@ -5,13 +5,12 @@
     "args": {
       "TZ": "${localEnv:TZ:America/Los_Angeles}",
       "GIT_DELTA_VERSION": "0.18.2",
-      "ZSH_IN_DOCKER_VERSION": "1.2.0",
       "PLAYWRIGHT_VERSION": "1.58.2"
     }
   },
   "runArgs": [
     "--init",
-    "--memory=6g",
+    "--memory=12g",
     "--shm-size=1g",
     "--pids-limit=50000"
   ],
@@ -25,7 +24,7 @@
       }
     }
   },
-  "forwardPorts": [9001],
+  "forwardPorts": [9090],
   "remoteUser": "user",
   // Remap `user` to the host uid/gid on create so the bind-mounted /tmuxy is
   // writable. The bin/devcontainer and docker-compose paths pass --user directly.
@@ -51,12 +50,11 @@
     "CLAUDE_CONFIG_DIR": "/home/user/.claude",
     "CHROME_CDP_URL": "http://localhost:9222",
     "TMUX_SESSION": "dev",
-    "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
     "GIT_CONFIG_GLOBAL": "/home/user/.config/git/config",
     "APPIMAGE_EXTRACT_AND_RUN": "1"
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/tmuxy,type=bind,consistency=delegated",
   "workspaceFolder": "/tmuxy",
-  "postCreateCommand": "npm install && ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf && ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy",
-  "postStartCommand": ".devcontainer/fix-credential-ownership.sh && .devcontainer/persist-claude-login.sh && npm start && pm2 start '/home/linuxbrew/.linuxbrew/bin/tmuxy-server --port 9001' --name tmuxy-brew"
+  "postCreateCommand": "npm ci && ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf && ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy",
+  "postStartCommand": ".devcontainer/fix-credential-ownership.sh && .devcontainer/persist-claude-login.sh && npm start && pm2 start /home/linuxbrew/.linuxbrew/bin/tmuxy --name tmuxy-brew --interpreter none -- server --port 9090"
 }

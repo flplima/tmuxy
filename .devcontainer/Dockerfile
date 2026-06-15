@@ -16,8 +16,8 @@ RUN usermod -l user -d /home/user -m node \
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Core tools
-    less git procps sudo fzf zsh man-db unzip gnupg2 openssh-server \
+    # Core tools (openssh-client for git-over-SSH and ssh-keygen credential setup)
+    less git procps sudo fzf zsh man-db unzip gnupg2 openssh-client \
     nano vim jq bc \
     # LazyVim runtime deps (telescope file/text search)
     ripgrep fd-find \
@@ -30,14 +30,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
     libjavascriptcoregtk-4.1-dev librsvg2-dev \
     webkit2gtk-driver xvfb x11-utils \
-    && mkdir /run/sshd \
-    && ssh-keygen -A \
-    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config \
-    && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
-    # Scoped passwordless sudo: sshd (interactive SSH), plus chown/chmod so the
-    # credential-volume ownership fix (.devcontainer/fix-credential-ownership.sh)
-    # can repair root-owned/stale-UID named volumes on container start.
-    && echo "user ALL=(root) NOPASSWD: /usr/sbin/sshd, /usr/bin/chown, /usr/bin/chmod" > /etc/sudoers.d/user \
+    # Scoped passwordless sudo for chown/chmod so the credential-volume ownership
+    # fix (.devcontainer/fix-credential-ownership.sh) can repair root-owned/stale-UID
+    # named volumes on container start.
+    && echo "user ALL=(root) NOPASSWD: /usr/bin/chown, /usr/bin/chmod" > /etc/sudoers.d/user \
     && chmod 440 /etc/sudoers.d/user \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -84,8 +80,6 @@ RUN mkdir -p /usr/local/share/npm-global \
 RUN mkdir /commandhistory \
     && touch /commandhistory/.bash_history \
     && chown -R user /commandhistory
-
-ENV DEVCONTAINER=true
 
 WORKDIR /tmuxy
 
@@ -151,7 +145,7 @@ RUN npm install -g pm2 agent-browser \
     && if [ "$(dpkg --print-architecture)" != "arm64" ]; then agent-browser install; fi
 
 # Homebrew (Linuxbrew) — used to install the released tmuxy binary alongside
-# the dev build so we can run a second instance on port 9001 for comparison/testing.
+# the dev build so we can run a second instance on port 9090 for comparison/testing.
 RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ENV PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH
 # AppImages need FUSE, which isn't available in Docker — extract-and-run instead.
