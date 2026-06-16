@@ -436,7 +436,7 @@ pub async fn commands_handler(
     // Decode into the typed enum. A parse failure still returns 400 with the
     // serde error in the body — the existing wire contract (`{ "error": ... }`)
     // is preserved so the TS adapter keeps working.
-    let cmd: ClientCommand = match serde_json::from_slice(&body) {
+    let cmd: ClientCommand = match ClientCommand::decode(&body) {
         Ok(c) => c,
         Err(e) => {
             return (

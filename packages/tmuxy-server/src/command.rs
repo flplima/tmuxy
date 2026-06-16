@@ -21,6 +21,7 @@
 //! match it in `handle_command`. The compiler enforces the rest.
 
 use serde::Deserialize;
+use serde_json::Value;
 
 /// Discriminator for [`ClientCommand::SelectPane`] — replaces the bare
 /// `"up"|"down"|"left"|"right"` strings the old handler matched on.
@@ -87,7 +88,9 @@ impl ScrollDirection {
 
 /// All client → server commands. The wire JSON looks like
 /// `{ "cmd": "...", "args": { ... } }`. Variants with no fields require no
-/// `args` key (or accept an empty object); serde's default rules handle that.
+/// `args` key; the TS adapter still sends an empty `args` object for them,
+/// which [`ClientCommand::decode`] strips before deserializing (serde's
+/// adjacently-tagged rules reject a `{}` map for a unit variant on their own).
 #[derive(Debug, Deserialize)]
 #[serde(tag = "cmd", content = "args", rename_all = "snake_case")]
 pub enum ClientCommand {
@@ -191,6 +194,43 @@ pub enum ClientCommand {
     Ping,
 }
 
+impl ClientCommand {
+    /// Decode a `/commands` request body into a [`ClientCommand`].
+    ///
+    /// The TS adapter always sends `{ "cmd": ..., "args": ... }`, defaulting
+    /// `args` to an empty object `{}` even for commands that take no
+    /// arguments (`get_theme_settings`, `get_themes_list`, `ping`, …). serde's
+    /// adjacently-tagged representation rejects an empty map where a unit
+    /// variant is expected ("invalid type: map, expected unit variant"), which
+    /// broke those commands on the wire.
+    ///
+    /// We honor the documented contract — unit variants accept an empty `args`
+    /// object — by stripping an empty `args` map and retrying. Payloads that
+    /// already parse (struct variants whose fields are all defaulted still
+    /// accept `{}`) succeed on the first attempt and never reach the retry,
+    /// so this only rescues the unit-variant case.
+    pub fn decode(body: &[u8]) -> Result<Self, serde_json::Error> {
+        match serde_json::from_slice(body) {
+            Ok(cmd) => Ok(cmd),
+            Err(first_err) => {
+                let mut value: Value = serde_json::from_slice(body)?;
+                let stripped = value
+                    .as_object_mut()
+                    .and_then(|obj| match obj.get("args") {
+                        Some(Value::Object(map)) if map.is_empty() => obj.remove("args"),
+                        _ => None,
+                    })
+                    .is_some();
+                if stripped {
+                    serde_json::from_value(value)
+                } else {
+                    Err(first_err)
+                }
+            }
+        }
+    }
+}
+
 fn default_scroll_amount() -> u32 {
     1
 }
@@ -233,6 +273,48 @@ mod tests {
     fn unit_variant_accepts_missing_args() {
         let cmd = parse(json!({ "cmd": "ping" }));
         assert!(matches!(cmd, ClientCommand::Ping));
+    }
+
+    #[test]
+    fn unit_variant_accepts_empty_args_object() {
+        // The TS adapter sends `args: {}` for no-arg commands. serde rejects
+        // an empty map for a unit variant, so `decode` must strip it.
+        for cmd_name in ["ping", "get_theme_settings", "get_themes_list"] {
+            let body = serde_json::to_vec(&json!({ "cmd": cmd_name, "args": {} })).unwrap();
+            ClientCommand::decode(&body)
+                .unwrap_or_else(|e| panic!("'{cmd_name}' with empty args should decode: {e}"));
+        }
+    }
+
+    #[test]
+    fn struct_variant_still_decodes_with_empty_args() {
+        // All-defaulted struct variants accept `{}` directly; `decode` must
+        // not regress that path while rescuing unit variants.
+        let body = serde_json::to_vec(&json!({ "cmd": "get_initial_state", "args": {} })).unwrap();
+        match ClientCommand::decode(&body).expect("should decode") {
+            ClientCommand::GetInitialState { cols, rows } => {
+                assert_eq!(cols, None);
+                assert_eq!(rows, None);
+            }
+            other => panic!("expected GetInitialState, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn struct_variant_decodes_with_populated_args() {
+        let body =
+            serde_json::to_vec(&json!({ "cmd": "select_pane_by_id", "args": { "paneId": "%7" } }))
+                .unwrap();
+        match ClientCommand::decode(&body).expect("should decode") {
+            ClientCommand::SelectPaneById { pane_id } => assert_eq!(pane_id, "%7"),
+            other => panic!("expected SelectPaneById, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_rejects_genuinely_invalid_payload() {
+        let body = serde_json::to_vec(&json!({ "cmd": "no_such_command" })).unwrap();
+        assert!(ClientCommand::decode(&body).is_err());
     }
 
     #[test]
