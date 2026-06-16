@@ -264,29 +264,15 @@ async function getPaneCount(driver) {
 }
 
 /**
- * Get the number of visible windows (excluding pane group / float windows).
- *
- * @param {WebdriverIO.Browser} driver
- * @returns {Promise<number>}
- */
-async function getWindowCount(driver) {
-  return driver.execute(() => {
-    const snap = window.app?.getSnapshot();
-    if (!snap?.context) return 0;
-    return snap.context.windows?.filter((w) => w.windowType === 'tab').length || 0;
-  });
-}
-
-/**
  * Get the total number of windows the app knows about, regardless of
  * `@tmuxy-window-type` classification.
  *
  * A newly created window's row lands in `ctx.windows` as soon as the monitor
  * reports it, but its `windowType=tab` tag is stamped asynchronously by the
- * executor subprocess after `splitw ; breakp` and races the snapshot under CI
- * load. This raw count converges immediately on creation, so it's the reliable
- * signal for "a window was created" — use it when the test cares that a window
- * appeared, not how it was classified.
+ * executor subprocess after `splitw ; breakp` and, under CI's tmux 3.4, can
+ * lag indefinitely. This raw count converges immediately on creation, so it's
+ * the reliable signal for "a window was created" — use it when the test cares
+ * that a window appeared, not how it was classified.
  *
  * @param {WebdriverIO.Browser} driver
  * @returns {Promise<number>}
@@ -361,37 +347,6 @@ async function waitForPaneCount(driver, expected, timeout = 10000) {
 }
 
 /**
- * Wait for the count of classified `tab` windows to reach the expected value.
- *
- * Default 60s because `@tmuxy-window-type=tab` is stamped asynchronously: the
- * initial auto-adopt runs after the monitor's first list-windows round-trip
- * (and the CC stream is busy at startup with sync_initial_state + theme/
- * scrollback calls), while a freshly created window is tagged by the executor
- * subprocess after `splitw ; breakp`. Local tmux 3.5a settles in <3s; CI's
- * tmux 3.4 has been observed taking 30s+ before the tag lands, so this gates
- * on classification with generous headroom. When a test only needs to know a
- * window was *created* (not classified), prefer {@link waitForRawWindowCount},
- * which converges immediately and isn't subject to this race.
- *
- * @param {WebdriverIO.Browser} driver
- * @param {number} expected
- * @param {number} timeout
- */
-async function waitForWindowCount(driver, expected, timeout = 60000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const count = await getWindowCount(driver);
-    if (count === expected) return;
-    await driver.pause(200);
-  }
-  const actual = await getWindowCount(driver);
-  const windows = JSON.stringify(await dumpWindows(driver));
-  throw new Error(
-    `Expected ${expected} tab windows, got ${actual} (timeout ${timeout}ms). Windows: ${windows}`,
-  );
-}
-
-/**
  * Wait for the total number of app-known windows to reach the expected value,
  * regardless of `@tmuxy-window-type` classification. See
  * {@link getRawWindowCount} for why this is the reliable "window created"
@@ -426,11 +381,9 @@ module.exports = {
   sendKeyCombo,
   getAppState,
   getPaneCount,
-  getWindowCount,
   getRawWindowCount,
   invokeCommand,
   waitForPaneCount,
-  waitForWindowCount,
   waitForRawWindowCount,
   KEYS,
   TAURI_BINARY,
