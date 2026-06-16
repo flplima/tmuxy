@@ -463,8 +463,7 @@ async fn image_handler(
 }
 
 async fn themes_handler() -> Response {
-    let workspace_root = find_workspace_root();
-    let themes_dir = workspace_root.join("packages/tmuxy-ui/public/themes");
+    let themes_dir = tmuxy_core::session::config_dir().join("themes");
     let mut names: Vec<String> = std::fs::read_dir(&themes_dir)
         .into_iter()
         .flatten()

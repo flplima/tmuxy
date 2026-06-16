@@ -12,7 +12,12 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import { applyTheme, applyThemeMode, saveThemeToStorage } from '../../../utils/themeManager';
+import {
+  applyTheme,
+  applyThemeMode,
+  saveThemeToStorage,
+  loadThemeFromStorage,
+} from '../../../utils/themeManager';
 import {
   applyFontSize,
   saveFontSizeToStorage,
@@ -20,6 +25,7 @@ import {
   decreaseFontSize,
   DEFAULT_FONT_SIZE,
 } from '../../../utils/fontSizeManager';
+import { isTauri } from '../../../tmux/adapters';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -37,13 +43,17 @@ export const uiPrefsActions = {
       applyTheme(event.name, context.themeMode);
       saveThemeToStorage(event.name, context.themeMode);
       enqueue(assign({ themeName: event.name }));
-      enqueue(
-        sendTo('tmux', {
-          type: 'INVOKE' as const,
-          cmd: 'set_theme',
-          args: { name: event.name },
-        }),
-      );
+      // Only persist to server in Tauri — web clients use localStorage only
+      // so multiple users on the same session each keep their own theme.
+      if (isTauri()) {
+        enqueue(
+          sendTo('tmux', {
+            type: 'INVOKE' as const,
+            cmd: 'set_theme',
+            args: { name: event.name },
+          }),
+        );
+      }
     },
   ),
 
@@ -62,20 +72,23 @@ export const uiPrefsActions = {
     applyThemeMode(event.mode);
     saveThemeToStorage(context.themeName, event.mode);
     enqueue(assign({ themeMode: event.mode }));
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_theme_mode',
-        args: { mode: event.mode },
-      }),
-    );
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_theme',
-        args: { name: context.themeName, mode: event.mode },
-      }),
-    );
+    // Only persist to server in Tauri — web clients use localStorage only.
+    if (isTauri()) {
+      enqueue(
+        sendTo('tmux', {
+          type: 'INVOKE' as const,
+          cmd: 'set_theme_mode',
+          args: { mode: event.mode },
+        }),
+      );
+      enqueue(
+        sendTo('tmux', {
+          type: 'INVOKE' as const,
+          cmd: 'set_theme',
+          args: { name: context.themeName, mode: event.mode },
+        }),
+      );
+    }
   }),
 
   uiPrefs_acceptThemeSettings: enqueueActions<
@@ -90,6 +103,10 @@ export const uiPrefsActions = {
     never
   >(({ event, enqueue }) => {
     if (event.type !== 'THEME_SETTINGS_RECEIVED') return;
+    // localStorage takes precedence — server defaults only apply when
+    // the user hasn't chosen a theme yet (e.g. first visit).
+    const saved = loadThemeFromStorage();
+    if (saved) return;
     applyTheme(event.theme, event.mode);
     saveThemeToStorage(event.theme, event.mode);
     enqueue(assign({ themeName: event.theme, themeMode: event.mode }));

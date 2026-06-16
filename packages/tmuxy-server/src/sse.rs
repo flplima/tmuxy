@@ -23,7 +23,7 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::command::ClientCommand;
-use crate::state::{find_workspace_root, AppState, SessionConnections};
+use crate::state::{AppState, SessionConnections};
 
 // ============================================
 // SSE State Emitter (Adapter Pattern)
@@ -881,9 +881,8 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::GetThemesList => {
-            // Read available theme CSS files from the themes directory
-            let workspace_root = find_workspace_root();
-            let themes_dir = workspace_root.join("packages/tmuxy-ui/public/themes");
+            // Read available theme CSS files from ~/.config/tmuxy/themes/
+            let themes_dir = tmuxy_core::session::config_dir().join("themes");
             let mut names: Vec<String> = std::fs::read_dir(&themes_dir)
                 .into_iter()
                 .flatten()

@@ -85,6 +85,7 @@ async fn start_dev_server(requested_port: u16) {
     }
 
     tmuxy_core::session::ensure_config();
+    tmuxy_core::session::ensure_themes();
     // Materialize bundled CLI dispatcher and helper scripts so the in-config
     // `command-alias` entries (Ctrl+hjkl nav, pane groups, etc.) and the
     // direct "Add Pane to Group" menu commands resolve at the absolute
@@ -147,6 +148,7 @@ async fn start_dev_server(requested_port: u16) {
 async fn start_server(port: u16, host: String) {
     write_pid_file();
     tmuxy_core::session::ensure_config();
+    tmuxy_core::session::ensure_themes();
     tmuxy_core::session::ensure_bin_scripts();
 
     let state = Arc::new(AppState::new());
@@ -192,6 +194,13 @@ async fn serve_embedded(uri: axum::http::Uri) -> Response {
     if let Some(file) = FrontendAssets::get(path) {
         let mime = mime_for_path(path);
         build_response(StatusCode::OK, mime, file.data.into_owned())
+    } else if path.starts_with("themes/") && path.ends_with(".css") {
+        // Custom theme CSS not in the embedded bundle — try ~/.config/tmuxy/themes/
+        let theme_path = tmuxy_core::session::config_dir().join(path);
+        match std::fs::read(&theme_path) {
+            Ok(data) => build_response(StatusCode::OK, "text/css; charset=utf-8", data),
+            Err(_) => StatusCode::NOT_FOUND.into_response(),
+        }
     } else if let Some(index) = FrontendAssets::get("index.html") {
         // SPA fallback
         build_response(

@@ -15,6 +15,7 @@ import {
   DEFAULT_CHAR_HEIGHT,
 } from '../constants';
 import { loadFontSizeFromStorage } from '../../utils/fontSizeManager';
+import { loadThemeFromStorage } from '../../utils/themeManager';
 
 export type { AppMachineContext };
 
@@ -154,8 +155,8 @@ export function createInitialContext(): AppMachineContext {
     groupSwitchDimOverrides: [],
     commandMode: null,
     statusMessage: null,
-    themeName: 'default',
-    themeMode: 'dark' as const,
+    themeName: loadThemeFromStorage()?.theme ?? 'default',
+    themeMode: loadThemeFromStorage()?.mode ?? ('dark' as const),
     availableThemes: [],
     appFocused: true,
     prefixActive: false,
