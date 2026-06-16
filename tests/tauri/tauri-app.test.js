@@ -26,6 +26,7 @@ const {
   invokeCommand,
   waitForPaneCount,
   waitForWindowCount,
+  waitForRawWindowCount,
 } = require('./helpers/wdio-client');
 const { tmuxQuery } = require('../helpers/cli');
 
@@ -144,6 +145,14 @@ describe('IPC Commands', () => {
     await waitForWindowCount(driver, 1);
 
     await invokeCommand(driver, 'new_window');
+
+    // The behavior under test is "IPC creates a window". Assert that first on
+    // the raw window count, which converges as soon as the monitor reports the
+    // new row — unlike the `tab` classification, which the executor subprocess
+    // stamps after splitw+breakp and races the snapshot under CI load (the
+    // historical source of this test's flakiness). Then confirm the window
+    // settles as a tab, with the generous classification timeout.
+    await waitForRawWindowCount(driver, 2);
     await waitForWindowCount(driver, 2);
 
     expect(await getWindowCount(driver)).toBe(2);

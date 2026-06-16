@@ -278,6 +278,41 @@ async function getWindowCount(driver) {
 }
 
 /**
+ * Get the total number of windows the app knows about, regardless of
+ * `@tmuxy-window-type` classification.
+ *
+ * A newly created window's row lands in `ctx.windows` as soon as the monitor
+ * reports it, but its `windowType=tab` tag is stamped asynchronously by the
+ * executor subprocess after `splitw ; breakp` and races the snapshot under CI
+ * load. This raw count converges immediately on creation, so it's the reliable
+ * signal for "a window was created" — use it when the test cares that a window
+ * appeared, not how it was classified.
+ *
+ * @param {WebdriverIO.Browser} driver
+ * @returns {Promise<number>}
+ */
+async function getRawWindowCount(driver) {
+  return driver.execute(() => {
+    const snap = window.app?.getSnapshot();
+    if (!snap?.context) return 0;
+    return snap.context.windows?.length || 0;
+  });
+}
+
+/** Snapshot of every window with its classification, for failure diagnostics. */
+async function dumpWindows(driver) {
+  return driver.execute(() => {
+    const snap = window.app?.getSnapshot();
+    return (snap?.context?.windows || []).map((w) => ({
+      id: w.id,
+      index: w.index,
+      name: w.name,
+      windowType: w.windowType,
+    }));
+  });
+}
+
+/**
  * Invoke a Tauri command via the frontend's adapter.
  *
  * @param {WebdriverIO.Browser} driver
@@ -326,19 +361,23 @@ async function waitForPaneCount(driver, expected, timeout = 10000) {
 }
 
 /**
- * Wait for window count to reach expected value.
+ * Wait for the count of classified `tab` windows to reach the expected value.
  *
- * Default 30s because the initial auto-adopt of `@tmuxy-window-type=tab` runs
- * after the monitor's first list-windows round-trip, and the CC stream can be
- * busy at startup (sync_initial_state + theme/scrollback calls from the Tauri
- * Ctx/Tower stack). Local tmux 3.5a settles in <3s; CI's tmux 3.4 routinely
- * takes 10s+ before the first state emission with windowType populated lands.
+ * Default 60s because `@tmuxy-window-type=tab` is stamped asynchronously: the
+ * initial auto-adopt runs after the monitor's first list-windows round-trip
+ * (and the CC stream is busy at startup with sync_initial_state + theme/
+ * scrollback calls), while a freshly created window is tagged by the executor
+ * subprocess after `splitw ; breakp`. Local tmux 3.5a settles in <3s; CI's
+ * tmux 3.4 has been observed taking 30s+ before the tag lands, so this gates
+ * on classification with generous headroom. When a test only needs to know a
+ * window was *created* (not classified), prefer {@link waitForRawWindowCount},
+ * which converges immediately and isn't subject to this race.
  *
  * @param {WebdriverIO.Browser} driver
  * @param {number} expected
  * @param {number} timeout
  */
-async function waitForWindowCount(driver, expected, timeout = 30000) {
+async function waitForWindowCount(driver, expected, timeout = 60000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const count = await getWindowCount(driver);
@@ -346,7 +385,34 @@ async function waitForWindowCount(driver, expected, timeout = 30000) {
     await driver.pause(200);
   }
   const actual = await getWindowCount(driver);
-  throw new Error(`Expected ${expected} windows, got ${actual} (timeout ${timeout}ms)`);
+  const windows = JSON.stringify(await dumpWindows(driver));
+  throw new Error(
+    `Expected ${expected} tab windows, got ${actual} (timeout ${timeout}ms). Windows: ${windows}`,
+  );
+}
+
+/**
+ * Wait for the total number of app-known windows to reach the expected value,
+ * regardless of `@tmuxy-window-type` classification. See
+ * {@link getRawWindowCount} for why this is the reliable "window created"
+ * signal. Default 20s: the row appears as soon as the monitor reports it.
+ *
+ * @param {WebdriverIO.Browser} driver
+ * @param {number} expected
+ * @param {number} timeout
+ */
+async function waitForRawWindowCount(driver, expected, timeout = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const count = await getRawWindowCount(driver);
+    if (count === expected) return;
+    await driver.pause(200);
+  }
+  const actual = await getRawWindowCount(driver);
+  const windows = JSON.stringify(await dumpWindows(driver));
+  throw new Error(
+    `Expected ${expected} windows, got ${actual} (timeout ${timeout}ms). Windows: ${windows}`,
+  );
 }
 
 module.exports = {
@@ -361,9 +427,11 @@ module.exports = {
   getAppState,
   getPaneCount,
   getWindowCount,
+  getRawWindowCount,
   invokeCommand,
   waitForPaneCount,
   waitForWindowCount,
+  waitForRawWindowCount,
   KEYS,
   TAURI_BINARY,
 };
