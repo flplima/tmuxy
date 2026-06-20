@@ -149,6 +149,11 @@ jobs:
       - name: Build server (release)
         run: cargo build --release -p tmuxy-server
 
+      # Put the `tmuxy` CLI on PATH so panes spawned by the server (e.g. the
+      # sidebar's `tmuxy tree` TUI) resolve it — mirrors brew/AppImage installs.
+      - name: Link tmuxy CLI onto PATH
+        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+
       - name: Start server
         run: |
           ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
