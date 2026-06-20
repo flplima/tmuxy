@@ -9,7 +9,7 @@
  *   so each pane's header consumes exactly 1 character row.
  */
 
-export const CHAR_HEIGHT = 21;
+export const CHAR_HEIGHT = 24;
 
 // Minimum padding around the pane container
 export const CONTAINER_PADDING = 8;
@@ -28,11 +28,57 @@ export function paneInsetX(charWidth: number): number {
   return Math.round(charWidth / 2);
 }
 
-// Horizontal padding inside .pane-content to align terminal chars
-export function paneContentPaddingH(charWidth: number): number {
-  return Math.round(charWidth / 2) - PANE_BORDER;
+/**
+ * A pane's pixel rectangle in the layout.
+ *
+ * Mosaic invariant — every pane occupies one extra cell in each axis beyond
+ * its tmux content size; that extra cell is the border, split into two halves
+ * shared with the neighbour on each side (or with the grid edge):
+ *
+ *   width  = charWidth  * (pane.width  + 1)
+ *   height = charHeight * (pane.height + 1)   // the +1 row is the header
+ *
+ * Each pane is shifted half a cell left (for the shared vertical border) and
+ * one full cell up (the header row, which under `pane-border-status top` lives
+ * in tmux's separator row at y-1). Adjacent panes' rectangles therefore meet
+ * exactly — left.right === right.left and top.bottom === bottom.top — so their
+ * 1px outlines coincide and the grid reads as a single connected frame with no
+ * gaps between panes.
+ */
+export interface PaneBoxInput {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PaneBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export function computePaneBox(
+  pane: PaneBoxInput,
+  charWidth: number,
+  charHeight: number,
+  offsetX = 0,
+  offsetY = 0,
+): PaneBox {
+  return {
+    left: offsetX + (pane.x - 0.5) * charWidth,
+    top: offsetY + (pane.y - 1) * charHeight,
+    width: (pane.width + 1) * charWidth,
+    height: (pane.height + 1) * charHeight,
+  };
+}
+
+/** A pane is collapsed in a stack when tmux has shrunk it to a single row. */
+export function isCollapsedPane(pane: { height: number }): boolean {
+  return pane.height <= 1;
 }
 
 // Status bars
 export const STATUS_BAR_HEIGHT = 37; // 36px height + 1px border
-export const TMUX_STATUS_BAR_HEIGHT = 29; // 21px line-height + 4px padding top/bottom
+export const TMUX_STATUS_BAR_HEIGHT = 32; // 24px line-height + 8px padding (4px top/bottom)

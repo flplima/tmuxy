@@ -94,6 +94,43 @@ function getAnsi256Color(index: number): string {
 }
 
 /**
+ * Whether a cell's character is double-width (occupies two terminal columns):
+ * CJK ideographs, kana, Hangul, fullwidth forms, and emoji.
+ *
+ * The backend (vt100) emits such a character as TWO data cells — the character
+ * plus a continuation cell rendered as a space — so the column grid already
+ * accounts for both columns. We use this only to keep a wide character in its
+ * OWN span: its glyph then advances ~2 cells and overflows into the (blank)
+ * continuation cell instead of pushing the rest of a grouped span off the grid.
+ * Over-detection is harmless (a narrow char in its own 1-cell span renders the
+ * same), so the ranges err toward the standard East Asian "Wide"/"Fullwidth"
+ * and emoji blocks.
+ */
+function isWideChar(s: string): boolean {
+  if (!s) return false;
+  const cp = s.codePointAt(0);
+  if (cp === undefined) return false;
+  return (
+    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
+    cp === 0x2329 ||
+    cp === 0x232a || // angle brackets
+    (cp >= 0x2e80 && cp <= 0x303e) || // CJK radicals, Kangxi
+    (cp >= 0x3041 && cp <= 0x33ff) || // Hiragana/Katakana/CJK symbols
+    (cp >= 0x3400 && cp <= 0x4dbf) || // CJK Ext A
+    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK Unified
+    (cp >= 0xa000 && cp <= 0xa4cf) || // Yi
+    (cp >= 0xac00 && cp <= 0xd7a3) || // Hangul Syllables
+    (cp >= 0xf900 && cp <= 0xfaff) || // CJK Compatibility
+    (cp >= 0xfe10 && cp <= 0xfe19) || // Vertical forms
+    (cp >= 0xfe30 && cp <= 0xfe6f) || // CJK Compatibility Forms
+    (cp >= 0xff00 && cp <= 0xff60) || // Fullwidth Forms
+    (cp >= 0xffe0 && cp <= 0xffe6) || // Fullwidth signs
+    (cp >= 0x1f300 && cp <= 0x1faff) || // emoji & pictographs
+    (cp >= 0x20000 && cp <= 0x3fffd) // CJK Ext B and beyond
+  );
+}
+
+/**
  * Compute a numeric key for grouping cells by style.
  * Uses a FNV-1a-inspired hash of the style properties to avoid JSON.stringify.
  */
@@ -253,13 +290,21 @@ export const TerminalLine = memo(
         selected: boolean;
         sk: number;
         autoUrlIdx: number;
+        wide: boolean;
       } | null = null;
 
       const flushGroup = () => {
         if (!currentGroup || currentGroup.cells.length === 0) return;
 
         const text = currentGroup.cells.map((c) => c.c).join('');
-        let style = currentGroup.style ? buildCellStyle(currentGroup.style) : undefined;
+        // Pin the span to an exact number of character cells. `1ch` is the
+        // monospace cell advance (width of "0"), so `${n}ch` is independent of
+        // the actual glyphs in the run. A glyph whose advance differs from the
+        // cell (emoji, spinner symbols, CJK) then paints within / over its fixed
+        // box instead of pushing the rest of the line — which is what caused the
+        // horizontal jitter when only a few characters changed (e.g. spinners).
+        let style: CSSProperties = currentGroup.style ? buildCellStyle(currentGroup.style) : {};
+        style.width = `${currentGroup.cells.length}ch`;
         const startIdx = currentGroup.startIdx;
         // OSC 8 explicit URL takes priority over auto-detected
         const oscUrl = currentGroup.style?.url;
@@ -355,17 +400,15 @@ export const TerminalLine = memo(
         const cellSK = styleKey(cell.s);
         const selected = isCellSelected(i);
         const cellUrlIdx = cell.s?.url ? -1 : urlIdx(i); // skip auto-detect if OSC 8
+        const wide = isWideChar(cell.c);
 
-        if (!currentGroup) {
-          currentGroup = {
-            cells: [cell],
-            style: cell.s,
-            startIdx: i,
-            selected,
-            sk: cellSK,
-            autoUrlIdx: cellUrlIdx,
-          };
-        } else if (
+        if (
+          currentGroup &&
+          // A wide char is never grouped (with its continuation cell or anything
+          // else): its 2-column glyph must own a 1-cell box so it overflows into
+          // the blank continuation cell rather than shifting a grouped span.
+          !wide &&
+          !currentGroup.wide &&
           cellSK === currentGroup.sk &&
           selected === currentGroup.selected &&
           cellUrlIdx === currentGroup.autoUrlIdx
@@ -380,6 +423,7 @@ export const TerminalLine = memo(
             selected,
             sk: cellSK,
             autoUrlIdx: cellUrlIdx,
+            wide,
           };
         }
       }

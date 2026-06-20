@@ -27,6 +27,7 @@ import {
   selectCharSize,
 } from '../machines/AppContext';
 import { usePaneMouse, usePaneTouch } from '../hooks';
+import { isCollapsedPane } from '../constants';
 import { extractSelectedText } from '../utils/copyMode';
 
 interface TerminalPaneProps {
@@ -314,6 +315,13 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
 
   if (!pane) return null;
 
+  // Collapsed pane (zellij-style stack): tmux has shrunk it to a single row, so
+  // there is nothing useful to show. The pane still occupies 2 rows (header +
+  // one content row); render the header bar (the "tab") and leave the content
+  // row blank. Selecting the pane expands it again (the after-select-pane hook
+  // re-lays out the stack).
+  const collapsed = isCollapsedPane(pane);
+
   // Scroll indicator geometry (only meaningful in copy mode)
   const totalLines = copyState?.totalLines ?? 0;
   const scrollTop = copyState?.scrollTop ?? 0;
@@ -348,7 +356,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       onContextMenu={handleContextMenu}
     >
       <PaneHeader paneId={paneId} />
-      {selectionMenu && (
+      {!collapsed && selectionMenu && (
         <SelectionContextMenu
           paneId={paneId}
           x={selectionMenu.x}
@@ -357,62 +365,68 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
           onClose={() => setSelectionMenu(null)}
         />
       )}
-      <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
-        <div
-          ref={scrollRef}
-          className="pane-scroll-container hide-scrollbar"
-          onScroll={handleContainerScroll}
-          style={{ overflowY: copyState ? 'auto' : 'hidden', height: '100%', position: 'relative' }}
-        >
-          <div style={{ height: copyState ? totalHeight : '100%', position: 'relative' }}>
-            {copyState ? (
-              <ScrollbackTerminal copyState={copyState} />
-            ) : (
-              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
-                <Terminal
-                  content={pane.content}
-                  cursorX={pane.cursorX}
-                  cursorY={pane.cursorY}
-                  isActive={pane.active && isInActiveWindow && !focusedFloatPaneId}
-                  width={pane.width}
-                  height={pane.height}
-                  inMode={pane.inMode}
-                  copyCursorX={pane.copyCursorX}
-                  copyCursorY={pane.copyCursorY}
-                  selectionPresent={pane.selectionPresent}
-                  selectionStart={selectionStart}
-                  selectionStartX={pane.selectionStartX}
-                  selectionStartY={pane.selectionStartY}
-                  images={pane.images}
-                  paneId={pane.tmuxId}
-                  cursorShape={pane.cursorShape}
-                  cursorHidden={pane.cursorHidden}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-        {/* Scroll position indicator — flashes on scroll in copy mode */}
-        {copyState && (
+      {!collapsed && (
+        <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
           <div
-            ref={scrollIndicatorRef}
+            ref={scrollRef}
+            className="pane-scroll-container hide-scrollbar"
+            onScroll={handleContainerScroll}
             style={{
-              position: 'absolute',
-              right: 3,
-              top: `calc(4px + (100% - 8px) * ${thumbTopPct / 100})`,
-              width: 7,
-              minHeight: 30,
-              height: `calc((100% - 8px) * ${thumbPct / 100})`,
-              backgroundColor: 'rgba(255, 255, 255, 0.4)',
-              borderRadius: 100,
-              opacity: 0,
-              transition: 'opacity 300ms ease-out',
-              pointerEvents: 'none',
-              zIndex: 5,
+              overflowY: copyState ? 'auto' : 'hidden',
+              height: '100%',
+              position: 'relative',
             }}
-          />
-        )}
-      </div>
+          >
+            <div style={{ height: copyState ? totalHeight : '100%', position: 'relative' }}>
+              {copyState ? (
+                <ScrollbackTerminal copyState={copyState} />
+              ) : (
+                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+                  <Terminal
+                    content={pane.content}
+                    cursorX={pane.cursorX}
+                    cursorY={pane.cursorY}
+                    isActive={pane.active && isInActiveWindow && !focusedFloatPaneId}
+                    width={pane.width}
+                    height={pane.height}
+                    inMode={pane.inMode}
+                    copyCursorX={pane.copyCursorX}
+                    copyCursorY={pane.copyCursorY}
+                    selectionPresent={pane.selectionPresent}
+                    selectionStart={selectionStart}
+                    selectionStartX={pane.selectionStartX}
+                    selectionStartY={pane.selectionStartY}
+                    images={pane.images}
+                    paneId={pane.tmuxId}
+                    cursorShape={pane.cursorShape}
+                    cursorHidden={pane.cursorHidden}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Scroll position indicator — flashes on scroll in copy mode */}
+          {copyState && (
+            <div
+              ref={scrollIndicatorRef}
+              style={{
+                position: 'absolute',
+                right: 3,
+                top: `calc(4px + (100% - 8px) * ${thumbTopPct / 100})`,
+                width: 7,
+                minHeight: 30,
+                height: `calc((100% - 8px) * ${thumbPct / 100})`,
+                backgroundColor: 'rgba(255, 255, 255, 0.4)',
+                borderRadius: 100,
+                opacity: 0,
+                transition: 'opacity 300ms ease-out',
+                pointerEvents: 'none',
+                zIndex: 5,
+              }}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -109,7 +109,7 @@
   --font-size-2xl: 17px;
 
   /* Line Heights */
-  --line-height-terminal: 21px; /* CHAR_HEIGHT */
+  --line-height-terminal: 24px; /* CHAR_HEIGHT */
 
   /* Container Padding */
   --container-padding: 0px;
@@ -327,6 +327,13 @@
   white-space: pre;
   overflow: hidden;
   user-select: none;
+  /* Keep each glyph's advance fixed across re-renders: no kerning or contextual
+     ligatures whose width could shift when neighbouring characters change. */
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 0;
 }
 
 .terminal-line {
@@ -338,8 +345,16 @@
   white-space: pre;
 }
 
-.terminal-line > span {
+.terminal-line > span,
+.terminal-line > a {
   line-height: inherit;
+  /* Each span is sized to an exact cell count (width: Nch set inline). Don't let
+     flex grow/shrink it, and min-width:0 stops a glyph wider than its cells from
+     expanding the box; overflow stays visible so the glyph paints over the
+     neighbouring (usually blank) cell rather than displacing the rest of the
+     line. Together this keeps text on a stable grid when characters change. */
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .pane-scroll-container {

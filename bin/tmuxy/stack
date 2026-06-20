@@ -1,0 +1,66 @@
+#!/bin/bash
+# Zellij-style stacked panes.
+#
+#   stack new <pane_id>          Mark the current window as a stack, add a new
+#                                pane to it, and lay it out: the active pane is
+#                                maximized and every other pane collapses to a
+#                                single row.
+#   stack relayout <window_id>   Re-apply the stack layout for <window_id> when
+#                                it is a stack (active pane maximized, the rest
+#                                collapsed to 1 row). A no-op for non-stack
+#                                windows. Invoked by the pane-focus-in hook so
+#                                navigating to a collapsed pane expands it.
+#
+# A stack window carries the @tmuxy-stack window option (= 1). Collapsed panes
+# are resized to height 1; the tmuxy UI hides their content and renders just the
+# header bar (the "tab"), so the stack reads like zellij's stacked panes.
+
+set -euo pipefail
+source "$(dirname "$0")/_lib"
+
+STACK_OPT="@tmuxy-stack"
+
+CMD="${1:-}"
+
+is_stack() {
+  [ "$(_tmux show-options -wqv -t "$1" "$STACK_OPT" 2>/dev/null)" = "1" ]
+}
+
+# Maximize the active pane of a stack window and collapse the rest to one row.
+# tmux redistributes the freed rows to the active pane, so resizing it to the
+# full window height fills the remaining space.
+# Args: $1=window_id
+relayout() {
+  local wid="$1"
+  is_stack "$wid" || return 0
+
+  local active win_h pid
+  active=$(_tmux display-message -t "$wid" -p '#{pane_id}')
+  win_h=$(_tmux display-message -t "$wid" -p '#{window_height}')
+
+  for pid in $(_tmux list-panes -t "$wid" -F '#{pane_id}'); do
+    [ "$pid" = "$active" ] && continue
+    _tmux resize-pane -t "$pid" -y 1 2>/dev/null || true
+  done
+  _tmux resize-pane -t "$active" -y "$win_h" 2>/dev/null || true
+  refresh_panes
+}
+
+case "$CMD" in
+  new)
+    PANE_ID="${2:?pane id required}"
+    WID=$(pane_window "$PANE_ID")
+    cwd=$(_tmux display-message -t "$PANE_ID" -p '#{pane_current_path}')
+    _tmux set-option -w -t "$WID" "$STACK_OPT" 1
+    _tmux split-window -v -t "$PANE_ID" -c "$cwd"
+    relayout "$WID"
+    ;;
+  relayout)
+    WID="${2:?window id required}"
+    relayout "$WID"
+    ;;
+  *)
+    echo "usage: stack new <pane_id> | stack relayout <window_id>" >&2
+    exit 1
+    ;;
+esac

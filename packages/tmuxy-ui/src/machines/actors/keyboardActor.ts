@@ -84,6 +84,14 @@ function formatTmuxKey(event: KeyboardEvent): string {
     return `M-${macosKey}`;
   }
 
+  // Shift+Tab: tmux's "S-Tab" emits a literal Tab (0x09), not the back-tab
+  // sequence (CSI Z) applications expect — that's the dedicated "BTab" key.
+  // Only rewrite the bare Shift+Tab; Ctrl+Shift+Tab must stay "C-S-Tab" so it
+  // still matches the previous-window root binding.
+  if (event.key === 'Tab' && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    return 'BTab';
+  }
+
   const mapped = KEY_MAP[event.key];
   if (mapped) {
     return modifiers.length > 0 ? `${modifiers.join('-')}-${mapped}` : mapped;

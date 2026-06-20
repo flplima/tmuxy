@@ -124,7 +124,7 @@ describe('Scenario 1: General Layout', () => {
     expect(layoutData).not.toBeNull();
     expect(layoutData.panes.length).toBe(3);
 
-    const { charWidth, charHeight, totalWidth, totalHeight } = layoutData;
+    const { charWidth } = layoutData;
 
     // Step 5: Read DOM bounding rects and verify pane layout structure
     const actualRects = await ctx.page.evaluate(() => {
@@ -170,15 +170,13 @@ describe('Scenario 1: General Layout', () => {
     expect(Math.abs(splitCol[0].left - splitCol[1].left)).toBeLessThanOrEqual(2);
     expect(splitCol[0].top).not.toBe(splitCol[1].top);
 
-    // Pane widths should correspond to tmux char-cell widths
+    // Mosaic invariant: every pane's box is exactly one cell wider than its
+    // tmux content — the extra cell is the border, whose two halves are shared
+    // with the neighbour (or the grid edge) so adjacent outlines coincide and
+    // there are no gaps. See computePaneBox in tmuxy-ui/src/constants/layout.ts.
     const tolerance = 2;
     for (const pane of layoutData.panes) {
-      const hPadding = Math.round(charWidth / 2);
-      const onLeft = pane.x === 0;
-      const onRight = pane.x + pane.width >= totalWidth;
-      const padLeft = onLeft ? 0 : hPadding;
-      const padRight = onRight ? 0 : hPadding;
-      const expectedWidth = Math.ceil(pane.width * charWidth) + padLeft + padRight;
+      const expectedWidth = (pane.width + 1) * charWidth;
       const actual = actualRects.find((a) => a.id === pane.id);
       expect(actual).toBeDefined();
       if (actual) {

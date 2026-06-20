@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useRef, useMemo, ReactNode } from 'react';
 import { ResizeDividers } from './ResizeDividers';
+import { computePaneBox } from '../constants';
 import {
   useAppSelector,
   useAppSend,
@@ -76,12 +77,11 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, [visiblePanes, serverTotalWidth, serverTotalHeight]);
 
-  // Padding to cover the tmux separator column between horizontally-adjacent
-  // panes. Each non-edge pane reaches half a charWidth into the separator;
-  // adjacent panes' outlines coincide pixel-for-pixel at the shared edge,
-  // producing the connected "mosaic" look (one continuous border between
-  // neighbors) rather than two parallel lines with a gap.
-  const hPadding = Math.round(charWidth / 2);
+  // Half a charWidth — each pane reaches this far into the tmux separator
+  // column on both sides so adjacent panes' outlines coincide pixel-for-pixel
+  // at the shared edge (the "mosaic" look). Also the content's horizontal
+  // padding, which centers the terminal text within the +1-cell-wide box.
+  const hPadding = charWidth / 2;
 
   // Center the pane grid in the container.
   // .pane-layout is inset by CONTAINER_PADDING (CSS), so its dimensions match
@@ -155,31 +155,26 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
-      const headerY = Math.max(0, pane.y - 1);
-      // Extend horizontally into the tmux separator column between adjacent
-      // panes (skip the extension at outer edges of the grid). Combined
-      // with the per-pane outline this is what makes neighboring panes'
-      // borders coincide rather than appearing as two parallel lines.
-      const onLeft = pane.x === 0;
-      const onRight = pane.x + pane.width >= totalWidth;
-      const padLeft = onLeft ? 0 : hPadding;
-      const padRight = onRight ? 0 : hPadding;
-      // With pane-border-status top, the layout height for y=0 panes already
-      // includes the border-title row. For y>0 panes, the border-title sits in
-      // the separator row at y-1, which is NOT included in the layout height,
-      // so we add 1 extra row for the header.
-      const heightRows = pane.y > 0 ? pane.height + 1 : pane.height;
+      // Uniform mosaic box: width = charWidth*(width+1), height =
+      // charHeight*(height+1). The extra cell in each axis is the border whose
+      // two halves are shared with neighbours (or the grid edge). See
+      // computePaneBox for the geometry. A collapsed stacked pane (height 1)
+      // therefore renders as 2 rows — its header title row plus a blank content
+      // row — matching tmux; TerminalPane hides the content of that row.
+      const box = computePaneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y);
       return {
         position: 'absolute',
-        left: Math.round(centeringOffset.x + pane.x * charWidth) - padLeft,
-        top: centeringOffset.y + headerY * charHeight,
-        width: Math.round(pane.width * charWidth) + padLeft + padRight,
-        height: heightRows * charHeight,
-        '--pane-h-padding-left': `${padLeft}px`,
-        '--pane-h-padding-right': `${padRight}px`,
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        height: box.height,
+        // Content padding: half a cell each side so the terminal text fills its
+        // exact charWidth*width and aligns to the tmux column grid.
+        '--pane-h-padding-left': `${hPadding}px`,
+        '--pane-h-padding-right': `${hPadding}px`,
       } as React.CSSProperties;
     },
-    [charWidth, charHeight, centeringOffset, hPadding, totalWidth],
+    [charWidth, charHeight, centeringOffset, hPadding],
   );
 
   const getPaneClassName = useCallback(
@@ -259,26 +254,19 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       })}
 
       {/* Ghost indicator showing dragged pane's current grid position.
-          Mirrors getPaneStyle exactly so the ghost lands where the
-          pane will, including the hPadding extension at non-edge sides
-          and the +1 row for y>0 panes' header. */}
+          Mirrors getPaneStyle exactly (same computePaneBox) so the ghost
+          lands precisely where the pane will. */}
       {dropTarget &&
         isDragging &&
         (() => {
-          const gl = dropTarget.x === 0 ? 0 : hPadding;
-          const gr = dropTarget.x + dropTarget.width >= totalWidth ? 0 : hPadding;
-          return (
-            <div
-              className="pane-drag-ghost"
-              style={{
-                position: 'absolute',
-                left: centeringOffset.x + dropTarget.x * charWidth - gl,
-                top: centeringOffset.y + Math.max(0, dropTarget.y - 1) * charHeight,
-                width: dropTarget.width * charWidth + gl + gr,
-                height: (dropTarget.y > 0 ? dropTarget.height + 1 : dropTarget.height) * charHeight,
-              }}
-            />
+          const box = computePaneBox(
+            dropTarget,
+            charWidth,
+            charHeight,
+            centeringOffset.x,
+            centeringOffset.y,
           );
+          return <div className="pane-drag-ghost" style={{ position: 'absolute', ...box }} />;
         })()}
 
       <ResizeDividers

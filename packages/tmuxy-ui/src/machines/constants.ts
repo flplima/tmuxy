@@ -18,7 +18,7 @@ export const DEFAULT_CHAR_WIDTH = 9.6;
  * `styles.css`, or PaneLayout's pixel math diverges from the rendered
  * row height (the layout calculates with this value while the CSS
  * renders rows at the stylesheet's height). */
-export const DEFAULT_CHAR_HEIGHT = 21;
+export const DEFAULT_CHAR_HEIGHT = 24;
 
 /** Default terminal columns */
 export const DEFAULT_COLS = 80;

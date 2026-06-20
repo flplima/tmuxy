@@ -90,6 +90,41 @@ describe('Terminal', () => {
     expect(cursor).toHaveAttribute('data-cursor-y', '0');
   });
 
+  it('sizes each span to an exact cell count so glyph width never shifts the line', () => {
+    // Anti-jitter: spans are pinned to `${n}ch` (the monospace cell advance) so
+    // a symbol whose glyph is wider/narrower than a cell can't push the rest of
+    // the line when it changes (e.g. a spinner animation).
+    const content = createContent(['hello world']);
+    render(<Terminal content={content} />);
+
+    const spans = screen.getByTestId('terminal').querySelectorAll('.terminal-line > span');
+    const widthSpan = Array.from(spans).find((s) => s.textContent === 'hello world');
+    expect(widthSpan).toBeDefined();
+    // 'hello world' is 11 characters → width: 11ch.
+    expect((widthSpan as HTMLElement).style.width).toBe('11ch');
+  });
+
+  it('isolates a wide (CJK) character into its own cell-width span so it stays on the grid', () => {
+    // Data model: a wide char occupies two columns — the character plus a
+    // continuation cell (a space). 'a中 b' → cells [a, 中, <space>, b]. The 中
+    // must be its own 1-cell span so its 2-column glyph overflows into the blank
+    // continuation cell instead of pushing 'b' off the column grid.
+    const content = createContent(['a中 b']);
+    render(<Terminal content={content} />);
+
+    const spans = Array.from(
+      screen.getByTestId('terminal').querySelectorAll('.terminal-line > span'),
+    ) as HTMLElement[];
+
+    const wideSpan = spans.find((s) => s.textContent === '中');
+    expect(wideSpan).toBeDefined();
+    // Own 1-cell box; the glyph (≈2 cells) overflows into the next, blank cell.
+    expect(wideSpan!.style.width).toBe('1ch');
+    // It must not have been merged with the neighbouring 'a' or trailing text.
+    expect(spans.some((s) => s.textContent === 'a中')).toBe(false);
+    expect(spans.some((s) => s.textContent?.includes('中 '))).toBe(false);
+  });
+
   it('sets aria-live to off to avoid flooding screen readers', () => {
     const content = createContent(['Hello World', 'Line 2']);
     render(<Terminal content={content} />);

@@ -180,6 +180,7 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         "tmuxy/pane-group-switch",
         include_str!("../../../bin/tmuxy/pane-group-switch"),
     ),
+    ("tmuxy/stack", include_str!("../../../bin/tmuxy/stack")),
     (
         "tmuxy/session-connect",
         include_str!("../../../bin/tmuxy/session-connect"),
