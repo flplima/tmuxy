@@ -83,6 +83,16 @@ describe('computePaneBox — no gaps between panes (mosaic)', () => {
     const box = computePaneBox(top, CW, CH, 0, 0);
     expect(box.top).toBe(0);
   });
+
+  it('clamps a y=0 pane so it is not hoisted a full cell above the grid', () => {
+    // Some tiled layouts report the top row at y=0 (no separator row above).
+    // The pane has no header to hoist: its top must not go negative and it
+    // gets no extra header row in its height.
+    const top: PaneBoxInput = { x: 0, y: 0, width: 160, height: 24 };
+    const box = computePaneBox(top, CW, CH, 50, 30);
+    expect(box.top).toBe(30); // offsetY, not offsetY - CH
+    expect(box.height).toBe(24 * CH); // height rows, no +1 header
+  });
 });
 
 describe('computePaneBox — collapsed stacked pane', () => {

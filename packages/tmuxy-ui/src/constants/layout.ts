@@ -44,6 +44,10 @@ export function paneInsetX(charWidth: number): number {
  * exactly — left.right === right.left and top.bottom === bottom.top — so their
  * 1px outlines coincide and the grid reads as a single connected frame with no
  * gaps between panes.
+ *
+ * The topmost pane can report y=0 (no separator row above it — some tiled
+ * layouts do this). Such a pane has no header row to hoist, so the vertical
+ * shift is clamped to 0; otherwise it would render a full cell above the grid.
  */
 export interface PaneBoxInput {
   x: number;
@@ -66,11 +70,13 @@ export function computePaneBox(
   offsetX = 0,
   offsetY = 0,
 ): PaneBox {
+  // Header row only exists when there's a separator above the pane (y > 0).
+  const headerRows = pane.y > 0 ? 1 : 0;
   return {
     left: offsetX + (pane.x - 0.5) * charWidth,
-    top: offsetY + (pane.y - 1) * charHeight,
+    top: offsetY + (pane.y - headerRows) * charHeight,
     width: (pane.width + 1) * charWidth,
-    height: (pane.height + 1) * charHeight,
+    height: (pane.height + headerRows) * charHeight,
   };
 }
 

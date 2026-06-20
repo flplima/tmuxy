@@ -154,12 +154,14 @@ async function assertLayoutInvariants(page, options = {}) {
 
       // ========== 4. Container padding ==========
       // Panes are inset from the container by ~CONTAINER_PADDING. The outermost
-      // panes intentionally extend half a cell past the content grid — the
-      // mosaic border-half extension (see computePaneBox in tmuxy-ui) — so the
-      // effective floor drops by that half cell. The hard overflow check above
-      // still guarantees panes never leave the container.
+      // panes intentionally extend half a cell past the content grid on the
+      // LEFT/RIGHT only — the mosaic border-half extension (see computePaneBox
+      // in tmuxy-ui) — so the horizontal floor drops by that half cell. Top and
+      // bottom keep the full floor. The hard overflow check above still
+      // guarantees panes never actually leave the container.
       const EXPECTED_PADDING = 8; // CONTAINER_PADDING from layout.ts
-      const MIN_PADDING = EXPECTED_PADDING - charWidth / 2 - 2;
+      const H_MIN_PADDING = EXPECTED_PADDING - charWidth / 2 - 2;
+      const V_MIN_PADDING = EXPECTED_PADDING - 2;
       if (gridFits)
         for (let i = 0; i < rects.length; i++) {
           const r = rects[i];
@@ -170,9 +172,10 @@ async function assertLayoutInvariants(page, options = {}) {
             bottom: cRect.bottom - r.bottom,
           };
           for (const [side, gap] of Object.entries(gaps)) {
-            if (gap < MIN_PADDING) {
+            const floor = side === 'left' || side === 'right' ? H_MIN_PADDING : V_MIN_PADDING;
+            if (gap < floor) {
               errs.push(
-                `Padding: pane ${ids[i]} ${side} gap to container: ${gap.toFixed(1)}px (expected >= ${MIN_PADDING}px)`,
+                `Padding: pane ${ids[i]} ${side} gap to container: ${gap.toFixed(1)}px (expected >= ${floor}px)`,
               );
             }
           }
