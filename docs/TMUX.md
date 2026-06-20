@@ -97,7 +97,7 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 ## Tauri Desktop App: Missing `new-window` Workaround
 
-**Known gap:** The Tauri desktop app (`tauri-app/src/commands.rs`) calls `executor::new_window()` which uses external `tmux new-window` without the `splitw ; breakp` workaround. This will crash tmux 3.5a when a control mode client is attached. The web server version (`tmuxy-server/src/sse.rs`) has the workaround but the Tauri code path bypasses it.
+**Known gap:** The Tauri desktop app (`packages/tmuxy-tauri-app/src/commands.rs`) calls `executor::new_window()` which uses external `tmux new-window` without the `splitw ; breakp` workaround. This will crash tmux 3.5a when a control mode client is attached. The web server version (`tmuxy-server/src/sse.rs`) has the workaround but the Tauri code path bypasses it.
 
 ## Targeting: Use Stable IDs, Not Indices
 

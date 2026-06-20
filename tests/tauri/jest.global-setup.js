@@ -41,7 +41,7 @@ module.exports = async function globalSetup() {
   if (!fs.existsSync(TAURI_BINARY)) {
     console.warn('[tauri-e2e] Building Tauri app (tauri build --debug --no-bundle)...');
     execSync('npx tauri build --debug --no-bundle', {
-      cwd: path.join(WORKSPACE_ROOT, 'packages/tauri-app'),
+      cwd: path.join(WORKSPACE_ROOT, 'packages/tmuxy-tauri-app'),
       stdio: 'inherit',
       timeout: 600000, // 10 minutes
     });

@@ -41,7 +41,7 @@ jobs:
         working-directory: packages/tmuxy-ui
 
       - name: Rust format check
-        run: cargo fmt --check -p tmuxy-core -p tmuxy-server -p tauri-app
+        run: cargo fmt --check -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app
 
       # --- Linting ---
 
@@ -54,7 +54,7 @@ jobs:
       - name: Clippy
         run: |
           mkdir -p packages/tmuxy-ui/dist
-          cargo clippy -p tmuxy-core -p tmuxy-server -p tauri-app -- -D warnings
+          cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -- -D warnings
 
       # --- Type Check ---
 
@@ -240,7 +240,7 @@ jobs:
 
       - name: Build Tauri app (debug)
         run: npx tauri build --debug --no-bundle
-        working-directory: packages/tauri-app
+        working-directory: packages/tmuxy-tauri-app
 
       - name: Tauri E2E tests
         run: npm run test:tauri

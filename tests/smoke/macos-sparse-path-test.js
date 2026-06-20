@@ -55,7 +55,7 @@ const SESSION_NAME = `tmuxy-sparse-${Date.now()}`;
 const HELPER_BIN = '/opt/homebrew/bin/tmuxy-stay-alive';
 
 // How long we let the app run before asserting the connection is stable.
-// Matches MIN_HEALTHY_DURATION (5s) in tauri-app/src/monitor.rs — the bound
+// Matches MIN_HEALTHY_DURATION (5s) in packages/tmuxy-tauri-app/src/monitor.rs — the bound
 // after which a connection counts as "long-lived" — plus headroom for any
 // reconnect attempts that might still be in flight.
 const STABLE_SECONDS = 12;

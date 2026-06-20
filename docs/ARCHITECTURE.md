@@ -35,7 +35,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 **tmuxy-ui** — React frontend using XState for all state management. Communicates with the backend via an adapter pattern (`TmuxAdapter` interface). Includes an in-browser demo engine (`DemoAdapter`, `DemoTmux`, `DemoShell`) for the demo site. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
 
-**tauri-app** — Optional desktop wrapper using Tauri. Communicates via native IPC instead of HTTP, offering lower latency. Currently single-client only (no multi-client support). See [DATA-FLOW.md](DATA-FLOW.md) for the Tauri data flow.
+**tmuxy-tauri-app** — Optional desktop wrapper using Tauri. Communicates via native IPC instead of HTTP, offering lower latency. Currently single-client only (no multi-client support). See [DATA-FLOW.md](DATA-FLOW.md) for the Tauri data flow.
 
 ## How They Interact
 
@@ -82,7 +82,7 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 | `tmuxy-core` | `tmux -CC` subprocess management, control-mode event parsing, the sans-IO state aggregator, `TmuxMonitor` runtime, substitutable `Ctx` (clock/tmux/fs), retry policy, Tower middleware stack, typed `TmuxError`. |
 | `tmuxy-server` | Axum HTTP server, SSE streaming with `Last-Event-Id` resync, typed `ClientCommand` enum for the HTTP POST endpoint, per-session client tracking, structured shutdown, embedded frontend assets (prod) or Vite proxy (dev). |
 | `tmuxy-ui` | React frontend, XState machine, optimistic `TmuxClientModel`, Effect-based adapter facade with typed errors, in-browser demo engine. |
-| `tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` + `Ctx` plumbing as the server; transport is native IPC instead of SSE/HTTP. |
+| `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` + `Ctx` plumbing as the server; transport is native IPC instead of SSE/HTTP. |
 
 ## Related Documentation
 

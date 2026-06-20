@@ -90,7 +90,7 @@ fn capture_tmux_session(session: &str, timeout_ms: u64) -> Result<Vec<u8>, Strin
 
             // Set controlling terminal
             unsafe {
-                libc::ioctl(slave_fd, libc::TIOCSCTTY, 0);
+                libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0);
             }
 
             // Redirect stdin/stdout/stderr to slave

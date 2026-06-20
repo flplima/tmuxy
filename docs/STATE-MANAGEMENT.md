@@ -82,7 +82,7 @@ See `tmuxy-core/src/lib.rs`. The TypeScript mirrors live in `tmuxy-ui/src/tmux/e
 
 The seam between the monitor and a specific transport. Two implementations:
 - `SseEmitter` (`tmuxy-server/src/sse.rs`) — broadcasts via `SessionBroadcast` to every SSE client in the session.
-- `TauriEmitter` (`tauri-app/src/monitor.rs`) — emits Tauri events to the desktop frontend.
+- `TauriEmitter` (`packages/tmuxy-tauri-app/src/monitor.rs`) — emits Tauri events to the desktop frontend.
 
 The trait keeps `TmuxMonitor` transport-agnostic; adding a third transport means implementing the trait, nothing else.
 

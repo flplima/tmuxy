@@ -107,7 +107,7 @@ if [[ -n "$VERBOSE" ]]; then
 fi
 
 # Use npm run tauri build
-cd packages/tauri-app
+cd packages/tmuxy-tauri-app
 npx tauri build $TAURI_ARGS
 cd ../..
 
@@ -133,9 +133,9 @@ if [[ -d "$BUNDLE_DIR" ]]; then
 else
     # Check for binary directly
     if [[ "$BUILD_TYPE" == "debug" ]]; then
-        BINARY="target/debug/tauri-app"
+        BINARY="target/debug/tmuxy"
     else
-        BINARY="target/release/tauri-app"
+        BINARY="target/release/tmuxy"
     fi
     if [[ -f "$BINARY" ]]; then
         size=$(du -h "$BINARY" | cut -f1)

@@ -899,4 +899,14 @@ mod vt100_capture_test {
         assert!(is_dim(10), "'D' after re-enabling SGR 2 should be dim");
         assert!(!is_dim(11), "'P' after SGR 0 should not be dim");
     }
+
+    #[test]
+    fn test_emoji_width() {
+        let bytes = "🟥".as_bytes();
+        let mut terminal = vt100::Parser::new(1, 10, 0);
+        terminal.process(bytes);
+        let screen = terminal.screen();
+        let (_, col) = screen.cursor_position();
+        assert_eq!(col, 2, "vt100 should treat 🟥 as 2 columns wide");
+    }
 }

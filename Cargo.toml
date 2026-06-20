@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "packages/tmuxy-core",
-    "packages/tauri-app",
+    "packages/tmuxy-tauri-app",
     "packages/tmuxy-server",
 ]
 
@@ -29,5 +29,5 @@ lto = true
 opt-level = "s"
 strip = true
 
-[profile.release.package.tauri-app]
+[profile.release.package.tmuxy-tauri-app]
 strip = false

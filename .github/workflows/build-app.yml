@@ -61,7 +61,7 @@ jobs:
 
       - name: Build Tauri app
         run: npx tauri build ${{ matrix.tauri-args }}
-        working-directory: packages/tauri-app
+        working-directory: packages/tmuxy-tauri-app
 
       # --- Smoke Test (Linux + macOS) ---
       # Both platforms use WebdriverIO for full GUI verification: launch app,
@@ -85,7 +85,7 @@ jobs:
       - name: Build smoke test binary (macOS)
         if: matrix.platform == 'macos'
         run: npx tauri build --debug --no-bundle --features webdriver
-        working-directory: packages/tauri-app
+        working-directory: packages/tmuxy-tauri-app
 
       - name: Run smoke test (Linux)
         if: matrix.platform == 'linux'

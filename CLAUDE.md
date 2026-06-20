@@ -24,7 +24,7 @@ tmuxy/
 │   ├── tmuxy-ui/             # React/Vite frontend
 │   │   └── src/tmux/demo/    # In-browser demo engine (DemoAdapter, DemoTmux, DemoShell)
 │   ├── tmuxy-demo/           # Next.js demo site (static export → GitHub Pages)
-│   └── tauri-app/            # Tauri desktop app wrapper
+│   └── tmuxy-tauri-app/      # Tauri desktop app wrapper
 ├── bin/
 │   ├── tmuxy-cli              # Shell dispatcher (symlinked as ~/.local/bin/tmuxy)
 │   └── tmuxy/                 # Shell scripts for floats, groups, widgets
@@ -196,7 +196,7 @@ The next version is the existing version with the alpha number incremented. Upda
 - `package.json` (root)
 - `packages/tmuxy-ui/package.json`
 - `packages/tmuxy-demo/package.json`
-- `packages/tauri-app/tauri.conf.json` (literal — Tauri 2 forbids templating; `packages/tauri-app/build.rs` auto-syncs from `Cargo.toml` at build time, but commit the synced value explicitly so the tag is reproducible without a build step)
+- `packages/tmuxy-tauri-app/tauri.conf.json` (literal — Tauri 2 forbids templating; `packages/tmuxy-tauri-app/build.rs` auto-syncs from `Cargo.toml` at build time, but commit the synced value explicitly so the tag is reproducible without a build step)
 - `Cargo.lock` — regenerate with `cargo build -p tmuxy-server`
 
 Commit as `🚀 v<new-version>` with no body. Same 6 files as every prior version bump — check `git show v<previous-version> --stat` to confirm the pattern.

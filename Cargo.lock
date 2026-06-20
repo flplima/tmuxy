@@ -5277,23 +5277,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-app"
-version = "0.0.10-alpha.33"
-dependencies = [
- "clap",
- "nix",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-single-instance",
- "tauri-plugin-webdriver",
- "tmuxy-core",
- "tmuxy-server",
- "tokio",
-]
-
-[[package]]
 name = "tauri-build"
 version = "2.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5777,6 +5760,23 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "tmuxy-tauri-app"
+version = "0.0.10-alpha.33"
+dependencies = [
+ "clap",
+ "nix",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-webdriver",
+ "tmuxy-core",
+ "tmuxy-server",
+ "tokio",
 ]
 
 [[package]]

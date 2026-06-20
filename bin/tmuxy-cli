@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # tmuxy — AI-first noun-verb CLI for tmux
 #
 # Safety: All mutating commands route through `tmux run-shell` to avoid
@@ -216,10 +216,10 @@ cmd_pane() {
       local scope=()
       if $all; then scope=(-s); fi
       if $json; then
-        tmux list-panes "${scope[@]}" -F '#{pane_id},#{window_id},#{pane_width},#{pane_height},#{pane_current_command},#{pane_active}' | \
+        tmux list-panes ${scope[@]+"${scope[@]}"} -F '#{pane_id},#{window_id},#{pane_width},#{pane_height},#{pane_current_command},#{pane_active}' | \
           awk -F',' 'BEGIN{printf "["} NR>1{printf ","} {printf "{\"id\":\"%s\",\"tab\":\"%s\",\"width\":%s,\"height\":%s,\"command\":\"%s\",\"active\":%s}", $1, $2, $3, $4, $5, ($6=="1"?"true":"false")} END{printf "]\n"}'
       else
-        tmux list-panes "${scope[@]}"
+        tmux list-panes ${scope[@]+"${scope[@]}"}
       fi
       ;;
 
