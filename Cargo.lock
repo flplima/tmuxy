@@ -5278,7 +5278,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-app"
-version = "0.0.10-alpha.32"
+version = "0.0.10-alpha.33"
 dependencies = [
  "clap",
  "nix",
@@ -5732,7 +5732,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-core"
-version = "0.0.10-alpha.32"
+version = "0.0.10-alpha.33"
 dependencies = [
  "async-trait",
  "backon",
@@ -5755,7 +5755,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-server"
-version = "0.0.10-alpha.32"
+version = "0.0.10-alpha.33"
 dependencies = [
  "async-stream",
  "axum",
