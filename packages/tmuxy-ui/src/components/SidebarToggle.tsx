@@ -3,7 +3,7 @@
  *
  * Sits between the app menu (or macOS traffic-light spacer) and the window tabs.
  * Reflects `sidebarOpen` as a pressed state; clicking dispatches TOGGLE_SIDEBAR,
- * the same event Ctrl+/ sends from the keyboard actor.
+ * the same event `prefix t` sends from the keyboard actor.
  */
 
 import { useAppSend, useAppSelector } from '../machines/AppContext';
@@ -17,7 +17,7 @@ export function SidebarToggle() {
       className={`sidebar-toggle${sidebarOpen ? ' sidebar-toggle-active' : ''}`}
       aria-label="Toggle sidebar"
       aria-pressed={sidebarOpen}
-      title="Toggle sidebar (Ctrl+/)"
+      title="Toggle sidebar (prefix t)"
       onClick={() => send({ type: 'TOGGLE_SIDEBAR' })}
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">

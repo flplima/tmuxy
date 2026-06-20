@@ -19,6 +19,7 @@ const {
   TMUXY_CLI,
   splitPaneKeyboard,
   navigatePaneKeyboard,
+  sendPrefixCommand,
   createWindowKeyboard,
   nextWindowKeyboard,
   prevWindowKeyboard,
@@ -1168,5 +1169,147 @@ describe('Scenario 22: Float fzf Workflow', () => {
     // Background pane should be interactive after float closes
     const bgMarker = `BG_RESTORED_${Date.now()}`;
     await runCommand(ctx.page, `echo ${bgMarker}`, bgMarker);
+  }, 180000);
+});
+
+// ==================== Scenario 6d: Sidebar Tree View ====================
+
+describe('Scenario 6d: Sidebar Tree View', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('prefix t opens drawer → tree shows tabs/panes → focus + Enter activates a tab → Esc blurs → click-outside closes', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // The first window — we'll switch back to it via the tree later. Captured
+    // before creating a second window, so it's the lowest-index tab (row 0).
+    const firstWindowId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activeWindowId,
+    );
+    expect(firstWindowId).toMatch(/^@\d+$/);
+
+    // Setup (not the feature under test): a second window so the tree lists
+    // more than one tab and an activation switch is observable.
+    await createWindowKeyboard(ctx.page);
+    await waitForWindowCount(ctx.page, 2);
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const active = await ctx.page.evaluate(
+          () => window.app?.getSnapshot()?.context?.activeWindowId,
+        );
+        return active && active !== firstWindowId;
+      },
+      8000,
+      'second window to become active',
+    );
+
+    // Step 1: Open the sidebar via the real keybinding (prefix t).
+    await sendPrefixCommand(ctx.page, 't');
+
+    // Step 2: Drawer appears and slides in to dock against the left edge.
+    // The drawer-left animation runs translateX(-100%)→0, so poll until the
+    // container settles at the left edge rather than measuring mid-slide.
+    await ctx.page.waitForSelector('.sidebar-drawer', { timeout: 20000 });
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const el =
+            document.querySelector('.sidebar-drawer .modal-container') ||
+            document.querySelector('.sidebar-drawer');
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return Math.abs(r.left) <= 2 && r.width > 50 && r.height > 100;
+        }),
+      8000,
+      'sidebar drawer to slide in and dock at the left edge',
+    );
+
+    // Step 3: The tree TUI rendered real content — a pane id row or the tab
+    // marker is visible inside the drawer's terminal.
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const content = document.querySelector('[data-testid="sidebar-content"]');
+          const text = content?.textContent || '';
+          return /%\d/.test(text) || /▸/.test(text);
+        }),
+      20000,
+      'tree TUI content to render in the drawer',
+    );
+
+    // Step 4: Focus the sidebar (click) so keys route to the tree pane.
+    await ctx.page.click('[data-testid="sidebar-content"]');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const id = await ctx.page.evaluate(
+          () => window.app?.getSnapshot()?.context?.focusedSidebarPaneId,
+        );
+        return id !== null && id !== undefined;
+      },
+      5000,
+      'focusedSidebarPaneId set after click',
+    );
+
+    // Give the keyboard actor time to process UPDATE_FOCUSED_SIDEBAR (async
+    // message from XState, may lag the context update).
+    await delay(DELAYS.SYNC);
+    await ctx.page.bringToFront();
+
+    // Step 5: Enter activates the selected row (row 0 = the first tab) → the
+    // active window switches back to the first window.
+    await ctx.page.keyboard.press('Enter');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const active = await ctx.page.evaluate(
+          () => window.app?.getSnapshot()?.context?.activeWindowId,
+        );
+        return active === firstWindowId;
+      },
+      10000,
+      'tree Enter to activate the first window',
+    );
+
+    // Step 6: Escape blurs the sidebar — drawer stays open, focus returns to panes.
+    await ctx.page.keyboard.press('Escape');
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const id = await ctx.page.evaluate(
+          () => window.app?.getSnapshot()?.context?.focusedSidebarPaneId,
+        );
+        return id === null;
+      },
+      5000,
+      'focusedSidebarPaneId cleared after Escape',
+    );
+    const stillOpen = await ctx.page.evaluate(() => !!document.querySelector('.sidebar-drawer'));
+    expect(stillOpen).toBe(true);
+
+    // The header toggle reflects the open state.
+    const pressedWhileOpen = await ctx.page.evaluate(
+      () => document.querySelector('.sidebar-toggle')?.getAttribute('aria-pressed'),
+    );
+    expect(pressedWhileOpen).toBe('true');
+
+    // Step 7: Clicking the backdrop (outside the drawer) dismisses it — the
+    // drawer is removed and the toggle returns to its unpressed state.
+    await ctx.page.click('.sidebar-drawer .modal-backdrop');
+    await ctx.page.waitForFunction(() => !document.querySelector('.sidebar-drawer'), {
+      timeout: 10000,
+      polling: 100,
+    });
+    const pressedAfterClose = await ctx.page.evaluate(
+      () => document.querySelector('.sidebar-toggle')?.getAttribute('aria-pressed'),
+    );
+    expect(pressedAfterClose).toBe('false');
   }, 180000);
 });

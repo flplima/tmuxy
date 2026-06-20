@@ -6,9 +6,15 @@
 # drawer. Idempotent: if a sidebar window already exists, its pane id is printed
 # and nothing new is created — so the UI can call this freely on every toggle.
 #
-# Mirrors bin/tmuxy/float-create: all mutating commands route through run-shell
-# to avoid tmux 3.5a control-mode hangs, and the break+tag is a single atomic
-# command list so the window is tagged before the monitor's WindowAdd fires.
+# Unlike float-create (run from a real pane shell via `tmuxy pane float`), this
+# script is invoked by the frontend through control-mode `run-shell`, so its
+# body already executes inside a run-shell — the safe context that avoids tmux
+# 3.5a control-mode hangs. It therefore calls tmux DIRECTLY rather than wrapping
+# each mutation in another run-shell: a nested run-shell runs asynchronously, so
+# `split-window -P > tmpfile` would race the `cat tmpfile` that reads the new
+# pane id, tagging the wrong (pre-existing) pane as the sidebar. The break+tag
+# stays a single atomic command list so @tmuxy-window-type is set before the
+# monitor reacts to the WindowAdd event.
 #
 # Options:
 #   --width N    Sidebar width in columns (default 30; mirror SIDEBAR_COLS).
@@ -33,36 +39,23 @@ if [ -n "$EXISTING_WIN" ]; then
   exit 0
 fi
 
-# Build the atomic break + tag command list. Tagging in the same command list as
-# break-pane means @tmuxy-window-type is visible before the monitor reacts to the
-# WindowAdd event (see float-create's build_break_and_tag_float for the rationale).
-build_break_and_tag_sidebar() {
-  local pane_id="$1"
-  printf 'break-pane -d -s %s -n __sidebar' "$pane_id"
-  printf ' \\; set-option -w -t %s @tmuxy-window-type sidebar' "$pane_id"
-  printf ' \\; set-option -w -t %s @tmuxy-float-drawer left' "$pane_id"
-  printf ' \\; set-option -w -t %s @tmuxy-float-width %s' "$pane_id" "$WIDTH"
-  printf '\n'
-}
-
-# Create the pane running the tree TUI. Capture its id via a temp file since
-# run-shell can't return output.
-TMPID=$(mktemp /tmp/tmuxy-sidebar-id.XXXXXX)
-trap 'rm -f "$TMPID"' EXIT
-_tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} split-window -dP -F '#{pane_id}' 'tmuxy tree' > $TMPID"
-NEW_PANE_ID=$(cat "$TMPID")
-rm -f "$TMPID"
-trap - EXIT
+# Create the pane running the tree TUI. `-dP -F` prints the new pane id straight
+# to stdout (captured synchronously — no run-shell, no temp file, no race).
+NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}' 'tmuxy tree')
 
 if [ -z "$NEW_PANE_ID" ]; then
   echo "Error: failed to create sidebar pane" >&2
   exit 1
 fi
 
-BREAK_CMD=$(build_break_and_tag_sidebar "$NEW_PANE_ID")
-_tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} $BREAK_CMD"
+# Break + tag as one atomic command list: @tmuxy-window-type is set in the same
+# list as break-pane, so the window is tagged before the monitor sees WindowAdd.
+_tmux break-pane -d -s "$NEW_PANE_ID" -n __sidebar \; \
+  set-option -w -t "$NEW_PANE_ID" @tmuxy-window-type sidebar \; \
+  set-option -w -t "$NEW_PANE_ID" @tmuxy-float-drawer left \; \
+  set-option -w -t "$NEW_PANE_ID" @tmuxy-float-width "$WIDTH"
 
 # Apply width (non-fatal if the pane was killed concurrently).
-_tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -x $WIDTH 2>/dev/null || true" 2>/dev/null || true
+_tmux resize-pane -t "$NEW_PANE_ID" -x "$WIDTH" 2>/dev/null || true
 
 echo "$NEW_PANE_ID"

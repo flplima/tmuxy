@@ -4,7 +4,7 @@
  * The sidebar is a hidden tmux window (windowType === 'sidebar') whose single
  * pane runs the tree TUI. We render that pane's terminal in an edge-docked
  * drawer, mirroring FloatPane's left-drawer branch. Closed by default; toggled
- * from the header button or Ctrl+/. When focused (Ctrl+h from the leftmost pane
+ * from the header button or `prefix t`. When focused (Ctrl+h from the leftmost pane
  * or a click), keystrokes route to the pane and the TUI handles j/k/Enter.
  */
 

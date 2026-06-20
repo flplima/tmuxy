@@ -235,15 +235,6 @@ export function createKeyboardActor() {
         }
       }
 
-      // Ctrl+/ toggles the left sidebar. Handled fully client-side so it works
-      // regardless of which pane has focus and never reaches tmux. (A matching
-      // `bind -n C-/` in tmuxy.conf only fires for native, non-web clients.)
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key === '/') {
-        event.preventDefault();
-        input.parent.send({ type: 'TOGGLE_SIDEBAR' });
-        return;
-      }
-
       // Copy mode is per-pane and derived (not synced): a pane is in copy mode
       // iff the *currently active* pane has a CopyModeState. Deriving this fresh
       // on every keydown — rather than tracking a pushed boolean — means
@@ -393,6 +384,23 @@ export function createKeyboardActor() {
           if (shiftedKeys[event.key]) {
             bindingKey = shiftedKeys[event.key];
           }
+        }
+
+        // `prefix t` toggles the left sidebar. Handled client-side (like the
+        // header button) so it never reaches tmux and works for web clients
+        // regardless of any server-side binding for `t`.
+        if (bindingKey === 't') {
+          input.parent.send({ type: 'TOGGLE_SIDEBAR' });
+          input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
+          input.parent.send({
+            type: 'KEY_PRESS',
+            key: event.key,
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey,
+            shiftKey: event.shiftKey,
+            metaKey: event.metaKey,
+          });
+          return;
         }
 
         const bindingCommand = prefixBindings.get(bindingKey);

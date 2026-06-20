@@ -12,6 +12,8 @@ vi.mock('../machines/AppContext', () => ({
   selectFatalError: vi.fn(),
   selectLog: vi.fn(),
   selectContainerSize: vi.fn(),
+  selectCharSize: vi.fn(),
+  selectSidebarPaneId: vi.fn(),
 }));
 
 // Mock child components that depend on machine context
@@ -26,6 +28,9 @@ vi.mock('../components/PaneLayout', () => ({
 }));
 vi.mock('../components/FloatPane', () => ({
   FloatContainer: () => <div data-testid="float-container" />,
+}));
+vi.mock('../components/Sidebar', () => ({
+  Sidebar: () => <div data-testid="sidebar" />,
 }));
 
 // Mock the keyboard handler
@@ -57,6 +62,8 @@ describe('App', () => {
       if (selector === AppContext.selectError) return null;
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
+      if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectSidebarPaneId) return null;
       return undefined;
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
@@ -74,6 +81,8 @@ describe('App', () => {
       if (selector === AppContext.selectError) return null;
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 800, height: 600 };
+      if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectSidebarPaneId) return null;
       return undefined;
     });
     mockUseAppState.mockReturnValue(false); // isConnecting = false
@@ -91,6 +100,8 @@ describe('App', () => {
       if (selector === AppContext.selectError) return null;
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
+      if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectSidebarPaneId) return null;
       return undefined;
     });
     mockUseAppState.mockReturnValue(false); // isConnecting = false
@@ -108,6 +119,8 @@ describe('App', () => {
       if (selector === AppContext.selectError) return 'Connection failed';
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
+      if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectSidebarPaneId) return null;
       return undefined;
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
@@ -125,6 +138,8 @@ describe('App', () => {
       if (selector === AppContext.selectError) return null;
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
+      if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectSidebarPaneId) return null;
       return undefined;
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true

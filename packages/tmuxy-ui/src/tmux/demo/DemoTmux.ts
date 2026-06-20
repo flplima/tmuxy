@@ -47,7 +47,7 @@ interface FakeWindow {
   manualName: boolean; // true if renamed manually, prevents auto-update from cwd
   layout: LayoutNode;
   layoutCycle: number; // tracks position in layout cycle
-  windowType: 'tab' | 'float' | 'float-backdrop' | 'group';
+  windowType: 'tab' | 'float' | 'float-backdrop' | 'group' | 'sidebar';
   groupPanes: string[] | null;
   // Float options (only meaningful when windowType === 'float'). Mirror the
   // @tmuxy-float-* tmux window options the real CLI sets via bin/tmuxy/float-create.
@@ -163,11 +163,13 @@ export class DemoTmux {
     const panes: ServerPane[] = [];
     for (const [, pane] of this.panes) {
       const pos = posMap.get(pane.id);
-      // Include panes from active window, float windows, and group windows
+      // Include panes from active window, float windows, group windows, and the
+      // hidden sidebar window (rendered in the left drawer).
       const paneWindow = this.windows.find((w) => w.id === pane.windowId);
       const isFloat = paneWindow?.windowType === 'float';
       const isGroup = paneWindow?.windowType === 'group';
-      if (pane.windowId !== this.activeWindowId && !isFloat && !isGroup) continue;
+      const isSidebar = paneWindow?.windowType === 'sidebar';
+      if (pane.windowId !== this.activeWindowId && !isFloat && !isGroup && !isSidebar) continue;
       // In zoom mode, only show the zoomed pane from the active window
       if (
         this.zoomedPaneId &&
@@ -852,6 +854,89 @@ export class DemoTmux {
     const window = this.windows.find((w) => w.id === pane.windowId);
     if (!window || window.windowType !== 'float') return false;
     return this.killWindow(window.id);
+  }
+
+  /**
+   * Create the hidden sidebar window (windowType 'sidebar') backing the left
+   * drawer, mirroring bin/tmuxy/sidebar-create. Idempotent: returns the
+   * existing sidebar pane if one is already present. The real pane runs the
+   * `tmuxy tree` TUI; here we paint a static tree of the current tabs/panes so
+   * the drawer has representative content.
+   */
+  createSidebar(): string | null {
+    const existing = this.windows.find((w) => w.windowType === 'sidebar');
+    if (existing) {
+      const leaf = existing.layout.type === 'leaf' ? existing.layout.paneId : null;
+      return leaf;
+    }
+
+    // Mirror SIDEBAR_COLS (machines/constants.ts) / sidebar-create's --width.
+    const SIDEBAR_COLS = 30;
+    const paneId = this.allocPaneId();
+    const windowId = this.allocWindowId();
+    const numericId = parseInt(paneId.slice(1));
+
+    const shell = this.makeShell(SIDEBAR_COLS, Math.max(this.totalHeight - 1, 1));
+    shell.writeLines(this.renderSidebarTree());
+
+    const pane: FakePane = {
+      id: paneId,
+      numericId,
+      windowId,
+      shell,
+      command: 'tmuxy',
+      title: 'tree',
+    };
+    this.panes.set(paneId, pane);
+
+    const usedIndices = new Set(this.windows.map((w) => w.index));
+    let index = 2000;
+    while (usedIndices.has(index)) index++;
+
+    const window: FakeWindow = {
+      id: windowId,
+      index,
+      name: '__sidebar',
+      manualName: true,
+      layout: { type: 'leaf', paneId },
+      layoutCycle: 0,
+      windowType: 'sidebar',
+      groupPanes: null,
+      floatDrawer: 'left',
+      floatBg: null,
+      floatNoheader: true,
+      floatWidth: SIDEBAR_COLS,
+      floatHeight: null,
+    };
+    this.windows.push(window);
+
+    // Hidden window — don't change the active window.
+    return paneId;
+  }
+
+  /** Build the static tree lines shown in the demo sidebar: tabs then panes. */
+  private renderSidebarTree(): string[] {
+    const lines: string[] = [];
+    const tabs = this.windows
+      .filter((w) => w.windowType === 'tab')
+      .sort((a, b) => a.index - b.index);
+    for (const tab of tabs) {
+      const marker = tab.id === this.activeWindowId ? '\x1b[1;32m▸' : '\x1b[1m▸';
+      lines.push(`${marker} ${tab.index}: ${tab.name}\x1b[0m`);
+      const paneIds = this.layoutPaneIds(tab.layout);
+      for (const pid of paneIds) {
+        const p = this.panes.get(pid);
+        const active = pid === this.activePaneId ? '\x1b[32m' : '';
+        lines.push(`${active}   ${pid} ${p?.command ?? 'bash'}\x1b[0m`);
+      }
+    }
+    return lines.length > 0 ? lines : ['\x1b[90mno tabs\x1b[0m'];
+  }
+
+  /** Collect pane ids from a layout tree in left-to-right order. */
+  private layoutPaneIds(node: LayoutNode): string[] {
+    if (node.type === 'leaf') return [node.paneId];
+    return node.children.flatMap((c) => this.layoutPaneIds(c));
   }
 
   // ============================================

@@ -203,6 +203,18 @@ export class LifoShell {
     }
   }
 
+  /**
+   * Write pre-rendered lines verbatim (ANSI escapes honored). Used by the demo
+   * sidebar to paint a static tree, standing in for the real `tmuxy tree` TUI
+   * which can't run in the browser.
+   */
+  writeLines(lines: string[]): void {
+    for (const line of lines) {
+      this.writeText(line);
+      this.newline();
+    }
+  }
+
   writePrompt(): void {
     const home = this.env.get('HOME') ?? '/home/demo';
     let displayCwd = this.cwd;

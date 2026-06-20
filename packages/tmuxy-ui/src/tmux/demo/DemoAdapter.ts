@@ -629,9 +629,11 @@ export class DemoAdapter implements TmuxAdapter {
       }
 
       case 'run-shell': {
-        // Handle pane-group scripts; ignore everything else
+        // Handle pane-group + sidebar scripts; ignore everything else
         const cmdStr = parts.join(' ');
-        if (cmdStr.includes('pane-group-add')) {
+        if (cmdStr.includes('sidebar-create')) {
+          this.tmux.createSidebar();
+        } else if (cmdStr.includes('pane-group-add')) {
           this.tmux.groupAdd();
         } else if (cmdStr.includes('pane-group-switch')) {
           const paneMatch = cmdStr.match(/%\d+/);
