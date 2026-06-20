@@ -153,8 +153,13 @@ async function assertLayoutInvariants(page, options = {}) {
         }
 
       // ========== 4. Container padding ==========
+      // Panes are inset from the container by ~CONTAINER_PADDING. The outermost
+      // panes intentionally extend half a cell past the content grid — the
+      // mosaic border-half extension (see computePaneBox in tmuxy-ui) — so the
+      // effective floor drops by that half cell. The hard overflow check above
+      // still guarantees panes never leave the container.
       const EXPECTED_PADDING = 8; // CONTAINER_PADDING from layout.ts
-      const MIN_PADDING = EXPECTED_PADDING - 2;
+      const MIN_PADDING = EXPECTED_PADDING - charWidth / 2 - 2;
       if (gridFits)
         for (let i = 0; i < rects.length; i++) {
           const r = rects[i];

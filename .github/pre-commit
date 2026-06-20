@@ -23,8 +23,21 @@ if ! grep -q "tmuxQuery" eslint.config.mjs; then
   exit 1
 fi
 
-echo "Running unit tests..."
-npm test -- --run
+# Run only the unit tests related to the staged tmuxy-ui changes. `vitest
+# related` runs a staged test file directly and any tests that transitively
+# import a staged source file, so this stays correct while being much faster
+# than the full suite. CI still runs the entire suite, so this is purely a
+# local speed-up — a miss here is caught there.
+CHANGED_UI=$(git diff --cached --name-only --diff-filter=ACM \
+  | grep -E '^packages/tmuxy-ui/src/.*\.(ts|tsx)$' \
+  | sed 's#^packages/tmuxy-ui/##' || true)
+if [ -n "$CHANGED_UI" ]; then
+  echo "Running unit tests related to staged changes..."
+  # shellcheck disable=SC2086
+  npm test -w tmuxy-ui -- related --run $CHANGED_UI
+else
+  echo "No staged tmuxy-ui source/test changes — skipping unit tests."
+fi
 
 # --- Rust ---
 echo "Formatting Rust (cargo fmt)..."
