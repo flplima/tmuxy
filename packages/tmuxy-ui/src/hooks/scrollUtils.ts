@@ -1,10 +1,10 @@
 /**
- * scrollUtils - Shared scroll command logic for wheel and touch handlers
+ * scrollUtils - Shared scroll command logic for wheel and touch handlers.
  *
  * Encapsulates the three-mode scroll routing:
  * 1. Mouse tracking (apps requesting mouse, e.g. nvim with `mouse=a`) → SGR wheel events
  * 2. Alternate screen without mouse (vim with `mouse=`, less) → Up/Down arrow keys
- * 3. Normal shell → proxy pixel delta to scroll container (native copy mode)
+ * 3. Normal shell → enter tmux's native copy mode and scroll-up/scroll-down
  *
  * Mouse tracking takes precedence over alternate-screen: when the app explicitly
  * enabled mouse reporting, it expects raw mouse events, not synthetic arrow keys
@@ -12,6 +12,7 @@
  */
 
 import type { AppMachineEvent } from '../machines/types';
+import { scrollCommands } from '../utils/nativeCopyMode';
 
 interface ScrollCommandOptions {
   send: (event: AppMachineEvent) => void;
@@ -27,18 +28,14 @@ interface ScrollCommandOptions {
 }
 
 /**
- * Send scroll commands to tmux for line-quantized scroll modes
- * (alternate screen and mouse tracking).
- *
- * Returns true if the scroll was handled, false if the caller should
- * fall through to the default scroll-container proxy behavior.
+ * Send scroll commands to tmux. Routes to the correct mode (SGR wheel events,
+ * arrow keys, or native copy-mode scrolling) based on pane state. Handles all
+ * three modes — there is no fall-through case for callers to handle.
  */
-export function sendScrollLines(opts: ScrollCommandOptions): boolean {
+export function sendScrollLines(opts: ScrollCommandOptions): void {
   const { send, paneId, lines, alternateOn, mouseAnyFlag, cellX = 0, cellY = 0 } = opts;
 
-  if (lines === 0) return true; // consumed but nothing to do
-
-  if (!alternateOn && !mouseAnyFlag) return false; // not handled
+  if (lines === 0) return;
 
   const isScrollUp = lines < 0;
   const absLines = Math.abs(lines);
@@ -52,12 +49,21 @@ export function sendScrollLines(opts: ScrollCommandOptions): boolean {
         command: `run-shell -b 'printf "\\033[<${button};${cellX + 1};${cellY + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
       });
     }
-  } else {
+    return;
+  }
+
+  if (alternateOn) {
     const key = isScrollUp ? 'Up' : 'Down';
     for (let i = 0; i < absLines; i++) {
       send({ type: 'SEND_COMMAND', command: `send-keys -t ${paneId} ${key}` });
     }
+    return;
   }
 
-  return true;
+  // Normal shell: enter tmux's native copy mode and scroll. A wheel-up with
+  // history scrolls into the scrollback; scrolling back to the bottom auto-exits
+  // copy mode (copy-mode -e).
+  for (const command of scrollCommands(paneId, lines)) {
+    send({ type: 'SEND_COMMAND', command });
+  }
 }

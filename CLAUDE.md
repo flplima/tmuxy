@@ -8,7 +8,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for high-level system overview 
 See [docs/STATE-MANAGEMENT.md](docs/STATE-MANAGEMENT.md) for frontend XState and backend Rust state details.
 See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for SSE/HTTP protocol, Tauri IPC, and deployment scenarios.
 See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs, and workarounds.
-See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side copy mode architecture.
+See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the native tmux copy mode integration.
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
@@ -143,7 +143,7 @@ Key rules:
 - **One feature, one test.** Cover create → verify visible → interact → close in a single test. Do not split into separate "check state" and "check DOM" tests.
 - **Never install Playwright browsers** (`npx playwright install`). Tests connect to Chrome via CDP on port 9222.
 - All E2E tests run **sequentially** (`maxWorkers: 1`) — they share one tmux server.
-- Copy mode is a client-side reimplementation — test it via browser keyboard events and `getCopyModeState()`, not `send-keys -X` tmux commands.
+- Copy mode is native tmux copy mode — drive it via real user input (keyboard `prefix [` + vi keys, wheel, mouse drag) and assert on what tmux reports through `getCopyModeState()` (reads the pane's `inMode`, copy cursor, and selection). Don't reach into client state; there is no client-side copy-mode engine.
 
 ## Testing & Bug Fixes (Critical)
 

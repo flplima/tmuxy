@@ -242,12 +242,11 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
   beforeEach(ctx.beforeEach, ctx.hookTimeout);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Wheel-scrolling up in copy mode renders consecutive history rows', async () => {
+  test('Scroll-up in copy mode reveals scrollback history above the visible content', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Generate uniquely-numbered history lines. Zero-padding the number
-    // makes each marker line a unique substring search target.
+    // Generate uniquely-numbered history lines so each marker is searchable.
     await runCommand(
       ctx.page,
       'for i in $(seq -w 1 200); do echo "BUGMARK_$i"; done',
@@ -256,354 +255,46 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     await focusPage(ctx.page);
     await delay(DELAYS.SYNC);
 
-    // Sanity: BUGMARK_200 is visible at the bottom; the earliest markers
-    // were pushed out of the live viewport into scrollback.
-    const visibleBefore = await ctx.page.evaluate(() => {
-      const log = document.querySelector('[role="log"]');
-      return log?.textContent || '';
-    });
-    expect(visibleBefore).toContain('BUGMARK_200');
-    expect(visibleBefore).not.toContain('BUGMARK_001');
+    const readVisible = () =>
+      ctx.page.evaluate(() => document.querySelector('[role="log"]')?.textContent || '');
 
-    // Enter copy mode via keyboard prefix+[ and wait for the full scrollback
-    // chunk to load. cs.loading flips to false once COPY_MODE_CHUNK_LOADED
-    // has populated the lines map for every absolute row.
-    await enterCopyModeAndWait(ctx.page);
-    await ctx.page.waitForFunction(
-      () => {
-        const snap = window.app?.getSnapshot();
-        const paneId = snap?.context?.activePaneId;
-        const cs = snap?.context?.copyModeStates?.[paneId];
-        return cs && cs.loading === false && cs.historySize >= 150;
-      },
-      { timeout: 10000, polling: 100 },
-    );
+    // Sanity: the bottom marker is visible; the earliest were pushed into
+    // scrollback (out of the live viewport).
+    const before = await readVisible();
+    expect(before).toContain('BUGMARK_200');
+    expect(before).not.toContain('BUGMARK_001');
 
-    // Wheel-scroll upward in increments. This is the path the bug was
-    // reported under: scrollTop changes per wheel event while visibleCount
-    // (≈ 3 × pane height) stays the same, exercising the incremental DOM
-    // update path in ScrollbackTerminal.
+    // Wheel-scroll upward — the real user path. In native copy mode this enters
+    // tmux copy mode (copy-mode -e) and scrolls into history; tmux captures the
+    // scrolled viewport and the live Terminal re-renders it.
     const paneCenter = await ctx.page.evaluate(() => {
       const pane = document.querySelector('[data-pane-id]');
       const r = pane.getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     });
     await ctx.page.mouse.move(paneCenter.x, paneCenter.y);
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 10; i++) {
       await ctx.page.mouse.wheel(0, -200);
       await delay(150);
     }
-    await delay(DELAYS.SYNC);
 
-    // After several wheel ticks we expect to be partway up the scrollback.
+    // tmux is now in copy mode for the active pane.
     const cs = await getCopyModeState(ctx.page);
-    expect(cs.scrollTop).toBeLessThan(cs.totalLines - cs.height);
+    expect(cs?.active).toBe(true);
 
-    // The regression assertion: every <.terminal-line> div rendered inside
-    // the scrollback must be filled with the correct absolute row's content.
-    // When the renderer reused divs across scroll positions and skipped the
-    // redraw, the DOM ended up holding non-consecutive rows (e.g. div 9 →
-    // BUGMARK_107, div 10 → BUGMARK_127). Extract every numeric marker and
-    // verify they form a consecutive run.
-    const lineNumbers = await ctx.page.evaluate(() => {
-      const sb = document.querySelector('[data-copy-mode="true"]');
-      if (!sb) return null;
-      const out = [];
-      for (const el of sb.querySelectorAll('.terminal-line')) {
-        const m = (el.textContent || '').match(/BUGMARK_(\d+)/);
-        out.push(m ? Number(m[1]) : null);
-      }
-      return out;
-    });
-
-    expect(lineNumbers).not.toBeNull();
-    // Locate the contiguous stretch of marker lines (some divs at the very
-    // top of scrollback may render a shell prompt or other non-marker text).
-    const numericRuns = [];
-    let run = [];
-    for (const n of lineNumbers) {
-      if (n === null) {
-        if (run.length) numericRuns.push(run);
-        run = [];
-      } else {
-        run.push(n);
-      }
-    }
-    if (run.length) numericRuns.push(run);
-
-    // The run covering scrollback should be at least one screen of markers.
-    const longest = numericRuns.sort((a, b) => b.length - a.length)[0] || [];
-    expect(longest.length).toBeGreaterThanOrEqual(20);
-    for (let i = 1; i < longest.length; i++) {
-      expect(longest[i]).toBe(longest[i - 1] + 1);
-    }
-    // The rendered markers must reflect the scrolled-up position — not the
-    // initial visible viewport. If scrolling updated scrollTop but the DOM
-    // kept the original BUGMARK_171..200 content, the assertions above
-    // (consecutive run) would still pass. Verify the bottommost markers
-    // are no longer rendered and that older markers appear instead.
-    expect(longest).not.toContain(200);
-    expect(longest[0]).toBeLessThan(170);
-  });
-
-  // Covers the user-reported flow: "scroll up enters copy mode but I only
-  // see what was already visible, not the older history." Exercises the
-  // wheel-scroll entry path (which calls ENTER_COPY_MODE with scrollLines)
-  // and asserts both (a) loadedRanges cover the entire absolute row range
-  // after the initial FETCH_SCROLLBACK_CELLS, and (b) the rendered DOM
-  // shows the oldest history at the top after wheeling all the way up. A
-  // silent fetch failure, an off-by-one in the range conversion, or a
-  // re-render that fails to redraw the divs would all surface here.
-  test('Entering copy mode via wheel-scroll loads the entire scrollback', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    await runCommand(
-      ctx.page,
-      'for i in $(seq -w 1 200); do echo "WHEELMARK_$i"; done',
-      'WHEELMARK_200',
-    );
-    await focusPage(ctx.page);
-    await delay(DELAYS.SYNC);
-
-    // Wheel-scroll up over the pane — this is the user-reported entry point.
-    // The wheel handler in usePaneMouse sends ENTER_COPY_MODE with a
-    // negative `scrollLines`, which the state machine seeds with a
-    // partially-scrolled scrollTop. The bug surfaces if the subsequent
-    // FETCH_SCROLLBACK_CELLS doesn't populate the absolute rows above the
-    // initially-visible portion.
-    const paneCenter = await ctx.page.evaluate(() => {
-      const pane = document.querySelector('[data-pane-id]');
-      const r = pane.getBoundingClientRect();
-      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    });
-    await ctx.page.mouse.move(paneCenter.x, paneCenter.y);
-    // Wheel-scroll up continuously without pausing to let the initial
-    // FETCH_SCROLLBACK_CELLS complete. Mirrors the user-reported flow of
-    // grabbing the trackpad and going. While `loading` is true,
-    // getNeededChunk suppresses follow-up fetches, so the rendered
-    // content must come from the initial pre-fetch (the full history),
-    // not from on-demand chunking.
+    // The rendered viewport now shows older history and no longer the bottom.
+    // The backend captures the scrolled viewport on its copy-mode sync tick, so
+    // poll until the rendered content reflects the scrolled position.
+    let markers = [];
     for (let i = 0; i < 30; i++) {
-      await ctx.page.mouse.wheel(0, -400);
-      await delay(30);
+      const after = await readVisible();
+      markers = [...after.matchAll(/BUGMARK_(\d+)/g)].map((m) => Number(m[1]));
+      if (markers.length > 0 && Math.max(...markers) < 200) break;
+      await delay(150);
     }
-    await delay(DELAYS.SYNC);
-
-    // Wait until copy mode is active and the loaded ranges cover the
-    // entire scrollback (loading may bounce true/false as follow-up
-    // chunks land, so check loadedRanges directly).
-    await ctx.page.waitForFunction(
-      () => {
-        const snap = window.app?.getSnapshot();
-        const paneId = snap?.context?.activePaneId;
-        const cs = snap?.context?.copyModeStates?.[paneId];
-        if (!cs) return false;
-        if (cs.historySize < 150) return false;
-        if (cs.loading) return false;
-        if (cs.loadedRanges.length === 0) return false;
-        const first = cs.loadedRanges[0];
-        const last = cs.loadedRanges[cs.loadedRanges.length - 1];
-        return first[0] <= 0 && last[1] >= cs.totalLines - 1;
-      },
-      { timeout: 10000, polling: 100 },
-    );
-
-    const csTop = await getCopyModeState(ctx.page);
-    expect(csTop.scrollTop).toBeLessThan(50); // close enough to top
-
-    // After scrolling to scrollTop=0 via wheel, the rendered DOM should
-    // show the OLDEST content at the top, not the pane's initial visible
-    // area. WHEELMARK_001 lives at the start of scrollback and must
-    // appear in the rendered <pre>.
-    const renderedText = await ctx.page.evaluate(() => {
-      const sb = document.querySelector('[data-copy-mode="true"]');
-      if (!sb) return null;
-      return Array.from(sb.querySelectorAll('.terminal-line'))
-        .slice(0, 20)
-        .map((el) => el.textContent || '')
-        .join('\n');
-    });
-    expect(renderedText).not.toBeNull();
-    expect(renderedText).toMatch(/WHEELMARK_0*1\b/);
-    // The bottom-of-screen markers (WHEELMARK_200) must NOT be in the top
-    // viewport after wheel-scrolling to row 0.
-    expect(renderedText).not.toContain('WHEELMARK_200');
-  });
-
-  // Reactive (server-initiated) copy-mode entry — e.g. a CLI
-  // `tmuxy run copy-mode -t %X` or any custom binding that flips tmux's
-  // `in_mode` without going through the frontend's SEND_TMUX_COMMAND
-  // intercept — used to fetch only `height + 200` history lines. Anything
-  // older than that 200-line slab was invisible on scroll. Fix 1 unifies
-  // this path with the user-initiated one (full live history).
-  test('Copy mode entered server-side fetches the entire history, not a 200-line slab', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Generate ~500 lines — well past the old `height + 200` cap so the
-    // pre-Fix-1 behavior would silently truncate the top ~270 lines.
-    await runCommand(
-      ctx.page,
-      'for i in $(seq -w 1 500); do echo "REACTIVE_$i"; done',
-      'REACTIVE_500',
-    );
-    await delay(DELAYS.SYNC);
-
-    const paneId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId || null,
-    );
-    expect(paneId).not.toBeNull();
-
-    // Enter copy mode WITHOUT going through the frontend keybinding path
-    // so the reactive detector in TMUX_STATE_UPDATE is what creates the
-    // copyModeStates entry and fires the scrollback fetch. `runCommand` on
-    // the test session routes `copy-mode` through `tmuxy run` (run-shell)
-    // because it isn't in the safe-externally read-only list.
-    ctx.session.runCommand(`copy-mode -t ${paneId}`);
-    await delay(DELAYS.LONG);
-
-    // Dump state to diagnose what landed.
-    const dbg = await ctx.page.evaluate((id) => {
-      const snap = window.app?.getSnapshot();
-      const cs = snap?.context?.copyModeStates?.[id];
-      const pane = snap?.context?.panes?.find((p) => p.tmuxId === id);
-      return {
-        paneInMode: pane?.inMode,
-        paneHistorySize: pane?.historySize,
-        cs: cs
-          ? {
-              historySize: cs.historySize,
-              totalLines: cs.totalLines,
-              loading: cs.loading,
-              loadedRanges: JSON.stringify(cs.loadedRanges),
-              linesCount: cs.lines.size,
-            }
-          : null,
-      };
-    }, paneId);
-    // Wait for client copy mode + full scrollback coverage.
-    // Playwright's waitForFunction signature is `(fn, arg, options)` — getting
-    // the order wrong (passing options where arg should be) silently feeds the
-    // predicate an options object instead of the pane id, which never matches.
-    await ctx.page.waitForFunction(
-      (id) => {
-        const snap = window.app?.getSnapshot();
-        const cs = snap?.context?.copyModeStates?.[id];
-        if (!cs) return false;
-        if (cs.historySize < 300) return false;
-        if (cs.loading) return false;
-        if (cs.loadedRanges.length === 0) return false;
-        const first = cs.loadedRanges[0];
-        const last = cs.loadedRanges[cs.loadedRanges.length - 1];
-        return first[0] <= 0 && last[1] >= cs.totalLines - 1;
-      },
-      paneId,
-      { timeout: 30000, polling: 100 },
-    );
-
-    // Drive the viewport to the top via the state machine. The oldest
-    // REACTIVE_001 marker MUST appear in the rendered <pre>; pre-Fix-1 it
-    // would render as PLACEHOLDER (post-Fix-3) or as an empty line
-    // (pre-Fix-3), with no actual content because the fetch never asked
-    // for those rows.
-    await ctx.page.evaluate(
-      ({ id }) => {
-        window.app?.send({ type: 'COPY_MODE_SCROLL', paneId: id, scrollTop: 0 });
-      },
-      { id: paneId },
-    );
-    await delay(DELAYS.MEDIUM);
-
-    const topText = await ctx.page.evaluate(() => {
-      const sb = document.querySelector('[data-copy-mode="true"]');
-      if (!sb) return null;
-      return Array.from(sb.querySelectorAll('.terminal-line'))
-        .slice(0, 40)
-        .map((el) => el.textContent || '')
-        .join('\n');
-    });
-    expect(topText).not.toBeNull();
-    expect(topText).toMatch(/REACTIVE_0*1\b/);
-    // The newer end-of-history markers must NOT be at the top after
-    // scrolling to row 0 — that would mean the lines Map is misaligned.
-    expect(topText).not.toContain('REACTIVE_500');
-  });
-
-  // The reported user flow: open tmuxy, run a command that produces more
-  // lines than fit in the pane, hit `<prefix>[`, scroll up — expect older
-  // history. This test reproduces that exactly via keyboard, with no wheel
-  // or CLI entry path, and dumps the copy-mode state at each step so any
-  // failure shows precisely which hop dropped the scrollback (the live
-  // pane.historySize, the post-entry copyModeStates entry, the FETCH
-  // response merge, or the rendered DOM).
-  test('Standard `<prefix>[` + scroll-up shows scrollback older than the pane height', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // 1) Produce well-past-pane-height output. SCROLLBUG_001..SCROLLBUG_200.
-    await runCommand(
-      ctx.page,
-      'for i in $(seq -w 1 200); do echo "SCROLLBUG_$i"; done',
-      'SCROLLBUG_200',
-    );
-    await focusPage(ctx.page);
-    await delay(DELAYS.SYNC);
-
-    // 2) The LIVE pane must already report real history. If pane.historySize
-    //    is 0 here the bug is on the ingress side (server initial state or
-    //    delta missing the field) and the FETCH below will request only the
-    //    visible band — which is exactly the original user-reported symptom.
-    const before = await ctx.page.evaluate(() => {
-      const snap = window.app?.getSnapshot();
-      const c = snap?.context;
-      const pane = c?.panes?.find((p) => p.tmuxId === c.activePaneId);
-      return { historySize: pane?.historySize ?? null };
-    });
-    expect(before.historySize).toBeGreaterThan(0);
-
-    // 3) Enter copy mode via the user-canonical keyboard path.
-    const csEntry = await enterCopyModeAndWait(ctx.page);
-    expect(csEntry.active).toBe(true);
-
-    // Wait for the initial FETCH_SCROLLBACK_CELLS response to fully populate
-    // the loadedRanges. With the server fix, pane.historySize is correct
-    // from the first connect, so the initial fetch covers the full history.
-    await ctx.page.waitForFunction(
-      () => {
-        const snap = window.app?.getSnapshot();
-        const id = snap?.context?.activePaneId;
-        const cs = snap?.context?.copyModeStates?.[id];
-        if (!cs || cs.loading || cs.loadedRanges.length === 0) return false;
-        const first = cs.loadedRanges[0];
-        const last = cs.loadedRanges[cs.loadedRanges.length - 1];
-        return first[0] <= 0 && last[1] >= cs.totalLines - 1;
-      },
-      { timeout: 15000, polling: 100 },
-    );
-
-    // 4) Scroll to the very top via the state machine.
-    await ctx.page.evaluate(() => {
-      const id = window.app?.getSnapshot()?.context?.activePaneId;
-      window.app?.send({ type: 'COPY_MODE_SCROLL', paneId: id, scrollTop: 0 });
-    });
-    await delay(DELAYS.MEDIUM);
-
-    // 5) The actual DOM rendered in the ScrollbackTerminal.
-    const renderedText = await ctx.page.evaluate(() => {
-      const sb = document.querySelector('[data-copy-mode="true"]');
-      if (!sb) return null;
-      return Array.from(sb.querySelectorAll('.terminal-line'))
-        .map((el) => el.textContent || '')
-        .join('\n');
-    });
-
-    // 6) The actual assertion — the bug as reported. Pre-fix, the oldest
-    //    marker is nowhere in the DOM and the user sees blanks / placeholders
-    //    instead of real scrollback content.
-    expect(renderedText).not.toBeNull();
-    expect(renderedText).toMatch(/SCROLLBUG_0*1\b/);
-    expect(renderedText).not.toContain('SCROLLBUG_200');
+    expect(markers.length).toBeGreaterThan(0);
+    expect(Math.max(...markers)).toBeLessThan(200);
+    expect(Math.min(...markers)).toBeLessThan(170);
   });
 
   // Direct server-API probe. The user-flow test above passes for many

@@ -21,7 +21,6 @@
  */
 
 import type { AppMachineContext } from '../types';
-import type { CopyModeState } from '../../tmux/types';
 
 /**
  * The shape we get out of transformServerState() in helpers.ts. We accept
@@ -36,43 +35,6 @@ export interface TransformedState {
   readonly statusLine?: string;
   readonly totalWidth?: number;
   readonly totalHeight?: number;
-}
-
-// ============================================
-// copyMode slice
-// ============================================
-
-/**
- * Drop CopyModeState entries for panes that:
- *   - no longer exist in the server snapshot, OR
- *   - tmux now reports as NOT in copy mode (server exited copy mode for us).
- *
- * Returns the new copyModeStates record. If no changes, returns the input
- * by reference so a downstream `if (next !== prev) assign(...)` shortcut
- * keeps the React tree stable.
- */
-export function sliceCopyModeStates(
-  current: Record<string, CopyModeState>,
-  next: TransformedState,
-): Record<string, CopyModeState> {
-  const liveIds = new Set(next.panes.map((p) => p.tmuxId));
-  const panesById = new Map(next.panes.map((p) => [p.tmuxId, p]));
-
-  let changed = false;
-  const result: Record<string, CopyModeState> = {};
-  for (const [paneId, state] of Object.entries(current)) {
-    if (!liveIds.has(paneId)) {
-      changed = true;
-      continue; // pane gone → drop
-    }
-    const pane = panesById.get(paneId);
-    if (pane && !pane.inMode) {
-      changed = true;
-      continue; // server says copy mode is off → drop
-    }
-    result[paneId] = state;
-  }
-  return changed ? result : current;
 }
 
 // ============================================

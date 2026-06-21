@@ -170,6 +170,7 @@ enum SseEvent {
     ConnectionInfo {
         connection_id: u64,
         default_shell: String,
+        scroll_animation: bool,
     },
     #[serde(rename = "state-update")]
     StateUpdate(Box<StateUpdate>),
@@ -329,9 +330,25 @@ pub async fn sse_handler(
             .ok()
             .and_then(|s| s.rsplit('/').next().map(String::from))
             .unwrap_or_else(|| "bash".to_string());
+        // Read @tmuxy-scroll-animation (default on). Only an explicit `off`
+        // disables the diff-based scroll animation.
+        let scroll_animation = state
+            .tmux_call(
+                vec![
+                    "show-options".into(),
+                    "-gqv".into(),
+                    tmux_options::SCROLL_ANIMATION.into(),
+                ],
+                "scroll-animation:get",
+            )
+            .await
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
+            != "off";
         let conn_info = SseEvent::ConnectionInfo {
             connection_id: conn_id,
             default_shell,
+            scroll_animation,
         };
         if let Some(s) = encode_event(&conn_info) {
             yield Ok(Event::default().event("connection-info").data(s));
@@ -732,84 +749,6 @@ async fn handle_command(
             Ok(serde_json::json!({
                 "prefix": prefix,
                 "bindings": bindings
-            }))
-        }
-        ClientCommand::GetScrollbackCells {
-            pane_id,
-            start,
-            end,
-        } => {
-            // Route the three queries that build one scrollback response through
-            // the Tower stack — picks up the standard retry policy, a 5s
-            // per-call deadline, and tracing in one place. Capture-pane in
-            // particular sometimes races a pending layout change and returns
-            // transient io::Error; the retry layer absorbs those.
-            let policy = tmuxy_core::RetryPolicy::standard();
-            let width_output = state
-                .tmux_call_with_policy(
-                    vec![
-                        "display-message".into(),
-                        "-t".into(),
-                        pane_id.clone(),
-                        "-p".into(),
-                        "#{pane_width}".into(),
-                    ],
-                    "scrollback:pane_width",
-                    policy,
-                )
-                .await
-                .map_err(|e| format!("Failed to get pane width: {}", e))?;
-            let width: u32 = width_output.trim().parse().unwrap_or(80);
-
-            let history_output = state
-                .tmux_call_with_policy(
-                    vec![
-                        "display-message".into(),
-                        "-t".into(),
-                        pane_id.clone(),
-                        "-p".into(),
-                        "#{history_size}".into(),
-                    ],
-                    "scrollback:history_size",
-                    policy,
-                )
-                .await
-                .map_err(|e| format!("Failed to get history size: {}", e))?;
-            let history_size: u32 = history_output.trim().parse().unwrap_or(0);
-
-            // capture-pane wants the special `-S start -E end` form built
-            // inline so dispatch directly through the stack rather than the
-            // sync `capture_pane_range` helper.
-            let start_s = start.to_string();
-            let end_s = end.to_string();
-            let raw = state
-                .tmux_call_with_policy(
-                    vec![
-                        "capture-pane".into(),
-                        "-t".into(),
-                        pane_id.clone(),
-                        "-p".into(),
-                        "-e".into(),
-                        "-S".into(),
-                        start_s,
-                        "-E".into(),
-                        end_s,
-                    ],
-                    "scrollback:capture",
-                    policy,
-                )
-                .await
-                .map_err(|e| format!("Failed to capture pane range: {}", e))?;
-
-            // Parse into cells
-            let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
-
-            Ok(serde_json::json!({
-                "cells": cells,
-                "historySize": history_size,
-                "start": start,
-                "end": end,
-                "width": width
             }))
         }
         ClientCommand::ListDirectory { path } => {

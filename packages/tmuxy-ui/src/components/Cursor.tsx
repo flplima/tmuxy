@@ -18,7 +18,7 @@ interface CursorProps {
  *
  * Two rendering modes:
  * - Overlay (charWidth/charHeight provided): absolutely positioned over terminal content
- * - Inline (no charWidth/charHeight): rendered inline within text (used by ScrollbackTerminal)
+ * - Inline (no charWidth/charHeight): rendered inline within text
  */
 export function Cursor({
   x,

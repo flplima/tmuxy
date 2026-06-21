@@ -396,15 +396,50 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>> {
             continue;
         }
 
-        let window_id = parts[14].to_string();
-        let history_size: u64 = parts[15].parse().unwrap_or(0);
-        // Border title may itself contain commas (it's evaluated from a
-        // user-controlled tmux format), so re-join anything past index 15.
-        let border_title = if parts.len() > 16 {
+        // pane_title (index 10) and border_title (last field) are free-text and
+        // may contain commas. Anchor on window_id (`@<digits>`), which is
+        // immediately preceded by in_mode, copy_cursor_x, copy_cursor_y. Title
+        // is everything from index 10 up to those three fields; history_size
+        // follows window_id; border_title is the remainder.
+        let is_intlike = |s: &str| s.is_empty() || s.parse::<u32>().is_ok();
+        let mut title = parts[10].to_string();
+        let mut in_mode = parts.get(11).map(|s| *s == "1").unwrap_or(false);
+        let mut copy_cursor_x: u32 = parts.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let mut copy_cursor_y: u32 = parts.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let mut window_id = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
+        let mut history_size: u64 = parts.get(15).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let mut border_title = if parts.len() > 16 {
             parts[16..].join(",")
         } else {
             String::new()
         };
+
+        // window_id sits at index >= 14 (command=9, title>=1 field, then
+        // in_mode, copy_cursor_x, copy_cursor_y). Scan for the anchor and
+        // recompute the surrounding fields when the title shifted them.
+        for i in 14..(parts.len() - 1) {
+            let val = parts[i];
+            if val.starts_with('@')
+                && val.len() > 1
+                && val[1..].chars().all(|c| c.is_ascii_digit())
+                && (parts[i - 3] == "0" || parts[i - 3] == "1")
+                && is_intlike(parts[i - 2])
+                && is_intlike(parts[i - 1])
+            {
+                title = parts[10..i - 3].join(",");
+                in_mode = parts[i - 3] == "1";
+                copy_cursor_x = parts[i - 2].parse().unwrap_or(0);
+                copy_cursor_y = parts[i - 1].parse().unwrap_or(0);
+                window_id = val.to_string();
+                history_size = parts[i + 1].parse().unwrap_or(0);
+                border_title = if parts.len() > i + 2 {
+                    parts[i + 2..].join(",")
+                } else {
+                    String::new()
+                };
+                break;
+            }
+        }
 
         let pane = PaneInfo {
             id: parts[0].to_string(),
@@ -417,11 +452,11 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>> {
             cursor_y: parts[7].parse().unwrap_or(0),
             active: parts[8] == "1",
             command: parts[9].to_string(),
-            title: parts[10].to_string(),
+            title,
             border_title,
-            in_mode: parts[11] == "1",
-            copy_cursor_x: parts[12].parse().unwrap_or(0),
-            copy_cursor_y: parts[13].parse().unwrap_or(0),
+            in_mode,
+            copy_cursor_x,
+            copy_cursor_y,
             window_id,
             history_size,
         };
@@ -430,23 +465,6 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>> {
     }
 
     Ok(panes)
-}
-
-/// Capture a range of scrollback lines from a pane.
-/// start/end are line offsets using tmux capture-pane -S/-E convention:
-/// negative = from history, 0 = first visible line, -S - means start of history.
-pub fn capture_pane_range(pane_id: &str, start: i64, end: i64) -> Result<String> {
-    execute_tmux_command(&[
-        "capture-pane",
-        "-t",
-        pane_id,
-        "-p",
-        "-e",
-        "-S",
-        &start.to_string(),
-        "-E",
-        &end.to_string(),
-    ])
 }
 
 /// Capture content of a specific pane by its ID (e.g., "%0")

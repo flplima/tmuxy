@@ -135,34 +135,6 @@ export type CellLine = TerminalCell[];
 export type PaneContent = CellLine[];
 
 // ============================================
-// Client-Side Copy Mode Types
-// ============================================
-
-export interface CopyModeState {
-  /** Loaded lines of scrollback content, keyed by absolute line index */
-  lines: Map<number, CellLine>;
-  /** Total lines available (historySize + height) */
-  totalLines: number;
-  /** Number of history lines above the visible area */
-  historySize: number;
-  /** Loaded ranges: [startLine, endLine] pairs (inclusive) */
-  loadedRanges: Array<[number, number]>;
-  /** Whether a chunk is currently being fetched */
-  loading: boolean;
-  width: number;
-  height: number;
-  /** Absolute row (0 = first history line) */
-  cursorRow: number;
-  cursorCol: number;
-  selectionMode: 'char' | 'line' | null;
-  selectionAnchor: { row: number; col: number } | null;
-  /** Absolute row at top of viewport */
-  scrollTop: number;
-  /** Pending selection to apply on first chunk load (visible-relative row) */
-  pendingSelection?: { mode: 'char' | 'line'; row: number; col: number };
-}
-
-// ============================================
 // Server Types (snake_case from backend)
 // ============================================
 
@@ -301,7 +273,11 @@ export type StateUpdate =
 
 export type StateListener = (state: ServerState) => void;
 export type ErrorListener = (error: string) => void;
-export type ConnectionInfoListener = (connectionId: number, defaultShell: string) => void;
+export type ConnectionInfoListener = (
+  connectionId: number,
+  defaultShell: string,
+  scrollAnimation: boolean,
+) => void;
 export type ReconnectionListener = (reconnecting: boolean, attempt: number) => void;
 /**
  * OSC 52 clipboard request from a terminal application. The frontend mirrors

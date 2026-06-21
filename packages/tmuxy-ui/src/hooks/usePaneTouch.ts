@@ -7,10 +7,10 @@
  * - Routes through the same three scroll modes as wheel events:
  *   1. Alternate screen (vim, less) → arrow keys
  *   2. Mouse tracking → SGR wheel events
- *   3. Normal shell → proxy to scroll container (enters copy mode)
+ *   3. Normal shell → enter tmux's native copy mode and scroll
  */
 
-import { useCallback, useRef, type RefObject } from 'react';
+import { useCallback, useRef } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 import { sendScrollLines } from './scrollUtils';
 import { focusMobileInput } from '../utils/mobileKeyboard';
@@ -21,7 +21,6 @@ interface UsePaneTouchOptions {
   charHeight: number;
   alternateOn: boolean;
   mouseAnyFlag: boolean;
-  scrollRef: RefObject<HTMLDivElement | null>;
   send: (event: AppMachineEvent) => void;
   historySize: number;
   forwardScrollToParent?: boolean;
@@ -45,7 +44,6 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
     charHeight,
     alternateOn,
     mouseAnyFlag,
-    scrollRef,
     send,
     historySize,
     forwardScrollToParent,
@@ -76,30 +74,19 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   // deltaY convention: positive = finger moved down = scroll UP (natural scrolling)
   const processPixelDelta = useCallback(
     (deltaPixels: number) => {
-      if (alternateOn || mouseAnyFlag) {
-        // Line-quantized mode: accumulate and send whole lines
-        // Negate: finger down (positive deltaPixels) = scroll UP (negative lines)
-        remainderRef.current += -deltaPixels;
-        const lines = Math.trunc(remainderRef.current / charHeight);
-        if (lines === 0) return;
-        remainderRef.current -= lines * charHeight;
+      // Accumulate into whole lines. Negate: finger down (positive deltaPixels)
+      // = scroll UP (negative lines), natural scrolling.
+      remainderRef.current += -deltaPixels;
+      const lines = Math.trunc(remainderRef.current / charHeight);
+      if (lines === 0) return;
+      remainderRef.current -= lines * charHeight;
 
-        sendScrollLines({
-          send,
-          paneId,
-          lines,
-          alternateOn,
-          mouseAnyFlag,
-        });
-      } else {
-        // Normal mode: proxy pixel delta to scroll container.
-        // Negate: finger down = scroll up (decrease scrollTop)
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop += -deltaPixels;
-        }
-      }
+      // Normal shell with no history: nothing to scroll into.
+      if (!alternateOn && !mouseAnyFlag && historySize === 0) return;
+
+      sendScrollLines({ send, paneId, lines, alternateOn, mouseAnyFlag });
     },
-    [send, paneId, charHeight, alternateOn, mouseAnyFlag, scrollRef],
+    [send, paneId, charHeight, alternateOn, mouseAnyFlag, historySize],
   );
 
   const handleTouchStart = useCallback(

@@ -139,7 +139,13 @@ RUN mkdir -p /home/user/.config/gh /home/user/.config/git /home/user/.claude \
     && mkdir -p -m 700 /home/user/.ssh
 
 # Global npm packages: pm2, agent-browser
-# ARM64 Linux has no playwright-bundled Chromium — use system chromium instead
+# The system chromium (installed above) is the single Chromium for every
+# Playwright-driven test: the e2e suite (tests/helpers/browser.js launch
+# fallback) and the storybook probe (packages/tmuxy-ui/scripts/probe-stories.mjs)
+# both read this env var and pass it as Playwright's `executablePath`. ARM64 has
+# no Playwright-bundled build, so the system binary is required there; we use it
+# on all arches for consistency, which is why no `playwright install` step is
+# needed for the test browsers.
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 RUN npm install -g pm2 agent-browser \
     && if [ "$(dpkg --print-architecture)" != "arm64" ]; then agent-browser install; fi
@@ -151,17 +157,3 @@ ENV PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH
 # AppImages need FUSE, which isn't available in Docker — extract-and-run instead.
 ENV APPIMAGE_EXTRACT_AND_RUN=1
 RUN brew install flplima/tap/tmuxy
-
-# Pre-fetch Playwright's bundled Chromium so `scripts/probe-stories.mjs`
-# (the storybook play-function probe) works out of the box. The agent-browser
-# install above only covers the agent-browser CLI's own Chromium copy; the
-# `playwright` package's direct `chromium.launch()` API reads from
-# ~/.cache/ms-playwright, which is empty otherwise and triggers the
-# "Executable doesn't exist" error CLAUDE.md flags. The pinned version
-# matches the `playwright` devDependency in packages/tmuxy-ui — bump them
-# together. ARM64 still has no bundled binary; the probe falls back to
-# system chromium via the env var above.
-ARG PLAYWRIGHT_VERSION=1.58.2
-RUN if [ "$(dpkg --print-architecture)" != "arm64" ]; then \
-        npx --yes "playwright@${PLAYWRIGHT_VERSION}" install chromium; \
-    fi

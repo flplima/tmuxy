@@ -37,6 +37,8 @@ export interface AppHarnessProps {
    * `emitClipboard` for OSC 52 verification without needing a real backend.
    */
   onAdapterReady?: (adapter: DemoAdapter) => void;
+  /** Value reported for `@tmuxy-scroll-animation` (default on). */
+  scrollAnimation?: boolean;
 }
 
 /**
@@ -53,10 +55,11 @@ export function AppHarness({
   commandDelayMs,
   failCommand,
   onAdapterReady,
+  scrollAnimation,
 }: AppHarnessProps) {
   const adapter = useMemo(
-    () => new DemoAdapter({ initCommands, commandDelayMs, failCommand }),
-    [initCommands, commandDelayMs, failCommand],
+    () => new DemoAdapter({ initCommands, commandDelayMs, failCommand, scrollAnimation }),
+    [initCommands, commandDelayMs, failCommand, scrollAnimation],
   );
   useEffect(() => {
     if (onAdapterReady) onAdapterReady(adapter);

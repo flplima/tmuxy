@@ -169,14 +169,6 @@ pub enum ClientCommand {
         rows: u32,
     },
     GetKeyBindings,
-    GetScrollbackCells {
-        #[serde(rename = "paneId")]
-        pane_id: String,
-        #[serde(default = "default_scrollback_start")]
-        start: i64,
-        #[serde(default = "default_scrollback_end")]
-        end: i64,
-    },
     ListDirectory {
         #[serde(default = "default_directory_path")]
         path: String,
@@ -245,14 +237,6 @@ fn default_resize_cols() -> u32 {
 
 fn default_resize_rows() -> u32 {
     24
-}
-
-fn default_scrollback_start() -> i64 {
-    -200
-}
-
-fn default_scrollback_end() -> i64 {
-    -1
 }
 
 fn default_directory_path() -> String {
@@ -400,21 +384,6 @@ mod tests {
                 assert_eq!(y, 2);
             }
             other => panic!("expected SendMouseEvent, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn scrollback_defaults_match_legacy_handler() {
-        let cmd = parse(json!({
-            "cmd": "get_scrollback_cells",
-            "args": { "paneId": "%0" }
-        }));
-        match cmd {
-            ClientCommand::GetScrollbackCells { start, end, .. } => {
-                assert_eq!(start, -200);
-                assert_eq!(end, -1);
-            }
-            other => panic!("expected GetScrollbackCells, got {:?}", other),
         }
     }
 }

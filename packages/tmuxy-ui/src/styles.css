@@ -138,6 +138,8 @@
   --transition-normal: 0.15s ease;
   --transition-slow: 0.2s ease;
   --transition-layout: 100ms linear;
+  /* Duration of the diff-based content scroll-shift animation */
+  --scroll-shift-duration: 120ms;
 
   /* Shadows */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -271,6 +273,14 @@
 }
 
 /* No border on pane-content — border is on the outer pane-layout-item */
+
+/* Host for the terminal content. Fills the content area; the scroll-shift
+   animation applies a transient transform: translateY() here, clipped by
+   .pane-content's overflow: hidden. */
+.pane-terminal-host {
+  height: 100%;
+  width: 100%;
+}
 
 .pane-single {
   background-color: transparent;

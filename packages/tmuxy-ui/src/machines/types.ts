@@ -4,17 +4,10 @@
  * All type definitions for state machines and their events.
  */
 
-import type {
-  TmuxPane,
-  TmuxWindow,
-  ServerState,
-  KeyBindings,
-  KeyBinding,
-  CopyModeState,
-} from '../tmux/types';
+import type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding } from '../tmux/types';
 
 // Re-export domain types
-export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState };
+export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding };
 
 // ============================================
 // Shared State Types
@@ -144,6 +137,8 @@ export interface AppMachineContext {
   connectionId: number | null;
   /** Default shell name (e.g., "bash", "zsh") from server */
   defaultShell: string;
+  /** Whether the diff-based scroll-shift animation is enabled (@tmuxy-scroll-animation). */
+  scrollAnimation: boolean;
   /** Tmux status line with ANSI escape codes */
   statusLine: string;
   /** Pending state update during pane exit animation */
@@ -169,8 +164,6 @@ export interface AppMachineContext {
   enableAnimations: boolean;
   /** Keybindings received from the server */
   keybindings: KeyBindings | null;
-  /** Client-side copy mode state per pane */
-  copyModeStates: Record<string, CopyModeState>;
   /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
   paneActivationOrder: string[];
   /**
@@ -373,6 +366,7 @@ export type ConnectionInfoEvent = {
   type: 'CONNECTION_INFO';
   connectionId: number;
   defaultShell: string;
+  scrollAnimation: boolean;
 };
 export type KeybindingsReceivedEvent = { type: 'KEYBINDINGS_RECEIVED'; keybindings: KeyBindings };
 
@@ -429,7 +423,6 @@ export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
 export type SendCommandEvent = { type: 'SEND_COMMAND'; command: string };
 export type SendKeysEvent = { type: 'SEND_KEYS'; paneId: string; keys: string };
 export type SendTmuxCommandEvent = { type: 'SEND_TMUX_COMMAND'; command: string };
-export type CopySelectionEvent = { type: 'COPY_SELECTION' };
 
 // Semantic pane events (components send intent, machine constructs commands)
 export type ClosePaneEvent = { type: 'CLOSE_PANE'; paneId: string };
@@ -483,59 +476,6 @@ export type SelectTabEvent = {
 export type ReconcileSelectTabEvent = {
   type: 'RECONCILE_SELECT_TAB';
   scheduledAt: number;
-};
-
-// Copy mode events
-export type EnterCopyModeEvent = {
-  type: 'ENTER_COPY_MODE';
-  paneId: string;
-  scrollLines?: number;
-  nativeScrollTop?: number;
-};
-export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: string };
-export type CopyModeChunkLoadedEvent = {
-  type: 'COPY_MODE_CHUNK_LOADED';
-  paneId: string;
-  cells: import('../tmux/types').PaneContent;
-  start: number;
-  end: number;
-  historySize: number;
-  width: number;
-};
-export type CopyModeCursorMoveEvent = {
-  type: 'COPY_MODE_CURSOR_MOVE';
-  paneId: string;
-  row: number;
-  col: number;
-  relative?: boolean;
-};
-export type CopyModeSelectionStartEvent = {
-  type: 'COPY_MODE_SELECTION_START';
-  paneId: string;
-  mode: 'char' | 'line';
-  row: number;
-  col: number;
-};
-export type CopyModeSelectionClearEvent = { type: 'COPY_MODE_SELECTION_CLEAR'; paneId: string };
-export type CopyModeScrollEvent = { type: 'COPY_MODE_SCROLL'; paneId: string; scrollTop: number };
-export type CopyModeYankEvent = { type: 'COPY_MODE_YANK'; paneId: string };
-export type CopyModeKeyEvent = {
-  type: 'COPY_MODE_KEY';
-  key: string;
-  ctrlKey: boolean;
-  shiftKey: boolean;
-};
-export type CopyModeWordSelectEvent = {
-  type: 'COPY_MODE_WORD_SELECT';
-  paneId: string;
-  row: number;
-  col: number;
-  broad?: boolean;
-};
-export type CopyModeLineSelectEvent = {
-  type: 'COPY_MODE_LINE_SELECT';
-  paneId: string;
-  row: number;
 };
 
 // Group switch detection event (fired internally when switch detected in state update)
@@ -627,18 +567,6 @@ export type AppMachineEvent =
   | SendCommandEvent
   | SendKeysEvent
   | SendTmuxCommandEvent
-  | CopySelectionEvent
-  | EnterCopyModeEvent
-  | ExitCopyModeEvent
-  | CopyModeChunkLoadedEvent
-  | CopyModeCursorMoveEvent
-  | CopyModeSelectionStartEvent
-  | CopyModeSelectionClearEvent
-  | CopyModeScrollEvent
-  | CopyModeYankEvent
-  | CopyModeKeyEvent
-  | CopyModeWordSelectEvent
-  | CopyModeLineSelectEvent
   | ClearGroupSwitchOverrideEvent
   | ClearLayoutTransitionSuppressionEvent
   | EnableAnimationsEvent

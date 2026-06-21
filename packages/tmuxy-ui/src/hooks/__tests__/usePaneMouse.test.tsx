@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { createRef } from 'react';
 import { usePaneMouse } from '../usePaneMouse';
 import type { AppMachineEvent } from '../../machines/types';
@@ -7,10 +7,15 @@ import type { AppMachineEvent } from '../../machines/types';
 interface SetupOptions {
   alternateOn?: boolean;
   mouseAnyFlag?: boolean;
-  copyModeActive?: boolean;
   inMode?: boolean;
   historySize?: number;
   charHeight?: number;
+}
+
+function commandsFrom(events: AppMachineEvent[]): string[] {
+  return events
+    .filter((e) => e.type === 'SEND_COMMAND')
+    .map((e) => (e as { command: string }).command);
 }
 
 function setup(overrides: SetupOptions = {}) {
@@ -19,9 +24,9 @@ function setup(overrides: SetupOptions = {}) {
     events.push(e);
   };
   const contentRef = createRef<HTMLDivElement>();
-  const scrollRef = createRef<HTMLDivElement>();
-  (contentRef as { current: HTMLDivElement }).current = document.createElement('div');
-  (scrollRef as { current: HTMLDivElement }).current = document.createElement('div');
+  const el = document.createElement('div');
+  // jsdom getBoundingClientRect returns zeros; that's fine — cells resolve to (0,0).
+  (contentRef as { current: HTMLDivElement }).current = el;
 
   const { result } = renderHook(() =>
     usePaneMouse(send, {
@@ -31,109 +36,116 @@ function setup(overrides: SetupOptions = {}) {
       mouseAnyFlag: overrides.mouseAnyFlag ?? false,
       alternateOn: overrides.alternateOn ?? false,
       inMode: overrides.inMode ?? false,
-      copyModeActive: overrides.copyModeActive ?? false,
       paneHeight: 24,
       contentRef,
-      scrollRef,
       historySize: overrides.historySize ?? 100,
     }),
   );
 
-  return { result, events, scrollRef };
+  return { result, events };
 }
 
 function wheelEvent(deltaY: number): React.WheelEvent {
-  const ev = {
+  return {
     deltaY,
     preventDefault: () => {},
     clientX: 0,
     clientY: 0,
-  };
-  return ev as unknown as React.WheelEvent;
+  } as unknown as React.WheelEvent;
+}
+
+function mouseEvent(over: Partial<MouseEvent> = {}): React.MouseEvent {
+  return {
+    button: 0,
+    shiftKey: false,
+    detail: 1,
+    clientX: 0,
+    clientY: 0,
+    preventDefault: () => {},
+    target: document.createElement('div'),
+    ...over,
+  } as unknown as React.MouseEvent;
 }
 
 describe('usePaneMouse.handleWheel', () => {
-  it('does NOT enter copy mode when alternateOn is true (nvim, less without mouse)', () => {
+  it('sends arrow keys (not copy-mode) when alternateOn is true', () => {
     const { result, events } = setup({ alternateOn: true, mouseAnyFlag: false });
     result.current.handleWheel(wheelEvent(-100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeUndefined();
-    // Should have sent Up arrow keys instead
-    const sendKeys = events.filter(
-      (e) => e.type === 'SEND_COMMAND' && (e as { command: string }).command.includes('Up'),
-    );
-    expect(sendKeys.length).toBeGreaterThan(0);
+    const cmds = commandsFrom(events);
+    expect(cmds.some((c) => c.includes('copy-mode'))).toBe(false);
+    expect(cmds.some((c) => c.includes(' Up'))).toBe(true);
   });
 
-  it('does NOT enter copy mode when mouseAnyFlag is true (nvim with mouse=a)', () => {
+  it('sends SGR wheel events when mouseAnyFlag is true', () => {
     const { result, events } = setup({ alternateOn: true, mouseAnyFlag: true });
     result.current.handleWheel(wheelEvent(-100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeUndefined();
-    // Should have sent SGR mouse wheel events
-    const sgrEvents = events.filter(
-      (e) => e.type === 'SEND_COMMAND' && (e as { command: string }).command.includes('\\033[<64'),
-    );
-    expect(sgrEvents.length).toBeGreaterThan(0);
+    const cmds = commandsFrom(events);
+    expect(cmds.some((c) => c.includes('copy-mode'))).toBe(false);
+    expect(cmds.some((c) => c.includes('\\033[<64'))).toBe(true);
   });
 
-  it('does NOT enter copy mode when only mouseAnyFlag is true (apps without alt screen)', () => {
-    const { result, events } = setup({ alternateOn: false, mouseAnyFlag: true });
+  it('enters native copy mode and scrolls up in a normal shell with scrollback', () => {
+    const { result, events } = setup({ historySize: 100 });
     result.current.handleWheel(wheelEvent(-100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeUndefined();
+    const cmds = commandsFrom(events);
+    expect(cmds).toContain('copy-mode -e -t %1');
+    expect(cmds.some((c) => c.includes('-X scroll-up'))).toBe(true);
   });
 
-  it('does NOT enter copy mode when tmux is already in a pane mode (inMode=true)', () => {
-    // Guards against race: server reports in_mode=true after our cancel command
-    // but the client-side copy state was already cleared.
-    const { result, events } = setup({
-      alternateOn: false,
-      mouseAnyFlag: false,
-      copyModeActive: false,
-      inMode: true,
-    });
-    result.current.handleWheel(wheelEvent(-100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeUndefined();
-  });
-
-  it('enters copy mode on scroll-up in a normal shell with scrollback', () => {
-    const { result, events } = setup({
-      alternateOn: false,
-      mouseAnyFlag: false,
-      copyModeActive: false,
-      inMode: false,
-      historySize: 100,
-    });
-    result.current.handleWheel(wheelEvent(-100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeDefined();
-  });
-
-  it('does NOT enter copy mode on scroll-down in normal shell', () => {
-    const { result, events } = setup({ alternateOn: false, mouseAnyFlag: false });
+  it('does nothing on scroll-down in a normal shell at the bottom (not in copy mode)', () => {
+    const { result, events } = setup({ historySize: 100 });
     result.current.handleWheel(wheelEvent(100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeUndefined();
+    expect(commandsFrom(events)).toEqual([]);
   });
 
-  it('forwards wheel delta to scroll container when client copy mode is active', () => {
-    const { result, scrollRef } = setup({ copyModeActive: true });
-    scrollRef.current!.scrollTop = 0;
-    result.current.handleWheel(wheelEvent(50));
-    expect(scrollRef.current!.scrollTop).toBe(50);
+  it('does nothing in a normal shell with no scrollback', () => {
+    const { result, events } = setup({ historySize: 0 });
+    result.current.handleWheel(wheelEvent(-100));
+    expect(commandsFrom(events)).toEqual([]);
   });
 
-  it('accumulates sub-line wheel deltas without sending events', () => {
+  it('scrolls down while already in copy mode', () => {
+    const { result, events } = setup({ inMode: true, historySize: 100 });
+    result.current.handleWheel(wheelEvent(100));
+    const cmds = commandsFrom(events);
+    expect(cmds.some((c) => c.includes('-X scroll-down'))).toBe(true);
+  });
+
+  it('accumulates sub-line wheel deltas without emitting commands', () => {
     const { result, events } = setup({ alternateOn: true, charHeight: 18 });
-    // Each event is less than one line of charHeight
     result.current.handleWheel(wheelEvent(-5));
     result.current.handleWheel(wheelEvent(-5));
     expect(events).toEqual([]);
-    // Third event pushes the accumulator past 18px, triggering one line
     result.current.handleWheel(wheelEvent(-10));
     expect(events.length).toBeGreaterThan(0);
-    expect(events.every((e) => e.type !== 'ENTER_COPY_MODE')).toBe(true);
+  });
+});
+
+describe('usePaneMouse selection', () => {
+  it('drives native copy-mode selection on drag and copies on release', () => {
+    const { result, events } = setup();
+    act(() => result.current.handleMouseDown(mouseEvent({ clientX: 0, clientY: 0 })));
+    // Move far enough to register at least one cell of movement.
+    act(() => result.current.handleMouseMove(mouseEvent({ clientX: 40, clientY: 36 })));
+    const cmds = commandsFrom(events);
+    expect(cmds).toContain('copy-mode -t %1');
+    expect(cmds.some((c) => c.includes('-X begin-selection'))).toBe(true);
+
+    act(() => result.current.handleMouseUp(mouseEvent({ clientX: 40, clientY: 36 })));
+    expect(commandsFrom(events).some((c) => c.includes('-X copy-selection-and-cancel'))).toBe(true);
+  });
+
+  it('selects a word on double-click', () => {
+    const { result, events } = setup();
+    act(() => result.current.handleDoubleClick(mouseEvent({ detail: 2 })));
+    const cmds = commandsFrom(events);
+    expect(cmds).toContain('copy-mode -t %1');
+    expect(cmds.some((c) => c.includes('-X next-word-end'))).toBe(true);
+  });
+
+  it('forwards SGR mouse press to the app when mouseAnyFlag is set', () => {
+    const { result, events } = setup({ mouseAnyFlag: true });
+    act(() => result.current.handleMouseDown(mouseEvent()));
+    expect(commandsFrom(events).some((c) => c.includes('\\033[<0'))).toBe(true);
   });
 });

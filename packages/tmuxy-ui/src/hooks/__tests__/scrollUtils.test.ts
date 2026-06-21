@@ -11,29 +11,29 @@ function captureSends() {
 }
 
 describe('sendScrollLines', () => {
-  it('returns false in normal shell mode (lets caller handle copy-mode proxy)', () => {
+  it('enters native copy mode and scrolls up in a normal shell', () => {
     const { events, send } = captureSends();
-    const handled = sendScrollLines({
+    sendScrollLines({
       send,
       paneId: '%1',
       lines: -3,
       alternateOn: false,
       mouseAnyFlag: false,
     });
-    expect(handled).toBe(false);
-    expect(events).toEqual([]);
+    const cmds = events.map((e) => (e as { command: string }).command);
+    expect(cmds).toContain('copy-mode -e -t %1');
+    expect(cmds.some((c) => c.includes('-N 3 -X scroll-up'))).toBe(true);
   });
 
-  it('returns true with no events when lines=0', () => {
+  it('emits no events when lines=0', () => {
     const { events, send } = captureSends();
-    const handled = sendScrollLines({
+    sendScrollLines({
       send,
       paneId: '%1',
       lines: 0,
       alternateOn: true,
       mouseAnyFlag: false,
     });
-    expect(handled).toBe(true);
     expect(events).toEqual([]);
   });
 

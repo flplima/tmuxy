@@ -31,9 +31,13 @@ async function getBrowser() {
         sharedBrowser = null;
       });
     } catch {
-      // No external Chrome — launch our own headless instance
+      // No external Chrome — launch our own headless instance. On platforms
+      // without a Playwright-bundled Chromium (e.g. arm64), point Playwright at
+      // the system chromium via PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH; unset falls
+      // back to the bundled binary.
       sharedBrowser = await chromium.launch({
         headless: true,
+        executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
       });
       sharedBrowser.on('disconnected', () => {

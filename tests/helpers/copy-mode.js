@@ -8,8 +8,14 @@ const { delay } = require('./browser');
 const { enterCopyModeKeyboard } = require('./ui');
 
 /**
- * Get copy mode state from the XState machine context.
+ * Get copy mode state for the active pane from the XState machine context.
  * Returns null if copy mode is not active for the current pane.
+ *
+ * Copy mode is now NATIVE: tmux owns the cursor and selection, surfaced on the
+ * pane model (inMode, copyCursorX/Y, selectionPresent, selectionStartX/Y). The
+ * returned shape keeps the legacy field names (cursorRow/cursorCol/selectionMode
+ * /selectionAnchor) as aliases over the native fields so existing assertions
+ * read naturally. Coordinates are visible-viewport relative.
  */
 async function getCopyModeState(page) {
   return page.evaluate(() => {
@@ -17,18 +23,25 @@ async function getCopyModeState(page) {
     if (!snap?.context) return null;
     const paneId = snap.context.activePaneId;
     if (!paneId) return null;
-    const cs = snap.context.copyModeStates[paneId];
-    if (!cs) return null;
+    const pane = snap.context.panes.find((p) => p.tmuxId === paneId);
+    if (!pane || !pane.inMode) return null;
     return {
       active: true,
-      cursorRow: cs.cursorRow,
-      cursorCol: cs.cursorCol,
-      scrollTop: cs.scrollTop,
-      totalLines: cs.totalLines,
-      height: cs.height,
-      width: cs.width,
-      selectionMode: cs.selectionMode,
-      selectionAnchor: cs.selectionAnchor,
+      // Native copy cursor (visible-relative). cursorRow/cursorCol are aliases.
+      cursorRow: pane.copyCursorY,
+      cursorCol: pane.copyCursorX,
+      copyCursorX: pane.copyCursorX,
+      copyCursorY: pane.copyCursorY,
+      height: pane.height,
+      width: pane.width,
+      historySize: pane.historySize,
+      // tmux reports a single selection flag; expose it as selectionPresent and
+      // as a legacy 'char'/null selectionMode + selectionAnchor for assertions.
+      selectionPresent: pane.selectionPresent,
+      selectionMode: pane.selectionPresent ? 'char' : null,
+      selectionAnchor: pane.selectionPresent
+        ? { row: pane.selectionStartY, col: pane.selectionStartX }
+        : null,
     };
   });
 }

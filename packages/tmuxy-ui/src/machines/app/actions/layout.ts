@@ -19,7 +19,6 @@
  *   - FOCUS_PANE (writes focusedFloatPaneId which is groupsAndFloats-owned)
  *   - SELECT_PANE_GROUP_TAB (writes both panes and groupSwitchDimOverrides)
  *   - DRAG_START (large assign that snapshots pane positions)
- *   - COPY_SELECTION (orchestrates clipboard + SIGINT decision)
  *   - CREATE_TAB (raises SEND_TMUX_COMMAND — needs to live where SEND_TMUX is)
  */
 

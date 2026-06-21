@@ -1961,68 +1961,92 @@ impl StateAggregator {
         let cursor_y: u32 = parts[7].parse().unwrap_or(0);
         let active = parts[8] == "1";
         let command = parts[9].to_string();
-        let title = parts[10].to_string();
-        let in_mode = parts.get(11).map(|s| *s == "1").unwrap_or(false);
-        let copy_cursor_x: u32 = parts.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let copy_cursor_y: u32 = parts.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let scroll_position: u32 = parts.get(14).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let window_id = parts.get(15).map(|s| s.to_string()).unwrap_or_default();
 
-        // Parse remaining fields, handling border_title which may contain commas
-        // Fields after window_id: border_title (may have commas), alternate_on, mouse_any_flag
-        // We parse from the end to find the known fixed fields
-        let remaining_parts = if parts.len() > 16 { &parts[16..] } else { &[] };
-
-        // The last 6 fields should be: alternate_on, mouse_any_flag,
-        // selection_present, selection_start_x, selection_start_y, history_size
-        // Parse from the end to find the known fixed fields
+        // The two free-text fields — pane_title (index 10) and border_title
+        // (just after window_id) — can contain commas, which shift the
+        // comma-split field positions. The structured fields around them are
+        // not free-text, so locate the `window_id` anchor (`@<digits>`)
+        // dynamically: it is immediately preceded by in_mode, copy_cursor_x,
+        // copy_cursor_y, scroll_position. Everything between command and those
+        // four fields is pane_title; everything between window_id and the fixed
+        // 6-field tail is border_title.
         let num_tail_fields = 6;
+
+        // Tail fields (fixed, never free-text): alternate_on, mouse_any_flag,
+        // selection_present, selection_start_x, selection_start_y, history_size.
         let (
-            border_title,
             alternate_on,
             mouse_any_flag,
             selection_present,
             selection_start_x,
             selection_start_y,
             history_size,
-        ) = if remaining_parts.len() >= num_tail_fields {
-            let last_idx = remaining_parts.len() - 1;
-            let hist_size: u64 = remaining_parts[last_idx].parse().unwrap_or(0);
-            let sel_start_y: u64 = remaining_parts[last_idx - 1].parse().unwrap_or(0);
-            let sel_start_x: u32 = remaining_parts[last_idx - 2].parse().unwrap_or(0);
-            let sel_present = remaining_parts[last_idx - 3] == "1";
-            let mouse_flag = remaining_parts[last_idx - 4] == "1";
-            let alt_on = remaining_parts[last_idx - 5] == "1";
-            // Everything before the last 6 fields is border_title
-            let title_parts = if remaining_parts.len() > num_tail_fields {
-                remaining_parts[..remaining_parts.len() - num_tail_fields].join(",")
-            } else {
-                String::new()
-            };
+        ) = if parts.len() >= 17 {
+            let last = parts.len() - 1;
             (
-                title_parts,
-                alt_on,
-                mouse_flag,
-                sel_present,
-                sel_start_x,
-                sel_start_y,
-                hist_size,
+                parts[last - 5] == "1",
+                parts[last - 4] == "1",
+                parts[last - 3] == "1",
+                parts[last - 2].parse::<u32>().unwrap_or(0),
+                parts[last - 1].parse::<u64>().unwrap_or(0),
+                parts[last].parse::<u64>().unwrap_or(0),
             )
-        } else if remaining_parts.len() >= 2 {
-            let last_idx = remaining_parts.len() - 1;
-            let mouse_flag = remaining_parts[last_idx] == "1";
-            let alt_on = remaining_parts[last_idx - 1] == "1";
-            let title_parts = if remaining_parts.len() > 2 {
-                remaining_parts[..remaining_parts.len() - 2].join(",")
-            } else {
-                String::new()
-            };
-            (title_parts, alt_on, mouse_flag, false, 0, 0, 0)
-        } else if remaining_parts.len() == 1 {
-            (remaining_parts[0].to_string(), false, false, false, 0, 0, 0)
         } else {
-            (String::new(), false, false, false, 0, 0, 0)
+            (false, false, false, 0u32, 0u64, 0u64)
         };
+
+        let mut title = String::new();
+        let mut in_mode = false;
+        let mut copy_cursor_x: u32 = 0;
+        let mut copy_cursor_y: u32 = 0;
+        let mut scroll_position: u32 = 0;
+        let mut window_id = String::new();
+        let mut border_title = String::new();
+        let mut found_boundary = false;
+
+        if parts.len() > num_tail_fields {
+            let is_intlike = |s: &str| s.is_empty() || s.parse::<u32>().is_ok();
+            // window_id sits at index >= 15 (command=9, title>=1 field at 10,
+            // then 4 structured fields, then window_id). Scan the middle region.
+            for i in 15..(parts.len() - num_tail_fields) {
+                let val = parts[i];
+                if val.starts_with('@')
+                    && val.len() > 1
+                    && val[1..].chars().all(|c| c.is_ascii_digit())
+                    && (parts[i - 4] == "0" || parts[i - 4] == "1")
+                    && is_intlike(parts[i - 3])
+                    && is_intlike(parts[i - 2])
+                    && is_intlike(parts[i - 1])
+                {
+                    title = parts[10..i - 4].join(",");
+                    in_mode = parts[i - 4] == "1";
+                    copy_cursor_x = parts[i - 3].parse().unwrap_or(0);
+                    copy_cursor_y = parts[i - 2].parse().unwrap_or(0);
+                    scroll_position = parts[i - 1].parse().unwrap_or(0);
+                    window_id = val.to_string();
+                    border_title = parts[i + 1..parts.len() - num_tail_fields].join(",");
+                    found_boundary = true;
+                    break;
+                }
+            }
+        }
+
+        // Fallback to fixed-offset parsing when the anchor wasn't found (e.g. a
+        // truncated line or a future format change). border_title is still
+        // recovered from the region before the fixed tail.
+        if !found_boundary {
+            title = parts.get(10).map(|s| s.to_string()).unwrap_or_default();
+            in_mode = parts.get(11).map(|s| *s == "1").unwrap_or(false);
+            copy_cursor_x = parts.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
+            copy_cursor_y = parts.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
+            scroll_position = parts.get(14).and_then(|s| s.parse().ok()).unwrap_or(0);
+            window_id = parts.get(15).map(|s| s.to_string()).unwrap_or_default();
+            border_title = if parts.len() > 16 + num_tail_fields {
+                parts[16..parts.len() - num_tail_fields].join(",")
+            } else {
+                parts.get(16).map(|s| s.to_string()).unwrap_or_default()
+            };
+        }
 
         let pane_id_string = pane_id.to_string();
 
@@ -2650,5 +2674,51 @@ mod tests {
 
         let result = agg.process_event(event);
         assert!(result.clipboard_writes.is_empty());
+    }
+
+    /// Build a LIST_PANES_CMD line with the given title and border_title, in the
+    /// exact field order of `constants::tmux_formats::LIST_PANES_CMD`.
+    fn list_panes_line(title: &str, window_id: &str, border_title: &str) -> String {
+        format!(
+            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist
+            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,100"
+        )
+    }
+
+    #[test]
+    fn list_panes_plain_title_parses_window_id() {
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(&list_panes_line("nvim", "@4", ""));
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.window_id, "@4");
+        assert_eq!(pane.title, "nvim");
+        assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
+    fn list_panes_title_with_commas_keeps_window_id() {
+        // Regression: a pane title containing commas used to shift the
+        // comma-split fields, parsing window_id as "" and blanking the tab.
+        let title = "✳ Add Storybook, tests, PWA support and deploy Backstage";
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(&list_panes_line(title, "@4", ""));
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.window_id, "@4", "window_id must survive a comma title");
+        assert_eq!(pane.title, title);
+        assert_eq!(pane.scroll_position, 0);
+        assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
+    fn list_panes_commas_in_both_title_and_border_title() {
+        let title = "feat: a, b, c";
+        let border = "x, y, z";
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(&list_panes_line(title, "@9", border));
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.window_id, "@9");
+        assert_eq!(pane.title, title);
+        assert_eq!(pane.border_title, border);
+        assert_eq!(pane.history_size, 100);
     }
 }

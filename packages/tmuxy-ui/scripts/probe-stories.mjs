@@ -114,7 +114,9 @@ console.log(`probing ${ids.length} stories on ${STORYBOOK_URL} (concurrency=${CO
 const browser = await chromium.launch({
   headless: true,
   args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  executablePath: '/usr/bin/chromium',
+  // Use the system chromium (always installed in the devcontainer); arm64 has
+  // no Playwright-bundled build. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH overrides.
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium',
 });
 
 let results;

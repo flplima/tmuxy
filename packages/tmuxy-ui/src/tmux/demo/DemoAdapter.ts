@@ -114,6 +114,12 @@ export interface DemoAdapterOptions {
    * the UI rolls back optimistic state on tmux rejections.
    */
   failCommand?: (command: string) => string | false | null | undefined;
+  /**
+   * Value reported for the `@tmuxy-scroll-animation` option in the connection
+   * info. Defaults to true (animation on). Stories set it to false to assert
+   * the scroll-shift animation stays disabled.
+   */
+  scrollAnimation?: boolean;
 }
 
 export class DemoAdapter implements TmuxAdapter {
@@ -136,6 +142,7 @@ export class DemoAdapter implements TmuxAdapter {
   private clipboardListeners = new Set<ClipboardListener>();
   private commandDelayMs: number;
   private failCommand: DemoAdapterOptions['failCommand'];
+  private scrollAnimation: boolean;
 
   constructor(options?: DemoAdapterOptions) {
     this.tmux = new DemoTmux();
@@ -144,6 +151,7 @@ export class DemoAdapter implements TmuxAdapter {
     this.savedInitCommands = [...this.initCommands];
     this.commandDelayMs = options?.commandDelayMs ?? 0;
     this.failCommand = options?.failCommand;
+    this.scrollAnimation = options?.scrollAnimation ?? true;
   }
 
   /**
@@ -162,7 +170,7 @@ export class DemoAdapter implements TmuxAdapter {
     this.connected = true;
 
     // Notify connection info
-    this.connectionInfoListeners.forEach((l) => l(0, 'bash'));
+    this.connectionInfoListeners.forEach((l) => l(0, 'bash', this.scrollAnimation));
 
     // Emit keybindings
     this.keyBindingsListeners.forEach((l) => l(DEFAULT_KEYBINDINGS));
@@ -241,22 +249,6 @@ export class DemoAdapter implements TmuxAdapter {
         }
         this.handleTmuxCommand(command);
         return null as T;
-      }
-
-      case 'get_scrollback_cells': {
-        const paneId = args?.paneId as string;
-        const start = args?.start as number | undefined;
-        const end = args?.end as number | undefined;
-        const cells = this.tmux.getScrollbackCells(paneId, start, end);
-        const state = this.tmux.getState();
-        const pane = state.panes.find((p) => p.tmux_id === paneId);
-        return {
-          cells,
-          historySize: pane?.history_size ?? 0,
-          start: start ?? 0,
-          end: end ?? cells.length,
-          width: pane?.width ?? 80,
-        } as T;
       }
 
       case 'get_key_bindings':
@@ -690,9 +682,12 @@ export class DemoAdapter implements TmuxAdapter {
           targetPaneId = args[i];
         }
       } else if (args[i] === '-X') {
-        // Copy mode command — handle cancel to exit copy mode
+        // Copy mode command. The demo emulates copy mode minimally: commands
+        // that leave copy mode (cancel, copy-selection-and-cancel) exit it; the
+        // rest (scroll/selection/cursor motion) are accepted but not visually
+        // emulated, since the demo has no live tmux to capture a scrolled view.
         const copyCmd = args.slice(i + 1).join(' ');
-        if (copyCmd === 'cancel') {
+        if (copyCmd === 'cancel' || copyCmd.startsWith('copy-selection-and-cancel')) {
           const paneId =
             targetPaneId ?? (this.tmux.getState() as { active_pane_id: string }).active_pane_id;
           if (paneId) {

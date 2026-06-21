@@ -1,145 +1,103 @@
 # Copy Mode
 
-Tmuxy reimplements copy mode entirely on the client side. The frontend handles all vi keybindings, cursor movement, scrolling, selection, and clipboard operations. tmux's `copy-mode` is entered only to set the `in_mode` flag; tmux's cursor, selection, and keybindings are not used by the UI.
+Tmuxy uses tmux's **native copy mode**. tmux owns the cursor, selection, scrollback, and all
+keybindings; the frontend forwards input and renders what tmux reports. There is no client-side
+scrollback buffer and no reimplementation of vi keybindings — consistent with the no-local-scrollback
+principle in [NON-GOALS.md](NON-GOALS.md).
 
 ## Architecture
 
 ```
-User input (keyboard/mouse/scroll)
-    ↓
-keyboardActor.ts — intercepts all keydown events when copy mode active
-    ↓
-appMachine.ts — COPY_MODE_KEY event → handleCopyModeKey()
-    ↓
-copyModeKeys.ts — pure function, returns updated CopyModeState + action
-    ↓
-ScrollbackTerminal.tsx — re-renders with new cursor/selection/scrollTop
+Input (keyboard / mouse / wheel)
+    │
+    ├─ keyboard ─────────────────────────────────────────────────────────────────┐
+    │     keyboardActor.ts forwards keys via send-keys; while a pane is in copy    │
+    │     mode tmux interprets them with its copy-mode-vi table (h/j/k/l, v, y, …) │
+    │                                                                              ▼
+    ├─ wheel / touch ──────────────────────────────────────────────────┐   tmux control mode
+    │     usePaneMouse.ts / usePaneTouch.ts → scrollUtils.ts emit        │   (send-keys -X …,
+    │     `copy-mode -e` + `send-keys -X scroll-up/down`                 │    copy-mode, etc.)
+    │                                                                    ▼
+    └─ mouse drag / click ──────────────────────────────────────►  nativeCopyMode.ts builders
+          translate cells → `-X` commands (begin-selection,             (top-line, cursor-down -N,
+          cursor positioning, copy-selection-and-cancel)                 cursor-right -N, …)
+                                                                              │
+                                                                              ▼
+   tmux updates pane state (in_mode, copy_cursor_x/y, selection_present, selection_start_x/y)
+   and the scrolled viewport content; the monitor's fast sync tick captures it
+                                                                              │
+                                                                              ▼
+   Terminal.tsx renders pane.content + the copy cursor + the selection from tmux's coordinates
 ```
 
-When copy mode is **active**, the keyboard actor calls `preventDefault()` on every keydown, preventing browser shortcuts and terminal input. Keys are routed to the app machine as `COPY_MODE_KEY` events.
-
-When copy mode is **inactive**, keys pass through to tmux normally.
-
-Copy mode is **per-pane**. The keyboard actor derives "is copy mode active" on each keydown from whether the **currently active pane** has a `CopyModeState` (`copyModeStates[activePaneId]`) — it does not track a separate flag. This means switching to another pane, or closing the pane that was in copy mode, immediately resumes normal input routing for the now-active pane; no event needs to fire to "turn off" copy mode. A focused float always takes priority, so an underlying pane's copy mode never captures the float's keys. Stale `copyModeStates` entries for removed panes are pruned on the next model update.
+There is no separate copy-mode renderer: `TerminalPane` always renders the live `Terminal`, which draws
+tmux's copy cursor and selection when `pane.inMode` is true.
 
 ## Entry and Exit
 
-**Entry triggers:**
-- Scroll away from bottom in normal mode (mouse wheel)
-- Keyboard: `prefix + [` (sends `ENTER_COPY_MODE`)
-- Right-click context menu (auto-enters if needed)
+**Entry:**
+- `prefix + [` (handled entirely by tmux)
+- Wheel-up / touch-scroll-up in a normal shell — `scrollUtils.ts` sends `copy-mode -e` then `scroll-up`
+- Mouse drag, double-click (word), or triple-click (line) — `usePaneMouse.ts` enters copy mode and
+  begins a selection
 
-**Exit triggers:**
-- `q` or `Escape` key
-- `y` (yank — copies selection and exits)
-- Scroll back to bottom of content
-- Cooldown: 2-second re-entry delay after exit (server state lag)
+**Exit:**
+- `q` / `Escape` / `y` (handled by tmux's copy-mode-vi bindings)
+- Scrolling back to the bottom — `copy-mode -e` auto-exits at the bottom of history
+- Releasing a drag — `copy-selection-and-cancel` copies and leaves copy mode
 
-**tmux interaction on enter/exit:**
-- On enter: `copy-mode` command sent to tmux to set `in_mode` flag
-- On exit: `send-keys -X cancel` sent to tmux to clear `in_mode` flag
+`copy-mode -e` is idempotent: re-issuing it while already in copy mode does not reset the scroll
+position, so repeated wheel ticks accumulate correctly.
 
-## Vi Keybindings
+## Keybindings
 
-### Cursor Motion
-| Key | Action |
-|-----|--------|
-| `h` / `←` | Move left |
-| `j` / `↓` | Move down |
-| `k` / `↑` | Move up |
-| `l` / `→` | Move right |
+All copy-mode keybindings are tmux's own (the `copy-mode-vi` table). Keys flow through the normal
+`send-keys` path in `keyboardActor.ts`; tmux interprets them while the pane is in copy mode. tmuxy does
+not intercept or reinterpret them. To customize bindings, configure tmux (e.g. in the bundled
+`.devcontainer/.tmuxy.defaults.conf`).
 
-### Line Motion
-| Key | Action |
-|-----|--------|
-| `0` / `Home` | Start of line |
-| `$` / `End` | End of line |
+## Mouse
 
-### Word Motion
-| Key | Action |
-|-----|--------|
-| `w` | Next word start |
-| `b` | Previous word start |
-| `e` | Word end |
+tmuxy speaks to tmux only through control-mode **commands** — there is no path for raw mouse events to
+reach tmux's mouse layer. So mouse gestures are translated into `send-keys -X` copy-mode commands by
+`nativeCopyMode.ts`:
 
-### Page Motion
-| Key | Action |
-|-----|--------|
-| `Ctrl+u` | Half page up |
-| `Ctrl+d` | Half page down |
-| `Ctrl+b` | Full page up |
-| `Ctrl+f` | Full page down |
+- **Drag** — enter copy mode, anchor a selection at the drag-start cell, and reposition the cursor to
+  the current cell as the mouse moves (tmux extends the selection). Visual feedback during a drag is
+  bounded by the monitor's sync-tick cadence (see [TMUX.md](TMUX.md)).
+- **Double-click** — select the word under the cursor (`previous-word` → `begin-selection` →
+  `next-word-end`).
+- **Triple-click** — select the whole line.
+- Cursor positioning is absolute: jump to the top visible line, step down to the target row, reset to
+  column 0, step right to the target column. `cursor-right` clamps at end-of-line, so clicks past a
+  line's content land on its last cell.
 
-### Viewport-Relative
-| Key | Action |
-|-----|--------|
-| `H` | Top of viewport |
-| `M` | Middle of viewport |
-| `L` | Bottom of viewport |
+Mouse-tracking applications (those with `mouse_any_flag`, e.g. nvim/htop) still receive forwarded SGR
+mouse sequences instead — that path is unchanged.
 
-### Jump
-| Key | Action |
-|-----|--------|
-| `gg` | Top of content |
-| `G` | Bottom of content |
+## Clipboard
 
-### Selection
-| Key | Action |
-|-----|--------|
-| `Space` / `v` | Toggle char selection mode |
-| `V` | Toggle line selection mode |
-
-### Yank / Exit
-| Key | Action |
-|-----|--------|
-| `y` | Yank selection (copy to clipboard + exit) |
-| `q` | Exit copy mode |
-| `Escape` | Exit copy mode |
-
-## Scrollback Loading
-
-Scrollback content is loaded in lazy 200-line chunks from the server.
-
-- `getNeededChunk()` checks if the viewport is within 50 lines of unloaded content
-- When a chunk is needed, the app machine fetches it via SSE and merges it with `mergeScrollbackChunk()`
-- `loadedRanges` tracks which line ranges have been fetched to avoid duplicate requests
-- `isRowLoaded()` checks if a specific row is available
-
-## Selection and Clipboard
-
-Two selection modes:
-- **Char mode** (`v`): selects from anchor position to cursor position, respecting column boundaries on first/last lines
-- **Line mode** (`V`): selects full lines from anchor row to cursor row
-
-`extractSelectedText()` builds the selected text string:
-- Char mode: partial first/last lines, full middle lines
-- Line mode: full-width lines with trailing spaces trimmed
-- Returns newline-separated string
-
-Clipboard write uses two mechanisms:
-- **Yank (`y`) and `Ctrl+C` / `Cmd+C`**: `document.execCommand('copy')` triggered from the keyboard actor, with `pendingCopyText` set for the copy event handler.
-- **Context menu "Copy"**: `navigator.clipboard.writeText()` triggered from `SelectionContextMenu.tsx`.
-
-## tmux Interaction
-
-tmux's copy mode is used minimally:
-- `copy-mode` command on entry: sets `in_mode` flag in pane state (consumed by `list-panes` format)
-- `send-keys -X cancel` on exit: clears `in_mode` flag
-
-tmux's `copyCursorX` / `copyCursorY` (from `list-panes`) are **not** used by the copy mode engine. They reflect tmux's internal cursor, which is separate from the frontend's `cursorRow` / `cursorCol` in `CopyModeState`. The `Terminal.tsx` component renders tmux's native cursor when `in_mode` is true (for the non-scrollback terminal view), but `ScrollbackTerminal` uses the frontend's cursor exclusively.
+tmux does **not** forward OSC 52 to a control-mode client, so a copy-mode yank never reaches the
+per-pane OSC parser. Instead, tmux emits a `%paste-buffer-changed` control-mode notification whenever a
+buffer is created or updated (e.g. on yank). The monitor reacts by reading the buffer with `show-buffer`
+(a read-only command, safe to run externally) and mirroring it to the browser through the existing
+clipboard pipeline, which calls `navigator.clipboard.writeText`. Application-emitted OSC 52 still flows
+through the per-pane OSC parser as before.
 
 ## Key Files
 
 | File | Role |
 |------|------|
-| `packages/tmuxy-ui/src/utils/copyModeKeys.ts` | Pure key handler — maps vi keys to state updates + actions |
-| `packages/tmuxy-ui/src/utils/copyMode.ts` | Selection text extraction, scrollback chunk merging, chunk prefetch logic |
-| `packages/tmuxy-ui/src/machines/app/appMachine.ts` | XState integration — `copyModeStates` context, event handlers for all copy mode events |
-| `packages/tmuxy-ui/src/machines/actors/keyboardActor.ts` | DOM keyboard interception, copy mode key routing, clipboard operations |
-| `packages/tmuxy-ui/src/components/TerminalPane.tsx` | Scroll detection (enter copy mode), conditional rendering (ScrollbackTerminal vs Terminal) |
-| `packages/tmuxy-ui/src/components/ScrollbackTerminal.tsx` | Virtual rendering of scrollback lines, cursor display, selection highlighting |
+| `packages/tmuxy-ui/src/utils/nativeCopyMode.ts` | Pure builders for the `send-keys -X` copy-mode commands (scroll, goto-cell, selection) |
+| `packages/tmuxy-ui/src/hooks/scrollUtils.ts` | Routes wheel/touch scroll to SGR events, arrow keys, or native copy-mode scroll |
+| `packages/tmuxy-ui/src/hooks/usePaneMouse.ts` | Mouse → native copy-mode commands (drag/word/line select, wheel, SGR forwarding) |
+| `packages/tmuxy-ui/src/hooks/usePaneTouch.ts` | Touch scroll → native copy-mode scroll |
+| `packages/tmuxy-ui/src/machines/actors/keyboardActor.ts` | Forwards keys to tmux (no copy-mode interception) |
+| `packages/tmuxy-ui/src/components/Terminal.tsx` | Renders the copy cursor and selection from tmux's reported coordinates |
+| `packages/tmuxy-core/src/control_mode/monitor.rs` | Handles `%paste-buffer-changed` → `show-buffer` → clipboard bridge |
 
 ## Related
 
-- [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — XState machine context includes `copyModeStates` per-pane state
-- [NON-GOALS.md](NON-GOALS.md) — Why tmuxy doesn't maintain a local scrollback buffer (copy mode is the exception)
+- [NON-GOALS.md](NON-GOALS.md) — Why tmuxy keeps no local scrollback buffer
+- [TMUX.md](TMUX.md) — Control-mode command routing and the sync-tick that captures scrolled content
+- [DATA-FLOW.md](DATA-FLOW.md) — SSE/HTTP protocol and the clipboard event

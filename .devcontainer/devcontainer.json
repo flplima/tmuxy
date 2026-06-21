@@ -4,8 +4,7 @@
     "dockerfile": "Dockerfile",
     "args": {
       "TZ": "${localEnv:TZ:America/Los_Angeles}",
-      "GIT_DELTA_VERSION": "0.18.2",
-      "PLAYWRIGHT_VERSION": "1.58.2"
+      "GIT_DELTA_VERSION": "0.18.2"
     }
   },
   "runArgs": [

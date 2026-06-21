@@ -716,9 +716,16 @@ export function selectPrefixActive(context: AppMachineContext): boolean {
 export function selectActivePaneCopyMode(context: AppMachineContext): boolean {
   if (!context.activePaneId) return false;
   const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
-  if (pane?.inMode) return true;
-  if (context.copyModeStates[context.activePaneId]) return true;
-  return false;
+  return pane?.inMode ?? false;
+}
+
+/**
+ * Whether the diff-based scroll-shift animation should run: the user-facing
+ * `@tmuxy-scroll-animation` option AND the internal settling gate (which
+ * suppresses animations during connection setup, splits, etc.).
+ */
+export function selectScrollAnimationEnabled(context: AppMachineContext): boolean {
+  return context.scrollAnimation && context.enableAnimations;
 }
 
 // ============================================

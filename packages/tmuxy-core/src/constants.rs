@@ -43,6 +43,10 @@ pub mod tmux_options {
     /// Theme mode: `dark` / `light`.
     pub const THEME_MODE: &str = "@tmuxy-theme-mode";
 
+    /// Whether the diff-based content scroll-shift animation is enabled
+    /// (`on`/`off`, default on).
+    pub const SCROLL_ANIMATION: &str = "@tmuxy-scroll-animation";
+
     /// Subset of `@tmuxy-*` window options the monitor requests in every
     /// `list-windows -F` call. Kept here so the format-string in
     /// `monitor.rs` stays in lockstep with the parser that consumes it.

@@ -152,25 +152,6 @@ export class DemoShell {
     return this.scrollback.length;
   }
 
-  /** Get scrollback + visible content for a range of absolute line indices */
-  getScrollbackContent(start: number, end: number): PaneContent {
-    const result: PaneContent = [];
-    const totalLines = this.scrollback.length + this.height;
-    const clampedStart = Math.max(0, start);
-    const clampedEnd = Math.min(end, totalLines);
-    for (let i = clampedStart; i < clampedEnd; i++) {
-      if (i < this.scrollback.length) {
-        result.push([...this.scrollback[i]]);
-      } else {
-        const gridIdx = i - this.scrollback.length;
-        if (gridIdx < this.grid.length) {
-          result.push([...this.grid[gridIdx]]);
-        }
-      }
-    }
-    return result;
-  }
-
   getCursorX(): number {
     return this.cursorCol;
   }

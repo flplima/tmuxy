@@ -4,18 +4,18 @@ import { createKeyboardActor } from '../keyboardActor';
 
 /**
  * Spawn the keyboard actor under a tiny parent that records every event it
- * sends and exposes a context snapshot (the actor reads activePaneId /
- * copyModeStates off the parent snapshot for copy-mode detection).
+ * sends and exposes a context snapshot (the actor reads activePaneId off the
+ * parent snapshot).
  */
 function spawnKeyboardActor(activePaneId = '%3') {
   const events: Array<{ type: string; [k: string]: unknown }> = [];
   const keyboardActor = createKeyboardActor();
   const parent = createMachine({
     types: {} as {
-      context: { activePaneId: string; copyModeStates: Record<string, unknown> };
+      context: { activePaneId: string };
       events: { type: string; [k: string]: unknown };
     },
-    context: { activePaneId, copyModeStates: {} },
+    context: { activePaneId },
     invoke: {
       id: 'keyboard',
       src: 'keyboardActor',

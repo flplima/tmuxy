@@ -1,31 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
-  sliceCopyModeStates,
   sliceStatusLine,
   sliceActivationOrder,
   sliceLastActivePaneByWindow,
   detectRemovedPanes,
   type TransformedState,
 } from '../tmuxStateSlices';
-import type { CopyModeState, CellLine } from '../../../tmux/types';
 import type { TmuxPane, TmuxWindow } from '../../types';
-
-function emptyCopyState(): CopyModeState {
-  return {
-    lines: new Map<number, CellLine>(),
-    totalLines: 0,
-    historySize: 0,
-    loadedRanges: [],
-    loading: false,
-    width: 80,
-    height: 24,
-    cursorRow: 0,
-    cursorCol: 0,
-    selectionMode: null,
-    selectionAnchor: null,
-    scrollTop: 0,
-  };
-}
 
 function pane(tmuxId: string, opts: Partial<TmuxPane> = {}): TmuxPane {
   return {
@@ -86,29 +67,6 @@ function tx(overrides: Partial<TransformedState> = {}): TransformedState {
     ...overrides,
   };
 }
-
-describe('sliceCopyModeStates', () => {
-  it('drops entries for panes that no longer exist', () => {
-    const current = { '%1': emptyCopyState(), '%2': emptyCopyState() };
-    const next = tx({ panes: [pane('%1', { inMode: true })] });
-    const result = sliceCopyModeStates(current, next);
-    expect(Object.keys(result)).toEqual(['%1']);
-  });
-
-  it('drops entries for panes that exited copy mode server-side', () => {
-    const current = { '%1': emptyCopyState() };
-    const next = tx({ panes: [pane('%1', { inMode: false })] });
-    const result = sliceCopyModeStates(current, next);
-    expect(result['%1']).toBeUndefined();
-  });
-
-  it('returns the input by reference when nothing changes', () => {
-    const current = { '%1': emptyCopyState() };
-    const next = tx({ panes: [pane('%1', { inMode: true })] });
-    const result = sliceCopyModeStates(current, next);
-    expect(result).toBe(current);
-  });
-});
 
 describe('sliceStatusLine', () => {
   it('returns the new line when it changed', () => {

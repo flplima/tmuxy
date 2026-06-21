@@ -1,10 +1,4 @@
-import type {
-  ServerState,
-  ServerPane,
-  ServerWindow,
-  PaneContent,
-  ServerImagePlacement,
-} from '../types';
+import type { ServerState, ServerPane, ServerWindow, ServerImagePlacement } from '../types';
 import { LifoShell } from './LifoShell';
 
 // ============================================
@@ -553,19 +547,6 @@ export class DemoTmux {
     );
     this.applyLayout(window);
     return true;
-  }
-
-  getScrollbackCells(paneId: string, start?: number, end?: number): PaneContent {
-    const pane = this.panes.get(paneId);
-    if (!pane) return [];
-    const historySize = pane.shell.getHistorySize();
-    const height = pane.shell.getContent().length;
-    const totalLines = historySize + height;
-    // Convert tmux-relative offsets to absolute indices
-    // Tmux uses negative offsets for history (e.g., -200 to 0 = last 200 history lines + visible)
-    const absStart = start !== undefined ? historySize + start : 0;
-    const absEnd = end !== undefined ? historySize + end : totalLines;
-    return pane.shell.getScrollbackContent(absStart, absEnd);
   }
 
   /** Cycle to the next layout (even-horizontal → even-vertical → tiled → ...) */

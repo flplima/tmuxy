@@ -7,7 +7,7 @@
  */
 
 import { useRef, useEffect, useState, useCallback, memo } from 'react';
-import { useAppSend, usePane, usePaneGroup, useCopyModeState } from '../machines/AppContext';
+import { useAppSend, usePane, usePaneGroup } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import type { TmuxPane } from '../tmux/types';
 
@@ -142,7 +142,6 @@ export function PaneHeader({
   const send = useAppSend();
   const pane = usePane(paneId);
   const { groupPanes, activePaneId } = usePaneGroup(paneId);
-  const copyState = useCopyModeState(paneId);
   const tabsRef = useRef<HTMLDivElement>(null);
   const pendingDragRef = useRef<{ x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -343,8 +342,7 @@ export function PaneHeader({
     document.addEventListener('touchcancel', handleTouchEnd);
   };
 
-  const isInCopyMode = inMode || !!copyState;
-  const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${isInCopyMode ? 'pane-header-copy-mode' : ''}`;
+  const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${inMode ? 'pane-header-copy-mode' : ''}`;
 
   return (
     <div
