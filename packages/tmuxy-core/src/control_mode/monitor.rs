@@ -555,6 +555,19 @@ impl TmuxMonitor {
             }
         }
 
+        // tmux does not forward OSC 52 to a control-mode client, so a copy-mode
+        // yank never reaches the per-pane OSC parser. Instead tmux fires
+        // %paste-buffer-changed; read the buffer (read-only) and mirror it to the
+        // web clipboard through the same emitter path as application OSC 52.
+        if let ControlModeEvent::PasteBufferChanged { buffer_name } = &event {
+            match crate::executor::show_buffer_named(buffer_name) {
+                Ok(text) if !text.is_empty() => emitter.write_clipboard("", text),
+                Ok(_) => {}
+                Err(e) => debug!(buffer = %buffer_name, error = %e, "show-buffer failed"),
+            }
+            return true;
+        }
+
         match &event {
             ControlModeEvent::Output { .. } | ControlModeEvent::CommandResponse { .. } => {}
             other => {

@@ -44,6 +44,11 @@ pub enum ControlModeEvent {
     /// Pane mode changed (e.g., entered/exited copy mode)
     PaneModeChanged { pane_id: String },
 
+    /// A paste buffer was created or updated (e.g. copy-mode yank, set-buffer).
+    /// tmux does not forward OSC 52 to a control-mode client, so this is how
+    /// tmuxy learns a copy happened and mirrors the buffer to the web clipboard.
+    PasteBufferChanged { buffer_name: String },
+
     /// Session changed
     SessionChanged {
         session_id: String,
@@ -242,6 +247,13 @@ impl Parser {
         if let Some(rest) = line.strip_prefix(ev::PANE_MODE_CHANGED) {
             return Some(ControlModeEvent::PaneModeChanged {
                 pane_id: rest.trim().to_string(),
+            });
+        }
+
+        // %paste-buffer-changed buffer-name
+        if let Some(rest) = line.strip_prefix(ev::PASTE_BUFFER_CHANGED) {
+            return Some(ControlModeEvent::PasteBufferChanged {
+                buffer_name: rest.trim().to_string(),
             });
         }
 
@@ -685,6 +697,19 @@ mod tests {
                 assert_eq!(pane_id, "%0");
             }
             _ => panic!("Expected PaneModeChanged event"),
+        }
+    }
+
+    #[test]
+    fn test_parse_paste_buffer_changed() {
+        let mut parser = Parser::new();
+        let event = parser.parse_line("%paste-buffer-changed buffer0");
+
+        match event {
+            Some(ControlModeEvent::PasteBufferChanged { buffer_name }) => {
+                assert_eq!(buffer_name, "buffer0");
+            }
+            _ => panic!("Expected PasteBufferChanged event"),
         }
     }
 }

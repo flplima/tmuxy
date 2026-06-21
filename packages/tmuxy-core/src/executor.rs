@@ -84,6 +84,12 @@ pub fn show_buffer() -> Result<String> {
     execute_tmux_command(&["show-buffer"])
 }
 
+/// Read a specific paste buffer by name (read-only; safe to run externally while
+/// control mode is attached). Used to mirror a copy-mode yank to the web clipboard.
+pub fn show_buffer_named(buffer_name: &str) -> Result<String> {
+    execute_tmux_command(&["show-buffer", "-b", buffer_name])
+}
+
 pub fn capture_pane_with_history(session_name: &str) -> Result<String> {
     execute_tmux_command(&[
         "capture-pane",

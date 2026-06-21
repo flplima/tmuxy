@@ -127,6 +127,7 @@ pub mod control_events {
     pub const SESSION_RENAMED: &str = "%session-renamed ";
     pub const SESSIONS_CHANGED: &str = "%sessions-changed";
     pub const SESSION_WINDOW_CHANGED: &str = "%session-window-changed ";
+    pub const PASTE_BUFFER_CHANGED: &str = "%paste-buffer-changed ";
     pub const PAUSE: &str = "%pause ";
     pub const CONTINUE: &str = "%continue ";
     pub const CLIENT_DETACHED: &str = "%client-detached ";

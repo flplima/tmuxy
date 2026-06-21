@@ -13,8 +13,7 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import type { KeyBindings, CopyModeState } from '../../tmux/types';
-import { extractSelectedText } from '../../utils/copyMode';
+import type { KeyBindings } from '../../tmux/types';
 import { setupMobileKeyboard, getMobileInput, isTouchDevice } from '../../utils/mobileKeyboard';
 
 export type KeyboardActorEvent =
@@ -123,8 +122,6 @@ export function createKeyboardActor() {
     let isComposing = false;
     let inPrefixMode = false;
     let prefixTimeout: ReturnType<typeof setTimeout> | null = null;
-    // Text pending copy via native clipboard event
-    let pendingCopyText: string | null = null;
 
     // Dynamic keybindings from server
     let prefixKey = 'C-a'; // Default, will be updated from server
@@ -235,63 +232,13 @@ export function createKeyboardActor() {
         }
       }
 
-      // Copy mode is per-pane and derived (not synced): a pane is in copy mode
-      // iff the *currently active* pane has a CopyModeState. Deriving this fresh
-      // on every keydown — rather than tracking a pushed boolean — means
-      // switching to another pane, or closing the copy-mode pane, instantly
-      // stops routing keys to copy mode without any event plumbing to keep in
-      // sync. A focused float always takes priority, so its keys are never
-      // hijacked by an underlying pane's copy mode.
-      let activeCopyState: CopyModeState | undefined;
-      if (!focusedFloatPaneId && !focusedSidebarPaneId) {
-        try {
-          const snapshot = input.parent.getSnapshot() as {
-            context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
-          };
-          const ctx = snapshot?.context;
-          const copyPaneId = ctx?.activePaneId;
-          activeCopyState = copyPaneId ? ctx?.copyModeStates?.[copyPaneId] : undefined;
-        } catch (_) {
-          /* ignore */
-        }
-      }
-      const copyModeActive = !!activeCopyState;
-
-      // Cmd+C / Ctrl+C: copy selection to clipboard (if in copy mode with selection)
-      // or send SIGINT (if not in copy mode / no selection)
-      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
-        if (copyModeActive) {
-          // Extract text for the native copy event handler
-          if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
-            pendingCopyText = extractSelectedText(activeCopyState);
-          }
-          // Don't preventDefault — let browser fire native copy event
-        } else {
-          event.preventDefault();
-        }
-        input.parent.send({ type: 'COPY_SELECTION' });
-        return;
-      }
-
-      // Client-side copy mode: intercept all keys (must be checked before the
-      // mobile input guard so that Space and other single-char keys reach copy
-      // mode on touch-capable devices where the hidden input may have focus)
-      if (copyModeActive) {
-        event.preventDefault();
-        // For yank keys (y, Enter), copy to clipboard via native copy event
-        if (event.key === 'y' || event.key === 'Enter') {
-          if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
-            pendingCopyText = extractSelectedText(activeCopyState);
-            // Trigger native copy event (our copy handler will set clipboardData)
-            document.execCommand('copy');
-          }
-        }
-        input.parent.send({
-          type: 'COPY_MODE_KEY',
-          key: event.key,
-          ctrlKey: event.ctrlKey,
-          shiftKey: event.shiftKey,
-        });
+      // Cmd+C (macOS copy): let the browser handle native copy of any selectable
+      // UI text. tmux copy-mode selections reach the system clipboard through the
+      // backend %paste-buffer-changed → show-buffer → clipboard bridge, so there
+      // is nothing to intercept here. Ctrl+C is NOT caught: it falls through to
+      // the normal send-keys path below and reaches tmux as C-c (SIGINT / the
+      // copy-mode cancel key), matching real terminal behavior.
+      if (event.metaKey && !event.ctrlKey && event.key === 'c') {
         return;
       }
 
@@ -567,20 +514,10 @@ export function createKeyboardActor() {
       }
     };
 
-    // Native copy event handler — uses pendingCopyText set by keydown handler
-    const handleCopy = (event: ClipboardEvent) => {
-      if (pendingCopyText) {
-        event.preventDefault();
-        event.clipboardData?.setData('text/plain', pendingCopyText);
-        pendingCopyText = null;
-      }
-    };
-
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('compositionstart', handleCompositionStart);
     window.addEventListener('compositionend', handleCompositionEnd);
     window.addEventListener('paste', handlePaste);
-    window.addEventListener('copy', handleCopy);
 
     receive((event) => {
       if (event.type === 'UPDATE_SESSION') {
@@ -609,7 +546,6 @@ export function createKeyboardActor() {
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);
       window.removeEventListener('paste', handlePaste);
-      window.removeEventListener('copy', handleCopy);
     };
   });
 }
