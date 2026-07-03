@@ -3,7 +3,7 @@
 #
 # Usage:
 #   tmuxy-widget-markdown <file.md>    Watch a markdown file for changes
-#   tmuxy-widget-markdown -            Read one line from stdin as content
+#   tmuxy-widget-markdown -            Render stdin as inline markdown content
 
 set -euo pipefail
 
@@ -11,12 +11,12 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE="${1:?Usage: tmuxy-widget-markdown <file.md|->}"
 
 if [ "$SOURCE" = "-" ]; then
-  # Stdin mode: read content, output metadata, block forever
-  read -r CONTENT
+  # Stdin mode: stream stdin through as raw markdown, then block to keep the
+  # pane (and its widget) alive. The markdown widget renders inline content
+  # directly (no __FILE__ meta), which is the only path that works client-side
+  # where there is no server /api/file to fetch a watched file from.
   {
-    echo "__TMUXY_META_START__"
-    printf '{"content":"%s"}\n' "$CONTENT"
-    echo "__TMUXY_META_END__"
+    cat
     while true; do sleep 3600; done
   } | "${SCRIPTS_DIR}/tmuxy-widget" markdown
 else

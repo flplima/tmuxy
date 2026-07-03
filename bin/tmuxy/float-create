@@ -112,7 +112,11 @@ if [ $# -eq 0 ]; then
   # pane ID via a temp file since run-shell can't return output.
   TMPID=$(mktemp /tmp/tmuxy-float-id.XXXXXX)
   trap 'rm -f "$TMPID"' EXIT
-  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} split-window -dP -F '#{pane_id}' > $TMPID"
+  # ##{pane_id}: run-shell format-expands its command string (## -> #), so the
+  # doubled hash survives as a literal #{pane_id} for split-window's -P -F to
+  # expand against the NEW pane. A bare #{pane_id} would pre-expand to the
+  # ACTIVE pane and break-pane would then move the wrong pane into the float.
+  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} split-window -dP -F '##{pane_id}' > $TMPID"
   NEW_PANE_ID=$(cat "$TMPID")
   rm -f "$TMPID"
   trap - EXIT
@@ -155,7 +159,8 @@ ${CMD} > "${TMPFILE}"
 tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} wait-for -S ${WAIT_CHAN}
 SCRIPT
   chmod +x "$WRAPPER"
-  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} split-window -dP -F '#{pane_id}' 'bash $WRAPPER' > $TMPID"
+  # ##{pane_id}: see the interactive branch — run-shell expands ## -> #.
+  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} split-window -dP -F '##{pane_id}' 'bash $WRAPPER' > $TMPID"
   NEW_PANE_ID=$(cat "$TMPID")
   rm -f "$TMPID"
 
