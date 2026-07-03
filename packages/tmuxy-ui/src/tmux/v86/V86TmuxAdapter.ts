@@ -235,7 +235,7 @@ export class V86TmuxAdapter implements TmuxAdapter {
         // Hot paths (key input, resizes, paste batches) stay fire-and-forget;
         // everything else is tracked so failures reject like the server adapter
         // (surfacing TMUX_ERROR and rolling back optimistic ops).
-        if (wire.includes('\n') || /^(send-keys|refresh-client)\b/.test(wire)) {
+        if (wire.includes('\n') || /^(send-keys|refresh-client|select-pane|select-window)\b/.test(wire)) {
           this.engine.send(wire);
           return null as T;
         }

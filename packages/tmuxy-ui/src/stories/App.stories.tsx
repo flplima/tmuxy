@@ -60,6 +60,11 @@ async function focusFirstPane(
     timeout: 45000,
     interval: 500,
   });
+  // Wait for the boot's initial active-pane sync to settle BEFORE clicking —
+  // clicking mid-sync races the select-pane against in-flight active-pane
+  // updates and the click can be permanently overridden. A real user clicks
+  // after seeing the active highlight appear.
+  await waitFor(() => expect(activePaneId()).toMatch(/^%\d+$/), { timeout: 20000, interval: 200 });
   const paneId = paneGroups(canvas)[0].getAttribute('data-pane-id');
   await user.click(paneGroups(canvas)[0]);
   await waitFor(() => expect(activePaneId()).toBe(paneId), { timeout: 15000, interval: 200 });

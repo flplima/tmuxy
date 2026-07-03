@@ -11,6 +11,16 @@
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+/// Serialize for JS with maps as plain objects — the delta protocol's
+/// `TmuxDelta.panes/windows` are HashMaps, and serde-wasm-bindgen's default
+/// (ES `Map`) is invisible to the frontend's object-shaped delta handling.
+fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
+    let ser = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+    value
+        .serialize(&ser)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 use tmuxy_core::constants::tmux_formats;
 use tmuxy_core::control_mode::{ControlModeEvent, Parser, SideEffect, StateAggregator};
 use tmuxy_core::StateUpdate;
@@ -141,7 +151,7 @@ impl WasmTmux {
     /// Feed control-mode text; returns `{ updates: StateUpdate[], commands: string[] }`.
     pub fn feed(&mut self, text: &str) -> Result<JsValue, JsValue> {
         let out = self.inner.feed(text);
-        serde_wasm_bindgen::to_value(&out).map_err(|e| JsValue::from_str(&e.to_string()))
+        to_js(&out)
     }
 
     /// Drain the settling-debounce timer (call on a ~50ms interval). Returns the
@@ -149,14 +159,14 @@ impl WasmTmux {
     /// here rather than from `feed`.
     pub fn tick(&mut self) -> Result<JsValue, JsValue> {
         let out = self.inner.tick();
-        serde_wasm_bindgen::to_value(&out).map_err(|e| JsValue::from_str(&e.to_string()))
+        to_js(&out)
     }
 
     /// The full current `TmuxState` snapshot (convenient for rendering; deltas
     /// from `feed` are the efficient path once wired to the real UI).
     pub fn snapshot(&mut self) -> Result<JsValue, JsValue> {
         let state = self.inner.agg.to_tmux_state();
-        serde_wasm_bindgen::to_value(&state).map_err(|e| JsValue::from_str(&e.to_string()))
+        to_js(&state)
     }
 
     /// The commands a host should send once after attaching, to do a full sync
@@ -185,6 +195,19 @@ impl WasmTmux {
                     base64::engine::general_purpose::STANDARD.encode(data)
                 )
             })
+    }
+
+    /// The aggregator's LIVE active pane id — authoritative at read time.
+    /// Deltas/fulls computed earlier in a burst can carry a stale active pane
+    /// (emitted before a select-pane landed); hosts stamp this over the
+    /// replayed state so "active" never time-travels.
+    pub fn active_pane_id(&self) -> Option<String> {
+        self.inner.agg.live_active_pane_id()
+    }
+
+    /// The aggregator's LIVE active window id at read time.
+    pub fn active_window_id(&self) -> Option<String> {
+        self.inner.agg.live_active_window_id()
     }
 
     /// Set the status-line text (fetched out-of-band by the host).

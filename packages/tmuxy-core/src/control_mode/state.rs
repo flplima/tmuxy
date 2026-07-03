@@ -966,6 +966,21 @@ impl StateAggregator {
         self.windows.len()
     }
 
+    /// The LIVE active pane id (active pane of the active window) at read
+    /// time. Authoritative where replayed StateUpdates may carry a stale
+    /// active pane (an update computed before a select-pane landed).
+    pub fn live_active_pane_id(&self) -> Option<String> {
+        self.active_window_id
+            .as_ref()
+            .and_then(|wid| self.windows.get(wid))
+            .and_then(|w| w.active_pane_id.clone())
+    }
+
+    /// The LIVE active window id at read time.
+    pub fn live_active_window_id(&self) -> Option<String> {
+        self.active_window_id.clone()
+    }
+
     /// Clear the suppression flag and return a state update with
     /// all accumulated changes. Returns None if nothing changed.
     pub fn force_emit(&mut self) -> Option<crate::StateUpdate> {

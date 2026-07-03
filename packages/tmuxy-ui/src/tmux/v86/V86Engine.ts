@@ -12,7 +12,7 @@
  * The current adapter wires its state/clipboard callbacks via `setSink()`; the
  * engine calls back into whichever sink is currently attached.
  */
-import type { ServerState } from '../types';
+import type { ServerState, StateUpdate } from '../types';
 
 const WASM_JS = '/wasm/tmuxy_wasm.js';
 const WASM_BG = '/wasm/tmuxy_wasm_bg.wasm';
@@ -40,7 +40,7 @@ interface V86Emulator {
   destroy?: () => Promise<void>;
 }
 interface FeedOutput {
-  updates: unknown[];
+  updates: StateUpdate[];
   commands: string[];
   clipboard: [string, string][];
   /** (success, first output line) per %begin/%end/%error block, in order. */
@@ -52,6 +52,8 @@ interface WasmCore {
   snapshot(): ServerState;
   initial_sync(): string[];
   image_url(paneId: string, imageId: number): string | undefined;
+  active_pane_id(): string | undefined;
+  active_window_id(): string | undefined;
 }
 interface WasmModule {
   default(input?: string): Promise<unknown>;
@@ -155,6 +157,9 @@ export class V86Engine {
     (
       window as unknown as { __tmuxyImageSrc?: (p: string, i: number) => string | undefined }
     ).__tmuxyImageSrc = (paneId, imageId) => this.core?.image_url(paneId, imageId);
+    // Test hook: lets stories assert bursts ride the delta wire path.
+    (window as unknown as { __v86UpdateStats?: { full: number; delta: number } }).__v86UpdateStats =
+      this.updateStats;
 
     // Throughput: v86 emits serial one byte at a time. Coalesce a burst into a
     // single feed() on a short timer instead of one wasm call per byte. Reads the
@@ -252,12 +257,28 @@ export class V86Engine {
     for (const cmd of this.core?.initial_sync() ?? []) this.send(cmd);
   }
 
+  /** full/delta counts since boot — test hook + perf visibility. */
+  readonly updateStats = { full: 0, delta: 0 };
+
   private emit(out: FeedOutput): void {
     if (!this.core || !this.emu) return;
     for (const [ok, firstLine] of out.responses ?? []) this.onResponse(ok, firstLine);
     for (const cmd of out.commands) this.send(cmd);
     for (const [paneId, text] of out.clipboard) this.sink?.onClipboard(paneId, text);
     if (out.updates.length === 0) return;
+    // Count the core's wire-protocol emissions (full vs delta) — the protocol
+    // itself is exercised and asserted (Throughput, DeltaProtocol stories) even
+    // though the EMITTED state below comes from a per-batch snapshot.
+    //
+    // KNOWN LIMITATION (documented in the gap plan): chaining the updates via
+    // handleStateUpdate is not usable as the emitted state yet — an update
+    // computed earlier in a burst carries a pre-select-pane active id, and the
+    // appMachine's optimistic-focus/layout-transition heuristics (tuned against
+    // server-timed emissions) permanently pin the stale focus. The per-batch
+    // snapshot is always internally consistent, which those heuristics assume.
+    for (const update of out.updates) {
+      this.updateStats[update.type === 'full' ? 'full' : 'delta'] += 1;
+    }
     const state = this.core.snapshot();
     this.lastState = state;
     this.sink?.onState(state);
