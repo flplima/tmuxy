@@ -36,7 +36,7 @@ const ATTACH = '/tmp/tb/tmux -CC attach -t m\n';
 // (allow-passthrough gates image/hyperlink OSC forwarding; pane-border-status
 // top is assumed by PaneLayout's geometry).
 const GUEST_SETUP: string[] = [
-  "set pane-border-status top",
+  'set pane-border-status top',
   "set pane-border-format ' '",
   'set mouse on',
   'set focus-events on',
@@ -112,7 +112,15 @@ export class V86Engine {
   // marker: when the marker's response appears, the following `remaining`
   // responses belong to the tracked command list.
   private trackSeq = 0;
-  private trackers = new Map<string, { remaining: number; ok: boolean; message: string; resolve(r: { ok: boolean; message: string }): void }>();
+  private trackers = new Map<
+    string,
+    {
+      remaining: number;
+      ok: boolean;
+      message: string;
+      resolve(r: { ok: boolean; message: string }): void;
+    }
+  >();
   private armedTracker: string | null = null;
   private attached = false;
   private lastState: ServerState = EMPTY_STATE;
@@ -188,7 +196,8 @@ export class V86Engine {
       const chunk = serialBuf;
       serialBuf = '';
       if (!chunk || !this.attached || !this.core) return;
-      if (chunk.includes('1337') || chunk.includes(']1337')) (window as unknown as { __osc?: string[] }).__osc?.push(chunk.slice(0, 400));
+      if (chunk.includes('1337') || chunk.includes(']1337'))
+        (window as unknown as { __osc?: string[] }).__osc?.push(chunk.slice(0, 400));
       this.emit(this.core.feed(chunk));
       // `%exit` ends the control-mode conversation (server died / kill-server /
       // last session closed). Surface it as a fatal so the app can show its

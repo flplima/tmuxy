@@ -2444,7 +2444,9 @@ export const SwitchSessionFailure: Story = {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
     const original = sessionName();
-    (window as unknown as { app: { send(e: { type: string; sessionName: string }): void } }).app.send({
+    (
+      window as unknown as { app: { send(e: { type: string; sessionName: string }): void } }
+    ).app.send({
       type: 'SWITCH_SESSION',
       sessionName: 'no_such_session_zz9',
     });
@@ -2452,8 +2454,9 @@ export const SwitchSessionFailure: Story = {
     await waitFor(
       () =>
         expect(
-          (window as unknown as { app: { getSnapshot(): { context: { error: string | null } } } }).app.getSnapshot()
-            .context.error,
+          (
+            window as unknown as { app: { getSnapshot(): { context: { error: string | null } } } }
+          ).app.getSnapshot().context.error,
         ).toBeTruthy(),
       { timeout: 30000, interval: 500 },
     );
@@ -2469,7 +2472,9 @@ export const SwitchSessionFailure: Story = {
     await waitFor(
       () =>
         expect(
-          paneGroups(canvas).some((p: HTMLElement) => /AFTER_BAD_SWITCH_6/.test(p.textContent ?? '')),
+          paneGroups(canvas).some((p: HTMLElement) =>
+            /AFTER_BAD_SWITCH_6/.test(p.textContent ?? ''),
+          ),
         ).toBe(true),
       { timeout: 30000, interval: 500 },
     );
