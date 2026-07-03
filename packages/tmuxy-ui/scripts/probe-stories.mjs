@@ -21,7 +21,12 @@ async function fetchIndex() {
   const res = await fetch(`${STORYBOOK_URL}/index.json`);
   if (!res.ok) throw new Error(`storybook /index.json: ${res.status}`);
   const json = await res.json();
-  return Object.keys(json.entries).filter((id) => json.entries[id].type === 'story');
+  return Object.keys(json.entries).filter((id) => {
+    const entry = json.entries[id];
+    // `spike` stories (e.g. the v86 boot bring-up) are slow, network-dependent,
+    // and nondeterministic — not part of the CI render contract.
+    return entry.type === 'story' && !(entry.tags ?? []).includes('spike');
+  });
 }
 
 async function probeStory(browser, id) {

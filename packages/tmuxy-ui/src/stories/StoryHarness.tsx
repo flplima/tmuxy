@@ -9,6 +9,7 @@
 
 import { useMemo, useEffect, type ReactNode } from 'react';
 import { TmuxyProvider, TmuxyApp, DemoAdapter, type AppConfig, type RenderTabline } from '../lib';
+import { V86TmuxAdapter } from '../tmux/v86/V86TmuxAdapter';
 
 export interface AppHarnessProps {
   /** Tmux commands run after the initial state loads (splits, new-window, etc) */
@@ -77,6 +78,47 @@ export function AppHarness({
     >
       <TmuxyProvider adapter={adapter} config={config}>
         <TmuxyApp renderTabline={renderTabline} />
+      </TmuxyProvider>
+    </div>
+  );
+}
+
+/**
+ * Renders the full TmuxyApp against REAL tmux — running inside a v86 x86
+ * emulator, parsed by the tmuxy-core Rust engine compiled to WASM. No lifo.sh,
+ * no simulation. Boots from a pre-restored snapshot (~4s); browser-only, so
+ * these stories are `spike`-tagged and excluded from the deterministic CI probe.
+ */
+export function V86AppHarness({
+  initCommands,
+  height = 600,
+  width = '100%',
+  shared = false,
+}: {
+  initCommands?: string[];
+  height?: number;
+  width?: number | string;
+  /** Reuse one process-wide v86 engine across stories (fast snapshot-restore
+   *  between stories) instead of cold-booting a private engine per story. */
+  shared?: boolean;
+}) {
+  const adapter = useMemo(
+    () => new V86TmuxAdapter({ initCommands, shared }),
+    [initCommands, shared],
+  );
+  return (
+    <div
+      style={{
+        height,
+        width,
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--bg-base, #0f0f12)',
+      }}
+    >
+      <TmuxyProvider adapter={adapter}>
+        <TmuxyApp />
       </TmuxyProvider>
     </div>
   );

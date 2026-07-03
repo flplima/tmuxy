@@ -42,7 +42,8 @@ import * as FilePickerStories from '../../components/FilePicker.stories';
 import * as PaneHeaderStories from '../../components/PaneHeader.stories';
 import * as FloatPaneStories from '../../components/FloatPane.stories';
 import * as ImageProtocolsStories from '../../components/ImageProtocols.stories';
-import * as AppStories from '../App.stories';
+// App/Application is now driven by real tmux (v86 + WASM) and can't boot in
+// jsdom — it's a `spike` story exercised by a dedicated browser e2e instead.
 
 beforeAll(() => {
   setProjectAnnotations([previewAnnotations.default]);
@@ -90,7 +91,6 @@ const PROVIDER_STORY_MODULES: Record<string, StoryModule> = {
   PaneHeader: PaneHeaderStories,
   FloatPane: FloatPaneStories,
   ImageProtocols: ImageProtocolsStories,
-  App: AppStories,
 };
 
 describe('Pure component stories', () => {

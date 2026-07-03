@@ -17,6 +17,7 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test-storybook": "node scripts/probe-stories.mjs",
+    "fetch:v86-image": "node scripts/fetch-v86-image.mjs",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write src"
@@ -56,6 +57,7 @@
     "storybook": "^10.4.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.0",
+    "v86": "^0.5.419",
     "vite": "^7.2.4",
     "vitest": "^4.0.12"
   }
