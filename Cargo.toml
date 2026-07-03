@@ -4,6 +4,7 @@ members = [
     "packages/tmuxy-core",
     "packages/tmuxy-tauri-app",
     "packages/tmuxy-server",
+    "packages/tmuxy-wasm",
 ]
 
 [workspace.package]

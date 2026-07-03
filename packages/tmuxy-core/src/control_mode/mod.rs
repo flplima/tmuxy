@@ -11,18 +11,25 @@
 //! - `monitor` - High-level API with adapter pattern
 //! - `osc` - OSC (Operating System Command) sequence parser
 
-mod connection;
+// Sans-IO parse + state layer (wasm-safe).
 pub mod images;
 mod log;
-mod monitor;
 mod octal;
 mod osc;
 mod parser;
 mod state;
 
+// Native async/pty transport, gated behind the `native` feature.
+#[cfg(feature = "native")]
+mod connection;
+#[cfg(feature = "native")]
+mod monitor;
+
+#[cfg(feature = "native")]
 pub use connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 pub use images::{ImageParser, ImagePlacement, ImageProtocol, StoredImage};
 pub use log::{LogKind, LogSink};
+#[cfg(feature = "native")]
 pub use monitor::{MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor};
 pub use octal::decode_octal;
 pub use osc::OscParser;

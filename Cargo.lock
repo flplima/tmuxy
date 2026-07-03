@@ -4683,6 +4683,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5734,6 +5745,7 @@ dependencies = [
  "tower",
  "tracing",
  "vt100",
+ "web-time",
 ]
 
 [[package]]
@@ -5777,6 +5789,17 @@ dependencies = [
  "tmuxy-core",
  "tmuxy-server",
  "tokio",
+]
+
+[[package]]
+name = "tmuxy-wasm"
+version = "0.0.10-alpha.35"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde-wasm-bindgen",
+ "tmuxy-core",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -6623,6 +6646,16 @@ name = "web-sys"
 version = "0.3.88"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d6bb20ed2d9572df8584f6dc81d68a41a625cadc6f15999d649a70ce7e3597a"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

@@ -10,6 +10,13 @@ use crate::{
 use std::collections::HashMap;
 use tracing::warn;
 
+// The settling debounce uses a monotonic clock. `std::time::Instant::now()`
+// panics on wasm32; web-time backs it with performance.now() in the browser.
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
+
 /// Safe wrapper around vt100::Parser::process that catches panics from
 /// internal vt100 bugs (e.g., subtract overflow in grid.rs col_wrap).
 fn safe_process(terminal: &mut vt100::Parser, data: &[u8]) {
@@ -99,6 +106,11 @@ pub struct ProcessEventResult {
     /// Each entry is (pane_id, decoded text). Forwarded to the emitter so
     /// the frontend can mirror the request into the system clipboard.
     pub clipboard_writes: Vec<(String, String)>,
+    /// tmux commands the runtime must send back over the control connection
+    /// (beyond the dedicated refresh/capture fields above). Used by the
+    /// push-based (wasm) path, e.g. reading a paste buffer after
+    /// %paste-buffer-changed.
+    pub commands: Vec<String>,
 }
 
 /// Outcome of a single `StateAggregator::step` call.
@@ -821,6 +833,13 @@ pub struct StateAggregator {
     /// We use a queue because we can't reliably match command numbers when
     /// attaching to an existing session (tmux's counter may be at a different point).
     pending_captures: std::collections::VecDeque<String>,
+    /// Buffer names for pending marker-wrapped `show-buffer` reads (FIFO),
+    /// issued in response to %paste-buffer-changed (copy-mode yank mirror).
+    pending_buffer_reads: std::collections::VecDeque<String>,
+    /// True between the TMUXY_BUF_BEGIN marker response and the buffer-content
+    /// response that immediately follows it (each command in a control-mode
+    /// command list gets its own %begin/%end block).
+    buffer_read_armed: bool,
 
     /// Cached status line (optimization: only refresh on window events or periodic sync)
     cached_status_line: String,
@@ -861,8 +880,8 @@ pub struct StateAggregator {
     /// window/layout emissions are suppressed and the aggregator's `tick(now)`
     /// is responsible for firing the consolidated state emit when the deadline
     /// expires. Logic that used to live on `monitor::RunState`.
-    settling_until: Option<std::time::Instant>,
-    settling_started: Option<std::time::Instant>,
+    settling_until: Option<Instant>,
+    settling_started: Option<Instant>,
     settling_awaiting_first_event: bool,
 }
 
@@ -881,6 +900,8 @@ impl StateAggregator {
             default_width: 80,
             default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
+            pending_buffer_reads: std::collections::VecDeque::new(),
+            buffer_read_armed: false,
 
             cached_status_line: String::new(),
             status_line_dirty: true, // Fetch on first state request
@@ -906,6 +927,8 @@ impl StateAggregator {
             default_width: 80,
             default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
+            pending_buffer_reads: std::collections::VecDeque::new(),
+            buffer_read_armed: false,
 
             cached_status_line: String::new(),
             status_line_dirty: true, // Fetch on first state request
@@ -954,7 +977,7 @@ impl StateAggregator {
     /// Suppresses window/layout emissions until `tick(now)` fires the
     /// consolidated emit, or until `clear_settling()` is called explicitly.
     /// `now` is sourced from `Ctx::clock` so tests can drive timing.
-    pub fn arm_settling(&mut self, now: std::time::Instant) {
+    pub fn arm_settling(&mut self, now: Instant) {
         self.settling_started = Some(now);
         self.settling_awaiting_first_event = true;
         self.settling_until = Some(now + SETTLING_MAX);
@@ -963,7 +986,7 @@ impl StateAggregator {
 
     /// Current settling deadline, if armed. Callers (the monitor) use this to
     /// compute a wakeup; expiry is processed by `tick(now)`.
-    pub fn settling_deadline(&self) -> Option<std::time::Instant> {
+    pub fn settling_deadline(&self) -> Option<Instant> {
         self.settling_until
     }
 
@@ -984,7 +1007,7 @@ impl StateAggregator {
 
     /// On window/layout events during settling, extend the debounce deadline
     /// but never past the safety ceiling. Called internally from `step`.
-    fn maybe_extend_settling(&mut self, change: &ChangeType, now: std::time::Instant) {
+    fn maybe_extend_settling(&mut self, change: &ChangeType, now: Instant) {
         if self.settling_until.is_none() {
             return;
         }
@@ -1008,11 +1031,29 @@ impl StateAggregator {
     /// Width is the total terminal width from pane layout, used for padding.
     fn get_status_line(&mut self, width: usize) -> String {
         if self.status_line_dirty {
-            self.cached_status_line =
-                crate::executor::capture_status_line(&self.session_name, width).unwrap_or_default();
+            // Native refreshes the status line via a `capture-pane` on the status
+            // window. On wasm there is no tmux to call — the host supplies it via
+            // `set_status_line`, so we keep the cached value here.
+            #[cfg(feature = "native")]
+            {
+                self.cached_status_line =
+                    crate::executor::capture_status_line(&self.session_name, width)
+                        .unwrap_or_default();
+            }
+            #[cfg(not(feature = "native"))]
+            {
+                let _ = width;
+            }
             self.status_line_dirty = false;
         }
         self.cached_status_line.clone()
+    }
+
+    /// Set the status-line text directly (used by non-native hosts that fetch it
+    /// out-of-band, e.g. the wasm/v86 path).
+    pub fn set_status_line(&mut self, status: String) {
+        self.cached_status_line = status;
+        self.status_line_dirty = false;
     }
 
     /// Check if output looks like capture-pane output (terminal content).
@@ -1181,13 +1222,29 @@ impl StateAggregator {
     /// so the monitor's settling state machine can extend its deadline on
     /// window/layout changes that are currently being suppressed.
     pub fn step(&mut self, event: ControlModeEvent) -> StepResult {
-        self.step_at(event, std::time::Instant::now())
+        self.step_at(event, Instant::now())
+    }
+
+    /// Like `tick`, but sources `now` from the process clock. Used by non-native
+    /// hosts (wasm) that drive the settling flush on a timer.
+    pub fn tick_now(&mut self) -> Vec<SideEffect> {
+        self.tick(Instant::now())
+    }
+
+    /// Decoded image bytes for a pane placement (PNG/etc.), for hosts that serve
+    /// image bytes themselves (the native server uses `/api/images`; the wasm
+    /// host resolves via `window.__tmuxyImageSrc`). Returns `(data, mime_type)`.
+    pub fn image_data(&self, pane_id: &str, image_id: u32) -> Option<(Vec<u8>, String)> {
+        self.panes
+            .get(pane_id)
+            .and_then(|p| p.image_store.get(&image_id))
+            .map(|img| (img.data.clone(), img.mime_type.clone()))
     }
 
     /// Like `step`, but accepts an explicit `now` so callers (the monitor)
     /// can drive settling extension from `Ctx::clock` and tests can advance
     /// time deterministically.
-    pub fn step_at(&mut self, event: ControlModeEvent, now: std::time::Instant) -> StepResult {
+    pub fn step_at(&mut self, event: ControlModeEvent, now: Instant) -> StepResult {
         let is_window_add = matches!(
             &event,
             ControlModeEvent::WindowAdd { .. } | ControlModeEvent::UnlinkedWindowAdd { .. }
@@ -1228,6 +1285,9 @@ impl StateAggregator {
                 text: text.clone(),
             });
         }
+        for cmd in result.commands.iter() {
+            effects.push(SideEffect::SendTmuxCommand(cmd.clone()));
+        }
 
         if is_window_add {
             effects.push(SideEffect::RefreshAfterWindowAdd);
@@ -1267,7 +1327,7 @@ impl StateAggregator {
     /// arrived during the window) yields a consolidated `EmitState`. If the
     /// safety ceiling fires with no events ever observed, the suppression
     /// flag is cleared silently — no emit, no foot-gun for the runtime.
-    pub fn tick(&mut self, now: std::time::Instant) -> Vec<SideEffect> {
+    pub fn tick(&mut self, now: Instant) -> Vec<SideEffect> {
         let Some(deadline) = self.settling_until else {
             return Vec::new();
         };
@@ -1315,6 +1375,7 @@ impl StateAggregator {
                     },
                     new_images,
                     clipboard_writes,
+                    commands: Vec::new(),
                 }
             }
 
@@ -1342,6 +1403,7 @@ impl StateAggregator {
                     },
                     new_images,
                     clipboard_writes,
+                    commands: Vec::new(),
                 }
             }
 
@@ -1470,6 +1532,23 @@ impl StateAggregator {
                 }
             }
 
+            ControlModeEvent::PasteBufferChanged { buffer_name } => {
+                // tmux does not forward OSC 52 to control-mode clients, so a
+                // copy-mode yank only surfaces as %paste-buffer-changed. The
+                // native monitor reads the buffer out-of-band via a subprocess;
+                // the push-based (wasm) path has only the control channel, so we
+                // read it in-band, wrapped in sentinel lines that make the
+                // response unambiguously identifiable among interleaved
+                // capture-pane replies.
+                self.pending_buffer_reads.push_back(buffer_name.clone());
+                ProcessEventResult {
+                    commands: vec![format!(
+                        "display-message -p 'TMUXY_BUF_BEGIN' ; show-buffer -b '{buffer_name}' ; display-message -p 'TMUXY_BUF_END'"
+                    )],
+                    ..Default::default()
+                }
+            }
+
             ControlModeEvent::SessionWindowChanged { window_id, .. } => {
                 // Update active window
                 for (id, window) in self.windows.iter_mut() {
@@ -1499,6 +1578,34 @@ impl StateAggregator {
             ControlModeEvent::CommandResponse {
                 output, success, ..
             } => {
+                // Marker-wrapped show-buffer responses (copy-mode yank mirror).
+                // Each command in a control-mode command list gets its OWN
+                // %begin/%end block, so the wrap arrives as three consecutive
+                // responses: BEGIN marker → buffer content → END marker. The
+                // marker blocks are unambiguous, so this can never be misread
+                // as (or steal) a capture-pane response.
+                let marker_line = output.trim_end_matches(['\r', '\n']);
+                if marker_line == "TMUXY_BUF_BEGIN" {
+                    self.buffer_read_armed = !self.pending_buffer_reads.is_empty();
+                    return ProcessEventResult::default();
+                }
+                if marker_line == "TMUXY_BUF_END" {
+                    self.buffer_read_armed = false;
+                    return ProcessEventResult::default();
+                }
+                if self.buffer_read_armed {
+                    self.buffer_read_armed = false;
+                    self.pending_buffer_reads.pop_front();
+                    let text = output.trim_end_matches(['\r', '\n']).to_string();
+                    if success && !text.is_empty() {
+                        return ProcessEventResult {
+                            clipboard_writes: vec![(String::new(), text)],
+                            ..Default::default()
+                        };
+                    }
+                    return ProcessEventResult::default();
+                }
+
                 // First, try to match pending capture-pane responses using heuristics.
                 // capture-pane output characteristics:
                 // - Doesn't look like list-panes output (no leading %pane_id,pane_index,...)

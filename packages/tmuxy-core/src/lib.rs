@@ -1,22 +1,34 @@
 pub mod constants;
 pub mod control_mode;
-pub mod ctx;
-pub mod debug_log;
 pub mod error;
+
+// Native (non-wasm) transport + tmux-command layer, gated behind `native`.
+#[cfg(feature = "native")]
+pub mod ctx;
+#[cfg(feature = "native")]
+pub mod debug_log;
+#[cfg(feature = "native")]
 pub mod executor;
+#[cfg(feature = "native")]
 pub mod retry;
+#[cfg(feature = "native")]
 pub mod session;
+#[cfg(feature = "native")]
 pub mod tmux_service;
 
+#[cfg(feature = "native")]
 pub use ctx::{Clock, Ctx, FileSystem, TmuxCommand};
+#[cfg(feature = "native")]
 pub use tmux_service::{build_tmux_stack, TmuxRequest, TmuxService, TMUX_CALL_TIMEOUT};
 
 pub use error::{Result as TmuxResult, TmuxError};
+#[cfg(feature = "native")]
 pub use retry::{retry_with, RetryPolicy};
 
 use serde::{Deserialize, Serialize};
 
 // Re-export key binding types and functions
+#[cfg(feature = "native")]
 pub use executor::{
     get_prefix_bindings, get_prefix_key, get_root_bindings, process_key, KeyBinding,
 };
@@ -667,11 +679,13 @@ pub enum StateUpdate {
 }
 
 /// Capture the state of all panes in the current window
+#[cfg(feature = "native")]
 pub fn capture_state() -> Result<TmuxState, TmuxError> {
     capture_state_for_session(DEFAULT_SESSION_NAME)
 }
 
 /// Capture the state of all panes in a specific session's current window
+#[cfg(feature = "native")]
 pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, TmuxError> {
     let pane_infos = executor::get_all_panes_info(session_name)?;
     let window_infos = executor::get_windows(session_name)?;
@@ -776,10 +790,12 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, TmuxEr
 }
 
 // Alias for backwards compatibility
+#[cfg(feature = "native")]
 pub fn capture_window_state() -> Result<TmuxState, TmuxError> {
     capture_state()
 }
 
+#[cfg(feature = "native")]
 pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState, TmuxError> {
     capture_state_for_session(session_name)
 }
