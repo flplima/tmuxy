@@ -40,7 +40,7 @@ Tauri IPC has lower latency than HTTP since communication is in-process. The Tau
 
 Both transports implement the `TmuxAdapter` interface defined in `tmuxy-ui/src/tmux/types.ts`. Key methods: `connect()`, `disconnect()`, `isConnected()`, `isReconnecting()`, `invoke<T>(cmd, args?)`, `onStateChange(listener)`, `onError(listener)`, `onConnectionInfo(listener)`, `onReconnection(listener)`, `onKeyBindings(listener)`.
 
-The `tmuxActor` XState actor uses whichever adapter is injected, making the frontend transport-agnostic. A third adapter, `DemoAdapter`, exists for the in-browser demo — it simulates a tmux backend entirely in the browser.
+The `tmuxActor` XState actor uses whichever adapter is injected, making the frontend transport-agnostic. Two more adapters exist beyond the SSE and Tauri transports: `DemoAdapter` (in-browser demo — simulates a tmux backend) and `V86TmuxAdapter` (fully client-side **real** tmux — see Scenario 4 below).
 
 ## Connection Lifecycle (Web)
 
@@ -271,6 +271,27 @@ See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
 - No compression — JSON payloads can be large during rapid output (mitigated by delta protocol)
 - No authentication — must rely on external layers (SSH, VPN, reverse proxy)
 - Latency affects typing feel — no local echo or input prediction (see [NON-GOALS.md](NON-GOALS.md))
+
+### Scenario 4: Fully Client-Side — Real tmux in the Browser (v86 + WASM)
+
+No server at all. Real tmux 3.7a runs inside a v86 x86 emulator (a small buildroot Linux restored from a pre-booted state snapshot), and its `tmux -CC` control-mode stream is parsed by **tmuxy-core compiled to WebAssembly** — the same Rust parser and state aggregator the native server runs.
+
+```
+TmuxyApp ──invoke(run_tmux_command)──> V86TmuxAdapter ──> V86Engine
+   ▲                                                          │ byte-paced writes
+   │                                                          ▼
+onStateChange <── tmuxy-wasm (parse + aggregate) <──serial── tmux -CC in v86 guest
+```
+
+Key pieces (all under `tmuxy-ui/src/tmux/v86/`):
+
+| Piece | Responsibility |
+|-------|----------------|
+| `V86Engine` | Owns the emulator: byte-paced UART writer (whole-command writes overrun the guest 16550 FIFO and corrupt commands), serial coalescing, tick/sync timers, `%exit`→fatal detection, and a guest bootstrap re-applied on every attach (snapshot restores rewind the filesystem). |
+| `V86TmuxAdapter` | The `TmuxAdapter` facade: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally. |
+| shared engine | Opt-in: many adapters reuse one booted machine; each consumer restores the pinned snapshot with a fresh WASM core (~1s) instead of cold-booting (~5s). |
+
+Used by the Storybook `App/Application` spike stories and intended for the public demo. Assets (kernel, BIOS, state snapshot, wasm bindings) are served statically; nothing leaves the browser.
 
 ## Additional API Endpoints
 

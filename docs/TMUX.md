@@ -4,7 +4,7 @@ This document covers how tmuxy interacts with tmux: control mode architecture, c
 
 ## tmux Version
 
-Tmuxy targets **tmux 3.5a**. Some bugs also affect 3.3a.
+Tmuxy targets **tmux 3.7a** (devcontainer, CI, and the in-browser v86 guest all build it from source). Several workarounds below were discovered on 3.3a/3.5a and are kept because they remain safe on 3.7a.
 
 ## Control Mode Architecture
 
@@ -138,6 +138,37 @@ set -g terminal-features "hyperlinks"
 ## Flow Control
 
 tmux 3.2+ supports `pause-after` flow control. The monitor configures `pause-after=5` (pause if a client falls 5 seconds behind). When a pane is paused, the monitor responds with `refresh-client -A '%pane:continue'` to resume. This prevents unbounded memory growth during heavy output.
+
+## tmux 3.7a Format Expansion (Critical)
+
+tmux 3.7a expands format strings (`#{...}`) in **more places** than earlier versions. Two of these bit tmuxy in practice; both will affect any code path that upgrades past 3.6b.
+
+### `run-shell` expands its command string
+
+`run-shell "..."` format-expands the whole string before handing it to the shell. A nested `-F '#{pane_id}'` inside a run-shell'd tmux command is therefore pre-expanded against the **currently active pane** — not the pane the inner command creates. This made `float-create` break the *wrong* pane into the float window.
+
+Rule: inside any `run-shell` string, write `##{...}` — run-shell's expansion halves it to `#{...}` for the inner command. See `bin/tmuxy/float-create` for the canonical example. (3.6b behaves the same; the bug had simply never been triggered through this path before.)
+
+### `send-keys` expands its arguments — and `##` does NOT protect valid variables
+
+On 3.7a, `send-keys -l 'text'` format-expands the literal. Empirically:
+
+| Payload sent | Pane receives |
+|--------------|---------------|
+| `#{pane_id}` | `%0` (expanded) |
+| `##{pane_id}` | `#%0` (still expanded!) |
+| `#{not_a_var}` | `#{not_a_var}` (unknown names pass through) |
+| `#(date)` | `#(date)` (command formats not run) |
+
+Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The v86 client does this in `toControlModeCommand` (`tmuxy-ui/src/tmux/v86/V86TmuxAdapter.ts`); the native server will need the same treatment when it upgrades. On 3.6b, `send-keys -l` does not expand at all.
+
+### Control-mode stdin wants bare `;` separators
+
+The frontend joins compound commands with a shell-escaped ` \; ` (correct for commands that pass through a shell or `run-shell` context). But tmux's control-mode line parser treats `\;` as a literal argument, silently erroring the whole command — which orphans the frontend's optimistic state (the "frozen UI after keyboard split" bug). Raw control-mode transports must rewrite the separator to a bare ` ; ` — never inside a `send-keys -l` literal.
+
+## Client-Side Placeholder Substitution
+
+Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{pane_width}`, and `#{pane_height}` in **every outgoing command** with the active pane's values (`appMachine`'s SEND_TMUX_COMMAND handler). This is deliberate — prefix-binding commands are written against these placeholders — but it means text typed or pasted into a terminal containing those three exact placeholders is substituted before tmux ever sees it, on every transport (server, Tauri, v86).
 
 ## Bash Variable Conflicts
 
