@@ -415,6 +415,28 @@ pub struct TmuxState {
     pub popup: Option<TmuxPopup>,
 }
 
+/// Serialize a line-number-keyed map with STRING keys. serde_json does this
+/// implicitly (JSON object keys are strings — the wire shape the frontend
+/// already speaks), but serde-wasm-bindgen's maps-as-objects mode REFUSES
+/// non-string keys ("Map key is not a string"), which aborted serialization of
+/// every content-carrying delta on the wasm path.
+fn ser_line_map<S: serde::Serializer>(
+    v: &Option<std::collections::HashMap<usize, TerminalLine>>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    match v {
+        None => s.serialize_none(),
+        Some(m) => {
+            let mut map = s.serialize_map(Some(m.len()))?;
+            for (k, val) in m {
+                map.serialize_entry(&k.to_string(), val)?;
+            }
+            map.end()
+        }
+    }
+}
+
 /// Delta update for a single pane (only changed fields)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PaneDelta {
@@ -423,7 +445,10 @@ pub struct PaneDelta {
     pub window_id: Option<String>,
     /// Content (only changed lines) - line index → line content
     /// Only lines that differ from the previous state are included.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "ser_line_map"
+    )]
     pub content: Option<std::collections::HashMap<usize, TerminalLine>>,
     /// Cursor position (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -242,6 +242,12 @@ async function buildSnapshot() {
   await writeFile(STATE_BIN, Buffer.from(state));
   const size = (await stat(STATE_BIN)).size;
   console.log(`✓ tmux-state.bin written (${(size / 1e6).toFixed(1)} MB)`);
+  // Wire-size matters: the raw snapshot dominates the client payload. Serve a
+  // gzip alongside; the engine fetches .gz and inflates via DecompressionStream.
+  const { gzipSync } = await import('node:zlib');
+  const gz = gzipSync(Buffer.from(state), { level: 9 });
+  await writeFile(`${STATE_BIN}.gz`, gz);
+  console.log(`✓ tmux-state.bin.gz written (${(gz.length / 1e6).toFixed(1)} MB wire)`);
   await emulator.destroy?.();
   process.exit(0);
 }
