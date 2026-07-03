@@ -780,7 +780,13 @@ case "${1:-}" in
     shift
     case "${1:-}" in
       --help|-h) usage_tree ;;
-      *) exec "$(find_server_binary)" tree "$@" ;;
+      *)
+        # Standalone tree binary (v86 guest and other server-less installs)
+        if command -v tmuxy-tree &>/dev/null; then
+          exec tmuxy-tree "$@"
+        fi
+        exec "$(find_server_binary)" tree "$@"
+        ;;
     esac
     ;;
   run)

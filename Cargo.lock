@@ -5759,13 +5759,13 @@ dependencies = [
  "futures-util",
  "libc",
  "nix",
- "ratatui",
  "reqwest 0.12.28",
  "rust-embed",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tmuxy-core",
+ "tmuxy-tree",
  "tokio",
  "tokio-util",
  "tower",
@@ -5789,6 +5789,15 @@ dependencies = [
  "tmuxy-core",
  "tmuxy-server",
  "tokio",
+]
+
+[[package]]
+name = "tmuxy-tree"
+version = "0.0.10-alpha.35"
+dependencies = [
+ "ratatui",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,0 +1,21 @@
+[package]
+name = "tmuxy-tree"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "The tmuxy sidebar tree-view TUI (`tmuxy tree`) — standalone so it can be cross-compiled for the in-browser v86 guest (i686-musl) as well as ship inside tmuxy-server"
+
+[lib]
+name = "tmuxy_tree"
+
+[[bin]]
+name = "tmuxy-tree"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.30"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
