@@ -1,0 +1,14 @@
+# The devcontainer build context is the repo root, but the Dockerfile only
+# COPYs .devcontainer/.zshrc — everything else is wasted transfer to the
+# daemon. The workspace is bind-mounted at runtime, never baked into the image.
+# Exclude the heavy, regenerable trees (the repo is multi-GB without this).
+.git
+node_modules
+**/node_modules
+target
+**/target
+**/dist
+**/.next
+**/build
+.claude/worktrees
+**/*.log

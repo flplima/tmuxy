@@ -26,7 +26,7 @@
   "forwardPorts": [9090],
   "remoteUser": "user",
   // Remap `user` to the host uid/gid on create so the bind-mounted /tmuxy is
-  // writable. The bin/devcontainer and docker-compose paths pass --user directly.
+  // writable. The bin/devcontainer path passes --user directly instead.
   "updateRemoteUserUID": true,
   "mounts": [
     "source=tmuxy-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
@@ -49,8 +49,7 @@
     "CLAUDE_CONFIG_DIR": "/home/user/.claude",
     "CHROME_CDP_URL": "http://localhost:9222",
     "TMUX_SESSION": "dev",
-    "GIT_CONFIG_GLOBAL": "/home/user/.config/git/config",
-    "APPIMAGE_EXTRACT_AND_RUN": "1"
+    "GIT_CONFIG_GLOBAL": "/home/user/.config/git/config"
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/tmuxy,type=bind,consistency=delegated",
   "workspaceFolder": "/tmuxy",

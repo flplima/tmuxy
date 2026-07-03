@@ -9,15 +9,15 @@
 # `claude login`, `ssh-keygen`, and the ~/.claude.json persistence daemon (which
 # can't write into a root-owned ~/.claude volume).
 #
-# Works in two privilege contexts:
-#   - As `user` (devcontainer.json/compose.yml lifecycle): elevates ONLY
-#     chown/chmod via the scoped NOPASSWD sudoers rule the Dockerfile installs.
-#   - As root (bin/devcontainer's throwaway pre-start container): runs the same
-#     chown/chmod directly, with no sudo dependency.
+# Invoked in two contexts, hence the dual privilege handling:
+#   - bin/devcontainer's entrypoint.sh, as root: runs chown/chmod directly,
+#     with no sudo dependency.
+#   - devcontainer.json's postStartCommand, as `user`: elevates ONLY chown/chmod
+#     via the scoped NOPASSWD sudoers rule the Dockerfile installs.
 # Idempotent and safe to re-run on every container start.
 set -euo pipefail
 
-# No sudo when already root — the throwaway container has none configured.
+# No sudo needed when already root.
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO=sudo; fi
 
 DIRS=(

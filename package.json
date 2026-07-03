@@ -8,10 +8,11 @@
     "packages/tmuxy-demo"
   ],
   "scripts": {
-    "devcontainer": "bash bin/devcontainer",
-    "devcontainer:build": "bash bin/devcontainer --build",
-    "yolo-mode": "bash bin/devcontainer --cmd 'claude --dangerously-skip-permissions'",
+    "devcontainer": "bash bin/devcontainer up",
+    "devcontainer:build": "bash bin/devcontainer build",
+    "yolo-mode": "bash bin/devcontainer run claude --dangerously-skip-permissions",
     "build": "npm run build -w tmuxy-ui && cargo build --release -p tmuxy-server && cd packages/tmuxy-tauri-app && tauri build",
+    "build:wasm": "cargo build -p tmuxy-wasm --target wasm32-unknown-unknown --release --no-default-features && wasm-bindgen --target web --out-dir packages/tmuxy-wasm/pkg --out-name tmuxy_wasm target/wasm32-unknown-unknown/release/tmuxy_wasm.wasm",
     "start": "pm2 start ./bin/dev --name tmuxy-dev --interpreter bash --cwd /tmuxy",
     "stop": "pm2 stop tmuxy-dev 2>/dev/null; pm2 stop tmuxy-prod 2>/dev/null; true",
     "logs": "pm2 logs",
@@ -25,7 +26,7 @@
     "lint": "eslint tests/ && npm run lint -w tmuxy-ui",
     "lint:tests": "eslint tests/",
     "format": "prettier --write 'tests/**/*.js' && npm run format -w tmuxy-ui",
-    "agents": "bash bin/devcontainer --name agents --cmd 'bash .claude/start.sh'",
+    "agents": "bash bin/devcontainer --name agents run bash .claude/start.sh",
     "prepare": "git config core.hooksPath .github"
   },
   "devDependencies": {

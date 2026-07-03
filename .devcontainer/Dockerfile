@@ -1,6 +1,6 @@
 # Tmuxy Dev Container
 # Based on the official Claude Code devcontainer pattern with project-specific tools:
-# tmux 3.5a, Rust, pm2, agent-browser
+# tmux 3.7a, Rust, pm2, agent-browser
 
 FROM node:22
 
@@ -55,11 +55,11 @@ RUN NVIM_ARCH=$(uname -m | sed 's/aarch64/arm64/') && \
     curl -sL "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_$(uname -m | sed 's/aarch64/arm64/').tar.gz" \
     | tar xz -C /usr/local/bin lazygit
 
-# Build tmux 3.5a from source
-# Debian ships 3.3a which crashes when external commands run while control mode is attached
-RUN curl -sL https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz | tar xz \
-    && cd tmux-3.5a && ./configure && make -j$(nproc) && make install \
-    && cd .. && rm -rf tmux-3.5a
+# Build tmux 3.7a from source
+# Debian ships an older tmux; build the version tmuxy targets everywhere.
+RUN curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz \
+    && cd tmux-3.7a && ./configure && make -j$(nproc) && make install \
+    && cd .. && rm -rf tmux-3.7a
 
 # Rust toolchain
 ENV RUSTUP_HOME=/usr/local/rustup
@@ -131,7 +131,7 @@ RUN git clone https://github.com/LazyVim/starter ~/.config/nvim \
     && nvim --headless "+Lazy! sync" +qa 2>&1
 
 # Pre-create credential dirs with user ownership so the named volume
-# mounts (see bin/devcontainer, compose.yml, devcontainer.json) are
+# mounts (see bin/devcontainer and devcontainer.json) are
 # writable. Credentials are never mounted from the host — users log in
 # inside (gh auth login, claude login, ssh-keygen) and the volumes
 # persist that state across restarts.

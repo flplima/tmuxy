@@ -1,23 +1,34 @@
 #!/usr/bin/env bash
 #
-# Start the devcontainer with an interactive shell or a custom command.
+# Docker-compose-style controller for the tmuxy devcontainer.
 #
 # Credentials are NOT mounted from the host. Log in once inside the
 # container — named volumes persist auth (gh, claude, ssh, git) across runs.
 #
 # Multiple instances can run simultaneously from different worktrees —
 # each gets a unique container name and a free host port for the dev server.
+# Use --name SUFFIX to run several instances from the same directory.
 #
 # Usage:
-#   npm run devcontainer              # Build (if needed) + shell
-#   npm run devcontainer:build        # Build image only
-#   npm run yolo-mode                  # Shell + Claude Code in YOLO mode
+#   bin/devcontainer [--name SUFFIX] <command> [args]
 #
-# Flags:
-#   --build          Build image only, then exit
-#   --cmd "..."      Run a custom command instead of an interactive shell
-#   --name SUFFIX    Append SUFFIX to container name (for multiple instances
-#                    from the same directory, e.g. QA agents)
+# Commands:
+#   up [-d]            Create + start the container. Foreground drops you into
+#                      a shell (ephemeral); -d/--detach runs it in the
+#                      background as a persistent daemon with servers running.
+#   down               Stop and remove the container (named volumes persist).
+#   start              Start the existing (stopped) detached container.
+#   stop               Stop the detached container without removing it.
+#   restart            Restart the detached container.
+#   shell [cmd...]     Exec into the running container (auto `up -d` if needed).
+#                      With no args, an interactive login shell; else run cmd.
+#   run [cmd...]       One-off ephemeral container (--rm). Default: a shell.
+#   logs [-f]          Tail server logs (pm2) from the detached container.
+#   ps                 Show this container's status.
+#   build [--no-cache] Build the image.
+#   help               Show this help.
+#
+# Default command is `up` (interactive shell).
 #
 
 set -e
@@ -28,136 +39,274 @@ IMAGE_NAME="tmuxy-dev"
 DOCKERFILE=".devcontainer/Dockerfile"
 
 # ---------------------------------------------------------------------------
-# Unique container name from workspace directory
+# Parse the global --name flag from anywhere in the args; keep the rest.
+# ---------------------------------------------------------------------------
+OVERRIDE_NAME=""
+ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --name) OVERRIDE_NAME="$2"; shift 2 ;;
+        *)      ARGS+=("$1"); shift ;;
+    esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
+COMMAND="${1:-up}"
+[ $# -gt 0 ] && shift || true
+
+# ---------------------------------------------------------------------------
+# Unique container name + deterministic host port from the workspace dir.
+# The port is derived from the (sanitized) container name via cksum and lands
+# in the 10000-20000 range, so each worktree gets a stable, distinct port.
 # ---------------------------------------------------------------------------
 DIR_NAME="$(basename "$(pwd)")"
 CONTAINER_NAME="${DIR_NAME//[^a-zA-Z0-9_.-]/-}"
-
-# ---------------------------------------------------------------------------
-# Build image
-# ---------------------------------------------------------------------------
-CONTAINER_CMD=""
-OVERRIDE_NAME=""
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --build) BUILD_ONLY=1; shift ;;
-        --cmd)   CONTAINER_CMD="$2"; shift 2 ;;
-        --name)  OVERRIDE_NAME="$2"; shift 2 ;;
-        *)       shift ;;
-    esac
-done
-
-# Append override name for unique container instances from the same directory
-if [ -n "$OVERRIDE_NAME" ]; then
-    CONTAINER_NAME="${CONTAINER_NAME}-${OVERRIDE_NAME}"
-fi
-
-if [ "$BUILD_ONLY" = 1 ] || ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
-    echo "Building devcontainer image..."
-    docker build -t "$IMAGE_NAME" -f "$DOCKERFILE" .
-    [ "$BUILD_ONLY" = 1 ] && exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# Clean up leftover container from a previous crashed run
-# ---------------------------------------------------------------------------
-docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
-
-# ---------------------------------------------------------------------------
-# Deterministic host port from workspace directory path (10000-20000)
-# Each worktree gets a unique, stable port derived from its absolute path
-# via cksum. The modulo ensures the result is in the 10000-20000 range.
-# ---------------------------------------------------------------------------
+[ -n "$OVERRIDE_NAME" ] && CONTAINER_NAME="${CONTAINER_NAME}-${OVERRIDE_NAME}"
 HOST_PORT=$(echo -n "$CONTAINER_NAME" | cksum | awk '{print 10000 + ($1 % 10001)}')
 
-# ---------------------------------------------------------------------------
-# Assemble volume mounts
-# ---------------------------------------------------------------------------
-MOUNTS=(
-    # Workspace (each worktree maps its own directory)
-    -v "$(pwd):/tmuxy"
-    # Cargo cache (shared across instances — cargo uses file locks)
-    -v tmuxy-cargo-registry:/usr/local/cargo/registry
-    -v tmuxy-cargo-git:/usr/local/cargo/git
-    # Credentials are NOT mounted from host. Log in once inside the
-    # container — these named volumes persist auth across runs.
-    -v tmuxy-gh-config:/home/user/.config/gh
-    -v tmuxy-claude-config:/home/user/.claude
-    -v tmuxy-ssh:/home/user/.ssh
-    -v tmuxy-git-config:/home/user/.config/git
-)
+# Interactive only when stdin is a TTY (agents/CI run non-interactively).
+TTY_OPTS=(-i)
+[ -t 0 ] && TTY_OPTS=(-i -t)
 
-# Git worktree support: .git is a file pointing to the host's gitdir which
-# doesn't exist in the container. Parse the .git file directly to extract
-# paths (avoids depending on git rev-parse which fails if metadata is broken).
-if [ -f "$(pwd)/.git" ]; then
-    HOST_GITDIR="$(sed 's/^gitdir: //' "$(pwd)/.git")"
-    WORKTREE_NAME="$(basename "$HOST_GITDIR")"
-    # Walk up from .git/worktrees/<name> to .git
-    MAIN_GIT_DIR="$(cd "$HOST_GITDIR/../.." && pwd)"
-    DOTGIT_TMP=$(mktemp)
-    echo "gitdir: /git-main/worktrees/$WORKTREE_NAME" > "$DOTGIT_TMP"
-    MOUNTS+=(
-        -v "$MAIN_GIT_DIR:/git-main"
-        -v "$DOTGIT_TMP:/tmuxy/.git"
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+container_exists()  { docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; }
+container_running() { [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null)" = "true" ]; }
+
+ensure_image() {
+    if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+        echo "Building devcontainer image..."
+        docker build -t "$IMAGE_NAME" -f "$DOCKERFILE" .
+    fi
+}
+
+info() {
+    echo "==> Container:  $CONTAINER_NAME"
+    echo "==> Port map:   localhost:$HOST_PORT -> container:9000"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Build the docker run argument set: mounts, ports, env, user.
+# Populates the global arrays MOUNTS and COMMON_FLAGS, plus INIT_SCRIPT and
+# SERVER_SCRIPT. Idempotent — safe to call before each docker invocation.
+# ---------------------------------------------------------------------------
+prepare() {
+    # Start as root so .devcontainer/entrypoint.sh can align the `user` account
+    # with the host uid/gid (keeping the bind mount + credential volumes
+    # writable for ANY host uid) before dropping privileges back to `user`.
+    # On Linux we pass the host uid/gid; on macOS Docker Desktop maps bind-mount
+    # ownership itself, so we leave them unset and the entrypoint stays at 1000.
+    HOST_ID_ENV=()
+    [ "$(uname)" != "Darwin" ] && HOST_ID_ENV=(-e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)")
+
+    MOUNTS=(
+        # Workspace (each worktree maps its own directory)
+        -v "$(pwd):/tmuxy"
+        # Cargo cache (shared across instances — cargo uses file locks)
+        -v tmuxy-cargo-registry:/usr/local/cargo/registry
+        -v tmuxy-cargo-git:/usr/local/cargo/git
+        # Credentials are NOT mounted from host. Log in once inside the
+        # container — these named volumes persist auth across runs.
+        -v tmuxy-gh-config:/home/user/.config/gh
+        -v tmuxy-claude-config:/home/user/.claude
+        -v tmuxy-ssh:/home/user/.ssh
+        -v tmuxy-git-config:/home/user/.config/git
     )
-fi
+
+    # Git worktree support: .git is a file pointing to the host's gitdir which
+    # doesn't exist in the container. Parse the .git file directly to extract
+    # paths (avoids depending on git rev-parse which fails if metadata is
+    # broken). The rewritten .git file is kept at a stable path (not mktemp) so
+    # a stopped container can be restarted and re-mount the same file.
+    if [ -f "$(pwd)/.git" ]; then
+        HOST_GITDIR="$(sed 's/^gitdir: //' "$(pwd)/.git")"
+        WORKTREE_NAME="$(basename "$HOST_GITDIR")"
+        MAIN_GIT_DIR="$(cd "$HOST_GITDIR/../.." && pwd)"
+        DOTGIT_TMP="${TMPDIR:-/tmp}/tmuxy-dotgit-${CONTAINER_NAME}.git"
+        echo "gitdir: /git-main/worktrees/$WORKTREE_NAME" > "$DOTGIT_TMP"
+        MOUNTS+=(
+            -v "$MAIN_GIT_DIR:/git-main"
+            -v "$DOTGIT_TMP:/tmuxy/.git"
+        )
+    fi
+
+    COMMON_FLAGS=(
+        --name "$CONTAINER_NAME"
+        --init
+        --memory=12g
+        --shm-size=1g
+        --pids-limit=50000
+        --add-host host.docker.internal:host-gateway
+        -p "$HOST_PORT:9000"
+        -p "$((HOST_PORT + 1)):9001"
+        -p "$((HOST_PORT + 2)):9002"
+        "${MOUNTS[@]}"
+        -e PORT=9000
+        -e HOST_PORT="$HOST_PORT"
+        -e CONTAINER_NAME="$CONTAINER_NAME"
+        -e CHROME_CDP_URL=http://host.docker.internal:9222
+        -e TMUX_SESSION=dev
+        -e CLAUDE_CONFIG_DIR=/home/user/.claude
+        -e GIT_CONFIG_GLOBAL=/home/user/.config/git/config
+        -w /tmuxy
+        --user 0:0
+        "${HOST_ID_ENV[@]}"
+    )
+
+    # Every container command is launched through the entrypoint, which remaps
+    # `user` to the host uid/gid (as root) and then execs the command as `user`.
+    ENTRY=(/tmuxy/.devcontainer/entrypoint.sh)
+
+    # First-run setup, replayed on every (re)start — all steps are idempotent.
+    INIT_SCRIPT='
+        # Restore ~/.claude.json (Claude Code onboarding flag + oauthAccount) from
+        # the persisted volume copy and start the backup daemon. .claude.json lives
+        # in $HOME, NOT in the ~/.claude volume, and CLAUDE_CONFIG_DIR does not
+        # relocate it — so without this restore every fresh container re-prompts
+        # for login and replays the welcome/intro screen.
+        /tmuxy/.devcontainer/persist-claude-login.sh || true
+        ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf
+        mkdir -p ~/.config/tmuxy ~/.local/bin
+        # Symlink both conf files into the XDG path so edits in the repo take
+        # effect immediately. The Rust ensure_config skips overwriting when the
+        # target is a symlink, so it leaves these alone.
+        ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.config/tmuxy/tmuxy.conf
+        ln -sf /tmuxy/.devcontainer/.tmuxy.defaults.conf ~/.config/tmuxy/tmuxy.defaults.conf
+        ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy
+        gh auth setup-git 2>/dev/null
+        git -C /tmuxy remote set-url origin "$(git -C /tmuxy remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
+    '
+
+    SERVER_SCRIPT='
+        pm2 start /tmuxy/bin/prod --name tmuxy-prod --interpreter bash --cwd /tmuxy 2>/dev/null
+        TMUX_SOCKET=tmuxy-dev DEV_PORT=9001 pm2 start /tmuxy/bin/dev --name tmuxy-dev --interpreter bash --cwd /tmuxy 2>/dev/null
+    '
+}
 
 # ---------------------------------------------------------------------------
-# Run
+# Commands
 # ---------------------------------------------------------------------------
-echo "==> Container:  $CONTAINER_NAME"
-echo "==> Port map:   localhost:$HOST_PORT -> container:9000"
-echo ""
+cmd_up() {
+    local detach=0
+    for a in "$@"; do
+        case "$a" in -d|--detach) detach=1 ;; esac
+    done
 
-INIT_SCRIPT='
-    # Restore ~/.claude.json (Claude Code onboarding flag + oauthAccount) from
-    # the persisted volume copy and start the backup daemon. .claude.json lives
-    # in $HOME, NOT in the ~/.claude volume, and CLAUDE_CONFIG_DIR does not
-    # relocate it — so without this restore every fresh container re-prompts
-    # for login and replays the welcome/intro screen.
-    /tmuxy/.devcontainer/persist-claude-login.sh || true
-    ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.tmuxy.conf
-    mkdir -p ~/.config/tmuxy ~/.local/bin
-    # Symlink both conf files into the XDG path so edits in the repo take
-    # effect immediately. The Rust ensure_config skips overwriting when the
-    # target is a symlink, so it leaves these alone.
-    ln -sf /tmuxy/.devcontainer/.tmuxy.conf ~/.config/tmuxy/tmuxy.conf
-    ln -sf /tmuxy/.devcontainer/.tmuxy.defaults.conf ~/.config/tmuxy/tmuxy.defaults.conf
-    ln -sf /tmuxy/bin/tmuxy-cli ~/.local/bin/tmuxy
-    gh auth setup-git 2>/dev/null
-    git -C /tmuxy remote set-url origin "$(git -C /tmuxy remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
-'
-# Auto-start servers only for interactive shells (not when --cmd manages its own)
-if [ -z "$CONTAINER_CMD" ]; then
-    INIT_SCRIPT+='
-    pm2 start /tmuxy/bin/prod --name tmuxy-prod --cwd /tmuxy 2>/dev/null
-    TMUX_SOCKET=tmuxy-dev DEV_PORT=9001 pm2 start /tmuxy/bin/dev --name tmuxy-dev --cwd /tmuxy 2>/dev/null
-'
-fi
+    ensure_image
+    prepare
 
-TTY_FLAG="-it"
-[ ! -t 0 ] && TTY_FLAG="-i"
+    if container_running; then
+        echo "Container '$CONTAINER_NAME' is already running."
+        [ "$detach" = 1 ] && { info; return; }
+        exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" bash -l
+    fi
 
-exec docker run $TTY_FLAG --rm \
-    --name "$CONTAINER_NAME" \
-    --init \
-    --memory=12g \
-    --shm-size=1g \
-    --pids-limit=50000 \
-    --add-host host.docker.internal:host-gateway \
-    -p "$HOST_PORT:9000" \
-    -p "$((HOST_PORT + 1)):9001" \
-    -p "$((HOST_PORT + 2)):9002" \
-    "${MOUNTS[@]}" \
-    -e PORT=9000 \
-    -e HOST_PORT="$HOST_PORT" \
-    -e CONTAINER_NAME="$CONTAINER_NAME" \
-    -e CHROME_CDP_URL=http://host.docker.internal:9222 \
-    -e TMUX_SESSION=dev \
-    -e CLAUDE_CONFIG_DIR=/home/user/.claude \
-    -e GIT_CONFIG_GLOBAL=/home/user/.config/git/config \
-    -w /tmuxy \
-    --user "$(id -u):$(id -g)" \
-    "$IMAGE_NAME" \
-    bash -lic "${INIT_SCRIPT}${CONTAINER_CMD:-exec bash -l}"
+    # A stopped leftover may have been created with different flags — recreate.
+    container_exists && docker rm -f "$CONTAINER_NAME" >/dev/null
+
+    info
+    if [ "$detach" = 1 ]; then
+        # Persistent daemon: run setup, start servers, then idle as PID-managed
+        # process so `start`/`stop`/`restart` work like docker compose.
+        docker run -d "${COMMON_FLAGS[@]}" "$IMAGE_NAME" "${ENTRY[@]}" \
+            bash -lic "${INIT_SCRIPT}${SERVER_SCRIPT}exec tail -f /dev/null" >/dev/null
+        echo "Started in background. Enter with:  bin/devcontainer shell"
+    else
+        # Foreground: ephemeral (--rm) interactive shell, with servers running.
+        exec docker run "${TTY_OPTS[@]}" --rm "${COMMON_FLAGS[@]}" "$IMAGE_NAME" "${ENTRY[@]}" \
+            bash -lic "${INIT_SCRIPT}${SERVER_SCRIPT}exec bash -l"
+    fi
+}
+
+cmd_down() {
+    if container_exists; then
+        docker rm -f "$CONTAINER_NAME" >/dev/null
+        echo "Removed '$CONTAINER_NAME' (named volumes preserved)."
+    else
+        echo "No container '$CONTAINER_NAME'."
+    fi
+}
+
+cmd_start() {
+    container_exists || { echo "No container '$CONTAINER_NAME'. Run: bin/devcontainer up -d"; exit 1; }
+    docker start "$CONTAINER_NAME" >/dev/null
+    echo "Started '$CONTAINER_NAME'."
+    info
+}
+
+cmd_stop() {
+    container_running || { echo "Container '$CONTAINER_NAME' is not running."; return; }
+    docker stop "$CONTAINER_NAME" >/dev/null
+    echo "Stopped '$CONTAINER_NAME'."
+}
+
+cmd_restart() {
+    container_exists || { echo "No container '$CONTAINER_NAME'. Run: bin/devcontainer up -d"; exit 1; }
+    docker restart "$CONTAINER_NAME" >/dev/null
+    echo "Restarted '$CONTAINER_NAME'."
+    info
+}
+
+cmd_shell() {
+    container_running || { echo "Container not running; starting it..."; cmd_up -d; }
+    if [ $# -gt 0 ]; then
+        exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" bash -lc "$*"
+    fi
+    exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" bash -l
+}
+
+cmd_run() {
+    ensure_image
+    prepare
+    # Ephemeral one-off: clear any leftover sharing this name, then --rm run.
+    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    info
+    local custom="$*"
+    exec docker run "${TTY_OPTS[@]}" --rm "${COMMON_FLAGS[@]}" "$IMAGE_NAME" "${ENTRY[@]}" \
+        bash -lic "${INIT_SCRIPT}${custom:-exec bash -l}"
+}
+
+cmd_logs() {
+    container_running || { echo "Container '$CONTAINER_NAME' is not running."; exit 1; }
+    case "${1:-}" in
+        -f|--follow) exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" pm2 logs ;;
+        *)           exec docker exec "${TTY_OPTS[@]}" -u user "$CONTAINER_NAME" pm2 logs --nostream --lines 80 ;;
+    esac
+}
+
+cmd_ps() {
+    docker ps -a \
+        --filter "name=^/${CONTAINER_NAME}$" \
+        --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+}
+
+cmd_build() {
+    local nocache=()
+    [ "${1:-}" = "--no-cache" ] && nocache=(--no-cache)
+    echo "Building devcontainer image..."
+    docker build "${nocache[@]}" -t "$IMAGE_NAME" -f "$DOCKERFILE" .
+}
+
+cmd_help() {
+    sed -n '3,31p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+case "$COMMAND" in
+    up)               cmd_up "$@" ;;
+    down)             cmd_down ;;
+    start)            cmd_start ;;
+    stop)             cmd_stop ;;
+    restart)          cmd_restart ;;
+    shell|sh|exec)    cmd_shell "$@" ;;
+    run)              cmd_run "$@" ;;
+    logs)             cmd_logs "$@" ;;
+    ps|status)        cmd_ps ;;
+    build)            cmd_build "$@" ;;
+    help|-h|--help)   cmd_help ;;
+    *)                echo "Unknown command: $COMMAND"; echo; cmd_help; exit 1 ;;
+esac
