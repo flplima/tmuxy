@@ -18,6 +18,8 @@ const WASM_JS = '/wasm/tmuxy_wasm.js';
 const WASM_BG = '/wasm/tmuxy_wasm_bg.wasm';
 const V86_WASM = '/v86/v86.wasm';
 const STATE_URL = '/v86-img/tmux-state.bin';
+const STATE_GZ_URL = '/v86-img/tmux-state.bin.gz';
+const STATE_ZST_URL = '/v86-img/tmux-state.bin.zst';
 const SEABIOS_URL = '/v86-img/seabios.bin';
 const VGABIOS_URL = '/v86-img/vgabios.bin';
 const BZIMAGE_URL = '/v86-img/buildroot-bzimage.bin';
@@ -149,7 +151,7 @@ export class V86Engine {
     const { V86 } = (await import('v86')) as unknown as {
       V86: new (opts: Record<string, unknown>) => V86Emulator;
     };
-    this.emu = new V86({
+    const emu: V86Emulator = new V86({
       wasm_path: V86_WASM,
       bios: { url: SEABIOS_URL },
       vga_bios: { url: VGABIOS_URL },
@@ -160,9 +162,13 @@ export class V86Engine {
       vga_memory_size: 2 * 1024 * 1024,
       disable_keyboard: true,
       disable_mouse: true,
-      initial_state: { url: STATE_URL },
+      // The snapshot dominates the payload: ship zstd (v86 decompresses .zst
+      // initial_state natively, in-wasm). The reset path lazily fetches the
+      // .gz variant instead (DecompressionStream has no zstd).
+      initial_state: { url: STATE_ZST_URL },
       autostart: true,
     });
+    this.emu = emu;
 
     // Serve inline terminal-image bytes from the CURRENT wasm store (no backend).
     (
@@ -221,6 +227,25 @@ export class V86Engine {
     await this.start(initCommands, false);
   }
 
+  /** Fetch the machine snapshot, preferring the gzip + local inflate (half
+   *  the wire size); falls back to the raw file when the .gz or
+   *  DecompressionStream is unavailable. Cached — reset() reuses the bytes. */
+  private async fetchSnapshot(): Promise<ArrayBuffer> {
+    if (this.snapshotBytes) return this.snapshotBytes;
+    if (typeof DecompressionStream !== 'undefined') {
+      const res = await fetch(STATE_GZ_URL);
+      if (res.ok && res.body) {
+        const inflated = res.body.pipeThrough(new DecompressionStream('gzip'));
+        const bytes = await new Response(inflated).arrayBuffer();
+        this.snapshotBytes = bytes;
+        return bytes;
+      }
+    }
+    const raw = await fetch(STATE_URL).then((r) => r.arrayBuffer());
+    this.snapshotBytes = raw;
+    return raw;
+  }
+
   /** Reuse path: restore the pinned snapshot, install a fresh core, re-attach.
    *  Gives each story an identical clean starting state on a shared instance. */
   async reset(initCommands: string[]): Promise<void> {
@@ -228,13 +253,9 @@ export class V86Engine {
     // Stop feeding the (old) core while the machine rewinds.
     this.attached = false;
     this.byteBuf = '';
-    if (!this.snapshotBytes) {
-      // Browser cache serves this from the initial_state load — no extra network.
-      this.snapshotBytes = await fetch(STATE_URL).then((r) => r.arrayBuffer());
-    }
-    const bytes = this.snapshotBytes;
+    const bytes = await this.fetchSnapshot();
     // restore_state consumes the buffer; hand it a fresh copy each reset.
-    if (bytes) await this.emu.restore_state(bytes.slice(0));
+    await this.emu.restore_state(bytes.slice(0));
     // Fresh core discards all accumulated state from the previous story.
     this.core = new this.wasmModule.WasmTmux('m');
     this.lastState = EMPTY_STATE;

@@ -700,10 +700,12 @@ export const AssetWeight: Story = {
         .reduce((sum, r) => sum + (r.encodedBodySize || r.transferSize || 0), 0);
     const v86Bytes = bytesFor(/\/v86(-img)?\//);
     const wasmBytes = bytesFor(/\/wasm\//);
-    // Assets must be measurable and within budget (snapshot dominates the v86 sum).
+    // Assets must be measurable and within budget. The snapshot ships gzipped
+    // (~17 MB wire vs 34 MB raw) + ~5 MB kernel + BIOS; regressions past the
+    // budget fail loudly instead of silently bloating the demo payload.
     expect(v86Bytes).toBeGreaterThan(0);
-    expect(v86Bytes).toBeLessThan(60 * 1024 * 1024);
-    expect(wasmBytes).toBeLessThan(8 * 1024 * 1024);
+    expect(v86Bytes).toBeLessThan(26 * 1024 * 1024);
+    expect(wasmBytes).toBeLessThan(2 * 1024 * 1024);
   },
 };
 

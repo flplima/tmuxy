@@ -248,6 +248,11 @@ async function buildSnapshot() {
   const gz = gzipSync(Buffer.from(state), { level: 9 });
   await writeFile(`${STATE_BIN}.gz`, gz);
   console.log(`✓ tmux-state.bin.gz written (${(gz.length / 1e6).toFixed(1)} MB wire)`);
+  // v86 decompresses .zst initial_state natively (in-wasm) — the boot payload.
+  // The .gz above serves the shared-engine reset cache (DecompressionStream).
+  execFileSync('zstd', ['-19', '-f', STATE_BIN, '-o', `${STATE_BIN}.zst`]);
+  const zst = (await stat(`${STATE_BIN}.zst`)).size;
+  console.log(`✓ tmux-state.bin.zst written (${(zst / 1e6).toFixed(1)} MB wire)`);
   await emulator.destroy?.();
   process.exit(0);
 }

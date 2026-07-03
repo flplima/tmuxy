@@ -18,7 +18,7 @@ RUN usermod -l user -d /home/user -m node \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools (openssh-client for git-over-SSH and ssh-keygen credential setup)
     less git procps sudo fzf zsh man-db unzip gnupg2 openssh-client \
-    nano vim jq bc \
+    nano vim jq bc zstd \
     # LazyVim runtime deps (telescope file/text search)
     ripgrep fd-find \
     # Build tools (tmux, native modules)
