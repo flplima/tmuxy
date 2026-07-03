@@ -367,7 +367,9 @@ impl PaneState {
         let h = (self.height as u16).max(1);
         self.terminal = vt100::Parser::new(h, w, 0);
         self.raw_buffer.clear();
-        self.image_parser.reset();
+        // Keep image placements: the capture text can't recreate them (tmux
+        // strips image escapes from captured history).
+        self.image_parser.reset_for_capture();
 
         // Strip trailing newline to prevent scroll when content exactly fills terminal.
         // capture-pane output typically ends with \n, but processing this final newline

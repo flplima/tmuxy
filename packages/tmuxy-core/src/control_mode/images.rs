@@ -110,6 +110,18 @@ impl ImageParser {
         self.cursor_col = 0;
     }
 
+    /// Reset for a capture-pane refill: clear in-flight transfer state but
+    /// PRESERVE placements. capture-pane output never contains the original
+    /// image escapes (tmux strips them from history), so clearing placements
+    /// here would permanently erase every on-screen image each time a capture
+    /// refreshes the pane — visible as images flickering out (or, with a
+    /// periodic pane re-sync, never surviving at all).
+    pub fn reset_for_capture(&mut self) {
+        self.kitty_chunks.clear();
+        self.cursor_row = 0;
+        self.cursor_col = 0;
+    }
+
     pub fn update_cursor(&mut self, row: u16, col: u16) {
         self.cursor_row = row;
         self.cursor_col = col;

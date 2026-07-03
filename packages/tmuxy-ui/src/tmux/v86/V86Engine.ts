@@ -29,9 +29,20 @@ const ATTACH = '/tmp/tb/tmux -CC attach -t m\n';
 // Guest bootstrap commands sent after every attach. Everything durable
 // (script paths, command-aliases, config, PS1, symlinks) is BAKED into the
 // snapshot by scripts/build-v86-snapshot.mjs — snapshot restores rewind the
-// filesystem, so only truly per-attach setup belongs here. Currently empty;
-// kept as the hook point for future per-attach needs.
-const GUEST_SETUP: string[] = [];
+// filesystem, so only per-attach setup belongs here: the same session-level
+// settings the native monitor's enforce_settings() applies on connect
+// (allow-passthrough gates image/hyperlink OSC forwarding; pane-border-status
+// top is assumed by PaneLayout's geometry).
+const GUEST_SETUP: string[] = [
+  "set pane-border-status top",
+  "set pane-border-format ' '",
+  'set mouse on',
+  'set focus-events on',
+  'set allow-passthrough on',
+  'set allow-rename on',
+  'set set-titles on',
+  'setw -g aggressive-resize off',
+];
 
 interface V86Emulator {
   add_listener(event: string, cb: (arg: number) => void): void;
@@ -171,6 +182,7 @@ export class V86Engine {
       const chunk = serialBuf;
       serialBuf = '';
       if (!chunk || !this.attached || !this.core) return;
+      if (chunk.includes('1337') || chunk.includes(']1337')) (window as unknown as { __osc?: string[] }).__osc?.push(chunk.slice(0, 400));
       this.emit(this.core.feed(chunk));
       // `%exit` ends the control-mode conversation (server died / kill-server /
       // last session closed). Surface it as a fatal so the app can show its
