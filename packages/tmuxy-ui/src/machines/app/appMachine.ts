@@ -739,6 +739,19 @@ export const appMachine = setup({
                   // (auto-adopt or set-option round-trip) never produces
                   // a tab strip.
                   if (w.windowType !== prev.windowType) return true;
+                  // Float option metadata (@tmuxy-float-*) can arrive on a
+                  // LATER list-windows sync than the window-type tag; without
+                  // comparing it, a drawer float renders as a centered modal
+                  // forever because floatPanes is never rebuilt.
+                  if (
+                    w.floatDrawer !== prev.floatDrawer ||
+                    w.floatWidth !== prev.floatWidth ||
+                    w.floatHeight !== prev.floatHeight ||
+                    w.floatBg !== prev.floatBg ||
+                    w.floatNoheader !== prev.floatNoheader
+                  ) {
+                    return true;
+                  }
                   const a = w.groupPanes ?? [];
                   const b = prev.groupPanes ?? [];
                   if (a.length !== b.length) return true;

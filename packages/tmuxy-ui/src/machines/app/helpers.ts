@@ -236,22 +236,37 @@ export function buildFloatPanesFromWindows(
     const drawer = (window.floatDrawer as DrawerDirection | null) ?? undefined;
     const backdrop = (window.floatBg as FloatBackdrop | null) ?? undefined;
     const hideHeader = window.floatNoheader || undefined;
+    // @tmuxy-float-width/height (in cells) are the float's REQUESTED size —
+    // authoritative when present. The pane's tmux size is only a fallback: a
+    // single-pane float window can't be shrunk by resize-pane, so on some
+    // backends the pane stays session-sized even though the user asked for a
+    // 40-col float.
+    const metaWidth = window.floatWidth ? window.floatWidth * charWidth : null;
+    const metaHeight = window.floatHeight ? window.floatHeight * charHeight : null;
     const existing = existingFloats[paneId];
 
     if (existing) {
-      // Preserve existing dimensions but update flags from window options
-      floatPanes[paneId] = { ...existing, drawer, backdrop, hideHeader };
+      // Preserve pane-derived dimensions (avoids churn as the underlying pane
+      // resizes) but let explicit size metadata and flags win.
+      floatPanes[paneId] = {
+        ...existing,
+        width: metaWidth ?? existing.width,
+        height: metaHeight ?? existing.height,
+        drawer,
+        backdrop,
+        hideHeader,
+      };
     } else {
-      // Default dimensions: use the pane's actual size (set by float-create
-      // via resize-pane). Cap to leave margin around the container edges.
+      // Default dimensions: requested size, else the pane's actual size. Cap
+      // to leave margin around the container edges.
       const isHorizontalDrawer = drawer === 'left' || drawer === 'right';
       const isVerticalDrawer = drawer === 'top' || drawer === 'bottom';
       const defaultWidth = isVerticalDrawer
         ? containerWidth
-        : Math.min(pane.width * charWidth, containerWidth - 100);
+        : (metaWidth ?? Math.min(pane.width * charWidth, containerWidth - 100));
       const defaultHeight = isHorizontalDrawer
         ? containerHeight
-        : Math.min(pane.height * charHeight, containerHeight - 100);
+        : (metaHeight ?? Math.min(pane.height * charHeight, containerHeight - 100));
       floatPanes[paneId] = {
         paneId,
         width: defaultWidth,

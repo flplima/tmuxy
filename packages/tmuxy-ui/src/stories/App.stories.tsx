@@ -1637,8 +1637,19 @@ export const DrawerAllEdges: Story = {
           ),
         { timeout: 30000, interval: 500 },
       );
-      const overlay = await waitForFloat(doc);
-      await user.click(overlay.querySelector('.float-content') ?? overlay);
+      // The drawer must PAINT as an edge-docked drawer, not a centered modal —
+      // the metadata can arrive after the window-type tag, so poll. (Drawers
+      // render the `drawer drawer-<edge>` modal, NOT `.float-container`.)
+      let overlay: HTMLElement | null = null;
+      await waitFor(
+        () => {
+          overlay = doc.querySelector(`.drawer-${dir}`) as HTMLElement | null;
+          expect(overlay).not.toBeNull();
+          expect(overlay!.getBoundingClientRect().width).toBeGreaterThan(0);
+        },
+        { timeout: 20000, interval: 500 },
+      );
+      await user.click(overlay!.querySelector('.float-content') ?? overlay!);
       // Wait until keyboard focus reaches the drawer's pane, then exit its shell.
       await waitFor(
         () =>
