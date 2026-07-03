@@ -166,7 +166,10 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // layout from being unmounted and replaced with a loading div for ~55ms.
   const hasBeenReadyRef = useRef(false);
   if (isReady) hasBeenReadyRef.current = true;
-  const showLayout = isReady || hasBeenReadyRef.current;
+  // A fatal is not a transient empty-pane state: break the ready latch so the
+  // non-recoverable status screen replaces the dead layout (the machine is in
+  // `disconnected` and nothing will repopulate the panes).
+  const showLayout = (isReady || hasBeenReadyRef.current) && fatalError == null;
 
   // Always render .app-container so containerRef is attached and ResizeObserver
   // starts measuring immediately, preventing a layout flash on first pane render.
