@@ -334,13 +334,15 @@ export const Drawer: Story = {
         ),
       { timeout: 40000, interval: 500 },
     );
-    // The float overlay must also be painted.
+    // Drawer floats paint as an edge-docked drawer (NOT a centered
+    // .float-container modal) once the drawer metadata lands.
     await waitFor(
-      () => expect(canvasElement.ownerDocument.querySelector('.float-container')).not.toBeNull(),
-      {
-        timeout: 15000,
-        interval: 500,
+      () => {
+        const el = canvasElement.ownerDocument.querySelector('.drawer-left') as HTMLElement | null;
+        expect(el).not.toBeNull();
+        expect(el!.getBoundingClientRect().width).toBeGreaterThan(0);
       },
+      { timeout: 20000, interval: 500 },
     );
   },
 };
@@ -1761,13 +1763,10 @@ export const GroupCloseMember: Story = {
 };
 
 /**
- * Sidebar: clicking the toggle button runs the real `sidebar-create` script in
- * the guest — a sidebar-typed window is created and auto-tagged, and the app
- * flips into its sidebar-open state. KNOWN CLIENT-SIDE GAP: the tree TUI is
- * implemented in the tmuxy-server binary, which doesn't exist in the guest, so
- * the sidebar pane exits shortly after creation (its window closes). This story
- * pins the honest contract: the toggle works, the window round-trips through
- * real tmux with the right type, and the app stays healthy when the TUI dies.
+ * Sidebar: clicking the toggle runs `sidebar-create` in the guest, which spawns
+ * the REAL tree TUI (the standalone `tmuxy-tree` binary cross-compiled for the
+ * guest) in a sidebar-typed window. The drawer must open, list the live
+ * session's windows, and STAY alive; toggling again hides it.
  */
 export const SidebarToggle: Story = {
   args: { height: 600 },
@@ -1775,34 +1774,31 @@ export const SidebarToggle: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
+    const doc = canvasElement.ownerDocument;
     const toggle = canvasElement.querySelector('.sidebar-toggle') as HTMLElement;
     expect(toggle).not.toBeNull();
-    const sidebarOpen = () =>
-      (
-        window as unknown as { app: { getSnapshot(): { context: { sidebarOpen: boolean } } } }
-      ).app.getSnapshot().context.sidebarOpen;
     await user.click(toggle);
-    await waitFor(() => expect(sidebarOpen()).toBe(true), { timeout: 10000, interval: 200 });
-    // The sidebar window is created in real tmux and auto-tagged. Tight polling:
-    // the pane (tree TUI) exits quickly in the guest — no server binary — so the
-    // window is transient; catching it proves the create round-trip.
-    await waitFor(() => expect(windows().some((w) => w.windowType === 'sidebar')).toBe(true), {
-      timeout: 30000,
-      interval: 150,
-    });
-    // When the TUI dies, the app must remain healthy and interactive.
-    await waitFor(() => expect(windows().some((w) => w.windowType === 'sidebar')).toBe(false), {
-      timeout: 30000,
+    // The drawer opens and the tree TUI renders the real window list.
+    await waitFor(
+      () => {
+        const drawer = doc.querySelector('.sidebar-drawer') as HTMLElement | null;
+        expect(drawer).not.toBeNull();
+        expect(drawer!.getBoundingClientRect().width).toBeGreaterThan(0);
+        expect(drawer!.textContent ?? '').toMatch(/root/);
+      },
+      { timeout: 40000, interval: 500 },
+    );
+    // The TUI must SURVIVE (the old guest had no tree binary and the pane died
+    // within a second) — drawer still present, still listing windows.
+    await new Promise((r) => setTimeout(r, 5000));
+    expect(doc.querySelector('.sidebar-drawer')).not.toBeNull();
+    expect(windows().some((w) => w.windowType === 'sidebar')).toBe(true);
+    // Toggle off → drawer hides (the sidebar window stays parked for reuse).
+    await user.click(toggle);
+    await waitFor(() => expect(doc.querySelector('.sidebar-drawer')).toBeNull(), {
+      timeout: 15000,
       interval: 500,
     });
-    pasteLine('echo AFTER_SIDEBAR_3');
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) => /AFTER_SIDEBAR_3/.test(p.textContent ?? '')),
-        ).toBe(true),
-      { timeout: 30000, interval: 500 },
-    );
   },
 };
 

@@ -26,27 +26,12 @@ const CMDLINE = 'tsc=reliable mitigations=off random.trust_cpu=on';
 // client each boot/reset (the snapshot predates any control-mode attach).
 const ATTACH = '/tmp/tb/tmux -CC attach -t m\n';
 
-// Guest bootstrap, sent over control mode after every attach (cold boot AND
-// snapshot reset — restore_state rewinds the whole machine, wiping prior setup).
-// The app invokes helper scripts as `$HOME/.config/tmuxy/bin/tmuxy/<script>` and
-// via `tmuxy-*` command-aliases (see .devcontainer/.tmuxy.defaults.conf); the
-// pre-built snapshot ships the scripts at /tmp/tb/bin/tmuxy but defines neither
-// the path nor the aliases, so pane-group close/nav/sidebar would silently no-op.
-const GUEST_SETUP = [
-  'run-shell "mkdir -p /root/.config/tmuxy/bin && ln -sfn /tmp/tb/bin/tmuxy /root/.config/tmuxy/bin/tmuxy"',
-  // The baked snapshot predates the float-create ##{pane_id} escape fix: its
-  // run-shell'd split-window -F '#{pane_id}' pre-expands to the ACTIVE pane and
-  // the float then breaks the WRONG pane. Patch the guest copy in place. Hashes
-  // are quadrupled so THIS run-shell's own expansion halves them (#### -> ##).
-  `run-shell "sed -i 's|##{pane_id}|####{pane_id}|g' /tmp/tb/bin/tmuxy/float-create"`,
-  `set -s command-alias[100] 'tmuxy-pane-group-add=run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-add #{pane_id} #{pane_width} #{pane_height}"'`,
-  `set -s command-alias[101] 'tmuxy-pane-group-prev=run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-prev #{pane_id}"'`,
-  `set -s command-alias[102] 'tmuxy-pane-group-next=run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-next #{pane_id}"'`,
-  `set -s command-alias[110] 'tmuxy-nav-left=run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav left #{pane_id}"'`,
-  `set -s command-alias[111] 'tmuxy-nav-right=run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav right #{pane_id}"'`,
-  `set -s command-alias[112] 'tmuxy-nav-up=run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav up #{pane_id}"'`,
-  `set -s command-alias[113] 'tmuxy-nav-down=run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav down #{pane_id}"'`,
-];
+// Guest bootstrap commands sent after every attach. Everything durable
+// (script paths, command-aliases, config, PS1, symlinks) is BAKED into the
+// snapshot by scripts/build-v86-snapshot.mjs — snapshot restores rewind the
+// filesystem, so only truly per-attach setup belongs here. Currently empty;
+// kept as the hook point for future per-attach needs.
+const GUEST_SETUP: string[] = [];
 
 interface V86Emulator {
   add_listener(event: string, cb: (arg: number) => void): void;
