@@ -230,7 +230,17 @@ export class V86TmuxAdapter implements TmuxAdapter {
       }
       case 'run_tmux_command': {
         const command = args?.command as string | undefined;
-        if (command) this.engine.send(toControlModeCommand(command));
+        if (!command) return null as T;
+        const wire = toControlModeCommand(command);
+        // Hot paths (key input, resizes, paste batches) stay fire-and-forget;
+        // everything else is tracked so failures reject like the server adapter
+        // (surfacing TMUX_ERROR and rolling back optimistic ops).
+        if (wire.includes('\n') || /^(send-keys|refresh-client)\b/.test(wire)) {
+          this.engine.send(wire);
+          return null as T;
+        }
+        const result = await this.engine.sendTracked(wire);
+        if (!result.ok) throw new Error(result.message || `tmux rejected: ${command}`);
         return null as T;
       }
       case 'set_theme': {
@@ -290,7 +300,12 @@ export class V86TmuxAdapter implements TmuxAdapter {
   async switchSession(sessionName: string): Promise<void> {
     // Switch the attached control client to another session (real tmux
     // switch-client), then re-sync so the new session's windows/panes populate.
-    this.engine.send(`switch-client -t ${sessionName}`);
+    // Tracked: a failed switch (unknown session) must NOT leave the app in the
+    // cleared-optimistic-state limbo — resync the CURRENT session so its state
+    // flows back in (the machine re-adopts panes and sessionName from the
+    // updates) and reject so the failure surfaces as TMUX_ERROR.
+    const result = await this.engine.sendTracked(`switch-client -t ${sessionName}`);
     this.engine.resync();
+    if (!result.ok) throw new Error(result.message || `switch-client failed: ${sessionName}`);
   }
 }

@@ -2418,6 +2418,51 @@ export const SessionRoundTrip: Story = {
 };
 
 /**
+ * Failed session switch: switching to a nonexistent session must NOT strand the
+ * app in the cleared-optimistic-state limbo. The tracked control channel sees
+ * tmux's %error, the adapter resyncs the current session, the machine re-adopts
+ * its state, and the failure surfaces as a real error — panes render again and
+ * the app stays interactive.
+ */
+export const SwitchSessionFailure: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await focusFirstPane(canvas, userEvent.setup());
+    const original = sessionName();
+    (window as unknown as { app: { send(e: { type: string; sessionName: string }): void } }).app.send({
+      type: 'SWITCH_SESSION',
+      sessionName: 'no_such_session_zz9',
+    });
+    // The error surfaces through the real TMUX_ERROR path…
+    await waitFor(
+      () =>
+        expect(
+          (window as unknown as { app: { getSnapshot(): { context: { error: string | null } } } }).app.getSnapshot()
+            .context.error,
+        ).toBeTruthy(),
+      { timeout: 30000, interval: 500 },
+    );
+    // …and the app recovers: original session state flows back in.
+    await waitFor(
+      () => {
+        expect(sessionName()).toBe(original);
+        expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(2);
+      },
+      { timeout: 30000, interval: 500 },
+    );
+    pasteLine('echo AFTER_BAD_SWITCH_6');
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some((p: HTMLElement) => /AFTER_BAD_SWITCH_6/.test(p.textContent ?? '')),
+        ).toBe(true),
+      { timeout: 30000, interval: 500 },
+    );
+  },
+};
+
+/**
  * Fatal: killing the tmux server in the guest ends the control stream (`%exit`);
  * the engine surfaces it as a fatal and the app must show its non-recoverable
  * status screen — not a blank or frozen UI. Reached by actually killing the

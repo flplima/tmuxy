@@ -58,6 +58,8 @@ interface FeedOutput {
   updates: unknown[];
   commands: string[];
   clipboard: [string, string][];
+  /** (success, first output line) per %begin/%end/%error block, in order. */
+  responses: [boolean, string][];
 }
 interface WasmCore {
   feed(text: string): FeedOutput;
@@ -104,6 +106,14 @@ export class V86Engine {
   private writing = false;
   /** Rolling tail of the serial stream for cross-chunk %exit detection. */
   private exitTail = '';
+  // Tracked-command correlation. Control mode replies strictly in send order,
+  // but the core also sends its own commands (captures, list-panes), so we
+  // don't count blocks — we tag each tracked command with a display-message
+  // marker: when the marker's response appears, the following `remaining`
+  // responses belong to the tracked command list.
+  private trackSeq = 0;
+  private trackers = new Map<string, { remaining: number; ok: boolean; message: string; resolve(r: { ok: boolean; message: string }): void }>();
+  private armedTracker: string | null = null;
   private attached = false;
   private lastState: ServerState = EMPTY_STATE;
   private readonly decoder = new TextDecoder();
@@ -259,6 +269,7 @@ export class V86Engine {
 
   private emit(out: FeedOutput): void {
     if (!this.core || !this.emu) return;
+    for (const [ok, firstLine] of out.responses ?? []) this.onResponse(ok, firstLine);
     for (const cmd of out.commands) this.send(cmd);
     for (const [paneId, text] of out.clipboard) this.sink?.onClipboard(paneId, text);
     if (out.updates.length === 0) return;
@@ -269,6 +280,57 @@ export class V86Engine {
       this.resolveFirstState();
       this.resolveFirstState = null;
     }
+  }
+
+  private onResponse(ok: boolean, firstLine: string): void {
+    if (this.armedTracker) {
+      const t = this.trackers.get(this.armedTracker);
+      if (t) {
+        if (!ok && t.ok) {
+          t.ok = false;
+          t.message = firstLine;
+        }
+        t.remaining -= 1;
+        if (t.remaining <= 0) {
+          this.trackers.delete(this.armedTracker);
+          this.armedTracker = null;
+          t.resolve({ ok: t.ok, message: t.message });
+          return;
+        }
+      } else {
+        this.armedTracker = null;
+      }
+      return;
+    }
+    const m = firstLine.match(/^TMUXY_RC_(\d+)$/);
+    if (m && this.trackers.has(m[1])) this.armedTracker = m[1];
+  }
+
+  /**
+   * Send a command (or ` ; `-separated command list) and resolve with its real
+   * outcome — success, or the first %error line. A display-message marker is
+   * prepended so the reply can be picked out of the FIFO regardless of what the
+   * core sends in between. Falls back to success on timeout so a wedged guest
+   * degrades to fire-and-forget rather than erroring spuriously.
+   */
+  sendTracked(cmd: string): Promise<{ ok: boolean; message: string }> {
+    const id = String(++this.trackSeq);
+    const remaining = cmd.split(' ; ').length;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.trackers.delete(id)) resolve({ ok: true, message: 'tracking timeout' });
+      }, 15000);
+      this.trackers.set(id, {
+        remaining,
+        ok: true,
+        message: '',
+        resolve: (r) => {
+          clearTimeout(timer);
+          resolve(r);
+        },
+      });
+      this.send(`display-message -p 'TMUXY_RC_${id}' ; ${cmd}`);
+    });
   }
 
   /** Queue a control-mode command; streamed to the guest byte-paced. */

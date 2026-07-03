@@ -68,7 +68,11 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal \
     && rustup component add rustfmt clippy \
+    # wasm32 target + pinned wasm-bindgen for tmuxy-wasm (npm run build:wasm);
+    # the CLI version must match the wasm-bindgen crate in Cargo.lock
+    && rustup target add wasm32-unknown-unknown \
     && cargo install cargo-watch tauri-driver \
+    && cargo install wasm-bindgen-cli --version 0.2.111 --locked \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
     && chown -R user:user /usr/local/cargo /usr/local/rustup
 

@@ -12,7 +12,7 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use tmuxy_core::constants::tmux_formats;
-use tmuxy_core::control_mode::{Parser, SideEffect, StateAggregator};
+use tmuxy_core::control_mode::{ControlModeEvent, Parser, SideEffect, StateAggregator};
 use tmuxy_core::StateUpdate;
 
 /// Result of feeding a chunk of control-mode text.
@@ -24,6 +24,11 @@ struct FeedOutput {
     commands: Vec<String>,
     /// OSC 52 clipboard writes: (pane_id, decoded text).
     clipboard: Vec<(String, String)>,
+    /// One entry per command response (%begin/%end/%error block) in this feed,
+    /// in arrival order: (success, first line of the output, truncated). Lets
+    /// the host correlate marker-tagged commands with their outcomes — control
+    /// mode replies strictly in the order commands were sent.
+    responses: Vec<(bool, String)>,
 }
 
 struct Session {
@@ -94,6 +99,14 @@ impl Session {
             let Some(event) = self.parser.parse_line(&line) else {
                 continue;
             };
+            if let ControlModeEvent::CommandResponse {
+                output, success, ..
+            } = &event
+            {
+                let first = output.lines().next().unwrap_or("");
+                let first = first.chars().take(120).collect::<String>();
+                out.responses.push((*success, first));
+            }
             let effects = self.agg.step(event).effects;
             self.apply_effects(effects, &mut out);
         }
@@ -201,5 +214,15 @@ mod tests {
             !out.updates.is_empty(),
             "should emit at least one StateUpdate"
         );
+        // Every %begin/%end block surfaces as a response for host-side
+        // command correlation (two blocks in this stream, both successful).
+        assert_eq!(out.responses.len(), 2);
+        assert!(out.responses.iter().all(|(ok, _)| *ok));
+
+        // An %error block surfaces as a failed response with its message.
+        let err = s.feed("%begin 3 3 1\ncan't find session: nope\n%error 3 3 1\n");
+        assert_eq!(err.responses.len(), 1);
+        assert!(!err.responses[0].0);
+        assert!(err.responses[0].1.contains("can't find session"));
     }
 }
