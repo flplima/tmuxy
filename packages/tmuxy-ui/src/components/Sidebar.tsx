@@ -8,7 +8,7 @@
  * or a click), keystrokes route to the pane and the TUI handles j/k/Enter.
  */
 
-import { useCallback } from 'react';
+import { memo, useCallback } from 'react';
 import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import {
@@ -19,9 +19,18 @@ import {
   selectSidebarPaneId,
 } from '../machines/AppContext';
 import { SIDEBAR_COLS } from '../machines/constants';
+import { LogProfiler } from '../utils/renderLog';
 import type { TmuxPane } from '../machines/types';
 
-export function Sidebar() {
+export const Sidebar = memo(function Sidebar() {
+  return (
+    <LogProfiler id="Sidebar">
+      <SidebarInner />
+    </LogProfiler>
+  );
+});
+
+function SidebarInner() {
   const send = useAppSend();
   const sidebarOpen = useAppSelector((ctx) => ctx.sidebarOpen);
   const sidebarPaneId = useAppSelector(selectSidebarPaneId);

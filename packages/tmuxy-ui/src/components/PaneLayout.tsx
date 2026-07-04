@@ -87,7 +87,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // .pane-layout is inset by CONTAINER_PADDING (CSS), so its dimensions match
   // containerWidth/Height (content-box from ResizeObserver). No padding-box
   // arithmetic needed — pane positions are relative to the content area directly.
-  const centeringOffset = useMemo(() => {
+  const liveCenteringOffset = useMemo(() => {
     const paneContentWidth = totalWidth * charWidth;
     const paneContentHeight = totalHeight * charHeight;
     // Clamp x so content never overflows the right edge.
@@ -102,6 +102,17 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       y: Math.round(Math.max(0, (containerHeight - paneContentHeight) / 2)),
     };
   }, [totalWidth, totalHeight, charWidth, charHeight, containerWidth, containerHeight]);
+
+  // Freeze the centering offset for the duration of a drag. Mid-drag the
+  // dragged pane is pinned to its original slot while the optimistic swap
+  // patch moves the hovered pane into that same slot — the derived grid
+  // extent transiently shrinks and re-centering would shift EVERY pane
+  // sideways under the user's cursor.
+  const frozenOffsetRef = useRef(liveCenteringOffset);
+  if (!isDragging) {
+    frozenOffsetRef.current = liveCenteringOffset;
+  }
+  const centeringOffset = isDragging ? frozenOffsetRef.current : liveCenteringOffset;
 
   const containerRef = useRef<HTMLDivElement>(null);
 

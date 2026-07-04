@@ -14,9 +14,10 @@ import '@szhsin/react-menu/dist/index.css';
 import {
   useAppSend,
   useAppSelector,
+  useAppSelectorShallow,
   useAppConfig,
   selectKeyBindings,
-  selectVisiblePanes,
+  selectIsSinglePane,
   selectWindows,
   selectThemeName,
   selectThemeMode,
@@ -38,13 +39,12 @@ export function AppMenu() {
   const send = useAppSend();
   const { isDemo } = useAppConfig();
   const keybindings = useAppSelector(selectKeyBindings);
-  const visiblePanes = useAppSelector(selectVisiblePanes);
-  const windows = useAppSelector(selectWindows);
+  const isSinglePane = useAppSelector(selectIsSinglePane);
+  const windows = useAppSelectorShallow(selectWindows);
   const themeName = useAppSelector(selectThemeName);
   const themeMode = useAppSelector(selectThemeMode);
   const availableThemes = useAppSelector(selectAvailableThemes);
 
-  const isSinglePane = visiblePanes.length <= 1;
   const isSingleWindow = windows.filter((w) => w.windowType === 'tab').length <= 1;
 
   const handleAction = (actionId: string) => {

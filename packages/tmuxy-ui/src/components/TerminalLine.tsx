@@ -10,6 +10,7 @@
 
 import { memo, useMemo, useCallback, CSSProperties } from 'react';
 import { Cursor } from './Cursor';
+import { LogProfiler } from '../utils/renderLog';
 import type { CursorMode } from './Cursor';
 import type { CellLine, TerminalCell, CellColor, CellStyle } from '../tmux/types';
 import { detectUrls } from '../utils/urlDetect';
@@ -447,10 +448,12 @@ export const TerminalLine = memo(
     };
 
     return (
-      <div className="terminal-line">
-        {renderCells()}
-        {renderEndOfLineCursor()}
-      </div>
+      <LogProfiler id="TerminalLine">
+        <div className="terminal-line">
+          {renderCells()}
+          {renderEndOfLineCursor()}
+        </div>
+      </LogProfiler>
     );
   },
   // Custom comparison: only re-render if relevant props changed

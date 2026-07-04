@@ -10,11 +10,12 @@
  * native dblclick event before it can reach onDoubleClick.
  */
 
-import { useCallback } from 'react';
+import { memo, useCallback } from 'react';
 import type { RenderTabline } from '../App';
 import { useAppSelector, useAppState, selectGridDimensions } from '../machines/AppContext';
 import { selectReconnectAttempt } from '../machines/selectors';
 import { isTauri } from '../tmux/adapters';
+import { LogProfiler } from '../utils/renderLog';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
 import { SidebarToggle } from './SidebarToggle';
@@ -23,7 +24,11 @@ import './StatusBar.css';
 
 const isMacTauri = isTauri() && typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
 
-export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) {
+export const StatusBar = memo(function StatusBar({
+  renderTabline,
+}: {
+  renderTabline?: RenderTabline;
+}) {
   const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
   const isReconnecting = useAppState('reconnecting');
   const reconnectAttempt = useAppSelector(selectReconnectAttempt);
@@ -74,14 +79,16 @@ export function StatusBar({ renderTabline }: { renderTabline?: RenderTabline }) 
   );
 
   return (
-    <div className="statusbar" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick}>
-      <div
-        className="statusbar-inner"
-        style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
-      >
-        {renderTabline ? renderTabline({ children: defaultContent }) : defaultContent}
-        <ConnectionStatus reconnecting={isReconnecting} reconnectAttempt={reconnectAttempt} />
+    <LogProfiler id="StatusBar">
+      <div className="statusbar" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick}>
+        <div
+          className="statusbar-inner"
+          style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
+        >
+          {renderTabline ? renderTabline({ children: defaultContent }) : defaultContent}
+          <ConnectionStatus reconnecting={isReconnecting} reconnectAttempt={reconnectAttempt} />
+        </div>
       </div>
-    </div>
+    </LogProfiler>
   );
-}
+});

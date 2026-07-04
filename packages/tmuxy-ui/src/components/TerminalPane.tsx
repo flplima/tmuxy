@@ -24,6 +24,7 @@ import {
   selectCharSize,
 } from '../machines/AppContext';
 import { usePaneMouse, usePaneTouch } from '../hooks';
+import { LogProfiler } from '../utils/renderLog';
 import { useScrollShiftAnimation } from '../hooks/useScrollShiftAnimation';
 import { selectScrollAnimationEnabled } from '../machines/selectors';
 import { isCollapsedPane } from '../constants';
@@ -163,6 +164,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       onMouseLeave={handleMouseLeave}
       onDoubleClick={handleDoubleClick}
     >
+      <LogProfiler id={`Pane:${paneId}`} />
       <PaneHeader paneId={paneId} />
       {!collapsed && (
         <div

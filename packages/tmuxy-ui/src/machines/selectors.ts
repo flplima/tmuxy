@@ -296,32 +296,46 @@ export function selectLog(context: AppMachineContext): LogEntry[] {
 // Container Size Selector
 // ============================================
 
-export function selectContainerSize(context: AppMachineContext): { width: number; height: number } {
-  return {
+export const selectContainerSize = createMemoizedSelector(
+  (context: AppMachineContext) => ({
     width: context.containerWidth,
     height: context.containerHeight,
-  };
-}
+  }),
+  (context: AppMachineContext): { width: number; height: number } => ({
+    width: context.containerWidth,
+    height: context.containerHeight,
+  }),
+);
 
 // ============================================
 // Grid Dimension Selectors
 // ============================================
 
-export function selectGridDimensions(context: AppMachineContext) {
-  return {
+export const selectGridDimensions = createMemoizedSelector(
+  (context: AppMachineContext) => ({
     totalWidth: context.totalWidth,
     totalHeight: context.totalHeight,
     charWidth: context.charWidth,
     charHeight: context.charHeight,
-  };
-}
-
-export function selectCharSize(context: AppMachineContext) {
-  return {
+  }),
+  (context: AppMachineContext) => ({
+    totalWidth: context.totalWidth,
+    totalHeight: context.totalHeight,
     charWidth: context.charWidth,
     charHeight: context.charHeight,
-  };
-}
+  }),
+);
+
+export const selectCharSize = createMemoizedSelector(
+  (context: AppMachineContext) => ({
+    charWidth: context.charWidth,
+    charHeight: context.charHeight,
+  }),
+  (context: AppMachineContext) => ({
+    charWidth: context.charWidth,
+    charHeight: context.charHeight,
+  }),
+);
 
 // ============================================
 // Pane Pixel Dimension Selectors
