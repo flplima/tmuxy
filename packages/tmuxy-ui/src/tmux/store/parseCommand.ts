@@ -54,6 +54,16 @@ export function parseCommandToOp(command: string): TmuxOp {
     };
   }
 
+  // tmuxy-nav-* — the guest/server command aliases the default Ctrl+hjkl root
+  // bindings map to. Server-side they expand to directional pane navigation;
+  // recognizing them here gives the keys the same Navigate prediction as raw
+  // `select-pane -LRUD`.
+  const navAlias = trimmed.match(/^tmuxy-nav-(left|right|up|down)\b/);
+  if (navAlias) {
+    const dir = { left: 'L', right: 'R', up: 'U', down: 'D' } as const;
+    return { _tag: 'Navigate', direction: dir[navAlias[1] as keyof typeof dir] };
+  }
+
   // swap-pane -s %X -t %Y (and the reversed -t/-s form)
   const swapForward = trimmed.match(/^(swap-pane|swapp)\s+.*-s\s+(%\d+)\s+.*-t\s+(%\d+)/);
   if (swapForward) {
@@ -80,6 +90,42 @@ export function parseCommandToOp(command: string): TmuxOp {
   // new-window / neww
   if (/^(new-window|neww)(\s|$)/.test(trimmed)) {
     return { _tag: 'NewWindow' };
+  }
+
+  // resize-pane -Z / resizep -Z — zoom toggle (must be checked before other
+  // resize forms fall through to RawCommand)
+  const zoomMatch = trimmed.match(/^(resize-pane|resizep)\s+(?:-t\s+(%\d+)\s+)?-Z\s*$/);
+  if (zoomMatch) {
+    return { _tag: 'ZoomToggle', paneId: zoomMatch[2] ?? null };
+  }
+
+  // kill-pane / killp [-t %N]
+  const killPaneMatch = trimmed.match(/^(kill-pane|killp)(?:\s+-t\s+(%\d+))?\s*$/);
+  if (killPaneMatch) {
+    return { _tag: 'KillPane', paneId: killPaneMatch[2] ?? null };
+  }
+
+  // kill-window / killw [-t @N] — index-form targets (`-t :2`) resolve
+  // server-side and are deliberately not predicted.
+  const killWindowMatch = trimmed.match(/^(kill-window|killw)(?:\s+-t\s+(@\d+))?\s*$/);
+  if (killWindowMatch) {
+    return { _tag: 'KillWindow', windowId: killWindowMatch[2] ?? null };
+  }
+
+  // rename-window / renamew [-t target] [--] NAME
+  const renameMatch = trimmed.match(
+    /^(rename-window|renamew)(?:\s+-t\s+(\S+))?\s+(?:--\s+)?(.+?)\s*$/,
+  );
+  if (renameMatch) {
+    let name = renameMatch[3];
+    const quoted = name.match(/^'(.*)'$/s) ?? name.match(/^"(.*)"$/s);
+    if (quoted) name = quoted[1];
+    // Only @-form or absent targets are predictable client-side.
+    const target = renameMatch[2] ?? null;
+    if (target === null || /^@\d+$/.test(target)) {
+      return { _tag: 'RenameWindow', target, name };
+    }
+    return { _tag: 'RawCommand', command };
   }
 
   // select-window -t N / selectw -t N (with optional `:` and `=` prefixes)
@@ -116,6 +162,16 @@ export function toTmuxCommand(op: TmuxOp): string {
       return `swap-pane -s ${op.sourcePaneId} -t ${op.targetPaneId}`;
     case 'NewWindow':
       return 'new-window';
+    case 'KillPane':
+      return op.paneId ? `kill-pane -t ${op.paneId}` : 'kill-pane';
+    case 'KillWindow':
+      return op.windowId ? `kill-window -t ${op.windowId}` : 'kill-window';
+    case 'RenameWindow':
+      return op.target
+        ? `rename-window -t ${op.target} -- '${op.name.replace(/'/g, "'\\''")}'`
+        : `rename-window -- '${op.name.replace(/'/g, "'\\''")}'`;
+    case 'ZoomToggle':
+      return op.paneId ? `resize-pane -t ${op.paneId} -Z` : 'resize-pane -Z';
     case 'SelectWindow':
       if (op.target === 'next') return 'next-window';
       if (op.target === 'previous') return 'previous-window';

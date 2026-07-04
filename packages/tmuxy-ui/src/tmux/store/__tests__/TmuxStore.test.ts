@@ -237,3 +237,31 @@ describe('TmuxStore (integration)', () => {
     expect(store.getModel().ops).toHaveLength(0);
   });
 });
+
+describe('notify granularity', () => {
+  it('one reconcile batch produces exactly one subscriber notification', async () => {
+    const fake = makeFakeAdapter();
+    const store = await Effect.runPromise(
+      makeTmuxStore({ adapter: toEffectAdapter(fake.adapter) }),
+    );
+    let notifies = 0;
+    const unsubscribe = store.subscribe(() => {
+      notifies++;
+    });
+    notifies = 0; // subscribe fires once on attach
+    Effect.runSync(
+      store.reconcile({
+        session_name: 'test',
+        active_window_id: '@0',
+        active_pane_id: '%0',
+        panes: [],
+        windows: [],
+        total_width: 80,
+        total_height: 24,
+        status_line: '',
+      }),
+    );
+    expect(notifies).toBe(1);
+    unsubscribe();
+  });
+});

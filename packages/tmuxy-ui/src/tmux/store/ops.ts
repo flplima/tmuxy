@@ -15,6 +15,7 @@
  */
 
 import type { TmuxOp, TmuxSnapshot, Patch, ReconcileVerdict, PendingOp } from './types';
+import { FOCUS_CONFIRM_LINGER_MS, FOCUS_SUPERSEDE_GRACE_MS } from './types';
 import type { TmuxPane, TmuxWindow } from '../types';
 
 // ============================================
@@ -57,6 +58,14 @@ export function predict(
       return predictNewWindow(snapshot, ctx, opId);
     case 'SelectWindow':
       return predictSelectWindow(op, snapshot);
+    case 'KillPane':
+      return predictKillPane(op, snapshot, ctx);
+    case 'KillWindow':
+      return predictKillWindow(op, snapshot);
+    case 'RenameWindow':
+      return predictRenameWindow(op, snapshot);
+    case 'ZoomToggle':
+      return predictZoomToggle(op, snapshot);
     case 'RawCommand':
       return null;
   }
@@ -76,21 +85,35 @@ export function reconcile(
     panes: new Set(),
     windows: new Set(),
   },
+  now: number = Date.now(),
 ): ReconcileVerdict {
   const { op, meta } = pending;
   switch (op._tag) {
     case 'Split':
       return reconcileSplit(meta, committed, claimed.panes);
     case 'Navigate':
-      return reconcileFocus(meta, committed.activePaneId);
+      return reconcileFocus(meta, committed.activePaneId, now - pending.createdAt, committed.panes);
     case 'SelectPane':
-      return reconcileFocus(meta, committed.activePaneId);
+      return reconcileFocus(meta, committed.activePaneId, now - pending.createdAt, committed.panes);
     case 'Swap':
       return reconcileSwap(meta, committed.panes);
     case 'NewWindow':
-      return reconcileNewWindow(meta, committed.windows, claimed.windows);
+      return reconcileNewWindow(meta, committed.windows, committed.panes, claimed.windows);
     case 'SelectWindow':
-      return reconcileSelectWindow(meta, committed.activeWindowId);
+      return reconcileSelectWindow(
+        meta,
+        committed.activeWindowId,
+        now - pending.createdAt,
+        committed.windows,
+      );
+    case 'KillPane':
+      return reconcileKillPane(meta, committed.panes);
+    case 'KillWindow':
+      return reconcileKillWindow(meta, committed.windows);
+    case 'RenameWindow':
+      return reconcileRenameWindow(meta, committed.windows);
+    case 'ZoomToggle':
+      return reconcileZoomToggle(meta, committed.panes, now - pending.createdAt);
     case 'RawCommand':
       // Raw commands have no prediction, so there's nothing to wait for.
       return { _tag: 'matched' };
@@ -287,8 +310,8 @@ function predictNavigate(
   );
   if (!targetId) return null;
 
-  const patch: Patch = (s) => ({ ...s, activePaneId: targetId });
-  return { patch, meta: { targetPaneId: targetId } };
+  const patch = focusPatch(targetId);
+  return { patch, meta: { targetPaneId: targetId, previousActivePaneId: activePaneId } };
 }
 
 function predictSelectPane(
@@ -297,17 +320,51 @@ function predictSelectPane(
 ): PredictResult | null {
   if (!snapshot.panes.some((p) => p.tmuxId === op.paneId)) return null;
   if (snapshot.activePaneId === op.paneId) return null;
-  const patch: Patch = (s) => ({ ...s, activePaneId: op.paneId });
-  return { patch, meta: { targetPaneId: op.paneId } };
+  const patch = focusPatch(op.paneId);
+  return {
+    patch,
+    meta: { targetPaneId: op.paneId, previousActivePaneId: snapshot.activePaneId },
+  };
+}
+
+/**
+ * Focus pin that self-neutralizes when its target no longer exists: a later
+ * op in the chain (KillPane) or a server update may remove the pane, and a
+ * lingering focus op must never pin the UI to a dead id.
+ */
+function focusPatch(targetId: string): Patch {
+  return (s) => (s.panes.some((p) => p.tmuxId === targetId) ? { ...s, activePaneId: targetId } : s);
 }
 
 function reconcileFocus(
   meta: Readonly<Record<string, unknown>>,
   serverActivePaneId: string | null,
+  ageMs: number,
+  committedPanes?: ReadonlyArray<TmuxPane>,
 ): ReconcileVerdict {
   const target = meta.targetPaneId as string;
-  if (serverActivePaneId === target) return { _tag: 'matched' };
-  return { _tag: 'pending' };
+  const previous = meta.previousActivePaneId as string | null | undefined;
+  if (committedPanes && !committedPanes.some((p) => p.tmuxId === target)) {
+    // The target pane is gone — nothing left to pin.
+    return { _tag: 'matched' };
+  }
+  if (serverActivePaneId === target) {
+    // Confirmed — but linger: snapshots computed BEFORE the focus change can
+    // still arrive after the confirmation and would flap the highlight the
+    // moment this op's pin is gone. See FOCUS_CONFIRM_LINGER_MS.
+    return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+  }
+  if (serverActivePaneId === previous && ageMs < FOCUS_CONFIRM_LINGER_MS) {
+    // A stale echo of the pre-op focus — hold the pin.
+    return { _tag: 'pending' };
+  }
+  if (ageMs < FOCUS_SUPERSEDE_GRACE_MS) {
+    // Very young: the server may simply not have processed us yet.
+    return { _tag: 'pending' };
+  }
+  // Focus moved somewhere else after we were processed — the server wins;
+  // holding the pin would freeze the UI on a focus tmux no longer has.
+  return { _tag: 'matched' };
 }
 
 /**
@@ -531,13 +588,35 @@ function predictNewWindow(
 
   const priorWindowIds = snapshot.windows.map((w) => w.id);
 
-  const patch: Patch = (s) => ({
-    ...s,
-    windows: [...s.windows.map((w) => ({ ...w, active: false })), placeholderWindow],
-    panes: [...s.panes, placeholderPane],
-    activeWindowId: placeholderWindowId,
-    activePaneId: placeholderPaneId,
-  });
+  const patch: Patch = (s) => {
+    // Hide newborn windows the server has reported but no op has claimed yet
+    // (windowType still null — the `@tmuxy-window-type` tag arrives on a later
+    // list-windows sync). Rendering their panes before the reconcile-match
+    // installs the pane-key override would mount them under their real ids
+    // and force a keyed remount (visible flicker) at claim time. A pane can
+    // even arrive a snapshot BEFORE its window record — hide those too.
+    const unclaimedNewborns = new Set(
+      s.windows
+        .filter((w) => w.windowType === null && !priorWindowIds.includes(w.id))
+        .map((w) => w.id),
+    );
+    const knownWindowIds = new Set(s.windows.map((w) => w.id));
+    const isNewbornPane = (p: TmuxPane): boolean => {
+      if (priorWindowIds.includes(p.windowId)) return false;
+      if (p.windowId === placeholderWindowId || p.windowId.startsWith('__placeholder_'))
+        return false;
+      return unclaimedNewborns.has(p.windowId) || !knownWindowIds.has(p.windowId);
+    };
+    const windows = s.windows.filter((w) => !unclaimedNewborns.has(w.id));
+    const panes = s.panes.filter((p) => !isNewbornPane(p));
+    return {
+      ...s,
+      windows: [...windows.map((w) => ({ ...w, active: false })), placeholderWindow],
+      panes: [...panes, placeholderPane],
+      activeWindowId: placeholderWindowId,
+      activePaneId: placeholderPaneId,
+    };
+  };
 
   return {
     patch,
@@ -548,6 +627,7 @@ function predictNewWindow(
 function reconcileNewWindow(
   meta: Readonly<Record<string, unknown>>,
   windows: ReadonlyArray<TmuxWindow>,
+  panes: ReadonlyArray<TmuxPane>,
   /** Real window ids already claimed by earlier pending NewWindow ops. */
   claimedRealIds: ReadonlySet<string>,
 ): ReconcileVerdict {
@@ -558,7 +638,15 @@ function reconcileNewWindow(
       !prior.has(w.id) &&
       !w.id.startsWith('__placeholder_') &&
       !claimedRealIds.has(w.id) &&
-      w.windowType === 'tab',
+      w.windowType === 'tab' &&
+      // The window must already have a pane. break-pane emits %window-add (and
+      // the window's type tag) a beat before the moved pane's window_id
+      // settles, so matching on the bare window would install the
+      // placeholder→real pane-key override against a window with no pane —
+      // and the real pane then mounts fresh (a remount/flicker) instead of
+      // morphing from the placeholder. Waiting for the pane lets the override
+      // map it and keep the React key stable.
+      panes.some((p) => p.windowId === w.id),
   );
   if (candidate) return { _tag: 'matched', realId: candidate.id };
   return { _tag: 'pending' };
@@ -593,19 +681,290 @@ function predictSelectWindow(
 
   const targetId = target.id;
   const activePaneId = activeInTarget.tmuxId;
-  const patch: Patch = (s) => ({ ...s, activeWindowId: targetId, activePaneId });
+  // Flip windows[].active too — the tab strip renders aria-selected from the
+  // per-window flag, not from activeWindowId, and must flip in the same patch.
+  // Self-neutralizes if the target window disappears (killed mid-linger).
+  const patch: Patch = (s) => {
+    if (!s.windows.some((w) => w.id === targetId)) return s;
+    return {
+      ...s,
+      windows: s.windows.map((w) => ({ ...w, active: w.id === targetId })),
+      activeWindowId: targetId,
+      activePaneId,
+    };
+  };
 
   return {
     patch,
-    meta: { targetWindowId: targetId, targetActivePaneId: activePaneId },
+    meta: {
+      targetWindowId: targetId,
+      targetActivePaneId: activePaneId,
+      previousActiveWindowId: snapshot.activeWindowId,
+    },
   };
 }
 
+/**
+ * Same linger/supersede semantics as reconcileFocus: stale snapshots computed
+ * before the switch flap the tab strip if the pin drops on first confirmation.
+ */
 function reconcileSelectWindow(
   meta: Readonly<Record<string, unknown>>,
   serverActiveWindowId: string | null,
+  ageMs: number,
+  committedWindows?: ReadonlyArray<TmuxWindow>,
 ): ReconcileVerdict {
   const target = meta.targetWindowId as string;
-  if (serverActiveWindowId === target) return { _tag: 'matched' };
+  const previous = meta.previousActiveWindowId as string | null | undefined;
+  if (committedWindows && !committedWindows.some((w) => w.id === target)) {
+    // The target window is gone — nothing left to pin.
+    return { _tag: 'matched' };
+  }
+  if (serverActiveWindowId === target) {
+    return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+  }
+  if (serverActiveWindowId === previous && ageMs < FOCUS_CONFIRM_LINGER_MS) {
+    return { _tag: 'pending' };
+  }
+  if (ageMs < FOCUS_SUPERSEDE_GRACE_MS) {
+    return { _tag: 'pending' };
+  }
+  return { _tag: 'matched' };
+}
+
+// ============================================
+// KillPane
+// ============================================
+
+function predictKillPane(
+  op: Extract<TmuxOp, { _tag: 'KillPane' }>,
+  snapshot: TmuxSnapshot,
+  ctx: PredictContext,
+): PredictResult | null {
+  const paneId = op.paneId ?? snapshot.activePaneId;
+  if (!paneId || paneId.startsWith('__placeholder_')) return null;
+  const doomed = snapshot.panes.find((p) => p.tmuxId === paneId);
+  if (!doomed) return null;
+
+  // The neighbor that absorbs the freed space: a pane sharing the doomed
+  // pane's FULL edge (same cross-axis extent) — the common case for panes
+  // created by splits. tmux's layout tree can distribute the space
+  // differently for hand-crafted layouts; the reconciler is lenient (it only
+  // waits for the pane to disappear), so a geometry drift self-corrects.
+  const siblings = snapshot.panes.filter(
+    (p) => p.windowId === doomed.windowId && p.tmuxId !== paneId,
+  );
+  const absorber = siblings.find(
+    (p) =>
+      (p.x === doomed.x &&
+        p.width === doomed.width &&
+        (p.y + p.height + 1 === doomed.y || doomed.y + doomed.height + 1 === p.y)) ||
+      (p.y === doomed.y &&
+        p.height === doomed.height &&
+        (p.x + p.width + 1 === doomed.x || doomed.x + doomed.width + 1 === p.x)),
+  );
+
+  // Focus falls to the most recently used surviving pane in the window.
+  let nextFocus: string | null = snapshot.activePaneId;
+  if (snapshot.activePaneId === paneId) {
+    nextFocus =
+      ctx.paneActivationOrder.find(
+        (id) => id !== paneId && siblings.some((p) => p.tmuxId === id),
+      ) ??
+      absorber?.tmuxId ??
+      siblings[0]?.tmuxId ??
+      null;
+  }
+
+  const patch: Patch = (s) => {
+    const panes = s.panes
+      .filter((p) => p.tmuxId !== paneId)
+      .map((p) => {
+        if (!absorber || p.tmuxId !== absorber.tmuxId) return p;
+        return {
+          ...p,
+          x: Math.min(p.x, doomed.x),
+          y: Math.min(p.y, doomed.y),
+          width:
+            p.y === doomed.y && p.height === doomed.height ? p.width + doomed.width + 1 : p.width,
+          height:
+            p.x === doomed.x && p.width === doomed.width ? p.height + doomed.height + 1 : p.height,
+        };
+      });
+    return {
+      ...s,
+      panes,
+      activePaneId: s.activePaneId === paneId ? nextFocus : s.activePaneId,
+    };
+  };
+
+  return { patch, meta: { killedPaneId: paneId } };
+}
+
+function reconcileKillPane(
+  meta: Readonly<Record<string, unknown>>,
+  panes: ReadonlyArray<TmuxPane>,
+): ReconcileVerdict {
+  const killed = meta.killedPaneId as string;
+  if (!panes.some((p) => p.tmuxId === killed)) return { _tag: 'matched' };
+  return { _tag: 'pending' };
+}
+
+// ============================================
+// KillWindow
+// ============================================
+
+function predictKillWindow(
+  op: Extract<TmuxOp, { _tag: 'KillWindow' }>,
+  snapshot: TmuxSnapshot,
+): PredictResult | null {
+  const windowId = op.windowId ?? snapshot.activeWindowId;
+  if (!windowId || windowId.startsWith('__placeholder_')) return null;
+  const doomed = snapshot.windows.find((w) => w.id === windowId);
+  if (!doomed) return null;
+
+  const tabs = snapshot.windows.filter((w) => w.windowType === 'tab' && w.id !== windowId);
+  // tmux activates an adjacent window; approximate with the previous tab by
+  // index, falling back to the next. The reconciler only requires the window
+  // to be gone, so a different server choice self-corrects on confirm.
+  const sorted = [...tabs].sort((a, b) => a.index - b.index);
+  const nextActive =
+    snapshot.activeWindowId === windowId
+      ? ([...sorted].reverse().find((w) => w.index < doomed.index) ??
+        sorted.find((w) => w.index > doomed.index) ??
+        null)
+      : null;
+
+  const patch: Patch = (s) => {
+    const windows = s.windows
+      .filter((w) => w.id !== windowId)
+      .map((w) => (nextActive ? { ...w, active: w.id === nextActive.id } : w));
+    const panes = s.panes.filter((p) => p.windowId !== windowId);
+    let activeWindowId = s.activeWindowId;
+    let activePaneId = s.activePaneId;
+    if (s.activeWindowId === windowId) {
+      activeWindowId = nextActive?.id ?? null;
+      const targetPanes = panes.filter((p) => p.windowId === activeWindowId);
+      activePaneId = (targetPanes.find((p) => p.active) ?? targetPanes[0])?.tmuxId ?? null;
+    }
+    return { ...s, windows, panes, activeWindowId, activePaneId };
+  };
+
+  return { patch, meta: { killedWindowId: windowId } };
+}
+
+function reconcileKillWindow(
+  meta: Readonly<Record<string, unknown>>,
+  windows: ReadonlyArray<TmuxWindow>,
+): ReconcileVerdict {
+  const killed = meta.killedWindowId as string;
+  if (!windows.some((w) => w.id === killed)) return { _tag: 'matched' };
+  return { _tag: 'pending' };
+}
+
+// ============================================
+// RenameWindow
+// ============================================
+
+function predictRenameWindow(
+  op: Extract<TmuxOp, { _tag: 'RenameWindow' }>,
+  snapshot: TmuxSnapshot,
+): PredictResult | null {
+  const windowId = op.target ?? snapshot.activeWindowId;
+  if (!windowId || windowId.startsWith('__placeholder_')) return null;
+  if (!snapshot.windows.some((w) => w.id === windowId)) return null;
+
+  const patch: Patch = (s) => ({
+    ...s,
+    windows: s.windows.map((w) => (w.id === windowId ? { ...w, name: op.name } : w)),
+  });
+  return { patch, meta: { renamedWindowId: windowId, newName: op.name } };
+}
+
+function reconcileRenameWindow(
+  meta: Readonly<Record<string, unknown>>,
+  windows: ReadonlyArray<TmuxWindow>,
+): ReconcileVerdict {
+  const windowId = meta.renamedWindowId as string;
+  const name = meta.newName as string;
+  const window = windows.find((w) => w.id === windowId);
+  if (!window) return { _tag: 'matched' };
+  if (window.name === name) return { _tag: 'matched' };
+  return { _tag: 'pending' };
+}
+
+// ============================================
+// ZoomToggle
+// ============================================
+
+const ZOOM_SIZE_TOLERANCE = 2;
+
+/**
+ * Predicts zoom-IN only: the pane's geometry expands to the window extent —
+ * exactly what the server does (%layout-change's visible_layout rewrites only
+ * the zoomed pane; siblings keep their pre-zoom rects). Zoom-OUT is not
+ * predicted: the pane's pre-zoom slot was overwritten by the zoom and is
+ * unknown client-side, so unzoom waits for the server layout.
+ */
+function predictZoomToggle(
+  op: Extract<TmuxOp, { _tag: 'ZoomToggle' }>,
+  snapshot: TmuxSnapshot,
+): PredictResult | null {
+  const paneId = op.paneId ?? snapshot.activePaneId;
+  if (!paneId || paneId.startsWith('__placeholder_')) return null;
+  const pane = snapshot.panes.find((p) => p.tmuxId === paneId);
+  if (!pane) return null;
+
+  const windowPanes = snapshot.panes.filter((p) => p.windowId === pane.windowId);
+  if (windowPanes.length < 2) return null;
+  const extentW = Math.max(...windowPanes.map((p) => p.x + p.width));
+  const extentH = Math.max(...windowPanes.map((p) => p.y + p.height));
+
+  // Already ~full-extent → this toggle is an unzoom → no prediction.
+  if (pane.width >= extentW - 1 && pane.height >= extentH - 1) return null;
+
+  const patch: Patch = (s) => ({
+    ...s,
+    panes: s.panes.map((p) =>
+      p.tmuxId === paneId ? { ...p, x: 0, y: 0, width: extentW, height: extentH } : p,
+    ),
+  });
+  return {
+    patch,
+    meta: {
+      zoomedPaneId: paneId,
+      extentW,
+      extentH,
+      before: { x: pane.x, y: pane.y, width: pane.width, height: pane.height },
+    },
+  };
+}
+
+function reconcileZoomToggle(
+  meta: Readonly<Record<string, unknown>>,
+  panes: ReadonlyArray<TmuxPane>,
+  ageMs: number,
+): ReconcileVerdict {
+  const paneId = meta.zoomedPaneId as string | undefined;
+  // Unzoom toggles carry no prediction (empty meta) — nothing to wait for.
+  if (!paneId) return { _tag: 'matched' };
+  const extentW = meta.extentW as number;
+  const extentH = meta.extentH as number;
+  const before = meta.before as { x: number; y: number; width: number; height: number };
+  const pane = panes.find((p) => p.tmuxId === paneId);
+  if (!pane) return { _tag: 'failed', reason: `ZoomToggle: pane ${paneId} disappeared` };
+  if (pane.width >= extentW - ZOOM_SIZE_TOLERANCE && pane.height >= extentH - ZOOM_SIZE_TOLERANCE) {
+    return { _tag: 'matched' };
+  }
+  // The pane is back at (or still at) its pre-zoom rect past the processing
+  // grace: the toggle was undone (rapid zoom+unzoom) or never landed — drop
+  // the patch, or the pinned zoomed geometry wedges the UI on an idle stream.
+  if (
+    ageMs >= FOCUS_SUPERSEDE_GRACE_MS &&
+    Math.abs(pane.width - before.width) <= ZOOM_SIZE_TOLERANCE &&
+    Math.abs(pane.height - before.height) <= ZOOM_SIZE_TOLERANCE
+  ) {
+    return { _tag: 'matched' };
+  }
   return { _tag: 'pending' };
 }

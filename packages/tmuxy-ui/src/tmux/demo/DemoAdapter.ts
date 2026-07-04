@@ -165,6 +165,16 @@ export class DemoAdapter implements TmuxAdapter {
     this.clipboardListeners.forEach((l) => l(paneId, text));
   }
 
+  /**
+   * Storybook/test escape hatch — re-emit the current state snapshot to
+   * subscribers, as if the backend sent an unsolicited update. Lets stories
+   * drive the store's reconcile pass at a chosen moment (e.g. while a delayed
+   * command is still in flight, to exercise the stale-op sweeper).
+   */
+  public emitStateSnapshot(): void {
+    this.emitState();
+  }
+
   async connect(): Promise<void> {
     this.tmux.init(80, 24);
     this.connected = true;

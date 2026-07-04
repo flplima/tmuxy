@@ -21,11 +21,12 @@ import { Cause, Effect, Exit, Option, Ref } from 'effect';
 import type { AdapterError } from '../effect/AdapterError';
 import type { EffectTmuxAdapter } from '../effect/EffectTmuxAdapter';
 import type { ServerState } from '../types';
-import { transformServerState } from './adapters';
+import { preserveSnapshotIdentity, transformServerState } from './adapters';
 import { parseCommandToOp, toTmuxCommand } from './parseCommand';
 import {
   addPendingOp,
   applyServerSnapshot,
+  dropSupersededFocusOps,
   generateOpId,
   makePendingOp,
   rollbackOp,
@@ -154,9 +155,35 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
           console.error('[TmuxStore] listener threw:', err);
         }
       }
+      scheduleIdleReconcile(model);
     };
 
     const getModel = () => Effect.runSync(Ref.get(ref));
+
+    // Age-based verdicts (stale sweeps, focus-linger release, supersession)
+    // are computed inside reconcile passes — which are normally driven by
+    // server snapshots. On an IDLE control stream no snapshot ever arrives,
+    // so a wrong pin (a zoomed-geometry patch after a rapid re-toggle, a
+    // superseded focus op) would wedge forever. While ops are pending,
+    // re-reconcile against the unchanged committed snapshot on a timer so
+    // time-based verdicts fire even with nothing on the wire.
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const IDLE_RECONCILE_MS = 500;
+    const scheduleIdleReconcile = (model: TmuxClientModel): void => {
+      if (model.ops.length === 0) return;
+      if (idleTimer !== null) return;
+      idleTimer = setTimeout(() => {
+        idleTimer = null;
+        const current = getModel();
+        if (current.ops.length === 0) return;
+        const result = applyServerSnapshot(current, current.committed, Date.now());
+        Effect.runSync(Ref.set(ref, result.model));
+        for (const entry of result.rolledBack) {
+          console.warn(`[TmuxStore] idle-swept ${entry.op._tag} op ${entry.opId}: ${entry.reason}`);
+        }
+        notify(result.model);
+      }, IDLE_RECONCILE_MS);
+    };
 
     const applyOptimistic = (
       op: TmuxOp,
@@ -181,7 +208,9 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
           : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
       }
 
-      const next = Effect.runSync(Ref.updateAndGet(ref, (m) => addPendingOp(m, pending)));
+      const next = Effect.runSync(
+        Ref.updateAndGet(ref, (m) => addPendingOp(dropSupersededFocusOps(m, op), pending)),
+      );
       notify(next);
       return { opId, command };
     };
@@ -233,8 +262,12 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
 
     const reconcile = (state: ServerState): Effect.Effect<ReadonlyArray<RollbackEntry>> =>
       Effect.gen(function* () {
-        const snapshot = serverStateToSnapshot(state);
-        const result = applyServerSnapshot(yield* Ref.get(ref), snapshot, Date.now());
+        const current = yield* Ref.get(ref);
+        // Reuse previous objects for anything value-equal — wire snapshots are
+        // fresh object graphs, and without identity preservation every tick
+        // re-renders every pane (see preserveSnapshotIdentity).
+        const snapshot = preserveSnapshotIdentity(current.committed, serverStateToSnapshot(state));
+        const result = applyServerSnapshot(current, snapshot, Date.now());
         yield* Ref.set(ref, result.model);
         notify(result.model);
         return result.rolledBack;

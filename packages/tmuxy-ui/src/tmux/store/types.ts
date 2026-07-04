@@ -74,6 +74,14 @@ export type TmuxOp =
       readonly _tag: 'SelectWindow';
       readonly target: number | 'next' | 'previous';
     }
+  /** paneId null = the active pane. */
+  | { readonly _tag: 'KillPane'; readonly paneId: string | null }
+  /** windowId null = the active window. Only `@N`-form targets are predicted. */
+  | { readonly _tag: 'KillWindow'; readonly windowId: string | null }
+  /** target null = the active window. */
+  | { readonly _tag: 'RenameWindow'; readonly target: string | null; readonly name: string }
+  /** paneId null = the active pane. Predicts zoom-IN only (see predictZoomToggle). */
+  | { readonly _tag: 'ZoomToggle'; readonly paneId: string | null }
   | { readonly _tag: 'RawCommand'; readonly command: string };
 
 // ============================================
@@ -202,8 +210,39 @@ export type ReconcileVerdict =
   | { readonly _tag: 'failed'; readonly reason: string };
 
 /**
- * Stale-op timeout: how long an op can sit in `pending`/`awaiting-confirm`
- * before the store gives up waiting for a matching delta and forces it
- * through the reconciler as `failed`.
+ * Stale-op timeout for UNACKED ops (`pending`): the command may have been
+ * lost in transport — give up quickly so the UI can't wedge on a phantom
+ * prediction.
  */
 export const OP_STALE_TIMEOUT_MS = 2000;
+
+/**
+ * Stale-op timeout for ACKED ops (`awaiting-confirm`): tmux confirmed the
+ * command executed, so the matching delta IS coming — but possibly slowly
+ * (e.g. a new window's `@tmuxy-window-type` tag arrives on a later
+ * list-windows sync, seconds behind on the v86 serial transport). Sweeping
+ * an acked op early makes the confirmed UI blink away and back.
+ */
+export const OP_ACKED_STALE_TIMEOUT_MS = 10000;
+
+/**
+ * Focus ops (SelectPane / Navigate) stay in the log for this long even after
+ * the server confirms them. Stale snapshots computed before the focus change
+ * (an in-flight periodic list-panes sync, an update batched earlier in a
+ * burst) can arrive AFTER the confirmation — with the op already dropped they
+ * would flap the active highlight A → B → A. While the op lingers, its patch
+ * keeps pinning the focus over such stragglers. Sized to outlast the v86
+ * engine's 3s re-sync cadence; superseded/unconfirmed focus ops fall to the
+ * acked-stale sweep.
+ */
+export const FOCUS_CONFIRM_LINGER_MS = 4000;
+
+/**
+ * How long an in-flight focus op holds its pin when the server reports focus
+ * on some THIRD pane (neither our target nor the pane that was active when we
+ * predicted). Below this age the server may simply not have processed our
+ * command yet (rapid multi-click); past it, the change is a genuine
+ * supersession (another client, a nav alias resolving differently) and the
+ * server must win — holding longer would freeze the UI on a stale focus.
+ */
+export const FOCUS_SUPERSEDE_GRACE_MS = 800;

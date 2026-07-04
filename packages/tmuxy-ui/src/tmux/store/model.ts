@@ -7,7 +7,7 @@
  */
 
 import type { TmuxClientModel, TmuxSnapshot, PendingOp, OpId, Patch, TmuxOp } from './types';
-import { EMPTY_SNAPSHOT, OP_STALE_TIMEOUT_MS } from './types';
+import { EMPTY_SNAPSHOT, OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from './types';
 import { reconcile as opReconcile } from './ops';
 
 let opIdCounter = 0;
@@ -122,10 +122,15 @@ export function applyServerSnapshot(
       rolledBack.push({ opId: op.id, op: op.op, reason: 'previously failed' });
       continue;
     }
-    const verdict = opReconcile(op, committed, {
-      panes: claimedPanes,
-      windows: claimedWindows,
-    });
+    const verdict = opReconcile(
+      op,
+      committed,
+      {
+        panes: claimedPanes,
+        windows: claimedWindows,
+      },
+      now,
+    );
     if (verdict._tag === 'matched') {
       matched.push({ opId: op.id, op: op.op, realId: verdict.realId });
       if (verdict.realId) {
@@ -161,12 +166,16 @@ export function applyServerSnapshot(
       rolledBack.push({ opId: op.id, op: op.op, reason: verdict.reason });
       continue;
     }
-    // pending: stale check
-    if (now - op.createdAt > OP_STALE_TIMEOUT_MS) {
+    // pending: stale check. Acked ops (tmux confirmed execution) get a much
+    // longer leash than unacked ones — their matching delta is known to be
+    // coming, just possibly slowly (window-type metadata on a later sync).
+    const staleAfter =
+      op.status === 'awaiting-confirm' ? OP_ACKED_STALE_TIMEOUT_MS : OP_STALE_TIMEOUT_MS;
+    if (now - op.createdAt > staleAfter) {
       rolledBack.push({
         opId: op.id,
         op: op.op,
-        reason: `op stale after ${now - op.createdAt}ms`,
+        reason: `op stale after ${now - op.createdAt}ms (${op.status})`,
       });
       continue;
     }
@@ -244,4 +253,32 @@ export function makePendingOp(args: {
     createdAt: args.now ?? Date.now(),
     status: 'pending',
   };
+}
+
+/**
+ * Drop pending focus pins that a NEWER user intent supersedes. Without this,
+ * a lingering confirmed SelectPane op (kept alive to absorb stale snapshots)
+ * re-pins the OLD focus the moment a later op — e.g. a Split whose placeholder
+ * became the active pane — reconciles out of the log: the user sees focus
+ * flap back to the pre-split pane for up to a second.
+ */
+export function dropSupersededFocusOps(model: TmuxClientModel, newOp: TmuxOp): TmuxClientModel {
+  const paneFocusChanging =
+    newOp._tag === 'Split' ||
+    newOp._tag === 'NewWindow' ||
+    newOp._tag === 'SelectPane' ||
+    newOp._tag === 'Navigate' ||
+    newOp._tag === 'KillPane' ||
+    newOp._tag === 'KillWindow' ||
+    newOp._tag === 'SelectWindow';
+  if (!paneFocusChanging) return model;
+  const windowFocusChanging =
+    newOp._tag === 'SelectWindow' || newOp._tag === 'NewWindow' || newOp._tag === 'KillWindow';
+  const ops = model.ops.filter((o) => {
+    if (o.op._tag === 'SelectPane' || o.op._tag === 'Navigate') return false;
+    if (windowFocusChanging && o.op._tag === 'SelectWindow') return false;
+    return true;
+  });
+  if (ops.length === model.ops.length) return model;
+  return recomputeDerived({ ...model, ops });
 }
