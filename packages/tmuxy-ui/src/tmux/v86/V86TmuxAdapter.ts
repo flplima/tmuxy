@@ -32,7 +32,7 @@ import type {
 } from '../types';
 import { saveThemeToStorage, loadThemeFromStorage } from '../../utils/themeManager';
 import { escapeLiteralText, unescapeLiteralText } from '../keyBatching';
-import { V86Engine, getSharedEngine } from './V86Engine';
+import { V86Engine, getSharedEngine, type EngineSink } from './V86Engine';
 
 // The default tmuxy keybindings (C-a prefix), intercepted client-side by the
 // keyboardActor and dispatched as run_tmux_command — same as the real app.
@@ -55,11 +55,12 @@ const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: 'Down', command: 'select-pane -D', description: 'Pane below' },
     { key: 'Left', command: 'select-pane -L', description: 'Pane left' },
     { key: 'Right', command: 'select-pane -R', description: 'Pane right' },
-    { key: 'H', command: 'resize-pane -L 5', description: 'Resize left' },
-    { key: 'J', command: 'resize-pane -D 5', description: 'Resize down' },
-    { key: 'K', command: 'resize-pane -U 5', description: 'Resize up' },
-    { key: 'L', command: 'resize-pane -R 5', description: 'Resize right' },
+    { key: 'H', command: 'resize-pane -L 5', description: 'Resize left', repeat: true },
+    { key: 'J', command: 'resize-pane -D 5', description: 'Resize down', repeat: true },
+    { key: 'K', command: 'resize-pane -U 5', description: 'Resize up', repeat: true },
+    { key: 'L', command: 'resize-pane -R 5', description: 'Resize right', repeat: true },
     { key: 'S', command: 'setw synchronize-panes', description: 'Sync panes' },
+    { key: '=', command: 'tmuxy-pane-group-add', description: 'Add pane to group' },
     { key: '[', command: 'copy-mode', description: 'Enter copy mode' },
     { key: 'Space', command: 'next-layout', description: 'Next layout' },
     { key: '>', command: 'swap-pane -D', description: 'Swap pane down' },
@@ -162,6 +163,8 @@ export class V86TmuxAdapter implements TmuxAdapter {
   private readonly shared: boolean;
   private readonly initCommands: string[];
   private connected = false;
+  /** The sink this adapter installed on the engine (null when detached). */
+  private sink: EngineSink | null = null;
 
   private stateListeners = new Set<StateListener>();
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
@@ -183,29 +186,37 @@ export class V86TmuxAdapter implements TmuxAdapter {
     // by the reconnect branch — which skips the initial theme + keybindings fetch
     // that only the `connecting` branch performs. The app already shows connecting
     // feedback via its own `connecting` state until connect() resolves.
-    this.engine.setSink({
-      onState: (state) => this.stateListeners.forEach((l) => l(state)),
-      onClipboard: (paneId, text) => this.clipboardListeners.forEach((l) => l(paneId, text)),
-      onFatal: (message) => this.fatalListeners.forEach((l) => l(message)),
-    });
-
     this.connected = true;
     this.connectionInfoListeners.forEach((l) => l(0, 'bash', true));
     this.keyBindingsListeners.forEach((l) => l(DEFAULT_KEYBINDINGS));
 
-    // Shared + already booted → restore the pinned snapshot for a clean, fast
-    // start. Otherwise cold-boot the engine.
-    if (this.engine.isBooted()) {
-      await this.engine.reset(this.initCommands);
-    } else {
-      await this.engine.boot(this.initCommands);
-    }
+    // reset() serializes on the engine's lifecycle queue: it restores the
+    // pinned snapshot when the engine is already booted, cold-boots otherwise,
+    // and queues behind any transition still in flight (a story switch can
+    // call connect() before the previous story's boot/reset finished).
+    await this.engine.reset(this.initCommands);
+
+    // Install our sink only AFTER the reset settled. Installing it before
+    // would let the still-attached PREVIOUS story's core stream its final
+    // states into this adapter's fresh machine (a dead active-window id the
+    // new state never contains — the app then renders zero panes forever).
+    // The engine tracks lastState independently of the sink, so the machine's
+    // get_initial_state still returns the post-reset state.
+    this.sink = {
+      onState: (state) => this.stateListeners.forEach((l) => l(state)),
+      onClipboard: (paneId, text) => this.clipboardListeners.forEach((l) => l(paneId, text)),
+      onFatal: (message) => this.fatalListeners.forEach((l) => l(message)),
+    };
+    this.engine.setSink(this.sink);
   }
 
   disconnect(): void {
     this.connected = false;
-    // Detach our sink so a unmounted story never receives further state.
-    this.engine.setSink(null);
+    // Detach OUR sink so an unmounted story never receives further state —
+    // but never a successor's: this cleanup can run after the next story's
+    // adapter already installed its own sink on the shared engine.
+    if (this.sink) this.engine.clearSink(this.sink);
+    this.sink = null;
     // A private engine is torn down; a shared engine stays alive for reuse.
     if (!this.shared) this.engine.destroy();
   }
@@ -234,16 +245,26 @@ export class V86TmuxAdapter implements TmuxAdapter {
         const wire = toControlModeCommand(command);
         // Hot paths (key input, resizes, paste batches) stay fire-and-forget;
         // everything else is tracked so failures reject like the server adapter
-        // (surfacing TMUX_ERROR and rolling back optimistic ops).
-        if (
-          wire.includes('\n') ||
-          /^(send-keys|refresh-client|select-pane|select-window)\b/.test(wire)
-        ) {
+        // (surfacing TMUX_ERROR and rolling back optimistic ops). A compound is
+        // hot only if EVERY ` ; `-joined segment is — the keyboardActor pins
+        // `select-pane -t %N ; <binding>` to every binding, and classifying by
+        // prefix alone made a rejected split fire-and-forget: the rejection
+        // never surfaced, nothing rolled the placeholder back, and (with no
+        // further state emission) the optimistic pane wedged forever.
+        const isHot =
+          !wire.includes('\n') &&
+          wire
+            .split(' ; ')
+            .every((seg) => /^(send-keys|refresh-client|select-pane|select-window)\b/.test(seg));
+        if (wire.includes('\n') || isHot) {
           this.engine.send(wire);
           return null as T;
         }
         const result = await this.engine.sendTracked(wire);
-        if (!result.ok) throw new Error(result.message || `tmux rejected: ${command}`);
+        // Reject with the `{ error }` shape the Rust backends use so
+        // classifyAdapterError types this as a TmuxError (a real tmux
+        // rejection with stderr), not a generic TransportError.
+        if (!result.ok) throw { error: result.message || `tmux rejected: ${command}` };
         return null as T;
       }
       case 'set_theme': {
@@ -263,7 +284,7 @@ export class V86TmuxAdapter implements TmuxAdapter {
       case 'get_themes_list':
         return BUNDLED_THEMES as T;
       default:
-        // ping / theme / keybindings-snapshot / … — no-op for the spike.
+        // ping / theme / keybindings-snapshot / … — no-op for the v86 adapter.
         return null as T;
     }
   }

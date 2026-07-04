@@ -140,6 +140,17 @@ export class V86Engine {
     this.sink = sink;
   }
 
+  /**
+   * Detach a sink, but ONLY if it is still the current one. On the shared
+   * engine a story's disconnect can run AFTER the next story already installed
+   * its own sink; clearing unconditionally would silence the new story (it
+   * renders zero panes forever). Passing the sink to clear makes late cleanup
+   * a no-op.
+   */
+  clearSink(sink: EngineSink): void {
+    if (this.sink === sink) this.sink = null;
+  }
+
   getLastState(): ServerState {
     return this.lastState;
   }
@@ -148,9 +159,35 @@ export class V86Engine {
     return this.core?.image_url(paneId, imageId);
   }
 
+  /**
+   * Serializes boot/reset so overlapping lifecycle calls can't run two
+   * emulator restores at once. A story switch on the shared engine calls the
+   * next adapter's `connect()` (→ reset) before the previous story's
+   * boot/reset promise has settled; without this queue both would drive
+   * `restore_state`/core-swap concurrently and corrupt the machine. Errors are
+   * swallowed on the chain (so one bad transition doesn't wedge all future
+   * ones) but still propagate to the specific caller that awaited them.
+   */
+  private lifecycle: Promise<void> = Promise.resolve();
+  private enqueue(op: () => Promise<void>): Promise<void> {
+    const next = this.lifecycle.then(op, op);
+    this.lifecycle = next.catch(() => {});
+    return next;
+  }
+
   /** Cold boot: load wasm, create the emulator, register the persistent serial
-   *  pump + timers, then attach + sync + run `initCommands`. Call once. */
-  async boot(initCommands: string[]): Promise<void> {
+   *  pump + timers, then attach + sync + run `initCommands`. Serialized. */
+  boot(initCommands: string[]): Promise<void> {
+    return this.enqueue(() => this.doBoot(initCommands));
+  }
+
+  /** Reuse path: restore the pinned snapshot, install a fresh core, re-attach.
+   *  Serialized behind any in-flight boot/reset. */
+  reset(initCommands: string[]): Promise<void> {
+    return this.enqueue(() => this.doReset(initCommands));
+  }
+
+  private async doBoot(initCommands: string[]): Promise<void> {
     const wasm = (await import(/* @vite-ignore */ WASM_JS)) as unknown as WasmModule;
     await wasm.default(WASM_BG);
     this.wasmModule = wasm;
@@ -244,8 +281,15 @@ export class V86Engine {
     if (typeof DecompressionStream !== 'undefined') {
       const res = await fetch(STATE_GZ_URL);
       if (res.ok && res.body) {
-        const inflated = res.body.pipeThrough(new DecompressionStream('gzip'));
-        const bytes = await new Response(inflated).arrayBuffer();
+        // If the server declared `Content-Encoding: gzip` the browser already
+        // inflated the body — piping it through DecompressionStream again would
+        // double-inflate and corrupt the snapshot. Only inflate ourselves when
+        // the bytes are still compressed.
+        const alreadyInflated = /gzip/i.test(res.headers.get('content-encoding') ?? '');
+        const stream = alreadyInflated
+          ? res.body
+          : res.body.pipeThrough(new DecompressionStream('gzip'));
+        const bytes = await new Response(stream).arrayBuffer();
         this.snapshotBytes = bytes;
         return bytes;
       }
@@ -255,10 +299,10 @@ export class V86Engine {
     return raw;
   }
 
-  /** Reuse path: restore the pinned snapshot, install a fresh core, re-attach.
-   *  Gives each story an identical clean starting state on a shared instance. */
-  async reset(initCommands: string[]): Promise<void> {
-    if (!this.emu || !this.wasmModule) return this.boot(initCommands);
+  private async doReset(initCommands: string[]): Promise<void> {
+    // Call doBoot directly (not boot) — we're already inside the lifecycle
+    // queue, and re-enqueuing would deadlock behind ourselves.
+    if (!this.emu || !this.wasmModule) return this.doBoot(initCommands);
     // Stop feeding the (old) core while the machine rewinds.
     this.attached = false;
     this.byteBuf = '';
@@ -278,20 +322,31 @@ export class V86Engine {
    *  boot that must finish bringing tmux up. */
   private async start(initCommands: string[], warm: boolean): Promise<void> {
     if (!this.emu || !this.core) return;
-    const firstState = new Promise<void>((r) => (this.resolveFirstState = r));
     await wait(warm ? 400 : 1500);
-    this.attached = true;
-    this.send(ATTACH);
-    await wait(warm ? 500 : 1000);
-    this.send('refresh-client -C 80x24');
-    // Bootstrap the guest so app-issued helper-script paths + command-aliases
-    // resolve (see GUEST_SETUP).
-    for (const cmd of GUEST_SETUP) this.send(cmd);
-    // tmux doesn't replay list-panes/list-windows on attach; request them so the
-    // active window/pane populate (drives active-pane style + cursor).
-    for (const cmd of this.core.initial_sync()) this.send(cmd);
+    // The attach is RETRIED when no state arrives: the emulated UART can drop
+    // bytes right after a snapshot restore, and a mangled attach line would
+    // otherwise leave the story dead forever (an idle guest emits nothing, so
+    // there is no later event to recover on). A retry's stray text lands either
+    // on the shell prompt (errors harmlessly) or in control-mode stdin (an
+    // unknown-command %error) — both tolerated by the parser.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const firstState = new Promise<void>((r) => (this.resolveFirstState = r));
+      this.attached = true;
+      this.send(ATTACH);
+      await wait(warm ? 500 : 1000);
+      this.send('refresh-client -C 80x24');
+      // Bootstrap the guest so app-issued helper-script paths + command-aliases
+      // resolve (see GUEST_SETUP).
+      for (const cmd of GUEST_SETUP) this.send(cmd);
+      // tmux doesn't replay list-panes/list-windows on attach; request them so
+      // the active window/pane populate (drives active-pane style + cursor).
+      for (const cmd of this.core.initial_sync()) this.send(cmd);
+      await Promise.race([firstState, wait(attempt === 0 ? 8000 : 6000)]);
+      if (this.lastState.panes.length > 0) break;
+    }
+    // Init commands only once, after the attach demonstrably works — a resend
+    // would duplicate their effects (an extra split-window, say).
     for (const cmd of initCommands) this.send(cmd);
-    await Promise.race([firstState, wait(8000)]);
   }
 
   /** Re-request the full window/pane list (used after switch-session). */
@@ -322,6 +377,10 @@ export class V86Engine {
       this.updateStats[update.type === 'full' ? 'full' : 'delta'] += 1;
     }
     const state = this.core.snapshot();
+    // serde-wasm-bindgen serializes Option::None as `undefined`; the wire
+    // schema (and the strict get_initial_state decode) expects `null`.
+    state.active_window_id ??= null;
+    state.active_pane_id ??= null;
     this.lastState = state;
     this.sink?.onState(state);
     if (state.panes.length > 0 && this.resolveFirstState) {
@@ -383,7 +442,15 @@ export class V86Engine {
 
   /** Queue a control-mode command; streamed to the guest byte-paced. */
   send(cmd: string): void {
-    this.byteBuf += cmd.endsWith('\n') ? cmd : `${cmd}\n`;
+    const text = cmd.endsWith('\n') ? cmd : `${cmd}\n`;
+    // Enqueue as UTF-8: v86's serial0_send writes one byte per JS char
+    // (charCode & 0xFF), so multibyte characters (CJK from IME composition,
+    // emoji in pasted text) must be expanded to their UTF-8 bytes here — and
+    // the FIFO pacing below must count BYTES, not UTF-16 units.
+    const utf8 = new TextEncoder().encode(text);
+    let bin = '';
+    for (const b of utf8) bin += String.fromCharCode(b);
+    this.byteBuf += bin;
     this.drainQueue();
   }
 
