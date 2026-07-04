@@ -42,7 +42,7 @@ import {
 } from './animationObservers';
 
 const meta: Meta<typeof AppHarness> = {
-  title: 'App/Animations',
+  title: 'Mocked App/Animations',
   component: AppHarness,
   parameters: {
     layout: 'fullscreen',

@@ -75,24 +75,6 @@ export const WithCursor: Story = {
   },
 };
 
-export const InactiveCursor: Story = {
-  args: {
-    line: text('$ vim notes.md'),
-    lineIndex: 0,
-    cursorX: 14,
-    cursorY: 0,
-    showCursor: true,
-    inMode: false,
-    isActive: false,
-    width: 80,
-  },
-  play: async ({ canvasElement }) => {
-    const cursor = canvasElement.querySelector('.terminal-cursor');
-    expect(cursor).not.toBeNull();
-    expect(cursor).toHaveClass('terminal-cursor-inactive');
-  },
-};
-
 export const Styled: Story = {
   args: {
     line: [

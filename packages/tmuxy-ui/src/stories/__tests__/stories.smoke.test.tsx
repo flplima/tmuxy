@@ -30,20 +30,24 @@ import * as previewAnnotations from '../../../.storybook/preview';
 // Pure-component stories (no AppContext needed)
 import * as ConnectionStatusStories from '../../components/ConnectionStatus.stories';
 import * as ModalStories from '../../components/Modal.stories';
-import * as RichContentStories from '../../components/RichContent.stories';
 import * as CursorStories from '../../components/Cursor.stories';
 import * as TerminalLineStories from '../../components/TerminalLine.stories';
+import * as TmuxyMarkdownStories from '../../components/widgets/TmuxyMarkdown.stories';
+import * as MermaidBlockStories from '../../components/widgets/MermaidBlock.stories';
+import * as TmuxyImageStories from '../../components/widgets/TmuxyImage.stories';
 
 // Provider-backed stories (need the full machine + DemoAdapter)
 import * as StatusBarStories from '../../components/StatusBar.stories';
 import * as WindowTabsStories from '../../components/WindowTabs.stories';
 import * as TmuxStatusBarStories from '../../components/TmuxStatusBar.stories';
-import * as FilePickerStories from '../../components/FilePicker.stories';
 import * as PaneHeaderStories from '../../components/PaneHeader.stories';
 import * as FloatPaneStories from '../../components/FloatPane.stories';
 import * as ImageProtocolsStories from '../../components/ImageProtocols.stories';
+import * as AppMenuStories from '../../components/menus/AppMenu.stories';
+import * as PaneContextMenuStories from '../../components/PaneContextMenu.stories';
+import * as ResizeDividersStories from '../../components/ResizeDividers.stories';
 // App/Application is now driven by real tmux (v86 + WASM) and can't boot in
-// jsdom — it's a `spike` story exercised by a dedicated browser e2e instead.
+// jsdom — it's a `v86` story exercised by a dedicated browser e2e instead.
 
 beforeAll(() => {
   setProjectAnnotations([previewAnnotations.default]);
@@ -78,19 +82,23 @@ afterEach(() => {
 const PURE_STORY_MODULES: Record<string, StoryModule> = {
   ConnectionStatus: ConnectionStatusStories,
   Modal: ModalStories,
-  RichContent: RichContentStories,
   Cursor: CursorStories,
   TerminalLine: TerminalLineStories,
+  TmuxyMarkdown: TmuxyMarkdownStories,
+  MermaidBlock: MermaidBlockStories,
+  TmuxyImage: TmuxyImageStories,
 };
 
 const PROVIDER_STORY_MODULES: Record<string, StoryModule> = {
   StatusBar: StatusBarStories,
   WindowTabs: WindowTabsStories,
   TmuxStatusBar: TmuxStatusBarStories,
-  FilePicker: FilePickerStories,
   PaneHeader: PaneHeaderStories,
   FloatPane: FloatPaneStories,
   ImageProtocols: ImageProtocolsStories,
+  AppMenu: AppMenuStories,
+  PaneContextMenu: PaneContextMenuStories,
+  ResizeDividers: ResizeDividersStories,
 };
 
 describe('Pure component stories', () => {

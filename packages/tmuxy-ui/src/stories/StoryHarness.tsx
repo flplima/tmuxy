@@ -3,7 +3,7 @@
  * can render against a live XState machine without booting the real backend.
  *
  * Components that read from useAppSelector / useAppSend need this wrapper.
- * Pure presentational components (Modal, RichContent, ConnectionStatus) do
+ * Pure presentational components (Modal, ConnectionStatus) do
  * not.
  */
 
@@ -87,7 +87,7 @@ export function AppHarness({
  * Renders the full TmuxyApp against REAL tmux — running inside a v86 x86
  * emulator, parsed by the tmuxy-core Rust engine compiled to WASM. No lifo.sh,
  * no simulation. Boots from a pre-restored snapshot (~4s); browser-only, so
- * these stories are `spike`-tagged and excluded from the deterministic CI probe.
+ * these stories are `v86`-tagged and excluded from the deterministic CI probe.
  */
 export function V86AppHarness({
   initCommands,

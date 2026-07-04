@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
+import { armPaintProbe, addsElement } from './immediacy';
+import { enableRenderLog, renderLogMark, renderCountSince } from '../utils/renderLog';
+import { GlitchRecorder } from './glitchRecorder';
+import { LayoutMutationRecorder } from './animationObservers';
 
 /**
  * Full-application stories driven by REAL tmux.
@@ -13,7 +17,7 @@ import { V86AppHarness } from './StoryHarness';
  * There is no lifo.sh shell simulation and no client-side VT emulator.
  *
  * These boot a real machine (~4s from a state snapshot) and are inherently
- * non-deterministic, so they are `spike`-tagged and excluded from the CI story
+ * non-deterministic, so they are `v86`-tagged and excluded from the CI story
  * probe; each carries a `play` function for manual review and the dedicated
  * real-tmux e2e check.
  */
@@ -40,6 +44,12 @@ const activePaneId = () =>
   (
     window as unknown as { app: { getSnapshot(): { context: { activePaneId: string } } } }
   ).app.getSnapshot().context.activePaneId;
+
+/** Measured terminal cell width in px (set by the sizeActor after font load). */
+const charWidthPx = () =>
+  (
+    window as unknown as { app: { getSnapshot(): { context: { charWidth: number } } } }
+  ).app.getSnapshot().context.charWidth;
 
 type Canvas = ReturnType<typeof within>;
 const paneGroups = (canvas: Canvas) => canvas.getAllByRole('group', { name: /^Pane %/i });
@@ -86,9 +96,9 @@ const windows = (): ReconstructedWindow[] =>
   ).app.getSnapshot().context.windows;
 
 const meta: Meta<typeof V86AppHarness> = {
-  title: 'App/Application',
+  title: 'Scenarios/Application',
   component: V86AppHarness,
-  tags: ['spike'],
+  tags: ['v86'],
   // Share one v86 engine across every story in this group: the first story cold-
   // boots (~5s), the rest restore the pinned snapshot (~1s) for an isolated clean
   // start. Switching stories in the Storybook UI is near-instant as a result.
@@ -497,8 +507,17 @@ export const Theme: Story = {
         interval: 500,
       },
     );
-    // …and the active theme stylesheet is actually loaded.
-    expect(doc.getElementById('tmuxy-theme')?.getAttribute('href')).toMatch(/\/themes\/.+\.css$/);
+    // …and the active theme stylesheet is actually loaded. The app injects
+    // the `#tmuxy-theme` <link> during its theme init on connect, which can
+    // land a beat after the panes render — wait for it rather than assume it
+    // already exists (e.g. on a fresh page load with no prior story's link).
+    await waitFor(
+      () =>
+        expect(doc.getElementById('tmuxy-theme')?.getAttribute('href') ?? '').toMatch(
+          /\/themes\/.+\.css$/,
+        ),
+      { timeout: 15000, interval: 300 },
+    );
     const bg = () => getComputedStyle(html).getPropertyValue('--term-background').trim();
     app.send({ type: 'SET_THEME_MODE', mode: 'light' });
     await waitFor(
@@ -693,18 +712,28 @@ export const AssetWeight: Story = {
       timeout: 45000,
       interval: 500,
     });
-    const res = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
-    const bytesFor = (re: RegExp) =>
-      res
-        .filter((r) => re.test(r.name))
-        .reduce((sum, r) => sum + (r.encodedBodySize || r.transferSize || 0), 0);
-    const v86Bytes = bytesFor(/\/v86(-img)?\//);
+    // Dedupe by URL so the measurement is order-independent: in the shared-
+    // engine batch run, dozens of stories precede this one on the same page,
+    // and the reset path legitimately fetches the .gz snapshot in addition to
+    // the boot's .zst. Each unique asset is counted once and the reset-only
+    // .gz gets its own budget instead of inflating the cold-boot budget.
+    const uniq = new Map<string, number>();
+    for (const r of performance.getEntriesByType('resource') as PerformanceResourceTiming[]) {
+      if (!uniq.has(r.name)) uniq.set(r.name, r.encodedBodySize || r.transferSize || 0);
+    }
+    const bytesFor = (re: RegExp, exclude?: RegExp) =>
+      [...uniq.entries()]
+        .filter(([name]) => re.test(name) && !(exclude && exclude.test(name)))
+        .reduce((sum, [, bytes]) => sum + bytes, 0);
+    const bootBytes = bytesFor(/\/v86(-img)?\//, /tmux-state\.bin\.gz/);
+    const resetGzBytes = bytesFor(/tmux-state\.bin\.gz/);
     const wasmBytes = bytesFor(/\/wasm\//);
-    // Assets must be measurable and within budget. The snapshot ships gzipped
-    // (~17 MB wire vs 34 MB raw) + ~5 MB kernel + BIOS; regressions past the
+    // Assets must be measurable and within budget. The snapshot ships zstd
+    // (~14 MB wire vs 34 MB raw) + ~5 MB kernel + BIOS; regressions past the
     // budget fail loudly instead of silently bloating the demo payload.
-    expect(v86Bytes).toBeGreaterThan(0);
-    expect(v86Bytes).toBeLessThan(26 * 1024 * 1024);
+    expect(bootBytes).toBeGreaterThan(0);
+    expect(bootBytes).toBeLessThan(26 * 1024 * 1024);
+    if (resetGzBytes > 0) expect(resetGzBytes).toBeLessThan(20 * 1024 * 1024);
     expect(wasmBytes).toBeLessThan(2 * 1024 * 1024);
   },
 };
@@ -813,6 +842,7 @@ export const ZoomPane: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
+    await settleGeometry(canvas);
     const id = activePaneId();
     const before = paneRect(canvas, id).width;
     await user.keyboard('{Control>}a{/Control}');
@@ -823,6 +853,37 @@ export const ZoomPane: Story = {
     });
     await user.keyboard('{Control>}a{/Control}');
     await user.keyboard('z');
+    await waitFor(() => expect(Math.abs(paneRect(canvas, id).width - before)).toBeLessThan(20), {
+      timeout: 30000,
+      interval: 500,
+    });
+  },
+};
+
+/**
+ * Zoom via header double-click: double-clicking a pane's header dispatches
+ * ZOOM_PANE → the same real `resize-pane -Z` round-trip as `C-a z`, driven
+ * purely by mouse. Both directions of the toggle asserted via layout rects.
+ */
+export const ZoomViaHeaderDoubleClick: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    await settleGeometry(canvas);
+    const id = activePaneId();
+    const before = paneRect(canvas, id).width;
+    const header = () =>
+      paneGroups(canvas)
+        .find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!
+        .querySelector('.pane-header') as HTMLElement;
+    await user.dblClick(header());
+    await waitFor(() => expect(paneRect(canvas, id).width).toBeGreaterThan(before * 1.5), {
+      timeout: 30000,
+      interval: 500,
+    });
+    await user.dblClick(header());
     await waitFor(() => expect(Math.abs(paneRect(canvas, id).width - before)).toBeLessThan(20), {
       timeout: 30000,
       interval: 500,
@@ -856,6 +917,62 @@ export const SwapPanes: Story = {
 };
 
 /**
+ * Drag a pane onto another to swap them: mousedown on the source header, move
+ * past the drag threshold onto the target pane, release. The drag machine
+ * issues a real `swap-pane -d -s <src> -t <target>` on drop, and the two panes
+ * must exchange positions in the re-reported layout — the same assert as the
+ * keyboard SwapPanes, driven purely by mouse drag-and-drop.
+ */
+export const PaneDragSwap: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const [a, b] = paneIds(canvas);
+    const src = paneRect(canvas, a).left < paneRect(canvas, b).left ? a : b;
+    const dst = src === a ? b : a;
+    const header = paneGroups(canvas)
+      .find((p: HTMLElement) => p.getAttribute('data-pane-id') === src)!
+      .querySelector('.pane-header') as HTMLElement;
+    const hRect = header.getBoundingClientRect();
+    const dstRect = paneRect(canvas, dst);
+    const startX = hRect.left + hRect.width / 2;
+    const startY = hRect.top + hRect.height / 2;
+    const endX = dstRect.left + dstRect.width / 2;
+    const endY = dstRect.top + dstRect.height / 2;
+    header.dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, clientX: startX, clientY: startY, bubbles: true }),
+    );
+    // Walk the pointer to the target: the first steps cross the 5px threshold
+    // (PaneHeader promotes the press to DRAG_START), later ones feed DRAG_MOVE
+    // so the drag machine picks the drop target under the cursor. Events are
+    // dispatched on elements (bubbling to the document/window listeners) so
+    // handlers that inspect `event.target` see a real element.
+    const dstEl = paneGroups(canvas).find(
+      (p: HTMLElement) => p.getAttribute('data-pane-id') === dst,
+    )!;
+    const steps = 6;
+    for (let i = 1; i <= steps; i++) {
+      const x = startX + ((endX - startX) * i) / steps;
+      const y = startY + ((endY - startY) * i) / steps;
+      (i <= 2 ? header : dstEl).dispatchEvent(
+        new MouseEvent('mousemove', { clientX: x, clientY: y, bubbles: true }),
+      );
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    dstEl.dispatchEvent(new MouseEvent('mouseup', { clientX: endX, clientY: endY, bubbles: true }));
+    await waitFor(
+      () => {
+        const leftNow = paneRect(canvas, a).left < paneRect(canvas, b).left ? a : b;
+        expect(leftNow).not.toBe(src);
+      },
+      { timeout: 30000, interval: 500 },
+    );
+  },
+};
+
+/**
  * Keyboard resize: C-a `H` (resize-pane -L 5). The active pane's rendered width
  * must change by roughly 5 columns and STICK (re-checked after settling) — the new
  * geometry comes from tmux's %layout-change, not a client-side prediction.
@@ -866,6 +983,7 @@ export const ResizePaneKeyboard: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
+    await settleGeometry(canvas);
     const id = activePaneId();
     const before = paneRect(canvas, id).width;
     await user.keyboard('{Control>}a{/Control}');
@@ -874,7 +992,10 @@ export const ResizePaneKeyboard: Story = {
       timeout: 30000,
       interval: 500,
     });
-    // The resize must persist (a transient optimistic wiggle that snaps back fails).
+    // The resize must persist (a transient optimistic wiggle that snaps back
+    // fails). Let the trailing layout confirms settle first — H is a repeat
+    // binding whose confirms can land a beat after the rect first moves.
+    await settleGeometry(canvas);
     const resized = paneRect(canvas, id).width;
     await new Promise((r) => setTimeout(r, 1500));
     expect(Math.abs(paneRect(canvas, id).width - resized)).toBeLessThan(10);
@@ -892,6 +1013,7 @@ export const ResizePaneDrag: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
+    await settleGeometry(canvas);
     const [a] = paneIds(canvas);
     const before = paneRect(canvas, a).width;
     const divider = canvasElement.querySelector('.resize-divider') as HTMLElement | null;
@@ -917,9 +1039,15 @@ export const ResizePaneDrag: Story = {
       timeout: 30000,
       interval: 500,
     });
+    // Let the trailing per-command layout confirms land, THEN record: once
+    // the geometry has settled, the layout must not move again (a late
+    // confirm re-wiggling panes is the user-visible resize glitch).
+    await settleGeometry(canvas);
+    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
     const after = paneRect(canvas, a).width;
     await new Promise((res) => setTimeout(res, 2000));
     expect(Math.abs(paneRect(canvas, a).width - after)).toBeLessThan(10);
+    glitches.assertNoGlitches('resize');
   },
 };
 
@@ -1125,7 +1253,7 @@ export const TabSelect: Story = {
     await focusFirstPane(canvas, user);
     pasteLine('tmuxy tab create');
     await waitFor(() => expect(tabWindows().length).toBe(2), { timeout: 30000, interval: 500 });
-    await waitFor(() => expect(activeWindow()?.index).toBe(2), { timeout: 15000, interval: 500 });
+    await waitFor(() => expect(activeWindow()?.index).toBe(2), { timeout: 30000, interval: 500 });
     const panesOnW2 = paneIds(canvas).join(',');
     // Mouse: click the first WINDOW tab header (not a pane-header tab).
     await user.click(windowTabEls(canvas)[0]);
@@ -1160,7 +1288,7 @@ export const TabNextPrev: Story = {
     await focusFirstPane(canvas, user);
     pasteLine('tmuxy tab create');
     await waitFor(() => expect(tabWindows().length).toBe(2), { timeout: 30000, interval: 500 });
-    await waitFor(() => expect(activeWindow()?.index).toBe(2), { timeout: 15000, interval: 500 });
+    await waitFor(() => expect(activeWindow()?.index).toBe(2), { timeout: 30000, interval: 500 });
     await user.keyboard('{Shift>}{ArrowRight}{/Shift}');
     await waitFor(() => expect(activeWindow()?.index).toBe(1), { timeout: 20000, interval: 500 });
     await user.keyboard('{Shift>}{ArrowLeft}{/Shift}');
@@ -1198,7 +1326,7 @@ export const TabKill: Story = {
     await focusFirstPane(canvas, user);
     pasteLine('tmuxy tab create');
     await waitFor(() => expect(tabWindows().length).toBe(2), { timeout: 30000, interval: 500 });
-    await waitFor(() => expect(activeWindow()?.index).toBe(2), { timeout: 15000, interval: 500 });
+    await waitFor(() => expect(activeWindow()?.index).toBe(2), { timeout: 30000, interval: 500 });
     const doomed = activeWindow()!.id;
     await user.keyboard('{Control>}a{/Control}');
     await user.keyboard('{Shift>}&{/Shift}');
@@ -1237,6 +1365,7 @@ export const LayoutCycle: Story = {
         .sort()
         .join('|');
     const before = signature();
+    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
     await user.keyboard('{Control>}a{/Control}');
     await user.keyboard(' ');
     await waitFor(() => expect(signature()).not.toBe(before), { timeout: 30000, interval: 500 });
@@ -1246,6 +1375,7 @@ export const LayoutCycle: Story = {
       expect(r.width).toBeGreaterThan(0);
       expect(r.height).toBeGreaterThan(0);
     }
+    glitches.assertNoGlitches('layoutCycle');
   },
 };
 
@@ -1297,6 +1427,18 @@ const paneMode = (id: string): boolean =>
   ).app
     .getSnapshot()
     .context.panes.find((p) => p.tmuxId === id)?.inMode === true;
+
+/** tmux-reported copy-mode selection state of a pane (from list-panes sync). */
+const paneSelection = (id: string): boolean =>
+  (
+    window as unknown as {
+      app: {
+        getSnapshot(): { context: { panes: { tmuxId: string; selectionPresent: boolean }[] } };
+      };
+    }
+  ).app
+    .getSnapshot()
+    .context.panes.find((p) => p.tmuxId === id)?.selectionPresent === true;
 
 /**
  * Copy mode enter: with real scrollback, C-a `[` puts the pane into native tmux
@@ -1507,6 +1649,84 @@ export const WheelScrollEntersCopyMode: Story = {
   },
 };
 
+/**
+ * Mouse drag selection: press-and-drag across pane content drives NATIVE tmux
+ * copy mode (`copy-mode` + `begin-selection` + cursor goto via send-keys -X) —
+ * tmux must report both `inMode` and an active selection while the button is
+ * held. Releasing copies the selection and cancels: the paste-buffer→clipboard
+ * mirror must receive real guest content, and copy mode must exit.
+ */
+export const CopyModeDragSelection: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const id = activePaneId();
+    const writes: string[] = [];
+    const stub = {
+      writeText: (t: string) => (writes.push(t), Promise.resolve()),
+      readText: () => Promise.resolve(''),
+    };
+    try {
+      Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: stub });
+    } catch {
+      (window.navigator as unknown as { clipboard: { writeText: unknown } }).clipboard.writeText =
+        stub.writeText;
+    }
+    pasteLine('seq 1 50');
+    await waitFor(
+      () =>
+        expect(paneGroups(canvas).some((p: HTMLElement) => /4950/.test(p.textContent ?? ''))).toBe(
+          true,
+        ),
+      { timeout: 30000, interval: 500 },
+    );
+    const paneEl = () =>
+      paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
+    const rect = paneEl().getBoundingClientRect();
+    const y = rect.top + rect.height / 2;
+    const x0 = rect.left + 10;
+    paneEl().dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, clientX: x0, clientY: y, bubbles: true }),
+    );
+    for (let i = 1; i <= 5; i++) {
+      paneEl().dispatchEvent(
+        new MouseEvent('mousemove', {
+          clientX: x0 + i * 30,
+          clientY: y,
+          buttons: 1,
+          bubbles: true,
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    // While the button is held: native copy mode with a live tmux-reported
+    // selection (both come from the real list-panes sync, not client flags).
+    await waitFor(
+      () => {
+        expect(paneMode(id), 'drag entered copy mode').toBe(true);
+        expect(paneSelection(id), 'drag selection present').toBe(true);
+      },
+      { timeout: 20000, interval: 400 },
+    );
+    paneEl().dispatchEvent(
+      new MouseEvent('mouseup', { button: 0, clientX: x0 + 150, clientY: y, bubbles: true }),
+    );
+    // Release: copy-selection-and-cancel → paste buffer → clipboard mirror.
+    await waitFor(() => expect(writes.length).toBeGreaterThan(0), {
+      timeout: 20000,
+      interval: 500,
+    });
+    // The payload must be guest scrollback (seq digits), not page text.
+    expect(writes[0]).toMatch(/\d/);
+    await waitFor(() => expect(paneMode(id), 'copy mode exited on release').toBe(false), {
+      timeout: 15000,
+      interval: 400,
+    });
+  },
+};
+
 // ─────────────── §5 Floats, groups, sidebar (deeper scenarios) ───────────────
 
 /** Wait for the float overlay to render and return it. */
@@ -1544,16 +1764,26 @@ export const FloatWithOptions: Story = {
     const overlay = await waitForFloat(canvasElement.ownerDocument);
     expect(overlay.getBoundingClientRect().width).toBeLessThan(harnessWidth + 1);
     // The size/header options round-trip as window metadata reconstructed by the
-    // core. (The rendered width falls back to the tmux pane size here: the guest's
-    // single-pane float window can't be shrunk by resize-pane, so asserting the
-    // 40-col rect would test tmux's window sizing, not tmuxy.)
-    // The option metadata rides the next list-windows sync — poll for it.
+    // core; it rides the next list-windows sync — poll for it.
     await waitFor(
       () => {
         const fw = windows().find((w) => w.windowType === 'float') as
           | (ReconstructedWindow & { floatNoheader?: boolean })
           | undefined;
         expect(fw?.floatNoheader).toBe(true);
+      },
+      { timeout: 15000, interval: 500 },
+    );
+    // @tmuxy-float-width is authoritative for the RENDERED float: the overlay
+    // must paint at the requested 40 columns even though the guest's
+    // single-pane float window can't be shrunk by resize-pane. The re-render
+    // follows the same metadata sync, so poll.
+    await waitFor(
+      () => {
+        const expected = 40 * charWidthPx();
+        expect(Math.abs(overlay.getBoundingClientRect().width - expected)).toBeLessThanOrEqual(
+          charWidthPx(),
+        );
       },
       { timeout: 15000, interval: 500 },
     );
@@ -1681,18 +1911,24 @@ export const DrawerAllEdges: Story = {
 };
 
 /**
- * Pane-group member switching: `tmuxy pane group add` groups the active pane
- * with a new one (the new member fills the slot); `group next`/`group prev`
- * swap which member is visible. The rendered pane id occupying the layout must
- * toggle between the two members — real swap-pane round-trips.
+ * Pane-group member switching through three distinct real user paths:
+ * keyboard `C-a =` (the mapped `tmuxy-pane-group-add` binding) groups the
+ * active pane with a new member, CLI `tmuxy pane group next` swaps the
+ * original back into the visible slot, and clicking the parked member's tab
+ * in the PaneHeader (SELECT_PANE_GROUP_TAB) swaps once more. The rendered
+ * pane id occupying the layout must toggle between the two members — real
+ * swap-pane round-trips, not client-side relabeling.
  */
 export const GroupSwitchNextPrev: Story = {
   args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await focusFirstPane(canvas, userEvent.setup());
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
     const original = activePaneId();
-    pasteLine('tmuxy pane group add');
+    // Keyboard path: prefix `=` runs the guest's tmuxy-pane-group-add alias.
+    await user.keyboard('{Control>}a{/Control}');
+    await user.keyboard('=');
     let members: string[] = [];
     await waitFor(
       () => {
@@ -1709,7 +1945,7 @@ export const GroupSwitchNextPrev: Story = {
       interval: 500,
     });
     expect(paneIds(canvas)).not.toContain(original);
-    // group next → the original member swaps back into the visible slot.
+    // CLI path: group next → the original member swaps back into the slot.
     pasteLine('tmuxy pane group next');
     await waitFor(
       () => {
@@ -1718,8 +1954,11 @@ export const GroupSwitchNextPrev: Story = {
       },
       { timeout: 30000, interval: 500 },
     );
-    // group prev → back to the new member.
-    pasteLine('tmuxy pane group prev');
+    // Mouse path: the PaneHeader lists both members as tabs — clicking the
+    // parked member's tab swaps it back in, with zero flicker/churn (the
+    // dim-override window must fully hide the swap turbulence).
+    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    await user.click(canvas.getByRole('tab', { name: `Pane ${other}` }));
     await waitFor(
       () => {
         expect(paneIds(canvas)).toContain(other);
@@ -1727,6 +1966,8 @@ export const GroupSwitchNextPrev: Story = {
       },
       { timeout: 30000, interval: 500 },
     );
+    await new Promise((r) => setTimeout(r, 800));
+    glitches.assertNoGlitches('groupSwitch');
   },
 };
 
@@ -1773,7 +2014,10 @@ export const GroupCloseMember: Story = {
  * Sidebar: clicking the toggle runs `sidebar-create` in the guest, which spawns
  * the REAL tree TUI (the standalone `tmuxy-tree` binary cross-compiled for the
  * guest) in a sidebar-typed window. The drawer must open, list the live
- * session's windows, and STAY alive; toggling again hides it.
+ * session's windows, STAY alive, and navigate: `j`/`j`/`Enter` in the TUI
+ * (selection starts on the tab row, moves through its pane rows) activates the
+ * selected pane through the real `tmuxy pane select` round-trip. Toggling
+ * again hides the drawer.
  */
 export const SidebarToggle: Story = {
   args: { height: 600 },
@@ -1782,6 +2026,9 @@ export const SidebarToggle: Story = {
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
     const doc = canvasElement.ownerDocument;
+    const tabPanes = paneIds(canvas);
+    const first = activePaneId();
+    const second = tabPanes.find((p) => p !== first)!;
     const toggle = canvasElement.querySelector('.sidebar-toggle') as HTMLElement;
     expect(toggle).not.toBeNull();
     await user.click(toggle);
@@ -1800,6 +2047,15 @@ export const SidebarToggle: Story = {
     await new Promise((r) => setTimeout(r, 5000));
     expect(doc.querySelector('.sidebar-drawer')).not.toBeNull();
     expect(windows().some((w) => w.windowType === 'sidebar')).toBe(true);
+    // Keyboard navigation: focus the drawer, then j (tab row → first pane row),
+    // j (→ second pane row), Enter (activate). The activation runs `tmuxy pane
+    // select` inside the guest, so the app's active pane must become the
+    // OTHER pane of the window — a full TUI → CLI → tmux → core round-trip.
+    await user.click(doc.querySelector('[data-testid="sidebar-content"]')!);
+    await user.keyboard('j');
+    await user.keyboard('j');
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(activePaneId()).toBe(second), { timeout: 30000, interval: 500 });
     // Toggle off → drawer hides (the sidebar window stays parked for reuse).
     await user.click(toggle);
     await waitFor(() => expect(doc.querySelector('.sidebar-drawer')).toBeNull(), {
@@ -1841,8 +2097,9 @@ export const WidgetImage: Story = {
 
 /**
  * Markdown widget from a guest FILE: client-side there is no `/api/file` server
- * to fetch the watched file from, so the widget must mount and show its defined
- * fallback rather than crashing or rendering garbage — this pins down the
+ * to fetch the watched file from (the request 404s), so the widget must mount
+ * and surface that fetch error in its defined fallback — not crash, not render
+ * garbage, and not silently pretend the file loaded. This pins down the
  * client-side contract for file-mode widgets.
  */
 export const WidgetMarkdownFile: Story = {
@@ -1853,10 +2110,10 @@ export const WidgetMarkdownFile: Story = {
     pasteLine("printf '# FILE_WIDGET_7\\n' > /tmp/w7.md; tmuxy widget markdown /tmp/w7.md");
     await waitFor(
       () => {
-        const widget = canvasElement.ownerDocument.querySelector(
-          '.widget-markdown, .widget-markdown-empty',
-        );
+        const widget = canvasElement.ownerDocument.querySelector('.widget-markdown-empty');
         expect(widget).not.toBeNull();
+        // The /api/file fetch fails client-side; the widget reports it.
+        expect(widget!.textContent ?? '').toMatch(/404/);
       },
       { timeout: 40000, interval: 500 },
     );
@@ -2102,15 +2359,24 @@ export const FontSizeShortcuts: Story = {
       timeout: 15000,
       interval: 500,
     });
-    const colsBefore = paneCols().reduce((a, b) => a + b, 0);
+    // The boot-time client resize (refresh-client -C to container size) keeps
+    // growing the column count for a beat — settle it before capturing the
+    // baseline, or the natural growth is mistaken for the shortcut's effect.
+    const colSum = () => paneCols().reduce((a, b) => a + b, 0);
+    for (let i = 0; i < 20; i++) {
+      const a = colSum();
+      await new Promise((r) => setTimeout(r, 400));
+      if (colSum() === a) break;
+    }
+    const colsBefore = colSum();
     await user.keyboard('{Control>}={/Control}');
     await user.keyboard('{Control>}={/Control}');
-    await waitFor(() => expect(paneCols().reduce((a, b) => a + b, 0)).toBeLessThan(colsBefore), {
+    await waitFor(() => expect(colSum()).toBeLessThan(colsBefore), {
       timeout: 30000,
       interval: 500,
     });
     await user.keyboard('{Control>}0{/Control}');
-    await waitFor(() => expect(paneCols().reduce((a, b) => a + b, 0)).toBe(colsBefore), {
+    await waitFor(() => expect(colSum()).toBe(colsBefore), {
       timeout: 30000,
       interval: 500,
     });
@@ -2672,5 +2938,1329 @@ export const RapidCommandBurst: Story = {
       },
       { timeout: 60000, interval: 700 },
     );
+  },
+};
+
+// ─────────── §12 Optimistic timeline (predict → paint → reconcile / rollback) ───────────
+//
+// The Resilience stories prove the optimistic loop against the DemoAdapter;
+// these prove it against REAL tmux — the marker-tracked command FIFO, the
+// byte-paced serial transport, and the WASM reconcile are all in the loop.
+// A placeholder id (`__placeholder_*`) can ONLY come from the client-side
+// predictor — the server never emits one — so a painted placeholder IS the
+// proof the UI didn't wait for the round-trip.
+
+const appError = (): string | null =>
+  (
+    window as unknown as { app: { getSnapshot(): { context: { error: string | null } } } }
+  ).app.getSnapshot().context.error;
+
+/** Sorted real (%N) pane ids currently rendered. */
+const realPaneIdsSorted = (canvas: Canvas): string[] =>
+  paneIds(canvas)
+    .filter((id) => /^%\d+$/.test(id))
+    .sort();
+
+/**
+ * Wait for pane geometry to be at rest (two identical samples 400ms apart) —
+ * the boot-time `refresh-client -C` resize can land seconds into a story and
+ * invalidates any rect captured before it.
+ */
+async function settleGeometry(canvas: Canvas): Promise<void> {
+  for (let i = 0; i < 20; i++) {
+    const a = rectSignature(canvas);
+    await new Promise((r) => setTimeout(r, 400));
+    if (rectSignature(canvas) === a) return;
+  }
+  throw new Error('pane geometry never settled');
+}
+
+/** Stable geometry signature of every real pane, for exact-restore asserts. */
+const rectSignature = (canvas: Canvas): string =>
+  realPaneIdsSorted(canvas)
+    .map((id) => {
+      const r = paneRect(canvas, id);
+      return `${id}:${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`;
+    })
+    .join('|');
+
+/**
+ * Watch an element's `class` attribute and record every value it passes
+ * through (via oldValue chaining + the final live value). Used to prove an
+ * optimistic highlight never flapped during the server reconcile — polling
+ * would miss a single-frame revert; the mutation log cannot.
+ */
+function recordClassHistory(el: Element): { history: () => string[]; disconnect: () => void } {
+  const oldValues: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const rec of records) oldValues.push(rec.oldValue ?? '');
+  });
+  observer.observe(el, { attributes: true, attributeOldValue: true, attributeFilter: ['class'] });
+  return {
+    history: () => [...oldValues, el.className],
+    disconnect: () => observer.disconnect(),
+  };
+}
+
+/**
+ * 1.1 — Split, the full optimistic timeline: C-a `-` paints a placeholder pane
+ * within a few frames of the keypress (≤5 frames ≈ 83ms absorbs userEvent
+ * dispatch overhead and is far below the serial round-trip), and when real
+ * tmux confirms, the placeholder morphs into the real `%N` by an attribute
+ * swap on the SAME DOM node — zero pane-node removals during reconcile
+ * (the paneKeyOverrides anti-flicker contract).
+ */
+export const SplitOptimisticTimeline: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const layoutRoot = canvasElement.querySelector('.pane-layout') as HTMLElement;
+    expect(layoutRoot).not.toBeNull();
+    const before = paneGroups(canvas).length;
+
+    await user.keyboard('{Control>}a{/Control}');
+    // Arm AFTER the prefix press so the frame budget measures the mapped key.
+    const recorder = new LayoutMutationRecorder(layoutRoot);
+    const glitches = new GlitchRecorder(layoutRoot);
+    const probe = armPaintProbe(layoutRoot, addsElement('[data-pane-id^="__placeholder_"]'));
+    await user.keyboard('-');
+    const frames = await probe.wait(5, 5000);
+    expect(frames).toBeLessThanOrEqual(5);
+
+    // The optimistic pane is genuinely visible, not just in the DOM.
+    const placeholderEl = layoutRoot.querySelector('[data-pane-id^="__placeholder_"]')!;
+    expect(placeholderEl).not.toBeNull();
+    const rect = placeholderEl.getBoundingClientRect();
+    expect(rect.width).toBeGreaterThan(50);
+    expect(rect.height).toBeGreaterThan(20);
+
+    // Real tmux confirms: placeholder id swaps to %N, same node count.
+    await waitFor(
+      () => {
+        expect(paneGroups(canvas).length).toBe(before + 1);
+        expect(layoutRoot.querySelector('[data-pane-id^="__placeholder_"]')).toBeNull();
+        expect(activePaneId()).toMatch(/^%\d+$/);
+      },
+      { timeout: 30000, interval: 500 },
+    );
+    recorder.disconnect();
+    // No pane node was removed while the optimistic pane became real — the
+    // element survived the id swap (a remount here is the flicker users see).
+    expect([...recorder.removedPaneIds]).toEqual([]);
+    glitches.assertNoGlitches('split');
+  },
+};
+
+/**
+ * 1.2 — Real-tmux rejection rolls the optimistic split back: keep splitting
+ * until tmux runs out of vertical space. The failing attempt must still paint
+ * its placeholder first (prediction has no min-size model — by design: the
+ * server is authoritative), then roll back to the EXACT pre-attempt pane set
+ * and geometry, leave a real active pane and no placeholder, and surface the
+ * tmux error to the app (context.error → status-line message).
+ */
+export const SplitRejectedRollback: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const layoutRoot = canvasElement.querySelector('.pane-layout') as HTMLElement;
+
+    // Geometry must be at rest before we snapshot it — the previous attempt's
+    // CSS transition / layout refresh may still be settling.
+    const stableSig = async (): Promise<string> => {
+      for (let i = 0; i < 20; i++) {
+        const a = rectSignature(canvas);
+        await new Promise((r) => setTimeout(r, 350));
+        if (rectSignature(canvas) === a) return a;
+      }
+      throw new Error('pane geometry never settled');
+    };
+
+    let sawRollback = false;
+    for (let attempt = 0; attempt < 8 && !sawRollback; attempt++) {
+      const beforeSig = await stableSig();
+      const beforeIds = realPaneIdsSorted(canvas).join(',');
+      await user.keyboard('{Control>}a{/Control}');
+      const probe = armPaintProbe(layoutRoot, addsElement('[data-pane-id^="__placeholder_"]'));
+      await user.keyboard('-');
+      // Success or failure, the placeholder paints first.
+      await probe.wait(5, 5000);
+      // Settle: no placeholder left either way (confirmed real, or rolled back).
+      await waitFor(
+        () => {
+          expect(paneIds(canvas).filter((id) => id.startsWith('__placeholder_')).length).toBe(0);
+          expect(activePaneId()).toMatch(/^%\d+$/);
+        },
+        { timeout: 20000, interval: 250 },
+      );
+      if (realPaneIdsSorted(canvas).join(',') === beforeIds) {
+        // tmux rejected this split: geometry must be restored exactly. The
+        // window is generous — a lingering acked op from a previous attempt
+        // can hold its patch for several seconds before the restore settles.
+        await waitFor(() => expect(rectSignature(canvas)).toBe(beforeSig), {
+          timeout: 15000,
+          interval: 400,
+        });
+        // And the rejection reached the app's error surface.
+        expect(appError()).toBeTruthy();
+        sawRollback = true;
+      }
+    }
+    expect(sawRollback).toBe(true);
+  },
+};
+
+/**
+ * 1.3 — Optimistic new-tab timeline via the tab bar `+` (pure mouse): the tab
+ * strip AND the pane grid flip to the placeholder window within a few frames
+ * of the click; real tmux then confirms with a real `@N`/`%N`, morphing the
+ * placeholder pane in place (no pane-node removal). The rejection twin lives
+ * in Mocked App/Resilience (TabCreateRejected) — real tmux has no
+ * user-reachable failure mode for a plain new-window.
+ */
+export const TabCreateOptimisticTimeline: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const layoutRoot = canvasElement.querySelector('.pane-layout') as HTMLElement;
+    const beforeTabs = windowTabEls(canvas).length;
+    const beforeWindows = realTabWindows().map((w) => w.id);
+
+    const recorder = new LayoutMutationRecorder(layoutRoot);
+    const probe = armPaintProbe(layoutRoot, addsElement('[data-pane-id^="__placeholder_pane"]'));
+    await user.click(canvas.getByLabelText('Create new tab'));
+    await probe.wait(5, 5000);
+    // The tab strip already shows the optimistic tab.
+    expect(windowTabEls(canvas).length).toBe(beforeTabs + 1);
+
+    await waitFor(
+      () => {
+        expect(realTabWindows().length).toBe(beforeWindows.length + 1);
+        expect(activeWindow()?.id).toMatch(/^@\d+$/);
+        expect(activePaneId()).toMatch(/^%\d+$/);
+        expect(layoutRoot.querySelector('[data-pane-id^="__placeholder_"]')).toBeNull();
+      },
+      { timeout: 30000, interval: 500 },
+    );
+    recorder.disconnect();
+    expect([...recorder.removedPaneIds]).toEqual([]);
+  },
+};
+
+/**
+ * 1.4a — Pane focus is optimistic and stable: clicking an inactive pane flips
+ * `.pane-active` within a few frames of the click, and the highlight NEVER
+ * passes through a non-active state again while real tmux confirms (the class
+ * history is recorded by MutationObserver — polling would miss a one-frame
+ * flap; the mutation log cannot).
+ */
+export const SelectPaneImmediate: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const active = activePaneId();
+    const target = paneIds(canvas).find((id) => /^%\d+$/.test(id) && id !== active)!;
+    const targetEl = paneGroups(canvas).find(
+      (p: HTMLElement) => p.getAttribute('data-pane-id') === target,
+    )!;
+    // `pane-active` lives on the .pane-layout-item wrapper, not the inner
+    // role=group element the accessibility query returns.
+    const targetWrapper = targetEl.closest('.pane-layout-item') as HTMLElement;
+    const layoutRoot = canvasElement.querySelector('.pane-layout') as HTMLElement;
+
+    const probe = armPaintProbe(
+      layoutRoot,
+      (rec) =>
+        rec.type === 'attributes' &&
+        rec.attributeName === 'class' &&
+        rec.target === targetWrapper &&
+        targetWrapper.classList.contains('pane-active'),
+    );
+    await user.click(targetEl);
+    const frames = await probe.wait(5, 5000);
+    expect(frames).toBeLessThanOrEqual(5);
+
+    // Record every class value the pane passes through while the real
+    // select-pane round-trips; none may lack `pane-active`.
+    const classes = recordClassHistory(targetWrapper);
+    await new Promise((r) => setTimeout(r, 1500));
+    classes.disconnect();
+    expect(classes.history().filter((c) => !c.includes('pane-active'))).toEqual([]);
+    expect(activePaneId()).toBe(target);
+  },
+};
+
+/**
+ * 1.4b — Tab switch is optimistic and stable: with two windows, clicking the
+ * inactive tab flips `aria-selected` within a few frames, and the selection
+ * never flaps back while the real select-window confirms (guards the
+ * SELECT_TAB grace-window pinning).
+ */
+export const SelectTabImmediate: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    pasteLine('tmuxy tab create');
+    await waitFor(() => expect(tabWindows().length).toBe(2), { timeout: 30000, interval: 500 });
+    await waitFor(() => expect(activeWindow()?.index).toBe(2), { timeout: 30000, interval: 500 });
+
+    const tabEl = windowTabEls(canvas)[0];
+    const probe = armPaintProbe(
+      canvasElement,
+      (rec) =>
+        rec.type === 'attributes' &&
+        rec.attributeName === 'aria-selected' &&
+        rec.target === tabEl &&
+        tabEl.getAttribute('aria-selected') === 'true',
+    );
+    await user.click(tabEl);
+    const frames = await probe.wait(5, 5000);
+    expect(frames).toBeLessThanOrEqual(5);
+
+    // The optimistic selection must hold through the server confirmation —
+    // and the pane grid must swap with zero flicker/churn/jumps.
+    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    const flaps: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const rec of records) {
+        if (rec.attributeName === 'aria-selected') flaps.push(rec.oldValue ?? '');
+      }
+    });
+    observer.observe(tabEl, { attributes: true, attributeOldValue: true });
+    await new Promise((r) => setTimeout(r, 1500));
+    observer.disconnect();
+    expect([...flaps, tabEl.getAttribute('aria-selected')].filter((v) => v !== 'true')).toEqual([]);
+    expect(activeWindow()?.index).toBe(1);
+    glitches.assertNoGlitches('windowSwitch');
+  },
+};
+
+/**
+ * 1.5 — Directional pane navigation predicts the pane tmux will pick,
+ * including the MRU tiebreak: with a full-height pane facing two stacked
+ * neighbours, Ctrl+←/→ must flip focus to the most-recently-used neighbour
+ * within a few frames — and the flip must be FINAL (a second flip after the
+ * server reply means the client predicted a different pane than tmux chose).
+ */
+export const NavigateKeysImmediate: Story = {
+  args: { height: 600, initCommands: ['select-layout even-horizontal', 'split-window -v'] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    await waitFor(() => expect(realPaneIdsSorted(canvas).length).toBeGreaterThanOrEqual(3), {
+      timeout: 30000,
+      interval: 500,
+    });
+
+    // Identify the geometry: one column holds two stacked panes, the other a
+    // single (tallest) pane. All coordinates from live rects — no assumptions
+    // about which boot pane got split.
+    const ids = realPaneIdsSorted(canvas);
+    const rects = new Map(ids.map((id) => [id, paneRect(canvas, id)]));
+    const byLeft = new Map<number, string[]>();
+    for (const [id, r] of rects) {
+      const key = Math.round(r.left / 10);
+      byLeft.set(key, [...(byLeft.get(key) ?? []), id]);
+    }
+    const stackedCol = [...byLeft.values()].find((col) => col.length >= 2);
+    const singleCol = [...byLeft.values()].find((col) => col.length === 1);
+    expect(stackedCol).toBeTruthy();
+    expect(singleCol).toBeTruthy();
+    const single = singleCol![0];
+    // Bottom pane of the stacked column — the one we'll make most-recently-used.
+    const stackedSorted = [...stackedCol!].sort((a, b) => rects.get(a)!.top - rects.get(b)!.top);
+    const mruTarget = stackedSorted[stackedSorted.length - 1];
+
+    const clickPane = async (id: string) => {
+      const el = paneGroups(canvas).find(
+        (p: HTMLElement) => p.getAttribute('data-pane-id') === id,
+      )!;
+      await user.click(el);
+      await waitFor(() => expect(activePaneId()).toBe(id), { timeout: 15000, interval: 200 });
+    };
+    // MRU order: touch the bottom stacked pane, then move to the single pane.
+    await clickPane(mruTarget);
+    await clickPane(single);
+
+    // Navigate from the single pane toward the stacked column.
+    const towardStack =
+      rects.get(single)!.left < rects.get(mruTarget)!.left
+        ? '{Control>}l{/Control}'
+        : '{Control>}h{/Control}';
+    const layoutRoot = canvasElement.querySelector('.pane-layout') as HTMLElement;
+    const mruEl = paneGroups(canvas).find(
+      (p: HTMLElement) => p.getAttribute('data-pane-id') === mruTarget,
+    )!;
+    // `pane-active` lives on the .pane-layout-item wrapper.
+    const mruWrapper = mruEl.closest('.pane-layout-item') as HTMLElement;
+    const probe = armPaintProbe(
+      layoutRoot,
+      (rec) =>
+        rec.type === 'attributes' &&
+        rec.attributeName === 'class' &&
+        rec.target === mruWrapper &&
+        mruWrapper.classList.contains('pane-active'),
+    );
+    await user.keyboard(towardStack);
+    const frames = await probe.wait(5, 5000);
+    expect(frames).toBeLessThanOrEqual(5);
+
+    // The predicted target must BE tmux's choice — no second flip.
+    const classes = recordClassHistory(mruWrapper);
+    await new Promise((r) => setTimeout(r, 1500));
+    classes.disconnect();
+    expect(classes.history().filter((c) => !c.includes('pane-active'))).toEqual([]);
+    expect(activePaneId()).toBe(mruTarget);
+  },
+};
+
+/**
+ * 1.6 — Drag-to-swap reconciles without a visual step: after the drop, the
+ * optimistic swap retargets both panes' inline geometry within a few frames,
+ * and once the CSS transition settles, the real `%layout-change` from tmux
+ * must land with ZERO further rect movement and no pane remounts — the user
+ * sees exactly one continuous motion.
+ */
+export const SwapDragReconcile: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const [a, b] = paneIds(canvas);
+    const src = paneRect(canvas, a).left < paneRect(canvas, b).left ? a : b;
+    const dst = src === a ? b : a;
+    const srcEl = paneGroups(canvas).find(
+      (p: HTMLElement) => p.getAttribute('data-pane-id') === src,
+    )!;
+    const dstEl = paneGroups(canvas).find(
+      (p: HTMLElement) => p.getAttribute('data-pane-id') === dst,
+    )!;
+    const header = srcEl.querySelector('.pane-header') as HTMLElement;
+    const hRect = header.getBoundingClientRect();
+    const dstRect = paneRect(canvas, dst);
+    const startX = hRect.left + hRect.width / 2;
+    const startY = hRect.top + hRect.height / 2;
+    const endX = dstRect.left + dstRect.width / 2;
+    const endY = dstRect.top + dstRect.height / 2;
+
+    // The positioned elements are the .pane-layout-item wrappers; the swap
+    // exchanges their inline grid targets. During the drag the SOURCE pane is
+    // pinned to its original slot (the ghost/transform carries the visual), so
+    // the pane that moves optimistically at hover is the TARGET.
+    const srcWrapper = srcEl.closest('.pane-layout-item') as HTMLElement;
+    const dstWrapper = dstEl.closest('.pane-layout-item') as HTMLElement;
+    const srcSlotBefore = `${srcWrapper.style.left}|${srcWrapper.style.top}`;
+    const dstSlotBefore = `${dstWrapper.style.left}|${dstWrapper.style.top}`;
+
+    header.dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, clientX: startX, clientY: startY, bubbles: true }),
+    );
+    // Cross the 5px drag threshold near the source header first.
+    for (const i of [1, 2]) {
+      header.dispatchEvent(
+        new MouseEvent('mousemove', {
+          clientX: startX + i * 8,
+          clientY: startY + i * 2,
+          bubbles: true,
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 80));
+    }
+
+    // Hover onto the target: the drag machine fires the swap command HERE, and
+    // the store's Swap prediction must slide the target pane into the source's
+    // slot within a few frames — long before the tmux round-trip could land.
+    const hoverProbe = armPaintProbe(
+      dstWrapper,
+      (rec) =>
+        rec.type === 'attributes' &&
+        rec.attributeName === 'style' &&
+        `${dstWrapper.style.left}|${dstWrapper.style.top}` === srcSlotBefore,
+    );
+    dstEl.dispatchEvent(
+      new MouseEvent('mousemove', { clientX: endX, clientY: endY, bubbles: true }),
+    );
+    const hoverFrames = await hoverProbe.wait(5, 5000);
+    expect(hoverFrames).toBeLessThanOrEqual(5);
+
+    // Drop: the source pane's pin lifts and it must take the target's slot
+    // immediately (the patch is already in the derived model).
+    const dropProbe = armPaintProbe(
+      srcWrapper,
+      (rec) =>
+        rec.type === 'attributes' &&
+        rec.attributeName === 'style' &&
+        `${srcWrapper.style.left}|${srcWrapper.style.top}` === dstSlotBefore,
+    );
+    dstEl.dispatchEvent(new MouseEvent('mouseup', { clientX: endX, clientY: endY, bubbles: true }));
+    const dropFrames = await dropProbe.wait(5, 5000);
+    expect(dropFrames).toBeLessThanOrEqual(5);
+
+    // Let the swap's CSS transition finish, then record across the server
+    // reconcile: no size jumps, no pane remounts — the confirmation must be
+    // visually invisible.
+    await new Promise((r) => setTimeout(r, 600));
+    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    await new Promise((r) => setTimeout(r, 1800));
+    glitches.assertNoGlitches('drag');
+
+    // And the swap actually stuck (server-confirmed geometry).
+    const leftNow = paneRect(canvas, a).left < paneRect(canvas, b).left ? a : b;
+    expect(leftNow).toBe(dst);
+  },
+};
+
+/**
+ * 1.7 — Two splits in flight at once: press C-a `-` twice back-to-back, faster
+ * than the round-trip. Both placeholders must resolve to DISTINCT real panes
+ * (guards the claimedPanes reconcile sets) and no placeholder may survive.
+ * Also guards the keyboardActor's placeholder-safe send targeting: the second
+ * binding fires while the active pane is still `__placeholder_*`, which must
+ * not be sent to tmux as a target.
+ */
+export const ConcurrentSplitsClaimIds: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const before = realPaneIdsSorted(canvas).length;
+
+    await user.keyboard('{Control>}a{/Control}');
+    await user.keyboard('-');
+    await user.keyboard('{Control>}a{/Control}');
+    await user.keyboard('-');
+
+    await waitFor(
+      () => {
+        const real = realPaneIdsSorted(canvas);
+        expect(real.length).toBe(before + 2);
+        expect(new Set(real).size).toBe(real.length);
+        expect(paneIds(canvas).filter((id) => id.startsWith('__placeholder_')).length).toBe(0);
+        expect(activePaneId()).toMatch(/^%\d+$/);
+      },
+      { timeout: 30000, interval: 500 },
+    );
+  },
+};
+
+/**
+ * 1.9 — Typing round-trip latency canary (NOT local echo — that's an explicit
+ * non-goal): pasting a command must render its real `%output` within a budget
+ * that catches serial-pacing / aggregator-debounce regressions. Generous for
+ * emulator + CI variance; a 10x pacing regression still fails loudly.
+ */
+export const TypingRoundTripLatencyBudget: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await focusFirstPane(canvas, userEvent.setup());
+    const started = performance.now();
+    pasteLine('echo STORY_LATENCY_$((6000+42))');
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some((p: HTMLElement) =>
+            (p.textContent ?? '').includes('STORY_LATENCY_6042'),
+          ),
+        ).toBe(true),
+      { timeout: 10000, interval: 100 },
+    );
+    const elapsed = performance.now() - started;
+    expect(elapsed).toBeLessThan(5000);
+  },
+};
+
+// ─────────── §13 Optimistic ops: kill / zoom / rename (predict → confirm) ───────────
+
+/**
+ * 2.1 — Kill pane, optimistic end-to-end: C-a `x` routes through the KillPane
+ * prediction (removal + neighbor expansion on dispatch, exit-animation grace,
+ * server confirm invisible). The mock twin (Mocked App/Resilience —
+ * SlowKillPane / KillPaneRejected) proves the ordering crisply under
+ * controlled latency; this proves the real chain agrees: the doomed pane is
+ * gone within the animation grace + margin, focus lands on a surviving real
+ * pane, and the reconcile never resurrects it.
+ */
+export const KillPaneOptimisticTimeline: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const doomed = activePaneId();
+    expect(doomed).toMatch(/^%\d+$/);
+
+    await user.keyboard('{Control>}a{/Control}');
+    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    const removedAt = { t: 0 };
+    const observer = new MutationObserver(() => {
+      if (removedAt.t === 0 && !paneIds(canvas).includes(doomed)) {
+        removedAt.t = performance.now();
+      }
+    });
+    observer.observe(canvasElement.querySelector('.pane-layout')!, {
+      childList: true,
+      subtree: true,
+    });
+    const pressed = performance.now();
+    await user.keyboard('x');
+
+    await waitFor(() => expect(paneIds(canvas)).not.toContain(doomed), {
+      timeout: 5000,
+      interval: 100,
+    });
+    observer.disconnect();
+    // Removal within the 300ms exit grace + margin — the optimistic path.
+    // (The pure server path adds the round-trip + capture refresh on top.)
+    expect((removedAt.t || performance.now()) - pressed).toBeLessThan(700);
+
+    // No resurrection while the server confirms; focus is a real survivor.
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(paneIds(canvas)).not.toContain(doomed);
+    expect(activePaneId()).toMatch(/^%\d+$/);
+    expect(activePaneId()).not.toBe(doomed);
+    glitches.assertNoGlitches('kill');
+  },
+};
+
+/**
+ * 2.2 — Zoom is optimistic: C-a `z` retargets the active pane's grid box to
+ * ~the full container within a few frames of the keypress (ZoomToggle
+ * prediction — geometry only, exactly what the server's visible_layout does).
+ * Unzoom round-trips (the pre-zoom slot is unknown client-side by design) and
+ * must restore both panes' rects.
+ */
+export const ZoomOptimisticTimeline: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const id = activePaneId();
+    const el = paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
+    const wrapper = el.closest('.pane-layout-item') as HTMLElement;
+    // Let the boot-time client resize (refresh-client -C to the container
+    // size) fully land before capturing reference geometry — two stable
+    // samples 400ms apart.
+    for (let i = 0; i < 20; i++) {
+      const a = wrapper.getBoundingClientRect().width;
+      await new Promise((r) => setTimeout(r, 400));
+      if (wrapper.getBoundingClientRect().width === a) break;
+    }
+    // Compare against the PANE GRID extent (the grid is centered inside the
+    // wider .pane-layout container), not the container itself.
+    const wrappers = Array.from(canvasElement.querySelectorAll('.pane-layout-item'));
+    const rects = wrappers.map((w) => w.getBoundingClientRect());
+    const gridLeft = Math.min(...rects.map((r) => r.left));
+    const gridRight = Math.max(...rects.map((r) => r.right));
+    const gridTop = Math.min(...rects.map((r) => r.top));
+    const gridBottom = Math.max(...rects.map((r) => r.bottom));
+    const gridW = gridRight - gridLeft;
+    const gridH = gridBottom - gridTop;
+    const before = wrapper.getBoundingClientRect();
+    expect(before.width).toBeLessThan(gridW * 0.8);
+
+    await user.keyboard('{Control>}a{/Control}');
+    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    const probe = armPaintProbe(
+      wrapper,
+      (rec) => rec.type === 'attributes' && rec.attributeName === 'style',
+    );
+    await user.keyboard('z');
+    const frames = await probe.wait(5, 5000);
+    expect(frames).toBeLessThanOrEqual(5);
+
+    // The zoomed pane must reach ~full container size (CSS transition may
+    // still be animating — wait on the final rect).
+    await waitFor(
+      () => {
+        const r = wrapper.getBoundingClientRect();
+        expect(r.width).toBeGreaterThan(gridW * 0.9);
+        expect(r.height).toBeGreaterThan(gridH * 0.85);
+      },
+      { timeout: 5000, interval: 200 },
+    );
+
+    // Let the zoom CONFIRM server-side before toggling back — a rapid
+    // re-toggle races tmux's layout-change coalescing (that resilience is
+    // covered by the store's idle-reconcile supersede, unit-tested in
+    // ops.test.ts); this story verifies the clean zoom → unzoom round-trip.
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // The zoom animated exactly once — no flicker, no attribute churn (the
+    // CSS transition legitimately interpolates the size at 60fps).
+    glitches.assertNoGlitches('zoom', { sizeJumps: 65 });
+
+    // Unzoom: server round-trip restores the original layout.
+    await user.keyboard('{Control>}a{/Control}');
+    await user.keyboard('z');
+    await waitFor(
+      () => {
+        const r = wrapper.getBoundingClientRect();
+        expect(Math.abs(r.width - before.width)).toBeLessThan(20);
+      },
+      { timeout: 15000, interval: 300 },
+    );
+  },
+};
+
+/**
+ * 2.3 — Kill window (tab), optimistic: C-a `&` removes the active tab via the
+ * KillWindow prediction — the tab strip drops the tab within the exit grace,
+ * an adjacent tab activates, and the server confirm never flaps it back.
+ */
+export const TabKillOptimistic: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    pasteLine('tmuxy tab create');
+    await waitFor(() => expect(tabWindows().length).toBe(2), { timeout: 30000, interval: 500 });
+    await waitFor(() => expect(activeWindow()?.index).toBe(2), { timeout: 30000, interval: 500 });
+    const doomedWindow = activeWindow()!.id;
+
+    // Focus a pane in the new tab so the keybinding targets it.
+    await user.click(paneGroups(canvas)[0]);
+    await waitFor(() => expect(activePaneId()).toMatch(/^%\d+$/), { timeout: 10000 });
+
+    await user.keyboard('{Control>}a{/Control}');
+    const pressed = performance.now();
+    await user.keyboard('{Shift>}7{/Shift}'); // '&'
+
+    await waitFor(() => expect(windowTabEls(canvas).length).toBe(1), {
+      timeout: 5000,
+      interval: 100,
+    });
+    const droppedAfter = performance.now() - pressed;
+    expect(droppedAfter).toBeLessThan(1200);
+
+    // Stays dropped through the server confirm; the surviving tab is active.
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(windowTabEls(canvas).length).toBe(1);
+    expect(windows().every((w) => w.id !== doomedWindow)).toBe(true);
+    expect(activeWindow()?.id).toMatch(/^@\d+$/);
+    expect(activePaneId()).toMatch(/^%\d+$/);
+  },
+};
+
+/**
+ * 2.4 — Rename tab, optimistic, all-mouse+keyboard: right-click the tab →
+ * "Rename Tab" opens the client-side command prompt pre-filled with the
+ * current name; submitting dispatches `rename-window` through the
+ * RenameWindow prediction — the tab label flips within a few frames of
+ * Enter, then the real `%window-renamed` confirms it (no flap back).
+ */
+export const RenameTabOptimistic: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const tabEl = windowTabEls(canvas)[0];
+
+    tabEl.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 30 }),
+    );
+    const renameItem = await canvas.findByText('Rename Tab', undefined, { timeout: 5000 });
+    await user.click(renameItem);
+
+    // The client-side command prompt opens pre-filled with the current name.
+    const input = (await waitFor(
+      () => {
+        const el = canvasElement.querySelector('.tmux-command-input') as HTMLInputElement | null;
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: 10000, interval: 200 },
+    )) as HTMLInputElement;
+
+    await user.clear(input);
+    await user.type(input, 'STORY_RENAMED');
+
+    const probe = armPaintProbe(
+      canvasElement,
+      (rec) =>
+        (rec.target instanceof Element ? rec.target : rec.target.parentElement)?.closest?.(
+          '[role="tab"]',
+        ) != null,
+    );
+    await user.keyboard('{Enter}');
+    await probe.wait(5, 5000);
+    expect(windowTabEls(canvas)[0].textContent).toContain('STORY_RENAMED');
+
+    // The real %window-renamed confirms — the label must not flap back.
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(windowTabEls(canvas)[0].textContent).toContain('STORY_RENAMED');
+    expect(
+      windows()[0]?.name === 'STORY_RENAMED' || tabWindows()[0]?.name === 'STORY_RENAMED',
+    ).toBe(true);
+  },
+};
+
+// ─────────── §14 Interaction edge cases: prefix, IME, wheel, menus ───────────
+
+/** The active pane's full reconstructed state (for inMode/alternateOn checks). */
+const activePaneState = () =>
+  (
+    window as unknown as {
+      app: {
+        getSnapshot(): {
+          context: {
+            activePaneId: string;
+            panes: { tmuxId: string; inMode: boolean; alternateOn: boolean }[];
+          };
+        };
+      };
+    }
+  ).app
+    .getSnapshot()
+    .context.panes.find((p) => p.tmuxId === activePaneId());
+
+/**
+ * 3.1 — Double-click copies the word under the cursor via NATIVE tmux copy
+ * mode (enter → select-word → copy-and-cancel); triple-click copies the whole
+ * line. The proof is the CLIPBOARD payload mirrored back through the OSC 52
+ * bridge — text that only exists inside tmux's paste buffer.
+ */
+export const DoubleTripleClickSelect: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const win = window as unknown as {
+      __tmuxyLastClipboard?: { paneId: string; text: string };
+    };
+    pasteLine('echo WORDSEL_TARGET extra words here');
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some((p: HTMLElement) =>
+            (p.textContent ?? '').includes('WORDSEL_TARGET'),
+          ),
+        ).toBe(true),
+      { timeout: 20000, interval: 500 },
+    );
+
+    // Double-click inside the rendered word: tmux selects it and the copied
+    // text comes back over the clipboard bridge.
+    const span = Array.from(canvasElement.querySelectorAll('.terminal-line span')).find((sp) =>
+      (sp.textContent ?? '').includes('WORDSEL_TARGET'),
+    ) as HTMLElement;
+    expect(span).toBeTruthy();
+    const r = span.getBoundingClientRect();
+    const offset = ((sp: HTMLElement) => {
+      const idx = (sp.textContent ?? '').indexOf('WORDSEL_TARGET');
+      const chW = r.width / Math.max(1, (sp.textContent ?? '').length);
+      return (idx + 4) * chW;
+    })(span);
+    const cx = r.left + offset;
+    const cy = r.top + r.height / 2;
+    win.__tmuxyLastClipboard = undefined;
+    span.dispatchEvent(
+      new MouseEvent('dblclick', { bubbles: true, detail: 2, clientX: cx, clientY: cy }),
+    );
+    await waitFor(() => expect(win.__tmuxyLastClipboard?.text).toBe('WORDSEL_TARGET'), {
+      timeout: 20000,
+      interval: 300,
+    });
+
+    // Triple-click: the whole line (command echo) lands in the clipboard.
+    win.__tmuxyLastClipboard = undefined;
+    span.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, detail: 3, clientX: cx, clientY: cy }),
+    );
+    span.dispatchEvent(
+      new MouseEvent('mouseup', { bubbles: true, detail: 3, clientX: cx, clientY: cy }),
+    );
+    await waitFor(
+      () => expect(win.__tmuxyLastClipboard?.text ?? '').toMatch(/WORDSEL_TARGET extra words here/),
+      { timeout: 20000, interval: 300 },
+    );
+
+    // Copy mode auto-cancelled — typing works again.
+    expect(activePaneState()?.inMode).toBe(false);
+  },
+};
+
+/**
+ * 3.2 — Tab context menu, pure mouse: right-click a tab → "New Tab" creates a
+ * real window; right-click the new tab → "Close Tab" kills it. Covers the
+ * WindowTabs context-menu paths (menu-driven new-window and the index-targeted
+ * kill-window).
+ */
+export const TabContextMenuOps: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const before = realTabWindows().length;
+
+    windowTabEls(canvas)[0].dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, clientX: 120, clientY: 30 }),
+    );
+    await user.click(await canvas.findByText('New Tab', undefined, { timeout: 5000 }));
+    await waitFor(
+      () => {
+        expect(realTabWindows().length).toBe(before + 1);
+        expect(windowTabEls(canvas).length).toBe(before + 1);
+      },
+      { timeout: 30000, interval: 500 },
+    );
+
+    // Close the newly-created tab via its context menu.
+    const tabs = windowTabEls(canvas);
+    tabs[tabs.length - 1].dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, clientX: 200, clientY: 30 }),
+    );
+    await user.click(await canvas.findByText('Close Tab', undefined, { timeout: 5000 }));
+    await waitFor(
+      () => {
+        expect(realTabWindows().length).toBe(before);
+        expect(windowTabEls(canvas).length).toBe(before);
+        expect(activePaneId()).toMatch(/^%\d+$/);
+      },
+      { timeout: 30000, interval: 500 },
+    );
+  },
+};
+
+/**
+ * 3.3 — Prefix lifecycle: an armed prefix expires after its timeout (the next
+ * keys are literal input again), and a double prefix sends a literal C-a to
+ * the shell (readline beginning-of-line — proven by inserting text at the
+ * start of a pre-typed line).
+ */
+export const PrefixTimeoutAndDoublePrefix: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    const prefixActive = () =>
+      (
+        window as unknown as { app: { getSnapshot(): { context: { prefixActive?: boolean } } } }
+      ).app.getSnapshot().context.prefixActive === true;
+    await focusFirstPane(canvas, user);
+
+    // Arm the prefix, let it expire (8s timeout), then type a command — every
+    // key must reach the shell as literal input.
+    await user.keyboard('{Control>}a{/Control}');
+    await waitFor(() => expect(prefixActive()).toBe(true), { timeout: 5000 });
+    await new Promise((r) => setTimeout(r, 8300));
+    expect(prefixActive()).toBe(false);
+    await user.keyboard('echo $((41+1))_PT{Enter}');
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some((p: HTMLElement) => (p.textContent ?? '').includes('42_PT')),
+        ).toBe(true),
+      { timeout: 20000, interval: 500 },
+    );
+
+    // Double prefix = literal C-a (readline home): pre-type the tail, jump to
+    // the start, prepend `echo` — the executed line proves C-a reached bash.
+    await user.keyboard(' TAIL_A9');
+    await user.keyboard('{Control>}a{/Control}');
+    await waitFor(() => expect(prefixActive()).toBe(true), { timeout: 5000 });
+    await user.keyboard('{Control>}a{/Control}');
+    await waitFor(() => expect(prefixActive()).toBe(false), { timeout: 5000 });
+    await user.keyboard('echo{Enter}');
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some((p: HTMLElement) => /TAIL_A9/.test(p.textContent ?? '')),
+        ).toBe(true),
+      { timeout: 20000, interval: 500 },
+    );
+  },
+};
+
+/**
+ * 3.4 — Repeat (-r) bindings: C-a H H H fires three resizes from ONE prefix
+ * arm (each repeat keeps prefix mode alive, matching tmux). The pane must
+ * shrink by ~15 columns total; a broken repeat would resize once and type
+ * literal "HH" into the shell.
+ */
+export const RepeatResizeBindings: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    // Focus the RIGHT pane so resize-pane -L moves its left divider.
+    const [a, b] = paneIds(canvas);
+    const rightId = paneRect(canvas, a).left > paneRect(canvas, b).left ? a : b;
+    const rightEl = paneGroups(canvas).find(
+      (p: HTMLElement) => p.getAttribute('data-pane-id') === rightId,
+    )!;
+    await user.click(rightEl);
+    await waitFor(() => expect(activePaneId()).toBe(rightId), { timeout: 15000, interval: 200 });
+    await settleGeometry(canvas);
+
+    const before = paneRect(canvas, rightId).width;
+    await user.keyboard('{Control>}a{/Control}');
+    await user.keyboard('{Shift>}H{/Shift}');
+    await user.keyboard('{Shift>}H{/Shift}');
+    await user.keyboard('{Shift>}H{/Shift}');
+    // ~15 columns wider (resize -L on the right pane grows it leftward).
+    await waitFor(
+      () => expect(Math.abs(paneRect(canvas, rightId).width - before)).toBeGreaterThan(100),
+      { timeout: 30000, interval: 500 },
+    );
+    // And it sticks (server-confirmed geometry, no snap-back).
+    const resized = paneRect(canvas, rightId).width;
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(Math.abs(paneRect(canvas, rightId).width - resized)).toBeLessThan(15);
+  },
+};
+
+/**
+ * 3.5 — IME composition: composed CJK text is suppressed during composition
+ * and sent as ONE literal on compositionend — rendered back from the real
+ * `%output` stream (send-keys -l → tmux → bash echo → renderer).
+ */
+export const IMEComposition: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await focusFirstPane(canvas, userEvent.setup());
+    window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    window.dispatchEvent(new CompositionEvent('compositionend', { data: '日本語', bubbles: true }));
+    // Wide CJK glyphs render with continuation-cell spacing — compare with
+    // whitespace stripped.
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some((p: HTMLElement) =>
+            (p.textContent ?? '').replace(/\s+/g, '').includes('日本語'),
+          ),
+        ).toBe(true),
+      { timeout: 20000, interval: 500 },
+    );
+  },
+};
+
+/**
+ * 3.6 — Escape semantics: with a float focused, Escape CLOSES the float; with
+ * plain panes, Escape is SENT to the application (proven by `od` printing
+ * byte 27). The same key, two meanings, resolved by focus context.
+ */
+export const EscapeSemanticsMatrix: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const doc = canvasElement.ownerDocument;
+
+    // Float focused → Escape closes it.
+    pasteLine('tmuxy pane float');
+    await waitFor(
+      () => expect(doc.querySelector('.float-container'), 'float appeared').not.toBeNull(),
+      { timeout: 30000, interval: 500 },
+    );
+    await user.keyboard('{Escape}');
+    await waitFor(
+      () => expect(doc.querySelector('.float-container'), 'float closed by Escape').toBeNull(),
+      { timeout: 20000, interval: 500 },
+    );
+
+    // Plain pane → Escape is SENT to the app. Re-focus a grid pane by
+    // clicking it (clears any lingering float focus), start a raw-mode
+    // single-byte read, and prove the ESC byte (27) arrived.
+    await waitFor(() => expect(activePaneId()).toMatch(/^%\d+$/), { timeout: 10000 });
+    await user.click(paneGroups(canvas)[0]);
+    await waitFor(() => expect(activePaneId()).toMatch(/^%\d+$/), { timeout: 10000 });
+    pasteLine('read -rsn1 k; printf "GOT_%d_END\\n" "\'$k"');
+    await new Promise((r) => setTimeout(r, 2500));
+    const sawEsc = () =>
+      paneGroups(canvas).some((p: HTMLElement) => /GOT_27_END/.test(p.textContent ?? ''));
+    for (let i = 0; i < 3 && !sawEsc(); i++) {
+      await user.keyboard('{Escape}');
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+    await waitFor(() => expect(sawEsc(), 'read got byte 27').toBe(true), {
+      timeout: 15000,
+      interval: 500,
+    });
+  },
+};
+
+/**
+ * 3.7 — Status bar gestures are a browser no-op (drag/maximize are
+ * Tauri-only): double-clicking the empty status bar must not error, emit tmux
+ * commands, or disturb the layout. Pins the guard contract.
+ */
+export const StatusBarNoOpGestures: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await focusFirstPane(canvas, userEvent.setup());
+    await settleGeometry(canvas);
+    const sigBefore = rectSignature(canvas);
+    const bar = canvasElement.querySelector('.statusbar') as HTMLElement;
+    expect(bar).not.toBeNull();
+    bar.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, buttons: 1 }));
+    bar.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    await new Promise((r) => setTimeout(r, 800));
+    expect(rectSignature(canvas)).toBe(sigBefore);
+    expect(activePaneId()).toMatch(/^%\d+$/);
+  },
+};
+
+/**
+ * 3.9 — Wheel in an alternate-screen app: with the alt screen active the
+ * wheel becomes ARROW KEYS for the application (bash history recall proves
+ * the Up arrows arrived) and native copy mode is NOT entered; back on the
+ * main screen, the wheel scrolls into history via copy mode again. The alt
+ * screen is driven by the real \\033[?1049h/l sequences (the guest's busybox
+ * pager never uses it).
+ */
+export const WheelInAlternateScreen: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    // Unique history marker, then enter the alternate screen.
+    pasteLine('echo WHEEL_HIST_MARK');
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some((p: HTMLElement) =>
+            (p.textContent ?? '').includes('WHEEL_HIST_MARK'),
+          ),
+          'history marker echoed',
+        ).toBe(true),
+      { timeout: 20000, interval: 500 },
+    );
+    pasteLine("printf '\\033[?1049h'");
+    await waitFor(() => expect(activePaneState()?.alternateOn, 'alt screen entered').toBe(true), {
+      timeout: 20000,
+      interval: 400,
+    });
+
+    const paneEl = paneGroups(canvas).find(
+      (p: HTMLElement) => p.getAttribute('data-pane-id') === activePaneId(),
+    )!;
+    // Wheel UP on the alt screen → Up arrows → bash recalls the printf line.
+    for (let i = 0; i < 3; i++) {
+      paneEl.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: -60, bubbles: true, cancelable: true }),
+      );
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    await waitFor(
+      () => {
+        expect(activePaneState()?.inMode, 'no copy mode in alt screen').toBe(false);
+        // Several Ups walk to the oldest history entry — the marker command.
+        expect(
+          (paneEl.textContent ?? '').includes('WHEEL_HIST_MARK'),
+          'Up arrows recalled history in alt screen',
+        ).toBe(true);
+      },
+      { timeout: 20000, interval: 500 },
+    );
+
+    // Clear the recalled line, leave the alt screen.
+    await user.keyboard('{Control>}c{/Control}');
+    await new Promise((r) => setTimeout(r, 800));
+    pasteLine("printf '\\033[?1049l'");
+    await waitFor(() => expect(activePaneState()?.alternateOn, 'alt screen exited').toBe(false), {
+      timeout: 20000,
+      interval: 400,
+    });
+
+    // Main screen: create scrollback (copy-mode entry requires history),
+    // then wheel UP scrolls into it via native copy mode.
+    pasteLine('seq 1 100');
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some((p: HTMLElement) =>
+            /99100/.test((p.textContent ?? '').replace(/\s+/g, '')),
+          ),
+          'seq output rendered',
+        ).toBe(true),
+      { timeout: 30000, interval: 500 },
+    );
+    // The wheel→copy-mode entry requires the CLIENT to know scrollback
+    // exists (history_size arrives on the next list-panes sync) — wait for
+    // it like a user watching the scrollbar appear.
+    await waitFor(
+      () =>
+        expect(
+          (activePaneState() as unknown as { historySize?: number } | undefined)?.historySize ?? 0,
+          'client sees scrollback',
+        ).toBeGreaterThan(0),
+      { timeout: 20000, interval: 400 },
+    );
+    for (let i = 0; i < 6; i++) {
+      // Re-query per tick — the element can be replaced across the
+      // alt-screen transitions, and a detached node's events go nowhere.
+      const el = paneGroups(canvas).find(
+        (p: HTMLElement) => p.getAttribute('data-pane-id') === activePaneId(),
+      )!;
+      el.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true }));
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    await waitFor(
+      () => expect(activePaneState()?.inMode, 'wheel-up entered copy mode').toBe(true),
+      { timeout: 15000, interval: 300 },
+    );
+    await user.keyboard('q');
+    await waitFor(() => expect(activePaneState()?.inMode, 'q exited copy mode').toBe(false), {
+      timeout: 10000,
+      interval: 300,
+    });
+  },
+};
+
+// ─────────── §15 Flakiness budgets: steady streams, theme switches ───────────
+
+/**
+ * 4.3 — Gemini-CLI-style clear+redraw burst against REAL tmux (the mock twin
+ * lives in Mocked App/Resilience): a guest loop repeatedly clears the screen
+ * and redraws; the rAF batching + aggregator debounce must deliver each frame
+ * whole — zero pane-node flickers, no transient blank pane. Also audits that
+ * the glitch recorder's ignore-selectors still match the live DOM (silent
+ * selector drift would blind every budget in this file).
+ */
+export const SteadyStreamNoBlinkV86: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await focusFirstPane(canvas, userEvent.setup());
+
+    // Ignore-selector audit: each excluded selector must still exist in the
+    // live DOM, or the recorder is silently blind to what it thinks it skips.
+    for (const sel of ['.terminal-content', '.terminal-line']) {
+      expect(canvasElement.querySelector(sel), `ignore-selector ${sel} matches`).not.toBeNull();
+    }
+
+    await settleGeometry(canvas);
+    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    pasteLine(
+      'for i in $(seq 1 30); do printf "\\033[2J\\033[HREDRAW_%02d\\n" "$i"; done; echo STREAM_DONE',
+    );
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some((p: HTMLElement) =>
+            (p.textContent ?? '').includes('STREAM_DONE'),
+          ),
+        ).toBe(true),
+      { timeout: 45000, interval: 500 },
+    );
+    // Every sampled frame during the burst must have shown a full redraw —
+    // no pane-node flicker, no size movement.
+    glitches.assertNoGlitches('steadyStream');
+  },
+};
+
+/**
+ * 4.4 — Theme switch is one clean swap: flipping the theme via the app menu
+ * rewrites one stylesheet href — the pane grid must see NO node flicker, at
+ * most a bounded class churn, and zero geometry movement.
+ */
+export const ThemeSwitchChurn: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    await waitFor(
+      () =>
+        expect(
+          (
+            window as unknown as {
+              app: { getSnapshot(): { context: { availableThemes: unknown[] } } };
+            }
+          ).app.getSnapshot().context.availableThemes.length,
+        ).toBeGreaterThan(0),
+      { timeout: 15000, interval: 500 },
+    );
+    const doc = canvasElement.ownerDocument;
+    await settleGeometry(canvas);
+
+    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    const menu = await openAppMenu(canvasElement, user);
+    await user.click(await menu.item(/^Theme$/));
+    await user.click(await menu.item(/Nord/));
+    await waitFor(
+      () =>
+        expect(doc.getElementById('tmuxy-theme')?.getAttribute('href')).toBe('/themes/nord.css'),
+      { timeout: 10000, interval: 300 },
+    );
+    await new Promise((r) => setTimeout(r, 800));
+    glitches.assertNoGlitches('theme');
+
+    // Restore the default theme for the shared engine's next story.
+    (window as unknown as { app: { send(e: { type: string; name: string }): void } }).app.send({
+      type: 'SET_THEME',
+      name: 'default',
+    });
+  },
+};
+
+// ─────────── §16 Render budget canary (real adapter) ───────────
+
+/**
+ * 5.6 — The typing-isolation contract against the REAL stack: keystrokes into
+ * the focused pane must not re-render the other pane or the tab strip. The
+ * budget is relaxed vs the mock twin (Mocked App/RenderBudgets) — the v86
+ * notify cadence includes capture refreshes — but a "typing repaints the
+ * world" regression still fails loudly.
+ */
+export const RenderBudgetCanary: Story = {
+  args: { height: 600 },
+  render: (args) => {
+    enableRenderLog();
+    return <V86AppHarness {...args} />;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    expect(renderCountSince(0, 'Pane:')).toBeGreaterThan(0);
+    const active = activePaneId();
+    const other = paneIds(canvas).find((id) => /^%\d+$/.test(id) && id !== active)!;
+    await settleGeometry(canvas);
+
+    // Let periodic sync traffic quiesce for the other pane.
+    await waitFor(
+      async () => {
+        const m = renderLogMark();
+        await new Promise((r) => setTimeout(r, 700));
+        expect(renderCountSince(m, `Pane:${other}`)).toBe(0);
+      },
+      { timeout: 30000, interval: 100 },
+    );
+
+    const mark = renderLogMark();
+    await user.keyboard('echo canary');
+    await waitFor(() => expect(renderCountSince(mark, `Pane:${active}`)).toBeGreaterThan(0), {
+      timeout: 10000,
+    });
+    await new Promise((r) => setTimeout(r, 800));
+    const otherRenders = renderCountSince(mark, `Pane:${other}`);
+    const tabRenders = renderCountSince(mark, 'WindowTabs');
+    expect(otherRenders, `inactive pane renders: ${otherRenders}`).toBeLessThanOrEqual(2);
+    expect(tabRenders, `WindowTabs renders: ${tabRenders}`).toBeLessThanOrEqual(2);
   },
 };

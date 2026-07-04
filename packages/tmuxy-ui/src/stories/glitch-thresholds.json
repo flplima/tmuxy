@@ -1,0 +1,67 @@
+{
+  "default": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 0,
+    "sizeJumps": 0
+  },
+  "split": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 2,
+    "sizeJumps": 65
+  },
+  "kill": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 2,
+    "sizeJumps": 65
+  },
+  "resize": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 6,
+    "sizeJumps": 0
+  },
+  "drag": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 4,
+    "sizeJumps": 0
+  },
+  "windowSwitch": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 0,
+    "sizeJumps": 0
+  },
+  "groupSwitch": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 0,
+    "sizeJumps": 0
+  },
+  "zoom": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 0,
+    "sizeJumps": 1
+  },
+  "reconcile": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 2,
+    "sizeJumps": 0
+  },
+  "theme": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 2,
+    "sizeJumps": 0
+  },
+  "layoutCycle": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 2,
+    "sizeJumps": 65
+  },
+  "floatClose": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 2,
+    "sizeJumps": 4
+  },
+  "steadyStream": {
+    "nodeFlickers": 0,
+    "attrChurnEvents": 0,
+    "sizeJumps": 0
+  }
+}

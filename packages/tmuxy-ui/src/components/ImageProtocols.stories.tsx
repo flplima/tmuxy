@@ -95,7 +95,7 @@ function StoryInit({ run }: { run: () => void }): null {
 // ---------------------------------------------------------------------------
 
 const meta: Meta<typeof AppHarness> = {
-  title: 'Components/ImageProtocols',
+  title: 'Mocked App/ImageProtocols',
   component: AppHarness,
   parameters: { layout: 'fullscreen' },
   decorators: [

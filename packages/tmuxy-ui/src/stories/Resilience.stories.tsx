@@ -24,7 +24,7 @@ import { AppHarness } from './StoryHarness';
 import type { DemoAdapter } from '../lib';
 
 const meta: Meta<typeof AppHarness> = {
-  title: 'App/Resilience',
+  title: 'Mocked App/Resilience',
   component: AppHarness,
   parameters: {
     layout: 'fullscreen',
@@ -239,6 +239,137 @@ export const TabCreateRejected: Story = {
     // The app is still alive — at least one tab is marked active.
     const tabsAfter = canvas.getAllByRole('tab');
     expect(tabsAfter.some((t) => t.getAttribute('aria-selected') === 'true')).toBe(true);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Optimistic kill-pane — removal on click, rollback on rejection
+// ---------------------------------------------------------------------------
+
+export const SlowKillPane: Story = {
+  args: { height: 600, commandDelayMs: 800, initCommands: ['split-window -h'] },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 600 },
+      description: {
+        story:
+          'kill-pane takes 800ms to ack. The optimistic KillPane prediction removes the pane on dispatch (after the 300ms exit-animation grace), long before the ack — and the count must stay at 1 through the confirmation.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const win = window as unknown as { app?: { send: (e: unknown) => void } };
+    const paneCount = () => canvas.getAllByRole('group', { name: /^Pane /i }).length;
+
+    await waitFor(() => expect(paneCount()).toBe(2), { timeout: 8000 });
+    win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
+
+    // Optimistic removal: gone within the 300ms removingPane grace + margin,
+    // well before the 800ms ack.
+    await waitFor(() => expect(paneCount()).toBe(1), { timeout: 600 });
+
+    // Stays gone through the ack — no flicker back to 2.
+    for (let i = 0; i < 6; i++) {
+      expect(paneCount()).toBe(1);
+      await wait(80);
+    }
+  },
+};
+
+export const KillPaneRejected: Story = {
+  args: {
+    height: 600,
+    commandDelayMs: 60,
+    initCommands: ['split-window -h'],
+    failCommand: (cmd) => (cmd.startsWith('kill-pane') ? "can't kill pane: busy" : false),
+  },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 600 },
+      description: {
+        story:
+          'Backend rejects kill-pane. The rejection lands inside the 300ms exit-animation grace, so the rollback replaces the deferred update before anything visibly disappears: the pane count must NEVER drop below 2, and the error must surface.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const win = window as unknown as {
+      app?: { send: (e: unknown) => void; getSnapshot(): { context: { error: string | null } } };
+    };
+    const paneCount = () => canvas.getAllByRole('group', { name: /^Pane /i }).length;
+
+    await waitFor(() => expect(paneCount()).toBe(2), { timeout: 8000 });
+    win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
+
+    // Sample through the rejection window: the pane never visibly disappears.
+    for (let i = 0; i < 10; i++) {
+      expect(paneCount()).toBe(2);
+      await wait(70);
+    }
+    expect(win.app!.getSnapshot().context.error).toBeTruthy();
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Stale-op sweeper — a pending op may never be confirmed; it must not wedge
+// ---------------------------------------------------------------------------
+
+export const StaleOpSweep: StoryObj<ClipboardArgs & { commandDelayMs?: number }> = {
+  args: { height: 600, commandDelayMs: 3000 },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 600 },
+      description: {
+        story:
+          'The backend takes 3s to ack a split — longer than OP_STALE_TIMEOUT_MS (2s). When a server snapshot arrives past the timeout, the sweeper must drop the stale placeholder (UI returns to the committed state, focus not wedged on a placeholder id). When the late command finally executes, the REAL pane appears. Guards against a lost ack freezing the optimistic layer forever.',
+      },
+    },
+  },
+  render: (args) => (
+    <AppHarness
+      {...args}
+      onAdapterReady={(adapter) => {
+        (window as unknown as { __staleAdapter?: DemoAdapter }).__staleAdapter = adapter;
+      }}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const win = window as unknown as {
+      app?: { send: (e: unknown) => void; getSnapshot(): { context: { activePaneId: string } } };
+      __staleAdapter?: DemoAdapter;
+    };
+    await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
+    expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(1);
+
+    win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+    // The optimistic patch lands immediately.
+    await waitFor(() => expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(2), {
+      timeout: 200,
+    });
+
+    // Past the stale timeout, a server snapshot (still showing 1 pane —
+    // the delayed command hasn't executed) must sweep the placeholder.
+    await wait(2200);
+    win.__staleAdapter!.emitStateSnapshot();
+    await waitFor(
+      () => {
+        expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(1);
+        expect(win.app!.getSnapshot().context.activePaneId).toMatch(/^%\d+$/);
+      },
+      { timeout: 1000 },
+    );
+
+    // The late ack finally executes: the REAL pane appears and focus is sane.
+    await waitFor(
+      () => {
+        expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(2);
+        expect(win.app!.getSnapshot().context.activePaneId).toMatch(/^%\d+$/);
+      },
+      { timeout: 3000 },
+    );
   },
 };
 

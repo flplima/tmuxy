@@ -11,7 +11,7 @@ import { expect } from 'storybook/test';
  * updates carrying only changed fields on subsequent changes. This story asserts
  * that full-then-delta sequence end to end through the WASM boundary.
  *
- * Tagged `spike` (loads the built `/wasm` bundle, like the other WASM/v86
+ * Tagged `v86` (loads the built `/wasm` bundle, like the other WASM/v86
  * stories) so it's excluded from the CI story probe.
  */
 
@@ -51,9 +51,9 @@ function DeltaHarness() {
 }
 
 const meta: Meta<typeof DeltaHarness> = {
-  title: 'App/DeltaProtocol',
+  title: 'Scenarios/DeltaProtocol',
   component: DeltaHarness,
-  tags: ['spike'],
+  tags: ['v86'],
   parameters: { layout: 'centered' },
 };
 export default meta;

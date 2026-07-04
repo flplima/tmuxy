@@ -16,7 +16,7 @@ import { expect, waitFor, within } from 'storybook/test';
 import { AppHarness } from '../stories/StoryHarness';
 
 const meta: Meta<typeof AppHarness> = {
-  title: 'Components/FloatPane',
+  title: 'Mocked App/FloatPane',
   component: AppHarness,
   parameters: { layout: 'fullscreen' },
 };

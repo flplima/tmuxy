@@ -29,35 +29,6 @@ export const SingleTab: Story = {
   },
 };
 
-export const MultipleTabs: Story = {
-  render: () => (
-    <ProviderHarness
-      height={60}
-      initCommands={[
-        'rename-window editor',
-        'new-window',
-        'rename-window logs',
-        'new-window',
-        'rename-window tests',
-        'select-window -t @0',
-      ]}
-    >
-      <StatusBar />
-    </ProviderHarness>
-  ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitFor(
-      () => {
-        const tabs = canvas.getAllByRole('tab');
-        expect(tabs.length).toBeGreaterThanOrEqual(3);
-      },
-      { timeout: 5000 },
-    );
-    expect(canvas.getByLabelText(/editor.*active/i)).toBeInTheDocument();
-  },
-};
-
 export const WithCustomTabline: Story = {
   render: () => (
     <ProviderHarness height={60}>

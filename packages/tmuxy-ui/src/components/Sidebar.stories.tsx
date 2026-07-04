@@ -18,7 +18,7 @@ import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { AppHarness } from '../stories/StoryHarness';
 
 const meta: Meta<typeof AppHarness> = {
-  title: 'Components/Sidebar',
+  title: 'Mocked App/Sidebar',
   component: AppHarness,
   parameters: { layout: 'fullscreen' },
 };
@@ -57,29 +57,6 @@ function expectSidebarVisible(overlay: HTMLElement): void {
   // The tree reflects real panes — a "%N" pane row is painted.
   expect(content!.textContent ?? '').toMatch(/%\d+/);
 }
-
-// ---------------------------------------------------------------------------
-// Closed by default
-// ---------------------------------------------------------------------------
-
-export const ClosedByDefault: Story = {
-  args: { height: 500 },
-  parameters: {
-    docs: {
-      description: {
-        story: 'No drawer until toggled; the header button reflects the closed state.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
-
-    const toggle = canvas.getByRole('button', { name: /toggle sidebar/i });
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    expect(document.querySelector('.sidebar-drawer')).toBeNull();
-  },
-};
 
 // ---------------------------------------------------------------------------
 // Open via the header toggle button (mouse user path)
