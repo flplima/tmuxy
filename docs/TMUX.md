@@ -6,6 +6,18 @@ This document covers how tmuxy interacts with tmux: control mode architecture, c
 
 Tmuxy targets **tmux 3.7a** (devcontainer, CI, and the in-browser v86 guest all build it from source). Several workarounds below were discovered on 3.3a/3.5a and are kept because they remain safe on 3.7a.
 
+## Dedicated Server Socket
+
+Tmuxy never talks to the user's default tmux server. Every component targets a **named socket** (`tmux -L <name>`), resolved the same way everywhere:
+
+| Priority | Source                      | Used by                                                                                                                 |
+| -------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 1        | `TMUX_SOCKET` env var       | all components (dev uses `tmuxy-dev`, agents use `tmuxy-prod`)                                                          |
+| 2        | Socket derived from `$TMUX` | shell scripts running inside a pane (`bin/tmuxy-cli`, `bin/tmuxy/_lib`) — so they always target the server hosting them |
+| 3        | `tmuxy` (the default)       | everything else                                                                                                         |
+
+The Rust side resolves via `tmux_socket()` in `tmuxy-core/src/session.rs` and always passes `-L`, which also overrides an inherited `$TMUX` — the server behaves identically whether launched from a terminal, a tmux pane, or Finder. The event-queue scripts (`tmuxy event …`) namespace their FIFO directories by the same socket name.
+
 ## Control Mode Architecture
 
 Tmuxy communicates with tmux through **control mode** (`tmux -CC`), which provides real-time event notifications and command execution through a single stdin/stdout connection. No polling is required.
@@ -29,26 +41,26 @@ All HTTP command handlers in the web server route through `send_via_control_mode
 
 Any command that **modifies** session state when a control mode client is attached:
 
-| Command | Short Form |
-|---------|------------|
-| `split-window` | `splitw` |
-| `new-window` | `neww` (but see crash workaround below) |
-| `select-pane` | `selectp` |
-| `select-window` | `selectw` |
-| `kill-pane` | `killp` |
-| `kill-window` | `killw` |
-| `resize-pane` | `resizep` |
-| `resize-window` | `resizew` (ignored if sent externally) |
-| `swap-pane` | — |
-| `break-pane` | `breakp` |
+| Command              | Short Form                               |
+| -------------------- | ---------------------------------------- |
+| `split-window`       | `splitw`                                 |
+| `new-window`         | `neww` (but see crash workaround below)  |
+| `select-pane`        | `selectp`                                |
+| `select-window`      | `selectw`                                |
+| `kill-pane`          | `killp`                                  |
+| `kill-window`        | `killw`                                  |
+| `resize-pane`        | `resizep`                                |
+| `resize-window`      | `resizew` (ignored if sent externally)   |
+| `swap-pane`          | —                                        |
+| `break-pane`         | `breakp`                                 |
 | `send-keys` / `send` | (for key input, not SGR mouse sequences) |
-| `copy-mode` | — |
-| `next-window` | `next` |
-| `previous-window` | `prev` |
-| `next-layout` | `nextl` |
-| `run-shell` | — |
-| `set-environment` | — |
-| `rename-window` | — |
+| `copy-mode`          | —                                        |
+| `next-window`        | `next`                                   |
+| `previous-window`    | `prev`                                   |
+| `next-layout`        | `nextl`                                  |
+| `run-shell`          | —                                        |
+| `set-environment`    | —                                        |
+| `rename-window`      | —                                        |
 
 Use short command forms when sending through control mode.
 
@@ -58,19 +70,19 @@ Use short command forms when sending through control mode.
 
 These are used in `tmuxy-core/src/executor.rs` and `session.rs`:
 
-| Command | Location | Justification |
-|---------|----------|---------------|
-| `has-session` | `session.rs`, `connection.rs` | Check if session exists **before** connecting control mode |
-| `new-session` | `session.rs` | Create session **before** control mode attaches |
-| `source-file` | `session.rs`, `monitor.rs` | Source config during session creation and initial state sync |
-| `kill-session` | `session.rs` | Destroy session (no control mode attached) |
-| `capture-pane` | `executor.rs` | Initial state capture and scrollback history |
-| `display-message` | `executor.rs` | Query pane metadata (width, history size) |
-| `list-keys` | `executor.rs` | Read keybindings from tmux config |
-| `show-options` | `executor.rs` | Read tmux options |
-| `list-windows` | `executor.rs` | Used by `resize_window` fallback |
-| `send-keys -l` | `executor.rs` | Mouse event SGR sequences (escape-heavy) |
-| `list-panes` | `executor.rs` | Query pane info |
+| Command           | Location                      | Justification                                                |
+| ----------------- | ----------------------------- | ------------------------------------------------------------ |
+| `has-session`     | `session.rs`, `connection.rs` | Check if session exists **before** connecting control mode   |
+| `new-session`     | `session.rs`                  | Create session **before** control mode attaches              |
+| `source-file`     | `session.rs`, `monitor.rs`    | Source config during session creation and initial state sync |
+| `kill-session`    | `session.rs`                  | Destroy session (no control mode attached)                   |
+| `capture-pane`    | `executor.rs`                 | Initial state capture and scrollback history                 |
+| `display-message` | `executor.rs`                 | Query pane metadata (width, history size)                    |
+| `list-keys`       | `executor.rs`                 | Read keybindings from tmux config                            |
+| `show-options`    | `executor.rs`                 | Read tmux options                                            |
+| `list-windows`    | `executor.rs`                 | Used by `resize_window` fallback                             |
+| `send-keys -l`    | `executor.rs`                 | Mouse event SGR sequences (escape-heavy)                     |
+| `list-panes`      | `executor.rs`                 | Query pane info                                              |
 
 These are safe because they either run **before** control mode connects, are **read-only queries**, or use `send-keys -l` for binary escape sequences that control mode handles differently.
 
@@ -91,6 +103,7 @@ splitw -t <session> ; breakp
 This creates a new pane in the current window, then immediately breaks it into its own window — replicating `new-window` behavior without the crash.
 
 **Where it's applied:**
+
 - `packages/tmuxy-server/src/sse.rs` — The `new_window` command handler, `execute_prefix_binding` for `c` key, and `run_tmux_command` all intercept `neww`/`new-window` and rewrite to `splitw ; breakp`.
 - `bin/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
 - `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
@@ -103,11 +116,11 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 Always target tmux objects by their **stable identifiers**, not by indices:
 
-| Object | Stable ID | Unstable Index | Example |
-|--------|-----------|----------------|---------|
-| Session | name | — | `-t mysession` |
-| Window | `@N` | `:N` | `-t @3` not `-t :3` |
-| Pane | `%N` | `.N` | `-t %5` not `-t .2` |
+| Object  | Stable ID | Unstable Index | Example             |
+| ------- | --------- | -------------- | ------------------- |
+| Session | name      | —              | `-t mysession`      |
+| Window  | `@N`      | `:N`           | `-t @3` not `-t :3` |
+| Pane    | `%N`      | `.N`           | `-t %5` not `-t .2` |
 
 Window indices (`:0`, `:1`, `:3`) can shift when windows are created or destroyed. Pane indices (`.0`, `.1`) are relative to the current window and change when panes are added/removed. Session names, window IDs (`@N`), and pane IDs (`%N`) are assigned by tmux at creation and never change.
 
@@ -145,7 +158,7 @@ tmux 3.7a expands format strings (`#{...}`) in **more places** than earlier vers
 
 ### `run-shell` expands its command string
 
-`run-shell "..."` format-expands the whole string before handing it to the shell. A nested `-F '#{pane_id}'` inside a run-shell'd tmux command is therefore pre-expanded against the **currently active pane** — not the pane the inner command creates. This made `float-create` break the *wrong* pane into the float window.
+`run-shell "..."` format-expands the whole string before handing it to the shell. A nested `-F '#{pane_id}'` inside a run-shell'd tmux command is therefore pre-expanded against the **currently active pane** — not the pane the inner command creates. This made `float-create` break the _wrong_ pane into the float window.
 
 Rule: inside any `run-shell` string, write `##{...}` — run-shell's expansion halves it to `#{...}` for the inner command. See `bin/tmuxy/float-create` for the canonical example. (3.6b behaves the same; the bug had simply never been triggered through this path before.)
 
@@ -153,18 +166,18 @@ Rule: inside any `run-shell` string, write `##{...}` — run-shell's expansion h
 
 On 3.7a, `send-keys -l 'text'` format-expands the literal. Empirically:
 
-| Payload sent | Pane receives |
-|--------------|---------------|
-| `#{pane_id}` | `%0` (expanded) |
-| `##{pane_id}` | `#%0` (still expanded!) |
+| Payload sent   | Pane receives                               |
+| -------------- | ------------------------------------------- |
+| `#{pane_id}`   | `%0` (expanded)                             |
+| `##{pane_id}`  | `#%0` (still expanded!)                     |
 | `#{not_a_var}` | `#{not_a_var}` (unknown names pass through) |
-| `#(date)` | `#(date)` (command formats not run) |
+| `#(date)`      | `#(date)` (command formats not run)         |
 
 Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The v86 client does this in `toControlModeCommand` (`tmuxy-ui/src/tmux/v86/V86TmuxAdapter.ts`); the native server will need the same treatment when it upgrades. On 3.6b, `send-keys -l` does not expand at all.
 
 ### Control-mode stdin wants bare `;` separators
 
-The frontend joins compound commands with a shell-escaped ` \; ` (correct for commands that pass through a shell or `run-shell` context). But tmux's control-mode line parser treats `\;` as a literal argument, silently erroring the whole command — which orphans the frontend's optimistic state (the "frozen UI after keyboard split" bug). Raw control-mode transports must rewrite the separator to a bare ` ; ` — never inside a `send-keys -l` literal.
+The frontend joins compound commands with a shell-escaped `\;` (correct for commands that pass through a shell or `run-shell` context). But tmux's control-mode line parser treats `\;` as a literal argument, silently erroring the whole command — which orphans the frontend's optimistic state (the "frozen UI after keyboard split" bug). Raw control-mode transports must rewrite the separator to a bare `;` — never inside a `send-keys -l` literal.
 
 ## Client-Side Placeholder Substitution
 

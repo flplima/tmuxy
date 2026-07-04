@@ -154,6 +154,35 @@ When tests need to target specific tmux windows or panes (e.g., to kill a window
 
 Never commit `it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, or `xdescribe`. ESLint enforces this via `jest/no-disabled-tests` (error). Fix the test, fix the bug, or remove the test entirely.
 
+## Storybook Tests
+
+Three tiers, cheapest first. All play functions follow the same rules as E2E tests (real user paths, visible-rect assertions, unique sentinels).
+
+| Tier | What runs | Where |
+|------|-----------|-------|
+| Vitest smoke (`stories/__tests__/stories.smoke.test.tsx`) | Pure component stories render; provider stories compose | `npm test` (CI: unit-tests job) |
+| Deterministic probe (`npm run test-storybook -w tmuxy-ui`) | Every non-`v86` story + its play function, fresh Chromium page each | CI: storybook-probe job |
+| v86 probe (`npm run test-storybook:v86 -w tmuxy-ui`) | Every `v86`-tagged story on ONE shared page (real tmux in the x86 emulator, snapshot-reset between stories; periodic cold-boot to cap accumulated drift) | CI: storybook-v86-probe job (**non-blocking** — inherently timing-sensitive at scale; reports for triage) |
+
+Both probes expect a running Storybook (`npm run storybook -w tmuxy-ui`). CI runs the **dev** server (no build step needed; on-demand compilation). Filter the v86 probe to specific stories by id substring: `npm run test-storybook:v86 -- split-optimistic deltaprotocol`.
+
+### Choosing a harness
+
+- **`AppHarness` / `ProviderHarness`** (DemoAdapter, deterministic): component behavior, optimistic-update timing that needs controlled latency (`commandDelayMs`) or forced rejections (`failCommand`), render budgets.
+- **`V86AppHarness`** (real tmux): anything whose bugs live in the real chain — command transport, control-mode parsing, reconcile timing, `%output` rendering. If a story asserts "tmux did X", it belongs here.
+
+### Immediacy assertions (optimistic rendering)
+
+"Immediate" is measured, not assumed: arm `armPaintProbe` (`stories/immediacy.ts`) just before the input, and assert the first matching DOM mutation lands within a few animation frames (≤5 absorbs userEvent dispatch overhead; a real round-trip takes dozens). A painted `__placeholder_*` pane id is itself proof of optimism — the server never emits one. After the optimistic paint, assert the reconcile is invisible: no pane-node removals (`LayoutMutationRecorder`), no highlight flaps (record the class/attribute history with a MutationObserver — polling misses one-frame reverts).
+
+### Glitch budgets
+
+`stories/glitchRecorder.ts` is the story-side counterpart of `tests/helpers/glitch-detector.js`: MutationObserver-based node-flicker/attribute-churn detection plus rAF rect sampling for size jumps. Budgets are code: both harnesses read `stories/glitch-thresholds.json` — loosening a budget is a reviewable diff, not a silent drift.
+
+### Render budgets
+
+`utils/renderLog.tsx` places `LogProfiler` markers inside key components; each marker records one entry per RENDER of its host component to `window.__tmuxyRenderLog` when a story enables it (`enableRenderLog()` before mount). Budgets assert render counts per component id (e.g. typing into pane A must not render `Pane:B` or `WindowTabs`). React's own `<Profiler onRender>` is deliberately not used — it over-reports in this tree, firing for subtrees that fully bailed out. MutationObserver cannot see this class of waste — a re-render that produces identical DOM still costs CPU.
+
 ## Unit Tests
 
 - Use Vitest (configured in `packages/tmuxy-ui`)
@@ -187,6 +216,10 @@ Never commit `it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, or `xdescr
 npm start               # Start dev server (required for E2E)
 npm test                # Unit tests (Vitest)
 npm run test:e2e        # E2E tests (Jest + Playwright CDP)
+
+npm run storybook -w tmuxy-ui           # Storybook dev server (required for probes)
+npm run test-storybook -w tmuxy-ui      # Probe all non-v86 stories
+npm run test-storybook:v86 -w tmuxy-ui  # Probe v86 stories (shared engine)
 ```
 
 ## Debugging

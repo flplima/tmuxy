@@ -168,9 +168,15 @@ Optimistic state lives outside XState in a dedicated client model: `tmuxy-ui/src
 | `paneKeyOverrides`   | `TmuxClientModel`              | Maps real pane IDs to placeholder IDs so React keys stay stable.        |
 
 A `TmuxOp` is a typed value, not a parsed command string. The store knows how to:
-1. **Predict** — `ops.ts`'s `predict(op, snapshot, ctx) → Patch | null` produces the patch applied on top of `committed`.
-2. **Dispatch** — `TmuxStore.dispatch(op)` runs predict → applies the patch → sends the command through the adapter → on `TmuxError` rolls the patch back.
+1. **Predict** — `ops.ts`'s `predict(op, snapshot, ctx) → Patch | null` produces the patch applied on top of `committed`. The predict context (default shell + MRU pane activation order for the Navigate tiebreak) is mirrored from the machine on every model update via `UPDATE_PREDICT_CONTEXT`.
+2. **Dispatch** — `TmuxStore.dispatch(op)` runs predict → applies the patch → sends the command through the adapter → on `TmuxError` rolls the patch back. Once the adapter acks, the op moves to `awaiting-confirm`.
 3. **Reconcile** — `TmuxStore.reconcile(serverState)` advances `committed`, runs each pending op's reconciler, drops matched/stale ones, recomputes `derived`.
+
+Stale sweeping is status-aware: an unacked op (`pending`) is swept quickly (`OP_STALE_TIMEOUT_MS`) because its command may be lost; an acked op (`awaiting-confirm`) gets a much longer leash (`OP_ACKED_STALE_TIMEOUT_MS`) because its confirming delta is known to be coming, just possibly slowly (e.g. a new window's type tag arrives on a later list-windows sync).
+
+Predicted ops today: Split, NewWindow, SelectPane, Navigate (with the MRU tiebreak), Swap, SelectWindow, KillPane (removal + aligned-neighbor expansion + MRU refocus), KillWindow, RenameWindow, and ZoomToggle (zoom-in only — the pre-zoom slot is unknown client-side, so unzoom waits for the server). Deliberately NOT predicted: break-pane, layout cycling, and plain resizes (server-side layout math), plus keystrokes (see NON-GOALS.md). While ops are pending the store also re-reconciles on a timer, so age-based verdicts fire even when the control stream is idle.
+
+Focus ops (SelectPane / Navigate) additionally **linger** after confirmation (`FOCUS_CONFIRM_LINGER_MS`): snapshots computed before the focus change can arrive after it, and dropping the op's pin on first confirmation would flap the highlight. A confirmed-then-superseded focus (the server reports a third pane past `FOCUS_SUPERSEDE_GRACE_MS`) yields to the server immediately. Placeholder ids (`__placeholder_*`) are client-only: the keyboardActor never targets them (it falls back to no pane target while a placeholder is active — commands queue FIFO, so by execution time tmux's own active pane is the pane the placeholder stands for).
 
 The XState `appMachine` is a thin bridge: `SEND_TMUX_COMMAND` routes to `tmuxStoreActor` → `store.dispatch`; `TMUX_STATE_UPDATE` routes to `tmuxStoreActor` → `store.reconcile`. Every model change fires a `TMUX_MODEL_UPDATE` event back to the parent, where context.panes/windows/activePaneId are mirrored from `model.derived`. The 600+ lines of split-anti-flicker, position-tolerance heuristics, and stale-timeout fallbacks that used to live inline in `appMachine.ts` are gone — the store owns all of it via pure reducers in `store/model.ts`.
 
