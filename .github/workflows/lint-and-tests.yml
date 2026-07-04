@@ -244,3 +244,139 @@ jobs:
 
       - name: Tauri E2E tests
         run: npm run test:tauri
+
+  # Storybook probes. Both jobs drive stories in a real Chromium against a
+  # `storybook dev` server — dev (not static) on purpose: the render-budget
+  # stories need development React so <Profiler> onRender fires.
+  storybook-probe:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      # The v86 staticDirs point at gitignored dirs; non-v86 stories never
+      # fetch from them, but Storybook refuses to start if they're missing.
+      - name: Create placeholder v86 asset dirs
+        run: mkdir -p packages/tmuxy-ui/v86-assets packages/tmuxy-wasm/pkg
+
+      - name: Start Storybook (dev server)
+        run: |
+          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
+          node -e "
+            const start = Date.now();
+            const check = async () => {
+              while (Date.now() - start < 180000) {
+                try {
+                  const res = await fetch('http://localhost:6006/index.json');
+                  if (res.ok) process.exit(0);
+                } catch {}
+                await new Promise(r => setTimeout(r, 1000));
+              }
+              process.exit(1);
+            };
+            check();
+          "
+
+      - name: Probe deterministic stories
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          npm run test-storybook -w tmuxy-ui
+
+      - name: Storybook logs (debug)
+        if: failure()
+        run: tail -200 /tmp/storybook.log
+
+  storybook-v86-probe:
+    runs-on: ubuntu-latest
+    # Non-blocking: this drives ~105 real-tmux stories on ONE shared v86 engine
+    # in a single browser page. The shared engine is inherently timing-sensitive
+    # at that scale — a handful of window-index-reconstruction stories (after
+    # `tmuxy tab create` the 2 KB/s byte-paced serial writer backs up behind
+    # capture refreshes, delaying the list-windows sync 20-30s) flake under load
+    # even though every story passes in isolation. It reports failures for
+    # triage without gating merges; the deterministic `storybook-probe` job
+    # (fresh page per story, no shared engine) stays blocking.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: swatinem/rust-cache@v2
+
+      # Must match the wasm-bindgen version pinned in Cargo.lock.
+      - name: Install wasm-bindgen CLI
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.111
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build tmuxy-wasm
+        run: npm run build:wasm
+
+      # The guest kernel/BIOS + pre-booted machine snapshot. Rebuilt only when
+      # the build scripts or the baked-in tmuxy CLI/config change.
+      - name: Cache v86 guest assets
+        id: v86-assets-cache
+        uses: actions/cache@v5
+        with:
+          path: packages/tmuxy-ui/v86-assets
+          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'bin/tmuxy-cli', 'bin/tmuxy/**') }}
+
+      - name: Build v86 guest assets (cache miss)
+        if: steps.v86-assets-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends zstd
+          npm run fetch:v86-image -w tmuxy-ui
+          npm run build:v86-snapshot -w tmuxy-ui
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Start Storybook (dev server)
+        run: |
+          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
+          node -e "
+            const start = Date.now();
+            const check = async () => {
+              while (Date.now() - start < 180000) {
+                try {
+                  const res = await fetch('http://localhost:6006/index.json');
+                  if (res.ok) process.exit(0);
+                } catch {}
+                await new Promise(r => setTimeout(r, 1000));
+              }
+              process.exit(1);
+            };
+            check();
+          "
+
+      - name: Probe v86 stories (shared engine, single page)
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          npm run test-storybook:v86 -w tmuxy-ui
+
+      - name: Storybook logs (debug)
+        if: failure()
+        run: tail -200 /tmp/storybook.log

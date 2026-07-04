@@ -19,6 +19,7 @@ import {
   selectCharSize,
   selectContainerSize,
 } from '../machines/AppContext';
+import { LogProfiler } from '../utils/renderLog';
 import type { FloatPaneState } from '../machines/types';
 import type { TmuxPane } from '../machines/types';
 
@@ -28,6 +29,14 @@ interface FloatPaneProps {
 }
 
 export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
+  return (
+    <LogProfiler id={`FloatPane:${floatState.paneId}`}>
+      <FloatPaneInner floatState={floatState} zIndex={zIndex} />
+    </LogProfiler>
+  );
+}
+
+function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const send = useAppSend();
   const pane = useAppSelector((ctx) =>
     ctx.panes.find((p: TmuxPane) => p.tmuxId === floatState.paneId),

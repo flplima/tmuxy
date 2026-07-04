@@ -17,6 +17,7 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test-storybook": "node scripts/probe-stories.mjs",
+    "test-storybook:v86": "node scripts/probe-spikes.mjs",
     "fetch:v86-image": "node scripts/fetch-v86-image.mjs",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",

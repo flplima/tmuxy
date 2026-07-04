@@ -23,9 +23,10 @@ async function fetchIndex() {
   const json = await res.json();
   return Object.keys(json.entries).filter((id) => {
     const entry = json.entries[id];
-    // `spike` stories (e.g. the v86 boot bring-up) are slow, network-dependent,
-    // and nondeterministic — not part of the CI render contract.
-    return entry.type === 'story' && !(entry.tags ?? []).includes('spike');
+    // `v86` stories (real tmux in the x86 emulator) are slow, network-dependent,
+    // and nondeterministic — they run via probe-spikes.mjs on a single shared
+    // engine page instead of this one-page-per-story probe.
+    return entry.type === 'story' && !(entry.tags ?? []).includes('v86');
   });
 }
 

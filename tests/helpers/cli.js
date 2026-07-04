@@ -36,7 +36,9 @@ function tmuxRun(command) {
  * @returns {string} Trimmed stdout
  */
 function tmuxQuery(command) {
-  const socketFlag = process.env.TMUX_SOCKET ? `-L ${process.env.TMUX_SOCKET} ` : '';
+  // Same socket resolution as the app: TMUX_SOCKET override, else the
+  // dedicated `tmuxy` socket.
+  const socketFlag = `-L ${process.env.TMUX_SOCKET || 'tmuxy'} `;
   return execSync(`tmux ${socketFlag}${command}`, {
     encoding: 'utf-8',
     timeout: 30000,

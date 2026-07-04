@@ -45,22 +45,13 @@ const DEFAULT_OPTIONS = {
 };
 
 /**
- * Default thresholds for different operations
+ * Per-operation thresholds, shared with the Storybook glitch recorder
+ * (packages/tmuxy-ui/src/stories/glitchRecorder.ts) so both harnesses enforce
+ * the same budgets. Split/kill allow size jumps because the 250ms CSS
+ * transitions on .pane-layout-item produce ~15 jumps per pane at 60fps (~60
+ * with 3 panes transitioning under load).
  */
-const OPERATION_THRESHOLDS = {
-  // Split: allow size jumps as panes resize to accommodate new pane
-  // CSS transitions (250ms) on .pane-layout-item cause ~15 jumps per pane at 60fps.
-  // With 3 panes transitioning simultaneously, up to ~60 jumps under load.
-  split: { nodeFlickers: 0, attrChurnEvents: 2, sizeJumps: 65 },
-  // Kill: allow size jumps as remaining panes expand (same CSS transition reason)
-  kill: { nodeFlickers: 0, attrChurnEvents: 2, sizeJumps: 65 },
-  resize: { nodeFlickers: 0, attrChurnEvents: 2, sizeJumps: 0 },
-  drag: { nodeFlickers: 0, attrChurnEvents: 4, sizeJumps: 0 },
-  windowSwitch: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 0 },
-  groupSwitch: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 0 },
-  zoom: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 1 },
-  default: { nodeFlickers: 0, attrChurnEvents: 0, sizeJumps: 0 },
-};
+const OPERATION_THRESHOLDS = require('../../packages/tmuxy-ui/src/stories/glitch-thresholds.json');
 
 class GlitchDetector {
   constructor(page) {
