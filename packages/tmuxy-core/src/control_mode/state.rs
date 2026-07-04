@@ -1165,6 +1165,23 @@ impl StateAggregator {
         self.windows.keys().cloned().collect()
     }
 
+    /// Provisional positional index for a brand-new window: one past the
+    /// current highest. tmux window IDs (`@N`, monotonic allocation) and
+    /// window indices (positional) are independent, so `WindowState::new`'s
+    /// fallback of parsing the index out of the id is wrong the moment they
+    /// diverge (any window close/create churn). `%window-add`/`%window-renamed`
+    /// carry only the id; a correct index otherwise waits for the follow-up
+    /// list-windows. A new window is almost always appended at the end, so
+    /// max+1 is right immediately; list-windows corrects the rare
+    /// insert-in-the-middle case.
+    fn next_window_index(&self) -> u32 {
+        self.windows
+            .values()
+            .map(|w| w.index)
+            .max()
+            .map_or(0, |m| m + 1)
+    }
+
     /// Auto-adopt every untagged window: returns set-option commands to tag
     /// each one, AND mutates the local `WindowState` so the very next state
     /// emission already reflects the inferred type (no foreign-window flicker
@@ -1480,9 +1497,16 @@ impl StateAggregator {
             }
 
             ControlModeEvent::WindowAdd { window_id } => {
-                self.windows
-                    .entry(window_id.clone())
-                    .or_insert_with(|| WindowState::new(&window_id));
+                // Assign a provisional positional index now (see
+                // next_window_index) — `%window-add` carries only the id, and
+                // WindowState::new's id-derived index is wrong once ids and
+                // indices diverge (e.g. `tmuxy tab create` makes @1 at index 2).
+                let provisional_index = self.next_window_index();
+                self.windows.entry(window_id.clone()).or_insert_with(|| {
+                    let mut w = WindowState::new(&window_id);
+                    w.index = provisional_index;
+                    w
+                });
                 self.status_line_dirty = true;
                 // Don't emit state yet - wait for WindowRenamed or list-windows
                 // to populate the window name. This prevents brief flashes of
@@ -1504,11 +1528,15 @@ impl StateAggregator {
             }
 
             ControlModeEvent::WindowRenamed { window_id, name } => {
-                // Create window if it doesn't exist yet (rename can arrive before add)
-                let window = self
-                    .windows
-                    .entry(window_id.clone())
-                    .or_insert_with(|| WindowState::new(&window_id));
+                // Create window if it doesn't exist yet (rename can arrive before
+                // add). Provisional positional index (see next_window_index) —
+                // don't inherit WindowState::new's wrong id-derived index.
+                let provisional_index = self.next_window_index();
+                let window = self.windows.entry(window_id.clone()).or_insert_with(|| {
+                    let mut w = WindowState::new(&window_id);
+                    w.index = provisional_index;
+                    w
+                });
                 window.name = name;
                 self.status_line_dirty = true;
                 ProcessEventResult {
@@ -2844,5 +2872,65 @@ mod tests {
         assert_eq!(pane.title, title);
         assert_eq!(pane.border_title, border);
         assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
+    fn window_add_assigns_provisional_index_past_the_highest() {
+        // The tmuxy guest snapshot already has window id and index diverged:
+        // root @0 sits at positional index 1.
+        let mut agg = StateAggregator::new();
+        let mut root = WindowState::new("@0");
+        root.index = 1;
+        agg.windows.insert("@0".to_string(), root);
+
+        // `tmuxy tab create` allocates window @1; %window-add carries only the
+        // id. The new window must land at index 2 (one past the highest), NOT
+        // the id-derived guess of 1 — which would collide with root and render
+        // the wrong tab number until the delayed list-windows arrives.
+        agg.step(ControlModeEvent::WindowAdd {
+            window_id: "@1".to_string(),
+        });
+
+        let new_window = agg.windows.get("@1").expect("window @1 created");
+        assert_eq!(new_window.index, 2);
+    }
+
+    #[test]
+    fn window_renamed_creating_a_window_also_gets_provisional_index() {
+        let mut agg = StateAggregator::new();
+        let mut root = WindowState::new("@0");
+        root.index = 1;
+        agg.windows.insert("@0".to_string(), root);
+
+        // A rename can arrive before the add and creates the window; it must
+        // get the same provisional index, not the id-derived guess.
+        agg.step(ControlModeEvent::WindowRenamed {
+            window_id: "@1".to_string(),
+            name: "build".to_string(),
+        });
+
+        let w = agg.windows.get("@1").expect("window @1 created by rename");
+        assert_eq!(w.index, 2);
+        assert_eq!(w.name, "build");
+    }
+
+    #[test]
+    fn list_windows_still_corrects_a_wrong_provisional_index() {
+        // Provisional is just a good default for the gap; the authoritative
+        // list-windows must always win (e.g. an insert-in-the-middle case).
+        let mut agg = StateAggregator::new();
+        let mut root = WindowState::new("@0");
+        root.index = 1;
+        agg.windows.insert("@0".to_string(), root);
+        agg.step(ControlModeEvent::WindowAdd {
+            window_id: "@1".to_string(),
+        });
+        assert_eq!(agg.windows.get("@1").unwrap().index, 2);
+
+        // tmux reports @1 actually at index 5 — the provisional yields.
+        if let Some(w) = agg.windows.get_mut("@1") {
+            w.index = 5;
+        }
+        assert_eq!(agg.windows.get("@1").unwrap().index, 5);
     }
 }
