@@ -79,9 +79,13 @@ export const commandUiActions = {
       return;
     }
 
+    // Through the STORE so typed commands (rename-window from the tab-rename
+    // prompt, kill-*, splits entered via `:`) get their optimistic
+    // predictions; unrecognized commands pass through as RawCommand exactly
+    // as before.
     enqueue(
-      sendTo('tmux', {
-        type: 'SEND_COMMAND' as const,
+      sendTo('tmuxStore', {
+        type: 'DISPATCH_COMMAND' as const,
         command: finalCommand,
       }),
     );

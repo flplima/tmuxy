@@ -58,8 +58,26 @@ export const layoutActions = {
   }),
 
   layout_closePane: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
-    ({ event, enqueue }) => {
+    ({ event, context, enqueue }) => {
       if (event.type !== 'CLOSE_PANE') return;
+      // Group members and floats need the group-aware close script (swap-in /
+      // window cleanup / option bookkeeping — server-side semantics we can't
+      // predict). A plain pane is exactly `kill-pane` (the script's own
+      // fallback), so dispatch it through the STORE for the optimistic
+      // removal + exit animation on click instead of on the round-trip.
+      const inGroup = Object.values(context.paneGroups).some((g) =>
+        g.paneIds.includes(event.paneId),
+      );
+      const isFloat = Boolean(context.floatPanes[event.paneId]);
+      if (!inGroup && !isFloat) {
+        enqueue(
+          sendTo('tmuxStore', {
+            type: 'DISPATCH_COMMAND' as const,
+            command: `kill-pane -t ${event.paneId}`,
+          }),
+        );
+        return;
+      }
       enqueue(
         sendTo('tmux', {
           type: 'SEND_COMMAND' as const,
@@ -72,16 +90,18 @@ export const layoutActions = {
   layout_zoomPane: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ event, enqueue }) => {
       if (event.type !== 'ZOOM_PANE') return;
+      // Through the store: select-pane gets the focus prediction, and the
+      // explicitly-targeted zoom gets the ZoomToggle geometry prediction.
       enqueue(
-        sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
+        sendTo('tmuxStore', {
+          type: 'DISPATCH_COMMAND' as const,
           command: `select-pane -t ${event.paneId}`,
         }),
       );
       enqueue(
-        sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: 'resize-pane -Z',
+        sendTo('tmuxStore', {
+          type: 'DISPATCH_COMMAND' as const,
+          command: `resize-pane -t ${event.paneId} -Z`,
         }),
       );
     },
@@ -123,14 +143,23 @@ export const layoutActions = {
         assign({
           activeWindowId: event.windowId,
           activePaneId: targetPaneId,
+          // Flip the per-window active flags too — the tab strip renders
+          // aria-selected from windows[].active, and without this the
+          // highlight waits for the server round-trip even though the pane
+          // grid flipped optimistically.
+          windows: context.windows.map((w) => ({ ...w, active: w.id === event.windowId })),
           lastActivePaneByWindow,
           pendingSelectTabAt: flippedAt,
         }),
       );
 
+      // Through the STORE: the SelectWindow op's patch + confirm-linger hold
+      // the optimistic tab selection over stale snapshots for seconds (the
+      // 200ms machine grace alone cannot cover a slow confirm — the tab strip
+      // visibly flapped on the v86 transport).
       enqueue(
-        sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
+        sendTo('tmuxStore', {
+          type: 'DISPATCH_COMMAND' as const,
           command: `select-window -t ${event.windowIndex}`,
         }),
       );
@@ -162,10 +191,12 @@ export const layoutActions = {
    * Timer-driven resolution of a SELECT_TAB optimistic pin (see layout_selectTab).
    * Runs only when the pin is still outstanding and hasn't been superseded by a
    * newer switch. Reconciles `activeWindowId` to the server's actual active
-   * window — derived from the `active` flag on `context.windows`, which is never
-   * pinned and always reflects the latest server snapshot. In the no-snapshot
-   * case this is exactly where tmux still is; a confirming/correcting snapshot
-   * would already have cleared `pendingSelectTabAt` before this fires.
+   * window — derived from the `active` flag on `context.windows`. Note that
+   * SELECT_TAB now flips those flags optimistically at click time (for the
+   * tab strip's aria-selected), so this timer path is best-effort: it catches
+   * stale pins when a snapshot HAS refreshed the flags, and the next real
+   * snapshot reconciles the rest. A confirming/correcting snapshot would
+   * already have cleared `pendingSelectTabAt` before this fires.
    */
   layout_reconcileSelectTab: enqueueActions<
     Ctx,

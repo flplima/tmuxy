@@ -48,6 +48,7 @@ export function mountState<TActions extends Record<string, unknown>>(
     },
     actors: {
       tmux: stubActor,
+      tmuxStore: stubActor,
       keyboard: stubActor,
       size: stubActor,
       ...(options.extraActors ?? {}),
@@ -61,6 +62,7 @@ export function mountState<TActions extends Record<string, unknown>>(
     initial: 'active',
     invoke: [
       { id: 'tmux', src: 'tmux' },
+      { id: 'tmuxStore', src: 'tmuxStore' },
       { id: 'keyboard', src: 'keyboard' },
       { id: 'size', src: 'size' },
     ],

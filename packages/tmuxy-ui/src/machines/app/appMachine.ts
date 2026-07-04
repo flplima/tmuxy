@@ -86,9 +86,12 @@ function snapshotFromModel(model: TmuxClientModel): {
   sessionName: string;
 } {
   const d = model.derived;
+  // Pass the derived arrays through by REFERENCE — the store already
+  // preserves identity for unchanged panes/windows/arrays, and spreading
+  // here would hand every subscriber a fresh identity on every tick.
   return {
-    panes: [...d.panes],
-    windows: [...d.windows],
+    panes: d.panes as TmuxSnapshot['panes'][number][],
+    windows: d.windows as TmuxSnapshot['windows'][number][],
     activePaneId: d.activePaneId,
     activeWindowId: d.activeWindowId,
     totalWidth: d.totalWidth,
@@ -658,6 +661,33 @@ export const appMachine = setup({
               // Skip spurious empty-pane states from the server
               if (transformed.panes.length === 0) return;
 
+              // Anti-flash: a freshly-created window can be reported active
+              // BEFORE its pane's window mapping settles — break-pane emits
+              // %window-add (and the session's active-window flip) a beat
+              // before the moved pane's window_id updates. Rendering it now
+              // flashes an empty tab (the active window has zero visible
+              // panes). Defer until the pane arrives; the very next emit
+              // carries it. Guarded to the switch transient (active window
+              // changed, we were rendering panes, the new one has none) so a
+              // legitimately-empty state still applies once the window settles.
+              // tmux never leaves a window pane-less for long, so this can't
+              // wedge — the periodic sync re-emits with the pane.
+              const switchingWindow = transformed.activeWindowId !== context.activeWindowId;
+              const newActiveHasPanes = transformed.panes.some(
+                (p) => p.windowId === transformed.activeWindowId,
+              );
+              const currentlyRenderingPanes = context.panes.some(
+                (p) => p.windowId === context.activeWindowId,
+              );
+              // Only when no optimistic op is in flight: an optimistic
+              // NewWindow legitimately makes a (placeholder) window active with
+              // its placeholder pane, and its rollback must apply normally —
+              // the break-pane transient this guards is a server-driven
+              // RawCommand path with no pending op.
+              const opsInFlight = event.model.ops.length > 0;
+              if (!opsInFlight && switchingWindow && !newActiveHasPanes && currentlyRenderingPanes)
+                return;
+
               // Pending SELECT_TAB grace: state snapshots emitted before tmux
               // processed `select-window` still carry the old activeWindowId.
               // While our optimistic flip is pending, hold onto it so the UI
@@ -679,6 +709,13 @@ export const appMachine = setup({
                   if (context.activePaneId) {
                     transformed.activePaneId = context.activePaneId;
                   }
+                  // The tab strip renders windows[].active (aria-selected) —
+                  // pin the flags to the held window too, or the highlight
+                  // flaps A → B → A even though the pane grid stays pinned.
+                  transformed.windows = transformed.windows.map((w) => ({
+                    ...w,
+                    active: w.id === context.activeWindowId,
+                  }));
                 } else {
                   // Grace expired without confirmation — let server win.
                   pendingSelectTabAt = null;
@@ -999,6 +1036,15 @@ export const appMachine = setup({
                   pendingSelectTabAt,
                 })),
               );
+              // Mirror the MRU order into the store's predict context — the
+              // Navigate predictor's tmux-accurate tiebreak reads it there.
+              enqueue(
+                sendTo('tmuxStore', ({ context: ctx }) => ({
+                  type: 'UPDATE_PREDICT_CONTEXT' as const,
+                  defaultShell: ctx.defaultShell,
+                  paneActivationOrder: ctx.paneActivationOrder,
+                })),
+              );
               enqueue(
                 sendTo('keyboard', {
                   type: 'UPDATE_SESSION' as const,
@@ -1211,13 +1257,6 @@ export const appMachine = setup({
               }
             }
 
-            // Drag-time swaps: the drag machine already pre-shuffled pane
-            // positions for visual continuity. Skip the store's own predicted
-            // patch so we don't double-shuffle; the server reconcile will
-            // still confirm the swap and clear any in-flight op.
-            const isDragging = context.drag !== null;
-            const skipPrediction = isDragging && /^(swap-pane|swapp)\b/.test(tail);
-
             // Suppress layout animations for the duration of a Split / NewWindow
             // dispatch — the placeholder→real-id swap in PaneLayout would
             // otherwise transition the React key change as a fade-in/out. The
@@ -1247,11 +1286,15 @@ export const appMachine = setup({
             // this XState machine which assigns context.panes/etc. on
             // TMUX_MODEL_UPDATE), and forwards the command to the adapter.
             // On a tmux rejection the patch is rolled back automatically.
+            // Drag-time swaps get the store's Swap prediction like any other
+            // path: the drag machine's own pane shuffle is PRIVATE hit-testing
+            // state (never rendered), so without the predicted patch the
+            // dropped pane snapped back to its original slot until the server
+            // %layout-change landed, then slid again — two motions for one drop.
             enqueue(
               sendTo('tmuxStore', {
                 type: 'DISPATCH_COMMAND' as const,
                 command,
-                skipPrediction,
               }),
             );
           }),
@@ -1368,10 +1411,13 @@ export const appMachine = setup({
               // Only send select-pane if the pane isn't already active.
               // Redundant select-pane commands race with relative-target
               // operations like prefix+o (select-pane -t :.+).
+              // Dispatch through the STORE (not the tmux actor) so the click
+              // gets the SelectPane optimistic prediction — the active
+              // highlight must flip on the click, not on the round-trip.
               if (event.paneId !== context.activePaneId) {
                 enqueue(
-                  sendTo('tmux', {
-                    type: 'SEND_COMMAND' as const,
+                  sendTo('tmuxStore', {
+                    type: 'DISPATCH_COMMAND' as const,
                     command: `select-pane -t ${event.paneId}`,
                   }),
                 );
@@ -1458,10 +1504,20 @@ export const appMachine = setup({
         SELECT_PANE_GROUP_TAB: {
           actions: enqueueActions(({ event, context, enqueue }) => {
             const clickedPaneId = event.paneId;
-            if (clickedPaneId === context.activePaneId) return;
 
             const clickedPane = context.panes.find((p) => p.tmuxId === clickedPaneId);
             if (!clickedPane) return;
+
+            // No-op only when the clicked pane already occupies the visible
+            // slot. Comparing against activePaneId alone is not enough: an
+            // optimistic focus can stay pinned on a PARKED member (its window
+            // is hidden), and that stale pin must not eat the user's click.
+            if (
+              clickedPaneId === context.activePaneId &&
+              clickedPane.windowId === context.activeWindowId
+            ) {
+              return;
+            }
 
             const group = Object.values(context.paneGroups).find((g) =>
               g.paneIds.includes(clickedPaneId),

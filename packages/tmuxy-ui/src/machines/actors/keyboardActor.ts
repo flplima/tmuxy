@@ -111,6 +111,19 @@ function escapeLiteralText(text: string): string {
   return "'" + text.replace(/'/g, "'\\''") + "'";
 }
 
+/**
+ * Placeholder pane ids (`__placeholder_*`) are client-side predictions from the
+ * optimistic store — tmux has never heard of them. Targeting one (the
+ * `select-pane` pin or a `send-keys -t`) makes real tmux reject the whole
+ * command, dropping the user's input. Until the placeholder reconciles to a
+ * real `%N`, fall back to "no pane target": commands queue FIFO on the control
+ * stream, so by the time they execute server-side the in-flight split/new-window
+ * has landed and tmux's own active pane IS the pane the placeholder stands for.
+ */
+function realPaneId(id: string | null): string | null {
+  return id !== null && id.startsWith('__placeholder_') ? null : id;
+}
+
 export function createKeyboardActor() {
   return fromCallback<KeyboardActorEvent, KeyboardActorInput>(({ input, receive }) => {
     let sessionName = 'tmuxy';
@@ -142,7 +155,7 @@ export function createKeyboardActor() {
           if (!enabled) return;
           const escaped = escapeLiteralText(text);
           const mobileTarget =
-            focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId ?? sessionName;
+            focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${mobileTarget} -l ${escaped}`,
@@ -281,7 +294,7 @@ export function createKeyboardActor() {
           // Double prefix sends literal prefix key to the shell
           resetPrefixMode();
           const prefixTarget =
-            focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId ?? sessionName;
+            focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${prefixTarget} ${prefixKey}`,
@@ -359,7 +372,7 @@ export function createKeyboardActor() {
           // aligns tmux's view with ours before the binding executes; for
           // bindings that carry their own target (e.g., `select-pane -L`), the
           // prepend is a harmless no-op since the binding overrides it.
-          const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId;
+          const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId);
           const command = target
             ? `select-pane -t ${target} \\; ${bindingCommand}`
             : bindingCommand;
@@ -409,7 +422,7 @@ export function createKeyboardActor() {
         // Same prefix-pin treatment as prefix bindings — root bindings (bind -n)
         // also run against tmux's server-side active pane and need the
         // post-tab-switch / post-group-swap race guarded the same way.
-        const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId;
+        const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId);
         const command = target ? `select-pane -t ${target} \\; ${rootCommand}` : rootCommand;
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
@@ -431,7 +444,8 @@ export function createKeyboardActor() {
       // Target priority: focused float > active pane ID > session name
       // Using activePaneId ensures input reaches the correct pane immediately
       // after an optimistic tab switch (before tmux processes select-window).
-      const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId ?? sessionName;
+      const target =
+        focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
       // Use literal mode (-l) for single printable chars to avoid tmux syntax interpretation
       let command: string;
       if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
@@ -469,7 +483,7 @@ export function createKeyboardActor() {
         const escaped = escapeLiteralText(composedText);
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
-          command: `send-keys -t ${activePaneId ?? sessionName} -l ${escaped}`,
+          command: `send-keys -t ${realPaneId(activePaneId) ?? sessionName} -l ${escaped}`,
         });
       }
     };
@@ -488,7 +502,8 @@ export function createKeyboardActor() {
       const lines = text.split('\n');
       const commands: string[] = [];
 
-      const pasteTarget = focusedSidebarPaneId ?? focusedFloatPaneId ?? activePaneId ?? sessionName;
+      const pasteTarget =
+        focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (line.length > 0) {
