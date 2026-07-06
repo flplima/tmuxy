@@ -31,9 +31,9 @@ We do NOT maintain our own scrollback history. Tmux has scrollback. Users access
 - Lost on page refresh anyway
 - Target users already know copy mode
 
-### 3. Local Scroll Rendering
+### 3. Live Local Scrollback Buffer
 
-We do NOT render scrollback from a local buffer. Mouse wheel in a normal shell enters tmux's native copy mode and scrolls through tmux's scrollback (`copy-mode -e` + `scroll-up`/`scroll-down`); tmux captures the scrolled viewport and we render it. In alternate screen (vim, less), the wheel sends arrow keys. So scrolling works, but the content always comes from tmux, never a client-side buffer.
+We do NOT continuously buffer a pane's output on the client. Mouse wheel in a normal shell enters copy mode and renders scrollback that is **fetched on demand from tmux** (`get_scrollback_cells` → `capture-pane`), lazily in chunks as the user scrolls — see [COPY-MODE.md](COPY-MODE.md). In alternate screen (vim, less), the wheel sends arrow keys. So scrolling works and scrollback renders client-side, but the history always comes from tmux at scroll time, never from a buffer we keep in sync with live output.
 
 ### 4. Local Search (Cmd+F / Ctrl+F)
 
@@ -110,5 +110,5 @@ Until then, we stay focused on being the best tmux UI, not another terminal emul
 
 ## Related
 
-- [COPY-MODE.md](COPY-MODE.md) — Native tmux copy mode integration (tmux owns scrollback, cursor, and selection)
+- [COPY-MODE.md](COPY-MODE.md) — Client-side scrollback rendering (the one scrollback-like feature we implement; history fetched from tmux on demand)
 - [RICH-RENDERING.md](RICH-RENDERING.md) — Image protocol support (iTerm2, Kitty, Sixel) and OSC 8 hyperlinks

@@ -1,65 +1,159 @@
 /**
  * TerminalPane - Renders a pane with terminal content.
  *
- * The pane always renders the live `Terminal` view. tmux owns scrollback and
- * copy mode: scrolling/selection is driven through `send-keys -X` commands
- * (see usePaneMouse / scrollUtils), and the copy cursor + selection are rendered
- * from the coordinates tmux reports in `list-panes`.
+ * Contains a shared scroll container that wraps both Terminal and
+ * ScrollbackTerminal. In normal mode the terminal is pinned to the bottom
+ * of a spacer div whose height equals the full scrollback height.
  *
- * Wheel/touch events use the proxy pattern: the pane-wrapper (non-scrollable)
- * intercepts them via native { passive: false } listeners, calls preventDefault(),
- * and translates them into tmux scroll commands.
+ * Wheel events use the proxy pattern: the pane-wrapper (non-scrollable)
+ * intercepts wheel via a native { passive: false } listener, calls
+ * preventDefault(), and manually adjusts scrollTop on the scroll container.
  */
 
-import { useRef, useEffect } from 'react';
+import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
 import { Terminal } from './Terminal';
+import { ScrollbackTerminal } from './ScrollbackTerminal';
 import { PaneHeader } from './PaneHeader';
+import { SelectionContextMenu } from './SelectionContextMenu';
 import {
   useAppSend,
+  useAppActor,
   usePane,
   useIsPaneInActiveWindow,
   useIsSinglePane,
+  useCopyModeState,
   useAppSelector,
   useAppConfig,
   selectCharSize,
 } from '../machines/AppContext';
 import { usePaneMouse, usePaneTouch } from '../hooks';
 import { LogProfiler } from '../utils/renderLog';
-import { useScrollShiftAnimation } from '../hooks/useScrollShiftAnimation';
-import { selectScrollAnimationEnabled } from '../machines/selectors';
 import { isCollapsedPane } from '../constants';
+import { extractSelectedText } from '../utils/copyMode';
 
 interface TerminalPaneProps {
   paneId: string;
 }
 
-// Stable empty content so the scroll-shift hook gets a consistent reference when
-// the pane is briefly absent.
-const EMPTY_CONTENT: import('../tmux/types').PaneContent = [];
-
 export function TerminalPane({ paneId }: TerminalPaneProps) {
   const send = useAppSend();
+  const actor = useAppActor();
   const pane = usePane(paneId);
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
   const contentRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  // Host element for the scroll-shift animation transform (Phase 7).
-  const terminalHostRef = useRef<HTMLDivElement>(null);
+  const copyState = useCopyModeState(paneId);
   const { forwardScrollToParent } = useAppConfig();
 
+  // Selection context menu state
+  const [selectionMenu, setSelectionMenu] = useState<{
+    x: number;
+    y: number;
+    text: string;
+  } | null>(null);
   const historySize = pane?.historySize ?? 0;
   const paneHeight = pane?.height ?? 24;
-  const scrollAnimationEnabled = useAppSelector(selectScrollAnimationEnabled);
+  // In copy mode, use copyState.totalLines for scroll container height so it
+  // stays consistent with the copy mode content bounds. The live pane historySize
+  // can diverge from copyState.historySize when new output arrives after entering
+  // copy mode, causing scroll position / content misalignment.
+  const totalHeight = (copyState ? copyState.totalLines : historySize + paneHeight) * charHeight;
 
-  // Subtle slide when the pane's content scrolls (copy mode, less/vim, log tails).
-  useScrollShiftAnimation({
-    content: pane?.content ?? EMPTY_CONTENT,
-    enabled: scrollAnimationEnabled,
-    lineHeight: charHeight,
-    targetRef: terminalHostRef,
+  // Track whether we're programmatically setting scroll to suppress onScroll feedback
+  const suppressScrollRef = useRef(false);
+
+  // Track the last scrollTop that came from the DOM (user wheel/scroll).
+  // When the state machine's scrollTop matches this value, we skip syncing
+  // DOM <- state to avoid fighting the native scroll with line-boundary snaps.
+  const lastDomScrollTopRef = useRef<number | null>(null);
+
+  // Track previous copy mode scrollTop to skip sync when it hasn't changed
+  // (e.g. re-renders from chunk loads that don't alter scrollTop).
+  const prevCopyScrollTopRef = useRef<number | null>(null);
+
+  // Scroll indicator (direct DOM manipulation to avoid re-renders)
+  const scrollIndicatorRef = useRef<HTMLDivElement | null>(null);
+  const scrollIndicatorTimer = useRef<number | null>(null);
+
+  // Context menu timeout refs (cleaned on unmount to prevent stale state updates)
+  const contextMenuTimers = useRef<number[]>([]);
+  useEffect(() => {
+    const timers = contextMenuTimers;
+    return () => timers.current.forEach(clearTimeout);
+  }, []);
+
+  const flashScrollIndicator = useCallback(() => {
+    const el = scrollIndicatorRef.current;
+    if (!el) return;
+    el.style.opacity = '0.6';
+    if (scrollIndicatorTimer.current) clearTimeout(scrollIndicatorTimer.current);
+    scrollIndicatorTimer.current = window.setTimeout(() => {
+      if (scrollIndicatorRef.current) scrollIndicatorRef.current.style.opacity = '0';
+    }, 1200);
+  }, []);
+
+  // onScroll: detect scroll away from bottom -> enter copy mode
+  const handleContainerScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      if (suppressScrollRef.current) return;
+
+      if (copyState) {
+        const el = e.currentTarget;
+        const scrollTop = el.scrollTop;
+        // Forward scroll position to state machine
+        const newScrollTop = Math.floor(scrollTop / charHeight);
+        lastDomScrollTopRef.current = newScrollTop;
+        send({ type: 'COPY_MODE_SCROLL', paneId, scrollTop: newScrollTop });
+        flashScrollIndicator();
+      }
+    },
+    [send, paneId, charHeight, copyState, flashScrollIndicator],
+  );
+
+  // Keep scroll pinned to bottom in normal mode
+  useLayoutEffect(() => {
+    if (!copyState && scrollRef.current) {
+      suppressScrollRef.current = true;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      suppressScrollRef.current = false;
+    }
+  });
+
+  // Sync scroll position from state -> DOM only for keyboard-initiated changes.
+  // Skip when: (a) scrollTop hasn't changed (re-render from chunk load, etc.)
+  //            (b) scrollTop matches lastDomScrollTopRef (change came from wheel)
+  useLayoutEffect(() => {
+    if (copyState && scrollRef.current) {
+      const newScrollTop = copyState.scrollTop;
+      const prevScrollTop = prevCopyScrollTopRef.current;
+      prevCopyScrollTopRef.current = newScrollTop;
+
+      // scrollTop didn't change — skip (chunk load, selection update, etc.)
+      if (newScrollTop === prevScrollTop) return;
+
+      // scrollTop changed but matches DOM-originated value — skip
+      if (lastDomScrollTopRef.current !== null && newScrollTop === lastDomScrollTopRef.current) {
+        lastDomScrollTopRef.current = null;
+        return;
+      }
+      lastDomScrollTopRef.current = null;
+
+      // Keyboard-initiated change — sync DOM to state
+      const targetScroll = newScrollTop * charHeight;
+      if (Math.abs(scrollRef.current.scrollTop - targetScroll) > 1) {
+        suppressScrollRef.current = true;
+        scrollRef.current.scrollTop = targetScroll;
+        suppressScrollRef.current = false;
+        flashScrollIndicator();
+      }
+    } else {
+      prevCopyScrollTopRef.current = null;
+      lastDomScrollTopRef.current = null;
+    }
   });
 
   // Mouse handling with context-aware behavior
@@ -71,6 +165,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     handleWheel,
     handleDoubleClick,
     handleTripleClick,
+    selectionStart,
   } = usePaneMouse(send, {
     paneId,
     charWidth,
@@ -78,8 +173,10 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
     alternateOn: pane?.alternateOn ?? false,
     inMode: pane?.inMode ?? false,
+    copyModeActive: !!copyState,
     paneHeight,
     contentRef,
+    scrollRef,
     historySize,
     forwardScrollToParent,
   });
@@ -90,14 +187,17 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     charHeight,
     alternateOn: pane?.alternateOn ?? false,
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
+    scrollRef,
     send,
     historySize,
     forwardScrollToParent,
   });
 
-  // Refs to latest handlers for the native listeners
+  // Ref to latest handleWheel for the native listener
   const handleWheelRef = useRef(handleWheel);
   handleWheelRef.current = handleWheel;
+
+  // Refs to latest touch handlers for native listeners
   const handleTouchStartRef = useRef(handleTouchStart);
   handleTouchStartRef.current = handleTouchStart;
   const handleTouchMoveRef = useRef(handleTouchMove);
@@ -130,6 +230,90 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     };
   }, []);
 
+  // Show context menu after word select by reading state directly from the actor
+  const showMenuFromSnapshot = useCallback(
+    (x: number, y: number) => {
+      const snap = actor.getSnapshot();
+      const cs = snap.context.copyModeStates[paneId];
+      if (cs?.selectionMode) {
+        const text = extractSelectedText(cs);
+        if (text) setSelectionMenu({ x, y, text });
+      }
+    },
+    [actor, paneId],
+  );
+
+  // Handle right-click context menu for text selection
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.pane-header')) return;
+      if (pane?.mouseAnyFlag) {
+        e.preventDefault();
+        return;
+      }
+
+      e.preventDefault();
+
+      // Compute cell coordinates (same logic as pixelToCell in usePaneMouse)
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const relX = e.clientX - rect.left;
+      let relY = e.clientY - rect.top;
+      const subLineOffset = scrollRef.current ? scrollRef.current.scrollTop % charHeight : 0;
+      relY += subLineOffset;
+      const cellCol = Math.max(0, Math.floor(relX / charWidth));
+      const cellRow = Math.floor(relY / charHeight);
+      const menuX = e.clientX;
+      const menuY = e.clientY;
+
+      if (copyState?.selectionMode) {
+        // Already have a selection — show menu immediately
+        const text = extractSelectedText(copyState);
+        if (text) {
+          setSelectionMenu({ x: menuX, y: menuY, text });
+        }
+      } else if (!copyState) {
+        // Not in copy mode — enter copy mode, select word, then show menu
+        send({ type: 'ENTER_COPY_MODE', paneId });
+        const t1 = window.setTimeout(() => {
+          send({
+            type: 'COPY_MODE_WORD_SELECT',
+            paneId,
+            row: cellRow,
+            col: cellCol,
+            broad: true,
+          });
+          const t2 = window.setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
+          contextMenuTimers.current.push(t2);
+        }, 100);
+        contextMenuTimers.current.push(t1);
+      } else {
+        // In copy mode but no selection — select word, then show menu
+        send({
+          type: 'COPY_MODE_WORD_SELECT',
+          paneId,
+          row: cellRow,
+          col: cellCol,
+          broad: true,
+        });
+        const t = window.setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
+        contextMenuTimers.current.push(t);
+      }
+    },
+    [
+      send,
+      paneId,
+      pane?.mouseAnyFlag,
+      copyState,
+      charWidth,
+      charHeight,
+      contentRef,
+      scrollRef,
+      showMenuFromSnapshot,
+    ],
+  );
+
   if (!pane) return null;
 
   // Collapsed pane (zellij-style stack): tmux has shrunk it to a single row, so
@@ -138,6 +322,13 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   // row blank. Selecting the pane expands it again (the after-select-pane hook
   // re-lays out the stack).
   const collapsed = isCollapsedPane(pane);
+
+  // Scroll indicator geometry (only meaningful in copy mode)
+  const totalLines = copyState?.totalLines ?? 0;
+  const scrollTop = copyState?.scrollTop ?? 0;
+  const thumbPct = totalLines > 0 ? Math.max(5, (paneHeight / totalLines) * 100) : 100;
+  const maxScroll = totalLines - paneHeight;
+  const thumbTopPct = maxScroll > 0 ? (scrollTop / maxScroll) * (100 - thumbPct) : 0;
 
   return (
     <div
@@ -163,35 +354,79 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
     >
       <LogProfiler id={`Pane:${paneId}`} />
       <PaneHeader paneId={paneId} />
+      {!collapsed && selectionMenu && (
+        <SelectionContextMenu
+          paneId={paneId}
+          x={selectionMenu.x}
+          y={selectionMenu.y}
+          selectedText={selectionMenu.text}
+          onClose={() => setSelectionMenu(null)}
+        />
+      )}
       {!collapsed && (
-        <div
-          className="pane-content"
-          ref={contentRef}
-          style={{ flex: 1, position: 'relative', overflow: 'hidden' }}
-        >
-          <div ref={terminalHostRef} className="pane-terminal-host">
-            <Terminal
-              content={pane.content}
-              cursorX={pane.cursorX}
-              cursorY={pane.cursorY}
-              isActive={pane.active && isInActiveWindow && !focusedFloatPaneId}
-              width={pane.width}
-              height={pane.height}
-              inMode={pane.inMode}
-              copyCursorX={pane.copyCursorX}
-              copyCursorY={pane.copyCursorY}
-              selectionPresent={pane.selectionPresent}
-              selectionStartX={pane.selectionStartX}
-              selectionStartY={pane.selectionStartY}
-              images={pane.images}
-              paneId={pane.tmuxId}
-              cursorShape={pane.cursorShape}
-              cursorHidden={pane.cursorHidden}
-            />
+        <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
+          <div
+            ref={scrollRef}
+            className="pane-scroll-container hide-scrollbar"
+            onScroll={handleContainerScroll}
+            style={{
+              overflowY: copyState ? 'auto' : 'hidden',
+              height: '100%',
+              position: 'relative',
+            }}
+          >
+            <div style={{ height: copyState ? totalHeight : '100%', position: 'relative' }}>
+              {copyState ? (
+                <ScrollbackTerminal copyState={copyState} />
+              ) : (
+                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+                  <Terminal
+                    content={pane.content}
+                    cursorX={pane.cursorX}
+                    cursorY={pane.cursorY}
+                    isActive={pane.active && isInActiveWindow && !focusedFloatPaneId}
+                    width={pane.width}
+                    height={pane.height}
+                    inMode={pane.inMode}
+                    copyCursorX={pane.copyCursorX}
+                    copyCursorY={pane.copyCursorY}
+                    selectionPresent={pane.selectionPresent}
+                    selectionStart={selectionStart}
+                    selectionStartX={pane.selectionStartX}
+                    selectionStartY={pane.selectionStartY}
+                    images={pane.images}
+                    paneId={pane.tmuxId}
+                    cursorShape={pane.cursorShape}
+                    cursorHidden={pane.cursorHidden}
+                  />
+                </div>
+              )}
+            </div>
           </div>
+          {/* Scroll position indicator — flashes on scroll in copy mode */}
+          {copyState && (
+            <div
+              ref={scrollIndicatorRef}
+              style={{
+                position: 'absolute',
+                right: 3,
+                top: `calc(4px + (100% - 8px) * ${thumbTopPct / 100})`,
+                width: 7,
+                minHeight: 30,
+                height: `calc((100% - 8px) * ${thumbPct / 100})`,
+                backgroundColor: 'rgba(255, 255, 255, 0.4)',
+                borderRadius: 100,
+                opacity: 0,
+                transition: 'opacity 300ms ease-out',
+                pointerEvents: 'none',
+                zIndex: 5,
+              }}
+            />
+          )}
         </div>
       )}
     </div>

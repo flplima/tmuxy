@@ -90,7 +90,6 @@ export class LifoShell {
       const shellCtx = {
         cwd: this.cwd,
         env: this.env,
-        vfs: null as never,
         history: this.history,
         tmux: this.tmux,
       };
@@ -105,7 +104,7 @@ export class LifoShell {
   }
 
   // ============================================
-  // Grid management (same as DemoShell)
+  // Grid management
   // ============================================
 
   private initGrid(): void {
@@ -127,6 +126,24 @@ export class LifoShell {
 
   getHistorySize(): number {
     return this.scrollback.length;
+  }
+
+  getScrollbackContent(start: number, end: number): PaneContent {
+    const result: PaneContent = [];
+    const totalLines = this.scrollback.length + this.height;
+    const clampedStart = Math.max(0, start);
+    const clampedEnd = Math.min(end, totalLines);
+    for (let i = clampedStart; i < clampedEnd; i++) {
+      if (i < this.scrollback.length) {
+        result.push([...this.scrollback[i]]);
+      } else {
+        const gridIdx = i - this.scrollback.length;
+        if (gridIdx < this.grid.length) {
+          result.push([...this.grid[gridIdx]]);
+        }
+      }
+    }
+    return result;
   }
 
   getCursorX(): number {
@@ -179,18 +196,6 @@ export class LifoShell {
       'Interactive shell powered by \x1b]8;;https://lifo.sh/\x07\x1b[1;33mlifo.sh\x1b[0m\x1b]8;;\x07',
       '',
     ];
-    for (const line of lines) {
-      this.writeText(line);
-      this.newline();
-    }
-  }
-
-  /**
-   * Write pre-rendered lines verbatim (ANSI escapes honored). Used by the demo
-   * sidebar to paint a static tree, standing in for the real `tmuxy tree` TUI
-   * which can't run in the browser.
-   */
-  writeLines(lines: string[]): void {
     for (const line of lines) {
       this.writeText(line);
       this.newline();

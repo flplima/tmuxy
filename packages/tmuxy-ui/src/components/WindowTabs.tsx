@@ -6,26 +6,11 @@
  */
 
 import { memo, useMemo, useCallback, useState } from 'react';
-import { ControlledMenu, MenuItem, MenuDivider } from '@szhsin/react-menu';
-import {
-  useAppSend,
-  useAppSelectorShallow,
-  useAppSelector,
-  selectVisibleWindows,
-  selectWindows,
-  selectKeyBindings,
-} from '../machines/AppContext';
-import { executeMenuAction } from './menus/menuActions';
-import { getKeybindingLabel } from './menus/keybindingLabel';
+import { useAppSend, useAppSelectorShallow, selectVisibleWindows } from '../machines/AppContext';
+import { TabContextMenu } from './TabContextMenu';
 import { haptics } from '../utils/haptics';
 import { LogProfiler } from '../utils/renderLog';
-import type { KeyBindings, TmuxWindow } from '../machines/types';
-
-function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
-  const label = getKeybindingLabel(keybindings, command);
-  if (!label) return null;
-  return <span className="menu-keybinding">{label}</span>;
-}
+import type { TmuxWindow } from '../machines/types';
 
 interface TabContextMenuState {
   visible: boolean;
@@ -42,8 +27,6 @@ interface TabContextMenuState {
 export const WindowTabs = memo(function WindowTabs() {
   const send = useAppSend();
   const rawWindows = useAppSelectorShallow(selectVisibleWindows);
-  const allWindows = useAppSelectorShallow(selectWindows);
-  const keybindings = useAppSelector(selectKeyBindings);
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>({
     visible: false,
     x: 0,
@@ -56,8 +39,6 @@ export const WindowTabs = memo(function WindowTabs() {
     () => [...new Map(rawWindows.map((w) => [w.id, w])).values()],
     [rawWindows],
   );
-
-  const isSingleWindow = allWindows.filter((w) => w.windowType === 'tab').length <= 1;
 
   const handleWindowClick = useCallback(
     (window: TmuxWindow) => {
@@ -80,37 +61,6 @@ export const WindowTabs = memo(function WindowTabs() {
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => ({ ...prev, visible: false }));
   }, []);
-
-  const handleAction = useCallback(
-    (actionId: string) => {
-      executeMenuAction(send, actionId);
-      closeContextMenu();
-    },
-    [send, closeContextMenu],
-  );
-
-  const handleCloseSpecificTab = useCallback(() => {
-    send({
-      type: 'SEND_COMMAND',
-      command: `kill-window -t :${contextMenu.windowIndex}`,
-    });
-    closeContextMenu();
-  }, [send, contextMenu.windowIndex, closeContextMenu]);
-
-  const handleRenameSpecificTab = useCallback(() => {
-    // Select the window first, then prompt rename
-    send({
-      type: 'SEND_COMMAND',
-      command: `select-window -t ${contextMenu.windowIndex}`,
-    });
-    setTimeout(() => {
-      send({
-        type: 'SEND_COMMAND',
-        command: 'command-prompt -I "#W" "rename-window -- \'%%\'"',
-      });
-    }, 50);
-    closeContextMenu();
-  }, [send, contextMenu.windowIndex, closeContextMenu]);
 
   return (
     <LogProfiler id="WindowTabs">
@@ -140,43 +90,14 @@ export const WindowTabs = memo(function WindowTabs() {
           +
         </button>
 
-        <ControlledMenu
-          state={contextMenu.visible ? 'open' : 'closed'}
-          anchorPoint={{ x: contextMenu.x, y: contextMenu.y }}
-          onClose={closeContextMenu}
-          transition={false}
-        >
-          <MenuItem onClick={() => handleAction('tab-new')}>
-            New Tab
-            <KeyLabel keybindings={keybindings} command="new-window" />
-          </MenuItem>
-          <MenuDivider />
-          <MenuItem onClick={() => handleAction('tab-next')} disabled={isSingleWindow}>
-            Next Tab
-            <KeyLabel keybindings={keybindings} command="next-window" />
-          </MenuItem>
-          <MenuItem onClick={() => handleAction('tab-previous')} disabled={isSingleWindow}>
-            Previous Tab
-            <KeyLabel keybindings={keybindings} command="previous-window" />
-          </MenuItem>
-          <MenuItem onClick={() => handleAction('tab-last')} disabled={isSingleWindow}>
-            Last Tab
-            <KeyLabel keybindings={keybindings} command="last-window" />
-          </MenuItem>
-          <MenuDivider />
-          <MenuItem onClick={handleRenameSpecificTab}>
-            Rename Tab
-            <KeyLabel
-              keybindings={keybindings}
-              command={'command-prompt -I "#W" "rename-window -- \'%%\'"'}
-            />
-          </MenuItem>
-          <MenuDivider />
-          <MenuItem onClick={handleCloseSpecificTab}>
-            Close Tab
-            <KeyLabel keybindings={keybindings} command="kill-window" />
-          </MenuItem>
-        </ControlledMenu>
+        {contextMenu.visible && (
+          <TabContextMenu
+            windowIndex={contextMenu.windowIndex}
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onClose={closeContextMenu}
+          />
+        )}
       </div>
     </LogProfiler>
   );

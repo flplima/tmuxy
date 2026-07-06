@@ -16,19 +16,21 @@ SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
 # --- Helpers ---
 
-# Respect TMUX_SOCKET env var for named server sockets.
-# All tmux calls in this script go through this wrapper.
-if [ -n "${TMUX_SOCKET:-}" ]; then
-  tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
+# Socket resolution — all tmux calls in this script go through this wrapper.
+# Explicit TMUX_SOCKET wins; inside a pane, derive the socket from $TMUX so we
+# target the hosting server; otherwise use the dedicated `tmuxy` socket (never
+# the user's default tmux server).
+if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
+  _tmux_path="${TMUX%%,*}"
+  TMUX_SOCKET="$(basename "$_tmux_path")"
 fi
+TMUX_SOCKET="${TMUX_SOCKET:-tmuxy}"
+export TMUX_SOCKET
+tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
 
 # Run a mutating tmux command safely through run-shell
 run_safe() {
-  if [ -n "${TMUX_SOCKET:-}" ]; then
-    tmux run-shell "tmux -L $TMUX_SOCKET $*"
-  else
-    tmux run-shell "tmux $*"
-  fi
+  tmux run-shell "tmux -L $TMUX_SOCKET $*"
 }
 
 # Find tmuxy-server binary: PATH first, then cargo target directory
@@ -72,7 +74,7 @@ Usage: tmuxy tree
 
 Open an interactive tree view of all tabs and their panes. Navigate with
 j/k or the arrow keys, Enter (or a mouse click) to activate a tab/pane.
-This is the same TUI the left sidebar renders.
+A standalone browser of tabs/panes; the left sidebar is now a native React tree.
 EOF
 }
 

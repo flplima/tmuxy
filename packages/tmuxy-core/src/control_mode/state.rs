@@ -190,9 +190,6 @@ pub struct PaneState {
     /// Stored images keyed by image ID (for HTTP retrieval)
     pub image_store: HashMap<u32, super::images::StoredImage>,
 
-    /// Raw output buffer (for rich content like images)
-    pub raw_buffer: Vec<u8>,
-
     /// Position in window (from layout)
     pub x: u32,
     pub y: u32,
@@ -278,7 +275,6 @@ impl PaneState {
             osc_parser: super::osc::OscParser::new(),
             image_parser: super::images::ImageParser::new(),
             image_store: HashMap::new(),
-            raw_buffer: Vec::new(),
             x: 0,
             y: 0,
             width,
@@ -311,15 +307,6 @@ impl PaneState {
     /// Process new output for this pane (appends to existing buffer)
     pub fn process_output(&mut self, content: &[u8]) {
         self.content_dirty = true;
-
-        // Store raw content for rich content parsing
-        self.raw_buffer.extend(content);
-
-        // Limit raw buffer size (keep last 64KB)
-        if self.raw_buffer.len() > 65536 {
-            let start = self.raw_buffer.len() - 65536;
-            self.raw_buffer = self.raw_buffer[start..].to_vec();
-        }
 
         // Extract DECSCUSR (Set Cursor Style) before other processing.
         // Format: CSI Ps SP q  (e.g., \x1b[5 q for blinking bar)
@@ -366,7 +353,6 @@ impl PaneState {
         let w = (self.width as u16).max(1);
         let h = (self.height as u16).max(1);
         self.terminal = vt100::Parser::new(h, w, 0);
-        self.raw_buffer.clear();
         // Keep image placements: the capture text can't recreate them (tmux
         // strips image escapes from captured history).
         self.image_parser.reset_for_capture();
@@ -395,7 +381,6 @@ impl PaneState {
 
         // Process the normalized content
         safe_process(&mut self.terminal, &normalized);
-        self.raw_buffer.extend(content);
     }
 
     /// Resize the terminal.
@@ -406,28 +391,22 @@ impl PaneState {
             self.height = height;
             self.content_dirty = true;
             self.cached_content = None;
-            // Create a new terminal parser with the new dimensions.
             // Guard: vt100 panics on zero dimensions (subtract overflow in grid.rs)
             let w = (width as u16).max(1);
             let h = (height as u16).max(1);
-            self.terminal = vt100::Parser::new(h, w, 0);
-            // Replay raw_buffer to preserve %output content across resize.
-            //
-            // After %layout-change creates a new pane, %output events fill
-            // the VT100 parser. But the layout dimensions include the
-            // pane-border-status row while list-panes reports actual terminal
-            // dimensions (1 row shorter). When list-panes triggers resize(),
-            // the VT100 reset loses all %output content. Replaying the
-            // raw_buffer re-renders that content at the correct dimensions.
-            //
-            // Only replay small buffers (< 8KB) to avoid expensive reprocessing
-            // during large resize operations. For large buffers, the monitor's
-            // capture-pane cycle will restore content authoritatively.
-            if !self.raw_buffer.is_empty() && self.raw_buffer.len() < 8192 {
-                safe_process(&mut self.terminal, &self.raw_buffer);
-            } else {
-                self.raw_buffer.clear();
-            }
+            // Reflow the existing grid IN PLACE, preserving content and cursor
+            // anchoring. The previous approach recreated the parser and replayed
+            // the whole accumulated raw %output buffer, which re-scrolled that
+            // output through a fresh grid — leaving short content BOTTOM-anchored
+            // (blank rows prepended, prompt glued to the last row) after a
+            // swap/resize in the fully client-side (v86) path, where there is no
+            // authoritative capture-pane pass to correct the replay. vt100's
+            // `set_size` rewraps each row to the new width and grows/shrinks the
+            // grid from the bottom, so top-anchored content stays where it is and
+            // the cursor is clamped — matching what a real terminal does on
+            // SIGWINCH. This also subsumes the original %layout-change case the
+            // replay was added for (content is reflowed, never lost).
+            self.terminal.screen_mut().set_size(h, w);
             self.image_parser.reset();
             true
         } else {
@@ -1216,6 +1195,25 @@ impl StateAggregator {
                 crate::constants::tmux_options::WINDOW_TYPE,
                 inferred.as_str()
             ));
+            // Every Tab window must carry `pane-border-status top` so its
+            // topmost pane sits at y=1, reserving the border row that PaneLayout
+            // draws the pane header into. `enforce_settings` only sets this on
+            // the window active at attach (it's a per-window option, NOT global
+            // — `set -g` risks a tmux 3.5a control-mode crash), so a window born
+            // later (a new tab from `new-window` → splitw+breakp) would default
+            // to `off`, leaving its pane at y=0 and the header stealing the
+            // first content row. Tagging is the one place every new window
+            // funnels through, so enforce it here, per-window (targeted, safe).
+            if inferred == WindowType::Tab {
+                cmds.push(format!(
+                    "set-option -w -t {} pane-border-status top",
+                    window.id
+                ));
+                cmds.push(format!(
+                    "set-option -w -t {} pane-border-format ' '",
+                    window.id
+                ));
+            }
         }
         cmds
     }
@@ -1961,7 +1959,6 @@ impl StateAggregator {
                     let w = (pane.width as u16).max(1);
                     let h = (pane.height as u16).max(1);
                     pane.terminal = vt100::Parser::new(h, w, 0);
-                    pane.raw_buffer.clear();
                     pane.image_parser.reset();
                     pane.content_dirty = true;
                     pane.cached_content = None;

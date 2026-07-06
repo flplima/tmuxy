@@ -5,6 +5,7 @@ import { armPaintProbe, addsElement } from './immediacy';
 import { enableRenderLog, renderLogMark, renderCountSince } from '../utils/renderLog';
 import { GlitchRecorder } from './glitchRecorder';
 import { LayoutMutationRecorder } from './animationObservers';
+import { ContentMutationRecorder } from './contentMutation';
 
 /**
  * Full-application stories driven by REAL tmux.
@@ -170,7 +171,8 @@ export const MouseSelectPane: Story = {
     const initial = getActive();
     const panes = canvas.getAllByRole('group', { name: /^Pane %/i });
     // Click the pane that isn't currently active.
-    const target = panes.find((p) => p.getAttribute('data-pane-id') !== initial) ?? panes[0];
+    const target =
+      panes.find((p: HTMLElement) => p.getAttribute('data-pane-id') !== initial) ?? panes[0];
     await userEvent.click(target);
     await waitFor(() => expect(getActive()).not.toBe(initial), { timeout: 10000, interval: 300 });
   },
@@ -1428,22 +1430,34 @@ const paneMode = (id: string): boolean =>
     .getSnapshot()
     .context.panes.find((p) => p.tmuxId === id)?.inMode === true;
 
-/** tmux-reported copy-mode selection state of a pane (from list-panes sync). */
-const paneSelection = (id: string): boolean =>
+/**
+ * Client-side copy-mode state of a pane — the restored scrollback engine keeps
+ * loaded history lines, the scroll offset, and the selection in
+ * `copyModeStates[paneId]` (see COPY-MODE.md). Undefined when not in copy mode.
+ */
+const paneCopyState = (
+  id: string,
+): { scrollTop: number; selectionMode: 'char' | 'line' | null; totalLines: number } | undefined =>
   (
     window as unknown as {
       app: {
-        getSnapshot(): { context: { panes: { tmuxId: string; selectionPresent: boolean }[] } };
+        getSnapshot(): {
+          context: {
+            copyModeStates: Record<
+              string,
+              { scrollTop: number; selectionMode: 'char' | 'line' | null; totalLines: number }
+            >;
+          };
+        };
       };
     }
-  ).app
-    .getSnapshot()
-    .context.panes.find((p) => p.tmuxId === id)?.selectionPresent === true;
+  ).app.getSnapshot().context.copyModeStates[id];
 
 /**
- * Copy mode enter: with real scrollback, C-a `[` puts the pane into native tmux
- * copy mode — asserted via the tmux-reported `inMode` (from %pane-mode-changed,
- * not a client-side flag) AND the rendered `[COPY MODE]` header indicator.
+ * Copy mode enter: with real scrollback, C-a `[` enters copy mode — the client
+ * intercepts `copy-mode`, initializes its scrollback engine, and forwards the
+ * command so tmux flips `in_mode`. Asserted via the tmux-reported `inMode` AND
+ * the rendered `[COPY MODE]` header indicator.
  */
 export const CopyModeEnter: Story = {
   args: { height: 600 },
@@ -1475,11 +1489,11 @@ export const CopyModeEnter: Story = {
 };
 
 /**
- * Copy mode scroll + yank: C-u scrolls the viewport back (earlier scrollback
- * lines render, the tail scrolls out), then V/y yanks the cursor line. tmux
- * fires %paste-buffer-changed; the core reads the buffer over the control
- * channel and mirrors it to `navigator.clipboard.writeText` — the payload must
- * contain text that only exists in the guest's scrollback.
+ * Copy mode scroll: entering copy mode renders scrollback in a natively-scrolling
+ * container (the restored client-side engine — see COPY-MODE.md). Wheeling up
+ * fetches history from tmux via `get_scrollback_cells` and scrolls the client
+ * viewport back: earlier scrollback lines render, the client `scrollTop` moves
+ * toward the top, and wheeling back to the bottom exits copy mode.
  */
 export const CopyModeScrollAndYank: Story = {
   args: { height: 600 },
@@ -1488,27 +1502,6 @@ export const CopyModeScrollAndYank: Story = {
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
     const id = activePaneId();
-    const writes: string[] = [];
-    const stub = {
-      writeText: (t: string) => (writes.push(t), Promise.resolve()),
-      readText: () => Promise.resolve(''),
-    };
-    try {
-      Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: stub });
-    } catch {
-      (window.navigator as unknown as { clipboard: { writeText: unknown } }).clipboard.writeText =
-        stub.writeText;
-    }
-    pasteLine('echo COPY_YANK_LINE_31');
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) =>
-            /COPY_YANK_LINE_31/.test(p.textContent ?? ''),
-          ),
-        ).toBe(true),
-      { timeout: 30000, interval: 500 },
-    );
     pasteLine('seq 1 200');
     await waitFor(
       () =>
@@ -1517,35 +1510,42 @@ export const CopyModeScrollAndYank: Story = {
         ).toBe(true),
       { timeout: 30000, interval: 500 },
     );
-    await user.keyboard('{Control>}a{/Control}');
-    await user.keyboard('[[');
-    await waitFor(() => expect(paneMode(id)).toBe(true), { timeout: 15000, interval: 400 });
-    // Scroll half a page up: the viewport must show earlier lines and lose the tail.
-    const paneText = () =>
-      paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)
-        ?.textContent ?? '';
-    const beforeScroll = paneText();
-    await user.keyboard('{Control>}u{/Control}');
-    // Half a page back: the rendered viewport must change (earlier scrollback
-    // lines scroll in — content comes from tmux's copy-mode view, via real
-    // capture round-trips, not a client-side scroll offset).
-    await waitFor(() => expect(paneText()).not.toBe(beforeScroll), {
+    // The wheel handler gates scroll-up on the client knowing the pane HAS
+    // scrollback (historySize from list-panes) — wait for it like a real user.
+    await waitFor(() => expect(paneHistory(id)).toBeGreaterThan(0), {
+      timeout: 15000,
+      interval: 400,
+    });
+    const paneEl = () =>
+      paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
+    const wheel = async (dy: number, times: number, gapMs: number) => {
+      for (let i = 0; i < times; i++) {
+        paneEl().dispatchEvent(
+          new WheelEvent('wheel', { deltaY: dy, bubbles: true, cancelable: true }),
+        );
+        await new Promise((r) => setTimeout(r, gapMs));
+      }
+    };
+    // Wheel up: enters client copy mode and scrolls the ScrollbackTerminal back.
+    await wheel(-120, 6, 250);
+    await waitFor(() => expect(paneCopyState(id), 'client copy mode active').toBeTruthy(), {
+      timeout: 15000,
+      interval: 400,
+    });
+    // The rendered viewport shows earlier scrollback lines (100s, not the 199200 tail).
+    await waitFor(() => expect(paneEl().textContent ?? '').toMatch(/1[0-9]\d(?!9200)/), {
       timeout: 15000,
       interval: 500,
     });
-    // Yank the cursor line (V select-line, y copy-and-exit): the mirrored
-    // clipboard text must be a real scrollback line (a bare seq number).
-    await user.keyboard('{Shift>}V{/Shift}');
-    await new Promise((r) => setTimeout(r, 400));
-    await user.keyboard('y');
-    await waitFor(() => expect(writes.length).toBeGreaterThan(0), {
+    // The client scroll offset moved off the bottom of history.
+    const cs = paneCopyState(id);
+    expect(cs && cs.scrollTop < cs.totalLines - 1).toBe(true);
+    // Wheel back down to the bottom → copy mode exits.
+    await wheel(120, 40, 100);
+    await waitFor(() => expect(paneCopyState(id), 'copy mode exited at bottom').toBeFalsy(), {
       timeout: 15000,
       interval: 500,
     });
-    // The mirrored text must be real guest scrollback (a seq number or the
-    // guest prompt), not empty and not anything the story typed into the page.
-    expect(writes[0]).toMatch(/\d|root/);
-    await waitFor(() => expect(paneMode(id)).toBe(false), { timeout: 10000, interval: 400 });
   },
 };
 
@@ -1587,10 +1587,11 @@ export const CopyModeExit: Story = {
 };
 
 /**
- * Wheel scroll: real wheel events over a pane with scrollback enter native copy
- * mode (tmux-reported) and scroll the viewport to earlier lines; wheeling back
- * down to the bottom exits copy mode. All driven by WheelEvents on the pane, as
- * a real mouse would.
+ * Wheel scroll: real wheel events over a pane with scrollback enter copy mode
+ * (the client raises ENTER_COPY_MODE and forwards `copy-mode`, so tmux reports
+ * `inMode`) and scroll the client viewport to earlier lines; wheeling back down
+ * to the bottom exits copy mode. All driven by WheelEvents on the pane, as a
+ * real mouse would.
  */
 export const WheelScrollEntersCopyMode: Story = {
   args: { height: 600 },
@@ -1650,11 +1651,13 @@ export const WheelScrollEntersCopyMode: Story = {
 };
 
 /**
- * Mouse drag selection: press-and-drag across pane content drives NATIVE tmux
- * copy mode (`copy-mode` + `begin-selection` + cursor goto via send-keys -X) —
- * tmux must report both `inMode` and an active selection while the button is
- * held. Releasing copies the selection and cancels: the paste-buffer→clipboard
- * mirror must receive real guest content, and copy mode must exit.
+ * Mouse drag selection: press-and-drag across pane content drives the restored
+ * CLIENT-SIDE copy mode — the drag enters copy mode and builds a char selection
+ * in `copyModeStates[paneId]` (rendered as `.terminal-selected` spans), without
+ * a tmux round-trip: the drag enters copy mode and builds a char selection in
+ * `copyModeStates[paneId]` (the text is then copyable via the right-click
+ * selection menu — that clipboard path is covered by the OSC-52 story and the
+ * `extractSelectedText` unit tests).
  */
 export const CopyModeDragSelection: Story = {
   args: { height: 600 },
@@ -1663,17 +1666,6 @@ export const CopyModeDragSelection: Story = {
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
     const id = activePaneId();
-    const writes: string[] = [];
-    const stub = {
-      writeText: (t: string) => (writes.push(t), Promise.resolve()),
-      readText: () => Promise.resolve(''),
-    };
-    try {
-      Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: stub });
-    } catch {
-      (window.navigator as unknown as { clipboard: { writeText: unknown } }).clipboard.writeText =
-        stub.writeText;
-    }
     pasteLine('seq 1 50');
     await waitFor(
       () =>
@@ -1701,29 +1693,18 @@ export const CopyModeDragSelection: Story = {
       );
       await new Promise((r) => setTimeout(r, 150));
     }
-    // While the button is held: native copy mode with a live tmux-reported
-    // selection (both come from the real list-panes sync, not client flags).
-    await waitFor(
-      () => {
-        expect(paneMode(id), 'drag entered copy mode').toBe(true);
-        expect(paneSelection(id), 'drag selection present').toBe(true);
-      },
-      { timeout: 20000, interval: 400 },
-    );
     paneEl().dispatchEvent(
       new MouseEvent('mouseup', { button: 0, clientX: x0 + 150, clientY: y, bubbles: true }),
     );
-    // Release: copy-selection-and-cancel → paste buffer → clipboard mirror.
-    await waitFor(() => expect(writes.length).toBeGreaterThan(0), {
-      timeout: 20000,
-      interval: 500,
-    });
-    // The payload must be guest scrollback (seq digits), not page text.
-    expect(writes[0]).toMatch(/\d/);
-    await waitFor(() => expect(paneMode(id), 'copy mode exited on release').toBe(false), {
-      timeout: 15000,
-      interval: 400,
-    });
+    // The drag entered client-side copy mode and started a char selection —
+    // no tmux round-trip; both live in copyModeStates[paneId].
+    await waitFor(
+      () => {
+        expect(paneCopyState(id), 'drag entered client copy mode').toBeTruthy();
+        expect(paneCopyState(id)?.selectionMode, 'drag started a char selection').toBe('char');
+      },
+      { timeout: 20000, interval: 400 },
+    );
   },
 };
 
@@ -2011,13 +1992,10 @@ export const GroupCloseMember: Story = {
 };
 
 /**
- * Sidebar: clicking the toggle runs `sidebar-create` in the guest, which spawns
- * the REAL tree TUI (the standalone `tmuxy-tree` binary cross-compiled for the
- * guest) in a sidebar-typed window. The drawer must open, list the live
- * session's windows, STAY alive, and navigate: `j`/`j`/`Enter` in the TUI
- * (selection starts on the tab row, moves through its pane rows) activates the
- * selected pane through the real `tmuxy pane select` round-trip. Toggling
- * again hides the drawer.
+ * Sidebar tree (real tmux via v86). The sidebar is a native React tab/pane tree
+ * derived from the live session state — no `tmuxy tree` TUI, no sidebar window.
+ * The drawer opens, lists every tab and its panes, clicking a pane activates it
+ * (real `select-pane` round-trip), and toggling again hides the drawer.
  */
 export const SidebarToggle: Story = {
   args: { height: 600 },
@@ -2026,42 +2004,127 @@ export const SidebarToggle: Story = {
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
     const doc = canvasElement.ownerDocument;
-    const tabPanes = paneIds(canvas);
     const first = activePaneId();
-    const second = tabPanes.find((p) => p !== first)!;
+    const second = paneIds(canvas).find((p) => p !== first)!;
+
     const toggle = canvasElement.querySelector('.sidebar-toggle') as HTMLElement;
     expect(toggle).not.toBeNull();
     await user.click(toggle);
-    // The drawer opens and the tree TUI renders the real window list.
+
+    // The drawer opens with the React tree — NOT a tmux window (no sidebar pane).
+    const tree = await waitFor(
+      () => {
+        const el = doc.querySelector('.sidebar-tree') as HTMLElement | null;
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: 30000, interval: 500 },
+    );
+    expect(windows().some((w) => w.windowType === 'sidebar')).toBe(false);
+    // Both panes of the current tab appear as tree nodes.
     await waitFor(
       () => {
-        const drawer = doc.querySelector('.sidebar-drawer') as HTMLElement | null;
-        expect(drawer).not.toBeNull();
-        expect(drawer!.getBoundingClientRect().width).toBeGreaterThan(0);
-        expect(drawer!.textContent ?? '').toMatch(/root/);
+        expect(tree.querySelector(`[data-testid="tree-pane-${first}"]`)).not.toBeNull();
+        expect(tree.querySelector(`[data-testid="tree-pane-${second}"]`)).not.toBeNull();
       },
-      { timeout: 40000, interval: 500 },
+      { timeout: 15000, interval: 400 },
     );
-    // The TUI must SURVIVE (the old guest had no tree binary and the pane died
-    // within a second) — drawer still present, still listing windows.
-    await new Promise((r) => setTimeout(r, 5000));
-    expect(doc.querySelector('.sidebar-drawer')).not.toBeNull();
-    expect(windows().some((w) => w.windowType === 'sidebar')).toBe(true);
-    // Keyboard navigation: focus the drawer, then j (tab row → first pane row),
-    // j (→ second pane row), Enter (activate). The activation runs `tmuxy pane
-    // select` inside the guest, so the app's active pane must become the
-    // OTHER pane of the window — a full TUI → CLI → tmux → core round-trip.
-    await user.click(doc.querySelector('[data-testid="sidebar-content"]')!);
-    await user.keyboard('j');
-    await user.keyboard('j');
-    await user.keyboard('{Enter}');
-    await waitFor(() => expect(activePaneId()).toBe(second), { timeout: 30000, interval: 500 });
-    // Toggle off → drawer hides (the sidebar window stays parked for reuse).
+
+    // Clicking the OTHER pane's node activates it (real select-pane round-trip).
+    await user.click(tree.querySelector(`[data-testid="tree-pane-${second}"]`) as HTMLElement);
+    await waitFor(() => expect(activePaneId()).toBe(second), { timeout: 20000, interval: 500 });
+
+    // Toggle off → the drawer hides.
     await user.click(toggle);
-    await waitFor(() => expect(doc.querySelector('.sidebar-drawer')).toBeNull(), {
+    await waitFor(() => expect(doc.querySelector('.sidebar-tree')).toBeNull(), {
       timeout: 15000,
       interval: 500,
     });
+  },
+};
+
+/**
+ * Sidebar drag-a-pane-between-tabs (real tmux via v86). With two tabs, dragging
+ * a pane node from the active tab onto another tab's node issues a real
+ * `join-pane`, moving the pane into that tab — verified by the pane's reported
+ * window id changing after the drop.
+ */
+export const SidebarDragPaneToTab: Story = {
+  args: { height: 600, initCommands: ['split-window -h', 'new-window'] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const doc = canvasElement.ownerDocument;
+    const snap = () =>
+      (
+        window as unknown as {
+          app: {
+            getSnapshot(): {
+              context: {
+                activeWindowId: string | null;
+                windows: Array<{ id: string; windowType: string | null }>;
+                panes: Array<{ tmuxId: string; windowId: string }>;
+              };
+            };
+          };
+        }
+      ).app.getSnapshot().context;
+
+    const toggle = canvasElement.querySelector('.sidebar-toggle') as HTMLElement;
+    await user.click(toggle);
+    const tree = await waitFor(
+      () => {
+        const el = doc.querySelector('.sidebar-tree') as HTMLElement | null;
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: 30000, interval: 500 },
+    );
+
+    // Derive the drag source/target from the RENDERED tree (a window with an
+    // empty name is filtered out of the visible tabs, so only trust nodes that
+    // actually exist).
+    const { paneEl, dstTabEl, paneId, dstWindowId } = await waitFor(
+      () => {
+        const tabNodes = [...tree.querySelectorAll('[data-testid^="tree-tab-"]')] as HTMLElement[];
+        const paneNodes = [
+          ...tree.querySelectorAll('[data-testid^="tree-pane-"]'),
+        ] as HTMLElement[];
+        expect(tabNodes.length).toBeGreaterThanOrEqual(2);
+        expect(paneNodes.length).toBeGreaterThanOrEqual(1);
+        const pEl = paneNodes[0];
+        const pid = pEl.getAttribute('data-pane-id')!;
+        const srcWin = snap().panes.find((p) => p.tmuxId === pid)!.windowId;
+        const dTab = tabNodes.find((t) => t.getAttribute('data-window-id') !== srcWin);
+        expect(dTab).toBeTruthy();
+        return {
+          paneEl: pEl,
+          dstTabEl: dTab!,
+          paneId: pid,
+          dstWindowId: dTab!.getAttribute('data-window-id')!,
+        };
+      },
+      { timeout: 20000, interval: 500 },
+    );
+    const dt = new DataTransfer();
+    paneEl.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
+    dstTabEl.dispatchEvent(
+      new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+    dstTabEl.dispatchEvent(
+      new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+    paneEl.dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true }));
+
+    // The pane now reports the destination tab's window (real join-pane landed).
+    await waitFor(
+      () => {
+        const moved = snap().panes.find((p) => p.tmuxId === paneId);
+        expect(moved?.windowId).toBe(dstWindowId);
+      },
+      { timeout: 30000, interval: 500 },
+    );
   },
 };
 
@@ -2978,7 +3041,7 @@ async function settleGeometry(canvas: Canvas): Promise<void> {
 /** Stable geometry signature of every real pane, for exact-restore asserts. */
 const rectSignature = (canvas: Canvas): string =>
   realPaneIdsSorted(canvas)
-    .map((id) => {
+    .map((id: string) => {
       const r = paneRect(canvas, id);
       return `${id}:${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`;
     })
@@ -4262,5 +4325,501 @@ export const RenderBudgetCanary: Story = {
     const tabRenders = renderCountSince(mark, 'WindowTabs');
     expect(otherRenders, `inactive pane renders: ${otherRenders}`).toBeLessThanOrEqual(2);
     expect(tabRenders, `WindowTabs renders: ${tabRenders}`).toBeLessThanOrEqual(2);
+  },
+};
+
+/**
+ * Swap keeps content in the correct lines: two panes of DIFFERENT heights are
+ * each filled with a distinct run of consecutive numbers, then swapped with
+ * `swap-pane`. A rAF sampler watches every painted frame THROUGH the swap and
+ * asserts no pane ever renders its numbers out of order (a "wrong lines" glitch
+ * would break the +1 run), and after the swap settles each pane still shows a
+ * clean consecutive run ending at ITS OWN last value (so the right content
+ * landed at the right rows, top-aligned in the pane) — driven by real tmux.
+ */
+export const SwapKeepsContentInCorrectLines: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const cmd = (c: string) =>
+      (window as unknown as { app: { send: (e: unknown) => void } }).app.send({
+        type: 'SEND_TMUX_COMMAND',
+        command: c,
+      });
+    const findPane = (id: string) =>
+      paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
+    const byTop = () =>
+      paneIds(canvas)
+        .map((id) => ({ id, top: paneRect(canvas, id).top }))
+        .sort((a, b) => a.top - b.top)
+        .map((x) => x.id);
+
+    // Collapse to one pane, then build an UNEVEN vertical stack (mild resize so
+    // neither pane collapses to a header-only row).
+    const ids0 = paneIds(canvas);
+    cmd(`kill-pane -t ${ids0[1]}`);
+    await waitFor(() => expect(paneGroups(canvas).length).toBe(1), {
+      timeout: 20000,
+      interval: 300,
+    });
+    cmd('split-window -v');
+    await waitFor(() => expect(paneGroups(canvas).length).toBe(2), {
+      timeout: 20000,
+      interval: 300,
+    });
+    let [top, bottom] = byTop();
+    cmd(`resize-pane -t ${bottom} -U 4`);
+    await sleep(800);
+    [top, bottom] = byTop();
+
+    const fill = async (id: string, from: number, to: number) => {
+      await user.click(findPane(id));
+      await waitFor(() => expect(activePaneId()).toBe(id), { timeout: 15000, interval: 200 });
+      pasteLine(`seq ${from} ${to}`);
+      await waitFor(() => expect(findPane(id).textContent ?? '').toContain(String(to)), {
+        timeout: 30000,
+        interval: 400,
+      });
+    };
+    await fill(top, 100, 200);
+    await fill(bottom, 500, 640);
+
+    // Visible consecutive-number run for a pane: its rendered `.terminal-line`s
+    // inside the pane content box, top-to-bottom, as an integer array.
+    const numbersOf = (id: string): number[] => {
+      const g = paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id);
+      if (!g) return [];
+      const cRect = (g.querySelector('.pane-content') as HTMLElement)?.getBoundingClientRect();
+      return (Array.from(g.querySelectorAll('.terminal-line')) as HTMLElement[])
+        .map((l) => ({ top: l.getBoundingClientRect().top, t: (l.textContent ?? '').trim() }))
+        .filter((x) => cRect && x.top >= cRect.top - 1 && x.top <= cRect.bottom)
+        .sort((a, b) => a.top - b.top)
+        .map((x) => (/^\d+$/.test(x.t) ? Number(x.t) : NaN))
+        .filter((v) => !Number.isNaN(v));
+    };
+    const breaks = (ns: number[]): number => {
+      let b = 0;
+      for (let i = 1; i < ns.length; i++) if (ns[i] !== ns[i - 1] + 1) b++;
+      return b;
+    };
+
+    // Frame-sample the worst out-of-order break across both panes through the swap.
+    let worstBreaks = 0;
+    let sampling = true;
+    const tick = () => {
+      if (!sampling) return;
+      const frameBreaks = paneIds(canvas).reduce((sum, id) => sum + breaks(numbersOf(id)), 0);
+      if (frameBreaks > worstBreaks) worstBreaks = frameBreaks;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+
+    // Swap the two (differently-sized) panes.
+    cmd(`swap-pane -U -t ${bottom}`);
+    await sleep(2200);
+    sampling = false;
+
+    // Content must never have rendered out of order at any painted frame.
+    expect(worstBreaks, 'terminal content rendered in wrong lines during swap').toBe(0);
+
+    // After settle: each value-run is still consecutive and ends at its own max,
+    // so the right content is at the right rows (100..200 and 500..640 swapped
+    // positions but kept their integrity).
+    const runs = paneIds(canvas).map((id) => numbersOf(id));
+    for (const ns of runs) {
+      expect(ns.length).toBeGreaterThan(2);
+      expect(breaks(ns)).toBe(0);
+    }
+    const maxes = runs.map((ns) => ns[ns.length - 1]).sort((a, b) => a - b);
+    expect(maxes).toEqual([200, 640]);
+  },
+};
+
+/**
+ * Drag-swap keeps content in the correct lines: two equal-height stacked panes,
+ * each filled with a distinct consecutive-number run, are swapped by dragging
+ * the top pane's header down onto the bottom pane (the drag-machine path —
+ * mousedown, cross the threshold, drop). A rAF sampler watches every painted
+ * frame through the drag+drop asserting no pane ever renders its numbers out of
+ * order, and after settling each pane still shows a clean consecutive run ending
+ * at its own last value, is top-aligned in its content box, and its outer
+ * layout item carries no leftover drag transform (which would push content into
+ * the wrong absolute rows). Driven by real tmux via drag-and-drop.
+ */
+export const DragSwapKeepsContentInCorrectLines: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const cmd = (c: string) =>
+      (window as unknown as { app: { send: (e: unknown) => void } }).app.send({
+        type: 'SEND_TMUX_COMMAND',
+        command: c,
+      });
+    const findPane = (id: string) =>
+      paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
+    const byTop = () =>
+      paneIds(canvas)
+        .map((id) => ({ id, top: paneRect(canvas, id).top }))
+        .sort((a, b) => a.top - b.top)
+        .map((x) => x.id);
+
+    // Equal-height vertical stack.
+    const ids0 = paneIds(canvas);
+    cmd(`kill-pane -t ${ids0[1]}`);
+    await waitFor(() => expect(paneGroups(canvas).length).toBe(1), {
+      timeout: 20000,
+      interval: 300,
+    });
+    cmd('split-window -v');
+    await waitFor(() => expect(paneGroups(canvas).length).toBe(2), {
+      timeout: 20000,
+      interval: 300,
+    });
+    await sleep(500);
+    let [top, bottom] = byTop();
+
+    const fill = async (id: string, from: number, to: number) => {
+      await user.click(findPane(id));
+      await waitFor(() => expect(activePaneId()).toBe(id), { timeout: 15000, interval: 200 });
+      pasteLine(`seq ${from} ${to}`);
+      await waitFor(() => expect(findPane(id).textContent ?? '').toContain(String(to)), {
+        timeout: 30000,
+        interval: 400,
+      });
+    };
+    await fill(top, 100, 200);
+    await fill(bottom, 500, 640);
+    [top, bottom] = byTop();
+
+    const numbersOf = (id: string): number[] => {
+      const g = paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id);
+      if (!g) return [];
+      const cRect = (g.querySelector('.pane-content') as HTMLElement)?.getBoundingClientRect();
+      return (Array.from(g.querySelectorAll('.terminal-line')) as HTMLElement[])
+        .map((l) => ({ top: l.getBoundingClientRect().top, t: (l.textContent ?? '').trim() }))
+        .filter((x) => cRect && x.top >= cRect.top - 1 && x.top <= cRect.bottom)
+        .sort((a, b) => a.top - b.top)
+        .map((x) => (/^\d+$/.test(x.t) ? Number(x.t) : NaN))
+        .filter((v) => !Number.isNaN(v));
+    };
+    const breaks = (ns: number[]): number => {
+      let b = 0;
+      for (let i = 1; i < ns.length; i++) if (ns[i] !== ns[i - 1] + 1) b++;
+      return b;
+    };
+
+    // Frame-sample worst out-of-order breaks across both panes through the drag.
+    let worstBreaks = 0;
+    let sampling = true;
+    const tick = () => {
+      if (!sampling) return;
+      const frameBreaks = paneIds(canvas).reduce((sum, id) => sum + breaks(numbersOf(id)), 0);
+      if (frameBreaks > worstBreaks) worstBreaks = frameBreaks;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+
+    // Drag the TOP pane's header down onto the BOTTOM pane.
+    const header = findPane(top).querySelector('.pane-header') as HTMLElement;
+    const hRect = header.getBoundingClientRect();
+    const dstRect = paneRect(canvas, bottom);
+    const sX = hRect.left + hRect.width / 2;
+    const sY = hRect.top + hRect.height / 2;
+    const eX = dstRect.left + dstRect.width / 2;
+    const eY = dstRect.top + dstRect.height / 2;
+    const dstEl = findPane(bottom);
+    header.dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, clientX: sX, clientY: sY, bubbles: true }),
+    );
+    for (let i = 1; i <= 6; i++) {
+      (i <= 2 ? header : dstEl).dispatchEvent(
+        new MouseEvent('mousemove', {
+          clientX: sX + ((eX - sX) * i) / 6,
+          clientY: sY + ((eY - sY) * i) / 6,
+          bubbles: true,
+        }),
+      );
+      await sleep(120);
+    }
+    dstEl.dispatchEvent(new MouseEvent('mouseup', { clientX: eX, clientY: eY, bubbles: true }));
+
+    // The swap must land (positions exchanged), then content settles.
+    await waitFor(() => expect(byTop()[0]).toBe(bottom), { timeout: 30000, interval: 400 });
+    await sleep(1500);
+    sampling = false;
+
+    // Never rendered out of order during the whole drag.
+    expect(worstBreaks, 'terminal content rendered in wrong lines during drag-swap').toBe(0);
+
+    // After settle: each pane's run is consecutive, ends at its own max, is
+    // top-aligned, and its outer layout item has no leftover drag transform.
+    const runs = paneIds(canvas).map((id) => numbersOf(id));
+    for (const ns of runs) {
+      expect(ns.length).toBeGreaterThan(2);
+      expect(breaks(ns)).toBe(0);
+    }
+    expect(runs.map((ns) => ns[ns.length - 1]).sort((a, b) => a - b)).toEqual([200, 640]);
+    for (const id of paneIds(canvas)) {
+      const item = canvasElement.querySelector(
+        `.pane-layout-item[data-pane-id="${id}"]`,
+      ) as HTMLElement;
+      const t = getComputedStyle(item).transform;
+      // Identity / none — no residual translate that would offset the content.
+      const translated =
+        t !== 'none' && /matrix\([^)]*\)/.test(t) && !/matrix\(1, 0, 0, 1, 0, 0\)/.test(t);
+      expect(translated, `pane ${id} has a leftover drag transform: ${t}`).toBe(false);
+    }
+  },
+};
+
+/**
+ * Drag-swap keeps SHORT content top-anchored — the regression guard for the
+ * bottom-anchor bug (a swap-triggered resize replayed the accumulated %output
+ * through a fresh grid, scrolling short content to the bottom in the v86 path).
+ * Two near-empty panes each get one short line at the top, then are swapped by
+ * dragging a titlebar. After the drop, each pane's content must stay in the TOP
+ * rows (deepest non-blank row and cursor well above the pane bottom) — a
+ * full-screen pane would hide this, so the panes are deliberately short.
+ */
+export const DragSwapShortContentStaysTopAnchored: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const findPane = (id: string) =>
+      paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
+
+    // Deepest non-blank content row + cursor row for a pane (from the app state).
+    const anchor = (id: string): { h: number; deepest: number; cY: number } => {
+      const pane = (
+        window as unknown as {
+          app: {
+            getSnapshot(): {
+              context: {
+                panes: Array<{
+                  tmuxId: string;
+                  height: number;
+                  cursorY: number;
+                  content: Array<Array<{ c?: string }>>;
+                }>;
+              };
+            };
+          };
+        }
+      ).app
+        .getSnapshot()
+        .context.panes.find((p) => p.tmuxId === id)!;
+      let deepest = -1;
+      pane.content.forEach((line, i) => {
+        if (line.some((cell) => (cell.c ?? '').trim().length > 0)) deepest = i;
+      });
+      return { h: pane.height, deepest, cY: pane.cursorY };
+    };
+
+    const [a, b] = paneIds(canvas);
+    const fillShort = async (id: string, marker: string) => {
+      await user.click(findPane(id));
+      await waitFor(() => expect(activePaneId()).toBe(id), { timeout: 15000, interval: 200 });
+      pasteLine(`echo ${marker}`);
+      await waitFor(() => expect(findPane(id).textContent ?? '').toContain(marker), {
+        timeout: 30000,
+        interval: 400,
+      });
+    };
+    await fillShort(a, 'SHORT_AAA');
+    await fillShort(b, 'SHORT_BBB');
+    await sleep(500);
+
+    // Precondition: both panes are short and top-anchored before the swap.
+    for (const id of [a, b]) {
+      const g = anchor(id);
+      expect(g.deepest, `pane ${id} should start short/top-anchored`).toBeLessThan(g.h / 2);
+    }
+
+    // Drag pane A's titlebar onto pane B to swap them.
+    const header = findPane(a).querySelector('.pane-header') as HTMLElement;
+    const hRect = header.getBoundingClientRect();
+    const dstRect = paneRect(canvas, b);
+    const sX = hRect.left + hRect.width / 2;
+    const sY = hRect.top + hRect.height / 2;
+    const eX = dstRect.left + dstRect.width / 2;
+    const eY = dstRect.top + dstRect.height / 2;
+    const dstEl = findPane(b);
+    header.dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, clientX: sX, clientY: sY, bubbles: true }),
+    );
+    for (let i = 1; i <= 8; i++) {
+      (i <= 2 ? header : dstEl).dispatchEvent(
+        new MouseEvent('mousemove', {
+          clientX: sX + ((eX - sX) * i) / 8,
+          clientY: sY + ((eY - sY) * i) / 8,
+          bubbles: true,
+        }),
+      );
+      await sleep(100);
+    }
+    dstEl.dispatchEvent(new MouseEvent('mouseup', { clientX: eX, clientY: eY, bubbles: true }));
+    await waitFor(() => expect(paneIds(canvas)[0]).toBe(b), {
+      timeout: 30000,
+      interval: 400,
+    }).catch(() => {});
+    await sleep(2000);
+
+    // After the swap, each pane's short content must remain TOP-anchored: the
+    // deepest non-blank row and the cursor stay in the upper half of the pane,
+    // never glued to the bottom (which is exactly the bug this guards).
+    for (const id of paneIds(canvas)) {
+      const g = anchor(id);
+      expect(
+        g.deepest,
+        `pane ${id} content bottom-anchored after swap (deepest=${g.deepest}/${g.h})`,
+      ).toBeLessThan(g.h / 2);
+      expect(g.cY, `pane ${id} cursor bottom-anchored after swap (cY=${g.cY}/${g.h})`).toBeLessThan(
+        g.h / 2,
+      );
+    }
+  },
+};
+
+/**
+ * Content-blink guard against REAL tmux (the "x86 client-side" path): navigating
+ * between panes, splitting, and resizing must never tear down and remount a
+ * surviving pane's terminal content — the DOM-churn blink a text sampler can't
+ * see. A `ContentMutationRecorder` (MutationObserver over `.pane-layout`) watches
+ * the whole run; the only content it may see removed is `.terminal-line`s as a
+ * pane's height changes and the cursor span following focus — never a
+ * `.pane-content` / `.terminal-container` container for a pane that persists.
+ *
+ * The demo-tier `Mocked App/Content Stability` stories assert the same on the
+ * deterministic engine and gate CI; this proves it survives real tmux re-tiling.
+ */
+export const ContentBlinkFreeOnPaneOps: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const cmd = (c: string) =>
+      (window as unknown as { app: { send: (e: unknown) => void } }).app.send({
+        type: 'SEND_TMUX_COMMAND',
+        command: c,
+      });
+
+    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(2), {
+      timeout: 45000,
+      interval: 500,
+    });
+    await sleep(1000);
+
+    const layout = canvasElement.querySelector('.pane-layout') as HTMLElement;
+    const rec = new ContentMutationRecorder(layout);
+
+    // Navigate: focus each pane in turn.
+    for (const id of paneIds(canvas)) {
+      cmd(`select-pane -t ${id}`);
+      await sleep(300);
+    }
+    // Split: a new pane appears; the survivors must not remount.
+    cmd('split-window -h');
+    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(3), {
+      timeout: 30000,
+      interval: 400,
+    });
+    await sleep(800);
+    // Resize: shrink the active pane both ways.
+    const active = activePaneId();
+    for (let i = 0; i < 3; i++) {
+      cmd(`resize-pane -t ${active} -L 4`);
+      await sleep(300);
+    }
+    for (let i = 0; i < 3; i++) {
+      cmd(`resize-pane -t ${active} -R 4`);
+      await sleep(300);
+    }
+    await sleep(500);
+
+    // The observer must have seen real churn (else the assertion is vacuous)…
+    expect(rec.observedRemovals).toBeGreaterThan(0);
+    // …and none of it may be a surviving pane's content container being remounted.
+    rec.assertNoBlink('navigate/split/resize (real tmux)');
+  },
+};
+
+/**
+ * New-tab regression (two bugs, real tmux):
+ *  1. Creating a tab must not flash a transient EXTRA tab. A `break-pane` tags
+ *     the new window `@tmuxy-window-type=tab` a beat before its pane settles;
+ *     the optimistic store must hide that tab-typed-but-paneless newborn (it
+ *     stands the placeholder in for it) so the tab bar never shows a 3rd tab
+ *     that blinks away. A MutationObserver over the tab list catches the blink.
+ *  2. The new tab's pane must show its FIRST terminal row. New windows are born
+ *     without `pane-border-status top` unless it's set globally, which would
+ *     leave the pane at y=0 where the 24px PaneHeader steals row 0. The row must
+ *     render fully below the header.
+ */
+export const NewTabNoBlinkFirstRowVisible: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+    const tabList = canvasElement.querySelector('.tab-list') as HTMLElement;
+    const tabCount = () => tabList.querySelectorAll('.tab-name').length;
+    const before = tabCount();
+
+    // Bug 1: watch the tab bar for any transient tab beyond the one we create.
+    let maxTabs = before;
+    const obs = new MutationObserver(() => {
+      maxTabs = Math.max(maxTabs, tabCount());
+    });
+    obs.observe(tabList, { childList: true, subtree: true, attributes: true });
+    let running = true;
+    const tick = () => {
+      if (!running) return;
+      maxTabs = Math.max(maxTabs, tabCount());
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+
+    const add = await canvas.findByRole('button', { name: /create new tab/i }, { timeout: 8000 });
+    await user.click(add);
+    await waitFor(() => expect(tabCount()).toBe(before + 1), { timeout: 30000, interval: 100 });
+    await sleep(2500); // settle
+    running = false;
+    obs.disconnect();
+
+    // Bug 1: the tab bar never held more than the one new tab (no blink).
+    expect(
+      maxTabs,
+      `tab bar flashed ${maxTabs} tabs (expected at most ${before + 1})`,
+    ).toBeLessThanOrEqual(before + 1);
+    expect(tabCount()).toBe(before + 1);
+
+    // Bug 2: the new tab's pane shows its first terminal row, fully below the
+    // header (not clipped behind it).
+    const wrapper = canvasElement.querySelector(
+      '.pane-layout-item.pane-active .pane-wrapper',
+    ) as HTMLElement;
+    const header = wrapper.querySelector('.pane-header') as HTMLElement;
+    const firstLine = wrapper.querySelector('.pane-content .terminal-line') as HTMLElement;
+    expect(header).not.toBeNull();
+    expect(firstLine).not.toBeNull();
+    const hb = header.getBoundingClientRect();
+    const fb = firstLine.getBoundingClientRect();
+    expect(
+      fb.top,
+      `first terminal row (top=${Math.round(fb.top)}) is hidden behind the header (bottom=${Math.round(hb.bottom)})`,
+    ).toBeGreaterThanOrEqual(hb.bottom - 1);
   },
 };

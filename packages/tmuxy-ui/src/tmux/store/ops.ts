@@ -589,15 +589,26 @@ function predictNewWindow(
   const priorWindowIds = snapshot.windows.map((w) => w.id);
 
   const patch: Patch = (s) => {
-    // Hide newborn windows the server has reported but no op has claimed yet
-    // (windowType still null — the `@tmuxy-window-type` tag arrives on a later
-    // list-windows sync). Rendering their panes before the reconcile-match
-    // installs the pane-key override would mount them under their real ids
-    // and force a keyed remount (visible flicker) at claim time. A pane can
-    // even arrive a snapshot BEFORE its window record — hide those too.
+    // A newborn window is only safe to render once reconcileNewWindow would
+    // MATCH it: tab-typed AND it already owns a pane. Hide every other newborn
+    // the server has reported but no op has claimed yet — the placeholder tab
+    // stands in for it until then. This must mirror the reconcile match
+    // condition exactly, or a gap opens: `break-pane` sets the window's
+    // `@tmuxy-window-type` tag a beat BEFORE the moved pane's window_id settles,
+    // so a tab-typed-but-paneless window would otherwise render as a SECOND tab
+    // next to the placeholder (a duplicate tab that blinks away on the next
+    // snapshot). A pane can even arrive a snapshot before its window record —
+    // hide those too.
+    const isRenderableTab = (w: TmuxWindow): boolean =>
+      w.windowType === 'tab' && s.panes.some((p) => p.windowId === w.id);
     const unclaimedNewborns = new Set(
       s.windows
-        .filter((w) => w.windowType === null && !priorWindowIds.includes(w.id))
+        .filter(
+          (w) =>
+            !priorWindowIds.includes(w.id) &&
+            !w.id.startsWith('__placeholder_') &&
+            !isRenderableTab(w),
+        )
         .map((w) => w.id),
     );
     const knownWindowIds = new Set(s.windows.map((w) => w.id));

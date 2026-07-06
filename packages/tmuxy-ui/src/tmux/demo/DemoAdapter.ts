@@ -114,12 +114,6 @@ export interface DemoAdapterOptions {
    * the UI rolls back optimistic state on tmux rejections.
    */
   failCommand?: (command: string) => string | false | null | undefined;
-  /**
-   * Value reported for the `@tmuxy-scroll-animation` option in the connection
-   * info. Defaults to true (animation on). Stories set it to false to assert
-   * the scroll-shift animation stays disabled.
-   */
-  scrollAnimation?: boolean;
 }
 
 export class DemoAdapter implements TmuxAdapter {
@@ -142,7 +136,6 @@ export class DemoAdapter implements TmuxAdapter {
   private clipboardListeners = new Set<ClipboardListener>();
   private commandDelayMs: number;
   private failCommand: DemoAdapterOptions['failCommand'];
-  private scrollAnimation: boolean;
 
   constructor(options?: DemoAdapterOptions) {
     this.tmux = new DemoTmux();
@@ -151,7 +144,6 @@ export class DemoAdapter implements TmuxAdapter {
     this.savedInitCommands = [...this.initCommands];
     this.commandDelayMs = options?.commandDelayMs ?? 0;
     this.failCommand = options?.failCommand;
-    this.scrollAnimation = options?.scrollAnimation ?? true;
   }
 
   /**
@@ -180,7 +172,7 @@ export class DemoAdapter implements TmuxAdapter {
     this.connected = true;
 
     // Notify connection info
-    this.connectionInfoListeners.forEach((l) => l(0, 'bash', this.scrollAnimation));
+    this.connectionInfoListeners.forEach((l) => l(0, 'bash'));
 
     // Emit keybindings
     this.keyBindingsListeners.forEach((l) => l(DEFAULT_KEYBINDINGS));
@@ -212,6 +204,22 @@ export class DemoAdapter implements TmuxAdapter {
         }
         this.initCommands = []; // Only run once
         return this.tmux.getState() as T;
+      }
+
+      case 'get_scrollback_cells': {
+        const paneId = args?.paneId as string;
+        const start = args?.start as number | undefined;
+        const end = args?.end as number | undefined;
+        const cells = this.tmux.getScrollbackCells(paneId, start, end);
+        const state = this.tmux.getState();
+        const pane = state.panes.find((p) => p.tmux_id === paneId);
+        return {
+          cells,
+          historySize: pane?.history_size ?? 0,
+          start: start ?? 0,
+          end: end ?? cells.length,
+          width: pane?.width ?? 80,
+        } as T;
       }
 
       case 'set_client_size': {
@@ -558,6 +566,21 @@ export class DemoAdapter implements TmuxAdapter {
         this.tmux.breakPane();
         break;
 
+      case 'join-pane':
+      case 'joinp':
+      case 'move-pane':
+      case 'movep': {
+        // join-pane -s <pane> -t <window>: move a pane into another tab.
+        let src = '';
+        let dst = '';
+        for (let i = 1; i < parts.length; i++) {
+          if (parts[i] === '-s' && i + 1 < parts.length) src = parts[++i];
+          else if (parts[i] === '-t' && i + 1 < parts.length) dst = parts[++i];
+        }
+        if (src && dst) this.tmux.joinPane(src, dst);
+        break;
+      }
+
       case 'tmuxy-image-attach': {
         // Storybook/test helper. Real images flow through the Rust image
         // parser; this is a shortcut for demo scenarios.
@@ -631,11 +654,9 @@ export class DemoAdapter implements TmuxAdapter {
       }
 
       case 'run-shell': {
-        // Handle pane-group + sidebar scripts; ignore everything else
+        // Handle pane-group scripts; ignore everything else
         const cmdStr = parts.join(' ');
-        if (cmdStr.includes('sidebar-create')) {
-          this.tmux.createSidebar();
-        } else if (cmdStr.includes('pane-group-add')) {
+        if (cmdStr.includes('pane-group-add')) {
           this.tmux.groupAdd();
         } else if (cmdStr.includes('pane-group-switch')) {
           const paneMatch = cmdStr.match(/%\d+/);

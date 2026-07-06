@@ -1151,8 +1151,10 @@ pub fn run() {
             commands::execute_prefix_binding,
             commands::get_key_bindings,
             commands::get_keybindings_snapshot,
-            // Themes (mirrors the SSE server's invoke surface so the React
-            // frontend's INVOKE paths work identically under Tauri)
+            // Copy mode + themes (mirrors the SSE server's invoke surface so
+            // the React frontend's INVOKE / FETCH_SCROLLBACK_CELLS paths work
+            // identically under Tauri)
+            commands::get_scrollback_cells,
             commands::get_theme_settings,
             commands::set_theme,
             commands::set_theme_mode,

@@ -102,6 +102,23 @@ pub fn capture_pane_with_history(session_name: &str) -> Result<String> {
     ])
 }
 
+/// Capture a range of scrollback lines from a pane.
+/// start/end are line offsets using tmux capture-pane -S/-E convention:
+/// negative = from history, 0 = first visible line, -S - means start of history.
+pub fn capture_pane_range(pane_id: &str, start: i64, end: i64) -> Result<String> {
+    execute_tmux_command(&[
+        "capture-pane",
+        "-t",
+        pane_id,
+        "-p",
+        "-e",
+        "-S",
+        &start.to_string(),
+        "-E",
+        &end.to_string(),
+    ])
+}
+
 pub fn send_keys(session_name: &str, keys: &str) -> Result<()> {
     execute_tmux_command(&["send-keys", "-t", session_name, keys])?;
     Ok(())

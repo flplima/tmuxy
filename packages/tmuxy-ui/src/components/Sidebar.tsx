@@ -1,26 +1,20 @@
 /**
- * Sidebar - left drawer rendering the `tmuxy tree` TUI pane.
+ * Sidebar - left FIXED column rendering the tab/pane tree.
  *
- * The sidebar is a hidden tmux window (windowType === 'sidebar') whose single
- * pane runs the tree TUI. We render that pane's terminal in an edge-docked
- * drawer, mirroring FloatPane's left-drawer branch. Closed by default; toggled
- * from the header button or `prefix t`. When focused (Ctrl+h from the leftmost pane
- * or a click), keystrokes route to the pane and the TUI handles j/k/Enter.
+ * When open, the sidebar is a full-height, fixed-width column that is part of
+ * the app layout (a flex sibling of the pane area) — NOT an overlay. Because the
+ * pane container flexes into the REMAINING width, its ResizeObserver reports the
+ * reduced size and tmux re-tiles the panes to fit; the panes never render under
+ * the sidebar. The tree itself is a native React component derived from state —
+ * no tmux window/pane, no `tmuxy tree` TUI. Toggled from the header button or
+ * `prefix t`; focused via a click or Ctrl+h from the leftmost pane.
  */
 
 import { memo, useCallback } from 'react';
-import { Modal } from './Modal';
-import { Terminal } from './Terminal';
-import {
-  useAppSend,
-  useAppSelector,
-  selectCharSize,
-  selectContainerSize,
-  selectSidebarPaneId,
-} from '../machines/AppContext';
+import { SidebarTree } from './SidebarTree';
+import { useAppSend, useAppSelector, selectCharSize } from '../machines/AppContext';
 import { SIDEBAR_COLS } from '../machines/constants';
 import { LogProfiler } from '../utils/renderLog';
-import type { TmuxPane } from '../machines/types';
 
 export const Sidebar = memo(function Sidebar() {
   return (
@@ -33,14 +27,8 @@ export const Sidebar = memo(function Sidebar() {
 function SidebarInner() {
   const send = useAppSend();
   const sidebarOpen = useAppSelector((ctx) => ctx.sidebarOpen);
-  const sidebarPaneId = useAppSelector(selectSidebarPaneId);
-  const focusedSidebarPaneId = useAppSelector((ctx) => ctx.focusedSidebarPaneId);
-  const { charWidth, charHeight } = useAppSelector(selectCharSize);
-  const { height: containerHeight } = useAppSelector(selectContainerSize);
-
-  const pane = useAppSelector((ctx) =>
-    sidebarPaneId ? ctx.panes.find((p: TmuxPane) => p.tmuxId === sidebarPaneId) : undefined,
-  );
+  const sidebarFocused = useAppSelector((ctx) => ctx.sidebarFocused);
+  const { charWidth } = useAppSelector(selectCharSize);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -50,43 +38,20 @@ function SidebarInner() {
     [send],
   );
 
-  if (!sidebarOpen || !sidebarPaneId || !pane) return null;
+  if (!sidebarOpen) return null;
 
-  const isFocused = focusedSidebarPaneId === sidebarPaneId;
+  // Fixed column width, in lockstep with the tab pane widths (same charWidth).
   const width = SIDEBAR_COLS * charWidth;
-  const terminalRows = Math.floor(containerHeight / charHeight);
 
   return (
-    <Modal
-      open={true}
-      onClose={() => send({ type: 'TOGGLE_SIDEBAR' })}
-      title="tree"
-      width={width}
-      zIndex={1000}
-      className="drawer drawer-left sidebar-drawer"
-      containerStyle={{ left: 0, top: 0 }}
-      backdrop="none"
-      hideHeader
-      closeOnEsc={false}
+    <aside
+      className={`sidebar-fixed${sidebarFocused ? ' is-focused' : ''}`}
+      style={{ flex: `0 0 ${width}px`, width, minWidth: width, maxWidth: width }}
+      onClick={handleClick}
+      data-testid="sidebar-content"
     >
-      <div
-        className="float-content"
-        style={{ width, height: containerHeight }}
-        onClick={handleClick}
-        data-testid="sidebar-content"
-      >
-        <Terminal
-          content={pane.content}
-          cursorX={pane.cursorX}
-          cursorY={pane.cursorY}
-          isActive={isFocused}
-          height={terminalRows}
-          inMode={pane.inMode}
-          copyCursorX={pane.copyCursorX}
-          copyCursorY={pane.copyCursorY}
-          cursorShape={pane.cursorShape}
-        />
-      </div>
-    </Modal>
+      <div className="sidebar-header">tree</div>
+      <SidebarTree focused={sidebarFocused} />
+    </aside>
   );
 }

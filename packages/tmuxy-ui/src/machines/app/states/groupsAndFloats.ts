@@ -2,7 +2,7 @@
  * groupsAndFloats state — parallel state for pane groups and float panes.
  *
  * Owns context fields: paneGroups, floatPanes, focusedFloatPaneId,
- * groupSwitchDimOverrides, sidebarOpen, focusedSidebarPaneId.
+ * groupSwitchDimOverrides, sidebarOpen, sidebarFocused.
  *
  * - groupsAndFloatsGlobalEvents: spread into machine root on:
  *   (OPEN_SESSION_FLOAT, OPEN_CONNECT_FLOAT, TOGGLE_SIDEBAR — pure side-effect

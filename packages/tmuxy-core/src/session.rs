@@ -57,26 +57,33 @@ pub fn tmux_path() -> &'static str {
     TMUX_PATH.get_or_init(find_tmux)
 }
 
-/// Create a `Command` for tmux that respects the `TMUX_SOCKET` environment variable.
-/// When `TMUX_SOCKET` is set, adds `-L <socket>` to connect to the named tmux server.
+/// The named tmux server socket tmuxy talks to when `TMUX_SOCKET` is unset.
+/// A dedicated socket keeps tmuxy's server fully isolated from the user's
+/// own tmux sessions on the default socket.
+pub const DEFAULT_TMUX_SOCKET: &str = "tmuxy";
+
+/// Resolve the tmux socket name: `TMUX_SOCKET` when set and non-empty,
+/// otherwise the dedicated [`DEFAULT_TMUX_SOCKET`].
+pub fn tmux_socket() -> String {
+    match std::env::var("TMUX_SOCKET") {
+        Ok(socket) if !socket.is_empty() => socket,
+        _ => DEFAULT_TMUX_SOCKET.to_string(),
+    }
+}
+
+/// Create a `Command` for tmux targeting the resolved socket (`-L`). Passing
+/// `-L` unconditionally also overrides an inherited `$TMUX`, so the server
+/// behaves the same whether or not it was launched from inside a tmux pane.
 pub fn tmux_command() -> Command {
     let mut cmd = Command::new(tmux_path());
-    if let Ok(socket) = std::env::var("TMUX_SOCKET") {
-        if !socket.is_empty() {
-            cmd.args(["-L", &socket]);
-        }
-    }
+    cmd.args(["-L", &tmux_socket()]);
     cmd
 }
 
-/// Build the tmux shell command string with socket flag for use in shell invocations.
-/// Returns e.g. "/opt/homebrew/bin/tmux -L tmuxy-dev" or just "/usr/bin/tmux".
+/// Build the tmux shell command string with the socket flag for use in shell
+/// invocations. Returns e.g. "/opt/homebrew/bin/tmux -L tmuxy".
 pub fn tmux_bin() -> String {
-    let bin = tmux_path();
-    match std::env::var("TMUX_SOCKET") {
-        Ok(socket) if !socket.is_empty() => format!("{} -L {}", bin, socket),
-        _ => bin.to_string(),
-    }
+    format!("{} -L {}", tmux_path(), tmux_socket())
 }
 
 /// Shipped defaults — overwritten on every app launch so users get new
@@ -181,10 +188,6 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../bin/tmuxy/pane-group-switch"),
     ),
     ("tmuxy/stack", include_str!("../../../bin/tmuxy/stack")),
-    (
-        "tmuxy/sidebar-create",
-        include_str!("../../../bin/tmuxy/sidebar-create"),
-    ),
     (
         "tmuxy/session-connect",
         include_str!("../../../bin/tmuxy/session-connect"),

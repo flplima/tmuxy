@@ -187,7 +187,7 @@ export class V86TmuxAdapter implements TmuxAdapter {
     // that only the `connecting` branch performs. The app already shows connecting
     // feedback via its own `connecting` state until connect() resolves.
     this.connected = true;
-    this.connectionInfoListeners.forEach((l) => l(0, 'bash', true));
+    this.connectionInfoListeners.forEach((l) => l(0, 'bash'));
     this.keyBindingsListeners.forEach((l) => l(DEFAULT_KEYBINDINGS));
 
     // reset() serializes on the engine's lifecycle queue: it restores the
@@ -278,6 +278,18 @@ export class V86TmuxAdapter implements TmuxAdapter {
         const mode = (args?.mode as string) === 'light' ? 'light' : 'dark';
         saveThemeToStorage(loadThemeFromStorage()?.theme || 'default', mode);
         return null as T;
+      }
+      case 'get_scrollback_cells': {
+        const paneId = args?.paneId as string;
+        const start = (args?.start as number | undefined) ?? -100;
+        const end = (args?.end as number | undefined) ?? -1;
+        const state = this.engine.getLastState();
+        const pane = state.panes.find((p) => p.tmux_id === paneId);
+        const width = pane?.width ?? 80;
+        const historySize = pane?.history_size ?? 0;
+        const text = await this.engine.captureScrollback(paneId, start, end);
+        const cells = this.engine.parseScrollback(text, width);
+        return { cells, historySize, start, end, width } as T;
       }
       case 'get_theme_settings':
         return (loadThemeFromStorage() || { theme: 'default', mode: 'dark' }) as T;

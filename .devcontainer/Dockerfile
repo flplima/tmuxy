@@ -17,7 +17,7 @@ RUN usermod -l user -d /home/user -m node \
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools (openssh-client for git-over-SSH and ssh-keygen credential setup)
-    less git procps sudo fzf zsh man-db unzip gnupg2 openssh-client \
+    less git procps sudo fzf man-db unzip gnupg2 openssh-client \
     nano vim jq bc zstd \
     # LazyVim runtime deps (telescope file/text search)
     ripgrep fd-find \
@@ -115,18 +115,27 @@ USER user
 
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 ENV PATH=/home/user/.local/bin:$PATH:/usr/local/share/npm-global/bin
-ENV SHELL=/bin/zsh
+ENV SHELL=/bin/bash
 ENV EDITOR=nvim
 ENV VISUAL=nvim
 
-# zsh with Pure prompt
-RUN git clone https://github.com/sindresorhus/pure.git /home/user/.zsh/pure
-COPY --chown=user:user .devcontainer/.zshrc /home/user/.zshrc
+# Bash login-shell setup: PATH, UTF-8 locale, and persistent history (backed by
+# the /commandhistory volume created above). bin/devcontainer drops into `bash -l`.
+RUN { \
+      echo 'export PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH'; \
+      echo 'export LANG=C.UTF-8'; \
+      echo 'export HISTFILE=/commandhistory/.bash_history'; \
+      echo 'export HISTSIZE=10000'; \
+      echo 'export HISTFILESIZE=10000'; \
+      echo '[ -n "$BASH" ] && shopt -s histappend'; \
+    } >> /home/user/.profile
 
-# Add local bin, cargo, and npm global bin to profile (login shells, including non-interactive)
-# `yolo` shortcut mirrors the zsh function in .zshrc — needed because bin/devcontainer drops into bash.
-RUN echo 'export PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH' >> /home/user/.profile \
-    && echo 'yolo() { claude --dangerously-skip-permissions "$@"; }' >> /home/user/.profile
+# `yolo` — run Claude Code with all permission checks disabled. Installed as an
+# executable on PATH (not a shell function) so it resolves in ANY shell: login or
+# not, bash or sh — including `bin/devcontainer run sh`.
+RUN mkdir -p /home/user/.local/bin \
+    && printf '#!/usr/bin/env bash\nexec claude --dangerously-skip-permissions "$@"\n' > /home/user/.local/bin/yolo \
+    && chmod +x /home/user/.local/bin/yolo
 
 # Claude Code (native installer)
 RUN curl -fsSL https://claude.ai/install.sh | bash

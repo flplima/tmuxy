@@ -379,4 +379,35 @@ describe('NewWindow reconcile requires the window to have a pane', () => {
     expect(verdict._tag).toBe('matched');
     expect(verdict._tag === 'matched' && verdict.realId).toBe('@1');
   });
+
+  it('patch hides a tab-typed-but-paneless newborn so it does not render as a 2nd tab', () => {
+    const snap: TmuxSnapshot = {
+      ...EMPTY_SNAPSHOT,
+      windows: [win('@0', 1, 'tab')],
+      panes: [pane('%0', 0, 0, 80, 20)],
+      activePaneId: '%0',
+      activeWindowId: '@0',
+    };
+    const { patch } = predict(parseCommandToOp('new-window'), snap, CTX, 'nw2' as OpId)!;
+
+    // Real window @1 tagged 'tab' but still paneless (break-pane sets the type
+    // tag a beat before the moved pane's window settles). Rendering it now would
+    // show a duplicate tab beside the placeholder that blinks away next tick.
+    const paneless: TmuxSnapshot = {
+      ...snap,
+      windows: [win('@0', 1, 'tab'), win('@1', 2, 'tab')],
+      panes: [pane('%0', 0, 0, 80, 20), { ...pane('%1', 0, 0, 80, 20), windowId: '@0' }],
+    };
+    const hiddenIds = patch(paneless).windows.map((w) => w.id);
+    expect(hiddenIds).not.toContain('@1'); // the newborn tab is hidden…
+    expect(hiddenIds.filter((id) => id.startsWith('__placeholder_'))).toHaveLength(1); // …placeholder stands in
+
+    // Once @1 owns its pane it is renderable; the patch keeps it (reconcile
+    // matches it the same tick and swaps the placeholder out — no duplicate).
+    const withPane: TmuxSnapshot = {
+      ...paneless,
+      panes: [pane('%0', 0, 0, 80, 20), { ...pane('%1', 0, 0, 80, 20), windowId: '@1' }],
+    };
+    expect(patch(withPane).windows.map((w) => w.id)).toContain('@1');
+  });
 });

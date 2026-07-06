@@ -25,7 +25,13 @@ export type { AppMachineContext };
  *
  * Keep in sync with the parallel states defined under ./states/.
  */
-export type StateName = 'layout' | 'groupsAndFloats' | 'commandUi' | 'uiPrefs' | 'parent';
+export type StateName =
+  | 'layout'
+  | 'copyMode'
+  | 'groupsAndFloats'
+  | 'commandUi'
+  | 'uiPrefs'
+  | 'parent';
 
 /**
  * Maps every AppMachineContext field to the parallel state that owns it.
@@ -48,7 +54,6 @@ export const FIELD_OWNERS = {
   sessionName: 'parent',
   connectionId: 'parent',
   defaultShell: 'parent',
-  scrollAnimation: 'parent',
   keybindings: 'parent',
   appFocused: 'parent',
   totalWidth: 'parent',
@@ -77,13 +82,16 @@ export const FIELD_OWNERS = {
   resizeActive: 'layout',
   suppressLayoutTransition: 'layout',
 
+  // ---- copyMode ----
+  copyModeStates: 'copyMode',
+
   // ---- groupsAndFloats ----
   paneGroups: 'groupsAndFloats',
   floatPanes: 'groupsAndFloats',
   focusedFloatPaneId: 'groupsAndFloats',
   groupSwitchDimOverrides: 'groupsAndFloats',
   sidebarOpen: 'groupsAndFloats',
-  focusedSidebarPaneId: 'groupsAndFloats',
+  sidebarFocused: 'groupsAndFloats',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -130,7 +138,6 @@ export function createInitialContext(): AppMachineContext {
     charHeight: DEFAULT_CHAR_HEIGHT,
     connectionId: null,
     defaultShell: 'bash',
-    scrollAnimation: true,
     statusLine: '',
     pendingUpdate: null as PendingUpdate | null,
     containerWidth: 0,
@@ -139,9 +146,10 @@ export function createInitialContext(): AppMachineContext {
     floatPanes: {},
     focusedFloatPaneId: null,
     sidebarOpen: false,
-    focusedSidebarPaneId: null,
+    sidebarFocused: false,
     enableAnimations: false,
     keybindings: null,
+    copyModeStates: {},
     lastLayoutCommandTime: 0,
     suppressLayoutTransition: false,
     paneKeyOverrides: {},

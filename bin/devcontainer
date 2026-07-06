@@ -83,7 +83,10 @@ ensure_image() {
 
 info() {
     echo "==> Container:  $CONTAINER_NAME"
-    echo "==> Port map:   localhost:$HOST_PORT -> container:9000"
+    echo "==> Port map:   localhost:$HOST_PORT     -> container:9000 (server)"
+    echo "==>             localhost:$((HOST_PORT + 1)) -> container:9001 (vite)"
+    echo "==>             localhost:$((HOST_PORT + 2)) -> container:9002 (demo)"
+    echo "==>             localhost:$((HOST_PORT + 3)) -> container:6006 (storybook)"
     echo ""
 }
 
@@ -142,6 +145,7 @@ prepare() {
         -p "$HOST_PORT:9000"
         -p "$((HOST_PORT + 1)):9001"
         -p "$((HOST_PORT + 2)):9002"
+        -p "$((HOST_PORT + 3)):6006"
         "${MOUNTS[@]}"
         -e PORT=9000
         -e HOST_PORT="$HOST_PORT"

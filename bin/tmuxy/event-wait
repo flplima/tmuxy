@@ -13,7 +13,7 @@ source "$SCRIPTS_DIR/_lib"
 
 NAME="${1:?Usage: tmuxy event wait <name>}"
 
-SOCKET="${TMUX_SOCKET:-default}"
+SOCKET="${TMUX_SOCKET:-tmuxy}"
 DIR="/tmp/tmuxy-events/$SOCKET/$NAME"
 mkdir -p "$DIR"
 

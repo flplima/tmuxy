@@ -21,7 +21,7 @@ if [ "$MSG" = "-" ]; then
   MSG="$(cat)"
 fi
 
-SOCKET="${TMUX_SOCKET:-default}"
+SOCKET="${TMUX_SOCKET:-tmuxy}"
 DIR="/tmp/tmuxy-events/$SOCKET/$NAME"
 mkdir -p "$DIR"
 

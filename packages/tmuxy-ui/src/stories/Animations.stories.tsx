@@ -37,7 +37,6 @@ import {
   LayoutMutationRecorder,
   observeChildList,
   waitForCssAnimation,
-  waitForTransform,
   wait,
 } from './animationObservers';
 
@@ -514,111 +513,5 @@ export const AnimationsDisabled: Story = {
     } finally {
       recorder.disconnect();
     }
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Scroll-shift animation — content that scrolls slides from old → new position
-// ---------------------------------------------------------------------------
-
-/** Active pane's tmux id from the live app actor. */
-function activePaneId(): string {
-  const id = getApp().getSnapshot().context.activePaneId;
-  if (!id) throw new Error('no active pane');
-  return id;
-}
-
-/** Press Enter `times` times, letting each state update render between presses. */
-async function pressEnter(times: number): Promise<void> {
-  const id = activePaneId();
-  for (let i = 0; i < times; i++) {
-    getApp().send({ type: 'SEND_TMUX_COMMAND', command: `send-keys -t ${id} Enter` });
-    await wait(8);
-  }
-}
-
-/**
- * Fill the viewport with DISTINCT lines (`echo lineN`) so the screen has varied
- * content — important for the negative tests, where a redraw must not coincide
- * with a repeated-content false match.
- */
-async function fillDistinct(lines: number): Promise<void> {
-  const id = activePaneId();
-  for (let i = 0; i < lines; i++) {
-    getApp().send({ type: 'SEND_TMUX_COMMAND', command: `send-keys -t ${id} -l 'echo line${i}'` });
-    getApp().send({ type: 'SEND_TMUX_COMMAND', command: `send-keys -t ${id} Enter` });
-    await wait(10);
-  }
-}
-
-const SCROLL_HOST = '.pane-terminal-host';
-
-export const ScrollShiftAnimation: Story = {
-  args: { height: 600 },
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 600 },
-      description: {
-        story:
-          'When new output is a vertical shift of the previous frame, the content slides from its old position to its new one instead of jumping. Pressing Enter repeatedly fills the screen and then scrolls it one line at a time; the test waits for a real `transform` transition on the terminal host to prove the slide ran.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 1);
-    await waitForAnimationsEnabled(getPaneLayout(canvasElement));
-
-    // Fill the viewport with distinct lines so subsequent Enters scroll (rather
-    // than grow downward into blank rows), then let any in-flight slide settle.
-    await fillDistinct(40);
-    await wait(250);
-
-    // The next Enter scrolls by one line — a confident shift the hook animates.
-    const transform = waitForTransform(SCROLL_HOST, { timeout: 3000 });
-    await pressEnter(1);
-    await transform; // throws if the slide never started
-  },
-};
-
-// Note: the "big jump / full redraw → no animation" case is covered at the unit
-// level — scrollShift.test.ts ("returns 0 for a full redraw", "row count changes
-// substantially", "below the match-ratio threshold") and the jsdom hook test
-// ("does not animate a full redraw / big jump"). It isn't a storybook story
-// because reaching a redraw through the demo shell (e.g. `clear`) requires an
-// Enter that first commits/scrolls the command line, which is itself a real
-// (correctly animated) scroll — so a full-app story can't isolate the redraw.
-
-export const ScrollShiftDisabledByFlag: Story = {
-  args: { height: 600, scrollAnimation: false },
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 600 },
-      description: {
-        story:
-          'With `@tmuxy-scroll-animation off` (reported via connection info) the slide never runs even on a clean scroll. The test scrolls the screen and asserts no `transform` transition fires.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await waitForPaneCount(canvas, 1);
-    await waitForAnimationsEnabled(getPaneLayout(canvasElement));
-
-    await fillDistinct(30);
-    await wait(250);
-
-    let fired = false;
-    waitForTransform(SCROLL_HOST, { timeout: 800 })
-      .then(() => {
-        fired = true;
-      })
-      .catch(() => {
-        /* expected: animation disabled */
-      });
-
-    await pressEnter(3);
-    await wait(900);
-    expect(fired).toBe(false);
   },
 };

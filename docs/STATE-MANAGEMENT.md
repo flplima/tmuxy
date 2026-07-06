@@ -10,7 +10,7 @@ State flows unidirectionally from tmux through the Rust backend to the browser f
 tmux server → ControlModeConnection → StateAggregator → StateEmitter → Frontend XState
 ```
 
-The backend maintains the **authoritative** tmux state. The frontend maintains a **derived** copy with additional client-only state (drag, resize, animations, UI preferences). The delta protocol keeps them synchronized.
+The backend maintains the **authoritative** tmux state. The frontend maintains a **derived** copy with additional client-only state (copy mode, drag, resize, animations, UI preferences). The delta protocol keeps them synchronized.
 
 ---
 
@@ -146,7 +146,7 @@ The machine spawns three persistent actors:
 
 **`tmuxActor`** (`tmuxy-ui/src/machines/actors/tmuxActor.ts`) — Bridge to the Rust backend. Receives `SEND_COMMAND`, `INVOKE`, `FETCH_INITIAL_STATE`, `FETCH_THEME_SETTINGS`, etc. from the parent. Sends `TMUX_CONNECTED`, `TMUX_STATE_UPDATE`, `TMUX_ERROR`, `CONNECTION_INFO`, `KEYBINDINGS_RECEIVED`, `TMUX_CLIPBOARD` to the parent.
 
-**`keyboardActor`** (`tmuxy-ui/src/machines/actors/keyboardActor.ts`) — DOM keyboard input handling. Manages prefix mode (waits for next key after prefix), IME composition support (suppresses individual keydowns during CJK input), root bindings (bypass prefix), and paste chunking (large pastes split into 500-char chunks). Keys are forwarded to tmux via `send-keys`; while a pane is in copy mode tmux interprets them with its copy-mode-vi table. Sends `SEND_TMUX_COMMAND` and `KEY_PRESS` to the parent.
+**`keyboardActor`** (`tmuxy-ui/src/machines/actors/keyboardActor.ts`) — DOM keyboard input handling. Manages prefix mode (waits for next key after prefix), IME composition support (suppresses individual keydowns during CJK input), copy mode interception (all keys captured and sent as `COPY_MODE_KEY` when the active pane is in client-side copy mode), root bindings (bypass prefix), and paste chunking (large pastes split into 500-char chunks). Sends `SEND_TMUX_COMMAND`, `KEY_PRESS`, and `COPY_SELECTION` to the parent.
 
 **`sizeActor`** (`tmuxy-ui/src/machines/actors/sizeActor.ts`) — Viewport tracking. Measures monospace font char dimensions on start, listens to window resize (debounced 100ms), observes container with `ResizeObserver`. Sends `SET_CHAR_SIZE`, `SET_TARGET_SIZE`, `SET_CONTAINER_SIZE` to the parent.
 
@@ -216,14 +216,16 @@ machines/app/
 │                          # runs in the TMUX_MODEL_UPDATE handler.
 ├── context.ts             # createInitialContext() and FIELD_OWNERS registry
 ├── tmuxStateSlices.ts     # Per-state slice helpers for TMUX_STATE_UPDATE
-│                          # (sliceStatusLine, sliceActivationOrder,
-│                          # sliceLastActivePaneByWindow, detectRemovedPanes).
+│                          # (sliceCopyModeStates, sliceStatusLine,
+│                          # sliceActivationOrder, sliceLastActivePaneByWindow,
+│                          # detectRemovedPanes).
 ├── helpers.ts             # transformServerState, parseCommandPrompt,
 │                          # parseDisplayMessage, STATUS_MESSAGE_DURATION.
 ├── states/                # One file per parallel state — exports the state
 │   │                      # config (on: slice) referenced by named actions.
 │   ├── uiPrefs.ts         # theme, font size, animations
 │   ├── commandUi.ts       # command mode, status messages, prefix indicator
+│   ├── copyMode.ts        # client-side copy mode (per-pane CopyModeState)
 │   ├── groupsAndFloats.ts # pane groups, float panes, group-switch freeze
 │   └── layout.ts          # panes, windows, focus, drag/resize
 │                          # (optimistic state lives in src/tmux/store/, not here)
@@ -234,7 +236,7 @@ machines/app/
 ```
 
 **One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
-`AppMachineContext` field to its owning state (`'layout' |
+`AppMachineContext` field to its owning state (`'layout' | 'copyMode' |
 'groupsAndFloats' | 'commandUi' | 'uiPrefs' | 'parent'`). The
 `tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
 enforces this: any `assign({...})` inside a `states/<name>.ts` or
@@ -302,6 +304,6 @@ Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `sele
 
 4. **Optimistic reconciliation** — Every dispatched op stays in `TmuxClientModel.ops` until a server state update either matches it (the predicted real id appears in `committed`) or it stale-expires after `OP_STALE_TIMEOUT_MS`. Multiple in-flight ops are reconciled in dispatch order, each claiming its own real id so concurrent Split / NewWindow ops don't collide. On `TmuxError`, the store rolls the patch back immediately and surfaces `OpRejectedByTmux { stderr }` to the caller.
 
-5. **Copy mode is native** — tmux owns the copy cursor, selection, and scrollback. The frontend forwards input (keys via `send-keys`, mouse/wheel via `send-keys -X` commands) and renders the copy cursor and selection from the coordinates tmux reports on the pane (`in_mode`, `copy_cursor_x/y`, `selection_present`, `selection_start_x/y`). See [COPY-MODE.md](COPY-MODE.md).
+5. **Copy mode is client-side** — the `copyMode` parallel state owns per-pane `CopyModeState` (loaded scrollback `lines`, cursor, selection, scrollTop). Scrollback is fetched on demand from tmux (`FETCH_SCROLLBACK_CELLS` → `get_scrollback_cells` → `COPY_MODE_CHUNK_LOADED`) and rendered in a natively-scrolling container; vi keybindings (via `COPY_MODE_KEY` → `handleCopyModeKey`), cursor movement, mouse selection, and scroll position are all client-owned. The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag and capturing history. See [COPY-MODE.md](COPY-MODE.md).
 
 6. **Group state** — Pane groups are stored in tmux's session-level environment variable (`TMUXY_GROUPS` as compact JSON). The backend reads this on state sync and includes it in state updates. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `bin/tmuxy/`.

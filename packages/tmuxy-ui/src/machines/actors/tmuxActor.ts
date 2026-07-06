@@ -1,5 +1,5 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { Cause, Effect, Exit } from 'effect';
+import { Cause, Effect, Exit, Fiber } from 'effect';
 import type { TmuxAdapter, ServerState, KeyBindings } from '../../tmux/types';
 import { toEffectAdapter, type AdapterError, Schemas } from '../../tmux/effect';
 
@@ -7,6 +7,7 @@ export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
   | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
+  | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: string; start: number; end: number }
   | { type: 'FETCH_THEME_SETTINGS' }
   | { type: 'FETCH_THEMES_LIST' }
   | { type: 'SWITCH_SESSION'; sessionName: string }
@@ -61,8 +62,8 @@ export function createTmuxActor(adapter: TmuxAdapter) {
      * to the LOG_APPEND error entry (e.g. command name) for debuggability.
      *
      * silentFail: skip tunneling the error to the parent (used for
-     * fire-and-forget operations where a failure shouldn't surface as a
-     * UI-level error).
+     * fire-and-forget operations like FETCH_SCROLLBACK_CELLS where a
+     * failed fetch shouldn't surface as a UI error).
      */
     const run = <T>(
       effect: Effect.Effect<T, AdapterError>,
@@ -89,6 +90,20 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         parent.send({ type: 'TMUX_ERROR', error: display, tagged });
       });
     };
+
+    /**
+     * In-flight scrollback fetches keyed by paneId. Phase E4: fast-scroll
+     * sends multiple FETCH_SCROLLBACK_CELLS in quick succession; without
+     * cancellation, the responses race and stale results overwrite fresh
+     * ones (or just waste bandwidth). Interrupting the previous fiber
+     * before forking a new one keeps only the latest scroll position's
+     * fetch alive — its result is the only one that reaches the parent.
+     *
+     * Promise cancellation isn't real (fetch in flight still completes),
+     * but Fiber.interrupt stops the Effect from emitting onSuccess, so
+     * the parent never sees the stale chunk.
+     */
+    const scrollbackFibers = new Map<string, Fiber.RuntimeFiber<unknown, AdapterError>>();
 
     logInfo('Connecting to tmux backend...');
 
@@ -128,8 +143,8 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     });
 
     const unsubscribeConnectionInfo = adapter.onConnectionInfo(
-      (connectionId: number, defaultShell: string, scrollAnimation: boolean) => {
-        parent.send({ type: 'CONNECTION_INFO', connectionId, defaultShell, scrollAnimation });
+      (connectionId: number, defaultShell: string) => {
+        parent.send({ type: 'CONNECTION_INFO', connectionId, defaultShell });
       },
     );
 
@@ -173,6 +188,66 @@ export function createTmuxActor(adapter: TmuxAdapter) {
             logPrefix: 'get_initial_state',
           },
         );
+      } else if (event.type === 'FETCH_SCROLLBACK_CELLS') {
+        // Interrupt any in-flight fetch for this pane so its eventual
+        // success doesn't fire onSuccess and clobber fresher data.
+        const existing = scrollbackFibers.get(event.paneId);
+        if (existing) {
+          void Effect.runPromise(Fiber.interrupt(existing));
+        }
+
+        const program = eff
+          .invoke<{
+            cells: import('../../tmux/types').PaneContent;
+            historySize: number;
+            start: number;
+            end: number;
+            width: number;
+          }>('get_scrollback_cells', {
+            paneId: event.paneId,
+            start: event.start,
+            end: event.end,
+          })
+          .pipe(
+            Effect.tap((result) =>
+              Effect.sync(() => {
+                parent.send({
+                  type: 'COPY_MODE_CHUNK_LOADED',
+                  paneId: event.paneId,
+                  cells: result.cells,
+                  start: result.start,
+                  end: result.end,
+                  historySize: result.historySize,
+                  width: result.width,
+                });
+              }),
+            ),
+            // Clear the slot whether we succeed, fail, or get interrupted.
+            Effect.ensuring(
+              Effect.sync(() => {
+                // Only clear if this fiber is still the registered one — a
+                // newer FETCH might have already replaced it before this
+                // finalizer ran.
+                if (scrollbackFibers.get(event.paneId) === fiber) {
+                  scrollbackFibers.delete(event.paneId);
+                }
+              }),
+            ),
+            // Soft-fail: log the error, never crash the parent. A failed
+            // scrollback fetch shouldn't surface as a UI-level TMUX_ERROR.
+            Effect.catchAll((e) =>
+              Effect.sync(() => {
+                console.error(
+                  `[tmuxActor] get_scrollback_cells failed:`,
+                  e._tag,
+                  adapterErrorToString(e),
+                );
+              }),
+            ),
+          );
+
+        const fiber: Fiber.RuntimeFiber<unknown, AdapterError> = Effect.runFork(program);
+        scrollbackFibers.set(event.paneId, fiber);
       } else if (event.type === 'FETCH_THEME_SETTINGS') {
         run(eff.invoke<{ theme: string; mode: string }>('get_theme_settings', {}), {
           onSuccess: (result) => {
@@ -232,6 +307,12 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       unsubscribeKeyBindings();
       unsubscribeConnectionInfo();
       unsubscribeClipboard();
+      // Interrupt any pending scrollback fetches so they don't try to
+      // send to a dead parent or hold a reference to the adapter.
+      for (const fiber of scrollbackFibers.values()) {
+        void Effect.runPromise(Fiber.interrupt(fiber));
+      }
+      scrollbackFibers.clear();
       adapter.disconnect();
     };
   });

@@ -94,12 +94,8 @@ pub struct ControlModeConnection {
 fn build_tmux_args(session_name: &str, create_if_missing: bool) -> (Vec<String>, String) {
     let tmux_bin_str = crate::session::tmux_bin();
     let mut tmux_args: Vec<String> = Vec::new();
-    if let Ok(socket) = std::env::var("TMUX_SOCKET") {
-        if !socket.is_empty() {
-            tmux_args.push("-L".to_string());
-            tmux_args.push(socket);
-        }
-    }
+    tmux_args.push("-L".to_string());
+    tmux_args.push(crate::session::tmux_socket());
     // Apply the user's tmuxy config at server-startup time. tmux only reads
     // `-f` when it forks a new server, so this only affects the create path;
     // the monitor's `sync_initial_state()` source-files the same config after

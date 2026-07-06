@@ -19,7 +19,7 @@
         "anthropic.claude-code"
       ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "zsh"
+        "terminal.integrated.defaultProfile.linux": "bash"
       }
     }
   },

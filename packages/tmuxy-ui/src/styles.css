@@ -138,8 +138,6 @@
   --transition-normal: 0.15s ease;
   --transition-slow: 0.2s ease;
   --transition-layout: 100ms linear;
-  /* Duration of the diff-based content scroll-shift animation */
-  --scroll-shift-duration: 120ms;
 
   /* Shadows */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -273,14 +271,6 @@
 }
 
 /* No border on pane-content — border is on the outer pane-layout-item */
-
-/* Host for the terminal content. Fills the content area; the scroll-shift
-   animation applies a transient transform: translateY() here, clipped by
-   .pane-content's overflow: hidden. */
-.pane-terminal-host {
-  height: 100%;
-  width: 100%;
-}
 
 .pane-single {
   background-color: transparent;
@@ -1510,4 +1500,110 @@
 .widget-mermaid svg {
   max-width: 100%;
   height: auto;
+}
+
+/* ============================================
+   Sidebar tree (left drawer tab/pane tree)
+   ============================================ */
+/* App body: horizontal flex row holding the fixed sidebar column + the pane
+   area, so an open sidebar genuinely shrinks the pane container (its
+   ResizeObserver then drives the tmux re-tile). */
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Fixed left sidebar column (full height, fixed width). */
+.sidebar-fixed {
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
+  border-right: 1px solid var(--term-bright-black, #313244);
+}
+
+.sidebar-fixed.is-focused {
+  border-right-color: var(--term-green);
+}
+
+.sidebar-header {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--term-bright-black);
+  border-bottom: 1px solid var(--term-bright-black, #313244);
+}
+
+.sidebar-fixed .sidebar-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.sidebar-tree {
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  color: var(--term-foreground);
+  user-select: none;
+}
+
+.sidebar-tree-tab,
+.sidebar-tree-pane {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar-tree-pane {
+  padding-left: 26px;
+  color: var(--term-bright-black);
+}
+
+.sidebar-tree-tab:hover,
+.sidebar-tree-pane:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-tree-tab.is-active .sidebar-tree-label,
+.sidebar-tree-pane.is-active {
+  color: var(--term-green);
+}
+
+.sidebar-tree-tab.is-selected,
+.sidebar-tree-pane.is-selected {
+  background: rgba(137, 180, 250, 0.18);
+}
+
+.sidebar-tree-tab.is-drop-target {
+  outline: 1px dashed var(--term-green);
+  outline-offset: -1px;
+}
+
+.sidebar-tree-pane.is-dragging {
+  opacity: 0.5;
+}
+
+.sidebar-tree-twisty {
+  color: var(--term-bright-black);
+  font-size: 0.7em;
+}
+
+.sidebar-tree-icon {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  opacity: 0.85;
+}
+
+.sidebar-tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -187,6 +187,37 @@ describe('IPC Commands', () => {
     });
     expect(result).toContain(sessionName);
   });
+
+  // Regression for copy mode scrollback: without get_scrollback_cells the
+  // frontend's FETCH_SCROLLBACK_CELLS path errors silently, leaving the
+  // user staring at empty rows when scrolling up past the live viewport.
+  // Pre-fix, calling this command threw "Unknown command get_scrollback_cells"
+  // — the bug was the missing IPC binding, not the underlying parsing.
+  test('get_scrollback_cells is exposed and returns the expected shape', async () => {
+    await setupApp();
+
+    const state = await getAppState(driver);
+    const paneId = state.panes[0]?.tmuxId ?? '%0';
+    const result = await invokeCommand(driver, 'get_scrollback_cells', {
+      paneId,
+      start: -200,
+      end: -1,
+    });
+
+    // The frontend's FETCH_SCROLLBACK_CELLS handler asserts these fields
+    // (see tmuxActor.ts). If any are missing the copy-mode chunk-merge
+    // throws and the scrollback stays empty.
+    expect(result).toBeDefined();
+    expect(result.cells).toBeDefined();
+    expect(Array.isArray(result.cells)).toBe(true);
+    expect(typeof result.historySize).toBe('number');
+    expect(typeof result.start).toBe('number');
+    expect(typeof result.end).toBe('number');
+    expect(typeof result.width).toBe('number');
+    // The bug-3 invocation surface (an unknown command name) returns
+    // `{ __error: ... }` from invokeCommand's wrapper; assert no error.
+    expect(result.__error).toBeUndefined();
+  });
 });
 
 // ==================== Tauri-Specific Features ====================

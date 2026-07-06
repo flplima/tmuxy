@@ -214,6 +214,63 @@ pub async fn run_tmux_command(
     executor::run_tmux_command_for_session(&get_session(), &command).map_err(Into::into)
 }
 
+/// Fetch a range of scrollback cells for copy mode.
+///
+/// Matches the SSE server's `get_scrollback_cells` command shape so the
+/// frontend can use the same FETCH_SCROLLBACK_CELLS path under Tauri.
+/// Without this command, copy mode in the Tauri build silently fails to
+/// load anything beyond the already-visible pane content.
+#[tauri::command]
+pub async fn get_scrollback_cells(
+    ctx: State<'_, Arc<Ctx>>,
+    pane_id: String,
+    start: i64,
+    end: i64,
+) -> Result<Value, String> {
+    let width_output = ctx
+        .tmux_call(
+            vec![
+                "display-message".into(),
+                "-t".into(),
+                pane_id.clone(),
+                "-p".into(),
+                "#{pane_width}".into(),
+            ],
+            "get_pane_width",
+        )
+        .await
+        .map_err(|e| format!("Failed to get pane width: {}", e))?;
+    let width: u32 = width_output.trim().parse().unwrap_or(80);
+
+    let history_output = ctx
+        .tmux_call(
+            vec![
+                "display-message".into(),
+                "-t".into(),
+                pane_id.clone(),
+                "-p".into(),
+                "#{history_size}".into(),
+            ],
+            "get_history_size",
+        )
+        .await
+        .map_err(|e| format!("Failed to get history size: {}", e))?;
+    let history_size: u32 = history_output.trim().parse().unwrap_or(0);
+
+    let raw = executor::capture_pane_range(&pane_id, start, end)
+        .map_err(|e| format!("Failed to capture pane range: {}", e))?;
+
+    let cells = tmuxy_core::parse_scrollback_to_cells(&raw, width);
+
+    Ok(serde_json::json!({
+        "cells": cells,
+        "historySize": history_size,
+        "start": start,
+        "end": end,
+        "width": width,
+    }))
+}
+
 #[tauri::command]
 pub async fn get_theme_settings(ctx: State<'_, Arc<Ctx>>) -> Result<Value, String> {
     let theme = ctx

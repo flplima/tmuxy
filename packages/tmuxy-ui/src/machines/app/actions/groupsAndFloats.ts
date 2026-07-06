@@ -13,7 +13,6 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import { selectSidebarPaneId } from '../../selectors';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -143,27 +142,20 @@ export const groupsAndFloatsActions = {
     never,
     never
   >(({ context, enqueue }) => {
-    const sidebarPaneId = selectSidebarPaneId(context);
-    if (sidebarPaneId === null) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: 'run-shell "$HOME/.config/tmuxy/bin/tmuxy/sidebar-create"',
-        }),
-      );
-    }
+    // The sidebar is a pure client-side React tree (SidebarTree) — no tmux
+    // window/pane is created; toggling just flips the drawer's open flag.
     const willOpen = !context.sidebarOpen;
     enqueue(assign({ sidebarOpen: willOpen }));
-    if (!willOpen && context.focusedSidebarPaneId !== null) {
-      enqueue(assign({ focusedSidebarPaneId: null }));
-      enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_SIDEBAR' as const, paneId: null }));
+    if (!willOpen && context.sidebarFocused) {
+      enqueue(assign({ sidebarFocused: false }));
+      enqueue(sendTo('keyboard', { type: 'UPDATE_SIDEBAR_FOCUSED' as const, focused: false }));
     }
   }),
 
   /**
    * Give the sidebar keyboard focus (via Ctrl+h from the leftmost pane or a
-   * click). Subsequent keys route to the tree TUI's pane, which handles
-   * j/k/Enter natively.
+   * click). Subsequent keys drive the SidebarTree (j/k/Enter/Escape) via its
+   * capture-phase listener; the keyboard actor stops forwarding to tmux.
    */
   groupsAndFloats_focusSidebar: enqueueActions<
     Ctx,
@@ -176,11 +168,9 @@ export const groupsAndFloatsActions = {
     never,
     never
   >(({ context, enqueue }) => {
-    const sidebarPaneId = selectSidebarPaneId(context);
-    if (sidebarPaneId === null) return;
     if (!context.sidebarOpen) enqueue(assign({ sidebarOpen: true }));
-    enqueue(assign({ focusedSidebarPaneId: sidebarPaneId }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_SIDEBAR' as const, paneId: sidebarPaneId }));
+    enqueue(assign({ sidebarFocused: true }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_SIDEBAR_FOCUSED' as const, focused: true }));
   }),
 
   /** Return keyboard focus from the sidebar back to the panes (Ctrl+l / Esc). */
@@ -195,9 +185,9 @@ export const groupsAndFloatsActions = {
     never,
     never
   >(({ context, enqueue }) => {
-    if (context.focusedSidebarPaneId === null) return;
-    enqueue(assign({ focusedSidebarPaneId: null }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_SIDEBAR' as const, paneId: null }));
+    if (!context.sidebarFocused) return;
+    enqueue(assign({ sidebarFocused: false }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_SIDEBAR_FOCUSED' as const, focused: false }));
   }),
 
   groupsAndFloats_clearGroupSwitchOverride: assign<Ctx, Evt, undefined, Evt, never>({

@@ -12,7 +12,7 @@
  * The current adapter wires its state/clipboard callbacks via `setSink()`; the
  * engine calls back into whichever sink is currently attached.
  */
-import type { ServerState, StateUpdate } from '../types';
+import type { ServerState, StateUpdate, PaneContent } from '../types';
 
 const WASM_JS = '/wasm/tmuxy_wasm.js';
 const WASM_BG = '/wasm/tmuxy_wasm_bg.wasm';
@@ -36,8 +36,14 @@ const ATTACH = '/tmp/tb/tmux -CC attach -t m\n';
 // (allow-passthrough gates image/hyperlink OSC forwarding; pane-border-status
 // top is assumed by PaneLayout's geometry).
 const GUEST_SETUP: string[] = [
-  'set pane-border-status top',
-  "set pane-border-format ' '",
+  // GLOBAL (-g) so EVERY window — including tabs born later from
+  // `new-window` → splitw+breakp — inherits it. Without -g it's a per-window
+  // option that only lands on the window active at attach, leaving new tabs at
+  // pane y=0 where PaneHeader steals the first content row. tmux 3.7a in the
+  // guest has no issue with -g here (the 3.5a control-mode caveat that keeps the
+  // native monitor per-session does not apply to this emulator).
+  'set -g pane-border-status top',
+  "set -g pane-border-format ' '",
   'set mouse on',
   'set focus-events on',
   'set allow-passthrough on',
@@ -67,6 +73,7 @@ interface WasmCore {
   image_url(paneId: string, imageId: number): string | undefined;
   active_pane_id(): string | undefined;
   active_window_id(): string | undefined;
+  parse_scrollback(text: string, width: number): PaneContent;
 }
 interface WasmModule {
   default(input?: string): Promise<unknown>;
@@ -129,6 +136,15 @@ export class V86Engine {
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private resolveFirstState: (() => void) | null = null;
 
+  // Scrollback capture (client-side copy mode) — see captureScrollback().
+  private captureSeq = 0;
+  private captures = new Map<
+    string,
+    { lines: string[]; resolve: (text: string) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  private activeCaptureId: string | null = null;
+  private captureLineBuf = '';
+
   /** The sink for the CURRENTLY-attached adapter (null between stories). */
   private sink: EngineSink | null = null;
 
@@ -157,6 +173,76 @@ export class V86Engine {
 
   imageUrl(paneId: string, imageId: number): string | undefined {
     return this.core?.image_url(paneId, imageId);
+  }
+
+  /** Parse raw `capture-pane -p -e` text into cells via the core parser. */
+  parseScrollback(text: string, width: number): PaneContent {
+    return this.core?.parse_scrollback(text, width) ?? [];
+  }
+
+  /**
+   * Run `capture-pane -p -e -S start -E end` and resolve with the raw captured
+   * text. Client-side copy mode calls this to fetch scrollback history in the
+   * fully-in-browser (v86) deployment, where there is no HTTP scrollback RPC.
+   *
+   * The capture is bracketed by two unique `display-message` markers so its
+   * lines can be picked out of the control-mode stream regardless of what else
+   * interleaves. Commands are streamed to the guest in order, so at most one
+   * capture is collecting at a time. Falls back to empty text on timeout.
+   */
+  captureScrollback(paneId: string, start: number, end: number): Promise<string> {
+    const id = String(++this.captureSeq);
+    const startMark = `TMUXY_CAP_START_${id}`;
+    const endMark = `TMUXY_CAP_END_${id}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.captures.delete(id)) {
+          if (this.activeCaptureId === id) this.activeCaptureId = null;
+          resolve('');
+        }
+      }, 15000);
+      this.captures.set(id, { lines: [], resolve, timer });
+      this.send(
+        `display-message -p '${startMark}' ; ` +
+          `capture-pane -t ${paneId} -p -e -S ${start} -E ${end} ; ` +
+          `display-message -p '${endMark}'`,
+      );
+    });
+  }
+
+  /**
+   * Scan a raw control-mode chunk for scrollback-capture markers and collect
+   * the lines between them. Skips control-mode framing (`%begin`/`%end`/…) so
+   * only real captured content is kept.
+   */
+  private scanCaptures(chunk: string): void {
+    this.captureLineBuf += chunk;
+    const parts = this.captureLineBuf.split('\n');
+    // Keep the trailing partial line for the next chunk.
+    this.captureLineBuf = parts.pop() ?? '';
+    for (const raw of parts) {
+      const line = raw.replace(/\r$/, '');
+      const startIdx = line.indexOf('TMUXY_CAP_START_');
+      if (startIdx !== -1) {
+        this.activeCaptureId = line.slice(startIdx + 'TMUXY_CAP_START_'.length).trim();
+        continue;
+      }
+      const endIdx = line.indexOf('TMUXY_CAP_END_');
+      if (endIdx !== -1) {
+        const id = line.slice(endIdx + 'TMUXY_CAP_END_'.length).trim();
+        const cap = this.captures.get(id);
+        if (cap) {
+          clearTimeout(cap.timer);
+          this.captures.delete(id);
+          cap.resolve(cap.lines.join('\n'));
+        }
+        if (this.activeCaptureId === id) this.activeCaptureId = null;
+        continue;
+      }
+      if (this.activeCaptureId !== null && !/^%(begin|end|error)\b/.test(line)) {
+        this.captures.get(this.activeCaptureId)?.lines.push(line);
+      }
+    }
   }
 
   /**
@@ -235,6 +321,7 @@ export class V86Engine {
       if (!chunk || !this.attached || !this.core) return;
       if (chunk.includes('1337') || chunk.includes(']1337'))
         (window as unknown as { __osc?: string[] }).__osc?.push(chunk.slice(0, 400));
+      if (this.captures.size > 0) this.scanCaptures(chunk);
       this.emit(this.core.feed(chunk));
       // `%exit` ends the control-mode conversation (server died / kill-server /
       // last session closed). Surface it as a fatal so the app can show its

@@ -20,7 +20,9 @@ set -e
 cd /tmuxy
 
 PORT="${DEV_PORT:-9000}"
-SOCKET="${TMUX_SOCKET:-}"
+# Match the server's socket resolution: TMUX_SOCKET override, else the
+# dedicated `tmuxy` socket (the app never touches the default tmux server).
+SOCKET="${TMUX_SOCKET:-tmuxy}"
 
 # Cleanup function for graceful shutdown
 cleanup() {
@@ -32,7 +34,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "[dev] Starting development server with hot reload..."
-echo "[dev] Port: $PORT, Socket: ${SOCKET:-default}"
+echo "[dev] Port: $PORT, Socket: $SOCKET"
 echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src"
 echo ""
 
@@ -45,13 +47,8 @@ fi
 echo ""
 
 # Ensure the tmux server has a session so it stays alive between test cycles.
-if [ -n "$SOCKET" ]; then
-    tmux -L "$SOCKET" has-session -t tmuxy 2>/dev/null \
-        || tmux -L "$SOCKET" new-session -d -s tmuxy -x 200 -y 50
-else
-    tmux kill-session -t tmuxy 2>/dev/null || true
-    tmux has-session -t _keepalive 2>/dev/null || tmux new-session -d -s _keepalive
-fi
+tmux -L "$SOCKET" has-session -t tmuxy 2>/dev/null \
+    || tmux -L "$SOCKET" new-session -d -s tmuxy -x 200 -y 50
 
 exec cargo watch \
     -w packages/tmuxy-core/src \

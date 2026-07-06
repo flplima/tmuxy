@@ -67,11 +67,12 @@ async function assertContentMatch(page, label) {
         if (!snap?.context) return null;
         const ctx = snap.context;
         const visiblePanes = (ctx.panes || []).filter((p) => p.windowId === ctx.activeWindowId);
+        const copyModeStates = ctx.copyModeStates || {};
 
         const result = {};
         for (const pane of visiblePanes) {
           // Skip panes in copy mode or alternate screen
-          if (pane.inMode) continue;
+          if (copyModeStates[pane.tmuxId]) continue;
           if (pane.alternateOn) continue;
 
           // Extract DOM content

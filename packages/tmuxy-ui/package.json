@@ -14,7 +14,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "storybook": "storybook dev -p 6006",
+    "storybook": "storybook dev -p 6006 --host 0.0.0.0",
     "build-storybook": "storybook build",
     "test-storybook": "node scripts/probe-stories.mjs",
     "test-storybook:v86": "node scripts/probe-spikes.mjs",

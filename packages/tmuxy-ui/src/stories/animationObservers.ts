@@ -147,38 +147,3 @@ export function waitForCssAnimation(
     document.addEventListener('animationstart', onStart, true);
   });
 }
-
-/**
- * Resolves with the first `transform` CSS *transition* that starts on an element
- * matching `selector`. The scroll-shift animation is a transform transition (not
- * a @keyframes animation), so `waitForCssAnimation` won't see it — this listens
- * for `transitionrun`/`transitionstart` instead. Rejects on timeout.
- */
-export function waitForTransform(
-  selector: string,
-  opts: { timeout?: number } = {},
-): Promise<TransitionEvent> {
-  const { timeout = 4000 } = opts;
-  return new Promise<TransitionEvent>((resolve, reject) => {
-    const onStart = (e: Event): void => {
-      const ev = e as TransitionEvent;
-      const target = ev.target;
-      if (!(target instanceof Element)) return;
-      if (!target.matches(selector) && !target.closest(selector)) return;
-      if (ev.propertyName !== 'transform') return;
-      cleanup();
-      resolve(ev);
-    };
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`transform transition for "${selector}" did not start within ${timeout}ms`));
-    }, timeout);
-    function cleanup(): void {
-      clearTimeout(timer);
-      document.removeEventListener('transitionrun', onStart, true);
-      document.removeEventListener('transitionstart', onStart, true);
-    }
-    document.addEventListener('transitionrun', onStart, true);
-    document.addEventListener('transitionstart', onStart, true);
-  });
-}

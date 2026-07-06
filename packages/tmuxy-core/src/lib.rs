@@ -214,6 +214,13 @@ pub fn extract_cells_with_urls(
     lines
 }
 
+/// Parse scrollback content into structured cells.
+/// Uses the line count from the content itself as the height.
+pub fn parse_scrollback_to_cells(content: &str, width: u32) -> PaneContent {
+    let line_count = content.lines().count().max(1) as u32;
+    parse_ansi_to_cells(content, width, line_count)
+}
+
 /// Parse ANSI content into structured cells using vt100 terminal emulation
 pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneContent {
     let mut parser = vt100::Parser::new(height as u16, width as u16, 0);

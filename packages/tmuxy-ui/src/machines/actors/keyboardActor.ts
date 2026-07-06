@@ -13,7 +13,8 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import type { KeyBindings } from '../../tmux/types';
+import type { KeyBindings, CopyModeState } from '../../tmux/types';
+import { extractSelectedText } from '../../utils/copyMode';
 import { setupMobileKeyboard, getMobileInput, isTouchDevice } from '../../utils/mobileKeyboard';
 
 export type KeyboardActorEvent =
@@ -22,7 +23,7 @@ export type KeyboardActorEvent =
   | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
   | { type: 'UPDATE_ENABLED'; enabled: boolean }
   | { type: 'UPDATE_FOCUSED_FLOAT'; paneId: string | null }
-  | { type: 'UPDATE_FOCUSED_SIDEBAR'; paneId: string | null };
+  | { type: 'UPDATE_SIDEBAR_FOCUSED'; focused: boolean };
 
 export interface KeyboardActorInput {
   parent: AnyActorRef;
@@ -129,10 +130,13 @@ export function createKeyboardActor() {
     let sessionName = 'tmuxy';
     let activePaneId: string | null = null;
     let focusedFloatPaneId: string | null = null;
-    // When set, the sidebar's tree-TUI pane holds focus; keys route to it.
-    let focusedSidebarPaneId: string | null = null;
+    // When true, the sidebar tree holds focus; its own capture-phase listener
+    // handles nav keys, so we stop forwarding keystrokes to tmux.
+    let sidebarFocused = false;
     let enabled = true;
     let isComposing = false;
+    // Text pending copy via native clipboard event (client-side copy mode yank)
+    let pendingCopyText: string | null = null;
     let inPrefixMode = false;
     let prefixTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -154,8 +158,7 @@ export function createKeyboardActor() {
       ? setupMobileKeyboard((text) => {
           if (!enabled) return;
           const escaped = escapeLiteralText(text);
-          const mobileTarget =
-            focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
+          const mobileTarget = focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${mobileTarget} -l ${escaped}`,
@@ -245,13 +248,63 @@ export function createKeyboardActor() {
         }
       }
 
-      // Cmd+C (macOS copy): let the browser handle native copy of any selectable
-      // UI text. tmux copy-mode selections reach the system clipboard through the
-      // backend %paste-buffer-changed → show-buffer → clipboard bridge, so there
-      // is nothing to intercept here. Ctrl+C is NOT caught: it falls through to
-      // the normal send-keys path below and reaches tmux as C-c (SIGINT / the
-      // copy-mode cancel key), matching real terminal behavior.
-      if (event.metaKey && !event.ctrlKey && event.key === 'c') {
+      // Copy mode is per-pane and derived (not synced): a pane is in copy mode
+      // iff the *currently active* pane has a CopyModeState. Deriving this fresh
+      // on every keydown — rather than tracking a pushed boolean — means
+      // switching to another pane, or closing the copy-mode pane, instantly
+      // stops routing keys to copy mode without any event plumbing to keep in
+      // sync. A focused float always takes priority, so its keys are never
+      // hijacked by an underlying pane's copy mode.
+      let activeCopyState: CopyModeState | undefined;
+      if (!focusedFloatPaneId && !sidebarFocused) {
+        try {
+          const snapshot = input.parent.getSnapshot() as {
+            context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
+          };
+          const ctx = snapshot?.context;
+          const copyPaneId = ctx?.activePaneId;
+          activeCopyState = copyPaneId ? ctx?.copyModeStates?.[copyPaneId] : undefined;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      const copyModeActive = !!activeCopyState;
+
+      // Cmd+C / Ctrl+C: copy selection to clipboard (if in copy mode with selection)
+      // or send SIGINT (if not in copy mode / no selection)
+      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+        if (copyModeActive) {
+          // Extract text for the native copy event handler
+          if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
+            pendingCopyText = extractSelectedText(activeCopyState);
+          }
+          // Don't preventDefault — let browser fire native copy event
+        } else {
+          event.preventDefault();
+        }
+        input.parent.send({ type: 'COPY_SELECTION' });
+        return;
+      }
+
+      // Client-side copy mode: intercept all keys (must be checked before the
+      // mobile input guard so that Space and other single-char keys reach copy
+      // mode on touch-capable devices where the hidden input may have focus)
+      if (copyModeActive) {
+        event.preventDefault();
+        // For yank keys (y, Enter), copy to clipboard via native copy event
+        if (event.key === 'y' || event.key === 'Enter') {
+          if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
+            pendingCopyText = extractSelectedText(activeCopyState);
+            // Trigger native copy event (our copy handler will set clipboardData)
+            document.execCommand('copy');
+          }
+        }
+        input.parent.send({
+          type: 'COPY_MODE_KEY',
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+        });
         return;
       }
 
@@ -271,7 +324,7 @@ export function createKeyboardActor() {
 
       // Escape returns focus from the sidebar to the panes (the drawer stays
       // open; the tree window is hidden, not killed).
-      if (event.key === 'Escape' && focusedSidebarPaneId) {
+      if (event.key === 'Escape' && sidebarFocused) {
         input.parent.send({ type: 'BLUR_SIDEBAR' });
         return;
       }
@@ -293,8 +346,7 @@ export function createKeyboardActor() {
         if (inPrefixMode) {
           // Double prefix sends literal prefix key to the shell
           resetPrefixMode();
-          const prefixTarget =
-            focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
+          const prefixTarget = focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${prefixTarget} ${prefixKey}`,
@@ -372,7 +424,7 @@ export function createKeyboardActor() {
           // aligns tmux's view with ours before the binding executes; for
           // bindings that carry their own target (e.g., `select-pane -L`), the
           // prepend is a harmless no-op since the binding overrides it.
-          const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId);
+          const target = focusedFloatPaneId ?? realPaneId(activePaneId);
           const command = target
             ? `select-pane -t ${target} \\; ${bindingCommand}`
             : bindingCommand;
@@ -422,7 +474,7 @@ export function createKeyboardActor() {
         // Same prefix-pin treatment as prefix bindings — root bindings (bind -n)
         // also run against tmux's server-side active pane and need the
         // post-tab-switch / post-group-swap race guarded the same way.
-        const target = focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId);
+        const target = focusedFloatPaneId ?? realPaneId(activePaneId);
         const command = target ? `select-pane -t ${target} \\; ${rootCommand}` : rootCommand;
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
@@ -444,8 +496,7 @@ export function createKeyboardActor() {
       // Target priority: focused float > active pane ID > session name
       // Using activePaneId ensures input reaches the correct pane immediately
       // after an optimistic tab switch (before tmux processes select-window).
-      const target =
-        focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
+      const target = focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
       // Use literal mode (-l) for single printable chars to avoid tmux syntax interpretation
       let command: string;
       if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
@@ -502,8 +553,7 @@ export function createKeyboardActor() {
       const lines = text.split('\n');
       const commands: string[] = [];
 
-      const pasteTarget =
-        focusedSidebarPaneId ?? focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
+      const pasteTarget = focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (line.length > 0) {
@@ -529,10 +579,20 @@ export function createKeyboardActor() {
       }
     };
 
+    // Native copy event handler — uses pendingCopyText set by keydown handler
+    const handleCopy = (event: ClipboardEvent) => {
+      if (pendingCopyText) {
+        event.preventDefault();
+        event.clipboardData?.setData('text/plain', pendingCopyText);
+        pendingCopyText = null;
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('compositionstart', handleCompositionStart);
     window.addEventListener('compositionend', handleCompositionEnd);
     window.addEventListener('paste', handlePaste);
+    window.addEventListener('copy', handleCopy);
 
     receive((event) => {
       if (event.type === 'UPDATE_SESSION') {
@@ -549,8 +609,8 @@ export function createKeyboardActor() {
         enabled = event.enabled;
       } else if (event.type === 'UPDATE_FOCUSED_FLOAT') {
         focusedFloatPaneId = event.paneId;
-      } else if (event.type === 'UPDATE_FOCUSED_SIDEBAR') {
-        focusedSidebarPaneId = event.paneId;
+      } else if (event.type === 'UPDATE_SIDEBAR_FOCUSED') {
+        sidebarFocused = event.focused;
       }
     });
 
@@ -561,6 +621,7 @@ export function createKeyboardActor() {
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);
       window.removeEventListener('paste', handlePaste);
+      window.removeEventListener('copy', handleCopy);
     };
   });
 }

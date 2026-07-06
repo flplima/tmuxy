@@ -4,9 +4,11 @@ import { render, screen } from '@testing-library/react';
 // Mock AppContext hooks before importing the component under test.
 vi.mock('../machines/AppContext', () => ({
   useAppSend: vi.fn(() => vi.fn()),
+  useAppActor: vi.fn(() => ({ getSnapshot: () => ({ context: { copyModeStates: {} } }) })),
   usePane: vi.fn(),
   useIsPaneInActiveWindow: vi.fn(() => true),
   useIsSinglePane: vi.fn(() => false),
+  useCopyModeState: vi.fn(() => undefined),
   useAppSelector: vi.fn(),
   useAppConfig: vi.fn(() => ({ forwardScrollToParent: false })),
   selectCharSize: vi.fn(),
@@ -16,8 +18,14 @@ vi.mock('../machines/AppContext', () => ({
 vi.mock('../components/Terminal', () => ({
   Terminal: () => <div data-testid="terminal-content" />,
 }));
+vi.mock('../components/ScrollbackTerminal', () => ({
+  ScrollbackTerminal: () => <div data-testid="scrollback" />,
+}));
 vi.mock('../components/PaneHeader', () => ({
   PaneHeader: () => <div data-testid="pane-header" />,
+}));
+vi.mock('../components/SelectionContextMenu', () => ({
+  SelectionContextMenu: () => <div data-testid="selection-menu" />,
 }));
 
 const noopHandlers = {
@@ -28,6 +36,7 @@ const noopHandlers = {
   handleWheel: vi.fn(),
   handleDoubleClick: vi.fn(),
   handleTripleClick: vi.fn(),
+  selectionStart: undefined,
 };
 vi.mock('../hooks', () => ({
   usePaneMouse: vi.fn(() => noopHandlers),

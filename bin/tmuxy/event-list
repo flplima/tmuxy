@@ -6,7 +6,7 @@
 set -euo pipefail
 shopt -s nullglob
 
-SOCKET="${TMUX_SOCKET:-default}"
+SOCKET="${TMUX_SOCKET:-tmuxy}"
 BASE="/tmp/tmuxy-events/$SOCKET"
 
 if [ ! -d "$BASE" ]; then

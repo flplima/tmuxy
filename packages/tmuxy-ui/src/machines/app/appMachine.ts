@@ -28,6 +28,8 @@ import { uiPrefsState } from './states/uiPrefs';
 import { uiPrefsActions } from './actions/uiPrefs';
 import { commandUiState } from './states/commandUi';
 import { commandUiActions } from './actions/commandUi';
+import { copyModeState } from './states/copyMode';
+import { copyModeActions, copyModeExitTimes, COPY_MODE_REENTRY_COOLDOWN } from './actions/copyMode';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
@@ -43,7 +45,7 @@ import {
   STATUS_MESSAGE_DURATION,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
-import { selectSidebarPaneId } from '../selectors';
+import type { CopyModeState, CellLine } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
@@ -263,6 +265,7 @@ export const appMachine = setup({
   actions: {
     ...uiPrefsActions,
     ...commandUiActions,
+    ...copyModeActions,
     ...groupsAndFloatsActions,
     ...layoutActions,
   },
@@ -451,7 +454,6 @@ export const appMachine = setup({
       actions: assign(({ event }) => ({
         connectionId: event.connectionId,
         defaultShell: event.defaultShell,
-        scrollAnimation: event.scrollAnimation,
       })),
     },
 
@@ -484,6 +486,7 @@ export const appMachine = setup({
             sessionName: event.sessionName,
             connected: false,
             error: null,
+            copyModeStates: {},
             enableAnimations: false,
           }),
         );
@@ -565,6 +568,7 @@ export const appMachine = setup({
     idle: {
       on: {
         // Per-state handlers active only during idle (require a live connection).
+        ...copyModeState.on,
         ...groupsAndFloatsIdleEvents,
         ...layoutState.on,
 
@@ -945,6 +949,80 @@ export const appMachine = setup({
                 }
               }
 
+              // Detect tmux entering copy mode (e.g. prefix+[) — init client-side copy mode
+              let updatedCopyModeStates = context.copyModeStates;
+              for (const newPane of transformed.panes) {
+                const prevPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
+                if (
+                  newPane.inMode &&
+                  (!prevPane || !prevPane.inMode) &&
+                  !context.copyModeStates[newPane.tmuxId]
+                ) {
+                  // Skip if we recently exited copy mode for this pane (stale inMode flag)
+                  const exitTime = copyModeExitTimes.get(newPane.tmuxId);
+                  if (exitTime && Date.now() - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
+                    continue;
+                  }
+                  // Pane just entered copy mode — initialize with pre-populated content
+                  const hs = newPane.historySize ?? 0;
+                  const tl = hs + newPane.height;
+                  const preLines = new Map<number, CellLine>();
+                  for (let i = 0; i < newPane.content.length; i++) {
+                    preLines.set(hs + i, newPane.content[i]);
+                  }
+                  const preRanges: Array<[number, number]> =
+                    newPane.content.length > 0 ? [[hs, hs + newPane.content.length - 1]] : [];
+                  const copyState: CopyModeState = {
+                    lines: preLines,
+                    totalLines: tl,
+                    historySize: hs,
+                    loadedRanges: preRanges,
+                    loading: true,
+                    width: newPane.width,
+                    height: newPane.height,
+                    cursorRow: hs + newPane.cursorY,
+                    cursorCol: newPane.cursorX,
+                    selectionMode: null,
+                    selectionAnchor: null,
+                    scrollTop: Math.max(0, tl - newPane.height),
+                  };
+                  updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: copyState };
+                  // Match the user-initiated ENTER_COPY_MODE fetch range —
+                  // request the entire live history (capped by tmux's actual
+                  // backlog), not a fixed `height + 200` slab. The narrower
+                  // request silently truncated scrollback for any pane that
+                  // entered copy mode without going through the frontend's
+                  // intercept (CLI `tmuxy run copy-mode`, custom `run-shell`
+                  // bindings, anything that flipped `in_mode` server-side),
+                  // making scrollback above ~200 lines invisible on scroll.
+                  enqueue(
+                    sendTo('tmux', {
+                      type: 'FETCH_SCROLLBACK_CELLS' as const,
+                      paneId: newPane.tmuxId,
+                      start: -hs,
+                      end: newPane.height - 1,
+                    }),
+                  );
+                }
+                // Detect tmux exiting copy mode — clean up client-side copy mode
+                if (!newPane.inMode && prevPane?.inMode && context.copyModeStates[newPane.tmuxId]) {
+                  updatedCopyModeStates = { ...updatedCopyModeStates };
+                  delete updatedCopyModeStates[newPane.tmuxId];
+                }
+              }
+
+              // Prune copy mode state for panes that no longer exist — e.g. the
+              // user closed a pane while it was in copy mode. Keyboard copy-mode
+              // routing is derived from copyModeStates[activePaneId], so leaving a
+              // stale entry could keep keys routed to a dead pane's copy mode
+              // during the brief window before activePaneId moves to a live pane.
+              for (const staleId of Object.keys(updatedCopyModeStates)) {
+                if (!currentPaneIdSet.has(staleId)) {
+                  updatedCopyModeStates = { ...updatedCopyModeStates };
+                  delete updatedCopyModeStates[staleId];
+                }
+              }
+
               // Detect pane dimension changes from command-based resize
               // (not drag-resize, which uses resizeActive). Suppress CSS
               // transitions so dimensions snap instantly without visual jumps.
@@ -1018,6 +1096,7 @@ export const appMachine = setup({
                   activePaneId: effectiveActivePaneId,
                   paneGroups,
                   floatPanes,
+                  copyModeStates: updatedCopyModeStates,
                   lastUpdateTime: Date.now(),
                   // Clear held resize preview only after resize drag ends.
                   // During active resize, keep the preview to avoid size jumps
@@ -1168,6 +1247,15 @@ export const appMachine = setup({
             // alignment prefix for commands that aren't intercepted.
             let tail = stripActivePanePrefix(command);
 
+            // Intercept copy-mode — activate client-side copy mode
+            if (tail.match(/^copy-mode\b/)) {
+              const paneId = context.activePaneId;
+              if (paneId) {
+                enqueue.raise({ type: 'ENTER_COPY_MODE', paneId });
+              }
+              return;
+            }
+
             // Intercept command-prompt — enter client-side command mode
             if (tail.match(/^command-prompt\b/)) {
               const parsed = parseCommandPrompt(tail, context);
@@ -1229,7 +1317,7 @@ export const appMachine = setup({
             // group nav so leaving the sidebar always works, even when the
             // underlying active pane happens to be in a group.
             const navDir = navDirection(tail);
-            if (context.focusedSidebarPaneId !== null && navDir) {
+            if (context.sidebarFocused && navDir) {
               if (navDir === 'right') enqueue.raise({ type: 'BLUR_SIDEBAR' });
               return;
             }
@@ -1249,7 +1337,7 @@ export const appMachine = setup({
             // Sidebar boundary (entering): Ctrl+h from the leftmost pane focuses
             // the open sidebar instead of doing a tmux `select-pane -L` no-op.
             // After group nav so group cycling still wins for grouped panes.
-            if (navDir === 'left' && context.sidebarOpen && selectSidebarPaneId(context)) {
+            if (navDir === 'left' && context.sidebarOpen) {
               const activePane = context.panes.find((p) => p.tmuxId === context.activePaneId);
               if (activePane && activePane.x === 0) {
                 enqueue.raise({ type: 'FOCUS_SIDEBAR' });
@@ -1429,9 +1517,19 @@ export const appMachine = setup({
           actions: enqueueActions(({ event, context, enqueue }) => {
             const command = resolveWindowTarget(event.command, context.activeWindowId);
             // Match intercepts against the tail after the prefix-pin so
-            // bindings like `<prefix> :` still hit the client-side command-mode
-            // path. Forwarding to tmux keeps the original.
+            // bindings like `<prefix> [` (rewritten to
+            // `select-pane -t %X \; copy-mode`) still hit the client-side
+            // copy-mode path. Forwarding to tmux keeps the original.
             const tail = stripActivePanePrefix(command);
+
+            // Intercept copy-mode — activate client-side copy mode
+            if (tail.match(/^copy-mode\b/)) {
+              const paneId = context.activePaneId;
+              if (paneId) {
+                enqueue.raise({ type: 'ENTER_COPY_MODE', paneId });
+              }
+              return;
+            }
 
             // Intercept command-prompt — enter client-side command mode
             if (tail.match(/^command-prompt\b/)) {
@@ -1638,6 +1736,37 @@ export const appMachine = setup({
         },
         // SELECT_TAB, ZOOM_PANE, WRITE_TO_PANE — handled by layoutState
         // CLOSE_FLOAT, CLOSE_TOP_FLOAT — handled by groupsAndFloatsIdleEvents
+
+        // Cmd+C / Ctrl+C: copy selection to clipboard or send SIGINT
+        COPY_SELECTION: {
+          actions: enqueueActions(({ context, enqueue }) => {
+            const paneId = context.activePaneId;
+            // Check client-side copy mode first
+            // (clipboard write is handled by keyboard actor's native copy event)
+            if (paneId && context.copyModeStates[paneId]) {
+              // Exit copy mode (whether or not there was a selection to copy)
+              copyModeExitTimes.set(paneId, Date.now());
+              const newStates = { ...context.copyModeStates };
+              delete newStates[paneId];
+              enqueue(assign({ copyModeStates: newStates }));
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `send-keys -t ${paneId} -X cancel`,
+                }),
+              );
+              return;
+            }
+
+            // Not in client-side copy mode: send SIGINT (C-c)
+            enqueue(
+              sendTo('tmux', {
+                type: 'SEND_COMMAND' as const,
+                command: `send-keys -t ${context.sessionName} C-c`,
+              }),
+            );
+          }),
+        },
 
         // Re-filter expired entries (each switch schedules its own clear at
         // +750 ms; entries from rapid follow-up clicks stay until their own

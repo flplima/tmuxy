@@ -180,6 +180,15 @@ impl WasmTmux {
         ]
     }
 
+    /// Parse raw `capture-pane -p -e` scrollback text into structured cells.
+    /// Client-side copy mode fetches history this way: the host runs
+    /// capture-pane over the control connection, collects the block, and hands
+    /// the text here so the same core ANSI parser used for live panes produces
+    /// the scrollback cells (no JS-side vt100 reimplementation).
+    pub fn parse_scrollback(&self, text: &str, width: u32) -> Result<JsValue, JsValue> {
+        to_js(&tmuxy_core::parse_scrollback_to_cells(text, width))
+    }
+
     /// A `data:` URL for a pane's image placement, or undefined if unknown.
     /// Wire `window.__tmuxyImageSrc` to this so inline terminal images render
     /// with no server. `pane_id` is the tmux id (e.g. "%0").

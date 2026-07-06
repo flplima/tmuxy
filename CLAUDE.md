@@ -8,7 +8,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for high-level system overview 
 See [docs/STATE-MANAGEMENT.md](docs/STATE-MANAGEMENT.md) for frontend XState and backend Rust state details.
 See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for SSE/HTTP protocol, Tauri IPC, and deployment scenarios.
 See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs, and workarounds.
-See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the native tmux copy mode integration.
+See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side scrollback rendering and native browser scrolling in copy mode.
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
@@ -22,7 +22,7 @@ tmuxy/
 │   ├── tmuxy-core/           # Rust: tmux control mode, parsing, state
 │   ├── tmuxy-server/         # Rust: server (SSE, HTTP, embedded frontend, dev mode)
 │   ├── tmuxy-ui/             # React/Vite frontend
-│   │   └── src/tmux/demo/    # In-browser demo engine (DemoAdapter, DemoTmux, DemoShell)
+│   │   └── src/tmux/demo/    # In-browser demo engine (DemoAdapter, DemoTmux, LifoShell)
 │   ├── tmuxy-demo/           # Next.js demo site (static export → GitHub Pages)
 │   └── tmuxy-tauri-app/      # Tauri desktop app wrapper
 ├── bin/
@@ -143,7 +143,7 @@ Key rules:
 - **One feature, one test.** Cover create → verify visible → interact → close in a single test. Do not split into separate "check state" and "check DOM" tests.
 - **Never install Playwright browsers** (`npx playwright install`). Tests connect to Chrome via CDP on port 9222.
 - All E2E tests run **sequentially** (`maxWorkers: 1`) — they share one tmux server.
-- Copy mode is native tmux copy mode — drive it via real user input (keyboard `prefix [` + vi keys, wheel, mouse drag) and assert on what tmux reports through `getCopyModeState()` (reads the pane's `inMode`, copy cursor, and selection). Don't reach into client state; there is no client-side copy-mode engine.
+- Copy mode is a client-side reimplementation: it renders scrollback in `ScrollbackTerminal` (native browser scrolling), fetches history from tmux on demand, and handles vi keybindings, cursor movement, and selection in the browser. Drive it via real user input (`prefix [`, vi keys, wheel/touch scroll, mouse drag/double/triple-click) and assert on the rendered scrollback and on the client engine via `getCopyModeState()` (reads `copyModeStates[paneId]`: loaded lines, cursor, selection, scrollTop) — not `send-keys -X` tmux commands.
 
 ## Testing & Bug Fixes (Critical)
 

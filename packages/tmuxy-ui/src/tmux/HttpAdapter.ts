@@ -110,8 +110,7 @@ export class HttpAdapter implements TmuxAdapter {
           }
 
           const defaultShell = data.data?.default_shell ?? data.default_shell ?? 'bash';
-          const scrollAnimation = data.data?.scroll_animation ?? data.scroll_animation ?? true;
-          this.notifyConnectionInfo(this.connectionId, defaultShell, scrollAnimation);
+          this.notifyConnectionInfo(this.connectionId, defaultShell);
           resolve();
         } catch (e) {
           console.error('Failed to parse connection-info:', e);
@@ -490,14 +489,8 @@ export class HttpAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(
-    connectionId: number,
-    defaultShell: string,
-    scrollAnimation: boolean,
-  ): void {
-    this.connectionInfoListeners.forEach((listener) =>
-      listener(connectionId, defaultShell, scrollAnimation),
-    );
+  private notifyConnectionInfo(connectionId: number, defaultShell: string): void {
+    this.connectionInfoListeners.forEach((listener) => listener(connectionId, defaultShell));
   }
 
   private notifyReconnection(reconnecting: boolean, attempt: number): void {

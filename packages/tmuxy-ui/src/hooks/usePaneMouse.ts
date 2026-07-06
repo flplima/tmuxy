@@ -1,33 +1,18 @@
 /**
- * usePaneMouse - Mouse event handler for panes.
+ * usePaneMouse - Mouse event handler for panes
  *
- * Routes mouse input based on pane state:
- * - mouse_any_flag: forward mouse events as SGR sequences to the app in the pane
- * - alternate screen: ignore drag-selection (the app owns the screen); wheel sends arrows
- * - otherwise: drive tmux's NATIVE copy mode via `send-keys -X` commands —
- *   drag selects, double/triple-click select word/line, wheel scrolls into history.
- *
- * tmux owns the cursor, selection, and scrollback. The frontend renders what
- * tmux reports (copy cursor + selection from list-panes) and the clipboard is
- * mirrored from yanks via the backend %paste-buffer-changed bridge.
- *
- * Shift+click always focuses the pane regardless of mouse mode.
+ * Handles mouse clicks, drags, and wheel events based on pane state:
+ * - When mouse_any_flag is true: forward mouse events as SGR sequences to tmux
+ * - When mouse_any_flag is false: mouse drag enters client-side copy mode with selection
+ * - When alternate_on is true: wheel events send arrow keys
+ * - When not in alternate mode: wheel scroll enters client-side copy mode
+ * - Shift+click always focuses the pane regardless of mouse mode
  */
 
-import { useCallback, useRef, type RefObject } from 'react';
+import { useCallback, useRef, useState, useEffect, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 import { sendScrollLines } from './scrollUtils';
 import { haptics } from '../utils/haptics';
-import {
-  enterCopyMode,
-  gotoCellCommands,
-  beginSelectionCommand,
-  clearSelectionCommand,
-  copySelectionAndCancelCommand,
-  selectWordCommands,
-  selectLineCommands,
-  scrollViewportCommand,
-} from '../utils/nativeCopyMode';
 
 interface UsePaneMouseOptions {
   paneId: string;
@@ -39,20 +24,30 @@ interface UsePaneMouseOptions {
   mouseAnyFlag: boolean;
   /** Whether the application is in alternate screen mode */
   alternateOn: boolean;
-  /** Whether the pane is in tmux copy mode */
+  /** Whether the pane is in copy mode */
   inMode: boolean;
-  /** Pane height in rows (for clamping cell coordinates) */
+  /** Whether client-side copy mode is active */
+  copyModeActive: boolean;
+  /** Pane height in rows (for scroll calculations) */
   paneHeight: number;
   /** Ref to the .pane-content element (used for coordinate calculation) */
   contentRef: RefObject<HTMLDivElement | null>;
+  /** Ref to the scroll container (proxy target for wheel events) */
+  scrollRef: RefObject<HTMLDivElement | null>;
   /** Number of scrollback lines above the visible terminal */
   historySize: number;
   /** When true, wheel events bubble to parent when there's nothing to scroll */
   forwardScrollToParent?: boolean;
 }
 
-/** Minimum time between drag selection updates (ms) */
+/** Minimum time between drag updates (ms) */
 const DRAG_THROTTLE_MS = 30;
+
+/** Auto-scroll interval (ms) */
+const AUTO_SCROLL_INTERVAL_MS = 50;
+
+/** Auto-scroll speed (lines per tick) */
+const AUTO_SCROLL_LINES = 2;
 
 export function usePaneMouse(send: (event: AppMachineEvent) => void, options: UsePaneMouseOptions) {
   const {
@@ -62,81 +57,133 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     mouseAnyFlag,
     alternateOn,
     inMode,
-    paneHeight,
+    copyModeActive,
     contentRef,
+    scrollRef,
     historySize,
     forwardScrollToParent,
   } = options;
 
-  // Whether we've already issued `copy-mode -e` for the current wheel-scroll
-  // session. Re-sending it on every wheel tick is what previously kept the
-  // viewport pinned to the bottom; we enter once, then only scroll. Reset when
-  // tmux reports the pane has left copy mode.
-  const enteredCopyModeRef = useRef(false);
-  const prevInModeRef = useRef(inMode);
-  if (prevInModeRef.current && !inMode) enteredCopyModeRef.current = false;
-  prevInModeRef.current = inMode;
-
-  // Mouse button state for drag events (null = no button held)
+  // Track mouse button state for drag events
   const mouseButtonRef = useRef<number | null>(null);
-  // Drag selection state
+
+  // Track mouse drag state for copy-mode selection
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
-  const isSelectingRef = useRef(false);
+  const lastCellRef = useRef<{ x: number; y: number } | null>(null);
+  const isDraggingForSelectionRef = useRef(false);
   const lastDragTimeRef = useRef(0);
-  // Document-level mouseup listener (for releases outside the pane)
-  const documentMouseUpRef = useRef<((e: MouseEvent) => void) | null>(null);
+  // Committed selection start (reactive state for rendering, persists until copy mode exits)
+  const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
 
-  // Dispatch an ordered batch of tmux commands.
-  const run = useCallback(
-    (commands: string[]) => {
-      for (const command of commands) send({ type: 'SEND_COMMAND', command });
+  // Auto-scroll state
+  const autoScrollTimerRef = useRef<number | null>(null);
+  const autoScrollColRef = useRef(0);
+  // Document-level mouseup listener ref (for cleanup when mouse released outside pane)
+  const documentMouseUpRef = useRef<(() => void) | null>(null);
+  const pendingTimers = useRef<number[]>([]);
+  useEffect(() => {
+    const timers = pendingTimers;
+    return () => timers.current.forEach(clearTimeout);
+  }, []);
+
+  // Clear selection start when copy mode exits
+  if (!inMode && !copyModeActive && selectionStart) {
+    setSelectionStart(null);
+  }
+
+  // Stop auto-scroll timer
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollTimerRef.current !== null) {
+      clearInterval(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    }
+  }, []);
+
+  // Start auto-scroll in a direction (-1 = up, 1 = down)
+  const startAutoScroll = useCallback(
+    (direction: -1 | 1, col: number) => {
+      autoScrollColRef.current = col;
+      if (autoScrollTimerRef.current !== null) return; // already running
+      autoScrollTimerRef.current = window.setInterval(() => {
+        const targetRow =
+          direction < 0 ? -AUTO_SCROLL_LINES : options.paneHeight + AUTO_SCROLL_LINES - 1;
+        send({
+          type: 'COPY_MODE_CURSOR_MOVE',
+          paneId,
+          row: targetRow,
+          col: autoScrollColRef.current,
+          relative: true,
+        });
+      }, AUTO_SCROLL_INTERVAL_MS);
     },
-    [send],
+    [send, paneId, options.paneHeight],
   );
 
-  // Convert pixel coordinates to visible-viewport cell coordinates, relative to
-  // the .pane-content element (below the header). Row is clamped to the visible
-  // area so drags past the top/bottom edge select the first/last visible line.
-  const pixelToCell = useCallback(
-    (e: React.MouseEvent): { x: number; y: number } => {
-      const rect = contentRef.current?.getBoundingClientRect();
-      if (!rect) return { x: 0, y: 0 };
-      const relX = e.clientX - rect.left;
-      const relY = e.clientY - rect.top;
-      return {
-        x: Math.max(0, Math.floor(relX / charWidth)),
-        y: Math.max(0, Math.min(paneHeight - 1, Math.floor(relY / charHeight))),
-      };
-    },
-    [charWidth, charHeight, contentRef, paneHeight],
-  );
-
+  // Clean up drag state (shared between handleMouseUp and document mouseup)
   const cleanupDrag = useCallback(() => {
+    stopAutoScroll();
+    if (isDraggingForSelectionRef.current && dragStartRef.current) {
+      setSelectionStart({ ...dragStartRef.current });
+    }
     dragStartRef.current = null;
-    isSelectingRef.current = false;
+    lastCellRef.current = null;
+    isDraggingForSelectionRef.current = false;
     mouseButtonRef.current = null;
     if (documentMouseUpRef.current) {
       document.removeEventListener('mouseup', documentMouseUpRef.current);
       documentMouseUpRef.current = null;
     }
-  }, []);
+  }, [stopAutoScroll]);
 
+  // Convert pixel coordinates to terminal cell coordinates
+  // Uses the .pane-content element's rect so coordinates are relative to the
+  // terminal content area (below the header), not the entire pane wrapper.
+  // Accounts for sub-line scroll offset when the scroll container is not
+  // line-aligned (smooth scroll leaves fractional pixel offsets).
+  // Does NOT clamp Y so we can detect above/below for auto-scroll.
+  const pixelToCell = useCallback(
+    (e: React.MouseEvent): { x: number; y: number } => {
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (!rect) return { x: 0, y: 0 };
+      const relX = e.clientX - rect.left;
+      let relY = e.clientY - rect.top;
+      // When the scroll container has a sub-line offset (scrollTop not aligned
+      // to charHeight), the rendered content is shifted up. Adjust relY so the
+      // row calculation matches what the user visually clicks on.
+      const subLineOffset = scrollRef.current ? scrollRef.current.scrollTop % charHeight : 0;
+      relY += subLineOffset;
+      return {
+        x: Math.max(0, Math.floor(relX / charWidth)),
+        y: Math.floor(relY / charHeight),
+      };
+    },
+    [charWidth, charHeight, contentRef, scrollRef],
+  );
+
+  // Handle mouse down
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
+      // Don't handle clicks on the header (drag is handled separately)
       if (target.closest('.pane-header')) return;
 
       // Focus unconditionally — FOCUS_PANE is a no-op when already active.
+      // Mouse-tracking panes (vim/htop) used to forward SGR without focusing,
+      // so input stayed routed to the previous pane.
       haptics.trigger(10);
       send({ type: 'FOCUS_PANE', paneId });
 
-      // Shift+click: focus only.
-      if (e.shiftKey) return;
+      // Shift+click: focus only, don't forward or start a drag-selection.
+      if (e.shiftKey) {
+        return;
+      }
 
-      // Mouse-tracking app: forward SGR press.
+      // If mouse tracking is enabled, forward the event
       if (mouseAnyFlag) {
         const cell = pixelToCell(e);
         mouseButtonRef.current = e.button;
+
+        // Send SGR mouse press event
         send({
           type: 'SEND_COMMAND',
           command: `run-shell -b 'printf "\\033[<${e.button};${cell.x + 1};${Math.max(1, cell.y + 1)}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
@@ -144,32 +191,43 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      // Alternate-screen apps (nvim, less) without mouse tracking: don't start a
-      // drag-selection — copy mode operates on scrollback hidden behind the alt
-      // buffer, so dragging would pop the user into an unrelated view.
-      if (alternateOn) return;
+      // Alternate-screen apps (nvim, less, htop) without mouse tracking: don't
+      // start a drag-selection. Our client-side copy mode operates on tmux
+      // scrollback, which is hidden while the alternate buffer is active —
+      // dragging would pop the user into an unrelated view.
+      if (alternateOn) {
+        return;
+      }
 
-      // Prepare for a potential drag selection.
+      // Default: prepare for potential drag selection
+      mouseButtonRef.current = e.button;
+
       if (e.button === 0) {
-        mouseButtonRef.current = 0;
-        dragStartRef.current = pixelToCell(e);
-        isSelectingRef.current = false;
+        const cell = pixelToCell(e);
+        dragStartRef.current = { x: cell.x, y: Math.max(0, cell.y) };
+        lastCellRef.current = null;
+        isDraggingForSelectionRef.current = false;
+
+        // Register document-level mouseup so we clean up even if mouse released outside pane
         if (documentMouseUpRef.current) {
           document.removeEventListener('mouseup', documentMouseUpRef.current);
         }
-        documentMouseUpRef.current = () => cleanupDrag();
-        document.addEventListener('mouseup', documentMouseUpRef.current);
+        documentMouseUpRef.current = cleanupDrag;
+        document.addEventListener('mouseup', cleanupDrag);
       }
     },
     [send, paneId, mouseAnyFlag, alternateOn, pixelToCell, cleanupDrag],
   );
 
+  // Handle mouse up
   const handleMouseUp = useCallback(
     (e: React.MouseEvent) => {
       if (mouseButtonRef.current === null) return;
 
       if (mouseAnyFlag) {
         const cell = pixelToCell(e);
+
+        // Send SGR mouse release event (lowercase 'm')
         send({
           type: 'SEND_COMMAND',
           command: `run-shell -b 'printf "\\033[<${mouseButtonRef.current};${cell.x + 1};${Math.max(1, cell.y + 1)}m" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
@@ -178,23 +236,34 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      if (isSelectingRef.current) {
-        // Drag released: copy the selection (clipboard bridge) and exit copy mode.
-        run([copySelectionAndCancelCommand(paneId)]);
-      } else if (inMode && e.button === 0) {
-        // Plain click while in copy mode: clear selection and move the copy cursor.
-        const cell = pixelToCell(e);
-        run([clearSelectionCommand(paneId), ...gotoCellCommands(paneId, cell.x, cell.y)]);
+      // Single click (no drag) in copy mode: clear selection and move cursor
+      if (!isDraggingForSelectionRef.current && copyModeActive && e.button === 0) {
+        const target = e.target as HTMLElement;
+        if (!target.closest('.pane-header')) {
+          const cell = pixelToCell(e);
+          send({ type: 'COPY_MODE_SELECTION_CLEAR', paneId });
+          send({
+            type: 'COPY_MODE_CURSOR_MOVE',
+            paneId,
+            row: Math.max(0, cell.y),
+            col: cell.x,
+            relative: true,
+          });
+        }
       }
+
+      // Clean up drag state (also removes document mouseup listener)
       cleanupDrag();
     },
-    [send, paneId, mouseAnyFlag, inMode, pixelToCell, run, cleanupDrag],
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell, cleanupDrag],
   );
 
+  // Handle mouse move (for drag)
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (mouseButtonRef.current === null) return;
 
+      // Mouse tracking mode: forward SGR drag events
       if (mouseAnyFlag) {
         const cell = pixelToCell(e);
         const dragButton = mouseButtonRef.current + 32;
@@ -205,61 +274,139 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      if (alternateOn || !dragStartRef.current || mouseButtonRef.current !== 0) return;
+      // Non-mouse-tracking: handle drag for client-side copy mode selection
+      if (!dragStartRef.current || mouseButtonRef.current !== 0) return;
 
+      const cell = pixelToCell(e);
+
+      // Throttle drag updates
       const now = Date.now();
       if (now - lastDragTimeRef.current < DRAG_THROTTLE_MS) return;
       lastDragTimeRef.current = now;
 
-      const cell = pixelToCell(e);
-      const start = dragStartRef.current;
+      if (!isDraggingForSelectionRef.current) {
+        // Check if we've moved at least one cell to start dragging
+        const dx = Math.abs(cell.x - dragStartRef.current.x);
+        const dy = Math.abs(cell.y - dragStartRef.current.y);
+        if (dx === 0 && dy === 0) return;
 
-      if (!isSelectingRef.current) {
-        if (cell.x === start.x && cell.y === start.y) return; // not moved a cell yet
-        isSelectingRef.current = true;
-        // Enter copy mode, anchor selection at the drag start, then extend to the
-        // current cell. tmux extends the selection as the cursor moves.
-        run([
-          enterCopyMode(paneId),
-          ...gotoCellCommands(paneId, start.x, start.y),
-          beginSelectionCommand(paneId),
-          ...gotoCellCommands(paneId, cell.x, cell.y),
-        ]);
+        isDraggingForSelectionRef.current = true;
+        const start = dragStartRef.current;
+
+        // Enter client-side copy mode if not already active
+        if (!copyModeActive) {
+          send({ type: 'ENTER_COPY_MODE', paneId });
+        }
+
+        // We'll set selection after copy mode state is initialized
+        // For now, use a small delay for state to propagate
+        const t = window.setTimeout(() => {
+          send({
+            type: 'COPY_MODE_SELECTION_START',
+            paneId,
+            mode: 'char',
+            row: start.y,
+            col: start.x,
+          });
+        }, 50);
+        pendingTimers.current.push(t);
+        lastCellRef.current = { ...start };
+      }
+
+      // Check if mouse is above or below content area for auto-scroll
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (rect && isDraggingForSelectionRef.current) {
+        const relY = e.clientY - rect.top;
+        const isAbove = relY < 0;
+        const isBelow = relY >= rect.height;
+
+        if (isAbove || isBelow) {
+          startAutoScroll(isAbove ? -1 : 1, cell.x);
+          return; // Don't send another cursor move below
+        } else {
+          stopAutoScroll();
+        }
+      }
+
+      // Update cursor position for selection extension
+      if (lastCellRef.current) {
+        const clampedRow = Math.max(0, Math.min(cell.y, options.paneHeight - 1));
+        send({
+          type: 'COPY_MODE_CURSOR_MOVE',
+          paneId,
+          row: clampedRow,
+          col: cell.x,
+          relative: true,
+        });
+        lastCellRef.current = cell;
+      }
+    },
+    [
+      send,
+      paneId,
+      mouseAnyFlag,
+      copyModeActive,
+      pixelToCell,
+      contentRef,
+      options.paneHeight,
+      stopAutoScroll,
+    ],
+  );
+
+  // Handle mouse leave - start auto-scroll if actively dragging, otherwise clean up
+  const handleMouseLeave = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isDraggingForSelectionRef.current) {
+        dragStartRef.current = null;
+        lastCellRef.current = null;
+        mouseButtonRef.current = null;
         return;
       }
 
-      // Extend the selection by repositioning the cursor.
-      run(gotoCellCommands(paneId, cell.x, cell.y));
+      // Start auto-scroll based on which edge the mouse left from
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (rect) {
+        const relY = e.clientY - rect.top;
+        const col = Math.max(0, Math.floor((e.clientX - rect.left) / charWidth));
+        if (relY >= rect.height) {
+          startAutoScroll(1, col);
+        } else if (relY < 0) {
+          startAutoScroll(-1, col);
+        }
+      }
     },
-    [send, paneId, mouseAnyFlag, alternateOn, pixelToCell, run],
+    [contentRef, charWidth, startAutoScroll],
   );
-
-  const handleMouseLeave = useCallback(() => {
-    // Drag selection continues via the document-level mouseup listener; only
-    // reset button state when not actively selecting.
-    if (!isSelectingRef.current) {
-      dragStartRef.current = null;
-      mouseButtonRef.current = null;
-    }
-  }, []);
 
   // Accumulate sub-line pixel deltas across wheel events (trackpad support)
   const wheelRemainder = useRef(0);
 
+  // Handle wheel events
+  // Uses the proxy pattern: pane-wrapper is non-scrollable (overflow: hidden),
+  // wheel events are intercepted and manually forwarded to the scroll container.
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
-      // Demo page: let the event bubble when there's nothing to scroll.
-      if (forwardScrollToParent && historySize === 0 && !alternateOn && !mouseAnyFlag && !inMode) {
+      // When forwardScrollToParent is enabled and the pane has no scrollback,
+      // let the event bubble to the parent (e.g. demo page scroll).
+      if (
+        forwardScrollToParent &&
+        historySize === 0 &&
+        !alternateOn &&
+        !mouseAnyFlag &&
+        !copyModeActive
+      ) {
         return;
       }
 
-      e.preventDefault();
-      wheelRemainder.current += e.deltaY;
-      const lines = Math.trunc(wheelRemainder.current / charHeight);
-      if (lines === 0) return;
-      wheelRemainder.current -= lines * charHeight;
-
+      // Alternate screen (vim, less) and mouse tracking need line-quantized input.
+      // Forward to the app — never enter copy mode while the app owns the screen.
       if (alternateOn || mouseAnyFlag) {
+        e.preventDefault();
+        wheelRemainder.current += e.deltaY;
+        const lines = Math.trunc(wheelRemainder.current / charHeight);
+        if (lines === 0) return;
+        wheelRemainder.current -= lines * charHeight;
+
         const cell = mouseAnyFlag ? pixelToCell(e as unknown as React.MouseEvent) : { x: 0, y: 0 };
         sendScrollLines({
           send,
@@ -273,21 +420,38 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      // Normal shell: nothing to do when already at the bottom and scrolling
-      // down, or when there is no history to scroll into.
-      if (!inMode && lines > 0) return;
-      if (!inMode && historySize === 0) return;
-
-      // Enter tmux copy mode once, then only scroll on subsequent ticks. The
-      // ref covers the window where pane.inMode hasn't caught up to our entry.
-      const cmds: string[] = [];
-      if (!inMode && !enteredCopyModeRef.current) {
-        cmds.push(enterCopyMode(paneId, true));
-        enteredCopyModeRef.current = true;
+      // Copy mode: manually forward wheel delta to the scroll container.
+      // The wrapper is non-scrollable, so native scroll won't reach the
+      // inner pane-scroll-container. Adjusting scrollTop fires the onScroll
+      // handler which sends COPY_MODE_SCROLL to the state machine.
+      if (copyModeActive) {
+        e.preventDefault();
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop += e.deltaY;
+        }
+        return;
       }
-      const scroll = scrollViewportCommand(paneId, lines);
-      if (scroll) cmds.push(scroll);
-      run(cmds);
+
+      // Tmux is in some pane mode (e.g. server-side copy-mode entered before
+      // the client caught up). Treat as alt-screen — don't re-enter copy mode.
+      if (inMode) {
+        e.preventDefault();
+        return;
+      }
+
+      // Normal mode: scroll up with history enters copy mode directly
+      if (historySize > 0 && e.deltaY < 0) {
+        e.preventDefault();
+        wheelRemainder.current += e.deltaY;
+        const lines = Math.trunc(wheelRemainder.current / charHeight);
+        if (lines === 0) return;
+        wheelRemainder.current -= lines * charHeight;
+        send({ type: 'ENTER_COPY_MODE', paneId, scrollLines: lines });
+        return;
+      }
+
+      // Normal mode scroll down: nothing to do
+      e.preventDefault();
     },
     [
       send,
@@ -295,36 +459,62 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       charHeight,
       alternateOn,
       mouseAnyFlag,
+      copyModeActive,
       inMode,
       pixelToCell,
+      scrollRef,
       historySize,
       forwardScrollToParent,
-      run,
     ],
   );
 
+  // Handle double-click for word selection
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest('.pane-header')) return;
-      if (mouseAnyFlag || alternateOn) return;
-      if (e.detail >= 3) return; // triple-click handled separately
+      if (mouseAnyFlag) return;
+      // Skip if this is actually a triple-click (detail >= 3) — handled in handleMouseDown
+      if (e.detail >= 3) return;
+
       const cell = pixelToCell(e);
-      run(selectWordCommands(paneId, cell.x, cell.y));
+
+      if (!copyModeActive) {
+        send({ type: 'ENTER_COPY_MODE', paneId });
+        // Delay word select until copy mode state is initialized
+        const t = window.setTimeout(() => {
+          send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
+        }, 100);
+        pendingTimers.current.push(t);
+      } else {
+        send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
+      }
     },
-    [paneId, mouseAnyFlag, alternateOn, pixelToCell, run],
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell],
   );
 
+  // Handle triple-click for line selection (detected via click count in mousedown)
   const handleTripleClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest('.pane-header')) return;
-      if (mouseAnyFlag || alternateOn) return;
+      if (mouseAnyFlag) return;
+
       e.preventDefault();
       const cell = pixelToCell(e);
-      run(selectLineCommands(paneId, cell.y));
+
+      if (!copyModeActive) {
+        send({ type: 'ENTER_COPY_MODE', paneId });
+        // Delay line select until copy mode state is initialized
+        const t = window.setTimeout(() => {
+          send({ type: 'COPY_MODE_LINE_SELECT', paneId, row: cell.y });
+        }, 100);
+        pendingTimers.current.push(t);
+      } else {
+        send({ type: 'COPY_MODE_LINE_SELECT', paneId, row: cell.y });
+      }
     },
-    [paneId, mouseAnyFlag, alternateOn, pixelToCell, run],
+    [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell],
   );
 
   return {
@@ -335,5 +525,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     handleWheel,
     handleDoubleClick,
     handleTripleClick,
+    /** Selection start cell position for rendering selection overlay */
+    selectionStart,
   };
 }

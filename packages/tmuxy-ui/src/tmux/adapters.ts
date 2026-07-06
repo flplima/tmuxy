@@ -122,9 +122,8 @@ export class TauriAdapter implements TmuxAdapter {
 
       this.connected = true;
 
-      // Tauri is always primary. Scroll animation defaults on (same as the
-      // server default); the Tauri path doesn't fetch per-connection config.
-      this.notifyConnectionInfo(0, 'bash', true);
+      // Tauri is always primary
+      this.notifyConnectionInfo(0, 'bash');
 
       // Backfill keybindings: the backend's first `tmux-keybindings` event
       // can fire before this listener is attached (especially on a fresh
@@ -267,14 +266,8 @@ export class TauriAdapter implements TmuxAdapter {
     this.errorListeners.forEach((listener) => listener(error));
   }
 
-  private notifyConnectionInfo(
-    connectionId: number,
-    defaultShell: string,
-    scrollAnimation: boolean,
-  ) {
-    this.connectionInfoListeners.forEach((listener) =>
-      listener(connectionId, defaultShell, scrollAnimation),
-    );
+  private notifyConnectionInfo(connectionId: number, defaultShell: string) {
+    this.connectionInfoListeners.forEach((listener) => listener(connectionId, defaultShell));
   }
 
   private notifyReconnection(reconnecting: boolean, attempt: number) {

@@ -1,4 +1,10 @@
-import type { ServerState, ServerPane, ServerWindow, ServerImagePlacement } from '../types';
+import type {
+  ServerState,
+  ServerPane,
+  ServerWindow,
+  PaneContent,
+  ServerImagePlacement,
+} from '../types';
 import { LifoShell } from './LifoShell';
 
 // ============================================
@@ -549,6 +555,19 @@ export class DemoTmux {
     return true;
   }
 
+  getScrollbackCells(paneId: string, start?: number, end?: number): PaneContent {
+    const pane = this.panes.get(paneId);
+    if (!pane) return [];
+    const historySize = pane.shell.getHistorySize();
+    const height = pane.shell.getContent().length;
+    const totalLines = historySize + height;
+    // Convert tmux-relative offsets to absolute indices
+    // Tmux uses negative offsets for history (e.g., -200 to 0 = last 200 history lines + visible)
+    const absStart = start !== undefined ? historySize + start : 0;
+    const absEnd = end !== undefined ? historySize + end : totalLines;
+    return pane.shell.getScrollbackContent(absStart, absEnd);
+  }
+
   /** Cycle to the next layout (even-horizontal → even-vertical → tiled → ...) */
   nextLayout(): void {
     if (this.zoomedPaneId) return; // Can't change layout while zoomed
@@ -624,6 +643,45 @@ export class DemoTmux {
     // Swap pane IDs in the layout tree
     window.layout = this.swapLeafIds(window.layout, srcId, dstId);
     this.applyLayout(window);
+    return true;
+  }
+
+  /**
+   * Move a pane into another window (tmux `join-pane -s <pane> -t <window>`).
+   * Splits the target window's active/first pane with the source pane; if the
+   * source window is left empty it is closed. Backs the sidebar tree's
+   * drag-a-pane-between-tabs gesture.
+   */
+  joinPane(srcId: string, targetWindowId: string): boolean {
+    const src = this.panes.get(srcId);
+    if (!src) return false;
+    const srcWindow = this.windows.find((w) => w.id === src.windowId);
+    const targetWindow = this.windows.find((w) => w.id === targetWindowId);
+    if (!srcWindow || !targetWindow || srcWindow.id === targetWindow.id) return false;
+
+    if (this.zoomedPaneId) this.toggleZoom();
+
+    // Split point in the target window: its active pane if that lives here, else
+    // the window's first pane.
+    const targetPanes = [...this.panes.values()].filter((p) => p.windowId === targetWindowId);
+    if (targetPanes.length === 0) return false;
+    const splitAt = targetPanes.find((p) => p.id === this.activePaneId)?.id ?? targetPanes[0].id;
+
+    // Detach src from its window; close the window if src was its last pane.
+    const srcPaneCount = [...this.panes.values()].filter((p) => p.windowId === srcWindow.id).length;
+    if (srcPaneCount <= 1) {
+      this.windows = this.windows.filter((w) => w.id !== srcWindow.id);
+    } else {
+      srcWindow.layout = this.removeLeaf(srcWindow.layout, srcId)!;
+      this.applyLayout(srcWindow);
+    }
+
+    // Attach src into the target window and focus it.
+    targetWindow.layout = this.splitLeaf(targetWindow.layout, splitAt, srcId, 'horizontal');
+    src.windowId = targetWindowId;
+    this.activePaneId = srcId;
+    this.activeWindowId = targetWindowId;
+    this.applyLayout(targetWindow);
     return true;
   }
 
@@ -835,89 +893,6 @@ export class DemoTmux {
     const window = this.windows.find((w) => w.id === pane.windowId);
     if (!window || window.windowType !== 'float') return false;
     return this.killWindow(window.id);
-  }
-
-  /**
-   * Create the hidden sidebar window (windowType 'sidebar') backing the left
-   * drawer, mirroring bin/tmuxy/sidebar-create. Idempotent: returns the
-   * existing sidebar pane if one is already present. The real pane runs the
-   * `tmuxy tree` TUI; here we paint a static tree of the current tabs/panes so
-   * the drawer has representative content.
-   */
-  createSidebar(): string | null {
-    const existing = this.windows.find((w) => w.windowType === 'sidebar');
-    if (existing) {
-      const leaf = existing.layout.type === 'leaf' ? existing.layout.paneId : null;
-      return leaf;
-    }
-
-    // Mirror SIDEBAR_COLS (machines/constants.ts) / sidebar-create's --width.
-    const SIDEBAR_COLS = 30;
-    const paneId = this.allocPaneId();
-    const windowId = this.allocWindowId();
-    const numericId = parseInt(paneId.slice(1));
-
-    const shell = this.makeShell(SIDEBAR_COLS, Math.max(this.totalHeight - 1, 1));
-    shell.writeLines(this.renderSidebarTree());
-
-    const pane: FakePane = {
-      id: paneId,
-      numericId,
-      windowId,
-      shell,
-      command: 'tmuxy',
-      title: 'tree',
-    };
-    this.panes.set(paneId, pane);
-
-    const usedIndices = new Set(this.windows.map((w) => w.index));
-    let index = 2000;
-    while (usedIndices.has(index)) index++;
-
-    const window: FakeWindow = {
-      id: windowId,
-      index,
-      name: '__sidebar',
-      manualName: true,
-      layout: { type: 'leaf', paneId },
-      layoutCycle: 0,
-      windowType: 'sidebar',
-      groupPanes: null,
-      floatDrawer: 'left',
-      floatBg: null,
-      floatNoheader: true,
-      floatWidth: SIDEBAR_COLS,
-      floatHeight: null,
-    };
-    this.windows.push(window);
-
-    // Hidden window — don't change the active window.
-    return paneId;
-  }
-
-  /** Build the static tree lines shown in the demo sidebar: tabs then panes. */
-  private renderSidebarTree(): string[] {
-    const lines: string[] = [];
-    const tabs = this.windows
-      .filter((w) => w.windowType === 'tab')
-      .sort((a, b) => a.index - b.index);
-    for (const tab of tabs) {
-      const marker = tab.id === this.activeWindowId ? '\x1b[1;32m▸' : '\x1b[1m▸';
-      lines.push(`${marker} ${tab.index}: ${tab.name}\x1b[0m`);
-      const paneIds = this.layoutPaneIds(tab.layout);
-      for (const pid of paneIds) {
-        const p = this.panes.get(pid);
-        const active = pid === this.activePaneId ? '\x1b[32m' : '';
-        lines.push(`${active}   ${pid} ${p?.command ?? 'bash'}\x1b[0m`);
-      }
-    }
-    return lines.length > 0 ? lines : ['\x1b[90mno tabs\x1b[0m'];
-  }
-
-  /** Collect pane ids from a layout tree in left-to-right order. */
-  private layoutPaneIds(node: LayoutNode): string[] {
-    if (node.type === 'leaf') return [node.paneId];
-    return node.children.flatMap((c) => this.layoutPaneIds(c));
   }
 
   // ============================================

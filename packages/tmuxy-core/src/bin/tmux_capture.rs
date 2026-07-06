@@ -111,12 +111,8 @@ fn capture_tmux_session(session: &str, timeout_ms: u64) -> Result<Vec<u8>, Strin
             let tmux_path = tmuxy_core::session::tmux_path();
             let tmux = CString::new(tmux_path).unwrap();
             let mut args = vec![CString::new(tmux_path).unwrap()];
-            if let Ok(socket) = env::var("TMUX_SOCKET") {
-                if !socket.is_empty() {
-                    args.push(CString::new("-L").unwrap());
-                    args.push(CString::new(socket).unwrap());
-                }
-            }
+            args.push(CString::new("-L").unwrap());
+            args.push(CString::new(tmuxy_core::session::tmux_socket()).unwrap());
             args.extend([
                 CString::new("-u").unwrap(), // Force UTF-8 mode
                 CString::new("attach-session").unwrap(),

@@ -1,11 +1,11 @@
-//! `tmuxy tree` — the sidebar tree-view TUI.
+//! `tmuxy tree` — a standalone tab/pane tree-view TUI (run in any terminal pane).
 //!
 //! Renders every tmuxy tab with its panes as children. Navigate with j/k or the
 //! arrow keys; Enter or a left-click activates the selected tab/pane (which
 //! propagates to the web UI through normal control-mode state sync). The tree
 //! auto-refreshes as tabs/panes change.
 //!
-//! This is what the left sidebar's hidden window runs, and what `tmuxy tree`
+//! This is what `tmuxy tree`
 //! launches standalone in any terminal pane. It shells out to the `tmuxy` CLI
 //! (`tab list --json` / `pane list --json --all`) so it always reflects the
 //! same "tabs" the rest of tmuxy sees (hidden windows already filtered out).
@@ -317,7 +317,7 @@ fn draw(f: &mut ratatui::Frame, app: &mut App) {
     f.render_stateful_widget(list, area, &mut app.state);
 }
 
-/// Entry point for `tmuxy tree` / the sidebar window. Sets up the terminal,
+/// Entry point for `tmuxy tree`. Sets up the terminal,
 /// runs the event loop, and always restores the terminal on exit.
 pub fn run_tree_tui() -> io::Result<()> {
     enable_raw_mode()?;

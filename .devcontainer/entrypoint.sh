@@ -25,7 +25,7 @@ if [ "$TARGET_GID" != "$(id -g user)" ]; then
 fi
 if [ "$TARGET_UID" != "$(id -u user)" ]; then
     usermod -o -u "$TARGET_UID" user
-    # Fix the image-layer parts of $HOME (.zshrc, .config/nvim, .local, etc.).
+    # Fix the image-layer parts of $HOME (.profile, .config/nvim, .local, etc.).
     # The credential volumes are handled by fix-credential-ownership.sh below.
     chown -R "$TARGET_UID:$TARGET_GID" /home/user
 fi

@@ -10,18 +10,21 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Derive TMUX_SOCKET from TMUX env var if not already set.
 # Inside run-shell, TMUX is e.g. "/tmp/tmux-1000/tmuxy-dev,110,9" — extract
-# the socket name (basename of the path before the first comma).
+# the socket name (basename of the path before the first comma). Outside any
+# tmux, fall back to the dedicated `tmuxy` socket (never the user's default
+# tmux server).
 if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
   _path="${TMUX%%,*}"
   TMUX_SOCKET="$(basename "$_path")"
-  export TMUX_SOCKET
 fi
+TMUX_SOCKET="${TMUX_SOCKET:-tmuxy}"
+export TMUX_SOCKET
 
-# Wrap tmux to respect TMUX_SOCKET env var for named server sockets.
-# Using -L bypasses the TMUX env var, which returns corrupted list-windows
-# results inside run-shell (tmux 3.5a bug).
+# Wrap tmux to target the resolved socket. Using -L bypasses the TMUX env
+# var, which returns corrupted list-windows results inside run-shell
+# (tmux 3.5a bug).
 _tmux() {
-  command tmux ${TMUX_SOCKET:+-L "$TMUX_SOCKET"} "$@"
+  command tmux -L "$TMUX_SOCKET" "$@"
 }
 
 # Get the window type set on a window via @tmuxy-window-type.
