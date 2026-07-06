@@ -115,14 +115,16 @@ export class V86Engine {
   private exitTail = '';
   // Tracked-command correlation. Control mode replies strictly in send order,
   // but the core also sends its own commands (captures, list-panes), so we
-  // don't count blocks — we tag each tracked command with a display-message
-  // marker: when the marker's response appears, the following `remaining`
-  // responses belong to the tracked command list.
+  // don't count blocks — we BRACKET each tracked command between two
+  // display-message markers: every response between the start marker and the
+  // end marker belongs to the tracked command. Counting segments was tried
+  // and desyncs whenever a command argument contains a quoted ` ; ` (the
+  // count overshoots and the tracker steals unrelated responses, shifting
+  // every later correlation — the misattributed-outcome bug).
   private trackSeq = 0;
   private trackers = new Map<
     string,
     {
-      remaining: number;
       ok: boolean;
       message: string;
       resolve(r: { ok: boolean; message: string }): void;
@@ -386,6 +388,29 @@ export class V86Engine {
     return raw;
   }
 
+  /**
+   * Settle every in-flight tracked command and scrollback capture, and clear
+   * the cross-chunk scanning state. Without this a shared-engine reset leaks
+   * the previous story's correlation state into the next one: a stale armed
+   * tracker steals the new story's first responses, and a stale capture
+   * swallows lines meant for a fresh one.
+   */
+  private failInFlight(reason: string): void {
+    const trackers = [...this.trackers.values()];
+    this.trackers.clear();
+    this.armedTracker = null;
+    for (const t of trackers) t.resolve({ ok: false, message: reason });
+    const captures = [...this.captures.values()];
+    this.captures.clear();
+    this.activeCaptureId = null;
+    this.captureLineBuf = '';
+    for (const c of captures) {
+      clearTimeout(c.timer);
+      c.resolve('');
+    }
+    this.exitTail = '';
+  }
+
   private async doReset(initCommands: string[]): Promise<void> {
     // Call doBoot directly (not boot) — we're already inside the lifecycle
     // queue, and re-enqueuing would deadlock behind ourselves.
@@ -393,6 +418,7 @@ export class V86Engine {
     // Stop feeding the (old) core while the machine rewinds.
     this.attached = false;
     this.byteBuf = '';
+    this.failInFlight('engine reset');
     const bytes = await this.fetchSnapshot();
     // restore_state consumes the buffer; hand it a fresh copy each reset.
     await this.emu.restore_state(bytes.slice(0));
@@ -478,21 +504,21 @@ export class V86Engine {
 
   private onResponse(ok: boolean, firstLine: string): void {
     if (this.armedTracker) {
-      const t = this.trackers.get(this.armedTracker);
-      if (t) {
-        if (!ok && t.ok) {
-          t.ok = false;
-          t.message = firstLine;
-        }
-        t.remaining -= 1;
-        if (t.remaining <= 0) {
-          this.trackers.delete(this.armedTracker);
-          this.armedTracker = null;
-          t.resolve({ ok: t.ok, message: t.message });
-          return;
-        }
-      } else {
+      const id = this.armedTracker;
+      const t = this.trackers.get(id);
+      if (!t) {
         this.armedTracker = null;
+        return;
+      }
+      if (firstLine === `TMUXY_RC_END_${id}`) {
+        this.trackers.delete(id);
+        this.armedTracker = null;
+        t.resolve({ ok: t.ok, message: t.message });
+        return;
+      }
+      if (!ok && t.ok) {
+        t.ok = false;
+        t.message = firstLine;
       }
       return;
     }
@@ -500,22 +526,38 @@ export class V86Engine {
     if (m && this.trackers.has(m[1])) this.armedTracker = m[1];
   }
 
+  /** How long a tracked command may go unanswered before it is reported as
+   *  failed. Kept BELOW the store's acked-op backstop (10s) so the rejection
+   *  reaches the op — a rollback with an error message — before the silent
+   *  stale sweep does. */
+  private static readonly TRACK_TIMEOUT_MS = 8000;
+
   /**
    * Send a command (or ` ; `-separated command list) and resolve with its real
-   * outcome — success, or the first %error line. A display-message marker is
-   * prepended so the reply can be picked out of the FIFO regardless of what the
-   * core sends in between. Falls back to success on timeout so a wedged guest
-   * degrades to fire-and-forget rather than erroring spuriously.
+   * outcome — success, or the first %error line. The command is bracketed
+   * between two display-message markers so its replies can be picked out of
+   * the FIFO exactly, regardless of what the core sends around it or how many
+   * response blocks the command produces. A timeout is a FAILURE: reporting
+   * success for a command that may never have executed commits optimistic
+   * state the server doesn't have (silent divergence, the worst outcome);
+   * failing rolls the op back visibly and a resync converges the rest.
    */
   sendTracked(cmd: string): Promise<{ ok: boolean; message: string }> {
     const id = String(++this.trackSeq);
-    const remaining = cmd.split(' ; ').length;
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
-        if (this.trackers.delete(id)) resolve({ ok: true, message: 'tracking timeout' });
-      }, 15000);
+        if (this.trackers.delete(id)) {
+          if (this.armedTracker === id) this.armedTracker = null;
+          // Converge whatever DID execute; skip when detached (mid-reset —
+          // writing into a rewinding machine corrupts the fresh attach).
+          if (this.attached) this.resync();
+          resolve({
+            ok: false,
+            message: `tmux did not respond within ${V86Engine.TRACK_TIMEOUT_MS}ms — the command may not have executed`,
+          });
+        }
+      }, V86Engine.TRACK_TIMEOUT_MS);
       this.trackers.set(id, {
-        remaining,
         ok: true,
         message: '',
         resolve: (r) => {
@@ -523,7 +565,9 @@ export class V86Engine {
           resolve(r);
         },
       });
-      this.send(`display-message -p 'TMUXY_RC_${id}' ; ${cmd}`);
+      this.send(
+        `display-message -p 'TMUXY_RC_${id}' ; ${cmd} ; display-message -p 'TMUXY_RC_END_${id}'`,
+      );
     });
   }
 
@@ -560,6 +604,7 @@ export class V86Engine {
   }
 
   destroy(): void {
+    this.failInFlight('engine destroyed');
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.syncTimer) clearInterval(this.syncTimer);
     this.tickTimer = null;

@@ -194,18 +194,7 @@ function predictSplit(
 
   return {
     patch,
-    meta: {
-      placeholderId,
-      priorPaneIds,
-      // Used by reconciler to verify the resize landed close to prediction.
-      expectedTarget: { paneId: activePaneId, ...resizedTarget },
-      expectedNew: {
-        x: newPane.x,
-        y: newPane.y,
-        width: newPane.width,
-        height: newPane.height,
-      },
-    },
+    meta: { placeholderId, priorPaneIds },
   };
 }
 
@@ -245,8 +234,6 @@ function makePlaceholderPane(
   };
 }
 
-const SPLIT_POSITION_TOLERANCE = 1;
-
 function reconcileSplit(
   meta: Readonly<Record<string, unknown>>,
   committed: TmuxSnapshot,
@@ -254,13 +241,10 @@ function reconcileSplit(
   claimedRealIds: ReadonlySet<string>,
 ): ReconcileVerdict {
   const priorPaneIds = new Set(meta.priorPaneIds as string[]);
-  const expectedNew = meta.expectedNew as { x: number; y: number; width: number; height: number };
 
   // The real new pane is any tmuxId in committed.panes that wasn't in priorPaneIds
   // and isn't a placeholder AND hasn't already been claimed by an earlier op
-  // in the same reconcile pass. Position-based matching is a sanity check —
-  // tmux's layout algorithm can produce coordinates that differ from our
-  // half-and-half prediction by a cell or two.
+  // in the same reconcile pass.
   const realNew = committed.panes.find(
     (p) =>
       !priorPaneIds.has(p.tmuxId) &&
@@ -271,20 +255,9 @@ function reconcileSplit(
     return { _tag: 'pending' };
   }
 
-  // If the real new pane lands far from the predicted position, log it but
-  // still treat as matched — the server is authoritative, our prediction was
-  // just a guess.
-  const positionDrift =
-    Math.abs(realNew.x - expectedNew.x) > SPLIT_POSITION_TOLERANCE ||
-    Math.abs(realNew.y - expectedNew.y) > SPLIT_POSITION_TOLERANCE ||
-    Math.abs(realNew.width - expectedNew.width) > SPLIT_POSITION_TOLERANCE ||
-    Math.abs(realNew.height - expectedNew.height) > SPLIT_POSITION_TOLERANCE;
-  if (positionDrift) {
-    return {
-      _tag: 'matched',
-      realId: realNew.tmuxId,
-    };
-  }
+  // The server is authoritative on final geometry — drift from our
+  // half-and-half guess is expected (tmux's layout algorithm can land a cell
+  // or two away) and does not affect matching.
   return { _tag: 'matched', realId: realNew.tmuxId };
 }
 

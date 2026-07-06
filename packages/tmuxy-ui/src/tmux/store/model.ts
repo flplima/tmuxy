@@ -166,11 +166,13 @@ export function applyServerSnapshot(
       rolledBack.push({ opId: op.id, op: op.op, reason: verdict.reason });
       continue;
     }
-    // pending: stale check. Acked ops (tmux confirmed execution) get a much
-    // longer leash than unacked ones — their matching delta is known to be
-    // coming, just possibly slowly (window-type metadata on a later sync).
-    const staleAfter =
-      op.status === 'awaiting-confirm' ? OP_ACKED_STALE_TIMEOUT_MS : OP_STALE_TIMEOUT_MS;
+    // pending: stale check. Only ops the adapter was never asked to send (or
+    // whose dispatch hasn't started) get the quick sweep — they may be phantom
+    // predictions with nothing coming. In-flight ops (adapter call started,
+    // ack pending) and acked ops both get the long leash: the in-flight call
+    // is guaranteed to settle (resolve or reject → rollback), and sweeping it
+    // early blinks the optimistic UI away exactly when the transport is slow.
+    const staleAfter = op.status === 'pending' ? OP_STALE_TIMEOUT_MS : OP_ACKED_STALE_TIMEOUT_MS;
     if (now - op.createdAt > staleAfter) {
       rolledBack.push({
         opId: op.id,

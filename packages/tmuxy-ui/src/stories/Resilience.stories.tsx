@@ -313,17 +313,18 @@ export const KillPaneRejected: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// Stale-op sweeper — a pending op may never be confirmed; it must not wedge
+// Slow-ack survival — an in-flight op outlasting the quick sweep must NOT
+// blink away; the placeholder persists and morphs when the ack lands
 // ---------------------------------------------------------------------------
 
-export const StaleOpSweep: StoryObj<ClipboardArgs & { commandDelayMs?: number }> = {
+export const SlowAckKeepsPlaceholder: StoryObj<ClipboardArgs & { commandDelayMs?: number }> = {
   args: { height: 600, commandDelayMs: 3000 },
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'The backend takes 3s to ack a split — longer than OP_STALE_TIMEOUT_MS (2s). When a server snapshot arrives past the timeout, the sweeper must drop the stale placeholder (UI returns to the committed state, focus not wedged on a placeholder id). When the late command finally executes, the REAL pane appears. Guards against a lost ack freezing the optimistic layer forever.',
+          "The backend takes 3s to ack a split — longer than OP_STALE_TIMEOUT_MS (2s). The op is `in-flight` (its adapter call is still running), so the quick sweep must NOT touch it: a server snapshot arriving past the timeout keeps the placeholder on screen — sweeping would blink the user's split away and remount it exactly when the backend is slowest. When the late ack lands, the placeholder morphs into the REAL pane in place. A truly lost ack still falls to the acked-stale backstop (OP_ACKED_STALE_TIMEOUT_MS).",
       },
     },
   },
@@ -350,25 +351,24 @@ export const StaleOpSweep: StoryObj<ClipboardArgs & { commandDelayMs?: number }>
       timeout: 200,
     });
 
-    // Past the stale timeout, a server snapshot (still showing 1 pane —
-    // the delayed command hasn't executed) must sweep the placeholder.
+    // Past the quick stale timeout, a server snapshot (still showing 1 pane —
+    // the delayed command hasn't executed) arrives. The op is in-flight, so
+    // the placeholder must SURVIVE: no blink-out-and-remount.
     await wait(2200);
     win.__staleAdapter!.emitStateSnapshot();
-    await waitFor(
-      () => {
-        expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(1);
-        expect(win.app!.getSnapshot().context.activePaneId).toMatch(/^%\d+$/);
-      },
-      { timeout: 1000 },
-    );
+    await wait(300);
+    expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(2);
 
-    // The late ack finally executes: the REAL pane appears and focus is sane.
+    // The late ack executes: the placeholder morphs into the REAL pane —
+    // still 2 panes, real ids only, focus sane.
     await waitFor(
       () => {
-        expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(2);
+        const groups = canvas.getAllByRole('group', { name: /^Pane /i });
+        expect(groups.length).toBe(2);
+        expect(groups.every((p) => /^%\d+$/.test(p.getAttribute('data-pane-id') ?? ''))).toBe(true);
         expect(win.app!.getSnapshot().context.activePaneId).toMatch(/^%\d+$/);
       },
-      { timeout: 3000 },
+      { timeout: 5000 },
     );
   },
 };

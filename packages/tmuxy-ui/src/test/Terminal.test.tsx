@@ -60,6 +60,27 @@ describe('Terminal', () => {
     expect(lines?.length).toBe(5);
   });
 
+  it('keeps the BOTTOM rows when stale content is taller than the pane', () => {
+    // An optimistic shrink (split/kill/resize) reduces `height` before the
+    // re-captured viewport arrives — the pane briefly renders old content that
+    // is taller than it. tmux keeps the prompt/cursor (the tail) visible when
+    // a pane shrinks, so the clip must drop the TOP rows, not the bottom.
+    const content = createContent(['old 0', 'old 1', 'old 2', 'prompt $']);
+    render(<Terminal content={content} height={2} cursorY={3} cursorX={0} isActive />);
+
+    const pre = screen.getByTestId('terminal').querySelector('.terminal-content');
+    const lines = [...(pre?.querySelectorAll('.terminal-line') ?? [])].map(
+      (l) => l.textContent ?? '',
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('old 2');
+    expect(lines[1]).toContain('prompt $');
+    expect(pre?.textContent).not.toContain('old 0');
+    // The cursor followed its content line through the clip.
+    const cursorLine = pre?.querySelector('.terminal-cursor')?.closest('.terminal-line');
+    expect(cursorLine?.textContent).toContain('prompt $');
+  });
+
   it('renders cursor at correct position', () => {
     const content = createContent(['test line here']);
     render(<Terminal content={content} cursorX={5} cursorY={0} isActive={true} />);

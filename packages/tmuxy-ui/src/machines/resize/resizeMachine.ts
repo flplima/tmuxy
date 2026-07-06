@@ -19,6 +19,9 @@ import type {
 } from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 
+/** Minimum ms between resize command batches during a drag (see ResizeState.lastSentAt). */
+export const RESIZE_SEND_INTERVAL_MS = 80;
+
 export const resizeMachine = setup({
   types: {
     context: {} as ResizeMachineContext,
@@ -91,6 +94,7 @@ export const resizeMachine = setup({
                 pixelDelta: { x: 0, y: 0 },
                 delta: { cols: 0, rows: 0 },
                 lastSentDelta: { cols: 0, rows: 0 },
+                lastSentAt: 0,
               };
               return {
                 resize,
@@ -121,7 +125,7 @@ export const resizeMachine = setup({
             if (!context.resize) return;
 
             const { charWidth, charHeight } = context;
-            const { handle, lastSentDelta, paneId } = context.resize;
+            const { handle, lastSentDelta, lastSentAt, paneId } = context.resize;
 
             const pixelDeltaX = event.clientX - context.resize.startX;
             const pixelDeltaY = event.clientY - context.resize.startY;
@@ -132,12 +136,20 @@ export const resizeMachine = setup({
             const colsChanged = deltaCols !== lastSentDelta.cols;
             const rowsChanged = deltaRows !== lastSentDelta.rows;
 
+            // Coalesce wire traffic: at most one command batch per interval.
+            // The visual preview (assigned below) still updates every move;
+            // RESIZE_END flushes whatever delta remains unsent.
+            const now = Date.now();
+            const throttleOpen = now - lastSentAt >= RESIZE_SEND_INTERVAL_MS;
+
             const needsCommand =
-              ((handle === 'e' || handle === 'w') && colsChanged) ||
-              ((handle === 's' || handle === 'n') && rowsChanged);
+              throttleOpen &&
+              (((handle === 'e' || handle === 'w') && colsChanged) ||
+                ((handle === 's' || handle === 'n') && rowsChanged));
 
             // Track the new lastSentDelta for this event
             let newLastSentDelta = lastSentDelta;
+            let newLastSentAt = lastSentAt;
 
             if (needsCommand) {
               const incrementalCols = deltaCols - lastSentDelta.cols;
@@ -173,6 +185,7 @@ export const resizeMachine = setup({
                   }),
                 );
                 newLastSentDelta = { cols: deltaCols, rows: deltaRows };
+                newLastSentAt = now;
               }
             }
 
@@ -182,6 +195,7 @@ export const resizeMachine = setup({
               pixelDelta: { x: pixelDeltaX, y: pixelDeltaY },
               delta: { cols: deltaCols, rows: deltaRows },
               lastSentDelta: newLastSentDelta,
+              lastSentAt: newLastSentAt,
             };
             enqueue(assign({ resize: newResize }));
             enqueue(sendParent({ type: 'RESIZE_STATE_UPDATE' as const, resize: newResize }));

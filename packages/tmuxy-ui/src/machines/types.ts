@@ -80,6 +80,15 @@ export interface ResizeState {
   delta: { cols: number; rows: number };
   /** Last delta that was sent to tmux (to avoid duplicate commands) */
   lastSentDelta: { cols: number; rows: number };
+  /**
+   * When the last resize command batch was sent. Drag moves are throttled to
+   * one batch per RESIZE_SEND_INTERVAL_MS — a fast drag otherwise sprays a
+   * one-column command per cell crossed, and their confirms trickle back for
+   * seconds on a slow transport, re-wiggling settled geometry. The preview
+   * stays per-frame smooth; only the wire traffic is coalesced. RESIZE_END
+   * flushes whatever delta is still unsent.
+   */
+  lastSentAt: number;
 }
 
 // ============================================

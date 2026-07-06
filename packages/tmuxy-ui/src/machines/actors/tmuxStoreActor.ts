@@ -57,6 +57,17 @@ export interface TmuxStoreActorInput {
   parent: AnyActorRef;
 }
 
+/** Op kinds whose rollback visibly reverts the layout (vs. a focus pin). */
+const STRUCTURAL_OPS = new Set([
+  'Split',
+  'NewWindow',
+  'KillPane',
+  'KillWindow',
+  'RenameWindow',
+  'ZoomToggle',
+  'Swap',
+]);
+
 /**
  * Build the bridge actor. The store is captured in a closure; tests can
  * supply a fresh store per test for isolation.
@@ -105,6 +116,19 @@ export function createTmuxStoreActor(store: TmuxStore) {
           console.warn(
             `[TmuxStore] rolled back ${entry.op._tag} op ${entry.opId}: ${entry.reason}`,
           );
+          // A structural op rolling back is a user-visible revert (their split/
+          // kill/tab just disappeared) — surface it like a rejection so the
+          // status line explains WHY instead of the UI silently snapping back.
+          // Focus-op rollbacks are cosmetic supersession noise; keep those
+          // console-only.
+          // 'previously failed' entries already surfaced their error when
+          // dispatchRemote rejected — re-sending here would double-report.
+          if (STRUCTURAL_OPS.has(entry.op._tag) && entry.reason !== 'previously failed') {
+            parent.send({
+              type: 'TMUX_ERROR',
+              error: `${entry.op._tag} was not confirmed by tmux (${entry.reason})`,
+            });
+          }
         }
         return;
       }

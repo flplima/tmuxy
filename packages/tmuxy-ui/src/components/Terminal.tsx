@@ -158,14 +158,21 @@ export const Terminal: React.FC<TerminalProps> = ({
     [selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width],
   );
 
-  // Pad content to fill height
+  // Pad content to fill height. When stale content is TALLER than the pane —
+  // an optimistic shrink (split/kill/resize) applied before the re-captured
+  // viewport arrived — keep the BOTTOM rows: tmux anchors a shrinking pane to
+  // the prompt/cursor, so the tail is what the server keeps visible. Clipping
+  // the top instead of the bottom hides the pane's most recent lines for the
+  // whole round-trip.
+  const staleClipOffset = Math.max(0, content.length - height);
   const lines = useMemo(() => {
+    if (staleClipOffset > 0) return content.slice(staleClipOffset);
     const result: CellLine[] = [...content];
     while (result.length < height) {
       result.push(EMPTY_LINE);
     }
-    return result.slice(0, height);
-  }, [content, height]);
+    return result;
+  }, [content, height, staleClipOffset]);
 
   return (
     <div className="terminal-container" data-testid="terminal" role="log" aria-live="off">
@@ -176,7 +183,7 @@ export const Terminal: React.FC<TerminalProps> = ({
             line={line}
             lineIndex={lineIndex}
             cursorX={effectiveCursorX}
-            cursorY={effectiveCursorY}
+            cursorY={effectiveCursorY - staleClipOffset}
             showCursor={showCursor}
             inMode={inMode}
             isActive={isActive}

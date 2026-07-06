@@ -217,6 +217,14 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
 
     const dispatchRemote = (opId: OpId, command: string): Effect.Effect<OpId, OpError> =>
       Effect.gen(function* () {
+        // Mark in-flight BEFORE the adapter call: the ack can take longer than
+        // the quick stale sweep, and a swept op would blink the optimistic UI
+        // away and remount when the confirm finally lands. Status-only change —
+        // derived is unaffected, so listeners are not notified here.
+        yield* Ref.update(ref, (m) => ({
+          ...m,
+          ops: m.ops.map((o) => (o.id === opId ? { ...o, status: 'in-flight' as const } : o)),
+        }));
         const sendResult = yield* Effect.either(
           config.adapter.invoke<unknown>('run_tmux_command', { command }),
         );

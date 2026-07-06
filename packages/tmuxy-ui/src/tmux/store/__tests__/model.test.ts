@@ -10,6 +10,7 @@ import {
 import { predict } from '../ops';
 import { parseCommandToOp, toTmuxCommand } from '../parseCommand';
 import type { TmuxOp, TmuxSnapshot, OpId } from '../types';
+import { OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from '../types';
 import type { TmuxPane, TmuxWindow } from '../../types';
 
 const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
@@ -160,6 +161,41 @@ describe('TmuxClientModel', () => {
     expect(reconciled.rolledBack[0].reason).toMatch(/stale/);
     expect(reconciled.model.ops).toHaveLength(0);
     expect(reconciled.model.derived.panes).toHaveLength(1);
+  });
+
+  it('in-flight ops survive the quick sweep but fall to the acked backstop', () => {
+    const m0 = modelFromSnapshot(snapshot());
+    const op: TmuxOp = { _tag: 'Split', direction: 'vertical' };
+    const result = predict(
+      op,
+      m0.committed,
+      { defaultShell: 'bash', paneActivationOrder: [] },
+      'opInFlight',
+    );
+    const pending = makePendingOp({
+      id: 'op_inflight' as OpId,
+      op,
+      command: 'split-window -h',
+      patch: result!.patch,
+      meta: result!.meta,
+      now: 0,
+    });
+    const m1 = addPendingOp(m0, {
+      ...pending,
+      // The adapter call started but its ack hasn't arrived — on a slow
+      // transport this alone can outlast OP_STALE_TIMEOUT_MS.
+      status: 'in-flight',
+    });
+    const serverSnap = snapshot();
+    // Past the quick sweep: the op must be kept (its call WILL settle).
+    const early = applyServerSnapshot(m1, serverSnap, OP_STALE_TIMEOUT_MS + 1000);
+    expect(early.rolledBack).toHaveLength(0);
+    expect(early.model.ops).toHaveLength(1);
+    expect(early.model.derived.panes).toHaveLength(2);
+    // Past the acked backstop: swept like any wedged op.
+    const late = applyServerSnapshot(m1, serverSnap, OP_ACKED_STALE_TIMEOUT_MS + 1000);
+    expect(late.rolledBack).toHaveLength(1);
+    expect(late.model.ops).toHaveLength(0);
   });
 
   it('rollbackOp synchronously removes an op and rebuilds derived', () => {

@@ -104,8 +104,18 @@ export const IDENTITY_PATCH: Patch = (s) => s;
 // ============================================
 
 export type OpStatus =
-  /** Patch applied locally, command not yet acknowledged by tmux. */
+  /** Patch applied locally, command not yet handed to the adapter. */
   | 'pending'
+  /**
+   * The adapter call is in flight: the command was written to the transport
+   * and its acknowledgement hasn't arrived yet. The ack alone can take longer
+   * than OP_STALE_TIMEOUT_MS on a slow transport (v86 serial, loaded server),
+   * so in-flight ops are exempt from the quick sweep — the call is guaranteed
+   * to settle (resolve → awaiting-confirm, reject → rollback), and the acked
+   * timeout still applies as a backstop. Sweeping earlier makes the optimistic
+   * UI blink away and remount exactly when the backend is slowest.
+   */
+  | 'in-flight'
   /** Command was sent successfully; waiting for the matching server delta. */
   | 'awaiting-confirm'
   /** Tmux rejected the command. The patch will be rolled back on the next tick. */

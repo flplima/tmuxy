@@ -35,17 +35,20 @@ const STATE_BIN = join(ASSETS, 'tmux-state.bin');
 const WORK = join(ASSETS, '.bundle-root');
 
 // Pinned Alpine x86 packages for --fetch-binaries (binaries are otherwise
-// reused from the existing tmux-bundle.tar). Alpine occasionally rotates
-// point releases; bump these if a URL 404s.
+// reused from the existing tmux-bundle.tar). Alpine rotates point releases
+// WITHOUT keeping the old files (the CI cache-miss path then 404s) — bump
+// these when a URL dies. tmux comes from edge (stable ships an older tmux
+// with the control-mode crash bugs documented in docs/TMUX.md).
 const ALPINE = 'https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86';
+const ALPINE_EDGE = 'https://dl-cdn.alpinelinux.org/alpine/edge/main/x86';
 const APKS = [
-  'musl-1.2.5-r10.apk',
-  'bash-5.2.37-r0.apk',
-  'readline-8.2.13-r1.apk',
-  'ncurses-terminfo-base-6.5_p20250503-r0.apk',
-  'libncursesw-6.5_p20250503-r0.apk',
-  'libevent-2.1.12-r7.apk',
-  'tmux-3.7a-r0.apk',
+  `${ALPINE}/musl-1.2.5-r12.apk`,
+  `${ALPINE}/bash-5.2.37-r0.apk`,
+  `${ALPINE}/readline-8.2.13-r1.apk`,
+  `${ALPINE}/ncurses-terminfo-base-6.5_p20250503-r0.apk`,
+  `${ALPINE}/libncursesw-6.5_p20250503-r0.apk`,
+  `${ALPINE}/libevent-2.1.13-r0.apk`,
+  `${ALPINE_EDGE}/tmux-3.7b-r0.apk`,
 ];
 
 const exists = (p) =>
@@ -72,10 +75,15 @@ async function buildBundle({ fetchBinaries }) {
       './terminfo',
     ]);
   } else {
-    for (const apk of APKS) {
-      const url = `${ALPINE}/${apk}`;
-      const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
-      const tmp = join(WORK, apk);
+    for (const url of APKS) {
+      const res = await fetch(url);
+      // Fail loudly — a rotated-away package otherwise surfaces later as a
+      // baffling ENOENT when the flatten step can't find the binary.
+      if (!res.ok) {
+        throw new Error(`APK download failed (${res.status}): ${url} — bump the pin (see APKS)`);
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      const tmp = join(WORK, url.split('/').pop());
       await writeFile(tmp, buf);
       // .apk is a gzipped tar; extraction warnings about apk metadata are benign.
       try {

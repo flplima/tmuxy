@@ -261,16 +261,20 @@ describe('State Sync', () => {
   test('delta protocol updates pane state', async () => {
     await setupApp();
 
-    // Initial state: 1 pane
+    // Baseline pane count, not an absolute: the app always attaches to the
+    // `tmuxy` session, and a previous test's kill-session can race the next
+    // app start — leftover panes would fail a hardcoded `toBe(1)` even though
+    // the delta protocol (what this test is about) works fine.
     let state = await getAppState(driver);
-    expect(state.panes.length).toBe(1);
+    const before = state.panes.length;
+    expect(before).toBeGreaterThanOrEqual(1);
 
     // Split creates new pane — state should update via Tauri event → delta protocol
     await invokeCommand(driver, 'split_pane_horizontal');
-    await waitForPaneCount(driver, 2);
+    await waitForPaneCount(driver, before + 1);
 
     state = await getAppState(driver);
-    expect(state.panes.length).toBeGreaterThanOrEqual(2);
+    expect(state.panes.length).toBeGreaterThanOrEqual(before + 1);
 
     // Both panes should have valid dimensions
     for (const pane of state.panes) {
