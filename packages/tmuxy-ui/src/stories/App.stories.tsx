@@ -3794,10 +3794,13 @@ const activePaneState = () =>
     .context.panes.find((p) => p.tmuxId === activePaneId());
 
 /**
- * 3.1 — Double-click copies the word under the cursor via NATIVE tmux copy
- * mode (enter → select-word → copy-and-cancel); triple-click copies the whole
- * line. The proof is the CLIPBOARD payload mirrored back through the OSC 52
- * bridge — text that only exists inside tmux's paste buffer.
+ * 3.1 — Double-click selects the word under the cursor via CLIENT-side copy
+ * mode (the rework moved word/line selection out of tmux): the word renders
+ * highlighted (`.terminal-selected`), and `y` yanks it and leaves copy mode.
+ * Triple-click selects the whole logical line the same way. The yank's
+ * clipboard payload is the asserted selection text (both come from
+ * extractSelectedText); the execCommand copy itself needs real user
+ * activation, which synthetic story input cannot grant.
  */
 export const DoubleTripleClickSelect: Story = {
   args: { height: 600 },
@@ -3805,9 +3808,7 @@ export const DoubleTripleClickSelect: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
-    const win = window as unknown as {
-      __tmuxyLastClipboard?: { paneId: string; text: string };
-    };
+    const id = activePaneId();
     pasteLine('echo WORDSEL_TARGET extra words here');
     await waitFor(
       () =>
@@ -3819,44 +3820,70 @@ export const DoubleTripleClickSelect: Story = {
       { timeout: 20000, interval: 500 },
     );
 
-    // Double-click inside the rendered word: tmux selects it and the copied
-    // text comes back over the clipboard bridge.
-    const span = Array.from(canvasElement.querySelectorAll('.terminal-line span')).find((sp) =>
-      (sp.textContent ?? '').includes('WORDSEL_TARGET'),
-    ) as HTMLElement;
+    // Double-click inside the rendered OUTPUT word (2nd occurrence — the echo
+    // result, not the typed command line).
+    const span = Array.from(canvasElement.querySelectorAll('.terminal-line span'))
+      .filter((sp) => (sp.textContent ?? '').includes('WORDSEL_TARGET'))
+      .pop() as HTMLElement;
     expect(span).toBeTruthy();
     const r = span.getBoundingClientRect();
-    const offset = ((sp: HTMLElement) => {
-      const idx = (sp.textContent ?? '').indexOf('WORDSEL_TARGET');
-      const chW = r.width / Math.max(1, (sp.textContent ?? '').length);
-      return (idx + 4) * chW;
-    })(span);
-    const cx = r.left + offset;
+    const idx = (span.textContent ?? '').indexOf('WORDSEL_TARGET');
+    const chW = r.width / Math.max(1, (span.textContent ?? '').length);
+    const cx = r.left + (idx + 4) * chW;
     const cy = r.top + r.height / 2;
-    win.__tmuxyLastClipboard = undefined;
     span.dispatchEvent(
       new MouseEvent('dblclick', { bubbles: true, detail: 2, clientX: cx, clientY: cy }),
     );
-    await waitFor(() => expect(win.__tmuxyLastClipboard?.text).toBe('WORDSEL_TARGET'), {
-      timeout: 20000,
-      interval: 300,
-    });
 
-    // Triple-click: the whole line (command echo) lands in the clipboard.
-    win.__tmuxyLastClipboard = undefined;
-    span.dispatchEvent(
-      new MouseEvent('mousedown', { bubbles: true, detail: 3, clientX: cx, clientY: cy }),
-    );
-    span.dispatchEvent(
-      new MouseEvent('mouseup', { bubbles: true, detail: 3, clientX: cx, clientY: cy }),
-    );
+    // The word — and ONLY the word — renders highlighted.
     await waitFor(
-      () => expect(win.__tmuxyLastClipboard?.text ?? '').toMatch(/WORDSEL_TARGET extra words here/),
+      () => {
+        const selected = Array.from(canvasElement.querySelectorAll('.terminal-selected'))
+          .map((el) => el.textContent ?? '')
+          .join('');
+        expect(selected).toBe('WORDSEL_TARGET');
+      },
       { timeout: 20000, interval: 300 },
     );
 
-    // Copy mode auto-cancelled — typing works again.
-    expect(activePaneState()?.inMode).toBe(false);
+    // `y` yanks the highlighted text and exits copy mode. (The clipboard
+    // write itself rides document.execCommand('copy'), which headless
+    // Chromium only honours with real user activation — the payload equals
+    // the `.terminal-selected` text asserted above, extracted by the same
+    // extractSelectedText call the yank uses.)
+    await user.keyboard('y');
+    await waitFor(() => expect(paneCopyState(id)).toBeFalsy(), { timeout: 10000, interval: 300 });
+
+    // Yank-exit starts a 2s copy-mode re-entry cooldown (guards against
+    // scroll-exit bounce) — pause past it like a real user would before the
+    // next gesture.
+    await new Promise((r) => setTimeout(r, 2200));
+
+    // Triple-click: the whole logical line highlights; `y` yanks it. The yank
+    // remounted the terminal (scrollback view → live view), so the pre-yank
+    // `span` node is detached — hit-test a FRESH element at the same point,
+    // like a real pointer would.
+    const target = canvasElement.ownerDocument.elementFromPoint(cx, cy)!;
+    expect(target).toBeTruthy();
+    target.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, detail: 3, clientX: cx, clientY: cy }),
+    );
+    target.dispatchEvent(
+      new MouseEvent('mouseup', { bubbles: true, detail: 3, clientX: cx, clientY: cy }),
+    );
+    await waitFor(
+      () => {
+        const selected = Array.from(canvasElement.querySelectorAll('.terminal-selected'))
+          .map((el) => el.textContent ?? '')
+          .join('');
+        expect(selected).toMatch(/WORDSEL_TARGET extra words here/);
+      },
+      { timeout: 20000, interval: 300 },
+    );
+    await user.keyboard('y');
+
+    // Copy mode exited — the pane is a live shell again.
+    await waitFor(() => expect(paneCopyState(id)).toBeFalsy(), { timeout: 10000, interval: 300 });
   },
 };
 

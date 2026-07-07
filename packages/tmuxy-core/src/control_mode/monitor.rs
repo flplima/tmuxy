@@ -7,7 +7,9 @@
 
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 use super::parser::ControlModeEvent;
-use super::state::{ChangeType, SideEffect, StateAggregator};
+use super::state::{
+    capture_command, capture_command_range, ChangeType, SideEffect, StateAggregator,
+};
 use crate::constants::tmux_formats;
 use crate::ctx::Ctx;
 use crate::error::TmuxError;
@@ -664,11 +666,7 @@ impl TmuxMonitor {
             };
 
         let mut commands: Vec<String> = vec![tmux_formats::LIST_PANES_CMD.to_string()];
-        commands.extend(
-            queued_panes
-                .iter()
-                .map(|pane_id| format!("capture-pane -t {} -p -e", pane_id)),
-        );
+        commands.extend(queued_panes.iter().map(|pane_id| capture_command(pane_id)));
 
         if let Err(e) = self.connection.send_commands_batch(&commands).await {
             emitter.emit_error(format!("Failed to batch capture panes: {}", e));
@@ -785,12 +783,9 @@ impl TmuxMonitor {
                 if *scroll_pos > 0 {
                     let start = -(*scroll_pos as i64) - (*height as i64) + 1;
                     let end = -(*scroll_pos as i64);
-                    cmds.push(format!(
-                        "capture-pane -t {} -p -e -S {} -E {}",
-                        pane_id, start, end
-                    ));
+                    cmds.push(capture_command_range(pane_id, start, end));
                 } else {
-                    cmds.push(format!("capture-pane -t {} -p -e", pane_id));
+                    cmds.push(capture_command(pane_id));
                 }
             }
             let _ = self.aggregator.queue_captures(&copy_pane_ids);

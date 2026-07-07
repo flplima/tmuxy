@@ -810,10 +810,18 @@ pub struct StateAggregator {
     default_width: u32,
     default_height: u32,
 
-    /// Queue of pane IDs for pending capture-pane commands (FIFO).
-    /// We use a queue because we can't reliably match command numbers when
-    /// attaching to an existing session (tmux's counter may be at a different point).
+    /// Pane IDs with a capture-pane command in flight. Used for de-duplication
+    /// (don't send a second capture while one is pending) and to preserve the
+    /// previous content of a resized pane until its capture lands (see
+    /// `to_state_update`). Response ROUTING does not use this — every capture
+    /// is bracketed by `TMUXY_CAP_BEGIN <pane>` / `TMUXY_CAP_END` marker
+    /// responses (see `capture_command`), so a capture block is attributed to
+    /// its pane exactly, never by arrival order or output-shape guessing.
     pending_captures: std::collections::VecDeque<String>,
+    /// Pane the response between a `TMUXY_CAP_BEGIN <pane>` marker and its
+    /// `TMUXY_CAP_END` belongs to (each command in a control-mode command
+    /// list gets its own %begin/%end block, so the trio arrives consecutively).
+    capture_armed: Option<String>,
     /// Buffer names for pending marker-wrapped `show-buffer` reads (FIFO),
     /// issued in response to %paste-buffer-changed (copy-mode yank mirror).
     pending_buffer_reads: std::collections::VecDeque<String>,
@@ -871,6 +879,41 @@ pub(crate) const SETTLING_DEBOUNCE: std::time::Duration = std::time::Duration::f
 /// Safety ceiling — settling cannot extend past this from the arm point.
 pub(crate) const SETTLING_MAX: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// Marker printed (via `display-message -p`) immediately BEFORE a self-issued
+/// capture-pane command, carrying the target pane id. Routing captures by
+/// marker instead of arrival order or output shape is what makes attribution
+/// exact: any other command's response (a send-keys ack has EMPTY output,
+/// indistinguishable from capturing a blank pane) can otherwise steal a
+/// pending capture and shunt one pane's content into another.
+pub const CAPTURE_BEGIN_MARKER: &str = "TMUXY_CAP_BEGIN";
+/// Marker printed immediately AFTER a self-issued capture-pane command.
+pub const CAPTURE_END_MARKER: &str = "TMUXY_CAP_END";
+
+/// Build the marker-bracketed capture-pane command for a pane's visible
+/// viewport. Each segment of a control-mode command list gets its own
+/// %begin/%end block, so the three responses arrive consecutively:
+/// BEGIN(pane) -> capture content -> END.
+///
+/// The pane id is embedded WITHOUT its `%`: `display-message` runs the
+/// message through strftime-style expansion, and `%<digits>` is mangled
+/// (observed on tmux 3.7: `%69` prints as 67 spaces + `%69`; other versions
+/// can swallow it entirely). Bare digits are expansion-proof; the response
+/// router re-prefixes the `%`.
+pub fn capture_command(pane_id: &str) -> String {
+    let bare = pane_id.trim_start_matches('%');
+    format!(
+        "display-message -p '{CAPTURE_BEGIN_MARKER} {bare}' ; capture-pane -t {pane_id} -p -e ; display-message -p '{CAPTURE_END_MARKER}'"
+    )
+}
+
+/// `capture_command` for an explicit scrollback range (copy-mode sync).
+pub fn capture_command_range(pane_id: &str, start: i64, end: i64) -> String {
+    let bare = pane_id.trim_start_matches('%');
+    format!(
+        "display-message -p '{CAPTURE_BEGIN_MARKER} {bare}' ; capture-pane -t {pane_id} -p -e -S {start} -E {end} ; display-message -p '{CAPTURE_END_MARKER}'"
+    )
+}
+
 impl StateAggregator {
     pub fn new() -> Self {
         Self {
@@ -881,6 +924,7 @@ impl StateAggregator {
             default_width: 80,
             default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
+            capture_armed: None,
             pending_buffer_reads: std::collections::VecDeque::new(),
             buffer_read_armed: false,
 
@@ -908,6 +952,7 @@ impl StateAggregator {
             default_width: 80,
             default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
+            capture_armed: None,
             pending_buffer_reads: std::collections::VecDeque::new(),
             buffer_read_armed: false,
 
@@ -1052,65 +1097,10 @@ impl StateAggregator {
         self.status_line_dirty = false;
     }
 
-    /// Check if output looks like capture-pane output (terminal content).
-    /// capture-pane output has different characteristics than list-panes/list-windows:
-    /// - list-panes: lines start with %pane_id followed by comma-separated fields
-    /// - list-windows: lines start with @window_id followed by comma-separated fields
-    /// - capture-pane: terminal content with ANSI escapes, arbitrary text
-    fn looks_like_capture_output(&self, output: &str) -> bool {
-        // Empty output: if we have pending captures, this is likely capture-pane
-        // for a new pane that hasn't rendered content yet. Consuming the slot
-        // keeps the FIFO queue aligned. Without this, the queue gets stuck and
-        // all subsequent captures go to the wrong pane.
-        if output.is_empty() {
-            return !self.pending_captures.is_empty();
-        }
-
-        // Check all non-empty lines
-        let lines: Vec<&str> = output.lines().collect();
-        if lines.is_empty() {
-            return false;
-        }
-
-        // list-panes output: each line starts with %N, (pane ID, comma)
-        // list-windows output: each line starts with @N, (window ID, comma)
-        // Both have consistent comma-separated format
-        let first_line = lines[0];
-
-        // If it looks like list-panes format
-        if first_line.starts_with('%') && first_line.contains(',') {
-            // Check if all lines follow the pattern
-            let all_list_panes = lines
-                .iter()
-                .all(|line| line.starts_with('%') && line.contains(','));
-            if all_list_panes {
-                return false; // This is list-panes output
-            }
-        }
-
-        // If it looks like list-windows format
-        if first_line.starts_with('@') && first_line.contains(',') {
-            // Check if all lines follow the pattern
-            let all_list_windows = lines
-                .iter()
-                .all(|line| line.starts_with('@') && line.contains(','));
-            if all_list_windows {
-                return false; // This is list-windows output
-            }
-        }
-
-        // If we have pending captures and the output doesn't match list formats,
-        // it's likely capture-pane output
-        true
-    }
-
-    /// Queue capture-pane commands for matching responses.
-    /// Pane IDs are queued in the order the commands were sent (FIFO).
-    /// We use FIFO because we can't reliably match command numbers when
-    /// attaching to an existing session (tmux's counter may be different).
-    /// Queue capture-pane commands and return only pane IDs that were actually
-    /// queued (not already pending). The caller should only send capture commands
-    /// for returned IDs to keep the queue and tmux commands in sync.
+    /// Register in-flight capture-pane commands and return only pane IDs that
+    /// were actually queued (not already pending). The caller must send the
+    /// marker-bracketed `capture_command(..)` form for each returned ID —
+    /// response routing relies on the markers, not on ordering.
     pub fn queue_captures(&mut self, pane_ids: &[String]) -> Vec<String> {
         let mut queued = Vec::new();
         for pane_id in pane_ids {
@@ -1649,63 +1639,63 @@ impl StateAggregator {
                     return ProcessEventResult::default();
                 }
 
-                // First, try to match pending capture-pane responses using heuristics.
-                // capture-pane output characteristics:
-                // - Doesn't look like list-panes output (no leading %pane_id,pane_index,...)
-                // - Doesn't look like list-windows output (no leading @window_id,...)
-                // - Usually multi-line with terminal content (ANSI escape codes, text)
-                //
-                // Note: We use FIFO because tmux command numbers can't be reliably
-                // tracked when attaching to an existing session.
-                if !self.pending_captures.is_empty() {
-                    if !success {
-                        // Command failed — pop the pending capture to consume
-                        // the FIFO slot (keeps queue aligned with tmux responses).
-                        // Dead pane IDs stay in the queue as placeholders for
-                        // in-flight capture commands; this correctly consumes them.
-                        let pane_id = self.pending_captures.pop_front();
-                        warn!(?pane_id, "capture command failed, popping pending capture");
-                    } else {
-                        // Check if this looks like capture-pane output
-                        let is_capture_output = self.looks_like_capture_output(&output);
-
-                        if is_capture_output {
-                            if let Some(pane_id) = self.pending_captures.pop_front() {
-                                if let Some(pane) = self.panes.get_mut(&pane_id) {
-                                    if pane.in_mode {
-                                        // In copy mode: process into separate copy_mode_content
-                                        // to avoid corrupting the main terminal state
-                                        pane.process_copy_mode_capture(output.as_bytes());
-                                    } else {
-                                        // Normal mode: reset and reprocess the main terminal
-                                        pane.reset_and_process_capture(output.as_bytes());
-
-                                        // After processing capture output, the vt100 cursor
-                                        // is at the end of the content (last row). Reposition
-                                        // it to tmux's actual cursor position.
-                                        let cursor_seq = format!(
-                                            "\x1b[{};{}H",
-                                            pane.tmux_cursor_y + 1,
-                                            pane.tmux_cursor_x + 1
-                                        );
-                                        safe_process(&mut pane.terminal, cursor_seq.as_bytes());
-                                    }
-                                    // Capture arrived — clear window-move suppression
-                                    self.panes_moved_window.remove(&pane_id);
-                                    return ProcessEventResult {
-                                        state_changed: true,
-                                        change_type: ChangeType::PaneOutput { pane_id },
-                                        ..Default::default()
-                                    };
-                                }
-                                // Pane was killed after capture was sent — discard
-                                // the response. The FIFO slot is consumed, keeping
-                                // the queue aligned for subsequent captures.
-                                self.panes_moved_window.remove(&pane_id);
-                                return ProcessEventResult::default();
-                            }
-                        }
+                // Marker-routed capture-pane responses: every self-issued
+                // capture is bracketed BEGIN(pane)/END (see capture_command),
+                // so the block between the markers is attributed to its pane
+                // exactly — never by arrival order or output-shape guessing.
+                if let Some(rest) = marker_line.strip_prefix(CAPTURE_BEGIN_MARKER) {
+                    // The id travels as bare digits (see capture_command) and
+                    // may be surrounded by expansion padding — trim and
+                    // re-prefix the `%`.
+                    let digits = rest.trim().trim_start_matches('%');
+                    if !digits.is_empty() {
+                        self.capture_armed = Some(format!("%{digits}"));
                     }
+                    return ProcessEventResult::default();
+                }
+                if marker_line == CAPTURE_END_MARKER {
+                    self.capture_armed = None;
+                    return ProcessEventResult::default();
+                }
+                if let Some(pane_id) = self.capture_armed.take() {
+                    // In-flight bookkeeping is done for this pane regardless of
+                    // the outcome — a wedged entry would freeze the pane's
+                    // content preservation in to_state_update forever.
+                    self.pending_captures.retain(|id| *id != pane_id);
+                    if !success {
+                        warn!(?pane_id, "capture command failed");
+                        return ProcessEventResult::default();
+                    }
+                    if let Some(pane) = self.panes.get_mut(&pane_id) {
+                        if pane.in_mode {
+                            // In copy mode: process into separate copy_mode_content
+                            // to avoid corrupting the main terminal state
+                            pane.process_copy_mode_capture(output.as_bytes());
+                        } else {
+                            // Normal mode: reset and reprocess the main terminal
+                            pane.reset_and_process_capture(output.as_bytes());
+
+                            // After processing capture output, the vt100 cursor
+                            // is at the end of the content (last row). Reposition
+                            // it to tmux's actual cursor position.
+                            let cursor_seq = format!(
+                                "\x1b[{};{}H",
+                                pane.tmux_cursor_y + 1,
+                                pane.tmux_cursor_x + 1
+                            );
+                            safe_process(&mut pane.terminal, cursor_seq.as_bytes());
+                        }
+                        // Capture arrived — clear window-move suppression
+                        self.panes_moved_window.remove(&pane_id);
+                        return ProcessEventResult {
+                            state_changed: true,
+                            change_type: ChangeType::PaneOutput { pane_id },
+                            ..Default::default()
+                        };
+                    }
+                    // Pane was killed after the capture was sent — discard.
+                    self.panes_moved_window.remove(&pane_id);
+                    return ProcessEventResult::default();
                 }
 
                 // Not a capture-pane response - parse list-panes/list-windows responses to update state
@@ -2003,12 +1993,11 @@ impl StateAggregator {
             }
         });
 
-        // Do NOT remove dead pane IDs from pending_captures here.
-        // Capture commands were already sent to tmux for those panes, and
-        // tmux will respond in order. Keeping dead IDs as FIFO placeholders
-        // ensures responses for killed panes are correctly consumed (and
-        // discarded) rather than misaligning the queue and routing capture
-        // output to the wrong pane.
+        // Prune in-flight captures for panes that no longer exist — their
+        // marker-routed responses are discarded on arrival, and a dead entry
+        // would freeze content preservation in to_state_update.
+        self.pending_captures
+            .retain(|id| self.panes.contains_key(id));
 
         resized_panes
     }
@@ -2050,9 +2039,8 @@ impl StateAggregator {
                 // (they were deleted)
                 false
             });
-            // Do NOT remove dead pane IDs from pending_captures here.
-            // See comment in parse_layout() — dead entries serve as FIFO
-            // placeholders for in-flight capture responses from tmux.
+            self.pending_captures
+                .retain(|id| self.panes.contains_key(id));
         }
 
         // Try to parse as list-windows output
@@ -2753,6 +2741,7 @@ impl StateAggregator {
         self.windows.clear();
         self.active_window_id = None;
         self.pending_captures.clear();
+        self.capture_armed = None;
         self.panes_moved_window.clear();
         self.cached_status_line.clear();
         self.status_line_dirty = true;
@@ -2787,6 +2776,120 @@ mod tests {
         let mut pane = PaneState::new(pane_id, 80, 24);
         pane.window_id = window_id.to_string();
         agg.panes.insert(pane_id.to_string(), pane);
+    }
+
+    /// A response between the capture markers is attributed to exactly the
+    /// pane named by the BEGIN marker — and unmarked responses (e.g. a
+    /// send-keys ack with EMPTY output, indistinguishable in shape from
+    /// capturing a blank pane) can never steal a pending capture. This was
+    /// the pane-content-misattribution bug: under command churn one pane
+    /// rendered another pane's capture, or none at all.
+    #[test]
+    fn capture_routing_is_marker_exact_and_theft_proof() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        seed_pane(&mut agg, "%1", "@0");
+        agg.queue_captures(&["%0".to_string(), "%1".to_string()]);
+
+        let response = |output: &str| ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: output.to_string(),
+            success: true,
+        };
+
+        // An interleaved unmarked ack (empty output) — must NOT be consumed
+        // as a capture for %0.
+        let r = agg.process_event(response(""));
+        assert!(
+            !matches!(r.change_type, ChangeType::PaneOutput { .. }),
+            "unmarked empty ack must not be routed as a capture"
+        );
+
+        // %1's capture arrives FIRST (marker-bracketed) — attribution must
+        // follow the marker, not the queue order.
+        agg.process_event(response(&format!("{CAPTURE_BEGIN_MARKER} 1\n")));
+        let r = agg.process_event(response("PANE_ONE_CONTENT\n"));
+        assert!(
+            matches!(r.change_type, ChangeType::PaneOutput { ref pane_id } if pane_id == "%1"),
+            "marked capture must be attributed to the pane in the marker"
+        );
+        agg.process_event(response(&format!("{CAPTURE_END_MARKER}\n")));
+        assert_eq!(
+            agg.panes.get_mut("%1").unwrap().get_content()[0]
+                .iter()
+                .map(|c| c.char.clone())
+                .collect::<String>()
+                .trim_end(),
+            "PANE_ONE_CONTENT"
+        );
+
+        // %0's capture follows and lands in %0 — no shifted attribution.
+        agg.process_event(response(&format!("{CAPTURE_BEGIN_MARKER} 0\n")));
+        let r = agg.process_event(response("PANE_ZERO_CONTENT\n"));
+        assert!(matches!(r.change_type, ChangeType::PaneOutput { ref pane_id } if pane_id == "%0"));
+        agg.process_event(response(&format!("{CAPTURE_END_MARKER}\n")));
+        assert_eq!(
+            agg.panes.get_mut("%0").unwrap().get_content()[0]
+                .iter()
+                .map(|c| c.char.clone())
+                .collect::<String>()
+                .trim_end(),
+            "PANE_ZERO_CONTENT"
+        );
+
+        // Both in-flight entries were consumed.
+        assert!(agg.pending_captures.is_empty());
+    }
+
+    /// tmux 3.7 strftime-expands display-message output: `%<digits>` in a
+    /// marker comes back mangled (observed: 67 spaces of padding). The id
+    /// therefore travels as bare digits and the router must tolerate
+    /// arbitrary padding around it.
+    #[test]
+    fn capture_marker_survives_strftime_padding() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%69", "@0");
+        agg.queue_captures(&["%69".to_string()]);
+
+        let response = |output: &str| ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: output.to_string(),
+            success: true,
+        };
+        // Real tmux 3.7 output shape for 'TMUXY_CAP_BEGIN 69'-style markers,
+        // with expansion padding thrown in.
+        agg.process_event(response(&format!(
+            "{CAPTURE_BEGIN_MARKER}                    69\n"
+        )));
+        let r = agg.process_event(response("PADDED_OK\n"));
+        assert!(
+            matches!(r.change_type, ChangeType::PaneOutput { ref pane_id } if pane_id == "%69")
+        );
+        agg.process_event(response(&format!("{CAPTURE_END_MARKER}\n")));
+        assert!(agg.pending_captures.is_empty());
+    }
+
+    /// A marked capture for a pane killed mid-flight is discarded — and its
+    /// in-flight entry is released so content preservation can't wedge.
+    #[test]
+    fn capture_for_dead_pane_is_discarded_and_released() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        agg.queue_captures(&["%9".to_string()]);
+
+        let response = |output: &str| ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: output.to_string(),
+            success: true,
+        };
+        agg.process_event(response(&format!("{CAPTURE_BEGIN_MARKER} 9\n")));
+        let r = agg.process_event(response("GHOST\n"));
+        assert!(!matches!(r.change_type, ChangeType::PaneOutput { .. }));
+        agg.process_event(response(&format!("{CAPTURE_END_MARKER}\n")));
+        assert!(agg.pending_captures.is_empty());
     }
 
     #[test]

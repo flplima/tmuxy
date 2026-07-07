@@ -22,7 +22,9 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
 }
 
 use tmuxy_core::constants::tmux_formats;
-use tmuxy_core::control_mode::{ControlModeEvent, Parser, SideEffect, StateAggregator};
+use tmuxy_core::control_mode::{
+    capture_command, ControlModeEvent, Parser, SideEffect, StateAggregator,
+};
 use tmuxy_core::StateUpdate;
 
 /// Result of feeding a chunk of control-mode text.
@@ -79,7 +81,7 @@ impl Session {
                     if !queued.is_empty() {
                         out.commands.push(tmux_formats::LIST_PANES_CMD.to_string());
                         for id in &queued {
-                            out.commands.push(format!("capture-pane -t {id} -p -e"));
+                            out.commands.push(capture_command(id));
                         }
                     }
                 }
