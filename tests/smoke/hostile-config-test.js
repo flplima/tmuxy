@@ -83,7 +83,7 @@ set-hook -g client-attached 'run-shell -b "sleep 0.2; tmux kill-server"'
 
 function cleanupTmuxSession(env) {
   try {
-    execSync(`tmux kill-session -t ${SESSION_NAME}`, { stdio: 'ignore', env });
+    execSync(`tmux -L ${process.env.TMUX_SOCKET || 'tmuxy'} kill-session -t ${SESSION_NAME}`, { stdio: 'ignore', env });
   } catch {
     // session may not exist
   }

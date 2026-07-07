@@ -15,6 +15,7 @@ const path = require('path');
 const os = require('os');
 const { WORKSPACE_ROOT } = require('./config');
 const { tmuxRun, tmuxQuery } = require('./cli');
+const { tmuxCmd } = require('./tmux-socket');
 
 /**
  * Get the path to the tmuxy config file
@@ -79,7 +80,7 @@ class TmuxTestSession {
    */
   runCommandSync(command) {
     try {
-      return execSync(`tmux ${command}`, { encoding: 'utf-8' }).trim();
+      return execSync(`${tmuxCmd()} ${command}`, { encoding: 'utf-8' }).trim();
     } catch (error) {
       console.error(`Failed to run tmux command: ${command}`, error.message);
       throw error;
@@ -165,7 +166,7 @@ class TmuxTestSession {
    */
   exists() {
     try {
-      execSync(`tmux has-session -t ${this.name} 2>/dev/null`, { stdio: 'ignore' });
+      execSync(`${tmuxCmd()} has-session -t ${this.name} 2>/dev/null`, { stdio: 'ignore' });
       return true;
     } catch {
       return false;

@@ -48,13 +48,14 @@ async function createSession(options = {}) {
   // can fail when the tmuxy config contains settings (like `window-size manual`)
   // that crash tmux on a fresh start without an attached client.
   const { execSync } = require('child_process');
+  const { tmuxCmd } = require('../../helpers/tmux-socket');
   try {
-    execSync(`tmux kill-session -t ${sessionName}`, { stdio: 'ignore' });
+    execSync(`${tmuxCmd()} kill-session -t ${sessionName}`, { stdio: 'ignore' });
   } catch {
     // Session may not exist yet
   }
   try {
-    execSync(`tmux new-session -d -s ${sessionName}`, { stdio: 'ignore' });
+    execSync(`${tmuxCmd()} new-session -d -s ${sessionName}`, { stdio: 'ignore' });
   } catch {
     // Session may already exist
   }
@@ -63,7 +64,7 @@ async function createSession(options = {}) {
   // auto-adopt path; we've seen that be flaky on slower CI runners even
   // with the in-process tag emission.
   try {
-    execSync(`tmux set-option -w -t ${sessionName}:0 @tmuxy-window-type tab`, { stdio: 'ignore' });
+    execSync(`${tmuxCmd()} set-option -w -t ${sessionName}:0 @tmuxy-window-type tab`, { stdio: 'ignore' });
   } catch {
     // Older tmux without user-options support — fall back to auto-adopt.
   }

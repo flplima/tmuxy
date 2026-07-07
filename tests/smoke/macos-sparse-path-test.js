@@ -87,7 +87,7 @@ function preflight() {
 
 function cleanupTmuxSession(env) {
   try {
-    execSync(`tmux kill-session -t ${SESSION_NAME}`, { stdio: 'ignore', env });
+    execSync(`tmux -L ${process.env.TMUX_SOCKET || 'tmuxy'} kill-session -t ${SESSION_NAME}`, { stdio: 'ignore', env });
   } catch {
     // session may not exist
   }

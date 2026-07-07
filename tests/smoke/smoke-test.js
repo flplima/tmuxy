@@ -40,7 +40,7 @@ const DEBUG_LOG = path.join(os.homedir(), 'tmuxy-debug.log');
 
 function cleanupTmuxSession() {
   try {
-    execSync(`tmux kill-session -t ${SESSION_NAME}`, { stdio: 'ignore' });
+    execSync(`tmux -L ${process.env.TMUX_SOCKET || 'tmuxy'} kill-session -t ${SESSION_NAME}`, { stdio: 'ignore' });
   } catch {
     // Session may not exist
   }

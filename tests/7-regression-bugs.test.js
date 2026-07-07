@@ -25,6 +25,7 @@ const {
   getCopyModeState,
   DELAYS,
 } = require('./helpers');
+const { tmuxCmd } = require('./helpers/tmux-socket');
 
 // ==================== Scenario: Content persistence after split/close ====================
 
@@ -1305,7 +1306,7 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
   // Ground truth straight from tmux: the window tmux itself considers active.
   const tmuxActiveWindow = () => {
     const out = require('child_process')
-      .execSync(`tmux list-windows -t ${ctx.session.name} -F '#{window_id}|#{window_active}'`, {
+      .execSync(`${tmuxCmd()} list-windows -t ${ctx.session.name} -F '#{window_id}|#{window_active}'`, {
         encoding: 'utf-8',
         timeout: 5000,
       })

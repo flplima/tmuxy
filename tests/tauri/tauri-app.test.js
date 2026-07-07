@@ -28,6 +28,7 @@ const {
   waitForRawWindowCount,
 } = require('./helpers/wdio-client');
 const { tmuxQuery } = require('../helpers/cli');
+const { tmuxCmd } = require('../helpers/tmux-socket');
 
 // Shared driver/session state for each test
 let driver = null;
@@ -44,18 +45,34 @@ afterEach(async () => {
     driver = null;
   }
 
-  // Kill tmux session
+  // Kill tmux session — and WAIT until it is actually gone. The app reuses
+  // the same session name across tests, so a kill that is still in flight
+  // when the next test's app starts leaves that test attached to a dying
+  // session: it reads a stale multi-pane baseline, then collapses to a fresh
+  // 1-pane session mid-test (the flaky delta-protocol failure).
   if (sessionName) {
+    const gone = () => {
+      try {
+        execSync(`${tmuxCmd()} has-session -t ${sessionName}`, { stdio: 'ignore' });
+        return false;
+      } catch {
+        return true;
+      }
+    };
     try {
-      execSync(`tmux kill-session -t ${sessionName}`, { stdio: 'ignore' });
+      execSync(`${tmuxCmd()} kill-session -t ${sessionName}`, { stdio: 'ignore' });
     } catch {
       // Session may already be gone
+    }
+    const deadline = Date.now() + 5000;
+    while (!gone() && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
     }
     sessionName = null;
   }
 
-  // Brief pause for cleanup
-  await new Promise((r) => setTimeout(r, 1000));
+  // Brief pause for process cleanup
+  await new Promise((r) => setTimeout(r, 500));
 });
 
 /**

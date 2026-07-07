@@ -8,13 +8,14 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { WORKSPACE_ROOT } = require('./config');
+const { tmuxCmd } = require('./tmux-socket');
 
 /**
  * Run a tmux command and return output
  */
 function runTmuxCommand(command) {
   try {
-    return execSync(`tmux ${command}`, { encoding: 'utf-8' }).trim();
+    return execSync(`${tmuxCmd()} ${command}`, { encoding: 'utf-8' }).trim();
   } catch (error) {
     console.error(`Failed to run tmux command: ${command}`, error.message);
     throw error;
@@ -33,10 +34,10 @@ function generateTestSessionName() {
  */
 function createTmuxSession(sessionName) {
   try {
-    execSync(`tmux has-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' });
+    execSync(`${tmuxCmd()} has-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' });
     // Session already exists
   } catch {
-    execSync(`tmux new-session -d -s ${sessionName} -x 120 -y 30`, { stdio: 'inherit' });
+    execSync(`${tmuxCmd()} new-session -d -s ${sessionName} -x 120 -y 30`, { stdio: 'inherit' });
   }
 }
 
@@ -45,7 +46,7 @@ function createTmuxSession(sessionName) {
  */
 function killTmuxSession(sessionName) {
   try {
-    execSync(`tmux kill-session -t ${sessionName}`, { stdio: 'ignore' });
+    execSync(`${tmuxCmd()} kill-session -t ${sessionName}`, { stdio: 'ignore' });
   } catch {
     // Session might not exist
   }

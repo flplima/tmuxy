@@ -1181,7 +1181,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('prefix t opens drawer → tree shows tabs/panes → focus + Enter activates a tab → Esc blurs → click-outside closes', async () => {
+  test('prefix t opens fixed sidebar → tree shows tabs/panes → focus + Enter activates a tab → Esc blurs → prefix t closes', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -1211,60 +1211,65 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     // Step 1: Open the sidebar via the real keybinding (prefix t).
     await sendPrefixCommand(ctx.page, 't');
 
-    // Step 2: Drawer appears and slides in to dock against the left edge.
-    // The drawer-left animation runs translateX(-100%)→0, so poll until the
-    // container settles at the left edge rather than measuring mid-slide.
-    await ctx.page.waitForSelector('.sidebar-drawer', { timeout: 20000 });
+    // Step 2: The FIXED sidebar column appears docked at the left edge (it is
+    // a flex sibling of the pane area, not an overlay — panes reflow beside it).
+    await ctx.page.waitForSelector('.sidebar-fixed', { timeout: 20000 });
     await waitForCondition(
       ctx.page,
       async () =>
         ctx.page.evaluate(() => {
-          const el =
-            document.querySelector('.sidebar-drawer .modal-container') ||
-            document.querySelector('.sidebar-drawer');
+          const el = document.querySelector('.sidebar-fixed');
           if (!el) return false;
           const r = el.getBoundingClientRect();
           return Math.abs(r.left) <= 2 && r.width > 50 && r.height > 100;
         }),
       8000,
-      'sidebar drawer to slide in and dock at the left edge',
+      'fixed sidebar to dock at the left edge',
     );
 
-    // Step 3: The tree TUI rendered real content — a pane id row or the tab
-    // marker is visible inside the drawer's terminal.
+    // Step 3: The tree rendered real rows — both windows' tabs are listed.
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(() => {
-          const content = document.querySelector('[data-testid="sidebar-content"]');
-          const text = content?.textContent || '';
-          return /%\d/.test(text) || /▸/.test(text);
-        }),
+        ctx.page.evaluate(
+          () => document.querySelectorAll('.sidebar-tree [role="treeitem"]').length >= 2,
+        ),
       20000,
-      'tree TUI content to render in the drawer',
+      'tree rows to render in the sidebar',
     );
 
-    // Step 4: Focus the sidebar (click) so keys route to the tree pane.
+    // Step 4: Focus the sidebar (click) so keys route to the tree.
     await ctx.page.click('[data-testid="sidebar-content"]');
     await waitForCondition(
       ctx.page,
-      async () => {
-        const id = await ctx.page.evaluate(
-          () => window.app?.getSnapshot()?.context?.focusedSidebarPaneId,
-        );
-        return id !== null && id !== undefined;
-      },
+      async () =>
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.sidebarFocused === true),
       5000,
-      'focusedSidebarPaneId set after click',
+      'sidebarFocused set after click',
     );
 
-    // Give the keyboard actor time to process UPDATE_FOCUSED_SIDEBAR (async
+    // Give the keyboard actor time to process UPDATE_SIDEBAR_FOCUSED (async
     // message from XState, may lag the context update).
     await delay(DELAYS.SYNC);
     await ctx.page.bringToFront();
 
-    // Step 5: Enter activates the selected row (row 0 = the first tab) → the
-    // active window switches back to the first window.
+    // Step 5: The tree's initial selection is the ACTIVE pane's row (under the
+    // second tab). Navigate up to row 0 — the first tab — (`k` clamps at the
+    // top, so extra presses are safe), then Enter activates it → the active
+    // window switches back to the first window.
+    for (let i = 0; i < 8; i++) {
+      await ctx.page.keyboard.press('k');
+    }
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const rows = document.querySelectorAll('.sidebar-tree [role="treeitem"]');
+          return rows.length > 0 && rows[0].classList.contains('is-selected');
+        }),
+      5000,
+      'selection to reach the first tree row',
+    );
     await ctx.page.keyboard.press('Enter');
     await waitForCondition(
       ctx.page,
@@ -1278,20 +1283,20 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       'tree Enter to activate the first window',
     );
 
-    // Step 6: Escape blurs the sidebar — drawer stays open, focus returns to panes.
+    // Step 6: Escape blurs the sidebar — the column stays open, focus returns
+    // to the panes.
     await ctx.page.keyboard.press('Escape');
     await waitForCondition(
       ctx.page,
-      async () => {
-        const id = await ctx.page.evaluate(
-          () => window.app?.getSnapshot()?.context?.focusedSidebarPaneId,
-        );
-        return id === null;
-      },
+      async () =>
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.sidebarFocused === false),
       5000,
-      'focusedSidebarPaneId cleared after Escape',
+      'sidebarFocused cleared after Escape',
     );
-    const stillOpen = await ctx.page.evaluate(() => !!document.querySelector('.sidebar-drawer'));
+    const stillOpen = await ctx.page.evaluate(() => {
+      const el = document.querySelector('.sidebar-fixed');
+      return !!el && el.getBoundingClientRect().width > 50;
+    });
     expect(stillOpen).toBe(true);
 
     // The header toggle reflects the open state.
@@ -1300,10 +1305,10 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     );
     expect(pressedWhileOpen).toBe('true');
 
-    // Step 7: Clicking the backdrop (outside the drawer) dismisses it — the
-    // drawer is removed and the toggle returns to its unpressed state.
-    await ctx.page.click('.sidebar-drawer .modal-backdrop');
-    await ctx.page.waitForFunction(() => !document.querySelector('.sidebar-drawer'), {
+    // Step 7: prefix t again closes the sidebar — the column is removed and
+    // the toggle returns to its unpressed state.
+    await sendPrefixCommand(ctx.page, 't');
+    await ctx.page.waitForFunction(() => !document.querySelector('.sidebar-fixed'), {
       timeout: 10000,
       polling: 100,
     });

@@ -10,6 +10,7 @@
 const { execSync } = require('child_process');
 const { stopTauriDriver } = require('./helpers/tauri-driver');
 const { stopXvfb } = require('./helpers/xvfb');
+const { tmuxCmd } = require('../helpers/tmux-socket');
 
 module.exports = async function globalTeardown() {
   console.warn('\n[tauri-e2e] Starting global teardown...');
@@ -24,13 +25,13 @@ module.exports = async function globalTeardown() {
 
   // Kill leftover test tmux sessions
   try {
-    const sessions = execSync('tmux list-sessions -F "#{session_name}" 2>/dev/null', {
+    const sessions = execSync(`${tmuxCmd()} list-sessions -F "#{session_name}" 2>/dev/null`, {
       encoding: 'utf-8',
     }).trim();
     for (const session of sessions.split('\n')) {
       if (session.startsWith('tauri_test_')) {
         try {
-          execSync(`tmux kill-session -t ${session}`, { stdio: 'ignore' });
+          execSync(`${tmuxCmd()} kill-session -t ${session}`, { stdio: 'ignore' });
         } catch {
           // Session already gone
         }

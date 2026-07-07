@@ -215,26 +215,31 @@ export const TabCreateRejected: Story = {
     await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
     const beforeTabs = canvas.getAllByRole('tab').length;
 
+    // The optimistic tab lives only ~60ms (until the rejection lands), so a
+    // polling waitFor misses it on a loaded machine — record the peak tab
+    // count with a MutationObserver instead (mutation records are queued
+    // synchronously, independent of poll timing).
+    let maxTabs = beforeTabs;
+    const observer = new MutationObserver(() => {
+      maxTabs = Math.max(maxTabs, canvas.queryAllByRole('tab').length);
+    });
+    observer.observe(canvasElement, { childList: true, subtree: true, attributes: true });
+
     const newTabButton = canvas.getByRole('button', { name: /create new tab/i });
     await user.click(newTabButton);
 
-    // Optimistic patch adds the tab.
-    await waitFor(
-      () => {
-        const tabs = canvas.getAllByRole('tab');
-        expect(tabs.length).toBe(beforeTabs + 1);
-      },
-      { timeout: 250 },
-    );
-
-    // Rejection rolls it back.
+    // Rejection rolls the optimistic tab back.
     await waitFor(
       () => {
         const tabs = canvas.getAllByRole('tab');
         expect(tabs.length).toBe(beforeTabs);
       },
-      { timeout: 1000 },
+      { timeout: 1500 },
     );
+    observer.disconnect();
+
+    // The optimistic tab DID appear at some point before the rollback.
+    expect(maxTabs).toBe(beforeTabs + 1);
 
     // The app is still alive — at least one tab is marked active.
     const tabsAfter = canvas.getAllByRole('tab');

@@ -116,23 +116,24 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev librsvg2-dev
 
-      # Cache tmux 3.5a binary so we don't recompile from source every run.
-      # Build cost is ~30-60s; cache restore is ~2s.
-      - name: Cache tmux 3.5a
+      # Cache the tmux binary so we don't recompile from source every run.
+      # Build cost is ~30-60s; cache restore is ~2s. 3.7a matches the
+      # devcontainer and the v86 guest — docs/TMUX.md targets it everywhere.
+      - name: Cache tmux 3.7a
         id: tmux-cache
         uses: actions/cache@v5
         with:
           path: |
             /usr/local/bin/tmux
             /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.5a-v1
+          key: ${{ runner.os }}-tmux-3.7a-v1
 
-      - name: Build tmux 3.5a (cache miss)
+      - name: Build tmux 3.7a (cache miss)
         if: steps.tmux-cache.outputs.cache-hit != 'true'
         run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz | tar xz
-          cd tmux-3.5a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.5a
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.7a
 
       - name: Confirm tmux version
         run: tmux -V
@@ -208,26 +209,26 @@ jobs:
             libjavascriptcoregtk-4.1-dev librsvg2-dev \
             webkit2gtk-driver xvfb x11-utils
 
-      # Match the `e2e` job's tmux version. Ubuntu's apt ships tmux 3.4, which
-      # has a race where the initial auto-adopt of `@tmuxy-window-type=tab`
-      # gets clobbered by an in-flight list-windows response under the load
-      # the new Ctx/Tower Tauri path puts on the CC stream at startup. 3.5a
-      # serializes that path correctly and matches the version users see.
-      - name: Cache tmux 3.5a
+      # Match the `e2e` job's tmux version (3.7a — the devcontainer / v86
+      # guest / docs/TMUX.md target). Ubuntu's apt ships tmux 3.4, which has a
+      # race where the initial auto-adopt of `@tmuxy-window-type=tab` gets
+      # clobbered by an in-flight list-windows response under the load the
+      # Ctx/Tower Tauri path puts on the CC stream at startup.
+      - name: Cache tmux 3.7a
         id: tmux-cache
         uses: actions/cache@v5
         with:
           path: |
             /usr/local/bin/tmux
             /usr/local/share/tmux
-          key: ${{ runner.os }}-tmux-3.5a-v1
+          key: ${{ runner.os }}-tmux-3.7a-v1
 
-      - name: Build tmux 3.5a (cache miss)
+      - name: Build tmux 3.7a (cache miss)
         if: steps.tmux-cache.outputs.cache-hit != 'true'
         run: |
-          curl -sL https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz | tar xz
-          cd tmux-3.5a && ./configure && make -j$(nproc) && sudo make install
-          cd .. && rm -rf tmux-3.5a
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.7a
 
       - name: Confirm tmux version
         run: tmux -V
@@ -319,7 +320,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-tree binary
+          # that build-v86-snapshot.mjs cross-compiles on a cache miss.
+          targets: wasm32-unknown-unknown,i686-unknown-linux-musl
 
       - uses: swatinem/rust-cache@v2
 

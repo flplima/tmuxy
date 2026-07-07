@@ -77,14 +77,16 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   ctx.beforeEach = async () => {
     if (!ctx.browserAvailable || !ctx.browser) return;
 
-    // Ensure tmux server is alive. Stress tests can crash tmux 3.5a;
-    // starting a throwaway session recovers the server for the next test.
+    // Ensure the tmuxy-socket tmux server is alive. Stress tests can crash
+    // older tmux; starting a throwaway session recovers the server for the
+    // next test.
+    const { tmuxCmd } = require('./tmux-socket');
     try {
-      require('child_process').execSync('tmux has-session 2>/dev/null', { timeout: 5000 });
+      require('child_process').execSync(`${tmuxCmd()} has-session 2>/dev/null`, { timeout: 5000 });
     } catch {
       try {
         require('child_process').execSync(
-          'tmux new-session -d -s _warmup && tmux kill-session -t _warmup',
+          `${tmuxCmd()} new-session -d -s _warmup && ${tmuxCmd()} kill-session -t _warmup`,
           {
             timeout: 10000,
             encoding: 'utf-8',
