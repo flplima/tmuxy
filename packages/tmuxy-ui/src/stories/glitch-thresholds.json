@@ -7,12 +7,12 @@
   "split": {
     "nodeFlickers": 0,
     "attrChurnEvents": 1,
-    "sizeJumps": 65
+    "sizeJumps": 1
   },
   "kill": {
     "nodeFlickers": 0,
     "attrChurnEvents": 1,
-    "sizeJumps": 65
+    "sizeJumps": 1
   },
   "resize": {
     "nodeFlickers": 0,
@@ -37,7 +37,7 @@
   "zoom": {
     "nodeFlickers": 0,
     "attrChurnEvents": 0,
-    "sizeJumps": 1
+    "sizeJumps": 0
   },
   "reconcile": {
     "nodeFlickers": 0,
@@ -52,7 +52,7 @@
   "layoutCycle": {
     "nodeFlickers": 0,
     "attrChurnEvents": 1,
-    "sizeJumps": 65
+    "sizeJumps": 0
   },
   "floatClose": {
     "nodeFlickers": 0,

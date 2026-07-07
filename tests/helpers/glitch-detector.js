@@ -47,9 +47,9 @@ const DEFAULT_OPTIONS = {
 /**
  * Per-operation thresholds, shared with the Storybook glitch recorder
  * (packages/tmuxy-ui/src/stories/glitchRecorder.ts) so both harnesses enforce
- * the same budgets. Split/kill allow size jumps because the 250ms CSS
- * transitions on .pane-layout-item produce ~15 jumps per pane at 60fps (~60
- * with 3 panes transitioning under load).
+ * the same budgets. Geometry changes snap in a single suppressed commit
+ * (suppressLayoutTransition), so split/kill budget exactly one jump: the
+ * survivor's intended re-rect. Anything above that is a real glitch.
  */
 const OPERATION_THRESHOLDS = require('../../packages/tmuxy-ui/src/stories/glitch-thresholds.json');
 
@@ -181,7 +181,10 @@ class GlitchDetector {
       // Start size polling
       data.sizeInterval = setInterval(() => {
         const ts = performance.now() - data.startTime;
-        const panes = document.querySelectorAll('.pane-layout-item, .pane-wrapper');
+        // Sample only .pane-layout-item (the geometry owner) — its inner
+        // .pane-wrapper mirrors every rect change, so sampling both counted
+        // each snap twice for the same pane id.
+        const panes = document.querySelectorAll('.pane-layout-item');
 
         const snapshot = {
           ts,

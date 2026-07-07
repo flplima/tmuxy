@@ -56,6 +56,39 @@ type Canvas = ReturnType<typeof within>;
 const paneGroups = (canvas: Canvas) => canvas.getAllByRole('group', { name: /^Pane %/i });
 
 /**
+ * Progress-aware wait for a streamed output burst. Throughput stories guard
+ * INTEGRITY (no dropped/corrupted bytes), not latency: on a loaded CI runner
+ * the shared emulator streams arbitrarily slowly, and a fixed deadline flakes
+ * exactly when the machine is busiest. Keeps waiting while the pane content
+ * still makes progress; throws only when the stream stalls short of the
+ * expected tail, or at a hard cap.
+ */
+async function waitForBurstTail(
+  canvas: Canvas,
+  sawTail: (text: string) => boolean,
+  { capMs = 180000, stallMs = 45000 }: { capMs?: number; stallMs?: number } = {},
+): Promise<void> {
+  const burstText = () =>
+    paneGroups(canvas)
+      .map((p: HTMLElement) => p.textContent ?? '')
+      .join('\n');
+  const deadline = performance.now() + capMs;
+  let last = '';
+  let lastProgress = performance.now();
+  while (performance.now() < deadline && !sawTail(burstText())) {
+    const cur = burstText();
+    if (cur !== last) {
+      last = cur;
+      lastProgress = performance.now();
+    } else if (performance.now() - lastProgress > stallMs) {
+      break; // stream stalled without reaching the expected tail
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  expect(sawTail(burstText())).toBe(true);
+}
+
+/**
  * Wait for the booted 2-pane session, focus the first pane, and — crucially —
  * wait for the select-pane round-trip so the active-pane send target is stable
  * before we drive input. The still-settling v86 boot (initial list-panes/
@@ -690,13 +723,11 @@ export const Throughput: Story = {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
     pasteLine('seq 1 200');
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) => /(^|\D)200(\D|$)/.test(p.textContent ?? '')),
-        ).toBe(true),
-      { timeout: 40000, interval: 500 },
-    );
+    // Terminal rows concatenate with no separator in textContent, so match
+    // the contiguous tail "198199200" (like ThroughputSustained) — the digit
+    // run doubles as the in-order-delivery check; a lone /\b200\b/ can never
+    // match ("199" always precedes it with no whitespace between rows).
+    await waitForBurstTail(canvas, (text) => /198199200(\D|$)/.test(text.replace(/\s+/g, '')));
   },
 };
 
@@ -2963,15 +2994,7 @@ export const ThroughputSustained: Story = {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
     pasteLine('seq 1 2000');
-    await waitFor(
-      () =>
-        expect(
-          paneGroups(canvas).some((p: HTMLElement) =>
-            /199819992000/.test((p.textContent ?? '').replace(/\s+/g, '')),
-          ),
-        ).toBe(true),
-      { timeout: 60000, interval: 700 },
-    );
+    await waitForBurstTail(canvas, (text) => /199819992000/.test(text.replace(/\s+/g, '')));
   },
 };
 
@@ -3663,9 +3686,10 @@ export const ZoomOptimisticTimeline: Story = {
     // ops.test.ts); this story verifies the clean zoom → unzoom round-trip.
     await new Promise((r) => setTimeout(r, 1500));
 
-    // The zoom animated exactly once — no flicker, no attribute churn (the
-    // CSS transition legitimately interpolates the size at 60fps).
-    glitches.assertNoGlitches('zoom', { sizeJumps: 65 });
+    // The zoom landed in a single suppressed snap — no flicker, no attribute
+    // churn, no intermediate geometry frames (suppressLayoutTransition rides
+    // the same commit as the zoom's rect change).
+    glitches.assertNoGlitches('zoom');
 
     // Unzoom: server round-trip restores the original layout.
     await user.keyboard('{Control>}a{/Control}');
