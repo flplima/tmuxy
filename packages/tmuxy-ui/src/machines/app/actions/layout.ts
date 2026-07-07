@@ -3,7 +3,7 @@
  *
  * Owns context fields: panes, windows, activeWindowId, activePaneId,
  * paneActivationOrder, lastActivePaneByWindow,
- * paneKeyOverrides, pendingSelectTabAt, pendingUpdate, lastLayoutCommandTime,
+ * paneKeyOverrides, pendingUpdate, lastLayoutCommandTime,
  * drag, resize, resizeActive, suppressLayoutTransition.
  *
  * MIGRATED HERE (the cleanly-layout-owned events):
@@ -27,14 +27,6 @@ import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
-
-/**
- * How long an optimistic SELECT_TAB pin holds `activeWindowId` over stale
- * server snapshots before the server's value wins. Shared between the
- * snapshot-driven grace in TMUX_MODEL_UPDATE and the timer-driven
- * RECONCILE_SELECT_TAB safety net that fires when no snapshot follows.
- */
-export const SELECT_TAB_GRACE_MS = 200;
 
 export const layoutActions = {
   layout_sendKeysToTmux: enqueueActions<
@@ -138,7 +130,6 @@ export const layoutActions = {
         targetPanes[0]?.tmuxId ??
         null;
 
-      const flippedAt = Date.now();
       enqueue(
         assign({
           activeWindowId: event.windowId,
@@ -149,7 +140,6 @@ export const layoutActions = {
           // grid flipped optimistically.
           windows: context.windows.map((w) => ({ ...w, active: w.id === event.windowId })),
           lastActivePaneByWindow,
-          pendingSelectTabAt: flippedAt,
         }),
       );
 
@@ -172,84 +162,8 @@ export const layoutActions = {
           }),
         );
       }
-
-      // Safety net: the optimistic pin above is only ever resolved by a future
-      // TMUX_MODEL_UPDATE snapshot. On an idle terminal no snapshot follows a
-      // switch, so a wrong prediction (tmux didn't actually land on this window)
-      // would stick forever — the UI renders the wrong tab's panes indefinitely.
-      // Fire a self-event once the grace period elapses to force reconciliation
-      // against server truth even in the no-snapshot case.
-      enqueue(({ self }) => {
-        setTimeout(() => {
-          self.send({ type: 'RECONCILE_SELECT_TAB', scheduledAt: flippedAt });
-        }, SELECT_TAB_GRACE_MS + 50);
-      });
     },
   ),
-
-  /**
-   * Timer-driven resolution of a SELECT_TAB optimistic pin (see layout_selectTab).
-   * Runs only when the pin is still outstanding and hasn't been superseded by a
-   * newer switch. Reconciles `activeWindowId` to the server's actual active
-   * window — derived from the `active` flag on `context.windows`. Note that
-   * SELECT_TAB now flips those flags optimistically at click time (for the
-   * tab strip's aria-selected), so this timer path is best-effort: it catches
-   * stale pins when a snapshot HAS refreshed the flags, and the next real
-   * snapshot reconciles the rest. A confirming/correcting snapshot would
-   * already have cleared `pendingSelectTabAt` before this fires.
-   */
-  layout_reconcileSelectTab: enqueueActions<
-    Ctx,
-    Evt,
-    undefined,
-    Evt,
-    never,
-    never,
-    never,
-    never,
-    never
-  >(({ event, context, enqueue }) => {
-    if (event.type !== 'RECONCILE_SELECT_TAB') return;
-    // Already resolved by a snapshot, or superseded by a newer SELECT_TAB.
-    if (context.pendingSelectTabAt === null) return;
-    if (context.pendingSelectTabAt !== event.scheduledAt) return;
-
-    const serverActive = context.windows.find((w) => w.windowType === 'tab' && w.active);
-
-    // No active tab to reconcile to — just drop the pin so the next snapshot wins.
-    if (!serverActive || serverActive.id === context.activeWindowId) {
-      enqueue(assign({ pendingSelectTabAt: null }));
-      return;
-    }
-
-    // Optimistic prediction diverged from server truth. Snap back to the real
-    // active window and its remembered (or active) pane.
-    const targetPanes = context.panes.filter((p) => p.windowId === serverActive.id);
-    const remembered = context.lastActivePaneByWindow[serverActive.id];
-    const rememberedExists = remembered && targetPanes.some((p) => p.tmuxId === remembered);
-    const targetPaneId =
-      (rememberedExists ? remembered : null) ??
-      targetPanes.find((p) => p.active)?.tmuxId ??
-      targetPanes[0]?.tmuxId ??
-      null;
-
-    enqueue(
-      assign({
-        activeWindowId: serverActive.id,
-        activePaneId: targetPaneId,
-        pendingSelectTabAt: null,
-      }),
-    );
-
-    if (targetPaneId !== context.activePaneId) {
-      enqueue(
-        sendTo('keyboard', {
-          type: 'UPDATE_ACTIVE_PANE' as const,
-          paneId: targetPaneId,
-        }),
-      );
-    }
-  }),
 
   layout_forwardKeyToDragResize: enqueueActions<
     Ctx,

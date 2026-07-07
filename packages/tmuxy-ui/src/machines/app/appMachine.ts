@@ -33,7 +33,7 @@ import { copyModeActions, copyModeExitTimes, COPY_MODE_REENTRY_COOLDOWN } from '
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
-import { layoutActions, SELECT_TAB_GRACE_MS } from './actions/layout';
+import { layoutActions } from './actions/layout';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import type { TmuxClientModel, TmuxSnapshot } from '../../tmux/store';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
@@ -692,40 +692,6 @@ export const appMachine = setup({
               if (!opsInFlight && switchingWindow && !newActiveHasPanes && currentlyRenderingPanes)
                 return;
 
-              // Pending SELECT_TAB grace: state snapshots emitted before tmux
-              // processed `select-window` still carry the old activeWindowId.
-              // While our optimistic flip is pending, hold onto it so the UI
-              // doesn't bounce A → B → A → B as those stale snapshots arrive.
-              // Cleared on the first snapshot that confirms our target.
-              // Tight window — panes stay mounted across tab switches now, so
-              // any residual bounce is a cheap CSS class flip, not a remount.
-              let pendingSelectTabAt = context.pendingSelectTabAt;
-              if (pendingSelectTabAt !== null) {
-                const elapsed = Date.now() - pendingSelectTabAt;
-                if (transformed.activeWindowId === context.activeWindowId) {
-                  // Server confirmed our target — clear pending.
-                  pendingSelectTabAt = null;
-                } else if (elapsed < SELECT_TAB_GRACE_MS) {
-                  // Hold our optimistic active window over the stale snapshot.
-                  // Pane content updates in `transformed.panes` still flow
-                  // through; only the active-window/active-pane fields are pinned.
-                  transformed.activeWindowId = context.activeWindowId;
-                  if (context.activePaneId) {
-                    transformed.activePaneId = context.activePaneId;
-                  }
-                  // The tab strip renders windows[].active (aria-selected) —
-                  // pin the flags to the held window too, or the highlight
-                  // flaps A → B → A even though the pane grid stays pinned.
-                  transformed.windows = transformed.windows.map((w) => ({
-                    ...w,
-                    active: w.id === context.activeWindowId,
-                  }));
-                } else {
-                  // Grace expired without confirmation — let server win.
-                  pendingSelectTabAt = null;
-                }
-              }
-
               // During group switch: freeze every pane involved in a non-expired
               // swap to its optimistic (post-swap) state so the 500 ms window
               // hides nvim's full-redraw flicker. Rapid follow-up clicks add
@@ -1112,7 +1078,6 @@ export const appMachine = setup({
                       ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
                       : ctx.paneActivationOrder,
                   lastActivePaneByWindow,
-                  pendingSelectTabAt,
                 })),
               );
               // Mirror the MRU order into the store's predict context — the

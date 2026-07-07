@@ -106,7 +106,6 @@ describe('layout state', () => {
     });
     expect(ctx.activeWindowId).toBe('@1');
     expect(ctx.activePaneId).toBe('%1');
-    expect(ctx.pendingSelectTabAt).toBeTruthy();
     // Outgoing window's active pane was recorded for restore-on-return
     expect(ctx.lastActivePaneByWindow['@0']).toBe('%0');
   });
@@ -114,14 +113,15 @@ describe('layout state', () => {
   it('SELECT_TAB is a no-op when already on the target window', () => {
     const actor = mountState(layoutState, layoutActions, layoutGuards, {
       activeWindowId: '@5',
-      pendingSelectTabAt: null,
+      windows: [],
     });
     const ctx = sendAndGetContext(actor, {
       type: 'SELECT_TAB',
       windowId: '@5',
       windowIndex: 5,
     });
-    expect(ctx.pendingSelectTabAt).toBeNull();
+    // No flip and no dispatch — active window unchanged.
+    expect(ctx.activeWindowId).toBe('@5');
   });
 
   it('RESIZE_STATE_UPDATE writes resize and resizeActive flag', () => {

@@ -236,12 +236,6 @@ export interface AppMachineContext {
   /** Per-window most-recently-active pane ID, populated from server state and
    *  used by SELECT_TAB to pick the optimistic focus when switching tabs. */
   lastActivePaneByWindow: Record<string, string>;
-  /** Timestamp of the most recent SELECT_TAB optimistic flip. While set,
-   *  TMUX_STATE_UPDATE merges hold our optimistic activeWindowId and won't
-   *  let stale server snapshots (emitted before tmux processed select-window)
-   *  bounce the UI back to the previous tab. Cleared when server confirms
-   *  the same window or after a stale grace period. */
-  pendingSelectTabAt: number | null;
 }
 
 // ============================================
@@ -480,19 +474,6 @@ export type SelectTabEvent = {
   windowIndex: number;
 };
 
-/**
- * Self-sent after a SELECT_TAB's optimistic grace period to guarantee the
- * pin resolves even when no server snapshot follows (idle terminal). Without
- * this, a wrong optimistic `activeWindowId` would stick forever, since the
- * grace logic only re-evaluates on incoming TMUX_MODEL_UPDATE snapshots.
- * `scheduledAt` matches the `pendingSelectTabAt` stamped at flip time so a
- * superseded switch (newer SELECT_TAB) is ignored.
- */
-export type ReconcileSelectTabEvent = {
-  type: 'RECONCILE_SELECT_TAB';
-  scheduledAt: number;
-};
-
 // Copy mode events
 export type EnterCopyModeEvent = {
   type: 'ENTER_COPY_MODE';
@@ -654,7 +635,6 @@ export type AppMachineEvent =
   | SelectPaneGroupTabEvent
   | CreateTabEvent
   | SelectTabEvent
-  | ReconcileSelectTabEvent
   | ZoomPaneEvent
   | CloseFloatEvent
   | CloseTopFloatEvent
