@@ -69,33 +69,6 @@ describe('groupsAndFloats state', () => {
     expect(ctx.focusedFloatPaneId).toBeNull();
   });
 
-  it('CLEAR_GROUP_SWITCH_OVERRIDE keeps fresh entries (<750ms old)', () => {
-    const fresh = {
-      paneId: 'p1',
-      fromPaneId: 'p2',
-      x: 0,
-      y: 0,
-      width: 80,
-      height: 24,
-      timestamp: Date.now() - 200,
-    };
-    const stale = {
-      paneId: 'p3',
-      fromPaneId: 'p4',
-      x: 0,
-      y: 0,
-      width: 80,
-      height: 24,
-      timestamp: Date.now() - 1000,
-    };
-    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
-      groupSwitchDimOverrides: [fresh, stale],
-    });
-    const ctx = sendAndGetContext(actor, { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' });
-    expect(ctx.groupSwitchDimOverrides).toHaveLength(1);
-    expect(ctx.groupSwitchDimOverrides[0].paneId).toBe('p1');
-  });
-
   it('OPEN_SESSION_FLOAT does not crash and leaves context unchanged', () => {
     const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards);
     const before = actor.getSnapshot().context.floatPanes;

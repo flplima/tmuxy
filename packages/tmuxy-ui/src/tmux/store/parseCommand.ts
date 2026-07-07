@@ -172,6 +172,10 @@ export function toTmuxCommand(op: TmuxOp): string {
         : `rename-window -- '${op.name.replace(/'/g, "'\\''")}'`;
     case 'ZoomToggle':
       return op.paneId ? `resize-pane -t ${op.paneId} -Z` : 'resize-pane -Z';
+    case 'GroupSwitch':
+      // Canonical form mirrors the SELECT_PANE_GROUP_TAB dispatch; callers
+      // always pass the explicit command, so this is a fallback only.
+      return `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${op.clickedPaneId}"`;
     case 'SelectWindow':
       if (op.target === 'next') return 'next-window';
       if (op.target === 'previous') return 'previous-window';

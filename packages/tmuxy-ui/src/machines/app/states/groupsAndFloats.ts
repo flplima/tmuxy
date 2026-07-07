@@ -2,15 +2,15 @@
  * groupsAndFloats state — parallel state for pane groups and float panes.
  *
  * Owns context fields: paneGroups, floatPanes, focusedFloatPaneId,
- * groupSwitchDimOverrides, sidebarOpen, sidebarFocused.
+ * sidebarOpen, sidebarFocused.
  *
  * - groupsAndFloatsGlobalEvents: spread into machine root on:
  *   (OPEN_SESSION_FLOAT, OPEN_CONNECT_FLOAT, TOGGLE_SIDEBAR — pure side-effect
  *    dispatches that work in any state).
  *
  * - groupsAndFloatsIdleEvents: spread into states.idle.on
- *   (CLOSE_FLOAT, CLOSE_TOP_FLOAT, CLEAR_GROUP_SWITCH_OVERRIDE,
- *    FOCUS_SIDEBAR, BLUR_SIDEBAR — require a live connection).
+ *   (CLOSE_FLOAT, CLOSE_TOP_FLOAT, FOCUS_SIDEBAR, BLUR_SIDEBAR —
+ *    require a live connection).
  *
  * SELECT_PANE_GROUP_TAB stays inline in appMachine.ts (cross-cutting with
  * layout). It will be revisited during the layout migration.
@@ -25,7 +25,6 @@ export const groupsAndFloatsGlobalEvents = {
 export const groupsAndFloatsIdleEvents = {
   CLOSE_FLOAT: { actions: 'groupsAndFloats_closeFloat' },
   CLOSE_TOP_FLOAT: { actions: 'groupsAndFloats_closeTopFloat' },
-  CLEAR_GROUP_SWITCH_OVERRIDE: { actions: 'groupsAndFloats_clearGroupSwitchOverride' },
   FOCUS_SIDEBAR: { actions: 'groupsAndFloats_focusSidebar' },
   BLUR_SIDEBAR: { actions: 'groupsAndFloats_blurSidebar' },
 } as const;

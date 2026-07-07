@@ -692,35 +692,6 @@ export const appMachine = setup({
               if (!opsInFlight && switchingWindow && !newActiveHasPanes && currentlyRenderingPanes)
                 return;
 
-              // During group switch: freeze every pane involved in a non-expired
-              // swap to its optimistic (post-swap) state so the 500 ms window
-              // hides nvim's full-redraw flicker. Rapid follow-up clicks add
-              // more entries to the override array; the union of `paneId` +
-              // `fromPaneId` across all fresh entries is what stays pinned —
-              // dropping a single entry on every new click is what caused the
-              // visible blink when users mashed pane-group tabs.
-              const freshOverrides = context.groupSwitchDimOverrides.filter(
-                (o) => Date.now() - o.timestamp < 500,
-              );
-              if (freshOverrides.length > 0) {
-                const involved = new Set<string>();
-                for (const o of freshOverrides) {
-                  involved.add(o.paneId);
-                  involved.add(o.fromPaneId);
-                }
-                const currentPanesMap = new Map(context.panes.map((p) => [p.tmuxId, p]));
-                transformed.panes = transformed.panes.map((p) => {
-                  if (involved.has(p.tmuxId)) {
-                    // Every involved pane (protected target or hidden peer)
-                    // gets the optimistic state from context so it doesn't
-                    // briefly jump back to the server's pre-swap windowId.
-                    return currentPanesMap.get(p.tmuxId) ?? p;
-                  }
-                  return p;
-                });
-                transformed.activePaneId = context.activePaneId;
-              }
-
               // Optimistic reconciliation moved out of XState — TmuxStore owns
               // it now. By the time TMUX_MODEL_UPDATE fires, `event.model.derived`
               // already includes any in-flight predicted patches, and
@@ -870,50 +841,6 @@ export const appMachine = setup({
               const currentPaneIds = context.panes.map((p) => p.tmuxId);
               const newPaneIds = transformed.panes.map((p) => p.tmuxId);
               const addedPanes = newPaneIds.filter((id) => !currentPaneIds.includes(id));
-
-              // Detect group switch reactively: when a TMUX_STATE_UPDATE shows
-              // a different visible pane in a group vs the previous state, push
-              // a new dim-override entry. This catches CLI-initiated swaps
-              // that didn't go through the optimistic SELECT_PANE_GROUP_TAB
-              // path. For click-initiated swaps the override is already in the
-              // array from the handler — the reactive path here is purely a
-              // fallback and only fires when the visible peer changed without
-              // a matching pre-existing override.
-              const prunedOverrides = context.groupSwitchDimOverrides.filter(
-                (o) => Date.now() - o.timestamp < 750,
-              );
-              let groupSwitchOverrides = prunedOverrides;
-              for (const group of Object.values(paneGroups)) {
-                const newVisibleId = group.paneIds.find((id) => {
-                  const p = transformed.panes.find((pp) => pp.tmuxId === id);
-                  return p?.windowId === transformed.activeWindowId;
-                });
-                const prevGroup = context.paneGroups[group.id];
-                const prevVisibleId = prevGroup?.paneIds.find((id) => {
-                  const p = context.panes.find((pp) => pp.tmuxId === id);
-                  return p?.windowId === context.activeWindowId;
-                });
-                if (newVisibleId && prevVisibleId && newVisibleId !== prevVisibleId) {
-                  const alreadyPinned = groupSwitchOverrides.some((o) => o.paneId === newVisibleId);
-                  if (alreadyPinned) break;
-                  const newVisible = transformed.panes.find((p) => p.tmuxId === newVisibleId);
-                  if (newVisible) {
-                    groupSwitchOverrides = [
-                      ...groupSwitchOverrides,
-                      {
-                        paneId: newVisibleId,
-                        fromPaneId: prevVisibleId,
-                        x: newVisible.x,
-                        y: newVisible.y,
-                        width: newVisible.width,
-                        height: newVisible.height,
-                        timestamp: Date.now(),
-                      },
-                    ];
-                  }
-                  break;
-                }
-              }
 
               // Detect tmux entering copy mode (e.g. prefix+[) — init client-side copy mode
               let updatedCopyModeStates = context.copyModeStates;
@@ -1068,7 +995,15 @@ export const appMachine = setup({
                   // During active resize, keep the preview to avoid size jumps
                   // from intermediate %layout-change events.
                   resize: ctx.resizeActive ? ctx.resize : null,
-                  groupSwitchDimOverrides: groupSwitchOverrides,
+                  // Panes involved in in-flight GroupSwitch ops — mirrored
+                  // from the store's op log so selectGroupSwitchPaneIds can
+                  // suppress CSS transitions on the swapped panes without
+                  // any machine-side timers.
+                  groupSwitchPaneIds: ev.model.ops.flatMap((pendingOp) =>
+                    pendingOp.op._tag === 'GroupSwitch'
+                      ? [pendingOp.op.clickedPaneId, pendingOp.op.visiblePaneId]
+                      : [],
+                  ),
                   // Stable React key overrides for morphed placeholders —
                   // owned by TmuxStore now, mirrored into context for selectors.
                   paneKeyOverrides: ev.model.paneKeyOverrides,
@@ -1106,23 +1041,6 @@ export const appMachine = setup({
               // The drag machine maintains its own optimistic pane positions after
               // each swap. Server state updates arrive asynchronously and would
               // overwrite the optimistic positions, causing target detection to break.
-
-              // Schedule the post-swap refresh only when the reactive detector
-              // ADDED a brand new entry (i.e. a CLI-initiated swap we hadn't
-              // already pinned from a click). Click-initiated swaps schedule
-              // their own refresh in the SELECT_PANE_GROUP_TAB handler.
-              const reactivelyAddedNewEntry = groupSwitchOverrides.length > prunedOverrides.length;
-              if (reactivelyAddedNewEntry) {
-                const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
-                enqueue(({ self }) => {
-                  setTimeout(() => {
-                    self.send({ type: 'CLEAR_GROUP_SWITCH_OVERRIDE' });
-                  }, 750);
-                  setTimeout(() => {
-                    self.send({ type: 'SEND_COMMAND', command: listPanesCmd });
-                  }, 550);
-                });
-              }
 
               // Trigger enter animation for new panes
               if (addedPanes.length > 0 && currentPaneIds.length > 0) {
@@ -1620,54 +1538,23 @@ export const appMachine = setup({
               return;
             }
 
-            // Optimistic swap: clicked pane takes the visible slot, the
-            // previously-visible pane goes to the clicked pane's old window.
-            // Mirrors the pane-group-switch shell script's swap-pane effect.
-            const clickedWindowId = clickedPane.windowId;
-            const optimisticPanes = context.panes.map((p) => {
-              if (p.tmuxId === clickedPaneId) {
-                return {
-                  ...p,
-                  windowId: visiblePane.windowId,
-                  x: visiblePane.x,
-                  y: visiblePane.y,
-                  width: visiblePane.width,
-                  height: visiblePane.height,
-                  active: true,
-                };
-              }
-              if (p.tmuxId === visiblePane.tmuxId) {
-                return { ...p, windowId: clickedWindowId, active: false };
-              }
-              return p;
-            });
-
-            // Append a new dim-override entry (don't replace) so a rapid
-            // follow-up click can't strip an earlier swap's protection. The
-            // TMUX_STATE_UPDATE freeze union-pins every involved pane from
-            // every non-expired entry, which is what stops the previously-
-            // visible pane briefly flashing back during nvim's redraw.
-            const newOverride = {
-              paneId: clickedPaneId,
-              fromPaneId: visiblePane.tmuxId,
-              x: visiblePane.x,
-              y: visiblePane.y,
-              width: visiblePane.width,
-              height: visiblePane.height,
-              timestamp: Date.now(),
-            };
-            const groupSwitchDimOverrides = [
-              ...context.groupSwitchDimOverrides.filter(
-                (o) => Date.now() - o.timestamp < 500 && o.paneId !== clickedPaneId,
-              ),
-              newOverride,
-            ];
-
+            // Through the STORE: the GroupSwitch op's patch swaps the two
+            // panes' window/geometry/active in `derived` immediately, holds
+            // the swap over stale pre-confirm snapshots with the confirm
+            // linger, and self-neutralizes if either pane disappears —
+            // replacing the dim-override freeze and its 500/550/750ms timers
+            // (review follow-up #8: one owner per optimistic hold). The
+            // post-swap content refresh is the core's job now: window/layout
+            // changes queue marker-routed captures for the moved panes.
             enqueue(
-              assign({
-                panes: optimisticPanes,
-                activePaneId: clickedPaneId,
-                groupSwitchDimOverrides,
+              sendTo('tmuxStore', {
+                type: 'DISPATCH_OP' as const,
+                op: {
+                  _tag: 'GroupSwitch' as const,
+                  clickedPaneId,
+                  visiblePaneId: visiblePane.tmuxId,
+                },
+                command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${clickedPaneId}"`,
               }),
             );
 
@@ -1677,26 +1564,6 @@ export const appMachine = setup({
                 paneId: clickedPaneId,
               }),
             );
-
-            enqueue(
-              sendTo('tmux', {
-                type: 'SEND_COMMAND' as const,
-                command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${clickedPaneId}"`,
-              }),
-            );
-
-            // Same post-swap refresh schedule as the reactive detector: clear
-            // the override at 750ms and force a list-panes refresh at 550ms
-            // so correct content arrives after the freeze releases.
-            const listPanesCmd = `list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}'`;
-            enqueue(({ self }) => {
-              setTimeout(() => {
-                self.send({ type: 'CLEAR_GROUP_SWITCH_OVERRIDE' });
-              }, 750);
-              setTimeout(() => {
-                self.send({ type: 'SEND_COMMAND', command: listPanesCmd });
-              }, 550);
-            });
           }),
         },
         // SELECT_TAB, ZOOM_PANE, WRITE_TO_PANE — handled by layoutState
@@ -1733,10 +1600,6 @@ export const appMachine = setup({
           }),
         },
 
-        // Re-filter expired entries (each switch schedules its own clear at
-        // +750 ms; entries from rapid follow-up clicks stay until their own
-        // timers fire, so this can't blindly nullify the array).
-        // CLEAR_GROUP_SWITCH_OVERRIDE — handled by groupsAndFloatsIdleEvents
         // CLEAR_LAYOUT_TRANSITION_SUPPRESSION — handled by layoutState
       },
     },

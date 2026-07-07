@@ -182,29 +182,13 @@ export interface AppMachineContext {
   /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
   paneActivationOrder: string[];
   /**
-   * In-flight pane-group swaps awaiting tmux's swap-pane round-trip.
-   *
-   * Each entry pins one swap's "protected" (newly visible) pane and its
-   * "from" pane (the previously-visible peer that's been pushed into the
-   * hidden group window). The TMUX_STATE_UPDATE freeze logic preserves
-   * every pane in the union of all non-expired entries, so a rapid
-   * follow-up click can't strip an earlier swap's protection — which is
-   * what caused the visible content blink when users mashed pane-group
-   * tabs faster than tmux could process swap-pane.
-   *
-   * Stored newest-last (the latest click is the active dim-override
-   * source for `selectPreviewPanes`). Entries are pruned at 500 ms by
-   * the consumers; CLEAR_GROUP_SWITCH_OVERRIDE re-filters at 750 ms.
+   * Pane IDs involved in in-flight GroupSwitch store ops — mirrored from
+   * `model.ops` on every TMUX_MODEL_UPDATE so selectors can suppress CSS
+   * transitions on the swapped panes while the swap is unconfirmed. The
+   * geometry/window pinning itself lives in the op's optimistic patch
+   * (see store/ops.ts predictGroupSwitch); no timers, no overrides.
    */
-  groupSwitchDimOverrides: Array<{
-    paneId: string;
-    fromPaneId: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    timestamp: number;
-  }>;
+  groupSwitchPaneIds: string[];
   /** Command mode state (tmux command prompt) */
   commandMode: {
     prompt: string;
@@ -528,7 +512,6 @@ export type CopyModeLineSelectEvent = {
 };
 
 // Group switch detection event (fired internally when switch detected in state update)
-export type ClearGroupSwitchOverrideEvent = { type: 'CLEAR_GROUP_SWITCH_OVERRIDE' };
 export type ClearLayoutTransitionSuppressionEvent = { type: 'CLEAR_LAYOUT_TRANSITION_SUPPRESSION' };
 export type EnableAnimationsEvent = { type: 'ENABLE_ANIMATIONS' };
 
@@ -628,7 +611,6 @@ export type AppMachineEvent =
   | CopyModeKeyEvent
   | CopyModeWordSelectEvent
   | CopyModeLineSelectEvent
-  | ClearGroupSwitchOverrideEvent
   | ClearLayoutTransitionSuppressionEvent
   | EnableAnimationsEvent
   | ClosePaneEvent

@@ -25,15 +25,11 @@ import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/
 function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   const { panes, resize, drag, charWidth, charHeight, activeWindowId, activePaneId } = context;
 
-  // Use the latest non-expired entry — only the most recent swap's target
-  // needs the dim-override coordinates applied; previous-click targets are
-  // already filtered out by the active-window guard since their swaps moved
-  // them off-screen.
-  const overrides = context.groupSwitchDimOverrides;
-  const dimOverride = overrides.length > 0 ? overrides[overrides.length - 1] : null;
-  const applyDimOverride = dimOverride && Date.now() - dimOverride.timestamp < 500;
+  // Group-switch geometry pinning lives in the GroupSwitch op's optimistic
+  // patch (store/ops.ts) — by the time panes reach context they already
+  // reflect the swap, so no per-selector override pass is needed here.
 
-  // Single pass: filter to active window + apply active/dimOverride/drag transforms
+  // Single pass: filter to active window + apply active/drag transforms
   const activePanes: TmuxPane[] = [];
   for (const pane of panes) {
     if (activeWindowId && pane.windowId !== activeWindowId) continue;
@@ -41,18 +37,11 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
     let result = pane;
     const shouldBeActive = pane.tmuxId === activePaneId;
     const needsActiveUpdate = pane.active !== shouldBeActive;
-    const needsDimOverride = applyDimOverride && pane.tmuxId === dimOverride!.paneId;
     const needsDragOverride = drag && pane.tmuxId === drag.draggedPaneId;
 
-    if (needsActiveUpdate || needsDimOverride || needsDragOverride) {
+    if (needsActiveUpdate || needsDragOverride) {
       result = { ...pane };
       if (needsActiveUpdate) result.active = shouldBeActive;
-      if (needsDimOverride) {
-        result.x = dimOverride!.x;
-        result.y = dimOverride!.y;
-        result.width = dimOverride!.width;
-        result.height = dimOverride!.height;
-      }
       if (needsDragOverride) {
         result.x = drag!.originalX;
         result.y = drag!.originalY;
@@ -137,7 +126,6 @@ export const selectPreviewPanes = createMemoizedSelector(
     charHeight: ctx.charHeight,
     activeWindowId: ctx.activeWindowId,
     activePaneId: ctx.activePaneId,
-    groupSwitchDimOverrides: ctx.groupSwitchDimOverrides,
   }),
   selectPreviewPanesUncached,
 );
@@ -577,7 +565,6 @@ const selectPreviewPaneMap = createMemoizedSelector(
     charHeight: ctx.charHeight,
     activeWindowId: ctx.activeWindowId,
     activePaneId: ctx.activePaneId,
-    groupSwitchDimOverrides: ctx.groupSwitchDimOverrides,
   }),
   (context: AppMachineContext): Map<string, TmuxPane> => {
     const previewPanes = selectPreviewPanes(context);
@@ -626,20 +613,15 @@ export function selectIsSinglePane(context: AppMachineContext): boolean {
 // ============================================
 
 /**
- * Pane IDs touched by a non-expired group swap — disables CSS transitions
- * on those panes so they don't animate height/width during the freeze.
- * Returns the union across every in-flight override; rapid clicks pile
- * entries up and each click's involved panes need transition suppression.
+ * Pane IDs touched by an in-flight GroupSwitch op — disables CSS transitions
+ * on those panes so they don't animate position/size during the swap.
+ * Derived from the store's op log (mirrored into context on every
+ * TMUX_MODEL_UPDATE); clears itself when the op confirms or rolls back.
  */
 export function selectGroupSwitchPaneIds(context: AppMachineContext): Set<string> | null {
-  const overrides = context.groupSwitchDimOverrides;
-  if (overrides.length === 0) return null;
-  const ids = new Set<string>();
-  for (const o of overrides) {
-    ids.add(o.paneId);
-    ids.add(o.fromPaneId);
-  }
-  return ids;
+  const ids = context.groupSwitchPaneIds;
+  if (ids.length === 0) return null;
+  return new Set(ids);
 }
 
 // ============================================

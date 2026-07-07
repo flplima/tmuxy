@@ -17,7 +17,7 @@
  *   - SEND_TMUX_COMMAND (optimistic intercept, also writes commandMode/statusMessage)
  *   - TMUX_STATE_UPDATE (the ~600-line reconciliation — sliced via helpers/tmuxStateSlices.ts)
  *   - FOCUS_PANE (writes focusedFloatPaneId which is groupsAndFloats-owned)
- *   - SELECT_PANE_GROUP_TAB (writes both panes and groupSwitchDimOverrides)
+ *   - SELECT_PANE_GROUP_TAB (dispatches a GroupSwitch op to the store)
  *   - DRAG_START (large assign that snapshots pane positions)
  *   - CREATE_TAB (raises SEND_TMUX_COMMAND — needs to live where SEND_TMUX is)
  */

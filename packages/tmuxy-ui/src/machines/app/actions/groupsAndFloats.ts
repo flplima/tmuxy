@@ -2,7 +2,7 @@
  * Action implementations for the groupsAndFloats parallel state.
  *
  * Owns context fields: paneGroups, floatPanes, focusedFloatPaneId,
- * groupSwitchDimOverrides.
+ * sidebar focus state.
  *
  * Note: SELECT_PANE_GROUP_TAB is intentionally NOT migrated here — it is a
  * cross-cutting handler that touches layout fields (panes, activePaneId)
@@ -188,10 +188,5 @@ export const groupsAndFloatsActions = {
     if (!context.sidebarFocused) return;
     enqueue(assign({ sidebarFocused: false }));
     enqueue(sendTo('keyboard', { type: 'UPDATE_SIDEBAR_FOCUSED' as const, focused: false }));
-  }),
-
-  groupsAndFloats_clearGroupSwitchOverride: assign<Ctx, Evt, undefined, Evt, never>({
-    groupSwitchDimOverrides: ({ context }) =>
-      context.groupSwitchDimOverrides.filter((o) => Date.now() - o.timestamp < 750),
   }),
 };

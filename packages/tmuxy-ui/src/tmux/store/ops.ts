@@ -66,6 +66,8 @@ export function predict(
       return predictRenameWindow(op, snapshot);
     case 'ZoomToggle':
       return predictZoomToggle(op, snapshot);
+    case 'GroupSwitch':
+      return predictGroupSwitch(op, snapshot);
     case 'RawCommand':
       return null;
   }
@@ -114,6 +116,8 @@ export function reconcile(
       return reconcileRenameWindow(meta, committed.windows);
     case 'ZoomToggle':
       return reconcileZoomToggle(meta, committed.panes, now - pending.createdAt);
+    case 'GroupSwitch':
+      return reconcileGroupSwitch(meta, committed.panes, now - pending.createdAt);
     case 'RawCommand':
       // Raw commands have no prediction, so there's nothing to wait for.
       return { _tag: 'matched' };
@@ -878,6 +882,87 @@ function reconcileRenameWindow(
   if (!window) return { _tag: 'matched' };
   if (window.name === name) return { _tag: 'matched' };
   return { _tag: 'pending' };
+}
+
+// ============================================
+// GroupSwitch (pane-group tab switch)
+// ============================================
+
+/**
+ * Predicts the visible-slot swap of a pane-group tab click: the clicked
+ * (parked) member takes the previously-visible member's window and geometry;
+ * the previously-visible member parks in the clicked member's old window.
+ * Mirrors the guest pane-group-switch script (resize-window ; swap-pane).
+ * Replaces the machine-level groupSwitchDimOverrides freeze + its 500/550/
+ * 750ms timers (review follow-up #8: one owner per optimistic hold).
+ */
+function predictGroupSwitch(
+  op: Extract<TmuxOp, { _tag: 'GroupSwitch' }>,
+  snapshot: TmuxSnapshot,
+): PredictResult | null {
+  const clicked = snapshot.panes.find((p) => p.tmuxId === op.clickedPaneId);
+  const visible = snapshot.panes.find((p) => p.tmuxId === op.visiblePaneId);
+  if (!clicked || !visible || clicked.tmuxId === visible.tmuxId) return null;
+
+  const clickedId = op.clickedPaneId;
+  const visibleId = op.visiblePaneId;
+  const visibleSlot = {
+    windowId: visible.windowId,
+    x: visible.x,
+    y: visible.y,
+    width: visible.width,
+    height: visible.height,
+  };
+  const parkedWindowId = clicked.windowId;
+
+  // Self-neutralizes when either pane disappears mid-linger.
+  const patch: Patch = (s) => {
+    const hasClicked = s.panes.some((p) => p.tmuxId === clickedId);
+    const hasVisible = s.panes.some((p) => p.tmuxId === visibleId);
+    if (!hasClicked || !hasVisible) return s;
+    return {
+      ...s,
+      panes: s.panes.map((p) => {
+        if (p.tmuxId === clickedId) return { ...p, ...visibleSlot, active: true };
+        if (p.tmuxId === visibleId) return { ...p, windowId: parkedWindowId, active: false };
+        return p;
+      }),
+      activePaneId: clickedId,
+    };
+  };
+
+  return {
+    patch,
+    meta: {
+      clickedPaneId: clickedId,
+      visiblePaneId: visibleId,
+      visibleWindowId: visibleSlot.windowId,
+    },
+  };
+}
+
+function reconcileGroupSwitch(
+  meta: Readonly<Record<string, unknown>>,
+  panes: ReadonlyArray<TmuxPane>,
+  ageMs: number,
+): ReconcileVerdict {
+  const clickedId = meta.clickedPaneId as string;
+  const visibleId = meta.visiblePaneId as string;
+  const visibleWindowId = meta.visibleWindowId as string;
+  const clicked = panes.find((p) => p.tmuxId === clickedId);
+  const visible = panes.find((p) => p.tmuxId === visibleId);
+  if (!clicked || !visible) {
+    return { _tag: 'failed', reason: `GroupSwitch: pane disappeared (${clickedId}/${visibleId})` };
+  }
+  if (clicked.windowId === visibleWindowId) {
+    // Server applied the swap — linger so stale pre-swap snapshots can't
+    // flap the group back (same shape as the focus-op confirm linger).
+    return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+  }
+  // Never confirmed: the guest script may have no-opped (pane left the
+  // group, target already visible). Give up at the linger horizon rather
+  // than pinning a swap the server never made.
+  return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
 }
 
 // ============================================

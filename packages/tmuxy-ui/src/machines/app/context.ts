@@ -80,6 +80,7 @@ export const FIELD_OWNERS = {
   resize: 'layout',
   resizeActive: 'layout',
   suppressLayoutTransition: 'layout',
+  groupSwitchPaneIds: 'layout',
 
   // ---- copyMode ----
   copyModeStates: 'copyMode',
@@ -88,7 +89,6 @@ export const FIELD_OWNERS = {
   paneGroups: 'groupsAndFloats',
   floatPanes: 'groupsAndFloats',
   focusedFloatPaneId: 'groupsAndFloats',
-  groupSwitchDimOverrides: 'groupsAndFloats',
   sidebarOpen: 'groupsAndFloats',
   sidebarFocused: 'groupsAndFloats',
 
@@ -154,7 +154,7 @@ export function createInitialContext(): AppMachineContext {
     paneKeyOverrides: {},
     lastActivePaneByWindow: {},
     paneActivationOrder: [] as string[],
-    groupSwitchDimOverrides: [],
+    groupSwitchPaneIds: [] as string[],
     commandMode: null,
     statusMessage: null,
     themeName: loadThemeFromStorage()?.theme ?? 'default',

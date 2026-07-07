@@ -82,6 +82,17 @@ export type TmuxOp =
   | { readonly _tag: 'RenameWindow'; readonly target: string | null; readonly name: string }
   /** paneId null = the active pane. Predicts zoom-IN only (see predictZoomToggle). */
   | { readonly _tag: 'ZoomToggle'; readonly paneId: string | null }
+  /**
+   * Pane-group tab switch: the clicked (parked) group member swaps into the
+   * visible slot occupied by `visiblePaneId`. Backed by the guest
+   * pane-group-switch script (resize-window ; swap-pane); dispatched with an
+   * explicit command string, never parsed from the wire.
+   */
+  | {
+      readonly _tag: 'GroupSwitch';
+      readonly clickedPaneId: string;
+      readonly visiblePaneId: string;
+    }
   | { readonly _tag: 'RawCommand'; readonly command: string };
 
 // ============================================

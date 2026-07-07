@@ -24,6 +24,7 @@
 import { Effect, Exit, Cause } from 'effect';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxStore } from '../../tmux/store';
+import type { TmuxOp } from '../../tmux/store/types';
 import type { ServerState } from '../../tmux/types';
 
 export type TmuxStoreActorEvent =
@@ -34,6 +35,12 @@ export type TmuxStoreActorEvent =
    * for the duration of a drag).
    */
   | { type: 'DISPATCH_COMMAND'; command: string; skipPrediction?: boolean }
+  /**
+   * Dispatch a TYPED op with an explicit wire command. For ops the command
+   * parser cannot express (GroupSwitch rides a run-shell script call) —
+   * prediction/reconciliation come from the op, the string goes to tmux.
+   */
+  | { type: 'DISPATCH_OP'; op: TmuxOp; command: string }
   /** Push a fresh server snapshot into the store's reconciler. */
   | { type: 'RECONCILE_SERVER'; state: ServerState }
   /** Reset the store after a session-changed or initial-state full snapshot. */
@@ -80,7 +87,37 @@ export function createTmuxStoreActor(store: TmuxStore) {
       parent.send({ type: 'TMUX_MODEL_UPDATE', model });
     });
 
+    const dispatchWithErrorSurface = (
+      program: ReturnType<TmuxStore['dispatchCommand']>,
+      command: string,
+    ): void => {
+      void Effect.runPromiseExit(program).then((exit) => {
+        if (Exit.isFailure(exit)) {
+          const failure = Cause.failureOption(exit.cause);
+          if (failure._tag === 'Some') {
+            const e = failure.value;
+            const reason =
+              e._tag === 'OpRejectedByTmux'
+                ? e.stderr
+                : e._tag === 'OpTimedOut'
+                  ? `timed out after ${e.elapsedMs}ms`
+                  : String((e as { cause?: unknown }).cause ?? 'transport error');
+            parent.send({ type: 'TMUX_ERROR', error: `${command}: ${reason}` });
+          }
+        }
+      });
+    };
+
     receive((event) => {
+      if (event.type === 'DISPATCH_OP') {
+        parent.send({ type: 'LOG_APPEND', kind: 'command', message: event.command });
+        dispatchWithErrorSurface(
+          store.dispatch(event.op, { command: event.command }),
+          event.command,
+        );
+        return;
+      }
+
       if (event.type === 'DISPATCH_COMMAND') {
         parent.send({ type: 'LOG_APPEND', kind: 'command', message: event.command });
         // Fire-and-forget — the store handles rollback on its own. We swallow
@@ -88,24 +125,7 @@ export function createTmuxStoreActor(store: TmuxStore) {
         // TMUX_MODEL_UPDATE will reflect the rolled-back state. Logged here
         // for debuggability.
         const opts = event.skipPrediction ? { skipPrediction: true } : undefined;
-        void Effect.runPromiseExit(store.dispatchCommand(event.command, opts)).then((exit) => {
-          if (Exit.isFailure(exit)) {
-            const failure = Cause.failureOption(exit.cause);
-            if (failure._tag === 'Some') {
-              const e = failure.value;
-              const reason =
-                e._tag === 'OpRejectedByTmux'
-                  ? e.stderr
-                  : e._tag === 'OpTimedOut'
-                    ? `timed out after ${e.elapsedMs}ms`
-                    : String((e as { cause?: unknown }).cause ?? 'transport error');
-              parent.send({
-                type: 'TMUX_ERROR',
-                error: `${event.command}: ${reason}`,
-              });
-            }
-          }
-        });
+        dispatchWithErrorSurface(store.dispatchCommand(event.command, opts), event.command);
         return;
       }
 
