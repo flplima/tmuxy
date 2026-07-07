@@ -34,7 +34,7 @@ else
   fi
 
   BASENAME=$(basename "$FILE")
-  LAST_MTIME=""
+  LAST_FP=""
   SEQ=0
 
   output_frame() {
@@ -44,15 +44,24 @@ else
     SEQ=$((SEQ + 1))
   }
 
+  # Change fingerprint: mtime where stat exists (GNU, then BSD), content hash
+  # otherwise — the v86 guest's BusyBox ships no stat at all, and under
+  # `set -e` a bare stat failure killed the whole widget (the pane cleared
+  # back to a prompt before a single frame rendered). Always exits 0.
+  file_fingerprint() {
+    stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null \
+      || md5sum "$FILE" 2>/dev/null || true
+  }
+
   {
     output_frame
-    LAST_MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null)
+    LAST_FP=$(file_fingerprint)
 
     while true; do
       sleep 1
-      CURRENT_MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null)
-      if [ "$CURRENT_MTIME" != "$LAST_MTIME" ]; then
-        LAST_MTIME="$CURRENT_MTIME"
+      CURRENT_FP=$(file_fingerprint)
+      if [ "$CURRENT_FP" != "$LAST_FP" ]; then
+        LAST_FP="$CURRENT_FP"
         output_frame
       fi
     done
