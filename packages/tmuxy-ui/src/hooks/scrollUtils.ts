@@ -13,6 +13,29 @@
 
 import type { AppMachineEvent } from '../machines/types';
 
+/**
+ * Build the control-mode command that injects an SGR mouse report into a
+ * mouse-tracking pane. `send-keys -H` (raw hex bytes) is the one reliable
+ * transport: tmux ≥ 3.7 parses pane input arriving via load-buffer/
+ * paste-buffer for mouse sequences and consumes them — the report never
+ * reaches the application — and `send-keys -l` literals are format-expanded
+ * (see docs/TMUX.md). Hex key bytes bypass both.
+ *
+ * Coordinates are 1-indexed SGR cell positions; `release` selects the
+ * lowercase `m` terminator.
+ */
+export function sgrMouseCommand(
+  paneId: string,
+  button: number,
+  cellX: number,
+  cellY: number,
+  release = false,
+): string {
+  const seq = `\x1b[<${button};${cellX};${cellY}${release ? 'm' : 'M'}`;
+  const hex = Array.from(seq, (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
+  return `send-keys -t ${paneId} -H ${hex}`;
+}
+
 interface ScrollCommandOptions {
   send: (event: AppMachineEvent) => void;
   paneId: string;
@@ -49,7 +72,7 @@ export function sendScrollLines(opts: ScrollCommandOptions): boolean {
     for (let i = 0; i < absLines; i++) {
       send({
         type: 'SEND_COMMAND',
-        command: `run-shell -b 'printf "\\033[<${button};${cellX + 1};${cellY + 1}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+        command: sgrMouseCommand(paneId, button, cellX + 1, cellY + 1),
       });
     }
   } else {

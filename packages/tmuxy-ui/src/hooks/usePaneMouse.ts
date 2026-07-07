@@ -11,7 +11,7 @@
 
 import { useCallback, useRef, useState, useEffect, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
-import { sendScrollLines } from './scrollUtils';
+import { sendScrollLines, sgrMouseCommand } from './scrollUtils';
 import { haptics } from '../utils/haptics';
 
 interface UsePaneMouseOptions {
@@ -186,7 +186,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         // Send SGR mouse press event
         send({
           type: 'SEND_COMMAND',
-          command: `run-shell -b 'printf "\\033[<${e.button};${cell.x + 1};${Math.max(1, cell.y + 1)}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+          command: sgrMouseCommand(paneId, e.button, cell.x + 1, Math.max(1, cell.y + 1)),
         });
         return;
       }
@@ -230,7 +230,13 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         // Send SGR mouse release event (lowercase 'm')
         send({
           type: 'SEND_COMMAND',
-          command: `run-shell -b 'printf "\\033[<${mouseButtonRef.current};${cell.x + 1};${Math.max(1, cell.y + 1)}m" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+          command: sgrMouseCommand(
+            paneId,
+            mouseButtonRef.current,
+            cell.x + 1,
+            Math.max(1, cell.y + 1),
+            true,
+          ),
         });
         mouseButtonRef.current = null;
         return;
@@ -269,7 +275,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         const dragButton = mouseButtonRef.current + 32;
         send({
           type: 'SEND_COMMAND',
-          command: `run-shell -b 'printf "\\033[<${dragButton};${cell.x + 1};${Math.max(1, cell.y + 1)}M" | tmux load-buffer - && tmux paste-buffer -t ${paneId} -d'`,
+          command: sgrMouseCommand(paneId, dragButton, cell.x + 1, Math.max(1, cell.y + 1)),
         });
         return;
       }

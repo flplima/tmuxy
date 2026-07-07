@@ -92,8 +92,13 @@ export class KeyBatcher {
       return true;
     }
 
-    // Match special (non-literal) send-keys: send-keys -t SESSION KEYS
-    const sendKeysMatch = command.match(/^send-keys -t (\S+) (?!-l )(.+)$/);
+    // Match special (non-literal) send-keys: send-keys -t SESSION KEYS.
+    // Hex-byte sends (`-H`, e.g. injected SGR mouse reports) must NOT batch:
+    // joining two of them puts a literal `-H` token mid-keys, which tmux
+    // rejects as an unknown key — the whole combined command fails and no
+    // event is delivered (a click's press+release land within one batch
+    // window, so a plain click would deliver nothing at all).
+    const sendKeysMatch = command.match(/^send-keys -t (\S+) (?!-l )(?!-H )(.+)$/);
     if (sendKeysMatch) {
       const [, session, keys] = sendKeysMatch;
 

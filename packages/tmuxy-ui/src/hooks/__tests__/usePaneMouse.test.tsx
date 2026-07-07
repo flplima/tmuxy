@@ -70,9 +70,12 @@ describe('usePaneMouse.handleWheel', () => {
     result.current.handleWheel(wheelEvent(-100));
     const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
     expect(enterCopy).toBeUndefined();
-    // Should have sent SGR mouse wheel events
+    // Should have sent SGR wheel-up events: button 64, injected as raw hex
+    // keys ("1b 5b 3c 36 34" = ESC [ < 6 4).
     const sgrEvents = events.filter(
-      (e) => e.type === 'SEND_COMMAND' && (e as { command: string }).command.includes('\\033[<64'),
+      (e) =>
+        e.type === 'SEND_COMMAND' &&
+        /send-keys -t \S+ -H 1b 5b 3c 36 34/.test((e as { command: string }).command),
     );
     expect(sgrEvents.length).toBeGreaterThan(0);
   });
