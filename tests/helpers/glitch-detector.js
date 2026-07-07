@@ -48,8 +48,11 @@ const DEFAULT_OPTIONS = {
  * Per-operation thresholds, shared with the Storybook glitch recorder
  * (packages/tmuxy-ui/src/stories/glitchRecorder.ts) so both harnesses enforce
  * the same budgets. Geometry changes snap in a single suppressed commit
- * (suppressLayoutTransition), so split/kill budget exactly one jump: the
- * survivor's intended re-rect. Anything above that is a real glitch.
+ * (suppressLayoutTransition), so budgets count INTENDED re-rects, not
+ * transition frames: split = optimistic snap + one server layout correction
+ * (predicted geometry can differ from tmux's by cell rounding); kill = the
+ * same plus the absorber's second correction; layoutCycle = every pane in
+ * the window re-recting once per cycle. Anything above is a real glitch.
  */
 const OPERATION_THRESHOLDS = require('../../packages/tmuxy-ui/src/stories/glitch-thresholds.json');
 
