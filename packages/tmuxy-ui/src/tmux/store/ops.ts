@@ -659,22 +659,26 @@ function predictSelectWindow(
   }
   if (!target || target.id === snapshot.activeWindowId) return null;
 
-  const windowPanes = snapshot.panes.filter((p) => p.windowId === target!.id);
-  const activeInTarget = windowPanes.find((p) => p.active) ?? windowPanes[0];
-  if (!activeInTarget) return null;
-
   const targetId = target.id;
-  const activePaneId = activeInTarget.tmuxId;
   // Flip windows[].active too — the tab strip renders aria-selected from the
   // per-window flag, not from activeWindowId, and must flip in the same patch.
   // Self-neutralizes if the target window disappears (killed mid-linger).
+  //
+  // The active pane is derived INSIDE the patch, from whatever snapshot the
+  // patch is replayed onto: the target window's panes may be entirely unknown
+  // at predict time (background windows can arrive pane-less on some
+  // transports), and bailing here would leave the whole switch unpinned —
+  // stale pre-confirm snapshots then flap the tab strip back. When the panes
+  // land, the same patch resolves the right active pane on that replay.
   const patch: Patch = (s) => {
     if (!s.windows.some((w) => w.id === targetId)) return s;
+    const targetPanes = s.panes.filter((p) => p.windowId === targetId);
+    const activeInTarget = targetPanes.find((p) => p.active) ?? targetPanes[0];
     return {
       ...s,
       windows: s.windows.map((w) => ({ ...w, active: w.id === targetId })),
       activeWindowId: targetId,
-      activePaneId,
+      activePaneId: activeInTarget?.tmuxId ?? s.activePaneId,
     };
   };
 
@@ -682,7 +686,6 @@ function predictSelectWindow(
     patch,
     meta: {
       targetWindowId: targetId,
-      targetActivePaneId: activePaneId,
       previousActiveWindowId: snapshot.activeWindowId,
     },
   };

@@ -316,6 +316,51 @@ describe('ZoomToggle supersede (rapid re-toggle)', () => {
   });
 });
 
+describe('SelectWindow predicts even when the target window has no known panes', () => {
+  // Background windows can arrive pane-less on some transports; bailing on
+  // the prediction left the whole switch unpinned, and pre-confirm snapshots
+  // flapped the tab strip back (masked, pre-refactor, by a machine-level
+  // grace pin that no longer exists).
+  const win = (id: string, index: number, active: boolean) => ({
+    id,
+    index,
+    name: `w${index}`,
+    active,
+    windowType: 'tab' as const,
+    groupPanes: null,
+    floatParent: null,
+    floatWidth: null,
+    floatHeight: null,
+    floatDrawer: null,
+    floatBg: null,
+    floatNoheader: false,
+  });
+  const snap: TmuxSnapshot = {
+    ...SNAPSHOT,
+    windows: [win('@0', 0, true), win('@1', 1, false)],
+  };
+
+  it('pins the window flip immediately and resolves the pane when it arrives', () => {
+    const op = parseCommandToOp('select-window -t 1');
+    const result = predict(op, snap, CTX, 'op_selwin' as OpId);
+    expect(result).not.toBeNull();
+
+    // Replayed on the paneless snapshot: window flips, pane focus unchanged.
+    const flipped = result!.patch(snap);
+    expect(flipped.activeWindowId).toBe('@1');
+    expect(flipped.windows.find((w) => w.id === '@1')!.active).toBe(true);
+    expect(flipped.activePaneId).toBe('%0');
+
+    // Replayed after the target's pane lands: the patch resolves it.
+    const withPane: TmuxSnapshot = {
+      ...snap,
+      panes: [...snap.panes, { ...pane('%9', 0, 0, 80, 20), windowId: '@1', active: true }],
+    };
+    const resolved = result!.patch(withPane);
+    expect(resolved.activePaneId).toBe('%9');
+  });
+});
+
 describe('intentionally non-predicted commands', () => {
   it('break-pane and layout cycling stay RawCommand (server-side layout math)', () => {
     expect(parseCommandToOp('break-pane')._tag).toBe('RawCommand');
