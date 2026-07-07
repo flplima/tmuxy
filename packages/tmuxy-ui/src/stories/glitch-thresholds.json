@@ -6,22 +6,22 @@
   },
   "split": {
     "nodeFlickers": 0,
-    "attrChurnEvents": 2,
+    "attrChurnEvents": 1,
     "sizeJumps": 65
   },
   "kill": {
     "nodeFlickers": 0,
-    "attrChurnEvents": 2,
+    "attrChurnEvents": 1,
     "sizeJumps": 65
   },
   "resize": {
     "nodeFlickers": 0,
-    "attrChurnEvents": 6,
+    "attrChurnEvents": 2,
     "sizeJumps": 0
   },
   "drag": {
     "nodeFlickers": 0,
-    "attrChurnEvents": 4,
+    "attrChurnEvents": 2,
     "sizeJumps": 0
   },
   "windowSwitch": {
@@ -41,22 +41,22 @@
   },
   "reconcile": {
     "nodeFlickers": 0,
-    "attrChurnEvents": 2,
+    "attrChurnEvents": 1,
     "sizeJumps": 0
   },
   "theme": {
     "nodeFlickers": 0,
-    "attrChurnEvents": 2,
+    "attrChurnEvents": 1,
     "sizeJumps": 0
   },
   "layoutCycle": {
     "nodeFlickers": 0,
-    "attrChurnEvents": 2,
+    "attrChurnEvents": 1,
     "sizeJumps": 65
   },
   "floatClose": {
     "nodeFlickers": 0,
-    "attrChurnEvents": 2,
+    "attrChurnEvents": 1,
     "sizeJumps": 4
   },
   "steadyStream": {
