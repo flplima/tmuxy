@@ -7,12 +7,12 @@
   "split": {
     "nodeFlickers": 0,
     "attrChurnEvents": 1,
-    "sizeJumps": 2
+    "sizeJumps": 1
   },
   "kill": {
     "nodeFlickers": 0,
     "attrChurnEvents": 1,
-    "sizeJumps": 3
+    "sizeJumps": 1
   },
   "resize": {
     "nodeFlickers": 0,
@@ -52,7 +52,7 @@
   "layoutCycle": {
     "nodeFlickers": 0,
     "attrChurnEvents": 1,
-    "sizeJumps": 4
+    "sizeJumps": 3
   },
   "floatClose": {
     "nodeFlickers": 0,

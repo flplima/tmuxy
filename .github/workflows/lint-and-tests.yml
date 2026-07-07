@@ -300,15 +300,13 @@ jobs:
 
   storybook-v86-probe:
     runs-on: ubuntu-latest
-    # Non-blocking: this drives ~105 real-tmux stories on ONE shared v86 engine
-    # in a single browser page. The shared engine is inherently timing-sensitive
-    # at that scale — a handful of window-index-reconstruction stories (after
-    # `tmuxy tab create` the 2 KB/s byte-paced serial writer backs up behind
-    # capture refreshes, delaying the list-windows sync 20-30s) flake under load
-    # even though every story passes in isolation. It reports failures for
-    # triage without gating merges; the deterministic `storybook-probe` job
-    # (fresh page per story, no shared engine) stays blocking.
-    continue-on-error: true
+    # Two tiers on one shared setup: the GATE step (three optimistic-UX
+    # stories the pane-stability review promoted once the correlation fixes
+    # proved stable) BLOCKS merges; the full ~110-story sweep stays
+    # non-blocking (continue-on-error at the step level) because one shared
+    # v86 engine at that scale is inherently timing-sensitive under runner
+    # load. The deterministic `storybook-probe` job (fresh page per story,
+    # no shared engine) is also blocking.
 
     steps:
       - uses: actions/checkout@v6
@@ -375,7 +373,13 @@ jobs:
             check();
           "
 
+      - name: Gate stories (blocking)
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          npm run test-storybook:v86 -w tmuxy-ui -- 6006 split-optimistic-timeline split-rejected-rollback resize-pane-drag
+
       - name: Probe v86 stories (shared engine, single page)
+        continue-on-error: true
         run: |
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           npm run test-storybook:v86 -w tmuxy-ui

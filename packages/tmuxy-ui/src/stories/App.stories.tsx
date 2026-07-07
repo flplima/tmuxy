@@ -109,6 +109,33 @@ async function focusFirstPane(
   // updates and the click can be permanently overridden. A real user clicks
   // after seeing the active highlight appear.
   await waitFor(() => expect(activePaneId()).toMatch(/^%\d+$/), { timeout: 20000, interval: 200 });
+  // Also wait for the client resize round-trip to settle: each story mounts
+  // at its own viewport, and interacting while set_client_size is still in
+  // flight lets the mid-story re-layout (intermediate tmux layouts + the
+  // status-row shuffle) land inside the story's glitch window — that, not
+  // op prediction, was the source of the phantom kill/split size jumps.
+  await waitFor(
+    () => {
+      const c = (
+        window as unknown as {
+          app: {
+            getSnapshot(): {
+              context: {
+                targetCols: number;
+                targetRows: number;
+                totalWidth: number;
+                totalHeight: number;
+              };
+            };
+          };
+        }
+      ).app.getSnapshot().context;
+      expect(c.targetCols).toBeGreaterThan(0);
+      expect(c.totalWidth).toBe(c.targetCols);
+      expect(c.totalHeight).toBe(c.targetRows);
+    },
+    { timeout: 30000, interval: 250 },
+  );
   const paneId = paneGroups(canvas)[0].getAttribute('data-pane-id');
   await user.click(paneGroups(canvas)[0]);
   await waitFor(() => expect(activePaneId()).toBe(paneId), { timeout: 15000, interval: 200 });

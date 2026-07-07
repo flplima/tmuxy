@@ -109,7 +109,7 @@ export function reconcile(
         committed.windows,
       );
     case 'KillPane':
-      return reconcileKillPane(meta, committed.panes);
+      return reconcileKillPane(meta, committed.panes, now - pending.createdAt);
     case 'KillWindow':
       return reconcileKillWindow(meta, committed.windows);
     case 'RenameWindow':
@@ -732,6 +732,23 @@ function reconcileSelectWindow(
 // KillPane
 // ============================================
 
+/**
+ * The neighbor that absorbs a killed pane's freed space: a sibling sharing
+ * the doomed pane's FULL edge (same cross-axis extent) — the common case for
+ * split-created panes.
+ */
+function findAbsorber(doomed: TmuxPane, siblings: ReadonlyArray<TmuxPane>): TmuxPane | undefined {
+  return siblings.find(
+    (p) =>
+      (p.x === doomed.x &&
+        p.width === doomed.width &&
+        (p.y + p.height + 1 === doomed.y || doomed.y + doomed.height + 1 === p.y)) ||
+      (p.y === doomed.y &&
+        p.height === doomed.height &&
+        (p.x + p.width + 1 === doomed.x || doomed.x + doomed.width + 1 === p.x)),
+  );
+}
+
 function predictKillPane(
   op: Extract<TmuxOp, { _tag: 'KillPane' }>,
   snapshot: TmuxSnapshot,
@@ -742,22 +759,8 @@ function predictKillPane(
   const doomed = snapshot.panes.find((p) => p.tmuxId === paneId);
   if (!doomed) return null;
 
-  // The neighbor that absorbs the freed space: a pane sharing the doomed
-  // pane's FULL edge (same cross-axis extent) — the common case for panes
-  // created by splits. tmux's layout tree can distribute the space
-  // differently for hand-crafted layouts; the reconciler is lenient (it only
-  // waits for the pane to disappear), so a geometry drift self-corrects.
   const siblings = snapshot.panes.filter(
     (p) => p.windowId === doomed.windowId && p.tmuxId !== paneId,
-  );
-  const absorber = siblings.find(
-    (p) =>
-      (p.x === doomed.x &&
-        p.width === doomed.width &&
-        (p.y + p.height + 1 === doomed.y || doomed.y + doomed.height + 1 === p.y)) ||
-      (p.y === doomed.y &&
-        p.height === doomed.height &&
-        (p.x + p.width + 1 === doomed.x || doomed.x + doomed.width + 1 === p.x)),
   );
 
   // Focus falls to the most recently used surviving pane in the window.
@@ -767,24 +770,46 @@ function predictKillPane(
       ctx.paneActivationOrder.find(
         (id) => id !== paneId && siblings.some((p) => p.tmuxId === id),
       ) ??
-      absorber?.tmuxId ??
+      findAbsorber(doomed, siblings)?.tmuxId ??
       siblings[0]?.tmuxId ??
       null;
   }
 
+  // Snapshot-relative and therefore idempotent: the absorber is located in
+  // the snapshot being patched, not the dispatch-time one, so the patch
+  // replays correctly over stale pre-kill echoes during the confirm linger
+  // even when their row offsets differ (status-line shifts). Once the
+  // server's post-kill layout is committed, the doomed pane is gone and the
+  // geometry passes through untouched — re-expanding a confirmed layout
+  // would double-add the space. tmux's layout tree can distribute the space
+  // differently for hand-crafted layouts; the reconciler is lenient, so a
+  // geometry drift self-corrects.
   const patch: Patch = (s) => {
+    const doomedNow = s.panes.find((p) => p.tmuxId === paneId);
+    if (!doomedNow) {
+      return {
+        ...s,
+        activePaneId: s.activePaneId === paneId ? nextFocus : s.activePaneId,
+      };
+    }
+    const sibs = s.panes.filter((p) => p.windowId === doomedNow.windowId && p.tmuxId !== paneId);
+    const absorber = findAbsorber(doomedNow, sibs);
     const panes = s.panes
       .filter((p) => p.tmuxId !== paneId)
       .map((p) => {
         if (!absorber || p.tmuxId !== absorber.tmuxId) return p;
         return {
           ...p,
-          x: Math.min(p.x, doomed.x),
-          y: Math.min(p.y, doomed.y),
+          x: Math.min(p.x, doomedNow.x),
+          y: Math.min(p.y, doomedNow.y),
           width:
-            p.y === doomed.y && p.height === doomed.height ? p.width + doomed.width + 1 : p.width,
+            p.y === doomedNow.y && p.height === doomedNow.height
+              ? p.width + doomedNow.width + 1
+              : p.width,
           height:
-            p.x === doomed.x && p.width === doomed.width ? p.height + doomed.height + 1 : p.height,
+            p.x === doomedNow.x && p.width === doomedNow.width
+              ? p.height + doomedNow.height + 1
+              : p.height,
         };
       });
     return {
@@ -800,9 +825,18 @@ function predictKillPane(
 function reconcileKillPane(
   meta: Readonly<Record<string, unknown>>,
   panes: ReadonlyArray<TmuxPane>,
+  ageMs: number,
 ): ReconcileVerdict {
   const killed = meta.killedPaneId as string;
-  if (!panes.some((p) => p.tmuxId === killed)) return { _tag: 'matched' };
+  if (!panes.some((p) => p.tmuxId === killed)) {
+    // Confirmed — but linger: snapshots computed BEFORE the kill can still
+    // arrive after the confirmation (the v86 capture pipeline routinely
+    // delivers them 100s of ms late) and would resurrect the dead pane and
+    // flap the absorber back to half-size the moment this op's patch is
+    // gone. The patch is idempotent over confirmed layouts, so holding it
+    // costs nothing.
+    return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+  }
   return { _tag: 'pending' };
 }
 

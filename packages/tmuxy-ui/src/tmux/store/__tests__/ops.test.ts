@@ -189,11 +189,43 @@ describe('KillPane predict/reconcile', () => {
       meta: result.meta,
       now: 0,
     });
-    // Pane still present → pending; gone → matched.
+    // Pane still present → pending. Gone → CONFIRMED, but the op lingers so
+    // stale pre-kill snapshots can't resurrect the pane; it releases only
+    // past the linger horizon.
+    const confirmed = { ...snap, panes: [snap.panes[0]] };
     expect(reconcile(pendingOp, snap, undefined, 100)._tag).toBe('pending');
-    expect(reconcile(pendingOp, { ...snap, panes: [snap.panes[0]] }, undefined, 100)._tag).toBe(
+    expect(reconcile(pendingOp, confirmed, undefined, 100)._tag).toBe('pending');
+    expect(reconcile(pendingOp, confirmed, undefined, FOCUS_CONFIRM_LINGER_MS + 1)._tag).toBe(
       'matched',
     );
+  });
+
+  it('patch replays idempotently over confirmed layouts during the linger', () => {
+    const snap: TmuxSnapshot = {
+      ...EMPTY_SNAPSHOT,
+      panes: [pane('%0', 0, 0, 80, 10), pane('%1', 0, 11, 80, 9)],
+      activePaneId: '%1',
+      activeWindowId: '@0',
+      totalWidth: 80,
+      totalHeight: 20,
+    };
+    const op = parseCommandToOp('kill-pane -t %1');
+    const result = predict(op, snap, { ...CTX, paneActivationOrder: ['%1', '%0'] }, 'k2' as OpId)!;
+
+    // Stale pre-kill echo: doomed pane present → filter + expand absorber.
+    const echoPatched = result.patch(snap);
+    expect(echoPatched.panes.map((p) => p.tmuxId)).toEqual(['%0']);
+    expect(echoPatched.panes[0].height).toBe(20);
+
+    // Confirmed post-kill layout: server already expanded the absorber —
+    // the patch must NOT double-add the dead pane's space.
+    const confirmed: TmuxSnapshot = {
+      ...snap,
+      panes: [pane('%0', 0, 0, 80, 20)],
+      activePaneId: '%0',
+    };
+    const replayed = result.patch(confirmed);
+    expect(replayed.panes[0].height).toBe(20);
   });
 });
 
