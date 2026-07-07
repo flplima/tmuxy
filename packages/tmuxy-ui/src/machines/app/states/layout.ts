@@ -3,7 +3,7 @@
  *
  * Owns context fields: panes, windows, activeWindowId, activePaneId,
  * paneActivationOrder, lastActivePaneByWindow, paneKeyOverrides,
- * pendingUpdate, lastLayoutCommandTime, drag, resize,
+ * lastLayoutCommandTime, drag, resize,
  * resizeActive, suppressLayoutTransition.
  *
  * Optimistic operations no longer live here — they're owned by the
@@ -14,7 +14,7 @@
  * Migrated events (these spread into states.idle.on):
  *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
  *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED, RESIZE_ERROR,
- *   DRAG_STATE_UPDATE, DRAG_ERROR, CLEAR_LAYOUT_TRANSITION_SUPPRESSION.
+ *   DRAG_STATE_UPDATE, DRAG_ERROR.
  *
  * Cross-cutting / orchestrator events remain inline in appMachine.ts —
  * see the JSDoc on layoutActions for the explicit list.
@@ -33,9 +33,6 @@ export const layoutState = {
     RESIZE_ERROR: { actions: 'layout_resizeError' },
     DRAG_STATE_UPDATE: { actions: 'layout_dragStateUpdate' },
     DRAG_ERROR: { actions: 'layout_dragError' },
-    CLEAR_LAYOUT_TRANSITION_SUPPRESSION: {
-      actions: 'layout_clearLayoutTransitionSuppression',
-    },
   },
 } as const;
 

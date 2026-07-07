@@ -270,7 +270,7 @@ export const SlowKillPane: Story = {
     await waitFor(() => expect(paneCount()).toBe(2), { timeout: 8000 });
     win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
 
-    // Optimistic removal: gone within the 300ms removingPane grace + margin,
+    // Optimistic removal applies immediately (no removingPane hold),
     // well before the 800ms ack.
     await waitFor(() => expect(paneCount()).toBe(1), { timeout: 600 });
 

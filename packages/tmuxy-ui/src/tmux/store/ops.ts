@@ -117,7 +117,12 @@ export function reconcile(
     case 'ZoomToggle':
       return reconcileZoomToggle(meta, committed.panes, now - pending.createdAt);
     case 'GroupSwitch':
-      return reconcileGroupSwitch(meta, committed.panes, now - pending.createdAt);
+      return reconcileGroupSwitch(
+        meta,
+        committed.panes,
+        committed.activePaneId,
+        now - pending.createdAt,
+      );
     case 'RawCommand':
       // Raw commands have no prediction, so there's nothing to wait for.
       return { _tag: 'matched' };
@@ -944,25 +949,38 @@ function predictGroupSwitch(
 function reconcileGroupSwitch(
   meta: Readonly<Record<string, unknown>>,
   panes: ReadonlyArray<TmuxPane>,
+  serverActivePaneId: string | null,
   ageMs: number,
 ): ReconcileVerdict {
   const clickedId = meta.clickedPaneId as string;
   const visibleId = meta.visiblePaneId as string;
-  const visibleWindowId = meta.visibleWindowId as string;
   const clicked = panes.find((p) => p.tmuxId === clickedId);
   const visible = panes.find((p) => p.tmuxId === visibleId);
   if (!clicked || !visible) {
-    return { _tag: 'failed', reason: `GroupSwitch: pane disappeared (${clickedId}/${visibleId})` };
+    // A pane involved in the swap is gone (killed mid-linger, group closed).
+    // The patch self-neutralizes, so there's nothing left to pin — release
+    // quietly rather than roll back and surface a phantom error.
+    return { _tag: 'matched' };
   }
-  if (clicked.windowId === visibleWindowId) {
-    // Server applied the swap — linger so stale pre-swap snapshots can't
-    // flap the group back (same shape as the focus-op confirm linger).
+  if (serverActivePaneId === clickedId) {
+    // Confirmed — but linger: snapshots computed BEFORE the swap can still
+    // arrive after the confirmation and would flap the group back the moment
+    // this op's pin is gone (same shape as reconcileFocus).
     return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
   }
-  // Never confirmed: the guest script may have no-opped (pane left the
-  // group, target already visible). Give up at the linger horizon rather
-  // than pinning a swap the server never made.
-  return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+  if (serverActivePaneId === visibleId && ageMs < FOCUS_CONFIRM_LINGER_MS) {
+    // A stale echo of the pre-swap focus — hold the pin.
+    return { _tag: 'pending' };
+  }
+  if (ageMs < FOCUS_SUPERSEDE_GRACE_MS) {
+    // Very young: the guest script's swap-pane may not have landed yet.
+    return { _tag: 'pending' };
+  }
+  // Focus moved to a THIRD pane after we were processed (e.g. a new group
+  // member was added and became active) — the server wins. Holding the pin
+  // would freeze activePaneId on a focus tmux no longer has, masking every
+  // later focus change for the rest of the linger.
+  return { _tag: 'matched' };
 }
 
 // ============================================

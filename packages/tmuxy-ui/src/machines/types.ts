@@ -103,19 +103,6 @@ export interface LogEntry {
 }
 
 /** Pending state update stored during pane exit animation */
-export interface PendingUpdate {
-  panes: TmuxPane[];
-  windows: TmuxWindow[];
-  paneGroups: Record<string, PaneGroup>;
-  floatPanes: Record<string, FloatPaneState>;
-  activeWindowId: string | null;
-  activePaneId: string | null;
-  totalWidth: number;
-  totalHeight: number;
-  sessionName: string;
-  statusLine: string;
-}
-
 export interface AppMachineContext {
   connected: boolean;
   error: string | null;
@@ -155,8 +142,6 @@ export interface AppMachineContext {
   defaultShell: string;
   /** Tmux status line with ANSI escape codes */
   statusLine: string;
-  /** Pending state update during pane exit animation */
-  pendingUpdate: PendingUpdate | null;
   /** Container dimensions for centering calculations */
   containerWidth: number;
   containerHeight: number;
@@ -181,6 +166,17 @@ export interface AppMachineContext {
   copyModeStates: Record<string, CopyModeState>;
   /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
   paneActivationOrder: string[];
+  /**
+   * Whether the previous TMUX_MODEL_UPDATE carried no geometry delta on
+   * existing panes. React can batch an optimistic (dirty) update and its
+   * instant confirm (quiet) into ONE commit; any "stop suppressing
+   * transitions" decision made on the quiet update alone would then apply
+   * to the whole batch's cumulative geometry delta and animate it. Keeping
+   * one update of history lets suppression relax only after two
+   * consecutive quiet updates — a batch ending in a fresh quiet update
+   * still commits suppressed.
+   */
+  lastUpdateQuiet: boolean;
   /**
    * Pane IDs involved in in-flight GroupSwitch store ops — mirrored from
    * `model.ops` on every TMUX_MODEL_UPDATE so selectors can suppress CSS
@@ -407,7 +403,6 @@ export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLEl
 export type StopObserveContainerEvent = { type: 'STOP_OBSERVE_CONTAINER' };
 
 // Animation events from animation actor
-export type AnimationLeaveCompleteEvent = { type: 'ANIMATION_LEAVE_COMPLETE' };
 export type AnimationDragCompleteEvent = { type: 'ANIMATION_DRAG_COMPLETE' };
 
 // Pane events
@@ -512,8 +507,6 @@ export type CopyModeLineSelectEvent = {
 };
 
 // Group switch detection event (fired internally when switch detected in state update)
-export type ClearLayoutTransitionSuppressionEvent = { type: 'CLEAR_LAYOUT_TRANSITION_SUPPRESSION' };
-export type EnableAnimationsEvent = { type: 'ENABLE_ANIMATIONS' };
 
 // Command mode events
 export type EnterCommandModeEvent = {
@@ -593,7 +586,6 @@ export type AppMachineEvent =
   | SetAnimationRootEvent
   | ObserveContainerEvent
   | StopObserveContainerEvent
-  | AnimationLeaveCompleteEvent
   | AnimationDragCompleteEvent
   | FocusPaneEvent
   | SendCommandEvent
@@ -611,8 +603,6 @@ export type AppMachineEvent =
   | CopyModeKeyEvent
   | CopyModeWordSelectEvent
   | CopyModeLineSelectEvent
-  | ClearLayoutTransitionSuppressionEvent
-  | EnableAnimationsEvent
   | ClosePaneEvent
   | SelectPaneGroupTabEvent
   | CreateTabEvent

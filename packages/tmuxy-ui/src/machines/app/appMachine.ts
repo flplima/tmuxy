@@ -6,7 +6,6 @@
  *   - tmuxActor: SSE/HTTP lifecycle, state updates
  *   - keyboardActor: keydown → formatTmuxKey → send-keys
  *   - sizeActor: window.resize, ResizeObserver, char measurement
- *   - animationActor: anime.js layout, drag transforms, enter/exit (spawned dynamically)
  *
  * - Child Machines (stateful, no DOM access):
  *   - dragMachine: idle/dragging, spawns pointer listener
@@ -360,8 +359,8 @@ export const appMachine = setup({
       })),
     },
     // SSE/Tauri adapter detected the channel dropped and is retrying.
-    // Global so the transition fires from any live state (idle, syncing,
-    // removingPane). The reconnecting state shares idle's handlers via the
+    // Global so the transition fires from any live state.
+    // The reconnecting state shares idle's handlers via the
     // event spreads below, just with a banner mounted.
     TMUX_RECONNECTING: {
       target: '.reconnecting',
@@ -431,7 +430,7 @@ export const appMachine = setup({
     STOP_OBSERVE_CONTAINER: {
       actions: sendTo('size', { type: 'STOP_OBSERVE' as const }),
     },
-    // SET_ANIMATION_ROOT, ENABLE_ANIMATIONS — handled by uiPrefsState (see spread at end of on:)
+    // SET_ANIMATION_ROOT — handled by uiPrefsState (see spread at end of on:)
 
     // Focus gating events
     APP_FOCUS: {
@@ -585,509 +584,407 @@ export const appMachine = setup({
             state: event.state,
           })),
         },
-        TMUX_MODEL_UPDATE: [
-          {
-            // If panes were removed, transition to removingPane state for exit animation
-            // Skip if server reports 0 panes — that's a spurious intermediate state
-            // Skip if only float panes were removed — floats are rendered via FloatContainer
-            // not PaneLayout, so the leave animation doesn't apply and just adds latency
-            guard: ({ event, context }) => {
-              const transformed = snapshotFromModel(event.model);
-              if (transformed.panes.length === 0) return false;
-              const currentPaneIds = context.panes.map((p) => p.tmuxId);
-              const newPaneIds = transformed.panes.map((p) => p.tmuxId);
-              const removedPanes = currentPaneIds.filter((id) => !newPaneIds.includes(id));
-              if (removedPanes.length === 0) return false;
-              // Skip animation if only float or optimistic placeholder panes were removed.
-              // Placeholders (__placeholder_*) are never real tmux panes — they should be
-              // silently replaced by server state, not animated out.
-              const hasNonFloatRemoval = removedPanes.some(
-                (id) => !context.floatPanes[id] && !id.startsWith('__placeholder_'),
-              );
-              return hasNonFloatRemoval;
-            },
-            target: 'removingPane',
-            actions: enqueueActions(({ event, context, enqueue }) => {
-              const transformed = snapshotFromModel(event.model);
+        TMUX_MODEL_UPDATE: {
+          actions: enqueueActions(({ event, context, enqueue }) => {
+            const transformed = snapshotFromModel(event.model);
 
-              const paneGroups = buildGroupsFromWindows(
-                transformed.windows,
-                transformed.panes,
-                transformed.activeWindowId,
-              );
+            // Skip spurious empty-pane states from the server
+            if (transformed.panes.length === 0) return;
 
-              // Find removed panes (exclude optimistic placeholders — they were
-              // never real tmux panes and don't need exit animation)
-              const currentPaneIds = context.panes.map((p) => p.tmuxId);
-              const newPaneIds = transformed.panes.map((p) => p.tmuxId);
-              const removedPanes = currentPaneIds.filter(
-                (id) => !newPaneIds.includes(id) && !id.startsWith('__placeholder_'),
-              );
+            // Anti-flash: a freshly-created window can be reported active
+            // BEFORE its pane's window mapping settles — break-pane emits
+            // %window-add (and the session's active-window flip) a beat
+            // before the moved pane's window_id updates. Rendering it now
+            // flashes an empty tab (the active window has zero visible
+            // panes). Defer until the pane arrives; the very next emit
+            // carries it. Guarded to the switch transient (active window
+            // changed, we were rendering panes, the new one has none) so a
+            // legitimately-empty state still applies once the window settles.
+            // tmux never leaves a window pane-less for long, so this can't
+            // wedge — the periodic sync re-emits with the pane.
+            const switchingWindow = transformed.activeWindowId !== context.activeWindowId;
+            const newActiveHasPanes = transformed.panes.some(
+              (p) => p.windowId === transformed.activeWindowId,
+            );
+            const currentlyRenderingPanes = context.panes.some(
+              (p) => p.windowId === context.activeWindowId,
+            );
+            // Only when no optimistic op is in flight: an optimistic
+            // NewWindow legitimately makes a (placeholder) window active with
+            // its placeholder pane, and its rollback must apply normally —
+            // the break-pane transient this guards is a server-driven
+            // RawCommand path with no pending op.
+            const opsInFlight = event.model.ops.length > 0;
+            if (!opsInFlight && switchingWindow && !newActiveHasPanes && currentlyRenderingPanes)
+              return;
 
-              // Send leave animation event to animation actor (if spawned)
-              enqueue(({ self }) => {
-                const snapshot = self.getSnapshot();
-                const animRef = snapshot.children?.animation;
-                if (animRef) {
-                  (animRef as AnyActorRef).send({ type: 'PANES_LEAVING', paneIds: removedPanes });
-                }
-              });
+            // Optimistic reconciliation moved out of XState — TmuxStore owns
+            // it now. By the time TMUX_MODEL_UPDATE fires, `event.model.derived`
+            // already includes any in-flight predicted patches, and
+            // `event.model.paneKeyOverrides` already maps freshly-confirmed
+            // real pane IDs back to their placeholder React keys. No
+            // placeholder reinjection, no stale-timeout dance, no
+            // position-tolerance heuristics in this handler.
 
-              // Build float panes from float-typed windows (@tmuxy-window-type=float)
-              const floatPanes = buildFloatPanesFromWindows(
-                transformed.windows,
-                transformed.panes,
-                context.floatPanes,
-                context.containerWidth,
-                context.containerHeight,
-                context.charWidth,
-                context.charHeight,
-              );
-
-              // Store the pending update to apply after animation
-              enqueue(
-                assign({
-                  pendingUpdate: {
-                    ...transformed,
-                    paneGroups,
-                    floatPanes,
-                  },
-                  lastUpdateTime: Date.now(),
-                }),
-              );
-            }),
-          },
-          {
-            // Normal update without pane removal
-            actions: enqueueActions(({ event, context, enqueue }) => {
-              const transformed = snapshotFromModel(event.model);
-
-              // Skip spurious empty-pane states from the server
-              if (transformed.panes.length === 0) return;
-
-              // Anti-flash: a freshly-created window can be reported active
-              // BEFORE its pane's window mapping settles — break-pane emits
-              // %window-add (and the session's active-window flip) a beat
-              // before the moved pane's window_id updates. Rendering it now
-              // flashes an empty tab (the active window has zero visible
-              // panes). Defer until the pane arrives; the very next emit
-              // carries it. Guarded to the switch transient (active window
-              // changed, we were rendering panes, the new one has none) so a
-              // legitimately-empty state still applies once the window settles.
-              // tmux never leaves a window pane-less for long, so this can't
-              // wedge — the periodic sync re-emits with the pane.
-              const switchingWindow = transformed.activeWindowId !== context.activeWindowId;
-              const newActiveHasPanes = transformed.panes.some(
-                (p) => p.windowId === transformed.activeWindowId,
-              );
-              const currentlyRenderingPanes = context.panes.some(
-                (p) => p.windowId === context.activeWindowId,
-              );
-              // Only when no optimistic op is in flight: an optimistic
-              // NewWindow legitimately makes a (placeholder) window active with
-              // its placeholder pane, and its rollback must apply normally —
-              // the break-pane transient this guards is a server-driven
-              // RawCommand path with no pending op.
-              const opsInFlight = event.model.ops.length > 0;
-              if (!opsInFlight && switchingWindow && !newActiveHasPanes && currentlyRenderingPanes)
-                return;
-
-              // Optimistic reconciliation moved out of XState — TmuxStore owns
-              // it now. By the time TMUX_MODEL_UPDATE fires, `event.model.derived`
-              // already includes any in-flight predicted patches, and
-              // `event.model.paneKeyOverrides` already maps freshly-confirmed
-              // real pane IDs back to their placeholder React keys. No
-              // placeholder reinjection, no stale-timeout dance, no
-              // position-tolerance heuristics in this handler.
-
-              // Skip heavy structural computations when only content changed.
-              // Compare pane count, window count, active window, and window names.
-              // Content-only deltas only change pane content/cursor, not structure.
-              const structurallyChanged =
-                transformed.panes.length !== context.panes.length ||
-                transformed.activeWindowId !== context.activeWindowId ||
-                transformed.windows.length !== context.windows.length ||
-                transformed.windows.some((w, i) => {
-                  const prev = context.windows[i];
-                  if (!prev) return true;
-                  if (w.name !== prev.name) return true;
-                  // Window-type and group membership flips need to rebuild
-                  // paneGroups too — without this, a window that arrives
-                  // initially untagged and later flips to windowType=group
-                  // (auto-adopt or set-option round-trip) never produces
-                  // a tab strip.
-                  if (w.windowType !== prev.windowType) return true;
-                  // Float option metadata (@tmuxy-float-*) can arrive on a
-                  // LATER list-windows sync than the window-type tag; without
-                  // comparing it, a drawer float renders as a centered modal
-                  // forever because floatPanes is never rebuilt.
-                  if (
-                    w.floatDrawer !== prev.floatDrawer ||
-                    w.floatWidth !== prev.floatWidth ||
-                    w.floatHeight !== prev.floatHeight ||
-                    w.floatBg !== prev.floatBg ||
-                    w.floatNoheader !== prev.floatNoheader
-                  ) {
-                    return true;
-                  }
-                  const a = w.groupPanes ?? [];
-                  const b = prev.groupPanes ?? [];
-                  if (a.length !== b.length) return true;
-                  for (let j = 0; j < a.length; j++) {
-                    if (a[j] !== b[j]) return true;
-                  }
-                  return false;
-                }) ||
-                transformed.panes.some(
-                  (p) =>
-                    p.windowId !== context.panes.find((cp) => cp.tmuxId === p.tmuxId)?.windowId,
-                );
-
-              let paneGroups = structurallyChanged
-                ? buildGroupsFromWindows(
-                    transformed.windows,
-                    transformed.panes,
-                    transformed.activeWindowId,
-                  )
-                : context.paneGroups;
-
-              // Prune stale groups: if a group references pane IDs that no longer
-              // exist in the updated pane list, remove those IDs. Drop groups that
-              // become empty or have only one pane (no longer a group).
-              if (!structurallyChanged && Object.keys(paneGroups).length > 0) {
-                const paneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
-                const pruned: typeof paneGroups = {};
-                let changed = false;
-                for (const [key, group] of Object.entries(paneGroups)) {
-                  const validIds = group.paneIds.filter((id) => paneIdSet.has(id));
-                  if (validIds.length >= 2) {
-                    pruned[key] =
-                      validIds.length === group.paneIds.length
-                        ? group
-                        : { ...group, paneIds: validIds };
-                    if (validIds.length !== group.paneIds.length) changed = true;
-                  } else {
-                    changed = true;
-                  }
-                }
-                if (changed) {
-                  paneGroups = pruned;
-                }
-              }
-
-              let floatPanes = structurallyChanged
-                ? buildFloatPanesFromWindows(
-                    transformed.windows,
-                    transformed.panes,
-                    context.floatPanes,
-                    context.containerWidth,
-                    context.containerHeight,
-                    context.charWidth,
-                    context.charHeight,
-                  )
-                : context.floatPanes;
-
-              // Prune dead floats: if a float's pane no longer exists in the
-              // updated pane list, remove it. Handles external kills where the
-              // float window disappears via %unlinked-window-close.
-              const currentPaneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
-              const deadFloatIds = Object.keys(floatPanes).filter(
-                (id) => !currentPaneIdSet.has(id),
-              );
-              if (deadFloatIds.length > 0) {
-                floatPanes = { ...floatPanes };
-                for (const id of deadFloatIds) {
-                  delete floatPanes[id];
-                }
-              }
-
-              // Detect float removal — check for session switch env var
-              const prevFloatCount = Object.keys(context.floatPanes).length;
-              const newFloatCount = Object.keys(floatPanes).length;
-              if (prevFloatCount > 0 && newFloatCount < prevFloatCount) {
-                enqueue(sendTo('tmux', { type: 'CHECK_SESSION_SWITCH' as const }));
-              }
-
-              // Auto-focus float management:
-              // - When a new float appears, auto-focus it (topmost = last in list)
-              // - When floats disappear, update focused float or clear it
-              const newFloatIds = Object.keys(floatPanes);
-              const prevFloatIds = Object.keys(context.floatPanes);
-              const addedFloatIds = newFloatIds.filter((id) => !prevFloatIds.includes(id));
-              let newFocusedFloat = context.focusedFloatPaneId;
-              if (addedFloatIds.length > 0) {
-                // New float(s) appeared — focus the topmost one
-                newFocusedFloat = newFloatIds[newFloatIds.length - 1];
-                // Suppress layout animation: the split-window → break-pane
-                // workaround creates a momentary extra pane in the active window
-                // before it becomes a float. Disabling animation prevents the blink.
-                enqueue(assign({ enableAnimations: false }));
-              } else if (newFocusedFloat && !floatPanes[newFocusedFloat]) {
-                // The focused float was removed — focus the new topmost, or clear
-                newFocusedFloat =
-                  newFloatIds.length > 0 ? newFloatIds[newFloatIds.length - 1] : null;
-              }
-              if (newFocusedFloat !== context.focusedFloatPaneId) {
-                enqueue(assign({ focusedFloatPaneId: newFocusedFloat }));
-                enqueue(
-                  sendTo('keyboard', {
-                    type: 'UPDATE_FOCUSED_FLOAT' as const,
-                    paneId: newFocusedFloat,
-                  }),
-                );
-              }
-
-              // Detect new panes for enter animation
-              const currentPaneIds = context.panes.map((p) => p.tmuxId);
-              const newPaneIds = transformed.panes.map((p) => p.tmuxId);
-              const addedPanes = newPaneIds.filter((id) => !currentPaneIds.includes(id));
-
-              // Detect tmux entering copy mode (e.g. prefix+[) — init client-side copy mode
-              let updatedCopyModeStates = context.copyModeStates;
-              for (const newPane of transformed.panes) {
-                const prevPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
+            // Skip heavy structural computations when only content changed.
+            // Compare pane count, window count, active window, and window names.
+            // Content-only deltas only change pane content/cursor, not structure.
+            const structurallyChanged =
+              transformed.panes.length !== context.panes.length ||
+              transformed.activeWindowId !== context.activeWindowId ||
+              transformed.windows.length !== context.windows.length ||
+              transformed.windows.some((w, i) => {
+                const prev = context.windows[i];
+                if (!prev) return true;
+                if (w.name !== prev.name) return true;
+                // Window-type and group membership flips need to rebuild
+                // paneGroups too — without this, a window that arrives
+                // initially untagged and later flips to windowType=group
+                // (auto-adopt or set-option round-trip) never produces
+                // a tab strip.
+                if (w.windowType !== prev.windowType) return true;
+                // Float option metadata (@tmuxy-float-*) can arrive on a
+                // LATER list-windows sync than the window-type tag; without
+                // comparing it, a drawer float renders as a centered modal
+                // forever because floatPanes is never rebuilt.
                 if (
-                  newPane.inMode &&
-                  (!prevPane || !prevPane.inMode) &&
-                  !context.copyModeStates[newPane.tmuxId]
+                  w.floatDrawer !== prev.floatDrawer ||
+                  w.floatWidth !== prev.floatWidth ||
+                  w.floatHeight !== prev.floatHeight ||
+                  w.floatBg !== prev.floatBg ||
+                  w.floatNoheader !== prev.floatNoheader
                 ) {
-                  // Skip if we recently exited copy mode for this pane (stale inMode flag)
-                  const exitTime = copyModeExitTimes.get(newPane.tmuxId);
-                  if (exitTime && Date.now() - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
-                    continue;
-                  }
-                  // Pane just entered copy mode — initialize with pre-populated content
-                  const hs = newPane.historySize ?? 0;
-                  const tl = hs + newPane.height;
-                  const preLines = new Map<number, CellLine>();
-                  for (let i = 0; i < newPane.content.length; i++) {
-                    preLines.set(hs + i, newPane.content[i]);
-                  }
-                  const preRanges: Array<[number, number]> =
-                    newPane.content.length > 0 ? [[hs, hs + newPane.content.length - 1]] : [];
-                  const copyState: CopyModeState = {
-                    lines: preLines,
-                    totalLines: tl,
-                    historySize: hs,
-                    loadedRanges: preRanges,
-                    loading: true,
-                    width: newPane.width,
-                    height: newPane.height,
-                    cursorRow: hs + newPane.cursorY,
-                    cursorCol: newPane.cursorX,
-                    selectionMode: null,
-                    selectionAnchor: null,
-                    scrollTop: Math.max(0, tl - newPane.height),
-                  };
-                  updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: copyState };
-                  // Match the user-initiated ENTER_COPY_MODE fetch range —
-                  // request the entire live history (capped by tmux's actual
-                  // backlog), not a fixed `height + 200` slab. The narrower
-                  // request silently truncated scrollback for any pane that
-                  // entered copy mode without going through the frontend's
-                  // intercept (CLI `tmuxy run copy-mode`, custom `run-shell`
-                  // bindings, anything that flipped `in_mode` server-side),
-                  // making scrollback above ~200 lines invisible on scroll.
-                  enqueue(
-                    sendTo('tmux', {
-                      type: 'FETCH_SCROLLBACK_CELLS' as const,
-                      paneId: newPane.tmuxId,
-                      start: -hs,
-                      end: newPane.height - 1,
-                    }),
-                  );
+                  return true;
                 }
-                // Detect tmux exiting copy mode — clean up client-side copy mode
-                if (!newPane.inMode && prevPane?.inMode && context.copyModeStates[newPane.tmuxId]) {
-                  updatedCopyModeStates = { ...updatedCopyModeStates };
-                  delete updatedCopyModeStates[newPane.tmuxId];
+                const a = w.groupPanes ?? [];
+                const b = prev.groupPanes ?? [];
+                if (a.length !== b.length) return true;
+                for (let j = 0; j < a.length; j++) {
+                  if (a[j] !== b[j]) return true;
                 }
-              }
-
-              // Prune copy mode state for panes that no longer exist — e.g. the
-              // user closed a pane while it was in copy mode. Keyboard copy-mode
-              // routing is derived from copyModeStates[activePaneId], so leaving a
-              // stale entry could keep keys routed to a dead pane's copy mode
-              // during the brief window before activePaneId moves to a live pane.
-              for (const staleId of Object.keys(updatedCopyModeStates)) {
-                if (!currentPaneIdSet.has(staleId)) {
-                  updatedCopyModeStates = { ...updatedCopyModeStates };
-                  delete updatedCopyModeStates[staleId];
-                }
-              }
-
-              // Detect pane dimension changes from command-based resize
-              // (not drag-resize, which uses resizeActive). Suppress CSS
-              // transitions so dimensions snap instantly without visual jumps.
-              const hasDimensionChange =
-                !context.resizeActive &&
-                transformed.panes.some((newPane) => {
-                  const oldPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
-                  return (
-                    oldPane &&
-                    (oldPane.x !== newPane.x ||
-                      oldPane.y !== newPane.y ||
-                      oldPane.width !== newPane.width ||
-                      oldPane.height !== newPane.height)
-                  );
-                });
-
-              // Preserve activePaneId during transient states (e.g., pane-group-add
-              // sends null activePaneId between break-pane and swap-pane).
-              // Also preserve during layout transitions — tmux briefly reports a
-              // different active pane during layout recomputation, causing class churn.
-              // Detect layout transitions both from explicit commands (lastLayoutCommandTime)
-              // and from state changes (same pane set with different dimensions).
-              const samePaneSet =
-                hasDimensionChange &&
-                transformed.panes.length === context.panes.length &&
-                transformed.panes.every((p) => context.panes.some((cp) => cp.tmuxId === p.tmuxId));
-              const isLayoutTransition =
-                context.activePaneId !== null &&
-                transformed.activePaneId !== null &&
-                transformed.panes.some((p) => p.tmuxId === context.activePaneId) &&
-                ((context.lastLayoutCommandTime > 0 &&
-                  Date.now() - context.lastLayoutCommandTime < 500) ||
-                  samePaneSet);
-              const effectiveActivePaneId = isLayoutTransition
-                ? context.activePaneId
-                : (transformed.activePaneId ?? context.activePaneId);
-
-              if (hasDimensionChange) {
-                enqueue(assign({ suppressLayoutTransition: true }));
-                enqueue(({ self }) => {
-                  if (
-                    (self as unknown as { _suppressTimer?: ReturnType<typeof setTimeout> })
-                      ._suppressTimer
-                  ) {
-                    clearTimeout(
-                      (self as unknown as { _suppressTimer?: ReturnType<typeof setTimeout> })
-                        ._suppressTimer,
-                    );
-                  }
-                  const timer = setTimeout(() => {
-                    self.send({ type: 'CLEAR_LAYOUT_TRANSITION_SUPPRESSION' });
-                  }, 150);
-                  (
-                    self as unknown as { _suppressTimer?: ReturnType<typeof setTimeout> }
-                  )._suppressTimer = timer;
-                });
-              }
-
-              // Record each window's active pane as confirmed by the server,
-              // so SELECT_TAB can restore focus to the right pane on return.
-              const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
-              for (const pane of transformed.panes) {
-                if (pane.active && pane.windowId) {
-                  lastActivePaneByWindow[pane.windowId] = pane.tmuxId;
-                }
-              }
-
-              enqueue(
-                assign(({ context: ctx, event: ev }) => ({
-                  ...transformed,
-                  activePaneId: effectiveActivePaneId,
-                  paneGroups,
-                  floatPanes,
-                  copyModeStates: updatedCopyModeStates,
-                  lastUpdateTime: Date.now(),
-                  // Clear held resize preview only after resize drag ends.
-                  // During active resize, keep the preview to avoid size jumps
-                  // from intermediate %layout-change events.
-                  resize: ctx.resizeActive ? ctx.resize : null,
-                  // Panes involved in in-flight GroupSwitch ops — mirrored
-                  // from the store's op log so selectGroupSwitchPaneIds can
-                  // suppress CSS transitions on the swapped panes without
-                  // any machine-side timers.
-                  groupSwitchPaneIds: ev.model.ops.flatMap((pendingOp) =>
-                    pendingOp.op._tag === 'GroupSwitch'
-                      ? [pendingOp.op.clickedPaneId, pendingOp.op.visiblePaneId]
-                      : [],
-                  ),
-                  // Stable React key overrides for morphed placeholders —
-                  // owned by TmuxStore now, mirrored into context for selectors.
-                  paneKeyOverrides: ev.model.paneKeyOverrides,
-                  // Track pane activation order (MRU) for navigation prediction
-                  paneActivationOrder:
-                    effectiveActivePaneId !== ctx.activePaneId
-                      ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
-                      : ctx.paneActivationOrder,
-                  lastActivePaneByWindow,
-                })),
+                return false;
+              }) ||
+              transformed.panes.some(
+                (p) => p.windowId !== context.panes.find((cp) => cp.tmuxId === p.tmuxId)?.windowId,
               );
-              // Mirror the MRU order into the store's predict context — the
-              // Navigate predictor's tmux-accurate tiebreak reads it there.
-              enqueue(
-                sendTo('tmuxStore', ({ context: ctx }) => ({
-                  type: 'UPDATE_PREDICT_CONTEXT' as const,
-                  defaultShell: ctx.defaultShell,
-                  paneActivationOrder: ctx.paneActivationOrder,
-                })),
-              );
+
+            let paneGroups = structurallyChanged
+              ? buildGroupsFromWindows(
+                  transformed.windows,
+                  transformed.panes,
+                  transformed.activeWindowId,
+                )
+              : context.paneGroups;
+
+            // Prune stale groups: if a group references pane IDs that no longer
+            // exist in the updated pane list, remove those IDs. Drop groups that
+            // become empty or have only one pane (no longer a group).
+            if (!structurallyChanged && Object.keys(paneGroups).length > 0) {
+              const paneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
+              const pruned: typeof paneGroups = {};
+              let changed = false;
+              for (const [key, group] of Object.entries(paneGroups)) {
+                const validIds = group.paneIds.filter((id) => paneIdSet.has(id));
+                if (validIds.length >= 2) {
+                  pruned[key] =
+                    validIds.length === group.paneIds.length
+                      ? group
+                      : { ...group, paneIds: validIds };
+                  if (validIds.length !== group.paneIds.length) changed = true;
+                } else {
+                  changed = true;
+                }
+              }
+              if (changed) {
+                paneGroups = pruned;
+              }
+            }
+
+            let floatPanes = structurallyChanged
+              ? buildFloatPanesFromWindows(
+                  transformed.windows,
+                  transformed.panes,
+                  context.floatPanes,
+                  context.containerWidth,
+                  context.containerHeight,
+                  context.charWidth,
+                  context.charHeight,
+                )
+              : context.floatPanes;
+
+            // Prune dead floats: if a float's pane no longer exists in the
+            // updated pane list, remove it. Handles external kills where the
+            // float window disappears via %unlinked-window-close.
+            const currentPaneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
+            const deadFloatIds = Object.keys(floatPanes).filter((id) => !currentPaneIdSet.has(id));
+            if (deadFloatIds.length > 0) {
+              floatPanes = { ...floatPanes };
+              for (const id of deadFloatIds) {
+                delete floatPanes[id];
+              }
+            }
+
+            // Detect float removal — check for session switch env var
+            const prevFloatCount = Object.keys(context.floatPanes).length;
+            const newFloatCount = Object.keys(floatPanes).length;
+            if (prevFloatCount > 0 && newFloatCount < prevFloatCount) {
+              enqueue(sendTo('tmux', { type: 'CHECK_SESSION_SWITCH' as const }));
+            }
+
+            // Auto-focus float management:
+            // - When a new float appears, auto-focus it (topmost = last in list)
+            // - When floats disappear, update focused float or clear it
+            const newFloatIds = Object.keys(floatPanes);
+            const prevFloatIds = Object.keys(context.floatPanes);
+            const addedFloatIds = newFloatIds.filter((id) => !prevFloatIds.includes(id));
+            let newFocusedFloat = context.focusedFloatPaneId;
+            if (addedFloatIds.length > 0) {
+              // New float(s) appeared — focus the topmost one
+              newFocusedFloat = newFloatIds[newFloatIds.length - 1];
+              // Suppress layout animation: the split-window → break-pane
+              // workaround creates a momentary extra pane in the active window
+              // before it becomes a float. Disabling animation prevents the blink.
+              enqueue(assign({ enableAnimations: false }));
+            } else if (newFocusedFloat && !floatPanes[newFocusedFloat]) {
+              // The focused float was removed — focus the new topmost, or clear
+              newFocusedFloat = newFloatIds.length > 0 ? newFloatIds[newFloatIds.length - 1] : null;
+            }
+            if (newFocusedFloat !== context.focusedFloatPaneId) {
+              enqueue(assign({ focusedFloatPaneId: newFocusedFloat }));
               enqueue(
                 sendTo('keyboard', {
-                  type: 'UPDATE_SESSION' as const,
-                  sessionName: transformed.sessionName,
+                  type: 'UPDATE_FOCUSED_FLOAT' as const,
+                  paneId: newFocusedFloat,
                 }),
               );
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_ACTIVE_PANE' as const,
-                  paneId: effectiveActivePaneId,
-                }),
-              );
+            }
 
-              // NOTE: Do NOT sync panes to drag machine during drag.
-              // The drag machine maintains its own optimistic pane positions after
-              // each swap. Server state updates arrive asynchronously and would
-              // overwrite the optimistic positions, causing target detection to break.
-
-              // Trigger enter animation for new panes
-              if (addedPanes.length > 0 && currentPaneIds.length > 0) {
-                enqueue(({ self }) => {
-                  const snapshot = self.getSnapshot();
-                  const animRef = snapshot.children?.animation;
-                  if (animRef) {
-                    (animRef as AnyActorRef).send({ type: 'PANES_ENTERING', paneIds: addedPanes });
-                  }
-                });
-              }
-
-              // If tmux size doesn't match our target, notify server to update
-              // client size (uses refresh-client -C for window-size smallest)
-              const shouldResize =
-                context.targetCols > 0 &&
-                context.targetRows > 0 &&
-                (context.targetCols !== transformed.totalWidth ||
-                  context.targetRows !== transformed.totalHeight);
-              if (shouldResize) {
+            // Detect tmux entering copy mode (e.g. prefix+[) — init client-side copy mode
+            let updatedCopyModeStates = context.copyModeStates;
+            for (const newPane of transformed.panes) {
+              const prevPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
+              if (
+                newPane.inMode &&
+                (!prevPane || !prevPane.inMode) &&
+                !context.copyModeStates[newPane.tmuxId]
+              ) {
+                // Skip if we recently exited copy mode for this pane (stale inMode flag)
+                const exitTime = copyModeExitTimes.get(newPane.tmuxId);
+                if (exitTime && Date.now() - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
+                  continue;
+                }
+                // Pane just entered copy mode — initialize with pre-populated content
+                const hs = newPane.historySize ?? 0;
+                const tl = hs + newPane.height;
+                const preLines = new Map<number, CellLine>();
+                for (let i = 0; i < newPane.content.length; i++) {
+                  preLines.set(hs + i, newPane.content[i]);
+                }
+                const preRanges: Array<[number, number]> =
+                  newPane.content.length > 0 ? [[hs, hs + newPane.content.length - 1]] : [];
+                const copyState: CopyModeState = {
+                  lines: preLines,
+                  totalLines: tl,
+                  historySize: hs,
+                  loadedRanges: preRanges,
+                  loading: true,
+                  width: newPane.width,
+                  height: newPane.height,
+                  cursorRow: hs + newPane.cursorY,
+                  cursorCol: newPane.cursorX,
+                  selectionMode: null,
+                  selectionAnchor: null,
+                  scrollTop: Math.max(0, tl - newPane.height),
+                };
+                updatedCopyModeStates = { ...updatedCopyModeStates, [newPane.tmuxId]: copyState };
+                // Match the user-initiated ENTER_COPY_MODE fetch range —
+                // request the entire live history (capped by tmux's actual
+                // backlog), not a fixed `height + 200` slab. The narrower
+                // request silently truncated scrollback for any pane that
+                // entered copy mode without going through the frontend's
+                // intercept (CLI `tmuxy run copy-mode`, custom `run-shell`
+                // bindings, anything that flipped `in_mode` server-side),
+                // making scrollback above ~200 lines invisible on scroll.
                 enqueue(
                   sendTo('tmux', {
-                    type: 'INVOKE' as const,
-                    cmd: 'set_client_size',
-                    args: { cols: context.targetCols, rows: context.targetRows },
+                    type: 'FETCH_SCROLLBACK_CELLS' as const,
+                    paneId: newPane.tmuxId,
+                    start: -hs,
+                    end: newPane.height - 1,
                   }),
                 );
               }
-
-              // Enable animations after initial state settles.
-              // On first load, animations are disabled to prevent flash from stale
-              // server dimensions and container height corrections (StatusBar mount).
-              // If a resize is pending, use a longer delay for the round-trip.
-              if (!context.enableAnimations) {
-                // Wait for resized state to arrive before enabling transitions.
-                // If no resize needed, enable quickly. If resize pending, wait for
-                // the round-trip (resize command → tmux resizes → new state push).
-                const delay = shouldResize ? 1000 : 200;
-                enqueue(({ self }) => {
-                  setTimeout(() => {
-                    self.send({ type: 'ENABLE_ANIMATIONS' });
-                  }, delay);
-                });
+              // Detect tmux exiting copy mode — clean up client-side copy mode
+              if (!newPane.inMode && prevPane?.inMode && context.copyModeStates[newPane.tmuxId]) {
+                updatedCopyModeStates = { ...updatedCopyModeStates };
+                delete updatedCopyModeStates[newPane.tmuxId];
               }
-            }),
-          },
-        ],
+            }
+
+            // Prune copy mode state for panes that no longer exist — e.g. the
+            // user closed a pane while it was in copy mode. Keyboard copy-mode
+            // routing is derived from copyModeStates[activePaneId], so leaving a
+            // stale entry could keep keys routed to a dead pane's copy mode
+            // during the brief window before activePaneId moves to a live pane.
+            for (const staleId of Object.keys(updatedCopyModeStates)) {
+              if (!currentPaneIdSet.has(staleId)) {
+                updatedCopyModeStates = { ...updatedCopyModeStates };
+                delete updatedCopyModeStates[staleId];
+              }
+            }
+
+            // Detect pane dimension changes from command-based resize
+            // (not drag-resize, which uses resizeActive). Suppress CSS
+            // transitions so dimensions snap instantly without visual jumps.
+            const hasDimensionChange =
+              !context.resizeActive &&
+              transformed.panes.some((newPane) => {
+                const oldPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
+                return (
+                  oldPane &&
+                  (oldPane.x !== newPane.x ||
+                    oldPane.y !== newPane.y ||
+                    oldPane.width !== newPane.width ||
+                    oldPane.height !== newPane.height)
+                );
+              });
+
+            // Preserve activePaneId during transient states (e.g., pane-group-add
+            // sends null activePaneId between break-pane and swap-pane).
+            // Also preserve during layout transitions — tmux briefly reports a
+            // different active pane during layout recomputation, causing class churn.
+            // Detect layout transitions both from explicit commands (lastLayoutCommandTime)
+            // and from state changes (same pane set with different dimensions).
+            const samePaneSet =
+              hasDimensionChange &&
+              transformed.panes.length === context.panes.length &&
+              transformed.panes.every((p) => context.panes.some((cp) => cp.tmuxId === p.tmuxId));
+            const isLayoutTransition =
+              context.activePaneId !== null &&
+              transformed.activePaneId !== null &&
+              transformed.panes.some((p) => p.tmuxId === context.activePaneId) &&
+              ((context.lastLayoutCommandTime > 0 &&
+                Date.now() - context.lastLayoutCommandTime < 500) ||
+                samePaneSet);
+            const effectiveActivePaneId = isLayoutTransition
+              ? context.activePaneId
+              : (transformed.activePaneId ?? context.activePaneId);
+
+            // Record each window's active pane as confirmed by the server,
+            // so SELECT_TAB can restore focus to the right pane on return.
+            const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
+            for (const pane of transformed.panes) {
+              if (pane.active && pane.windowId) {
+                lastActivePaneByWindow[pane.windowId] = pane.tmuxId;
+              }
+            }
+
+            enqueue(
+              assign(({ context: ctx, event: ev }) => ({
+                ...transformed,
+                activePaneId: effectiveActivePaneId,
+                paneGroups,
+                floatPanes,
+                copyModeStates: updatedCopyModeStates,
+                lastUpdateTime: Date.now(),
+                // Clear held resize preview only after resize drag ends.
+                // During active resize, keep the preview to avoid size jumps
+                // from intermediate %layout-change events.
+                resize: ctx.resizeActive ? ctx.resize : null,
+                // Derived, no debounce timer: the flag rides the same React
+                // commit as the new geometry. It relaxes only after TWO
+                // consecutive quiet updates because a dirty optimistic
+                // update and its instant quiet confirm can batch into one
+                // commit — releasing on the quiet update alone would let
+                // the batch's net geometry delta animate.
+                suppressLayoutTransition: hasDimensionChange || !ctx.lastUpdateQuiet,
+                lastUpdateQuiet: !hasDimensionChange,
+                // Panes involved in in-flight GroupSwitch ops — mirrored
+                // from the store's op log so selectGroupSwitchPaneIds can
+                // suppress CSS transitions on the swapped panes without
+                // any machine-side timers.
+                groupSwitchPaneIds: ev.model.ops.flatMap((pendingOp) =>
+                  pendingOp.op._tag === 'GroupSwitch'
+                    ? [pendingOp.op.clickedPaneId, pendingOp.op.visiblePaneId]
+                    : [],
+                ),
+                // Stable React key overrides for morphed placeholders —
+                // owned by TmuxStore now, mirrored into context for selectors.
+                paneKeyOverrides: ev.model.paneKeyOverrides,
+                // Track pane activation order (MRU) for navigation prediction
+                paneActivationOrder:
+                  effectiveActivePaneId !== ctx.activePaneId
+                    ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
+                    : ctx.paneActivationOrder,
+                lastActivePaneByWindow,
+              })),
+            );
+            // Mirror the MRU order into the store's predict context — the
+            // Navigate predictor's tmux-accurate tiebreak reads it there.
+            enqueue(
+              sendTo('tmuxStore', ({ context: ctx }) => ({
+                type: 'UPDATE_PREDICT_CONTEXT' as const,
+                defaultShell: ctx.defaultShell,
+                paneActivationOrder: ctx.paneActivationOrder,
+              })),
+            );
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_SESSION' as const,
+                sessionName: transformed.sessionName,
+              }),
+            );
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_ACTIVE_PANE' as const,
+                paneId: effectiveActivePaneId,
+              }),
+            );
+
+            // NOTE: Do NOT sync panes to drag machine during drag.
+            // The drag machine maintains its own optimistic pane positions after
+            // each swap. Server state updates arrive asynchronously and would
+            // overwrite the optimistic positions, causing target detection to break.
+
+            // If tmux size doesn't match our target, notify server to update
+            // client size (uses refresh-client -C for window-size smallest)
+            const shouldResize =
+              context.targetCols > 0 &&
+              context.targetRows > 0 &&
+              (context.targetCols !== transformed.totalWidth ||
+                context.targetRows !== transformed.totalHeight);
+            if (shouldResize) {
+              enqueue(
+                sendTo('tmux', {
+                  type: 'INVOKE' as const,
+                  cmd: 'set_client_size',
+                  args: { cols: context.targetCols, rows: context.targetRows },
+                }),
+              );
+            }
+
+            // Re-enable animations after TWO consecutive QUIET updates
+            // (no geometry delta on existing panes) with no pending client
+            // resize round-trip. One quiet update isn't enough: an
+            // optimistic dirty update and its instant quiet confirm can
+            // batch into a single React commit, and enabling there would
+            // animate the batch's net geometry delta (see lastUpdateQuiet).
+            // Pane additions don't block it — freshly mounted nodes can't
+            // run a CSS transition. This replaces the old 200/1000ms settle
+            // timer with the invariant it approximated: the suppressed
+            // geometry has provably reached a commit before transitions
+            // come back.
+            if (
+              !context.enableAnimations &&
+              context.targetCols > 0 &&
+              !shouldResize &&
+              !hasDimensionChange &&
+              context.lastUpdateQuiet
+            ) {
+              enqueue(assign({ enableAnimations: true }));
+            }
+          }),
+        },
         TMUX_ERROR: {
           actions: enqueueActions(({ event, enqueue }) => {
             enqueue(assign({ error: event.error }));
@@ -1352,7 +1249,6 @@ export const appMachine = setup({
         // KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED, RESIZE_ERROR — handled by layoutState
 
         // Animation events
-        ANIMATION_LEAVE_COMPLETE: {},
         ANIMATION_DRAG_COMPLETE: {},
 
         // Pane Operations
@@ -1599,211 +1495,6 @@ export const appMachine = setup({
             );
           }),
         },
-
-        // CLEAR_LAYOUT_TRANSITION_SUPPRESSION — handled by layoutState
-      },
-    },
-
-    removingPane: {
-      // Fallback timeout: if animation doesn't complete (e.g., no animation actor),
-      // auto-transition to idle after 300ms
-      after: {
-        300: {
-          target: 'idle',
-          actions: enqueueActions(({ context, enqueue }) => {
-            if (!context.pendingUpdate) return;
-
-            const update = context.pendingUpdate;
-
-            // Auto-focus float management: detect floats that appeared during animation
-            const prevFloatIds = Object.keys(context.floatPanes);
-            const newFloatIds = Object.keys(update.floatPanes ?? {});
-            const addedFloatIds = newFloatIds.filter((id) => !prevFloatIds.includes(id));
-            let newFocusedFloat = context.focusedFloatPaneId;
-            if (addedFloatIds.length > 0) {
-              newFocusedFloat = newFloatIds[newFloatIds.length - 1];
-            } else if (newFocusedFloat && !update.floatPanes?.[newFocusedFloat]) {
-              newFocusedFloat = newFloatIds.length > 0 ? newFloatIds[newFloatIds.length - 1] : null;
-            }
-
-            enqueue(
-              assign({
-                ...update,
-                pendingUpdate: null,
-                paneActivationOrder:
-                  update.activePaneId !== context.activePaneId
-                    ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
-                    : context.paneActivationOrder,
-                ...(newFocusedFloat !== context.focusedFloatPaneId && {
-                  focusedFloatPaneId: newFocusedFloat,
-                }),
-              }),
-            );
-            if (newFocusedFloat !== context.focusedFloatPaneId) {
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_FOCUSED_FLOAT' as const,
-                  paneId: newFocusedFloat,
-                }),
-              );
-            }
-            enqueue(
-              sendTo('keyboard', {
-                type: 'UPDATE_SESSION' as const,
-                sessionName: update.sessionName,
-              }),
-            );
-            enqueue(
-              sendTo('keyboard', {
-                type: 'UPDATE_ACTIVE_PANE' as const,
-                paneId: update.activePaneId,
-              }),
-            );
-          }),
-        },
-      },
-      on: {
-        ANIMATION_LEAVE_COMPLETE: {
-          target: 'idle',
-          actions: enqueueActions(({ context, enqueue }) => {
-            if (!context.pendingUpdate) return;
-
-            const update = context.pendingUpdate;
-
-            // Auto-focus float management: detect floats that appeared during animation
-            const prevFloatIds = Object.keys(context.floatPanes);
-            const newFloatIds = Object.keys(update.floatPanes ?? {});
-            const addedFloatIds = newFloatIds.filter((id) => !prevFloatIds.includes(id));
-            let newFocusedFloat = context.focusedFloatPaneId;
-            if (addedFloatIds.length > 0) {
-              newFocusedFloat = newFloatIds[newFloatIds.length - 1];
-            } else if (newFocusedFloat && !update.floatPanes?.[newFocusedFloat]) {
-              newFocusedFloat = newFloatIds.length > 0 ? newFloatIds[newFloatIds.length - 1] : null;
-            }
-
-            enqueue(
-              assign({
-                ...update,
-                pendingUpdate: null,
-                paneActivationOrder:
-                  update.activePaneId !== context.activePaneId
-                    ? updateActivationOrder(context.paneActivationOrder, update.activePaneId)
-                    : context.paneActivationOrder,
-                ...(newFocusedFloat !== context.focusedFloatPaneId && {
-                  focusedFloatPaneId: newFocusedFloat,
-                }),
-              }),
-            );
-            if (newFocusedFloat !== context.focusedFloatPaneId) {
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_FOCUSED_FLOAT' as const,
-                  paneId: newFocusedFloat,
-                }),
-              );
-            }
-            enqueue(
-              sendTo('keyboard', {
-                type: 'UPDATE_SESSION' as const,
-                sessionName: update.sessionName,
-              }),
-            );
-            enqueue(
-              sendTo('keyboard', {
-                type: 'UPDATE_ACTIVE_PANE' as const,
-                paneId: update.activePaneId,
-              }),
-            );
-          }),
-        },
-        // Reconcile fresh server snapshots through the store even during the
-        // exit animation — the model needs to stay current so the post-anim
-        // pendingUpdate reflects the latest reality.
-        TMUX_STATE_UPDATE: {
-          actions: sendTo('tmuxStore', ({ event }) => ({
-            type: 'RECONCILE_SERVER' as const,
-            state: event.state,
-          })),
-        },
-        // Queue any model updates that arrive during animation as a
-        // pending snapshot; the animation completion handler applies it.
-        TMUX_MODEL_UPDATE: {
-          actions: enqueueActions(({ event, context, enqueue }) => {
-            const transformed = snapshotFromModel(event.model);
-
-            // Skip spurious empty-pane states from the server
-            if (transformed.panes.length === 0) return;
-
-            const paneGroups = buildGroupsFromWindows(
-              transformed.windows,
-              transformed.panes,
-              transformed.activeWindowId,
-            );
-
-            const floatPanes = buildFloatPanesFromWindows(
-              transformed.windows,
-              transformed.panes,
-              context.floatPanes,
-              context.containerWidth,
-              context.containerHeight,
-              context.charWidth,
-              context.charHeight,
-            );
-
-            enqueue(
-              assign({
-                pendingUpdate: {
-                  ...transformed,
-                  paneGroups,
-                  floatPanes,
-                },
-                lastUpdateTime: Date.now(),
-              }),
-            );
-          }),
-        },
-        // Still handle tmux commands during animation — go through the store
-        // so optimistic patches and rollback semantics are consistent.
-        SEND_TMUX_COMMAND: {
-          actions: sendTo('tmuxStore', ({ event, context }) => ({
-            type: 'DISPATCH_COMMAND' as const,
-            command: resolveWindowTarget(event.command, context.activeWindowId),
-          })),
-        },
-        SEND_COMMAND: {
-          actions: sendTo('tmuxStore', ({ event, context }) => ({
-            type: 'DISPATCH_COMMAND' as const,
-            command: resolveWindowTarget(event.command, context.activeWindowId),
-          })),
-        },
-        KEYBINDINGS_RECEIVED: {
-          actions: [
-            assign({ keybindings: ({ event }) => event.keybindings }),
-            sendTo('keyboard', ({ event }) => ({
-              type: 'UPDATE_KEYBINDINGS' as const,
-              keybindings: event.keybindings,
-            })),
-          ],
-        },
-        KEY_PRESS: {
-          actions: [
-            sendTo('dragLogic', ({ event }) => event),
-            sendTo('resizeLogic', ({ event }) => event),
-          ],
-        },
-        // Still handle errors and disconnects
-        TMUX_ERROR: {
-          actions: enqueueActions(({ event, enqueue }) => {
-            enqueue(assign({ error: event.error }));
-            enqueue(({ self }) => {
-              self.send({ type: 'SHOW_STATUS_MESSAGE', text: event.error });
-            });
-          }),
-        },
-        TMUX_DISCONNECTED: {
-          target: 'disconnected',
-          actions: assign({ connected: false, pendingUpdate: null, enableAnimations: false }),
-        },
       },
     },
 
@@ -1824,7 +1515,7 @@ export const appMachine = setup({
         },
         TMUX_DISCONNECTED: {
           target: 'disconnected',
-          actions: assign({ connected: false, pendingUpdate: null, enableAnimations: false }),
+          actions: assign({ connected: false, enableAnimations: false }),
         },
         // Still ingest server state during the reconnecting window — when the
         // channel comes back, the first full snapshot triggers reconciliation

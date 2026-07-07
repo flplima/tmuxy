@@ -5,14 +5,6 @@ import { uiPrefsGuards } from '../../guards/uiPrefs';
 import { mountState, sendAndGetContext } from './testHarness';
 
 describe('uiPrefs state', () => {
-  it('ENABLE_ANIMATIONS sets enableAnimations to true', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
-      enableAnimations: false,
-    });
-    const ctx = sendAndGetContext(actor, { type: 'ENABLE_ANIMATIONS' });
-    expect(ctx.enableAnimations).toBe(true);
-  });
-
   it('SET_THEME updates themeName', () => {
     const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
       themeName: 'default',

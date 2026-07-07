@@ -6,7 +6,7 @@
  * runtime mapping of each field to its owning parallel state.
  */
 
-import type { AppMachineContext, PendingUpdate } from '../types';
+import type { AppMachineContext } from '../types';
 import {
   DEFAULT_SESSION_NAME,
   DEFAULT_COLS,
@@ -74,13 +74,13 @@ export const FIELD_OWNERS = {
   paneActivationOrder: 'layout',
   lastActivePaneByWindow: 'layout',
   paneKeyOverrides: 'layout',
-  pendingUpdate: 'layout',
   lastLayoutCommandTime: 'layout',
   drag: 'layout',
   resize: 'layout',
   resizeActive: 'layout',
   suppressLayoutTransition: 'layout',
   groupSwitchPaneIds: 'layout',
+  lastUpdateQuiet: 'layout',
 
   // ---- copyMode ----
   copyModeStates: 'copyMode',
@@ -138,7 +138,6 @@ export function createInitialContext(): AppMachineContext {
     connectionId: null,
     defaultShell: 'bash',
     statusLine: '',
-    pendingUpdate: null as PendingUpdate | null,
     containerWidth: 0,
     containerHeight: 0,
     lastUpdateTime: 0,
@@ -155,6 +154,7 @@ export function createInitialContext(): AppMachineContext {
     lastActivePaneByWindow: {},
     paneActivationOrder: [] as string[],
     groupSwitchPaneIds: [] as string[],
+    lastUpdateQuiet: true,
     commandMode: null,
     statusMessage: null,
     themeName: loadThemeFromStorage()?.theme ?? 'default',

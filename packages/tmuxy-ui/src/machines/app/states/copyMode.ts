@@ -4,7 +4,7 @@
  * Owns context field: copyModeStates.
  *
  * Spread into states.idle.on (not the machine root) — copy mode events
- * only fire when connected and idle, never during connecting / removingPane.
+ * only fire when connected and idle, never during connecting.
  *
  * Action implementations live in ../actions/copyMode.ts (with the shared
  * copyModeExitTimes Map and COPY_MODE_REENTRY_COOLDOWN constant).

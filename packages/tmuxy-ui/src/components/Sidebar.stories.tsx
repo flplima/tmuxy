@@ -122,7 +122,13 @@ export const OpenViaPrefixT: Story = {
 export const ClickTabAndPaneActivate: Story = {
   args: {
     height: 500,
-    initCommands: ['rename-window one', 'new-window', 'rename-window two', 'split-window -h'],
+    initCommands: [
+      'rename-window one',
+      'split-window -h',
+      'new-window',
+      'rename-window two',
+      'split-window -h',
+    ],
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -141,6 +147,14 @@ export const ClickTabAndPaneActivate: Story = {
       tree.querySelector(`[data-testid="tree-tab-${otherTab.id}"]`) as HTMLElement,
     );
     await waitFor(() => expect(app().context.activeWindowId).toBe(otherTab.id), { timeout: 5000 });
+    // Wait for the switch to SETTLE, not just the optimistic flip: the demo
+    // (like tmux list-panes routing) emits panes for the active window, so
+    // until its response lands, context.panes still holds the old window's
+    // panes. The old removingPane 300ms hold used to mask this transient.
+    await waitFor(
+      () => expect(app().context.panes.every((p) => p.windowId === otherTab.id)).toBe(true),
+      { timeout: 5000 },
+    );
 
     // Click a pane that isn't active → it becomes the active pane.
     const target = app().context.panes.find((p) => p.tmuxId !== app().context.activePaneId)!;

@@ -3,14 +3,14 @@
  *
  * Owns context fields: panes, windows, activeWindowId, activePaneId,
  * paneActivationOrder, lastActivePaneByWindow,
- * paneKeyOverrides, pendingUpdate, lastLayoutCommandTime,
+ * paneKeyOverrides, lastLayoutCommandTime,
  * drag, resize, resizeActive, suppressLayoutTransition.
  *
  * MIGRATED HERE (the cleanly-layout-owned events):
  *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
  *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED, RESIZE_ERROR,
- *   DRAG_STATE_UPDATE, DRAG_COMPLETED, DRAG_ERROR, ANIMATION_LEAVE_COMPLETE,
- *   ANIMATION_DRAG_COMPLETE, CLEAR_LAYOUT_TRANSITION_SUPPRESSION.
+ *   DRAG_STATE_UPDATE, DRAG_COMPLETED, DRAG_ERROR,
+ *   ANIMATION_DRAG_COMPLETE.
  *
  * STILL IN appMachine.ts (cross-cutting orchestrators that touch multiple
  * states' fields and don't extract cleanly without restructuring):
@@ -229,9 +229,5 @@ export const layoutActions = {
     // cross-cutting: `error` is parent-owned (see layout_resizeError).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return { error: event.error, drag: null } as any;
-  }),
-
-  layout_clearLayoutTransitionSuppression: assign<Ctx, Evt, undefined, Evt, never>({
-    suppressLayoutTransition: false,
   }),
 };

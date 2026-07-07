@@ -139,14 +139,6 @@ describe('layout state', () => {
     expect(ctx.resizeActive).toBe(false);
   });
 
-  it('CLEAR_LAYOUT_TRANSITION_SUPPRESSION sets suppressLayoutTransition to false', () => {
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      suppressLayoutTransition: true,
-    });
-    const ctx = sendAndGetContext(actor, { type: 'CLEAR_LAYOUT_TRANSITION_SUPPRESSION' });
-    expect(ctx.suppressLayoutTransition).toBe(false);
-  });
-
   it('DRAG_STATE_UPDATE assigns the drag field directly', () => {
     const actor = mountState(layoutState, layoutActions, layoutGuards, {
       drag: null,
