@@ -138,6 +138,9 @@
   --transition-normal: 0.15s ease;
   --transition-slow: 0.2s ease;
   --transition-layout: 100ms linear;
+  /* Active/inactive pane fade: long enough to kill the hard flash on focus
+     changes and swaps, short enough to feel instant. */
+  --transition-active: 80ms ease-out;
 
   /* Shadows */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -473,14 +476,20 @@
      to break the link. */
   outline: 1px solid
     color-mix(in srgb, var(--pane-active-border, var(--border-medium)) 35%, transparent);
-  /* Animate position/size changes for swaps and resizes */
+  /* Animate position/size changes for swaps and resizes. Opacity and
+     background-color carry the active/inactive distinction — without them in
+     this list every focus change, swap, and tab switch flips the pane's dim
+     and surface INSTANTLY: the "everything hard-flashes" paint blink from the
+     stability review (follow-up #9). */
   transition:
     left var(--transition-layout),
     top var(--transition-layout),
     width var(--transition-layout),
     height var(--transition-layout),
     transform var(--transition-layout),
-    box-shadow var(--transition-layout);
+    box-shadow var(--transition-layout),
+    opacity var(--transition-active),
+    background-color var(--transition-active);
 }
 
 /* Inactive pane: slightly dimmed content */

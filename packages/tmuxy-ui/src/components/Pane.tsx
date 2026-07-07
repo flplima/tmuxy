@@ -5,7 +5,7 @@
  * and delegates to the appropriate sub-component.
  */
 
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import { usePane } from '../machines/AppContext';
 import { LogProfiler } from '../utils/renderLog';
 import { detectWidget } from './widgets';
@@ -25,11 +25,24 @@ interface PaneProps {
  */
 export const Pane = memo(function Pane({ paneId }: PaneProps) {
   const pane = usePane(paneId);
+  // Latch the widget/terminal classification across transient EMPTY content:
+  // a pane's content briefly clears while a capture refresh is in flight
+  // (resize, window move), and flipping detectWidget on that gap switches the
+  // rendered component TYPE — React unmounts the whole subtree and remounts
+  // the other, a full-pane blink twice over when the content returns. Keys
+  // can't prevent a type switch, so hold the last definitive classification
+  // until non-empty content says otherwise.
+  const lastWidgetInfoRef = useRef<ReturnType<typeof detectWidget>>(null);
 
   // Pane may not exist during transitions
   if (!pane) return null;
 
-  const widgetInfo = detectWidget(pane.content);
+  let widgetInfo = detectWidget(pane.content);
+  if (pane.content.length === 0) {
+    widgetInfo = lastWidgetInfoRef.current;
+  } else {
+    lastWidgetInfoRef.current = widgetInfo;
+  }
   // The Profiler sits INSIDE the memo boundary so a memo bail-out records
   // zero commits — it measures real pane work, not parent churn.
   if (widgetInfo) {
