@@ -573,12 +573,15 @@ export const Theme: Story = {
     // the `#tmuxy-theme` <link> during its theme init on connect, which can
     // land a beat after the panes render — wait for it rather than assume it
     // already exists (e.g. on a fresh page load with no prior story's link).
+    // Generous timeout: theme init rides HTTP fetches that contend with the
+    // emulator for the runner's CPU — in the full shared-engine sweep this
+    // has been observed to exceed 15s while passing solo in under 5s.
     await waitFor(
       () =>
         expect(doc.getElementById('tmuxy-theme')?.getAttribute('href') ?? '').toMatch(
           /\/themes\/.+\.css$/,
         ),
-      { timeout: 15000, interval: 300 },
+      { timeout: 45000, interval: 300 },
     );
     const bg = () => getComputedStyle(html).getPropertyValue('--term-background').trim();
     app.send({ type: 'SET_THEME_MODE', mode: 'light' });
