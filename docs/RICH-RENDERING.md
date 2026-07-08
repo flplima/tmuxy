@@ -78,6 +78,8 @@ Each `ImagePlacement` carries:
 
 The frontend positions the `<img>` absolutely inside `.terminal-images` using `calc(<n> * var(--cell-width|height))`, so the image stays anchored to the same cell range as the surrounding text reflows. When `width=auto` / `height=auto` is requested, the parser converts pixels to cells using the pane's current cell size estimate.
 
+**Known limitation — placements are viewport-cell anchored, not content-tracked.** The `row`/`col` anchor is the cursor position at decode time and never moves afterwards: the core's vt100 emulator runs with zero scrollback, so there is no scroll signal to shift placements when later output scrolls the screen. An image therefore stays pinned to its original viewport cell while text scrolls underneath it (iTerm2, by contrast, scrolls images with content). Content-tracked placements would require a scrolled-lines counter in the vt100 layer plus row adjustment and off-screen culling in `control_mode/images.rs`. The `ImageAnchoredDuringScroll` story guards the current anchored behavior.
+
 ## Testing
 
 ### Manual

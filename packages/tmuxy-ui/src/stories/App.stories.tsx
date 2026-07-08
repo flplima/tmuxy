@@ -2340,12 +2340,17 @@ export const Osc8Hyperlink: Story = {
 };
 
 /**
- * Image placements track content flow: an inline image must not stay pinned to
- * the viewport when subsequent output scrolls the screen — after enough lines it
- * scrolls out (unmounts or moves up), guarding placement tracking rather than
- * just decode.
+ * Image placements are CELL-ANCHORED, not content-tracked (see
+ * docs/RICH-RENDERING.md "Placement geometry"): the core's vt100 keeps no
+ * scrollback (limit 0), so a placement pins to its decode-time viewport cell
+ * and later output scrolling the screen does NOT move it. This story guards
+ * that documented behavior — the placement survives a 60-line burst without
+ * unmounting or drifting. (Its predecessor, ImageScrollsWithContent,
+ * asserted iTerm2-style scroll-tracking the renderer never implemented and
+ * passed only via a transient-null escape hatch during capture refreshes.
+ * Content-tracked placements would need a scroll counter in the vt100 layer.)
  */
-export const ImageScrollsWithContent: Story = {
+export const ImageAnchoredDuringScroll: Story = {
   args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -2362,18 +2367,12 @@ export const ImageScrollsWithContent: Story = {
       { timeout: 40000, interval: 500 },
     );
     pasteLine('seq 1 60');
-    // The placement either scrolled out of the viewport or moved up with the flow.
-    await waitFor(
-      () => {
-        const img = doc.querySelector('img[src^="data:image/png"]');
-        if (img) {
-          expect(img.getBoundingClientRect().top).toBeLessThan(firstTop);
-        } else {
-          expect(img).toBeNull();
-        }
-      },
-      { timeout: 40000, interval: 500 },
-    );
+    // Wait for the burst to actually render before judging the placement.
+    await waitForBurstTail(canvas, (text) => /585960(\D|$)/.test(text.replace(/\s+/g, '')));
+    // Anchored: same element, same cell → same rendered position.
+    const img = doc.querySelector('img[src^="data:image/png"]');
+    expect(img).not.toBeNull();
+    expect(img!.getBoundingClientRect().top).toBe(firstTop);
   },
 };
 
@@ -3036,18 +3035,23 @@ export const RapidCommandBurst: Story = {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
     for (let n = 1; n <= 10; n++) pasteLine(`echo BURST_Q${n}_END`);
+    // Ten commands emit ~20 rows (typed echo + output each) — more than the
+    // pane can show, so the EARLY commands' lines legitimately scroll out of
+    // the viewport and can't be asserted on. The last five (10 rows) always
+    // fit: require echo + output for each, in order. The queue pressure the
+    // story exists for still comes from all ten back-to-back pastes.
     await waitFor(
       () => {
         const text = paneGroups(canvas)
           .map((p: HTMLElement) => p.textContent ?? '')
           .join('');
-        for (let n = 1; n <= 10; n++) {
+        for (let n = 6; n <= 10; n++) {
           expect(
             (text.match(new RegExp(`BURST_Q${n}_END`, 'g')) ?? []).length,
           ).toBeGreaterThanOrEqual(2);
         }
-        // In-order: the last command's OUTPUT must appear after the first's.
-        expect(text.lastIndexOf('BURST_Q10_END')).toBeGreaterThan(text.indexOf('BURST_Q1_END'));
+        // In-order: the last command's OUTPUT must appear after the sixth's.
+        expect(text.lastIndexOf('BURST_Q10_END')).toBeGreaterThan(text.indexOf('BURST_Q6_END'));
       },
       { timeout: 60000, interval: 700 },
     );
