@@ -1549,7 +1549,7 @@ impl StateAggregator {
                     window.active_pane_id = Some(pane_id.clone());
                 }
                 // Update active pane flag on existing panes
-                for (_, pane) in self.panes.iter_mut() {
+                for pane in self.panes.values_mut() {
                     if pane.window_id == window_id {
                         pane.active = pane.id == pane_id;
                     }
