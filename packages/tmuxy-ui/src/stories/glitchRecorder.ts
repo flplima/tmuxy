@@ -58,6 +58,9 @@ interface PaneRect {
   readonly id: string;
   readonly w: number;
   readonly h: number;
+  /** Pane carried an enter/leave/shift lifecycle class at sample time —
+   * its rect motion is the deliberate split/kill morph, not a glitch. */
+  readonly animating: boolean;
 }
 
 export interface GlitchFlicker {
@@ -148,6 +151,10 @@ export class GlitchRecorder {
             id: (p as HTMLElement).dataset.paneId ?? elementId(p),
             w: Math.round(r.width),
             h: Math.round(r.height),
+            animating:
+              p.classList.contains('pane-entering') ||
+              p.classList.contains('pane-shifting') ||
+              p.classList.contains('pane-leaving'),
           };
         }),
       });
@@ -281,6 +288,8 @@ export class GlitchRecorder {
         // Hide/show transitions (display:none tab switches) pass through
         // 0x0 by design — only movements between two VISIBLE states count.
         if (pane.w === 0 || pane.h === 0 || prevPane.w === 0 || prevPane.h === 0) continue;
+        // Split/kill morphs animate rects on purpose — not flicker.
+        if (pane.animating || prevPane.animating) continue;
         const dw = Math.abs(pane.w - prevPane.w);
         const dh = Math.abs(pane.h - prevPane.h);
         if (dw > sizeJumpThreshold || dh > sizeJumpThreshold) {
