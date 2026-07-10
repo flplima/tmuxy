@@ -52,3 +52,6 @@ core.*
 # Generated wasm bindings (build via npm run build:wasm)
 packages/tmuxy-wasm/pkg/
 target/
+
+# Local reference images (not tracked)
+split-smooth-animations.png
