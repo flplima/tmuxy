@@ -77,23 +77,24 @@ Like native tmux, when multiple browser clients connect to the same session, the
 
 Each crate's source tree is one `ls packages/<crate>/src` away — the durable thing to know is **what each crate owns**, not which files happen to currently exist.
 
-| Crate | Owns |
-|-------|------|
-| `tmuxy-core` | `tmux -CC` subprocess management, control-mode event parsing, the sans-IO state aggregator, `TmuxMonitor` runtime, substitutable `Ctx` (clock/tmux/fs), retry policy, Tower middleware stack, typed `TmuxError`. |
-| `tmuxy-server` | Axum HTTP server, SSE streaming with `Last-Event-Id` resync, typed `ClientCommand` enum for the HTTP POST endpoint, per-session client tracking, structured shutdown, embedded frontend assets (prod) or Vite proxy (dev). |
-| `tmuxy-ui` | React frontend, XState machine, optimistic `TmuxClientModel`, Effect-based adapter facade with typed errors, in-browser demo engine, and the v86 client-side adapter (real tmux in an in-browser x86 emulator). |
-| `tmuxy-wasm` | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script. |
-| `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` + `Ctx` plumbing as the server; transport is native IPC instead of SSE/HTTP. |
+| Crate             | Owns                                                                                                                                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tmuxy-core`      | `tmux -CC` subprocess management, control-mode event parsing, the sans-IO state aggregator, `TmuxMonitor` runtime, substitutable `Ctx` (clock/tmux/fs), retry policy, Tower middleware stack, typed `TmuxError`.           |
+| `tmuxy-server`    | Axum HTTP server, SSE streaming with `Last-Event-Id` resync, typed `ClientCommand` enum for the HTTP POST endpoint, per-session client tracking, structured shutdown, embedded frontend assets (prod) or Vite proxy (dev). |
+| `tmuxy-ui`        | React frontend, XState machine, optimistic `TmuxClientModel`, Effect-based adapter facade with typed errors, in-browser demo engine, and the v86 client-side adapter (real tmux in an in-browser x86 emulator).            |
+| `tmuxy-wasm`      | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script.           |
+| `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` + `Ctx` plumbing as the server; transport is native IPC instead of SSE/HTTP.                                                                                            |
 
 ## Related Documentation
 
-| Document | Covers |
-|----------|--------|
-| [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) | Frontend XState + backend Rust state in detail |
-| [DATA-FLOW.md](DATA-FLOW.md) | SSE/HTTP protocol, Tauri IPC, real-world deployment scenarios |
-| [TMUX.md](TMUX.md) | Control mode routing, version-specific bugs, workarounds |
-| [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation |
-| [SECURITY.md](SECURITY.md) | Security risks, mitigations, deployment warnings |
-| [TESTS.md](TESTS.md) | Testing guidelines and principles |
-| [NON-GOALS.md](NON-GOALS.md) | What tmuxy intentionally does NOT do |
-| [RICH-RENDERING.md](RICH-RENDERING.md) | Terminal image/OSC protocol support |
+| Document                                   | Covers                                                        |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) | Frontend XState + backend Rust state in detail                |
+| [DATA-FLOW.md](DATA-FLOW.md)               | SSE/HTTP protocol, Tauri IPC, real-world deployment scenarios |
+| [TMUX.md](TMUX.md)                         | Control mode routing, version-specific bugs, workarounds      |
+| [COPY-MODE.md](COPY-MODE.md)               | Client-side copy mode reimplementation                        |
+| [SECURITY.md](SECURITY.md)                 | Security risks, mitigations, deployment warnings              |
+| [TESTS.md](TESTS.md)                       | Testing guidelines and principles                             |
+| [PERFORMANCE.md](PERFORMANCE.md)           | Speed measurement: core/render (Axis A) vs transport (Axis B) |
+| [NON-GOALS.md](NON-GOALS.md)               | What tmuxy intentionally does NOT do                          |
+| [RICH-RENDERING.md](RICH-RENDERING.md)     | Terminal image/OSC protocol support                           |

@@ -26,6 +26,8 @@ import {
 } from './machines/AppContext';
 import type { LogEntry } from './machines/types';
 import { initDebugHelpers } from './utils/debug';
+import { latencyTracker } from './tmux/latencyTracker';
+import { PerfHud } from './components/PerfHud';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 
@@ -194,6 +196,9 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
         </div>
       </div>
       <TmuxStatusBar />
+      {/* Dev-only latency overlay; mounted only when enabled via ?perf /
+          localStorage so it and its store subscription cost nothing otherwise. */}
+      {latencyTracker.isEnabled() && <PerfHud />}
     </div>
   );
 }

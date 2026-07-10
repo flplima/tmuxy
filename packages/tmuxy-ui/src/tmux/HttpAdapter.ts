@@ -15,6 +15,7 @@ import {
 } from './types';
 import { handleStateUpdate } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
+import { latencyTracker } from './latencyTracker';
 
 // Reconnection constants (for EventSource manual reconnection with backoff)
 const MAX_RECONNECT_DELAY_MS = 30000;
@@ -284,6 +285,7 @@ export class HttpAdapter implements TmuxAdapter {
     // raced past a `select-window -t @B` would split the previous tab. Chain
     // through `sendQueue` so HTTP POSTs leave the browser one at a time.
     if (cmd === 'run_tmux_command') {
+      latencyTracker.markInput();
       return this.enqueueSerialInvoke<T>(cmd, args);
     }
 
@@ -329,6 +331,10 @@ export class HttpAdapter implements TmuxAdapter {
       console.warn('[HttpAdapter] Not connected, cannot send command');
       return;
     }
+
+    // Keystrokes are the latency-critical input path — mark the round-trip so
+    // the next applied state update closes it (Axis-B, see latencyTracker).
+    latencyTracker.markInput();
 
     const session = getEffectiveSession();
     const protocol = window.location.protocol;
@@ -482,6 +488,9 @@ export class HttpAdapter implements TmuxAdapter {
   }
 
   private notifyStateChange(state: ServerState): void {
+    // Paint-bound apply (rAF-batched): closes the oldest outstanding input's
+    // round trip and feeds the update-rate / stall metrics (Axis-B).
+    latencyTracker.recordUpdate();
     this.stateListeners.forEach((listener) => listener(state));
   }
 

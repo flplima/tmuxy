@@ -41,6 +41,7 @@ web-time = "1"
 
 [dev-dependencies]
 proptest = "1"
+criterion = "0.5"
 
 [features]
 default = ["native"]
@@ -56,3 +57,9 @@ workspace = true
 name = "tmux-capture"
 path = "src/bin/tmux_capture.rs"
 required-features = ["native"]
+
+# Axis-A core-pipeline benchmark (criterion). See benches/core_pipeline.rs and
+# docs/PERFORMANCE.md.
+[[bench]]
+name = "core_pipeline"
+harness = false

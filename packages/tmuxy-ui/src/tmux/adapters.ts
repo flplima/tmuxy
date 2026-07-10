@@ -16,6 +16,7 @@ import { HttpAdapter } from './HttpAdapter';
 import { DemoAdapter } from './demo/DemoAdapter';
 import { handleStateUpdate } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
+import { latencyTracker } from './latencyTracker';
 
 // ============================================
 // Tauri Adapter
@@ -48,6 +49,7 @@ export class TauriAdapter implements TmuxAdapter {
 
       // Initialize key batcher with Tauri invoke as the send function
       this.keyBatcher = new KeyBatcher((cmd, args) => {
+        latencyTracker.markInput();
         invoke(cmd, args).catch(() => {
           // Ignore errors for fire-and-forget batched commands
         });
@@ -195,6 +197,7 @@ export class TauriAdapter implements TmuxAdapter {
     this.keyBatcher?.flushAll();
 
     if (cmd === 'run_tmux_command') {
+      latencyTracker.markInput();
       let resolveOuter!: (value: T | PromiseLike<T>) => void;
       let rejectOuter!: (reason: unknown) => void;
       const outer = new Promise<T>((res, rej) => {
@@ -251,6 +254,9 @@ export class TauriAdapter implements TmuxAdapter {
   }
 
   private notifyStateChange(state: ServerState) {
+    // Closes the oldest outstanding input's round trip and feeds update-rate /
+    // stall metrics (Axis-B, see latencyTracker).
+    latencyTracker.recordUpdate();
     this.stateListeners.forEach((listener) => listener(state));
   }
 

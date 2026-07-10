@@ -15,9 +15,16 @@
  * Expects a Storybook dev or static server already running on the given port
  * (default 6006). Optional substrings filter which v86 stories run. Exits
  * non-zero if any story fails to render or its play function throws.
+ *
+ * Set PROBE_TIMINGS_JSON=<path> to also write a machine-readable per-story
+ * timings report ({ generatedAt, storybookPort, stories: [{id, ok, retried,
+ * secs}], totals }). This turns the v86 sweep's wall-clock into an Axis-A
+ * regression signal (see docs/PERFORMANCE.md) — the numbers are relative
+ * (shared-engine, runner-load-sensitive), useful for trend, not absolutes.
  */
 
 import { chromium } from 'playwright';
+import { writeFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const PORT = /^\d+$/.test(args[0] ?? '') ? Number(args.shift()) : 6006;
@@ -169,13 +176,13 @@ for (let i = 0; i < ids.length; i++) {
     result = await awaitOutcome(id);
     retried = true;
   }
-  const secs = ((Date.now() - started) / 1000).toFixed(1);
+  const secs = Number(((Date.now() - started) / 1000).toFixed(1));
   console.log(
     `${result.ok ? 'PASS' : 'FAIL'}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
       result.ok ? '' : ` — ${result.reason}${result.message ? `: ${result.message.slice(0, 200)}` : ''}`
     }`,
   );
-  results.push(result);
+  results.push({ ...result, retried, secs });
 }
 
 await browser.close();
@@ -195,4 +202,31 @@ if (consoleErrorsByStory.size > 0) {
     for (const e of errors.slice(0, 3)) console.log(`    ${e.slice(0, 200)}`);
   }
 }
+const timingsPath = process.env.PROBE_TIMINGS_JSON;
+if (timingsPath) {
+  const durations = results.map((r) => r.secs);
+  const total = durations.reduce((n, s) => n + s, 0);
+  const slowest = [...results].sort((a, b) => b.secs - a.secs).slice(0, 10);
+  const report = {
+    generatedAt: new Date().toISOString(),
+    storybookPort: PORT,
+    filters: FILTERS,
+    stories: results.map((r) => ({
+      id: r.id,
+      ok: r.ok,
+      retried: r.retried,
+      secs: r.secs,
+    })),
+    totals: {
+      count: results.length,
+      passed: results.length - failed.length,
+      failed: failed.length,
+      totalSecs: Number(total.toFixed(1)),
+      slowest: slowest.map((r) => ({ id: r.id, secs: r.secs })),
+    },
+  };
+  writeFileSync(timingsPath, JSON.stringify(report, null, 2));
+  console.log(`wrote timings report → ${timingsPath}`);
+}
+
 process.exit(failed.length === 0 ? 0 : 1);
