@@ -227,7 +227,7 @@ describe('Scenario: Pane border-status enforced to top', () => {
     );
     const { execSync } = require('child_process');
     const status = execSync(
-      `tmux show-options -t ${sessionName} -v pane-border-status 2>/dev/null || echo "off"`,
+      `${tmuxCmd()} show-options -t ${sessionName} -v pane-border-status 2>/dev/null || echo "off"`,
       { encoding: 'utf-8', timeout: 5000 },
     ).trim();
     expect(status).toBe('top');
@@ -838,17 +838,21 @@ describe('Scenario: Tab switch shows panes instantly', () => {
     // must already be visible in a pane. This is the "instant" assertion —
     // the optimistic activeWindowId flip and the cached pane content must
     // be applied in the same React commit that the click event triggers,
-    // so the next browser paint shows the target tab.
+    // so the next browser paint shows the target tab. Only panes with a
+    // real bounding box count: hidden-window panes stay MOUNTED (that's
+    // what makes the switch instant), so their off-screen text is expected
+    // in the DOM — what matters is what the user sees.
+    const isVisible = (p) => p.w > 0 && p.h > 0;
     const firstFrame = samples[0];
-    expect(firstFrame.panes.some((p) => p.hasOne)).toBe(true);
-    expect(firstFrame.panes.every((p) => !p.hasTwo)).toBe(true);
+    expect(firstFrame.panes.filter(isVisible).some((p) => p.hasOne)).toBe(true);
+    expect(firstFrame.panes.filter(isVisible).every((p) => !p.hasTwo)).toBe(true);
 
     // And the first mutation observation must already show the target
     // window's panes — i.e. the synchronous React commit from the click
-    // event handler must replace window 2's DOM with window 1's DOM in
-    // one batch, with no transient state where the layout is empty.
+    // event handler must swap window 2's panes for window 1's in one
+    // batch, with no transient state where the layout is empty.
     const firstMutation = mutations[0];
-    expect(firstMutation.panes.some((p) => p.hasOne)).toBe(true);
+    expect(firstMutation.panes.filter(isVisible).some((p) => p.hasOne)).toBe(true);
   });
 
   test('Switching to a multi-pane tab renders all panes from the first paint', async () => {
@@ -968,13 +972,18 @@ describe('Scenario: Tab switch shows panes instantly', () => {
     // window 1's panes with their markers — none of window 2's pane (X)
     // should be visible. This is the "instantly optimistic" guarantee:
     // cached pane content must render from the same React commit as
-    // the activeWindowId flip.
+    // the activeWindowId flip. Only panes with a real bounding box count:
+    // hidden-window panes stay MOUNTED (that's what makes the switch
+    // instant), so their off-screen text is expected in the DOM — what
+    // matters is what the user sees.
+    const isVisible = (p) => p.w > 0 && p.h > 0;
     const firstFrame = samples[0];
-    expect(firstFrame.panes.length).toBeGreaterThanOrEqual(3);
-    expect(firstFrame.panes.some((p) => p.hasA)).toBe(true);
-    expect(firstFrame.panes.some((p) => p.hasB)).toBe(true);
-    expect(firstFrame.panes.some((p) => p.hasC)).toBe(true);
-    expect(firstFrame.panes.every((p) => !p.hasX)).toBe(true);
+    const firstVisible = firstFrame.panes.filter(isVisible);
+    expect(firstVisible.length).toBeGreaterThanOrEqual(3);
+    expect(firstVisible.some((p) => p.hasA)).toBe(true);
+    expect(firstVisible.some((p) => p.hasB)).toBe(true);
+    expect(firstVisible.some((p) => p.hasC)).toBe(true);
+    expect(firstVisible.every((p) => !p.hasX)).toBe(true);
 
     // First DOM mutation after click must already reflect all three target
     // panes. Mutation observers fire on each React commit, so this catches
@@ -982,16 +991,19 @@ describe('Scenario: Tab switch shows panes instantly', () => {
     // grid before the cached panes are projected into selectVisiblePanes.
     expect(mutations.length).toBeGreaterThan(0);
     const firstMutation = mutations[0];
-    expect(firstMutation.panes.length).toBeGreaterThanOrEqual(3);
-    expect(firstMutation.panes.some((p) => p.hasA)).toBe(true);
-    expect(firstMutation.panes.some((p) => p.hasB)).toBe(true);
-    expect(firstMutation.panes.some((p) => p.hasC)).toBe(true);
+    const firstMutationVisible = firstMutation.panes.filter(isVisible);
+    expect(firstMutationVisible.length).toBeGreaterThanOrEqual(3);
+    expect(firstMutationVisible.some((p) => p.hasA)).toBe(true);
+    expect(firstMutationVisible.some((p) => p.hasB)).toBe(true);
+    expect(firstMutationVisible.some((p) => p.hasC)).toBe(true);
 
     // No frame at any point should show the previous tab's pane content.
     // If activeWindowId flips but selectVisiblePanes still returns the old
     // window's panes (memoization or stale closure), the X marker would
-    // leak through.
-    const framesWithStaleContent = samples.filter((s) => s.panes.some((p) => p.hasX));
+    // leak through into a visibly-rendered pane.
+    const framesWithStaleContent = samples.filter((s) =>
+      s.panes.some((p) => isVisible(p) && p.hasX),
+    );
     expect(framesWithStaleContent).toEqual([]);
   });
 });
