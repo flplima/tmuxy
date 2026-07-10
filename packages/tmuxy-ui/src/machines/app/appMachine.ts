@@ -1125,21 +1125,21 @@ export const appMachine = setup({
               }
             }
 
-            // Suppress layout animations for the duration of a Split / NewWindow
-            // dispatch — the placeholder→real-id swap in PaneLayout would
-            // otherwise transition the React key change as a fade-in/out. The
-            // post-confirm TMUX_MODEL_UPDATE re-enables animations naturally
-            // (the same `enableAnimations` settle path runs as before). Same
-            // logic for multi-step pane-group/float shell scripts: the server
-            // settles their intermediate window events into a single delta,
-            // but the resulting active-pane swap can still trigger a CSS
-            // transition we don't want.
-            const isSplit = /^(split-window|splitw)\b/.test(tail);
+            // Suppress layout animations for the duration of a NewWindow
+            // dispatch. The post-confirm TMUX_MODEL_UPDATE re-enables
+            // animations naturally (the same `enableAnimations` settle path
+            // runs as before). Same logic for multi-step pane-group/float
+            // shell scripts: the server settles their intermediate window
+            // events into a single delta, but the resulting active-pane swap
+            // can still trigger a CSS transition we don't want. Splits are
+            // NOT suppressed: PaneLayout's enter/shift lifecycle owns the
+            // split morph, and paneKeyOverrides keeps the placeholder→real
+            // swap on one stable key/DOM node, so nothing flashes on confirm.
             const isNew = /^(new-window|neww)\b/.test(tail);
             const isMultiStepRunShell =
               /^run-shell\b/.test(tail) &&
               /pane-group-(add|close|switch|next|prev)|float-create/.test(tail);
-            if (isSplit || isNew || isMultiStepRunShell) {
+            if (isNew || isMultiStepRunShell) {
               enqueue(assign({ enableAnimations: false }));
             }
 

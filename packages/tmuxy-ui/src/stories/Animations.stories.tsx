@@ -7,23 +7,25 @@
  * listener) rather than only asserting the post-animation end state.
  *
  * Coverage:
- *  - SplitPane            split inserts a pane node and re-lays-out siblings
+ *  - SplitPane            split runs the enter morph: the new pane transitions
+ *                         from the source pane's pre-split box into place
  *  - SlowSplitOptimistic  optimistic placeholder node appears before a slow ack
  *  - SplitRejectedRollback optimistic node is inserted, then removed on reject
- *  - ClosePane            killed pane node is removed; survivor re-lays-out
+ *  - ClosePane            killed pane runs the leave morph (.pane-leaving) into
+ *                         the survivor's box, then its node is removed
  *  - ResizePane           moving the divider rewrites pane geometry (animated)
  *  - OpenFloat            overlay portals into <body> and runs `float-appear`
  *  - OpenDrawer           drawer overlay runs the `slide-in-left` keyframe
  *  - CloseFloat           overlay node is removed (float close is instant)
- *  - AnimationsDisabled   TMUX_DISCONNECTED flips `.pane-layout-no-animations`
+ *  - AnimationsDisabled   new-window still flips `.pane-layout-no-animations`
  *
  * What "animation exercised" means here: a CSS transition can't be observed
- * by a MutationObserver directly, but the mutations it animates between *can*
- * (a node inserted/removed, an inline `style`/`class` rewrite). For floats the
- * keyframe is observed directly via `animationstart`. Note the split layout
- * transition is deliberately suppressed by the app during the placeholder→real
- * id swap (see appMachine `enableAnimations:false` on split dispatch), so the
- * split stories assert the driving DOM mutation, not a transition event.
+ * by a MutationObserver directly, but its `transitionstart` events and the
+ * mutations it animates between *can* (a node inserted/removed, an inline
+ * `style`/`class` rewrite). For floats the keyframe is observed directly via
+ * `animationstart`. Splits and kills run the PaneLayout enter/leave lifecycle
+ * (`pane-entering` / `pane-shifting` / `pane-leaving`), asserted via
+ * `transitionstart` plus bounding-rect sampling.
  *
  * Stories execute in real Chromium via `scripts/probe-stories.mjs`, so the
  * CSS animations and MutationObservers run for real and a throw in `play`
@@ -120,7 +122,7 @@ export const SplitPane: Story = {
       story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'Splitting inserts a new `.pane-layout-item[data-pane-id]` node and rewrites the existing pane’s inline geometry to make room. A MutationObserver over `.pane-layout` confirms both the insertion and the re-layout mutation fire.',
+          'Splitting runs the enter morph: the new pane mounts with `.pane-entering`, is FLIP-rewound to the source pane’s pre-split box at reduced opacity, and transitions into its final half-width box while fading in; the source pane gets `.pane-shifting` and converges on the same clock. Asserted via `transitionstart` events, a paint-aligned rAF rect/opacity sampler on the entering pane (starts materially larger and translucent, converges smaller), and the settled end state (two panes, no lifecycle classes, no overlap).',
       },
     },
   },
@@ -128,7 +130,40 @@ export const SplitPane: Story = {
     const canvas = within(canvasElement);
     await waitForPaneCount(canvas, 1);
 
-    const recorder = new LayoutMutationRecorder(getPaneLayout(canvasElement));
+    const layout = getPaneLayout(canvasElement);
+    await waitForAnimationsEnabled(layout);
+
+    // transitionstart bubbles — record which properties actually started
+    // transitioning on the entering pane. A paint-aligned rAF sampler
+    // records the entering pane's rect + opacity each frame (transitionstart
+    // handlers can be dispatched late under load, and the demo engine may
+    // retarget the morph mid-flight with a client resize — rAF sampling is
+    // immune to both).
+    const enterStarts = new Set<string>();
+    const onTransitionStart = (e: Event) => {
+      const t = e.target as HTMLElement;
+      if (t.classList?.contains('pane-entering')) {
+        enterStarts.add((e as TransitionEvent).propertyName);
+      }
+    };
+    layout.addEventListener('transitionstart', onTransitionStart);
+
+    const enterSamples: { area: number; opacity: number }[] = [];
+    let sampling = true;
+    const sampleFrame = () => {
+      const entering = layout.querySelector<HTMLElement>('.pane-layout-item.pane-entering');
+      if (entering) {
+        const r = entering.getBoundingClientRect();
+        enterSamples.push({
+          area: r.width * r.height,
+          opacity: parseFloat(getComputedStyle(entering).opacity),
+        });
+      }
+      if (sampling) requestAnimationFrame(sampleFrame);
+    };
+    requestAnimationFrame(sampleFrame);
+
+    const recorder = new LayoutMutationRecorder(layout);
     try {
       // SEND_TMUX_COMMAND routes through TmuxStore (optimistic predict → cmd →
       // reconcile); the new pane node is inserted as part of that patch.
@@ -140,11 +175,44 @@ export const SplitPane: Story = {
           // A new pane node was inserted AND a sibling was re-laid-out.
           expect(recorder.addedPaneIds.size).toBeGreaterThanOrEqual(1);
           expect(recorder.geometryRewrites).toBeGreaterThan(0);
+          // The enter morph actually ran: geometry + opacity transitions
+          // started on the .pane-entering node.
+          expect(enterStarts.has('opacity')).toBe(true);
+          expect(enterStarts.has('width') || enterStarts.has('left')).toBe(true);
         },
         { timeout: 2000 },
       );
+
+      // The morph settles: lifecycle classes drop off and the two panes are
+      // visibly tiled, no longer overlapping.
+      await waitFor(
+        () => {
+          expect(
+            canvasElement.querySelectorAll('.pane-entering, .pane-shifting, .pane-leaving').length,
+          ).toBe(0);
+        },
+        { timeout: 2000 },
+      );
+      sampling = false;
+
+      // Per the sketch: the new pane starts at (≈) the source pane's full
+      // pre-split box at reduced opacity and converges to its half-box — so
+      // the first painted sample is materially larger than the last, and it
+      // starts translucent.
+      expect(enterSamples.length).toBeGreaterThan(1);
+      const first = enterSamples[0];
+      const last = enterSamples[enterSamples.length - 1];
+      expect(first.area).toBeGreaterThan(last.area * 1.3);
+      expect(first.opacity).toBeLessThan(1);
+
+      const [a, b] = paneNodes(canvasElement).map((n) => n.getBoundingClientRect());
+      const ovX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const ovY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      expect(Math.min(ovX, ovY)).toBeLessThanOrEqual(1); // mosaic panes share only their 1px edge
     } finally {
+      sampling = false;
       recorder.disconnect();
+      layout.removeEventListener('transitionstart', onTransitionStart);
     }
   },
 };
@@ -260,7 +328,7 @@ export const ClosePane: Story = {
       story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'Killing a pane removes its `.pane-layout-item` node and rewrites the surviving pane’s geometry to fill the space. The MutationObserver confirms the removal of the exact pane id and the survivor’s re-layout.',
+          'Killing a pane runs the leave morph: the model drops the pane but its node stays mounted with `.pane-leaving`, transitioning into the survivor’s expanded box while fading to 0, then the node is removed. Asserted via the `.pane-leaving` node’s presence + geometry target, `transitionstart`, the eventual removal of the exact pane id, and the survivor’s re-layout.',
       },
     },
   },
@@ -268,23 +336,53 @@ export const ClosePane: Story = {
     const canvas = within(canvasElement);
     await waitForPaneCount(canvas, 2);
 
+    const layout = getPaneLayout(canvasElement);
+    await waitForAnimationsEnabled(layout);
+
     const activeId = getApp().getSnapshot().context.activePaneId;
     expect(activeId).toBeTruthy();
 
-    const recorder = new LayoutMutationRecorder(getPaneLayout(canvasElement));
+    const leaveStarts = new Set<string>();
+    const onTransitionStart = (e: Event) => {
+      const t = e.target as HTMLElement;
+      if (t.classList?.contains('pane-leaving')) {
+        leaveStarts.add((e as TransitionEvent).propertyName);
+      }
+    };
+    layout.addEventListener('transitionstart', onTransitionStart);
+
+    const recorder = new LayoutMutationRecorder(layout);
     try {
       getApp().send({ type: 'SEND_TMUX_COMMAND', command: `kill-pane -t ${activeId}` });
 
+      // The killed pane's node survives the model drop as .pane-leaving,
+      // retargeted at the absorber's box (inline width = full grid width,
+      // wider than the half-box it is morphing from).
+      const leaving = await waitFor(
+        () => {
+          const el = canvasElement.querySelector<HTMLElement>('.pane-layout-item.pane-leaving');
+          if (!el) throw new Error('no .pane-leaving node yet');
+          return el;
+        },
+        { timeout: 1000 },
+      );
+      expect(leaving.getAttribute('data-pane-id')).toBe(activeId);
+
+      // The leave morph runs (opacity + geometry transitions started), the
+      // node is removed after it, and the survivor re-laid-out to fill.
       await waitForPaneCount(canvas, 1);
       await waitFor(
         () => {
+          expect(leaveStarts.has('opacity')).toBe(true);
           expect(recorder.removedPaneIds.has(activeId as string)).toBe(true);
           expect(recorder.geometryRewrites).toBeGreaterThan(0);
+          expect(canvasElement.querySelector('.pane-leaving')).toBeNull();
         },
         { timeout: 2000 },
       );
     } finally {
       recorder.disconnect();
+      layout.removeEventListener('transitionstart', onTransitionStart);
     }
   },
 };
@@ -479,7 +577,7 @@ export const AnimationsDisabled: Story = {
       story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'The app turns off layout animations whenever a transition would look wrong — here, while a split’s placeholder→real-id swap is in flight, so the React key change doesn’t fade. The `.pane-layout` flips to `pane-layout-no-animations` (which makes `.pane-layout-item { transition: none }`) for that window and back. The toggle is a single frame — too fast for live polling — so a MutationObserver on the layout root’s class is used to prove the disabled state was applied. Baseline first confirms animations are on (pane transition is 0.1s).',
+          'The app turns off layout animations whenever a transition would look wrong — deterministically observable on disconnect, which holds `enableAnimations: false` until the connection settles again. The `.pane-layout` flips to `pane-layout-no-animations`, whose rule strips the geometry transitions from every `.pane-layout-item` (only the enter/leave/shift lifecycle classes are allowed to out-specify that gate). Baseline first confirms animations are on (pane geometry transition is 0.1s).',
       },
     },
   },
@@ -490,28 +588,19 @@ export const AnimationsDisabled: Story = {
     const layout = getPaneLayout(canvasElement);
     await waitForAnimationsEnabled(layout);
 
-    // Baseline: animations on → no disabled class, and the pane carries a real
-    // layout transition.
+    // Baseline: animations on → no disabled class, and the pane carries a
+    // real transition (note `.pane-layout-resizing` may be latched from the
+    // last layout commit, so the property set varies — the duration doesn't).
     expect(layout.classList.contains('pane-layout-no-animations')).toBe(false);
     expect(getComputedStyle(paneNodes(canvasElement)[0]).transitionDuration).toContain('0.1s');
 
-    // Observe the layout root's class before the split so the brief disabled
-    // window (re-enabled within a frame once the swap renders) is captured even
-    // though it is too short to observe by polling.
-    const recorder = new LayoutMutationRecorder(layout);
-    try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+    getApp().send({ type: 'TMUX_DISCONNECTED' });
 
-      await waitFor(
-        () => {
-          expect(
-            recorder.rootClassChanges.some((c) => c.includes('pane-layout-no-animations')),
-          ).toBe(true);
-        },
-        { timeout: 4000 },
-      );
-    } finally {
-      recorder.disconnect();
-    }
+    await waitFor(
+      () => {
+        expect(layout.classList.contains('pane-layout-no-animations')).toBe(true);
+      },
+      { timeout: 4000 },
+    );
   },
 };

@@ -6,9 +6,25 @@
  * - Events sent to appMachine on mouse actions
  */
 
-import React, { useCallback, useEffect, useRef, useMemo, ReactNode } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useMemo,
+  ReactNode,
+} from 'react';
 import { ResizeDividers } from './ResizeDividers';
-import { computePaneBox } from '../constants';
+import {
+  computePaneBox,
+  PANE_ENTER_MS,
+  PANE_LEAVE_MS,
+  PANE_ENTER_FROM_OPACITY,
+  type PaneBox,
+} from '../constants';
+import { findEnterFromBox, findLeaveToBox } from '../utils/paneTransitions';
+import { LeavingPanesContext } from '../machines/LeavingPanesContext';
 import {
   useAppSelector,
   useAppSend,
@@ -33,6 +49,43 @@ interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;
 }
 
+// One rendered pane as seen by the enter/leave/shift lifecycle: its data,
+// visibility, and pixel box (null while hidden — hidden panes have no
+// geometry). Keyed by the pane's effective React key (paneKeyOverrides
+// honored) so the optimistic placeholder→real-id morph reads as the SAME
+// pane and never re-triggers an enter animation.
+interface RenderedPaneView {
+  pane: TmuxPane;
+  hidden: boolean;
+  box: PaneBox | null;
+}
+
+interface EnterAnim {
+  fromBox: PaneBox;
+  flipped: boolean;
+  startedAt: number;
+  timer?: number;
+}
+
+interface ShiftAnim {
+  timer?: number;
+}
+
+interface LeaveAnim {
+  pane: TmuxPane;
+  toBox: PaneBox;
+  timer?: number;
+}
+
+// How the JS timers outlive the CSS transition, so the lifecycle class is
+// never removed while the transition is still running.
+const ANIM_TIMER_SLACK_MS = 40;
+
+// A pane that disappears this soon after entering is a transient (e.g. the
+// intermediate split of a CLI float-create) — drop it instantly instead of
+// running a leave morph for a pane the user never meant to see.
+const TRANSIENT_PANE_MS = 300;
+
 export function PaneLayout({ children }: PaneLayoutProps) {
   const send = useAppSend();
 
@@ -55,6 +108,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const paneKeyOverrides = useAppSelector(selectPaneKeyOverrides);
 
   const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
+  const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
+  const allPanes = useAppSelector((ctx) => ctx.panes);
   const isDragging = useIsDragging();
   const isResizing = useIsResizing();
 
@@ -115,6 +170,16 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const centeringOffset = isDragging ? frozenOffsetRef.current : liveCenteringOffset;
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Pane enter/leave/shift lifecycle state (split & kill morph animations).
+  // See the detection block below `renderedPanes` for the mechanics.
+  const [, bumpAnimTick] = useReducer((x: number) => x + 1, 0);
+  const enterAnimsRef = useRef(new Map<string, EnterAnim>());
+  const shiftAnimsRef = useRef(new Map<string, ShiftAnim>());
+  const leavingRef = useRef(new Map<string, LeaveAnim>());
+  const prevViewRef = useRef<Map<string, RenderedPaneView> | null>(null);
+  const prevActiveWindowIdRef = useRef<string | null | undefined>(undefined);
+  const prevAllPaneIdsRef = useRef<Set<string>>(new Set());
 
   // Handle global mouse/touch events during drag/resize
   useEffect(() => {
@@ -189,11 +254,17 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   );
 
   const getPaneClassName = useCallback(
-    (pane: TmuxPane): string => {
+    (pane: TmuxPane, key: string): string => {
       const classes = ['pane-layout-item'];
       const isActive = pane.active && !focusedFloatPaneId;
       classes.push(isActive ? 'pane-active' : 'pane-inactive');
-      if (pane.tmuxId === draggedPaneId) classes.push('pane-dragging');
+      if (pane.tmuxId === draggedPaneId) {
+        classes.push('pane-dragging');
+      } else if (enterAnimsRef.current.has(key)) {
+        classes.push('pane-entering');
+      } else if (shiftAnimsRef.current.has(key)) {
+        classes.push('pane-shifting');
+      }
       return classes.join(' ');
     },
     [draggedPaneId, focusedFloatPaneId],
@@ -216,53 +287,324 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     return items;
   }, [visiblePanes, hiddenWindowPanes, paneKeyOverrides]);
 
+  // ============================================
+  // Pane enter/leave/shift lifecycle (split & kill morph animations)
+  // ============================================
+  //
+  // Each render is diffed against a snapshot of the previous render
+  // (prevViewRef, updated post-commit in a layout effect). A key that
+  // appears gets a FLIP enter (mounted at final geometry, rewound to the
+  // split source's pre-split box before paint, transitioned into place
+  // while fading in); a key that vanishes keeps rendering for the leave
+  // duration, morphing into the absorber's box while fading out; panes
+  // whose box changed alongside an enter/leave get `pane-shifting` so they
+  // animate on the same clock. All state is local (refs + a tick reducer)
+  // — detection mutations in the render phase are add-only and keyed, so
+  // StrictMode's double render is a no-op; deletions happen in effects.
+
+  const currView = useMemo(() => {
+    const view = new Map<string, RenderedPaneView>();
+    for (const { pane, hidden } of renderedPanes) {
+      const key = paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId;
+      view.set(key, {
+        pane,
+        hidden,
+        box: hidden
+          ? null
+          : computePaneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y),
+      });
+    }
+    return view;
+  }, [renderedPanes, paneKeyOverrides, charWidth, charHeight, centeringOffset]);
+
+  const prevView = prevViewRef.current;
+  const lifecycleEnabled =
+    prevView !== null &&
+    enableAnimations &&
+    !isDragging &&
+    !isResizing &&
+    activeWindowId === prevActiveWindowIdRef.current;
+
+  if (!lifecycleEnabled && leavingRef.current.size > 0) {
+    // Window switch / drag / animations-off: in-flight leave morphs belong
+    // to a layout that no longer exists — drop them instantly.
+    for (const l of leavingRef.current.values()) {
+      if (l.timer !== undefined) clearTimeout(l.timer);
+    }
+    leavingRef.current.clear();
+  }
+
+  if (lifecycleEnabled && prevView) {
+    const prevBoxes = new Map<string, PaneBox>();
+    for (const [key, v] of prevView) if (!v.hidden && v.box) prevBoxes.set(key, v.box);
+    const currBoxes = new Map<string, PaneBox>();
+    for (const [key, v] of currView) if (!v.hidden && v.box) currBoxes.set(key, v.box);
+
+    // A key appearing in / vanishing from the render list is NOT enough:
+    // group siblings and float panes are excluded from renderedPanes while
+    // still alive in the model, so a group switch or float create/close
+    // moves keys in and out of the render without any pane being born or
+    // dying. Only morph panes that are genuinely new to (enter) or gone
+    // from (leave) the model.
+    const allPaneIds = new Set<string>();
+    for (const p of allPanes) allPaneIds.add(p.tmuxId);
+    const prevAllPaneIds = prevAllPaneIdsRef.current;
+
+    // Enters: new visible key → FLIP from the split source's pre-split box
+    // (fallback: fade in place when nothing plausibly shrank for it).
+    for (const [key, v] of currView) {
+      if (v.hidden || !v.box || prevView.has(key) || enterAnimsRef.current.has(key)) continue;
+      const leave = leavingRef.current.get(key);
+      if (leave) {
+        // Kill rollback: the pane came back mid-exit — cancel the leave.
+        if (leave.timer !== undefined) clearTimeout(leave.timer);
+        leavingRef.current.delete(key);
+        continue;
+      }
+      if (prevAllPaneIds.has(v.pane.tmuxId)) continue; // moved, not born
+      enterAnimsRef.current.set(key, {
+        fromBox: findEnterFromBox(v.box, prevBoxes, currBoxes) ?? v.box,
+        flipped: false,
+        startedAt: performance.now(),
+      });
+    }
+
+    // Leaves: previously-visible key gone from the render entirely. A key
+    // that merely went hidden (break-pane, hidden windows) stays in
+    // currView and never triggers this; a pane that moved into a group
+    // slot or float is caught by the model-presence check above.
+    for (const [key, v] of prevView) {
+      if (currView.has(key) || v.hidden || !v.box || leavingRef.current.has(key)) continue;
+      if (allPaneIds.has(v.pane.tmuxId)) continue; // moved, not dead
+      const enter = enterAnimsRef.current.get(key);
+      if (enter && performance.now() - enter.startedAt < TRANSIENT_PANE_MS) continue;
+      leavingRef.current.set(key, {
+        pane: v.pane,
+        toBox: findLeaveToBox(v.box, prevBoxes, currBoxes) ?? v.box,
+      });
+    }
+
+    // Shifts: while any enter/leave is in flight, pre-existing panes whose
+    // box changed must animate on the enter clock (not the generic 100ms
+    // layout transition) so the converging edges track.
+    if (enterAnimsRef.current.size > 0 || leavingRef.current.size > 0) {
+      for (const [key, v] of currView) {
+        if (v.hidden || !v.box) continue;
+        if (enterAnimsRef.current.has(key) || shiftAnimsRef.current.has(key)) continue;
+        if (v.pane.tmuxId === draggedPaneId) continue;
+        if (groupSwitchPanes?.has(v.pane.tmuxId)) continue;
+        const prev = prevView.get(key);
+        if (!prev || prev.hidden || !prev.box) continue;
+        const b = v.box;
+        const p = prev.box;
+        if (p.left !== b.left || p.top !== b.top || p.width !== b.width || p.height !== b.height) {
+          shiftAnimsRef.current.set(key, {});
+        }
+      }
+    }
+  }
+
+  // Frozen pane snapshots for leave animations, exposed to usePane via
+  // context. Identity is kept stable across renders (rebuilt only when the
+  // leaving set actually changes) so live panes' usePane subscriptions
+  // don't churn on every PaneLayout render.
+  const leavingPanesMapRef = useRef<ReadonlyMap<string, TmuxPane>>(new Map());
+  {
+    const prevMap = leavingPanesMapRef.current;
+    const leaves = [...leavingRef.current.values()];
+    const changed =
+      prevMap.size !== leaves.length || leaves.some((l) => prevMap.get(l.pane.tmuxId) !== l.pane);
+    if (changed) {
+      leavingPanesMapRef.current = new Map(leaves.map((l) => [l.pane.tmuxId, l.pane]));
+    }
+  }
+  const leavingPanesMap = leavingPanesMapRef.current;
+
+  // Merge leaving panes into the render list at their sorted-key position:
+  // relative DOM order of kept keys must not change, or React would move
+  // nodes (insertBefore) and cancel their running CSS transitions.
+  const renderItems: { key: string; pane: TmuxPane; hidden: boolean; leave?: LeaveAnim }[] =
+    renderedPanes.map(({ pane, hidden }) => ({
+      key: paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId,
+      pane,
+      hidden,
+    }));
+  if (leavingRef.current.size > 0) {
+    for (const [key, leave] of leavingRef.current) {
+      renderItems.push({ key, pane: leave.pane, hidden: false, leave });
+    }
+    renderItems.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  }
+
+  // Post-commit: FLIP freshly-entered panes, arm expiry timers, clean up
+  // entries whose panes vanished, and snapshot this render for the next diff.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+
+    for (const [key, anim] of enterAnimsRef.current) {
+      if (!currView.has(key)) {
+        if (anim.timer !== undefined) clearTimeout(anim.timer);
+        enterAnimsRef.current.delete(key);
+      }
+    }
+    for (const [key, shift] of shiftAnimsRef.current) {
+      if (!currView.has(key)) {
+        if (shift.timer !== undefined) clearTimeout(shift.timer);
+        shiftAnimsRef.current.delete(key);
+      }
+    }
+
+    // FLIP: rewind the entering pane to its from-box with transitions off,
+    // force a style recalc there, then restore React's own inline values —
+    // the .pane-entering transition morphs it into place, and neither
+    // endpoint is ever painted un-animated. Restoring React's exact values
+    // means a later re-render (e.g. confirm-time geometry correction) just
+    // retargets the live transition.
+    for (const [key, anim] of enterAnimsRef.current) {
+      if (anim.flipped) continue;
+      anim.flipped = true;
+      const node = container?.querySelector<HTMLElement>(`[data-pane-key="${key}"]`);
+      if (node) {
+        const saved = {
+          left: node.style.left,
+          top: node.style.top,
+          width: node.style.width,
+          height: node.style.height,
+        };
+        node.style.transition = 'none';
+        node.style.left = `${anim.fromBox.left}px`;
+        node.style.top = `${anim.fromBox.top}px`;
+        node.style.width = `${anim.fromBox.width}px`;
+        node.style.height = `${anim.fromBox.height}px`;
+        node.style.opacity = `${PANE_ENTER_FROM_OPACITY}`;
+        node.getBoundingClientRect();
+        node.style.transition = '';
+        node.style.left = saved.left;
+        node.style.top = saved.top;
+        node.style.width = saved.width;
+        node.style.height = saved.height;
+        node.style.opacity = '';
+      }
+      anim.timer = window.setTimeout(() => {
+        enterAnimsRef.current.delete(key);
+        bumpAnimTick();
+      }, PANE_ENTER_MS + ANIM_TIMER_SLACK_MS);
+    }
+
+    for (const [key, shift] of shiftAnimsRef.current) {
+      if (shift.timer !== undefined) continue;
+      shift.timer = window.setTimeout(() => {
+        shiftAnimsRef.current.delete(key);
+        bumpAnimTick();
+      }, PANE_ENTER_MS + ANIM_TIMER_SLACK_MS);
+    }
+    for (const [key, leave] of leavingRef.current) {
+      if (leave.timer !== undefined) continue;
+      leave.timer = window.setTimeout(() => {
+        leavingRef.current.delete(key);
+        bumpAnimTick();
+      }, PANE_LEAVE_MS + ANIM_TIMER_SLACK_MS);
+    }
+
+    prevViewRef.current = currView;
+    prevActiveWindowIdRef.current = activeWindowId;
+    prevAllPaneIdsRef.current = new Set(allPanes.map((p) => p.tmuxId));
+  });
+
+  // The Maps themselves are stable instances — capture them once so the
+  // unmount cleanup reads their final contents.
+  useEffect(() => {
+    const enters = enterAnimsRef.current;
+    const shifts = shiftAnimsRef.current;
+    const leaves = leavingRef.current;
+    return () => {
+      for (const a of enters.values()) if (a.timer !== undefined) clearTimeout(a.timer);
+      for (const s of shifts.values()) if (s.timer !== undefined) clearTimeout(s.timer);
+      for (const l of leaves.values()) if (l.timer !== undefined) clearTimeout(l.timer);
+    };
+  }, []);
+
   return (
     <div
       ref={containerRef}
       className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing || suppressLayoutTransition ? 'pane-layout-resizing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
     >
-      {renderedPanes.map(({ pane, hidden }) => {
-        if (hidden) {
-          // Keep mounted but visually absent — no positioning math, no
-          // animation, no event handlers. Preserves <TerminalPane> + content
-          // so a future tab switch shows the pane instantly.
+      <LeavingPanesContext.Provider value={leavingPanesMap}>
+        {renderItems.map(({ key, pane, hidden, leave }) => {
+          if (leave) {
+            // The model already dropped this pane; keep its DOM node alive
+            // (same key → no remount) and retarget it at the absorber's box
+            // — .pane-leaving transitions it there while fading to 0.
+            return (
+              <AnimatedPaneWrapper
+                key={key}
+                paneKey={key}
+                pane={pane}
+                className="pane-layout-item pane-inactive pane-leaving"
+                style={
+                  {
+                    position: 'absolute',
+                    left: leave.toBox.left,
+                    top: leave.toBox.top,
+                    width: leave.toBox.width,
+                    height: leave.toBox.height,
+                    '--pane-h-padding-left': `${hPadding}px`,
+                    '--pane-h-padding-right': `${hPadding}px`,
+                  } as React.CSSProperties
+                }
+                targetX={0}
+                targetY={0}
+                elevated={false}
+              >
+                {children(pane)}
+              </AnimatedPaneWrapper>
+            );
+          }
+
+          if (hidden) {
+            // Keep mounted but visually absent — no positioning math, no
+            // animation, no event handlers. Preserves <TerminalPane> + content
+            // so a future tab switch shows the pane instantly.
+            return (
+              <AnimatedPaneWrapper
+                key={key}
+                paneKey={key}
+                pane={pane}
+                className="pane-layout-item pane-window-hidden"
+                style={{ display: 'none' }}
+                targetX={0}
+                targetY={0}
+                elevated={false}
+              >
+                {children(pane)}
+              </AnimatedPaneWrapper>
+            );
+          }
+
+          const isDraggedPane = pane.tmuxId === draggedPaneId;
+          const baseStyle = getPaneStyle(pane);
+
+          const isGroupSwitchPane = groupSwitchPanes?.has(pane.tmuxId) ?? false;
+          const style = isGroupSwitchPane ? { ...baseStyle, transition: 'none' } : baseStyle;
+
+          const shouldFollowCursor = isDraggedPane && isDragging;
+
           return (
             <AnimatedPaneWrapper
-              key={paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId}
+              key={key}
+              paneKey={key}
               pane={pane}
-              className="pane-layout-item pane-window-hidden"
-              style={{ display: 'none' }}
-              targetX={0}
-              targetY={0}
-              elevated={false}
+              className={getPaneClassName(pane, key)}
+              style={style}
+              targetX={shouldFollowCursor ? dragOffset.x : 0}
+              targetY={shouldFollowCursor ? dragOffset.y : 0}
+              elevated={shouldFollowCursor}
             >
               {children(pane)}
             </AnimatedPaneWrapper>
           );
-        }
-
-        const isDraggedPane = pane.tmuxId === draggedPaneId;
-        const baseStyle = getPaneStyle(pane);
-
-        const isGroupSwitchPane = groupSwitchPanes?.has(pane.tmuxId) ?? false;
-        const style = isGroupSwitchPane ? { ...baseStyle, transition: 'none' } : baseStyle;
-
-        const shouldFollowCursor = isDraggedPane && isDragging;
-
-        return (
-          <AnimatedPaneWrapper
-            key={paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId}
-            pane={pane}
-            className={getPaneClassName(pane)}
-            style={style}
-            targetX={shouldFollowCursor ? dragOffset.x : 0}
-            targetY={shouldFollowCursor ? dragOffset.y : 0}
-            elevated={shouldFollowCursor}
-          >
-            {children(pane)}
-          </AnimatedPaneWrapper>
-        );
-      })}
+        })}
+      </LeavingPanesContext.Provider>
 
       {/* Ghost indicator showing dragged pane's current grid position.
           Mirrors getPaneStyle exactly (same computePaneBox) so the ghost
@@ -296,6 +638,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
 interface AnimatedPaneWrapperProps {
   pane: TmuxPane;
+  /** Effective React key (paneKeyOverrides honored) — exposed on the DOM
+   * for the enter-animation FLIP to find the node post-commit. */
+  paneKey: string;
   className: string;
   style: React.CSSProperties;
   targetX: number;
@@ -306,6 +651,7 @@ interface AnimatedPaneWrapperProps {
 
 function AnimatedPaneWrapper({
   pane,
+  paneKey,
   className,
   style,
   targetX,
@@ -320,7 +666,12 @@ function AnimatedPaneWrapper({
   };
 
   return (
-    <div data-pane-id={pane.tmuxId} className={className} style={transformStyle}>
+    <div
+      data-pane-id={pane.tmuxId}
+      data-pane-key={paneKey}
+      className={className}
+      style={transformStyle}
+    >
       {children}
     </div>
   );

@@ -141,6 +141,10 @@
   /* Active/inactive pane fade: long enough to kill the hard flash on focus
      changes and swaps, short enough to feel instant. */
   --transition-active: 80ms ease-out;
+  /* Pane enter/leave lifecycle (split/kill morph). Durations must stay in
+     sync with PANE_ENTER_MS / PANE_LEAVE_MS (constants/layout.ts). */
+  --transition-pane-enter: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --transition-pane-leave: 160ms ease-in;
 
   /* Shadows */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -152,6 +156,7 @@
   --z-active: 2;
   --z-elevated: 50;
   --z-dragging: 3;
+  --z-pane-anim: 4;
   --z-dropdown: 1000;
 }
 
@@ -526,14 +531,74 @@
   transition: none;
 }
 
-/* Exit animation - pane is being removed */
-.pane-layout-item.pane-leaving {
-  opacity: 0;
-  transform: translateY(50px) scale(0.85);
+/* Pane enter/leave/shift lifecycle (split & kill morphs).
+
+   Each rule is repeated under the container gate classes
+   (.pane-layout-no-animations / .pane-layout-resizing) so the lifecycle
+   transition wins over those gates' `transition: none` — the gates fire on
+   the very commits that create/destroy panes (suppressLayoutTransition is
+   set whenever surviving pane geometry changes), and the whole point here
+   is to animate exactly those commits, scoped to the panes involved.
+
+   Entering pane: FLIP — PaneLayout mounts it at final geometry, then a
+   useLayoutEffect rewinds it to the source pane's pre-split box at reduced
+   opacity and restores, so this transition morphs it into place while it
+   fades in. Rendered above its sibling during the overlap.
+
+   Shifting pane: a pre-existing pane whose box changes in the same commit
+   as an enter/leave (the split source shrinking, the kill survivor
+   expanding). It must animate on the same clock as the entering pane —
+   not the generic 100ms layout transition — or the converging edges
+   don't track. */
+.pane-layout-item.pane-entering,
+.pane-layout-no-animations .pane-layout-item.pane-entering,
+.pane-layout-resizing .pane-layout-item.pane-entering {
+  z-index: var(--z-pane-anim);
   transition:
-    opacity 250ms linear,
-    transform 250ms linear;
+    left var(--transition-pane-enter),
+    top var(--transition-pane-enter),
+    width var(--transition-pane-enter),
+    height var(--transition-pane-enter),
+    opacity var(--transition-pane-enter),
+    background-color var(--transition-active);
+  will-change: left, top, width, height, opacity;
+}
+
+.pane-layout-item.pane-shifting,
+.pane-layout-no-animations .pane-layout-item.pane-shifting,
+.pane-layout-resizing .pane-layout-item.pane-shifting {
+  transition:
+    left var(--transition-pane-enter),
+    top var(--transition-pane-enter),
+    width var(--transition-pane-enter),
+    height var(--transition-pane-enter),
+    opacity var(--transition-active),
+    background-color var(--transition-active);
+}
+
+/* Leaving pane: kept mounted by PaneLayout after the model dropped it,
+   re-rendered with the absorber's box as target — a translucent box
+   morphing into the survivor while fading out (reverse of enter). */
+.pane-layout-item.pane-leaving,
+.pane-layout-no-animations .pane-layout-item.pane-leaving,
+.pane-layout-resizing .pane-layout-item.pane-leaving {
+  opacity: 0;
+  z-index: var(--z-pane-anim);
   pointer-events: none;
+  transition:
+    left var(--transition-pane-leave),
+    top var(--transition-pane-leave),
+    width var(--transition-pane-leave),
+    height var(--transition-pane-leave),
+    opacity var(--transition-pane-leave);
+  will-change: left, top, width, height, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-pane-enter: 0ms linear;
+    --transition-pane-leave: 0ms linear;
+  }
 }
 
 /* Resize Dividers — invisible 8px-thick hit areas for grab/resize.

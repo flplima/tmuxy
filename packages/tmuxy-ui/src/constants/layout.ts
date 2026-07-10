@@ -80,6 +80,15 @@ export function computePaneBox(
   };
 }
 
+/* Pane enter/leave lifecycle (split/kill morph animations).
+   Durations must stay in sync with --transition-pane-enter /
+   --transition-pane-leave (styles.css) — JS timers hold the lifecycle
+   classes slightly past the CSS transition end. */
+export const PANE_ENTER_MS = 180;
+export const PANE_LEAVE_MS = 160;
+// Opacity the entering pane starts from before fading in to full.
+export const PANE_ENTER_FROM_OPACITY = 0.4;
+
 /** A pane is collapsed in a stack when tmux has shrunk it to a single row. */
 export function isCollapsedPane(pane: { height: number }): boolean {
   return pane.height <= 1;

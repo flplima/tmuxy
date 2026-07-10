@@ -106,7 +106,6 @@ The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Fi
 
 - **`connecting`** — Initial. Waiting for the backend handshake. Transitions to `idle` on `TMUX_CONNECTED`.
 - **`idle`** — Live and operational. Handles all normal interactions. The "syncing" sub-flavor — connected, but with one or more optimistic ops in flight — is a derived flag (`tmuxStore.model.ops.length > 0`) surfaced to selectors; it does not gate any handlers, so the user never feels a perceptible mode change when an op is pending.
-- **`removingPane`** — Transient state for pane removal animations. Returns to `idle` when done.
 - **`reconnecting`** — The adapter detected the SSE/Tauri channel dropped and is retrying. Distinct from `connecting` so the UI keeps the stale layout mounted and overlays a "reconnecting…" banner. Transitions to `idle` on `TMUX_RECONNECTED` (next live snapshot) or `disconnected` on `TMUX_DISCONNECTED` / `TMUX_FATAL`.
 - **`disconnected`** — Terminal. Backend gave up or an explicit disconnect happened. The status screen reads `fatalError` to show a non-recoverable banner. No auto-recovery; an adapter-initiated `TMUX_RECONNECTING` is still accepted, so a server that comes back later can pull the UI out of this state.
 
@@ -204,7 +203,7 @@ Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_
 
 ```
 machines/app/
-├── appMachine.ts          # Parent: lifecycle (connecting / idle / removingPane),
+├── appMachine.ts          # Parent: lifecycle (connecting / idle / reconnecting),
 │                          # actor wiring, cross-cutting orchestrators.
 │                          # SEND_TMUX_COMMAND keeps its keybinding intercepts
 │                          # (copy-mode, command-prompt, display-message, tab
@@ -291,6 +290,16 @@ Components consume the machine via hooks defined in `tmuxy-ui/src/machines/AppCo
 - `useIsDragging()`, `useIsResizing()` — Operation state checks
 
 Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `selectPreviewPanes` (with resize preview), `selectVisiblePanes`, `selectWindows`, `selectGridDimensions`, `selectPaneGroups`, `selectFloatPanes`, `selectIsConnected`, etc.
+
+### Pane enter/leave animations (component-local)
+
+Split and kill morphs are deliberately **not** machine state — the lifecycle lives entirely in `tmuxy-ui/src/components/PaneLayout.tsx` as refs plus a tick reducer. Each render is diffed against a snapshot of the previous render, keyed by the pane's effective React key (`paneKeyOverrides` honored, so the optimistic placeholder→real-id swap never re-triggers an animation):
+
+- **Enter** (split): a newly visible key mounts at its final geometry, is FLIP-rewound before paint to the pre-split box of the sibling that shrank for it, then transitions into place while fading in (`pane-entering`).
+- **Leave** (kill): a key that vanishes from the render keeps its DOM node mounted for the leave duration, morphing into the absorber's expanded box while fading out (`pane-leaving`). Its frozen pane snapshot is exposed through `LeavingPanesContext` (`tmuxy-ui/src/machines/LeavingPanesContext.ts`), which `usePane` falls back to after the model has dropped the pane.
+- **Shift**: pre-existing panes whose geometry changed alongside an enter/leave animate on the same clock (`pane-shifting`) so converging edges track.
+
+The from/to geometry is inferred generically from previous-render pixel boxes (`tmuxy-ui/src/utils/paneTransitions.ts`), so splits/kills initiated from the CLI or another client animate identically to optimistic local ones. The lifecycle classes intentionally out-specify the `enableAnimations`/`suppressLayoutTransition` container gates in CSS; detection is skipped on initial load, window switches, and during drag/resize.
 
 ---
 

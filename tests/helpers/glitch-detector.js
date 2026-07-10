@@ -199,6 +199,12 @@ class GlitchDetector {
               h: Math.round(r.height),
               x: Math.round(r.left),
               y: Math.round(r.top),
+              // Deliberate split/kill morph in flight — rect motion on this
+              // pane is the animation, not a glitch.
+              animating:
+                p.classList.contains('pane-entering') ||
+                p.classList.contains('pane-shifting') ||
+                p.classList.contains('pane-leaving'),
             };
           }),
         };
@@ -347,6 +353,9 @@ class GlitchDetector {
       for (const pane of curr.panes) {
         const prevPane = prev.panes.find((p) => p.id === pane.id);
         if (!prevPane) continue;
+        // Skip panes mid enter/leave/shift morph — their rect motion is the
+        // intentional split/kill animation, not flicker.
+        if (pane.animating || prevPane.animating) continue;
 
         const dw = Math.abs(pane.w - prevPane.w);
         const dh = Math.abs(pane.h - prevPane.h);
