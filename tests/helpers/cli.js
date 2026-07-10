@@ -36,9 +36,11 @@ function tmuxRun(command) {
  * @returns {string} Trimmed stdout
  */
 function tmuxQuery(command) {
-  // Same socket resolution as the app: TMUX_SOCKET override, else the
+  // Same socket resolution as the app: TMUX_SOCKET override (a value with a
+  // slash is a socket path → -S, else a socket name → -L), else the
   // dedicated `tmuxy` socket.
-  const socketFlag = `-L ${process.env.TMUX_SOCKET || 'tmuxy'} `;
+  const socket = process.env.TMUX_SOCKET || 'tmuxy';
+  const socketFlag = `${socket.includes('/') ? '-S' : '-L'} ${socket} `;
   return execSync(`tmux ${socketFlag}${command}`, {
     encoding: 'utf-8',
     timeout: 30000,

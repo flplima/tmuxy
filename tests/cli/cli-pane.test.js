@@ -44,7 +44,7 @@ describe('CLI pane subcommands', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'split']);
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux splitw']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw']);
     });
 
     test('-h is interpreted as help (ambiguous with horizontal)', () => {
@@ -59,7 +59,7 @@ describe('CLI pane subcommands', () => {
     test('splits pane -v (vertical)', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'split', '-v']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux splitw -v']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw -v']);
     });
   });
 
@@ -67,13 +67,13 @@ describe('CLI pane subcommands', () => {
     test('kills current pane', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'kill']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux killp']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy killp']);
     });
 
     test('kills specific pane', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'kill', '%5']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux killp -t %5']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy killp -t %5']);
     });
   });
 
@@ -86,13 +86,13 @@ describe('CLI pane subcommands', () => {
     ])('selects pane %s', (dir, expected) => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'select', dir]);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux ${expected}`]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L tmuxy ${expected}`]);
     });
 
     test('selects pane by ID', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'select', '%3']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux selectp -t %3']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy selectp -t %3']);
     });
 
     test('errors with no argument', () => {
@@ -113,13 +113,13 @@ describe('CLI pane subcommands', () => {
     test('resizes pane in direction', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'resize', '-U']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux resizep -U']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy resizep -U']);
     });
 
     test('resizes pane with count', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'resize', '-D', '5']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux resizep -D 5']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy resizep -D 5']);
     });
 
     test('errors with no direction', () => {
@@ -134,7 +134,7 @@ describe('CLI pane subcommands', () => {
     test('swaps two panes', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'swap', '%0', '%1']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux swap-pane -s %0 -t %1']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy swap-pane -s %0 -t %1']);
     });
 
     test('errors with missing arguments', () => {
@@ -147,7 +147,7 @@ describe('CLI pane subcommands', () => {
     test('toggles zoom', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'zoom']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux resizep -Z']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy resizep -Z']);
     });
   });
 
@@ -155,7 +155,7 @@ describe('CLI pane subcommands', () => {
     test('breaks pane', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'break']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux breakp']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy breakp']);
     });
   });
 
@@ -202,7 +202,7 @@ describe('CLI pane subcommands', () => {
     test('sends keys', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'send', 'ls', 'Enter']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux send-keys ls Enter']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy send-keys ls Enter']);
     });
 
     test('errors with no keys', () => {
@@ -220,7 +220,7 @@ describe('CLI pane subcommands', () => {
       // load-buffer first, then run-shell pasteb
       expect(tmuxCalls).toHaveLength(2);
       expect(tmuxCalls[0].args).toEqual(['load-buffer', '-']);
-      expect(tmuxCalls[1].args).toEqual(['run-shell', 'tmux pasteb']);
+      expect(tmuxCalls[1].args).toEqual(['run-shell', 'tmux -L tmuxy pasteb']);
     });
 
     test('errors with no text', () => {

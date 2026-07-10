@@ -20,6 +20,14 @@ fi
 # Return configured exit code if set
 exit_code="${MOCK_TMUX_EXIT_CODE:-0}"
 
+# Skip the socket flag pair (-L <name> / -S <path>) for response dispatch.
+# The raw argv INCLUDING the socket flag was already logged above — the
+# run-cli helper asserts its presence — but canned responses key off the
+# actual subcommand.
+if [ "${1:-}" = "-L" ] || [ "${1:-}" = "-S" ]; then
+  shift 2
+fi
+
 # Handle stdin for load-buffer
 if [ "${1:-}" = "load-buffer" ] && [ "${2:-}" = "-" ]; then
   cat > /dev/null

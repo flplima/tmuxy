@@ -6,11 +6,13 @@
 # - Vite HMR is handled automatically via the tmuxy-server dev mode proxy
 #
 # Environment variables:
-#   TMUX_SOCKET  — tmux named socket (default: none, uses default socket)
+#   TMUX_SOCKET  — tmux socket name, or full socket path when it contains
+#                  a slash (default: the dedicated `tmuxy` socket — never
+#                  the user's default tmux server)
 #   DEV_PORT     — port to listen on (default: 9000)
 #
 # Usage:
-#   npm start  # Run in background with pm2 (port 9000, default socket)
+#   npm start  # Run in background with pm2 (port 9000, `tmuxy` socket)
 #   npm stop   # Stop the server
 #   npm logs   # View logs
 #
@@ -20,9 +22,14 @@ set -e
 cd /tmuxy
 
 PORT="${DEV_PORT:-9000}"
-# Match the server's socket resolution: TMUX_SOCKET override, else the
-# dedicated `tmuxy` socket (the app never touches the default tmux server).
+# Match the server's socket resolution: TMUX_SOCKET override (slash → full
+# socket path via -S, else name via -L), else the dedicated `tmuxy` socket
+# (the app never touches the default tmux server).
 SOCKET="${TMUX_SOCKET:-tmuxy}"
+case "$SOCKET" in
+  */*) SOCKET_FLAG="-S" ;;
+  *) SOCKET_FLAG="-L" ;;
+esac
 
 # Cleanup function for graceful shutdown
 cleanup() {
@@ -47,8 +54,8 @@ fi
 echo ""
 
 # Ensure the tmux server has a session so it stays alive between test cycles.
-tmux -L "$SOCKET" has-session -t tmuxy 2>/dev/null \
-    || tmux -L "$SOCKET" new-session -d -s tmuxy -x 200 -y 50
+tmux "$SOCKET_FLAG" "$SOCKET" has-session -t tmuxy 2>/dev/null \
+    || tmux "$SOCKET_FLAG" "$SOCKET" new-session -d -s tmuxy -x 200 -y 50
 
 exec cargo watch \
     -w packages/tmuxy-core/src \

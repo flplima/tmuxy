@@ -116,7 +116,7 @@ if [ $# -eq 0 ]; then
   # doubled hash survives as a literal #{pane_id} for split-window's -P -F to
   # expand against the NEW pane. A bare #{pane_id} would pre-expand to the
   # ACTIVE pane and break-pane would then move the wrong pane into the float.
-  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} split-window -dP -F '##{pane_id}' > $TMPID"
+  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET split-window -dP -F '##{pane_id}' > $TMPID"
   NEW_PANE_ID=$(cat "$TMPID")
   rm -f "$TMPID"
   trap - EXIT
@@ -128,14 +128,14 @@ if [ $# -eq 0 ]; then
 
   # Atomic break + tag — see build_break_and_tag_float for why this matters.
   BREAK_CMD=$(build_break_and_tag_float "$NEW_PANE_ID" "$CURRENT_WIN")
-  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} $BREAK_CMD"
+  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $BREAK_CMD"
 
   # Apply size via run-shell (non-fatal if pane killed concurrently)
   if [ -n "$WIDTH" ]; then
-    _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -x $WIDTH 2>/dev/null || true" 2>/dev/null || true
+    _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET resize-pane -t $NEW_PANE_ID -x $WIDTH 2>/dev/null || true" 2>/dev/null || true
   fi
   if [ -n "$HEIGHT" ]; then
-    _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -y $HEIGHT 2>/dev/null || true" 2>/dev/null || true
+    _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET resize-pane -t $NEW_PANE_ID -y $HEIGHT 2>/dev/null || true" 2>/dev/null || true
   fi
 
   echo "$NEW_PANE_ID"
@@ -156,22 +156,22 @@ else
   cat > "$WRAPPER" <<SCRIPT
 #!/bin/bash
 ${CMD} > "${TMPFILE}"
-tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} wait-for -S ${WAIT_CHAN}
+tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET wait-for -S ${WAIT_CHAN}
 SCRIPT
   chmod +x "$WRAPPER"
   # ##{pane_id}: see the interactive branch — run-shell expands ## -> #.
-  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} split-window -dP -F '##{pane_id}' 'bash $WRAPPER' > $TMPID"
+  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET split-window -dP -F '##{pane_id}' 'bash $WRAPPER' > $TMPID"
   NEW_PANE_ID=$(cat "$TMPID")
   rm -f "$TMPID"
 
   BREAK_CMD=$(build_break_and_tag_float "$NEW_PANE_ID" "$CURRENT_WIN")
-  _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} $BREAK_CMD"
+  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $BREAK_CMD"
 
   if [ -n "$WIDTH" ]; then
-    _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -x $WIDTH 2>/dev/null || true" 2>/dev/null || true
+    _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET resize-pane -t $NEW_PANE_ID -x $WIDTH 2>/dev/null || true" 2>/dev/null || true
   fi
   if [ -n "$HEIGHT" ]; then
-    _tmux run-shell "tmux ${TMUX_SOCKET:+-L $TMUX_SOCKET} resize-pane -t $NEW_PANE_ID -y $HEIGHT 2>/dev/null || true" 2>/dev/null || true
+    _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET resize-pane -t $NEW_PANE_ID -y $HEIGHT 2>/dev/null || true" 2>/dev/null || true
   fi
 
   # Wait for command to finish

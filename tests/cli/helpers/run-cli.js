@@ -7,6 +7,31 @@ const CLI_PATH = path.resolve(__dirname, '../../../bin/tmuxy-cli');
 const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 
 /**
+ * Every tmux invocation the CLI makes MUST target the dedicated socket
+ * (`-L <name>`, or `-S <path>` when TMUX_SOCKET holds a path) — never the
+ * user's default tmux server. Assert that invariant on every recorded call,
+ * then strip the flag pair so tests assert on the actual subcommand argv.
+ *
+ * @param {Array<{args: string[]}>} tmuxCalls - Raw recorded calls
+ * @param {Record<string, string>} [extraEnv] - Env the CLI ran with
+ * @returns {Array<{args: string[]}>} Calls with the socket pair stripped
+ */
+function stripSocketArgs(tmuxCalls, extraEnv = {}) {
+  const socket = extraEnv.TMUX_SOCKET || process.env.TMUX_SOCKET || 'tmuxy';
+  const expectedFlag = socket.includes('/') ? '-S' : '-L';
+  return tmuxCalls.map((call) => {
+    const [flag, value, ...rest] = call.args;
+    if (flag !== expectedFlag || value !== socket) {
+      throw new Error(
+        `tmux invoked without the dedicated socket: expected leading ` +
+          `"${expectedFlag} ${socket}", got argv ${JSON.stringify(call.args)}`,
+      );
+    }
+    return { ...call, args: rest };
+  });
+}
+
+/**
  * Run the tmuxy CLI with the given arguments and return results.
  *
  * @param {string[]} args - CLI arguments
@@ -60,6 +85,7 @@ function runCLI(args, opts = {}) {
   } catch {
     // No log file or empty — no tmux calls made
   }
+  tmuxCalls = stripSocketArgs(tmuxCalls, opts.env);
 
   // Clean up log file
   try {
@@ -111,6 +137,7 @@ function runCLIFull(args, opts = {}) {
   } catch {
     // No log file or empty — no tmux calls made
   }
+  tmuxCalls = stripSocketArgs(tmuxCalls, opts.env);
 
   // Clean up log file
   try {

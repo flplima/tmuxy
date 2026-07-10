@@ -88,14 +88,12 @@ pub struct ControlModeConnection {
 }
 
 /// Build the argv passed to `tmux` plus a human-readable description that's
-/// safe to log (one `-L <socket>` pair only — `tmux_bin()` already includes
-/// the socket when the env var is set, so omit it from the args for the log
-/// line). `tmux_args` carries the actual argv used by `spawn`.
+/// safe to log (one socket flag pair only — `tmux_bin()` already includes
+/// the socket, so omit it from the args for the log line). `tmux_args`
+/// carries the actual argv used by `spawn`.
 fn build_tmux_args(session_name: &str, create_if_missing: bool) -> (Vec<String>, String) {
     let tmux_bin_str = crate::session::tmux_bin();
-    let mut tmux_args: Vec<String> = Vec::new();
-    tmux_args.push("-L".to_string());
-    tmux_args.push(crate::session::tmux_socket());
+    let mut tmux_args: Vec<String> = crate::session::tmux_socket_args().to_vec();
     // Apply the user's tmuxy config at server-startup time. tmux only reads
     // `-f` when it forks a new server, so this only affects the create path;
     // the monitor's `sync_initial_state()` source-files the same config after
@@ -124,7 +122,8 @@ fn build_tmux_args(session_name: &str, create_if_missing: bool) -> (Vec<String>,
         ]);
     }
 
-    let log_args: Vec<&str> = if tmux_args.first().map(|s| s.as_str()) == Some("-L") {
+    let log_args: Vec<&str> = if matches!(tmux_args.first().map(|s| s.as_str()), Some("-L" | "-S"))
+    {
         tmux_args.iter().skip(2).map(String::as_str).collect()
     } else {
         tmux_args.iter().map(String::as_str).collect()

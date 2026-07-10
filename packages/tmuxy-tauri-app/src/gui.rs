@@ -644,7 +644,10 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         "session-rename" => Some("command-prompt -I \"#S\" \"rename-session -- '%%'\""),
         "session-detach" => Some("detach-client"),
         "session-kill" => Some("kill-session"),
-        "session-reload-config" => Some("source-file ~/.tmux.conf"),
+        // tmuxy's own config, NOT ~/.tmux.conf — sourcing the user's vanilla
+        // tmux config into the tmuxy server would drag their default-server
+        // bindings/options into the isolated tmuxy socket.
+        "session-reload-config" => Some("source-file ~/.config/tmuxy/tmuxy.conf"),
         // View — Layouts
         "view-layout-even-horizontal" => Some("select-layout even-horizontal"),
         "view-layout-even-vertical" => Some("select-layout even-vertical"),

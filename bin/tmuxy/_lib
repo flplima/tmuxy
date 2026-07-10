@@ -19,12 +19,19 @@ if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
 fi
 TMUX_SOCKET="${TMUX_SOCKET:-tmuxy}"
 export TMUX_SOCKET
+# A TMUX_SOCKET containing a slash is a full socket path (-S); otherwise a
+# socket name in tmux's default directory (-L).
+case "$TMUX_SOCKET" in
+  */*) TMUX_SOCKET_FLAG="-S" ;;
+  *) TMUX_SOCKET_FLAG="-L" ;;
+esac
+export TMUX_SOCKET_FLAG
 
-# Wrap tmux to target the resolved socket. Using -L bypasses the TMUX env
-# var, which returns corrupted list-windows results inside run-shell
-# (tmux 3.5a bug).
+# Wrap tmux to target the resolved socket. Using an explicit socket flag
+# bypasses the TMUX env var, which returns corrupted list-windows results
+# inside run-shell (tmux 3.5a bug).
 _tmux() {
-  command tmux -L "$TMUX_SOCKET" "$@"
+  command tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$@"
 }
 
 # Get the window type set on a window via @tmuxy-window-type.

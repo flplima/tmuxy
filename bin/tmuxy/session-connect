@@ -4,6 +4,7 @@
 # Creates a new tmux session running an SSH command and sets
 # TMUXY_SWITCH_TO for the frontend to pick up.
 set -euo pipefail
+source "$(dirname "$0")/_lib"
 
 for arg in "$@"; do
   case "$arg" in
@@ -33,6 +34,6 @@ host=$(echo "$ssh_cmd" | awk '{print $NF}' | sed 's/.*@//')
 session_name="ssh_${host}"
 
 # Create session running the SSH command
-tmux new-session -d -s "$session_name" "$ssh_cmd"
+_tmux new-session -d -s "$session_name" "$ssh_cmd"
 echo "$session_name"
-tmux set-environment -g TMUXY_SWITCH_TO "$session_name"
+_tmux set-environment -g TMUXY_SWITCH_TO "$session_name"

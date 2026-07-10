@@ -62,8 +62,10 @@ pub fn tmux_path() -> &'static str {
 /// own tmux sessions on the default socket.
 pub const DEFAULT_TMUX_SOCKET: &str = "tmuxy";
 
-/// Resolve the tmux socket name: `TMUX_SOCKET` when set and non-empty,
-/// otherwise the dedicated [`DEFAULT_TMUX_SOCKET`].
+/// Resolve the tmux socket: `TMUX_SOCKET` when set and non-empty, otherwise
+/// the dedicated [`DEFAULT_TMUX_SOCKET`]. The value is a socket *name*
+/// (tmux `-L`) unless it contains a `/`, in which case it's a full socket
+/// *path* (tmux `-S`) — see [`tmux_socket_args`].
 pub fn tmux_socket() -> String {
     match std::env::var("TMUX_SOCKET") {
         Ok(socket) if !socket.is_empty() => socket,
@@ -71,19 +73,29 @@ pub fn tmux_socket() -> String {
     }
 }
 
-/// Create a `Command` for tmux targeting the resolved socket (`-L`). Passing
-/// `-L` unconditionally also overrides an inherited `$TMUX`, so the server
-/// behaves the same whether or not it was launched from inside a tmux pane.
+/// The socket flag pair for tmux invocations: `["-L", <name>]` for a socket
+/// name, or `["-S", <path>]` when `TMUX_SOCKET` holds a path (contains `/`).
+/// Passing the flag unconditionally also overrides an inherited `$TMUX`, so
+/// tmuxy behaves the same whether or not it was launched from inside a tmux
+/// pane — and never touches the user's default tmux server.
+pub fn tmux_socket_args() -> [String; 2] {
+    let socket = tmux_socket();
+    let flag = if socket.contains('/') { "-S" } else { "-L" };
+    [flag.to_string(), socket]
+}
+
+/// Create a `Command` for tmux targeting the resolved socket.
 pub fn tmux_command() -> Command {
     let mut cmd = Command::new(tmux_path());
-    cmd.args(["-L", &tmux_socket()]);
+    cmd.args(tmux_socket_args());
     cmd
 }
 
 /// Build the tmux shell command string with the socket flag for use in shell
 /// invocations. Returns e.g. "/opt/homebrew/bin/tmux -L tmuxy".
 pub fn tmux_bin() -> String {
-    format!("{} -L {}", tmux_path(), tmux_socket())
+    let [flag, socket] = tmux_socket_args();
+    format!("{} {} {}", tmux_path(), flag, socket)
 }
 
 /// Shipped defaults — overwritten on every app launch so users get new

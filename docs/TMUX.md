@@ -8,7 +8,7 @@ Tmuxy targets **tmux 3.7a** (devcontainer, CI, and the in-browser v86 guest all 
 
 ## Dedicated Server Socket
 
-Tmuxy never talks to the user's default tmux server. Every component targets a **named socket** (`tmux -L <name>`), resolved the same way everywhere:
+Tmuxy never talks to the user's default tmux server. Every component targets a **dedicated socket**, resolved the same way everywhere:
 
 | Priority | Source                      | Used by                                                                                                                 |
 | -------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
@@ -16,7 +16,7 @@ Tmuxy never talks to the user's default tmux server. Every component targets a *
 | 2        | Socket derived from `$TMUX` | shell scripts running inside a pane (`bin/tmuxy-cli`, `bin/tmuxy/_lib`) — so they always target the server hosting them |
 | 3        | `tmuxy` (the default)       | everything else                                                                                                         |
 
-The Rust side resolves via `tmux_socket()` in `tmuxy-core/src/session.rs` and always passes `-L`, which also overrides an inherited `$TMUX` — the server behaves identically whether launched from a terminal, a tmux pane, or Finder. The event-queue scripts (`tmuxy event …`) namespace their FIFO directories by the same socket name.
+A `TMUX_SOCKET` value containing a slash is treated as a **full socket path** (`tmux -S <path>`); any other value is a **socket name** in tmux's default socket directory (`tmux -L <name>`). The Rust side resolves via `tmux_socket()` / `tmux_socket_args()` in `tmuxy-core/src/session.rs` and always passes the socket flag explicitly, which also overrides an inherited `$TMUX` — the server behaves identically whether launched from a terminal, a tmux pane, or Finder. Every bundled shell script sources the same resolution from `bin/tmuxy/_lib` (or defines it inline in `bin/tmuxy-cli`); none may call bare `tmux`. The event-queue scripts (`tmuxy event …`) namespace their FIFO directories by the same socket name.
 
 ## Control Mode Architecture
 

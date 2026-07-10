@@ -103,7 +103,10 @@ export function executeMenuAction(send: Send, actionId: string): void {
       send({ type: 'SEND_COMMAND', command: 'kill-session' });
       break;
     case 'session-reload-config':
-      send({ type: 'SEND_COMMAND', command: 'source-file ~/.tmux.conf' });
+      // tmuxy's own config, NOT ~/.tmux.conf — sourcing the user's vanilla
+      // tmux config would drag their default-server bindings/options into
+      // the isolated tmuxy socket.
+      send({ type: 'SEND_COMMAND', command: 'source-file ~/.config/tmuxy/tmuxy.conf' });
       break;
 
     // View actions
