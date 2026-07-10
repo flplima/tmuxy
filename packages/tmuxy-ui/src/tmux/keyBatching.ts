@@ -37,8 +37,16 @@ export function unescapeLiteralText(escaped: string): string {
 export type SendFn = (cmd: string, args: Record<string, unknown>) => void;
 
 /**
- * KeyBatcher batches tmux send-keys commands within ~1 frame (16ms)
- * to reduce the number of round-trips to the backend.
+ * KeyBatcher rate-limits tmux send-keys commands to at most one per ~frame
+ * (16ms) per kind, without delaying isolated keystrokes.
+ *
+ * Leading edge: a keystroke arriving with no active batch window is sent
+ * IMMEDIATELY — a lone keypress never waits out the 16ms window (that wait
+ * was the dominant share of the local input→paint floor, see
+ * docs/PERFORMANCE.md). The send opens a window; keys arriving inside it
+ * accumulate and flush together when it closes (trailing edge). A non-empty
+ * trailing flush re-opens the window, so sustained fast input (paste,
+ * key-repeat) still coalesces to ~one send per frame.
  *
  * It handles two types of send-keys:
  * - Literal text: `send-keys -t SESSION -l 'TEXT'`
@@ -79,14 +87,16 @@ export class KeyBatcher {
         this.flushKeyBatchForSession(session);
       }
 
-      const existing = this.pendingLiteralText.get(session) || '';
-      this.pendingLiteralText.set(session, existing + rawText);
-
       if (!this.literalBatchTimeout) {
+        // Leading edge: no window open — send now, open the window.
+        this.sendFn('run_tmux_command', { command });
         this.literalBatchTimeout = setTimeout(
           () => this.flushLiteralBatch(),
           KEY_BATCH_INTERVAL_MS,
         );
+      } else {
+        const existing = this.pendingLiteralText.get(session) || '';
+        this.pendingLiteralText.set(session, existing + rawText);
       }
 
       return true;
@@ -110,13 +120,15 @@ export class KeyBatcher {
         this.flushLiteralBatchForSession(session);
       }
 
-      if (!this.pendingKeys.has(session)) {
-        this.pendingKeys.set(session, []);
-      }
-      this.pendingKeys.get(session)!.push(keys);
-
       if (!this.keyBatchTimeout) {
+        // Leading edge: no window open — send now, open the window.
+        this.sendFn('run_tmux_command', { command });
         this.keyBatchTimeout = setTimeout(() => this.flushKeyBatch(), KEY_BATCH_INTERVAL_MS);
+      } else {
+        if (!this.pendingKeys.has(session)) {
+          this.pendingKeys.set(session, []);
+        }
+        this.pendingKeys.get(session)!.push(keys);
       }
 
       return true;
@@ -173,13 +185,20 @@ export class KeyBatcher {
 
   private flushKeyBatch(): void {
     this.keyBatchTimeout = null;
+    let sent = false;
     for (const [session, keys] of this.pendingKeys) {
       if (keys.length === 0) continue;
       const combinedKeys = keys.join(' ');
       const command = `send-keys -t ${session} ${combinedKeys}`;
       this.sendFn('run_tmux_command', { command });
+      sent = true;
     }
     this.pendingKeys.clear();
+    // Trailing flush under sustained input: keep the window open so the
+    // stream keeps coalescing. An empty window closes (next key is leading).
+    if (sent) {
+      this.keyBatchTimeout = setTimeout(() => this.flushKeyBatch(), KEY_BATCH_INTERVAL_MS);
+    }
   }
 
   private flushKeyBatchForSession(session: string): void {
@@ -193,13 +212,20 @@ export class KeyBatcher {
 
   private flushLiteralBatch(): void {
     this.literalBatchTimeout = null;
+    let sent = false;
     for (const [session, text] of this.pendingLiteralText) {
       if (text.length === 0) continue;
       const escaped = escapeLiteralText(text);
       const command = `send-keys -t ${session} -l ${escaped}`;
       this.sendFn('run_tmux_command', { command });
+      sent = true;
     }
     this.pendingLiteralText.clear();
+    // Trailing flush under sustained input: keep the window open so the
+    // stream keeps coalescing. An empty window closes (next key is leading).
+    if (sent) {
+      this.literalBatchTimeout = setTimeout(() => this.flushLiteralBatch(), KEY_BATCH_INTERVAL_MS);
+    }
   }
 
   private flushLiteralBatchForSession(session: string): void {

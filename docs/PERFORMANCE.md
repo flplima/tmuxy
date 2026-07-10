@@ -84,22 +84,41 @@ First full run of both harnesses. Treat these as the current baseline to
 regress against, not as fixed constants — re-run the harnesses after any change
 to the parse/aggregate/delta pipeline or the transport.
 
-### Axis A — core + client processing (release `cargo bench -p tmuxy-core`)
+### Axis A — core + client processing (`cargo bench -p tmuxy-core`)
 
-| Bench               | Time    | Throughput   | What it is                                    |
-| ------------------- | ------- | ------------ | --------------------------------------------- |
-| `full_sync`         | 3.68 ms | —            | first full snapshot, 2-pane 80×24             |
-| `delta_rename`      | 3.82 ms | —            | single-field change on an already-synced grid |
-| `output_burst/200`  | 288 µs  | 32.7 MiB/s   | 200-line flood parse+aggregate                |
-| `output_burst/2000` | 2.22 ms | 43.4 MiB/s   | 2000-line flood parse+aggregate               |
+**Bench-integrity note.** The first published numbers (3.7–3.8 ms for
+`full_sync`/`delta_rename`) were an artifact: on the native feature the
+status-line dirty-refresh spawns `tmux display-message` subprocesses *inside*
+`to_state_update`, and the bench hit that in the timed region — measuring
+process-spawn latency, not the pipeline. The bench now supplies the status
+line out-of-band (`set_status_line`, exactly what the wasm host does) and
+fills panes with a real screenful (empty grids made content cost look free).
+Numbers below are from the fixed bench.
 
-**Key finding — construction dominates, not parsing.** A one-field delta
-(`delta_rename`, 3.82 ms) costs essentially the same as a whole-snapshot
-`full_sync` (3.68 ms), while raw byte parsing is cheap (~43 MiB/s). The cost is
-paid in *building and diffing the snapshot* — cell-grid extraction, the
-full-grid diff walk, and serde shaping in `to_state_update` — roughly
-independent of how much actually changed. That is the #1 Axis-A target: a
-single-field change should not pay for a full snapshot.
+Devcontainer (aarch64), same machine for both columns. "Before" is the
+per-cell deep-copy pipeline; "after" is the `Arc`-shared-content pipeline
+(`TmuxPane.content: Arc<PaneContent>`, `ptr_eq` skip in the grid diff):
+
+| Bench               | Before  | After       | Change | What it is                                    |
+| ------------------- | ------- | ----------- | ------ | --------------------------------------------- |
+| `full_sync`         | 206 µs  | 136 µs      | −34%   | first full snapshot + screenful, 2-pane 80×24 |
+| `delta_rename`      | 160 µs  | **23.5 µs** | −85%   | single-field change on an already-synced grid |
+| `output_burst/200`  | 413 µs  | 321 µs      | −22%   | 200-line flood parse+aggregate                |
+| `output_burst/2000` | 2.52 ms | 2.37 ms     | −6%    | 2000-line flood parse+aggregate               |
+
+**The construction pathology is fixed.** Before, a one-field delta cost ~78%
+of a full sync because every update deep-copied each pane's cell grid three
+times (content-cache clone, `prev_state` clone, full-grid diff walk). Grids
+are now `Arc`-shared between snapshots: an unchanged pane costs a refcount
+bump, and the diff skips it by pointer identity. A metadata-only delta is
+**6.8× cheaper** and no longer scales with grid size. Locked in by the
+`metadata_delta_shares_content_and_omits_grids` test in
+`tmuxy-core/src/control_mode/state.rs`.
+
+Remaining honest cost: when content *does* change, extraction + line diff
+still walk the grid (the µs-scale `full_sync`/burst numbers above) — that is
+real work the pipeline must do, and byte parsing itself remains cheap
+(~40 MiB/s).
 
 ### Axis B — transport (input → paint)
 
@@ -119,11 +138,30 @@ All latencies in ms.
 **Transport is a clean additive term.** The added latency over the C0 floor
 tracks the injected RTT almost exactly (+64, +151, +304) — SSE+POST introduces
 no head-of-line amplification on a clean link, and there is no local echo, so
-every millisecond of RTT lands directly on input→paint. The **~22 ms local
-floor** (C0) is dominated by the rAF batch window (≤16 ms) + the loopback round
-trip; the server's aggregate step is a small remainder. (Measured against a
-debug server the floor was ~24.5 ms — only ~2 ms higher — which confirms the
-floor is frame/transport-bound, not compute-bound.)
+every millisecond of RTT lands directly on input→paint. The **~22 ms tracker
+floor** (C0) is send→apply: POST round trip + server step + SSE + client
+apply. (Measured against a debug server the floor was ~24.5 ms — only ~2 ms
+higher — which confirms it is transport-bound, not compute-bound.)
+
+**The tracker starts at send, not at keydown.** `markInput()` fires when the
+command leaves the adapter — so any client-side delay *before* the send is
+invisible to the table above. That mattered: the `KeyBatcher` used to hold
+every keystroke for its full 16 ms window before sending, an extra ~16 ms of
+real, user-felt latency the tracker never saw. Measured keydown→paint
+(MutationObserver on the pressed letter's echo, debug server, same machine):
+
+| keydown→paint  | always-batch (old) | leading-edge flush (new) |
+| -------------- | ------------------ | ------------------------ |
+| p50            | 42.5 ms            | **25.4 ms**              |
+| p95            | 62.5 ms            | 38.8 ms                  |
+| max            | 66.0 ms            | 40.9 ms                  |
+
+The `KeyBatcher` now sends an isolated keystroke immediately (leading edge)
+and opens its 16 ms window for what follows; a non-empty trailing flush
+re-opens the window, so sustained fast input (paste, key-repeat) still
+coalesces to ~one send per frame. Keydown→POST for an isolated key dropped
+from ~17 ms to ~1 ms. `scripts/measure-keypaint.mjs` measures this dimension;
+`scripts/measure-latency.mjs` remains the transport (send→apply) harness.
 
 **Loss is where the transport model actually hurts (C4).** At the same 150 ms
 base RTT as C2, 5% loss-as-retransmit-stall pushes p99 from 195 ms to 978 ms and
@@ -135,10 +173,11 @@ This, not steady-state RTT, is the signal a QUIC/WebTransport move would flatten
 lines) produced only **~6–8 client-side state updates** total, peaking at ~35
 updates/sec, with `pending` never above 2 — the client never backed up. tmuxy
 renders the *current visible grid*, not the scrollback, so the server's
-aggregator coalesces an arbitrarily large burst into a handful of snapshots. The
-real throughput ceiling is the Axis-A snapshot cost (~3.7 ms each → ~270
-snapshots/sec), not client render count. (Scrollback replay is copy-mode's job,
-a separate client-side path — see [COPY-MODE.md](COPY-MODE.md).)
+aggregator coalesces an arbitrarily large burst into a handful of snapshots.
+The real throughput ceiling is the Axis-A cost of extracting + diffing a
+changed grid (µs-scale per snapshot, see the bench table), not client render
+count. (Scrollback replay is copy-mode's job, a separate client-side path —
+see [COPY-MODE.md](COPY-MODE.md).)
 
 ### Where tmuxy sits vs terminal emulators (honest framing)
 
@@ -151,34 +190,46 @@ difference matters when comparing:
 | Native GPU (alacritty/kitty/wezterm)      | ~5–45 ms (Typometer/Dan Luu)   | multi-GB/s `cat`             | none (local)    |
 | Browser/xterm.js (VS Code terminal)       | higher; DOM/canvas render cost | DOM/canvas-bound             | none (local)    |
 | mosh                                       | ~0 perceived (local echo)      | predicted locally            | RTT hidden      |
-| **tmuxy**                                  | ~22 ms local floor + full RTT  | volume-decoupled (see above) | the whole point |
+| **tmuxy**                                  | ~25 ms keydown→paint + RTT     | volume-decoupled (see above) | the whole point |
 
-The honest read: tmuxy's ~22 ms local floor is competitive with the upper end
-of a local GPU terminal, and its snapshot model makes it structurally immune to
-output-volume blowups. But it has **no input prediction / local echo** (an
-explicit Non-Goal, see [NON-GOALS.md](NON-GOALS.md) §5), so unlike mosh it pays
-the full RTT on every keystroke — which is fine on LAN (C1) and acceptable on a
-typical remote VM (C2, ~180 ms p50) but degrades on high-RTT links (C3+).
+The honest read: tmuxy's ~25 ms local keydown→paint floor is competitive with
+the upper end of a local GPU terminal, and its snapshot model makes it
+structurally immune to output-volume blowups. But it has **no input
+prediction / local echo** (an explicit Non-Goal, see
+[NON-GOALS.md](NON-GOALS.md) §5), so unlike mosh it pays the full RTT on every
+keystroke — which is fine on LAN (C1) and acceptable on a typical remote VM
+(C2, ~180 ms p50) but degrades on high-RTT links (C3+).
 
 ### Prioritized improvement areas (against measured bottlenecks)
 
-1. **Axis A — snapshot/delta construction (highest leverage).** The
-   `full_sync ≈ delta_rename` result says a one-field change pays for a whole
-   snapshot. Profile `to_state_update` and the grid diff with samply/flamegraph;
-   likely wins are per-cell allocation in grid extraction, the full-grid diff
-   walk, and serde shaping. Dirty-region / incremental diffing could cut delta
-   cost by an order of magnitude and, because Axis A is the throughput ceiling,
-   raise the burst ceiling too.
-2. **Axis B — the rAF batching floor.** Up to 16 ms of the ~22 ms local floor is
-   the animation-frame batch. Consider immediate-flush for an isolated keystroke
-   and batching only under sustained high-frequency output; this trims the floor
-   toward ~10 ms without hurting burst behavior.
+Two of the original three are done — kept here with their measured outcomes so
+the next reader knows what already happened:
+
+1. ~~**Axis A — snapshot/delta construction.**~~ **Done.** Pane grids are
+   `Arc`-shared across snapshots with a `ptr_eq` diff skip: metadata-only
+   deltas dropped 160 µs → 23.5 µs (−85%), full sync −34%, bursts −6…−22%.
+   (The original "3.8 ms construction" number also turned out to be mostly a
+   bench artifact — subprocess status-line refresh in the timed region.)
+2. ~~**Axis B — the input batching floor.**~~ **Done.** The `KeyBatcher` now
+   leading-edge-flushes isolated keystrokes (was: always wait the 16 ms
+   window): keydown→paint p50 dropped 42.5 ms → 25.4 ms (−40%), and sustained
+   input still coalesces to ~one send per frame.
+
+Still open:
+
 3. **Transport — targeted, not blanket.** The curve shows SSE+POST is a clean
    additive-RTT transport with no HoL cost until loss. The measurable QUIC/
    WebTransport win is specifically the C4 loss tail (p99 195 → 978 ms), not
    steady-state RTT. Input prediction (Non-Goal §5) is the only thing that hides
    RTT itself; the data says revisit it only for genuinely high-RTT (C3+) remote
    use, not for LAN/typical-remote.
+4. **Native status-line refresh spawns subprocesses.** On the native server,
+   a dirty status line makes `to_state_update` synchronously run several
+   `tmux display-message` subprocesses (`executor::capture_status_line`) —
+   milliseconds per refresh, discovered while fixing the bench. It only fires
+   on window-level changes (rename/add/select), not on the keystroke path,
+   but moving it onto the control-mode connection (or making it async) would
+   remove the last subprocess call from the state pipeline.
 
 ## What's still absent (by choice, for now)
 

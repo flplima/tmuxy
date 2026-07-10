@@ -51,12 +51,28 @@ fn feed_lines(parser: &mut Parser, agg: &mut StateAggregator, text: &str) {
     }
 }
 
+/// Fill every pane with a screenful of output so measurements exercise real
+/// cell grids — an empty grid makes content construction/diff look free.
+fn fill_panes(agg: &mut StateAggregator) {
+    for pane in ["%0", "%1"] {
+        for i in 0..24 {
+            let _ = agg.step(ControlModeEvent::Output {
+                pane_id: pane.to_string(),
+                content: format!("{i}: the quick brown fox jumps over the lazy dog\r\n")
+                    .into_bytes(),
+            });
+        }
+    }
+}
+
 /// A parser + aggregator already advanced past the first full sync — the
 /// realistic starting point for delta/burst measurements.
 fn synced_session() -> (Parser, StateAggregator) {
     let mut parser = Parser::new();
     let mut agg = StateAggregator::with_session_name("m");
     feed_lines(&mut parser, &mut agg, FULL_SYNC);
+    fill_panes(&mut agg);
+    agg.set_status_line(String::new());
     let _ = agg.to_state_update();
     (parser, agg)
 }
@@ -77,6 +93,13 @@ fn bench_full_sync(c: &mut Criterion) {
             let mut parser = Parser::new();
             let mut agg = StateAggregator::with_session_name("m");
             feed_lines(&mut parser, &mut agg, black_box(FULL_SYNC));
+            fill_panes(&mut agg);
+            // Mirror the wasm host: the status line arrives out-of-band via
+            // set_status_line. Without this, the native-only dirty-refresh
+            // path spawns `tmux display-message` subprocesses INSIDE the
+            // timed region — measuring process-spawn latency, not the
+            // pipeline this bench exists to track.
+            agg.set_status_line(String::new());
             black_box(agg.to_state_update());
         });
     });
@@ -92,6 +115,9 @@ fn bench_delta_rename(c: &mut Criterion) {
                     &mut agg,
                     black_box("%window-renamed @0 renamed\n"),
                 );
+                // The rename dirties the status line; supply it like the wasm
+                // host does so no subprocess spawn lands in the timed region.
+                agg.set_status_line(String::new());
                 black_box(agg.to_state_update());
             },
             BatchSize::SmallInput,

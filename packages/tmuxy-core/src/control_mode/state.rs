@@ -246,7 +246,7 @@ pub struct PaneState {
     pub history_size: u64,
 
     /// Content captured during copy mode (separate from main terminal to avoid corruption)
-    pub copy_mode_content: Option<PaneContent>,
+    pub copy_mode_content: Option<std::sync::Arc<PaneContent>>,
 
     /// Cursor shape set by DECSCUSR escape sequence
     /// 0=block, 1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar
@@ -258,8 +258,10 @@ pub struct PaneState {
     /// Whether terminal content has changed since last extraction
     content_dirty: bool,
 
-    /// Cached extracted content (avoids re-extracting when content hasn't changed)
-    cached_content: Option<PaneContent>,
+    /// Cached extracted content (avoids re-extracting when content hasn't changed).
+    /// `Arc`-shared with every snapshot that includes it, so handing it out is a
+    /// refcount bump, not a per-cell deep copy.
+    cached_content: Option<std::sync::Arc<PaneContent>>,
 }
 
 impl PaneState {
@@ -416,14 +418,19 @@ impl PaneState {
 
     /// Get the rendered screen content as structured cells.
     /// Uses cached content when terminal hasn't changed since last extraction.
-    pub fn get_content(&mut self) -> PaneContent {
+    /// Returns an `Arc` so a clean cache hit is a refcount bump — repeated
+    /// state builds between output events share one extraction.
+    pub fn get_content(&mut self) -> std::sync::Arc<PaneContent> {
         if !self.content_dirty {
             if let Some(ref cached) = self.cached_content {
-                return cached.clone();
+                return std::sync::Arc::clone(cached);
             }
         }
-        let content = extract_cells_with_urls(self.terminal.screen(), Some(&self.osc_parser));
-        self.cached_content = Some(content.clone());
+        let content = std::sync::Arc::new(extract_cells_with_urls(
+            self.terminal.screen(),
+            Some(&self.osc_parser),
+        ));
+        self.cached_content = Some(std::sync::Arc::clone(&content));
         self.content_dirty = false;
         content
     }
@@ -457,7 +464,9 @@ impl PaneState {
             .collect();
 
         safe_process(&mut temp_terminal, &normalized);
-        self.copy_mode_content = Some(extract_cells_from_screen(temp_terminal.screen()));
+        self.copy_mode_content = Some(std::sync::Arc::new(extract_cells_from_screen(
+            temp_terminal.screen(),
+        )));
     }
 
     /// Build TmuxPane struct (uses &mut self for content caching)
@@ -2519,8 +2528,10 @@ impl StateAggregator {
         if prev.window_id != curr.window_id {
             delta.window_id = Some(curr.window_id.clone());
         }
-        // Line-level content diff: only include changed lines
-        {
+        // Line-level content diff: only include changed lines. Panes whose
+        // content is untouched share the same Arc between prev and curr
+        // snapshots, so `ptr_eq` skips the per-line walk entirely.
+        if !std::sync::Arc::ptr_eq(&prev.content, &curr.content) {
             let mut changed_lines: std::collections::HashMap<usize, crate::TerminalLine> =
                 std::collections::HashMap::new();
             let max_lines = curr.content.len().max(prev.content.len());
@@ -3012,6 +3023,61 @@ mod tests {
         let w = agg.windows.get("@1").expect("window @1 created by rename");
         assert_eq!(w.index, 2);
         assert_eq!(w.name, "build");
+    }
+
+    /// A metadata-only change (window rename) must produce a delta carrying NO
+    /// pane content: untouched grids are Arc-shared between snapshots, so the
+    /// diff skips them by pointer identity instead of walking every cell — the
+    /// fix for "a one-field delta costs as much as a full sync".
+    #[test]
+    fn metadata_delta_shares_content_and_omits_grids() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        agg.windows.insert("@0".to_string(), WindowState::new("@0"));
+        agg.step(ControlModeEvent::Output {
+            pane_id: "%0".to_string(),
+            content: b"hello world\r\n".to_vec(),
+        });
+        agg.set_status_line(String::new());
+
+        // First update is the full snapshot.
+        assert!(matches!(
+            agg.to_state_update(),
+            Some(crate::StateUpdate::Full { .. })
+        ));
+
+        // Consecutive snapshots share one grid allocation (refcount bump,
+        // not a per-cell deep copy).
+        let s1 = agg.to_tmux_state();
+        let s2 = agg.to_tmux_state();
+        assert!(
+            std::sync::Arc::ptr_eq(&s1.panes[0].content, &s2.panes[0].content),
+            "unchanged pane content must be shared, not rebuilt"
+        );
+
+        // A rename-only change yields a delta with the window change and no
+        // pane entries at all.
+        agg.step(ControlModeEvent::WindowRenamed {
+            window_id: "@0".to_string(),
+            name: "renamed".to_string(),
+        });
+        agg.set_status_line(String::new());
+        match agg.to_state_update() {
+            Some(crate::StateUpdate::Delta { delta }) => {
+                assert!(
+                    delta.panes.is_none(),
+                    "rename must not resend or re-diff pane content"
+                );
+                let windows = delta.windows.expect("window delta present");
+                let w = windows
+                    .get("@0")
+                    .expect("@0 in delta")
+                    .as_ref()
+                    .expect("modified, not removed");
+                assert_eq!(w.name.as_deref(), Some("renamed"));
+            }
+            other => panic!("expected Delta, got {other:?}"),
+        }
     }
 
     #[test]

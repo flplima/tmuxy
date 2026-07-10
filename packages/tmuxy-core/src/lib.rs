@@ -256,7 +256,11 @@ pub struct TmuxPane {
     pub id: u32,
     pub tmux_id: String,   // actual tmux pane ID (e.g., "%0")
     pub window_id: String, // window this pane belongs to (e.g., "@0")
-    pub content: PaneContent,
+    /// Rendered cell grid. `Arc`-shared so building a state snapshot, storing
+    /// `prev_state`, and diffing unchanged panes never deep-copies the grid —
+    /// the cost that made a one-field delta as expensive as a full sync.
+    /// Serializes transparently (serde `rc`), so the wire shape is unchanged.
+    pub content: std::sync::Arc<PaneContent>,
     pub cursor_x: u32,
     pub cursor_y: u32,
     pub width: u32,
@@ -746,7 +750,7 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, TmuxEr
             id: info.index,
             tmux_id: info.id.clone(),
             window_id: info.window_id,
-            content: parse_ansi_to_cells(&content, info.width, info.height),
+            content: std::sync::Arc::new(parse_ansi_to_cells(&content, info.width, info.height)),
             cursor_x: info.cursor_x,
             cursor_y: info.cursor_y,
             width: info.width,

@@ -14,7 +14,7 @@ edition = "2021"
 authors = ["Felipe"]
 
 [workspace.dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
