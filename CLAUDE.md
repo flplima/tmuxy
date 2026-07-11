@@ -85,7 +85,9 @@ tmuxy run new-window                   # Intercepted → splitw+breakp
 tmuxy run resize-window                # Blocked (crashes control mode)
 
 # Server
-tmuxy server                           # Start production server
+tmuxy server                           # Start production server (0.0.0.0:9000, no auth)
+tmuxy server --host 127.0.0.1          # Bind to localhost only
+tmuxy server --password <secret>       # Require HTTP Basic auth (any username); also TMUXY_PASSWORD env
 tmuxy server stop                      # Stop production server
 ```
 

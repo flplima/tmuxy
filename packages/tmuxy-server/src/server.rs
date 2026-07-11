@@ -28,9 +28,53 @@ pub struct ServerArgs {
     #[arg(long, default_value = "0.0.0.0")]
     pub host: String,
 
+    /// Require HTTP Basic auth with this password (any username is accepted).
+    /// Falls back to the TMUXY_PASSWORD env var. When neither is set the server
+    /// runs with NO authentication — anyone who can reach the port gets full
+    /// shell access. Prefer TMUXY_PASSWORD to keep the secret out of `ps`.
+    #[arg(long)]
+    pub password: Option<String>,
+
     /// Run in development mode (proxy to Vite dev server)
     #[arg(long)]
     pub dev: bool,
+}
+
+/// Resolve the auth password: `--password` wins, else the `TMUXY_PASSWORD` env
+/// var; an empty value counts as unset (no auth).
+fn resolve_password(flag: Option<String>) -> Option<String> {
+    flag.or_else(|| std::env::var("TMUXY_PASSWORD").ok())
+        .filter(|s| !s.is_empty())
+}
+
+/// Wrap the router in the Basic-auth layer when a password is configured.
+/// With no password the router is returned unchanged (server stays open).
+fn with_optional_auth(app: axum::Router, password: Option<String>) -> axum::Router {
+    match password {
+        Some(pw) => app.layer(axum::middleware::from_fn_with_state(
+            std::sync::Arc::new(pw),
+            crate::auth::require_basic_auth,
+        )),
+        None => app,
+    }
+}
+
+/// Print the auth status, and warn loudly when the server is reachable off-box
+/// with no password — matching the threat model in docs/SECURITY.md.
+fn announce_security(host: &str, password_set: bool) {
+    if password_set {
+        println!(
+            "tmuxy server: HTTP Basic auth enabled (any username; use the configured password)"
+        );
+        return;
+    }
+    let localhost_only = host == "127.0.0.1" || host == "localhost" || host == "::1";
+    if !localhost_only {
+        eprintln!(
+            "warning: no password set and bound to {host} — anyone who can reach this port has \
+             full shell access. Set --password / TMUXY_PASSWORD, or bind --host 127.0.0.1."
+        );
+    }
 }
 
 #[derive(Subcommand)]
@@ -47,9 +91,10 @@ pub enum ServerAction {
 
 pub async fn run(args: ServerArgs) {
     let dev_mode = args.dev || std::env::var("TMUXY_DEV").is_ok();
+    let password = resolve_password(args.password.clone());
     match args.action {
-        None if dev_mode => start_dev_server(args.port).await,
-        None => start_server(args.port, args.host).await,
+        None if dev_mode => start_dev_server(args.port, password).await,
+        None => start_server(args.port, args.host, password).await,
         Some(ServerAction::Stop) => stop_server(),
         Some(ServerAction::Status) => server_status(),
         Some(ServerAction::Tree) => {
@@ -62,7 +107,7 @@ pub async fn run(args: ServerArgs) {
 }
 
 /// Start the development server with Vite and demo proxies
-async fn start_dev_server(requested_port: u16) {
+async fn start_dev_server(requested_port: u16, password: Option<String>) {
     // Honor PORT env (legacy) when present, otherwise fall back to the CLI arg.
     let port = std::env::var("PORT")
         .ok()
@@ -135,9 +180,12 @@ async fn start_dev_server(requested_port: u16) {
             Ok::<_, std::convert::Infallible>(dev::proxy_to_vite(req).await)
         }))
         .with_state(state.clone());
+    let password_set = password.is_some();
+    let app = with_optional_auth(app, password);
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     println!("tmuxy dev server running at http://localhost:{}", port);
+    announce_security("0.0.0.0", password_set);
     println!(
         "[dev] Vite proxied from port {}, demo proxied from port {}",
         dev::VITE_PORT,
@@ -155,7 +203,7 @@ async fn start_dev_server(requested_port: u16) {
 }
 
 /// Start the production server with embedded frontend assets
-async fn start_server(port: u16, host: String) {
+async fn start_server(port: u16, host: String, password: Option<String>) {
     write_pid_file();
     tmuxy_core::session::ensure_config();
     tmuxy_core::session::ensure_themes();
@@ -166,12 +214,15 @@ async fn start_server(port: u16, host: String) {
     let app = crate::state::api_routes()
         .fallback(serve_embedded)
         .with_state(state.clone());
+    let password_set = password.is_some();
+    let app = with_optional_auth(app, password);
 
     let addr: std::net::SocketAddr = format!("{}:{}", host, port)
         .parse()
         .unwrap_or_else(|_| std::net::SocketAddr::from(([0, 0, 0, 0], port)));
 
     println!("tmuxy server running at http://{}:{}", host, port);
+    announce_security(&host, password_set);
 
     let listener = bind_with_retry(addr, 5).await;
 

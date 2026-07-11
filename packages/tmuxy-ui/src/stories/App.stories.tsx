@@ -2715,9 +2715,10 @@ export const HelpMenu: Story = {
 // ───────────────────────── §9 Sessions & connection lifecycle ─────────────────────────
 
 /**
- * Session create via menu + switch: hamburger → Session → "New Session" runs a
- * real `new-session -d`; switching the control client to it swaps the rendered
- * pane set (reconstructed for the new session), and back restores the original.
+ * Session create via menu: hamburger → Session → "New Session" creates a fresh
+ * `tmuxy_<ts>` session AND switches to it in one action (no manual switch) —
+ * the rendered pane set is reconstructed for the new session. Switching back to
+ * the original restores its panes.
  */
 export const SessionMenuNewAndSwitch: Story = {
   args: { height: 600 },
@@ -2729,35 +2730,19 @@ export const SessionMenuNewAndSwitch: Story = {
     const menu = await openAppMenu(canvasElement, user);
     await user.click(await menu.item(/^Session$/));
     await user.click(await menu.item(/New Session/));
-    // tmux names the detached session with its next free index (guest-dependent)
-    // — discover the real name from the guest, like a user running `tmux ls`.
-    await new Promise((r) => setTimeout(r, 2000));
-    // Wrap the name in markers — the terminal renderer concatenates lines, so an
-    // unterminated match would swallow the following prompt text.
-    pasteLine(`tmux ls -F '#S' | grep -v '^m$' | head -1 | sed 's/^/SNAME:/;s/$/:ENDS/'`);
-    let created = '';
+    // "New Session" now creates a `tmuxy_<ts>` session and auto-switches to it
+    // (previously it left a detached session with no visible effect). The
+    // switch swaps in a freshly-reconstructed pane set for the new session.
     await waitFor(
       () => {
-        const m = paneGroups(canvas)
-          .map((p: HTMLElement) => p.textContent ?? '')
-          .join('')
-          .match(/SNAME:(\w+):ENDS/);
-        expect(m).toBeTruthy();
-        created = m![1];
+        expect(sessionName()).toMatch(/^tmuxy_\d+$/);
+        expect(paneIds(canvas).join(',')).not.toBe(panesOnM);
       },
       { timeout: 30000, interval: 500 },
     );
     const app = (
       window as unknown as { app: { send(e: { type: string; sessionName: string }): void } }
     ).app;
-    app.send({ type: 'SWITCH_SESSION', sessionName: created });
-    await waitFor(
-      () => {
-        expect(sessionName()).toBe(created);
-        expect(paneIds(canvas).join(',')).not.toBe(panesOnM);
-      },
-      { timeout: 30000, interval: 500 },
-    );
     app.send({ type: 'SWITCH_SESSION', sessionName: 'm' });
     await waitFor(
       () => {

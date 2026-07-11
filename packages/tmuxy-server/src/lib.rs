@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod command;
 mod dev;
 pub mod error;

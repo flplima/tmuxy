@@ -18,9 +18,24 @@ If any of these assumptions are violated, the risks described below apply.
 
 ## Authentication
 
-**The web server performs no authentication of any kind.** Any client that can reach the server's network port can open an SSE connection, send arbitrary commands via `POST /commands`, and read filesystem entries via `/api/file` / `/api/directory`. There are no session tokens, no API keys, no cookies, and no per-user permissions.
+**By default the web server performs no authentication.** With no password configured, any client that can reach the server's network port can open an SSE connection, send arbitrary commands via `POST /commands`, and read filesystem entries via `/api/file` / `/api/directory`. There are no session tokens, no API keys, no cookies, and no per-user permissions.
 
-This is by design — tmuxy is intended to run on a trusted network (loopback, LAN, SSH tunnel, VPN, or behind an authenticating reverse proxy). The threat model assumes everyone who can reach the server is authorized to control it.
+This default is intended for a trusted network (loopback, LAN, SSH tunnel, VPN, or behind an authenticating reverse proxy). The default threat model assumes everyone who can reach the server is authorized to control it.
+
+### Optional HTTP Basic Auth
+
+For a lightweight barrier against unauthenticated access (e.g. a port scan reaching an exposed instance), start the server with a password:
+
+```bash
+tmuxy server --password 'your-secret'      # password on the command line
+TMUXY_PASSWORD='your-secret' tmuxy server  # or via env var (keeps it out of `ps`)
+```
+
+When a password is set, **every** route — the frontend, `/events` (SSE), `/commands`, and all `/api/*` endpoints — requires HTTP Basic auth. The browser shows a native login prompt on first load; enter **any username** and the configured password (only the password is checked). Once entered, the browser caches the credentials and attaches them automatically to the SSE stream and every request — no per-request login. The password is compared in constant time, and unauthenticated requests get a `401` with a `WWW-Authenticate` challenge.
+
+Prefer `TMUXY_PASSWORD` over `--password` so the secret does not appear in the process list. Basic auth is **not** a substitute for TLS (#2) — over plain HTTP the credentials are base64, not encrypted; combine it with an SSH tunnel, VPN, or a TLS-terminating reverse proxy. The Tauri desktop app talks over local IPC (not HTTP) and is unaffected.
+
+When the server binds to a non-loopback address (the `0.0.0.0` default) with no password, it prints a startup warning pointing at `--password` / `--host 127.0.0.1`.
 
 ### Tauri Desktop App
 
@@ -36,6 +51,7 @@ The Tauri app has no network-level authentication concerns — all communication
 
 **Mitigation:**
 - **Never expose tmuxy directly to the internet**
+- Set a password: `tmuxy server --password …` (or `TMUXY_PASSWORD=…`) — see [Optional HTTP Basic Auth](#optional-http-basic-auth). Not a replacement for TLS; layer it with one of the below.
 - Use SSH tunnel: `ssh -L 9000:localhost:9000 user@server`
 - Use VPN: WireGuard, Tailscale, or similar
 - Use a reverse proxy with authentication (nginx + basic auth, Caddy + OAuth)
@@ -167,9 +183,13 @@ Browser → HTTPS → nginx/Caddy (+ auth) → HTTP → tmuxy server → tmux
 
 ## Future Security Improvements
 
-These are not currently implemented but would improve the security posture:
+Implemented:
 
-- **Optional authentication** — HTTP basic auth or bearer token for SSE connections
+- **Optional HTTP Basic auth** — `tmuxy server --password …` / `TMUXY_PASSWORD` gates every route (see [above](#optional-http-basic-auth)).
+
+Not yet implemented, but would improve the security posture:
+
+- **Bearer token auth** — token-based auth as an alternative to Basic
 - **TLS support** — Built-in HTTPS with certificate configuration
 - **Command allowlisting** — Restrict which tmux commands clients can execute
 - **Read-only mode** — View terminal output without command execution

@@ -5894,6 +5894,7 @@ version = "0.0.10-alpha.38"
 dependencies = [
  "async-stream",
  "axum",
+ "base64 0.22.1",
  "clap",
  "dirs",
  "futures-util",

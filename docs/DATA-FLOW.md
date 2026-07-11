@@ -16,7 +16,7 @@ The web version uses two HTTP endpoints on the Axum server:
 **`POST /commands?session=<name>`** — HTTP POST (client-to-server):
 - Request body: `{ "cmd": "command_name", "args": {...} }`
 - Response: `{ "result": ... }` or `{ "error": "message" }`
-- **No authentication** — see [SECURITY.md](SECURITY.md). Network reachability is the only gate.
+- **No authentication by default** (optional `--password` HTTP Basic gate) — see [SECURITY.md](SECURITY.md). Without a password, network reachability is the only gate.
 
 SSE was chosen over WebSocket because: server-to-client is the dominant direction, `EventSource` has built-in browser reconnection, SSE works through all proxies/CDNs, and the standard `Last-Event-Id` mechanism gives us a clean reconnect path (see below).
 
@@ -243,9 +243,9 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 
 **Security considerations (critical):**
 
-The tmuxy server has **no built-in authentication** and **no TLS**. Exposing it directly on a public IP means:
-- Anyone who discovers the IP and port can connect to and control your tmux session
-- All traffic is in cleartext (eavesdropping reveals terminal content and lets attackers inject commands)
+The tmuxy server has **no authentication by default** (an optional `--password` / `TMUXY_PASSWORD` HTTP Basic gate exists — see SECURITY.md) and **no TLS**. Exposing it directly on a public IP means:
+- Without a password, anyone who discovers the IP and port can connect to and control your tmux session
+- All traffic is in cleartext (eavesdropping reveals terminal content and lets attackers inject commands; Basic-auth credentials are only base64, not encrypted)
 - `run-shell` commands allow arbitrary code execution on the server
 - File reading endpoints have no path restrictions
 
@@ -255,7 +255,8 @@ The tmuxy server has **no built-in authentication** and **no TLS**. Exposing it 
    - VPN: WireGuard, Tailscale, or similar (recommended for mobile access)
    - Reverse proxy with authentication: nginx/Caddy + basic auth or OAuth + TLS
 2. **Bind to localhost:** Use `tmuxy server --host 127.0.0.1` if accessed only via SSH tunnel
-3. **Use a reverse proxy for TLS:** The server does not support HTTPS natively
+3. **Set a password:** `tmuxy server --password …` gates all routes with HTTP Basic auth — a barrier against opportunistic scans, but pair it with TLS since credentials cross the wire in cleartext
+4. **Use a reverse proxy for TLS:** The server does not support HTTPS natively
 
 See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
 
@@ -269,7 +270,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
 **Limitations:**
 - No offline capability — requires constant network connection
 - No compression — JSON payloads can be large during rapid output (mitigated by delta protocol)
-- No authentication — must rely on external layers (SSH, VPN, reverse proxy)
+- No authentication by default — optional `--password` Basic auth, otherwise rely on external layers (SSH, VPN, reverse proxy)
 - Latency affects typing feel — no local echo or input prediction (see [NON-GOALS.md](NON-GOALS.md))
 
 ### Scenario 4: Fully Client-Side — Real tmux in the Browser (v86 + WASM)
@@ -302,9 +303,9 @@ Beyond the core SSE/HTTP protocol, the web server exposes:
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/events` | GET | SSE stream (state updates, connection info) |
-| `/commands` | POST | tmux commands (no authentication — see SECURITY.md) |
+| `/commands` | POST | tmux commands (no authentication unless `--password` is set — see SECURITY.md) |
 | `/api/snapshot` | GET | UI-vs-tmux consistency snapshot (testing/debugging) |
 | `/api/file` | GET | Read file contents (used by widget panes) |
 | `/api/directory` | GET | List directory contents (used by widget panes) |
 
-The `/api/file` and `/api/directory` endpoints exist for widget rendering (markdown viewer, image viewer) and have no authentication beyond being on the same server. See [SECURITY.md](SECURITY.md) for the implications.
+The `/api/file` and `/api/directory` endpoints exist for widget rendering (markdown viewer, image viewer). Like every route they are gated by the optional `--password` Basic auth, but have no path restrictions beyond that. See [SECURITY.md](SECURITY.md) for the implications.
