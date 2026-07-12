@@ -2,13 +2,30 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tmuxy_core::control_mode::{
-    LogKind, LogSink, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor,
+    LogKind, LogSink, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter,
+    TmuxMonitor,
 };
 use tmuxy_core::StateUpdate;
 
 /// Get session name from environment or use default
 fn get_session() -> String {
     std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string())
+}
+
+/// A target for the monitor to (re)connect to: a tmux socket + session.
+/// Drives `tmuxy connect` — live-switching the desktop app to a different
+/// tmux server without relaunching.
+#[derive(Clone, Debug)]
+pub struct ConnectTarget {
+    /// Socket name or full path, in the same form the `TMUX_SOCKET` env var
+    /// accepts (a value with a `/` is a path → `-S`, else a name → `-L`).
+    pub socket: String,
+    /// Session to attach to (created if missing) on the target socket.
+    pub session: String,
+    /// SSH tunnel argv tail (the `TMUXY_SSH` value, e.g. `-p 2222 user@host`),
+    /// or `None` for a local server. When set, the monitor and every executor
+    /// read run tmux over `ssh` on the remote host.
+    pub ssh: Option<String>,
 }
 
 /// Snapshot of the most recently broadcast keybindings.
@@ -43,6 +60,26 @@ impl Default for KeyBindingsState {
 pub struct MonitorState {
     pub cmd_tx: Arc<RwLock<Option<MonitorCommandSender>>>,
     pub last_client_size: Arc<RwLock<Option<(u32, u32)>>>,
+    /// A pending `tmuxy connect` request. The monitor loop applies it at the
+    /// top of its next iteration (switching sockets/session); a live
+    /// connection is interrupted with a graceful `Shutdown` so the loop gets
+    /// there promptly. See [`request_reconnect`].
+    pub pending_reconnect: Arc<RwLock<Option<ConnectTarget>>>,
+}
+
+/// Ask the running monitor to drop its current connection and reconnect to a
+/// different socket/session. Stores the target and, if a connection is live,
+/// sends a graceful `Shutdown` (detach-client) so `monitor.run()` returns and
+/// the loop applies the target on its next pass. If nothing is connected yet,
+/// the target still applies on the next connect attempt.
+pub async fn request_reconnect(monitor_state: &MonitorState, target: ConnectTarget) {
+    if let Ok(mut guard) = monitor_state.pending_reconnect.write() {
+        *guard = Some(target);
+    }
+    let cmd_tx = monitor_state.cmd_tx.read().ok().and_then(|g| g.clone());
+    if let Some(tx) = cmd_tx {
+        let _ = tx.send(MonitorCommand::Shutdown).await;
+    }
 }
 
 /// Tauri emitter that broadcasts state changes to the frontend
@@ -126,7 +163,8 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
     // of "/" (launchd default) which propagates into every new pane.
     let working_dir = std::env::var_os("HOME").map(std::path::PathBuf::from);
 
-    let config = MonitorConfig {
+    // `mut` so a `tmuxy connect` reconnect can retarget the session in place.
+    let mut config = MonitorConfig {
         session,
         sync_interval: Duration::from_millis(500),
         create_session: true,
@@ -165,6 +203,36 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
     let ctx = tmuxy_core::Ctx::live();
 
     loop {
+        // Apply a pending `tmuxy connect` reconnect before connecting. Because
+        // every tmux call (the control-mode connection AND the one-off
+        // executor commands) resolves its socket/session from the env, setting
+        // these two vars is enough to point the whole app at the new server.
+        // Reset the failure counters: a deliberate switch is not a crash.
+        let pending = monitor_state
+            .pending_reconnect
+            .write()
+            .ok()
+            .and_then(|mut g| g.take());
+        if let Some(target) = pending {
+            std::env::set_var("TMUX_SOCKET", &target.socket);
+            std::env::set_var("TMUXY_SESSION", &target.session);
+            // TMUXY_SSH drives the ssh-wrapped invocation in tmuxy_core; unset
+            // it for a local server so we don't keep tunneling to a stale host.
+            match &target.ssh {
+                Some(ssh) => std::env::set_var("TMUXY_SSH", ssh),
+                None => std::env::remove_var("TMUXY_SSH"),
+            }
+            config.session = target.session.clone();
+            backoff = Duration::from_millis(100);
+            consecutive_failures = 0;
+            tmuxy_core::debug_log::log(&format!(
+                "[monitor] reconnecting to socket '{}' session '{}' ssh '{}'",
+                target.socket,
+                target.session,
+                target.ssh.as_deref().unwrap_or("(local)")
+            ));
+        }
+
         match TmuxMonitor::connect(config.clone(), Some(&log_sink), ctx.clone()).await {
             Ok((mut monitor, cmd_tx)) => {
                 // Publish the live command channel so #[tauri::command]
@@ -185,6 +253,19 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
                 if let Ok(mut guard) = monitor_state.cmd_tx.write() {
                     *guard = None;
                 }
+
+                // A `tmuxy connect` request drops the connection deliberately
+                // (via Shutdown). Loop straight back to apply the new target —
+                // this is not a failure, so skip the backoff/failure handling.
+                let reconnect_pending = monitor_state
+                    .pending_reconnect
+                    .read()
+                    .map(|g| g.is_some())
+                    .unwrap_or(false);
+                if reconnect_pending {
+                    continue;
+                }
+
                 tmuxy_core::debug_log::log(&format!(
                     "[monitor] run() returned after {:?} (failures so far: {})",
                     lived, consecutive_failures
@@ -235,6 +316,101 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
         tokio::time::sleep(backoff).await;
         backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
     }
+}
+
+/// Watch for `tmuxy connect` requests and reconnect the monitor when one
+/// arrives. `tmuxy connect <socket> [session]` sets the `TMUXY_CONNECT_TO`
+/// (and optional `TMUXY_CONNECT_SESSION`) tmux global env vars on the current
+/// server; this task reads them and, when the target differs from the current
+/// server, clears them and asks the monitor to reconnect. Runs for the app's
+/// lifetime alongside [`start_monitoring`].
+///
+/// Only polls while a connection is live (`cmd_tx` present) so it never spawns
+/// tmux subprocesses during startup or an in-progress reconnect. The read is
+/// via `show-environment` on the current socket — a read-only external call,
+/// safe alongside control mode on the targeted tmux 3.7a (the app already uses
+/// external executor calls for reads elsewhere).
+pub async fn poll_connect_requests(monitor_state: MonitorState) {
+    let mut tick = tokio::time::interval(Duration::from_secs(2));
+    loop {
+        tick.tick().await;
+
+        // Skip unless a connection is live — nothing to reconnect from, and we
+        // avoid spawning subprocesses mid-reconnect.
+        if monitor_state
+            .cmd_tx
+            .read()
+            .map(|g| g.is_none())
+            .unwrap_or(true)
+        {
+            continue;
+        }
+
+        let Some(socket) = read_global_env("TMUXY_CONNECT_TO") else {
+            continue;
+        };
+        let socket = socket.trim().to_string();
+        if socket.is_empty() {
+            continue;
+        }
+
+        // Clear the request vars on the current server so the switch fires once.
+        let _ = tmuxy_core::executor::execute_tmux_command(&[
+            "set-environment",
+            "-g",
+            "-u",
+            "TMUXY_CONNECT_TO",
+        ]);
+        let session = read_global_env("TMUXY_CONNECT_SESSION")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(get_session);
+        let _ = tmuxy_core::executor::execute_tmux_command(&[
+            "set-environment",
+            "-g",
+            "-u",
+            "TMUXY_CONNECT_SESSION",
+        ]);
+        // Optional SSH tunnel for the target (absent → a local server).
+        let ssh = read_global_env("TMUXY_CONNECT_SSH")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let _ = tmuxy_core::executor::execute_tmux_command(&[
+            "set-environment",
+            "-g",
+            "-u",
+            "TMUXY_CONNECT_SSH",
+        ]);
+
+        // No-op if we're already on this exact target (socket + session + ssh).
+        let current_ssh = tmuxy_core::session::ssh_target().map(|v| v.join(" "));
+        if socket == tmuxy_core::session::tmux_socket()
+            && session == get_session()
+            && ssh == current_ssh
+        {
+            continue;
+        }
+
+        request_reconnect(
+            &monitor_state,
+            ConnectTarget {
+                socket,
+                session,
+                ssh,
+            },
+        )
+        .await;
+    }
+}
+
+/// Read a tmux global environment variable via `show-environment -g <name>`,
+/// returning its value (the part after `NAME=`), or `None` when unset.
+fn read_global_env(name: &str) -> Option<String> {
+    let out = tmuxy_core::executor::execute_tmux_command(&["show-environment", "-g", name]).ok()?;
+    let prefix = format!("{name}=");
+    out.lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .map(|v| v.to_string())
 }
 
 /// Emit a terminal failure event to the frontend.

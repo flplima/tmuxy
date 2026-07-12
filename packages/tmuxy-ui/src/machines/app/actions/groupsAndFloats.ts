@@ -58,6 +58,31 @@ export const groupsAndFloatsActions = {
     );
   }),
 
+  /**
+   * Open the `tmuxy connect` add-a-server form (a small TUI) in a float. The
+   * form persists the new server to servers.json; the sidebar picker reads it
+   * on next open. Desktop-only — the web build never renders the picker.
+   */
+  groupsAndFloats_openAddServerFloat: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ enqueue }) => {
+    enqueue(
+      sendTo('tmux', {
+        type: 'SEND_COMMAND' as const,
+        command:
+          'split-window "tmuxy connect" \\; break-pane -d -n connect \\; set-option -w @tmuxy-window-type float',
+      }),
+    );
+  }),
+
   groupsAndFloats_closeFloat: enqueueActions<
     Ctx,
     Evt,

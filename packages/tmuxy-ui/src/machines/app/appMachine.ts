@@ -51,6 +51,7 @@ import { resizeMachine } from '../resize/resizeMachine';
 import type { KeyboardActorEvent } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
+import type { ServersActorEvent } from '../actors/serversActor';
 
 /**
  * Resolve relative window targets in tmux commands.
@@ -258,6 +259,7 @@ export const appMachine = setup({
     tmuxStoreActor: fromCallback<TmuxStoreActorEvent, { parent: AnyActorRef }>(() => () => {}),
     keyboardActor: fromCallback<KeyboardActorEvent, { parent: AnyActorRef }>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
+    serversActor: fromCallback<ServersActorEvent, { parent: AnyActorRef }>(() => () => {}),
     dragMachine,
     resizeMachine,
   },
@@ -300,6 +302,12 @@ export const appMachine = setup({
       input: ({ self }) => ({ parent: self }),
     },
     {
+      // Desktop-only sessions-tree poll (inert on web — see serversActor).
+      id: 'servers',
+      src: 'serversActor',
+      input: ({ self }) => ({ parent: self }),
+    },
+    {
       id: 'dragLogic',
       src: 'dragMachine',
     },
@@ -328,6 +336,18 @@ export const appMachine = setup({
           context.log.length >= 500 ? [...context.log.slice(-499), entry] : [...context.log, entry];
         return { log: next };
       }),
+    },
+    // Sidebar sessions tree refreshed by the desktop-only `serversActor` poll.
+    // Root-level so it lands in any state (the poll runs continuously).
+    SESSIONS_UPDATED: {
+      actions: assign(({ event }) => ({ sessions: event.sessions })),
+    },
+    // Sidebar server picker refreshed by the same desktop-only poll.
+    SERVERS_UPDATED: {
+      actions: assign(({ event }) => ({
+        serverList: event.serverList,
+        currentServerId: event.currentServerId,
+      })),
     },
     // OSC 52 clipboard write request from a terminal application. Mirror it
     // into the system clipboard via navigator.clipboard. Fire-and-forget —

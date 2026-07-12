@@ -33,6 +33,7 @@ reqwest = { version = "0.12", features = ["stream"] }
 tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
 tmuxy-tree = { path = "../tmuxy-tree" }
+tmuxy-connect = { path = "../tmuxy-connect" }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }

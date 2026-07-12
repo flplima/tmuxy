@@ -69,6 +69,7 @@ Commands:
   event       Event queue for inter-agent coordination (emit, wait, list)
   tree        Open the sidebar tree view (tabs + panes)
   run         Run any tmux command safely
+  connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
 
 Run 'tmuxy <command> --help' for details.
@@ -186,6 +187,31 @@ Examples:
   tmuxy run swap-pane -s %0 -t %1
   tmuxy run new-window              # intercepted → safe alternative
   tmuxy run send-keys -t %3 ls Enter
+EOF
+}
+
+usage_connect() {
+  cat <<'EOF'
+Usage: tmuxy connect [socket] [session]
+
+With no arguments, opens the "add a server" form (a small TUI) to save a tmux
+server — the local machine or a remote SSH host — to the desktop app's sidebar
+server picker (stored in ~/.config/tmuxy/servers.json).
+
+With a socket, reconnects the tmuxy DESKTOP APP to a different tmux server
+without relaunching. `socket` is a socket name (in tmux's default dir, e.g.
+`default` for your everyday tmux server) or a full socket path (containing a
+slash). If `session` is omitted, the app attaches to the target server's first
+existing session, or creates `tmuxy` if it has none.
+
+This sets a request the running desktop app picks up. It has no effect in the
+web UI (the web server's socket is fixed at launch).
+
+Examples:
+  tmuxy connect                      # open the add-a-server form
+  tmuxy connect default              # attach to your everyday tmux server
+  tmuxy connect default work         # ...to its "work" session specifically
+  tmuxy connect /tmp/tmux-1000/foo   # attach to a socket by full path
 EOF
 }
 
@@ -758,6 +784,55 @@ cmd_run() {
   esac
 }
 
+# --- Connect to a different tmux server (desktop app) ---
+
+cmd_connect() {
+  case "${1:-}" in
+    --help|-h) usage_connect; return ;;
+    "")
+      # No socket given → open the interactive "add a server" form. Replaces
+      # the current process so it owns the pane (the desktop app runs this in
+      # a float); the TUI persists to servers.json and exits. Prefer the
+      # standalone binary (server-less installs); else the embedded server
+      # subcommand — same fallback shape as `tmuxy tree`.
+      if command -v tmuxy-connect &>/dev/null; then
+        exec tmuxy-connect
+      elif [ -x "$REPO_ROOT/target/debug/tmuxy-connect" ]; then
+        exec "$REPO_ROOT/target/debug/tmuxy-connect"
+      elif [ -x "$REPO_ROOT/target/release/tmuxy-connect" ]; then
+        exec "$REPO_ROOT/target/release/tmuxy-connect"
+      fi
+      exec "$(find_server_binary)" connect
+      ;;
+  esac
+
+  local socket="$1"
+  local session="${2:-}"
+
+  # Target socket flag: a slash means a full socket path (-S), else a name (-L).
+  local target_flag="-L"
+  case "$socket" in */*) target_flag="-S" ;; esac
+
+  # Resolve the session when the caller didn't name one: prefer the target
+  # server's first existing session, otherwise fall back to `tmuxy` (which the
+  # app creates on attach). Querying the target socket directly is read-only
+  # and safe even though it's a different server.
+  if [ -z "$session" ]; then
+    # `|| true` so a missing/empty target server (list-sessions exits non-zero)
+    # doesn't trip `set -e`/pipefail; fall back to `tmuxy`.
+    session="$(command tmux "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null | head -1 || true)"
+    [ -z "$session" ] && session="tmuxy"
+  fi
+
+  # Publish the request on the CURRENT server via run-shell (control-mode safe).
+  # The desktop app's connect watcher reads these and reconnects.
+  run_safe "set-environment -g TMUXY_CONNECT_TO '$socket'"
+  run_safe "set-environment -g TMUXY_CONNECT_SESSION '$session'"
+
+  echo "Requested desktop app reconnect to socket '$socket' (session '$session')."
+  echo "No effect in the web UI — the web server's socket is fixed at launch."
+}
+
 # --- Main dispatcher ---
 
 case "${1:-}" in
@@ -801,6 +876,10 @@ case "${1:-}" in
   run)
     shift
     cmd_run "$@"
+    ;;
+  connect)
+    shift
+    cmd_connect "$@"
     ;;
   server)
     shift

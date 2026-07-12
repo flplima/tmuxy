@@ -84,6 +84,16 @@ tmuxy run swap-pane -s %0 -t %1       # Run any tmux command safely
 tmuxy run new-window                   # Intercepted → splitw+breakp
 tmuxy run resize-window                # Blocked (crashes control mode)
 
+# Connect the DESKTOP APP to a different tmux server (socket), live
+tmuxy connect                          # Open the "add a server" form (localhost or SSH)
+tmuxy connect default                  # Attach to your everyday tmux server
+tmuxy connect default work             # ...to its "work" session specifically
+tmuxy connect /tmp/tmux-1000/foo       # ...to a socket by full path
+                                       # (no effect in the web UI — its socket is fixed at launch)
+                                       # The desktop sidebar's server picker (footer) lists saved
+                                       # servers (from ~/.config/tmuxy/servers.json) and reconnects
+                                       # to one; its sessions→tabs→panes tree shows every session.
+
 # Server
 tmuxy server                           # Start production server (0.0.0.0:9000, no auth)
 tmuxy server --host 127.0.0.1          # Bind to localhost only

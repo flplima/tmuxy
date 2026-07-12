@@ -1,0 +1,22 @@
+[package]
+name = "tmuxy-connect"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "The `tmuxy connect` TUI — a small form to add a tmux server (localhost or SSH) to the desktop app's server picker, persisted to servers.json"
+
+[lib]
+name = "tmuxy_connect"
+
+[[bin]]
+name = "tmuxy-connect"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.30"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tmuxy-core = { path = "../tmuxy-core" }
+
+[lints]
+workspace = true

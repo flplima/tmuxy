@@ -6,6 +6,7 @@ members = [
     "packages/tmuxy-server",
     "packages/tmuxy-wasm",
     "packages/tmuxy-tree",
+    "packages/tmuxy-connect",
 ]
 
 [workspace.package]

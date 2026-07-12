@@ -430,3 +430,41 @@ pub async fn get_key_bindings() -> Result<Value, String> {
 pub fn get_keybindings_snapshot(state: State<'_, KeyBindingsState>) -> Option<Value> {
     state.0.read().ok().and_then(|guard| guard.clone())
 }
+
+/// List the saved servers (localhost plus any added via `tmuxy connect`), read
+/// fresh from `~/.config/tmuxy/servers.json`, along with the id of the server
+/// the app is currently attached to. Powers the sidebar server picker — a
+/// desktop-only surface; the web build always uses its launch socket.
+#[tauri::command]
+pub async fn list_servers() -> Result<Value, String> {
+    let servers = tmuxy_core::servers::read_servers();
+    let current = tmuxy_core::servers::current_server_id();
+    Ok(serde_json::json!({
+        "servers": servers,
+        "currentId": current,
+    }))
+}
+
+/// Reconnect the desktop app to a saved server by id: resolve it from
+/// servers.json and ask the monitor to retarget its socket, SSH tunnel, and
+/// session live (no relaunch). Routes through the same [`request_reconnect`]
+/// path as `tmuxy connect <socket>`.
+///
+/// [`request_reconnect`]: crate::monitor::request_reconnect
+#[tauri::command]
+pub async fn connect_server(state: State<'_, MonitorState>, id: String) -> Result<(), String> {
+    let server =
+        tmuxy_core::servers::find_server(&id).ok_or_else(|| format!("unknown server '{id}'"))?;
+    let (socket, ssh) = server.connect_env();
+    let session = server.session.clone().unwrap_or_else(get_session);
+    crate::monitor::request_reconnect(
+        state.inner(),
+        crate::monitor::ConnectTarget {
+            socket,
+            session,
+            ssh,
+        },
+    )
+    .await;
+    Ok(())
+}

@@ -102,6 +102,49 @@ export interface LogEntry {
   message: string;
 }
 
+/**
+ * A lightweight window in another session's subtree (sidebar sessions tree).
+ * Only the fields needed to render and switch — not a full {@link TmuxWindow}.
+ */
+export interface SessionTreeWindow {
+  id: string;
+  index: number;
+  name: string;
+}
+
+/** A lightweight pane in another session's subtree. */
+export interface SessionTreePane {
+  id: string;
+  windowId: string;
+  command: string;
+  active: boolean;
+}
+
+/**
+ * One tmux session as shown in the sidebar's sessions→tabs→panes tree.
+ *
+ * Populated only under the desktop app by the `serversActor` poll
+ * (`list-windows -a` / `list-panes -a`); empty on the web build, which is
+ * single-session and renders the classic flat tab/pane tree. The active
+ * session's subtree is drawn from live state, not this summary.
+ */
+export interface SessionTreeNode {
+  sessionName: string;
+  windows: SessionTreeWindow[];
+  panes: SessionTreePane[];
+}
+
+/**
+ * A saved tmux *server* for the sidebar server picker (footer), read from
+ * `~/.config/tmuxy/servers.json` by the desktop `list_servers` command.
+ * Desktop-only; the web build always uses its launch socket.
+ */
+export interface ServerInfo {
+  id: string;
+  label: string;
+  kind: 'local' | 'ssh';
+}
+
 /** Pending state update stored during pane exit animation */
 export interface AppMachineContext {
   connected: boolean;
@@ -216,6 +259,20 @@ export interface AppMachineContext {
   /** Per-window most-recently-active pane ID, populated from server state and
    *  used by SELECT_TAB to pick the optimistic focus when switching tabs. */
   lastActivePaneByWindow: Record<string, string>;
+  /**
+   * All tmux sessions on the current server, for the sidebar sessions→tabs→panes
+   * tree. Desktop-only: populated by the `serversActor` poll; stays `[]` on the
+   * web build (which then renders the classic single-session flat tree).
+   */
+  sessions: SessionTreeNode[];
+  /**
+   * Saved tmux servers for the sidebar server picker. Desktop-only: populated
+   * by the `serversActor` poll (`list_servers`); stays `[]` on the web build,
+   * where the picker is not rendered.
+   */
+  serverList: ServerInfo[];
+  /** Id of the server the desktop app is currently attached to (picker highlight). */
+  currentServerId: string;
 }
 
 // ============================================
@@ -528,9 +585,22 @@ export type AppBlurEvent = { type: 'APP_BLUR' };
 export type SwitchSessionEvent = { type: 'SWITCH_SESSION'; sessionName: string };
 export type OpenSessionFloatEvent = { type: 'OPEN_SESSION_FLOAT' };
 export type OpenConnectFloatEvent = { type: 'OPEN_CONNECT_FLOAT' };
+/** Open the `tmuxy connect` "add a server" form in a float (desktop only). */
+export type OpenAddServerFloatEvent = { type: 'OPEN_ADD_SERVER_FLOAT' };
 export type SessionSwitchRequestedEvent = {
   type: 'SESSION_SWITCH_REQUESTED';
   sessionName: string;
+};
+/** Sidebar sessions tree refreshed by the desktop poll (`serversActor`). */
+export type SessionsUpdatedEvent = {
+  type: 'SESSIONS_UPDATED';
+  sessions: SessionTreeNode[];
+};
+/** Sidebar server picker refreshed by the desktop poll (`serversActor`). */
+export type ServersUpdatedEvent = {
+  type: 'SERVERS_UPDATED';
+  serverList: ServerInfo[];
+  currentServerId: string;
 };
 
 // Display settings events
@@ -629,7 +699,10 @@ export type AppMachineEvent =
   | SwitchSessionEvent
   | OpenSessionFloatEvent
   | OpenConnectFloatEvent
+  | OpenAddServerFloatEvent
   | SessionSwitchRequestedEvent
+  | SessionsUpdatedEvent
+  | ServersUpdatedEvent
   | IncreaseFontSizeEvent
   | DecreaseFontSizeEvent
   | ResetFontSizeEvent

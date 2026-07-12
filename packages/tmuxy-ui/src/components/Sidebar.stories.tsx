@@ -420,3 +420,60 @@ export const RightClickContextMenus: Story = {
     });
   },
 };
+
+// ---------------------------------------------------------------------------
+// Desktop sessions tree: SESSIONS_UPDATED groups the tree by session, with the
+// active session expanded to its live tabs/panes and other sessions expanded to
+// read-only foreign rows. (The web build never populates ctx.sessions; here we
+// deliver it the same way the desktop poll would.)
+// ---------------------------------------------------------------------------
+
+export const GroupedSessionsTree: Story = {
+  args: {
+    height: 500,
+    initCommands: ['rename-window main', 'split-window -h'],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const toggle = await canvas.findByRole(
+      'button',
+      { name: /toggle sidebar/i },
+      { timeout: 8000 },
+    );
+    await userEvent.click(toggle);
+    const tree = await waitForTree();
+
+    const win = window as unknown as {
+      app: { getSnapshot(): { context: { sessionName: string } }; send(e: unknown): void };
+    };
+    const activeName = win.app.getSnapshot().context.sessionName;
+
+    // Simulate the desktop poll delivering every session on the server.
+    win.app.send({
+      type: 'SESSIONS_UPDATED',
+      sessions: [
+        { sessionName: activeName, windows: [], panes: [] },
+        {
+          sessionName: 'work',
+          windows: [{ id: '@9', index: 0, name: 'editor' }],
+          panes: [{ id: '%9', windowId: '@9', command: 'nvim', active: true }],
+        },
+      ],
+    });
+
+    // Both session headers appear; the foreign session expands to read-only rows.
+    await waitFor(
+      () => {
+        expect(tree.querySelector(`[data-testid="tree-session-${activeName}"]`)).not.toBeNull();
+      },
+      { timeout: 5000 },
+    );
+    expect(tree.querySelector('[data-testid="tree-session-work"]')).not.toBeNull();
+    expect(tree.querySelector('[data-testid="tree-foreign-tab-@9"]')).not.toBeNull();
+    expect(tree.querySelector('[data-testid="tree-foreign-pane-%9"]')).not.toBeNull();
+
+    // The active session still shows its LIVE tabs (from real state, not the summary).
+    const liveWindowId = app().context.activeWindowId!;
+    expect(tree.querySelector(`[data-testid="tree-tab-${liveWindowId}"]`)).not.toBeNull();
+  },
+};

@@ -12,8 +12,17 @@
 
 import { memo, useCallback } from 'react';
 import { SidebarTree } from './SidebarTree';
-import { useAppSend, useAppSelector, selectCharSize } from '../machines/AppContext';
+import { ServerPicker } from './ServerPicker';
+import {
+  useAppSend,
+  useAppSelector,
+  useAppSelectorShallow,
+  selectCharSize,
+  selectServerList,
+  selectCurrentServerId,
+} from '../machines/AppContext';
 import { SIDEBAR_COLS } from '../machines/constants';
+import { isTauri } from '../tmux/adapters';
 import { LogProfiler } from '../utils/renderLog';
 
 export const Sidebar = memo(function Sidebar() {
@@ -29,6 +38,8 @@ function SidebarInner() {
   const sidebarOpen = useAppSelector((ctx) => ctx.sidebarOpen);
   const sidebarFocused = useAppSelector((ctx) => ctx.sidebarFocused);
   const { charWidth } = useAppSelector(selectCharSize);
+  const serverList = useAppSelectorShallow(selectServerList);
+  const currentServerId = useAppSelector(selectCurrentServerId);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -37,6 +48,17 @@ function SidebarInner() {
     },
     [send],
   );
+
+  // Reconnect the desktop app to a saved server. A Tauri-only, non-tmux command
+  // — invoked directly (the sanctioned escape hatch for desktop-only calls, as
+  // in StatusBar's window controls), since it needs no optimistic state.
+  const handleSelectServer = useCallback((id: string) => {
+    void import('@tauri-apps/api/core').then(({ invoke }) => invoke('connect_server', { id }));
+  }, []);
+
+  const handleAddServer = useCallback(() => {
+    send({ type: 'OPEN_ADD_SERVER_FLOAT' });
+  }, [send]);
 
   if (!sidebarOpen) return null;
 
@@ -52,6 +74,15 @@ function SidebarInner() {
     >
       <div className="sidebar-header">tree</div>
       <SidebarTree focused={sidebarFocused} />
+      {/* Server picker is desktop-only; the web build is fixed to its socket. */}
+      {isTauri() && (
+        <ServerPicker
+          servers={serverList}
+          currentId={currentServerId}
+          onSelect={handleSelectServer}
+          onAddServer={handleAddServer}
+        />
+      )}
     </aside>
   );
 }

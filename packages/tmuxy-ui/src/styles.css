@@ -1681,3 +1681,134 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Session header row (desktop sessions→tabs→panes tree). */
+.sidebar-tree-session {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.sidebar-tree-session:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-tree-session.is-active .sidebar-tree-label {
+  color: var(--term-green);
+}
+
+.sidebar-tree-session.is-selected {
+  background: rgba(137, 180, 250, 0.18);
+}
+
+/* Rows for sessions the app is not attached to — dimmed, read-only. */
+.sidebar-tree-tab.is-foreign,
+.sidebar-tree-pane.is-foreign {
+  opacity: 0.72;
+}
+
+/* Server picker footer, pinned to the bottom of the sidebar column. */
+.sidebar-footer {
+  flex: 0 0 auto;
+  position: relative;
+  border-top: 1px solid var(--term-bright-black, #313244);
+}
+
+.server-picker-current {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  color: var(--term-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  cursor: pointer;
+  text-align: left;
+}
+
+.server-picker-current:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.server-picker-icon {
+  flex: 0 0 auto;
+}
+
+.server-picker-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-picker-caret {
+  flex: 0 0 auto;
+  color: var(--term-bright-black);
+  font-size: 0.8em;
+}
+
+/* Popover opens upward from the footer, over the tree. */
+.server-picker-menu {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 100%;
+  margin-bottom: 4px;
+  z-index: var(--z-dropdown, 50);
+  background-color: rgba(var(--window-bg-rgb), 1);
+  border: 1px solid var(--term-bright-black, #313244);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.server-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 10px;
+  background: transparent;
+  border: none;
+  color: var(--term-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  cursor: pointer;
+  text-align: left;
+}
+
+.server-picker-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.server-picker-item.is-current {
+  color: var(--term-green);
+}
+
+.server-picker-check {
+  flex: 0 0 auto;
+  color: var(--term-green);
+}
+
+.server-picker-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--term-bright-black, #313244);
+}
+
+.server-picker-add {
+  color: var(--term-blue, #89b4fa);
+}

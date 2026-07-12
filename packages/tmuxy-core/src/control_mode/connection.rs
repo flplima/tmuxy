@@ -92,15 +92,21 @@ pub struct ControlModeConnection {
 /// the socket, so omit it from the args for the log line). `tmux_args`
 /// carries the actual argv used by `spawn`.
 fn build_tmux_args(session_name: &str, create_if_missing: bool) -> (Vec<String>, String) {
-    let tmux_bin_str = crate::session::tmux_bin();
-    let mut tmux_args: Vec<String> = crate::session::tmux_socket_args().to_vec();
+    // Full argv including the program token: the local tmux path, or
+    // `ssh -tt <dest> tmux` when tunneled to a remote host. `-tt` is required
+    // for `-CC` control mode's remote pty.
+    let mut tmux_args: Vec<String> = crate::session::tmux_argv(true);
     // Apply the user's tmuxy config at server-startup time. tmux only reads
     // `-f` when it forks a new server, so this only affects the create path;
     // the monitor's `sync_initial_state()` source-files the same config after
-    // attach to cover the attach path.
-    if let Some(path) = crate::session::get_config_path() {
-        tmux_args.push("-f".to_string());
-        tmux_args.push(path.to_string_lossy().into_owned());
+    // attach to cover the attach path. Skipped over SSH — the local config
+    // path doesn't exist on the remote host (the remote server uses its own
+    // tmux config, and sync_initial_state's remote source-file is a no-op).
+    if crate::session::ssh_target().is_none() {
+        if let Some(path) = crate::session::get_config_path() {
+            tmux_args.push("-f".to_string());
+            tmux_args.push(path.to_string_lossy().into_owned());
+        }
     }
     if create_if_missing {
         // -A: attach to existing session if it exists, otherwise create.
@@ -122,13 +128,9 @@ fn build_tmux_args(session_name: &str, create_if_missing: bool) -> (Vec<String>,
         ]);
     }
 
-    let log_args: Vec<&str> = if matches!(tmux_args.first().map(|s| s.as_str()), Some("-L" | "-S"))
-    {
-        tmux_args.iter().skip(2).map(String::as_str).collect()
-    } else {
-        tmux_args.iter().map(String::as_str).collect()
-    };
-    let shell_desc = format!("{} {}", tmux_bin_str, log_args.join(" "));
+    // `tmux_args` now leads with the program token (tmux path or `ssh …`), so
+    // the joined argv is itself the human-readable, log-safe description.
+    let shell_desc = tmux_args.join(" ");
 
     (tmux_args, shell_desc)
 }
@@ -393,9 +395,11 @@ impl ControlModeConnection {
         shell_desc: &str,
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<tokio::process::Child, TmuxError> {
-        let tmux_path_str = crate::session::tmux_path();
-        let mut cmd = pty_process::Command::new(tmux_path_str);
-        cmd = cmd.args(tmux_args);
+        // `tmux_args[0]` is the program to launch — the local tmux path, or
+        // `ssh` when tunneling to a remote host (see `build_tmux_args`).
+        let program = &tmux_args[0];
+        let mut cmd = pty_process::Command::new(program);
+        cmd = cmd.args(&tmux_args[1..]);
         if std::env::var_os("TERM").is_none() {
             cmd = cmd.env("TERM", "xterm-256color");
         }

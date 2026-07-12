@@ -6,6 +6,8 @@ import type {
   ResizeState,
   FloatPaneState,
   KeyBindings,
+  SessionTreeNode,
+  ServerInfo,
 } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 
@@ -154,6 +156,24 @@ export function selectDragOriginalPosition(context: AppMachineContext): {
  */
 export function selectPanes(context: AppMachineContext): TmuxPane[] {
   return context.panes;
+}
+
+/**
+ * Select all sessions on the current server for the sidebar sessions tree.
+ * Desktop-only (empty on web — see the `serversActor` poll).
+ */
+export function selectSessions(context: AppMachineContext): SessionTreeNode[] {
+  return context.sessions;
+}
+
+/** Saved servers for the sidebar picker (desktop-only; empty on web). */
+export function selectServerList(context: AppMachineContext): ServerInfo[] {
+  return context.serverList;
+}
+
+/** Id of the server the desktop app is currently attached to. */
+export function selectCurrentServerId(context: AppMachineContext): string {
+  return context.currentServerId;
 }
 
 /**

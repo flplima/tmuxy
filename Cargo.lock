@@ -5864,6 +5864,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmuxy-connect"
+version = "0.0.10-alpha.38"
+dependencies = [
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tmuxy-core",
+]
+
+[[package]]
 name = "tmuxy-core"
 version = "0.0.10-alpha.38"
 dependencies = [
@@ -5905,6 +5915,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tmuxy-connect",
  "tmuxy-core",
  "tmuxy-tree",
  "tokio",

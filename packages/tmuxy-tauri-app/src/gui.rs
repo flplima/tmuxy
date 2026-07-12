@@ -1119,6 +1119,12 @@ pub fn run() {
             // handlers route mutations through that channel.
             let app_handle = app.handle().clone();
             let monitor_state = app.state::<monitor::MonitorState>().inner().clone();
+            // Watch for `tmuxy connect` socket-switch requests. Shares the same
+            // MonitorState so it can ask the monitor loop to reconnect.
+            let connect_watch_state = monitor_state.clone();
+            tauri::async_runtime::spawn(async move {
+                monitor::poll_connect_requests(connect_watch_state).await;
+            });
             tauri::async_runtime::spawn(async move {
                 monitor::start_monitoring(app_handle, monitor_state).await;
             });
@@ -1162,6 +1168,10 @@ pub fn run() {
             commands::set_theme,
             commands::set_theme_mode,
             commands::get_themes_list,
+            // Server picker (desktop-only): list saved tmux servers and
+            // live-reconnect to one (localhost socket switch or remote SSH).
+            commands::list_servers,
+            commands::connect_server,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

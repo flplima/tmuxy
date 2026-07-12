@@ -33,6 +33,7 @@ import { createAdapter } from '../tmux/adapters';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createSizeActor } from './actors/sizeActor';
+import { createServersActor } from './actors/serversActor';
 import { createTmuxStoreActor } from './actors/tmuxStoreActor';
 import { makeTmuxStore } from '../tmux/store';
 import { toEffectAdapter } from '../tmux/effect';
@@ -57,6 +58,9 @@ const AppConfigContext = createContext<AppConfig>({});
 export {
   selectPreviewPanes,
   selectPanes,
+  selectSessions,
+  selectServerList,
+  selectCurrentServerId,
   selectDraggedPaneId,
   selectDragOffsetX,
   selectDragOffsetY,
@@ -149,6 +153,7 @@ export function AppProvider({
       tmuxStoreActor: createTmuxStoreActor(store),
       keyboardActor: createKeyboardActor(),
       sizeActor: createSizeActor(measureCharWidth),
+      serversActor: createServersActor(adapter),
     };
   }, []);
 

@@ -5,8 +5,8 @@
  * sidebarOpen, sidebarFocused.
  *
  * - groupsAndFloatsGlobalEvents: spread into machine root on:
- *   (OPEN_SESSION_FLOAT, OPEN_CONNECT_FLOAT, TOGGLE_SIDEBAR — pure side-effect
- *    dispatches that work in any state).
+ *   (OPEN_SESSION_FLOAT, OPEN_CONNECT_FLOAT, OPEN_ADD_SERVER_FLOAT,
+ *    TOGGLE_SIDEBAR — pure side-effect dispatches that work in any state).
  *
  * - groupsAndFloatsIdleEvents: spread into states.idle.on
  *   (CLOSE_FLOAT, CLOSE_TOP_FLOAT, FOCUS_SIDEBAR, BLUR_SIDEBAR —
@@ -19,6 +19,7 @@
 export const groupsAndFloatsGlobalEvents = {
   OPEN_SESSION_FLOAT: { actions: 'groupsAndFloats_openSessionFloat' },
   OPEN_CONNECT_FLOAT: { actions: 'groupsAndFloats_openConnectFloat' },
+  OPEN_ADD_SERVER_FLOAT: { actions: 'groupsAndFloats_openAddServerFloat' },
   TOGGLE_SIDEBAR: { actions: 'groupsAndFloats_toggleSidebar' },
 } as const;
 

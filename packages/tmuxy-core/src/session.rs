@@ -84,18 +84,64 @@ pub fn tmux_socket_args() -> [String; 2] {
     [flag.to_string(), socket]
 }
 
-/// Create a `Command` for tmux targeting the resolved socket.
+/// The SSH tunnel tmuxy runs tmux through, read from `TMUXY_SSH`. When set and
+/// non-empty, every tmux invocation is wrapped as `ssh <tail> tmux …` so the
+/// desktop app can attach its control-mode monitor to a tmux server on a remote
+/// host. The value is a whitespace-separated ssh argv *tail* — options plus the
+/// destination, e.g. `-p 2222 user@host` or just `user@host`. Empty/unset means
+/// local (the normal case, and always the case for the web server).
+pub fn ssh_target() -> Option<Vec<String>> {
+    match std::env::var("TMUXY_SSH") {
+        Ok(s) if !s.trim().is_empty() => Some(s.split_whitespace().map(String::from).collect()),
+        _ => None,
+    }
+}
+
+/// Build the argv to invoke tmux, honoring an optional SSH tunnel
+/// ([`ssh_target`]). `pty` selects whether the ssh hop allocates a remote tty
+/// (`-tt`) — required for `-CC` control mode, but harmful for one-off reads
+/// (it echoes CRs into captured output), so pass `false` for those.
+///
+/// Returns e.g.:
+///   local:  `["/opt/homebrew/bin/tmux", "-L", "tmuxy"]`
+///   ssh:    `["ssh", "-tt", "user@host", "tmux", "-L", "tmuxy"]`
+///
+/// The remote tmux is invoked as bare `tmux` (resolved by the remote login
+/// shell's PATH) — the local [`tmux_path`] absolute path is meaningless there.
+pub fn tmux_argv(pty: bool) -> Vec<String> {
+    match ssh_target() {
+        Some(ssh) => {
+            let mut v = vec!["ssh".to_string()];
+            if pty {
+                v.push("-tt".to_string());
+            }
+            v.extend(ssh);
+            v.push("tmux".to_string());
+            v.extend(tmux_socket_args());
+            v
+        }
+        None => {
+            let mut v = vec![tmux_path().to_string()];
+            v.extend(tmux_socket_args());
+            v
+        }
+    }
+}
+
+/// Create a `Command` for tmux targeting the resolved socket (and SSH tunnel,
+/// if any). Used for one-off reads/writes — no remote tty (`pty = false`).
 pub fn tmux_command() -> Command {
-    let mut cmd = Command::new(tmux_path());
-    cmd.args(tmux_socket_args());
+    let argv = tmux_argv(false);
+    let mut cmd = Command::new(&argv[0]);
+    cmd.args(&argv[1..]);
     cmd
 }
 
 /// Build the tmux shell command string with the socket flag for use in shell
-/// invocations. Returns e.g. "/opt/homebrew/bin/tmux -L tmuxy".
+/// invocations. Returns e.g. "/opt/homebrew/bin/tmux -L tmuxy", or when tunneled
+/// "ssh user@host tmux -L tmuxy".
 pub fn tmux_bin() -> String {
-    let [flag, socket] = tmux_socket_args();
-    format!("{} {} {}", tmux_path(), flag, socket)
+    tmux_argv(false).join(" ")
 }
 
 /// Shipped defaults — overwritten on every app launch so users get new

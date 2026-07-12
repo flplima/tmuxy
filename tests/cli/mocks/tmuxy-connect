@@ -1,0 +1,4 @@
+#!/bin/bash
+# Mock tmuxy-connect binary (the add-a-server form) for CLI tests.
+# The real one is a TUI; the mock just proves the no-arg dispatch reached it.
+echo "mock-connect-form $*"

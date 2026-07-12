@@ -12,6 +12,8 @@ pub mod executor;
 #[cfg(feature = "native")]
 pub mod retry;
 #[cfg(feature = "native")]
+pub mod servers;
+#[cfg(feature = "native")]
 pub mod session;
 #[cfg(feature = "native")]
 pub mod tmux_service;

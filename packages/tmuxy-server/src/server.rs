@@ -87,6 +87,10 @@ pub enum ServerAction {
     /// inside a tmux pane, not invoked directly by users.
     #[command(hide = true)]
     Tree,
+    /// Run the add-a-server form TUI (backs `tmuxy connect` with no args).
+    /// Hidden: meant to run inside a tmux float, not invoked directly.
+    #[command(hide = true)]
+    Connect,
 }
 
 pub async fn run(args: ServerArgs) {
@@ -103,6 +107,14 @@ pub async fn run(args: ServerArgs) {
                 std::process::exit(1);
             }
         }
+        Some(ServerAction::Connect) => match crate::connect::run_connect_tui() {
+            Ok(Some(id)) => println!("{id}"),
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("tmuxy connect: {e}");
+                std::process::exit(1);
+            }
+        },
     }
 }
 
