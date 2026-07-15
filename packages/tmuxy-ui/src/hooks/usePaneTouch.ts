@@ -158,8 +158,8 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           // which steals focus from the hidden mobile input and closes the keyboard.
           e.preventDefault();
           haptics.trigger(10);
-          send({ type: 'FOCUS_PANE', paneId });
           focusMobileInput(paneId);
+          send({ type: 'FOCUS_PANE', paneId });
         }
       }
       tapStartRef.current = null;

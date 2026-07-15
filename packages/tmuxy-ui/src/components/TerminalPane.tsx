@@ -30,6 +30,7 @@ import { usePaneMouse, usePaneTouch } from '../hooks';
 import { LogProfiler } from '../utils/renderLog';
 import { isCollapsedPane } from '../constants';
 import { extractSelectedText } from '../utils/copyMode';
+import { focusKeyboardInput } from '../utils/mobileKeyboard';
 
 interface TerminalPaneProps {
   paneId: string;
@@ -46,6 +47,9 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const focusPointerTypeRef = useRef<string | null>(null);
+  const mouseFocusHandledRef = useRef(false);
+
   const copyState = useCopyModeState(paneId);
   const { forwardScrollToParent } = useAppConfig();
 
@@ -343,12 +347,42 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       data-alternate-on={pane.alternateOn}
       data-mouse-any-flag={pane.mouseAnyFlag}
       tabIndex={0}
+      onPointerDown={(event) => {
+        focusPointerTypeRef.current = event.pointerType;
+        mouseFocusHandledRef.current = false;
+      }}
+      onPointerUp={(event) => {
+        const pointerType = event.pointerType;
+        window.setTimeout(() => {
+          if (focusPointerTypeRef.current === pointerType) {
+            focusPointerTypeRef.current = null;
+            mouseFocusHandledRef.current = false;
+          }
+        }, 0);
+      }}
+      onPointerCancel={() => {
+        focusPointerTypeRef.current = null;
+        mouseFocusHandledRef.current = false;
+      }}
+      onFocus={(event) => {
+        if (event.target !== event.currentTarget) return;
+        const pointerType = focusPointerTypeRef.current;
+        const mouseFocusHandled = mouseFocusHandledRef.current;
+        focusPointerTypeRef.current = null;
+        mouseFocusHandledRef.current = false;
+        if (pointerType === null || (pointerType !== 'touch' && !mouseFocusHandled)) {
+          send({ type: 'FOCUS_PANE', paneId });
+        }
+        if (pointerType !== 'touch') focusKeyboardInput(paneId);
+      }}
       onMouseDown={(e) => {
         if (e.detail >= 3 && e.button === 0) {
           handleTripleClick(e);
           return;
         }
+        const mouseFocusHandled = !(e.target as HTMLElement).closest('.pane-header');
         handleMouseDown(e);
+        mouseFocusHandledRef.current = mouseFocusHandled;
       }}
       onMouseUp={handleMouseUp}
       onMouseMove={handleMouseMove}
