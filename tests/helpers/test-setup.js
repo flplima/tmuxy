@@ -236,13 +236,23 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
   };
 
   /**
-   * Skip test if prerequisites not met
+   * Skip test if prerequisites (server + browser) are not met.
+   *
+   * In CI this must FAIL, not skip: a suite that silently returns green when
+   * the server or browser never came up hides real infrastructure breakage
+   * (the whole point of running E2E in CI). Locally, skipping is a convenience
+   * for running a single suite without the full stack, so we warn and skip.
    */
   ctx.skipIfNotReady = () => {
-    if (!ctx.isReady()) {
-      return true;
+    if (ctx.isReady()) return false;
+    const reason = !ctx.serverAvailable
+      ? `server not reachable at ${TMUXY_URL}`
+      : 'browser/CDP not available (is Chrome running with --remote-debugging-port=9222?)';
+    if (process.env.CI) {
+      throw new Error(`E2E prerequisites not met (${reason}); refusing to skip in CI`);
     }
-    return false;
+    console.warn(`⚠️  Skipping test — ${reason}`);
+    return true;
   };
 
   /**

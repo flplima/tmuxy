@@ -79,6 +79,51 @@ jobs:
       - name: Vitest
         run: npm test -- --run
 
+  # Rust unit + integration tests across the workspace. Previously nothing ran
+  # `cargo test` in CI, so every `#[cfg(test)]` module went unexecuted.
+  rust-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev
+
+      # Clippy/build for the tauri crate expects the frontend dist to exist.
+      - name: Frontend dist placeholder
+        run: mkdir -p packages/tmuxy-ui/dist
+
+      - name: Cargo test
+        run: cargo test --workspace
+
+  # CLI dispatcher suite — hermetic (mocked tmux), enforces tmux-socket
+  # isolation. It has its own jest config and was referenced by no workflow.
+  cli-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: CLI suite
+        run: npm run test:cli
+
   # E2E + snapshot suites run in parallel — one matrix entry per suite,
   # one runner per suite. Previously these were serial inside a single
   # job (~10 min total); matrix puts walltime at max-of-suites.
@@ -94,6 +139,10 @@ jobs:
           - { name: '3-rendering', path: 'tests/3-rendering-protocols.test.js' }
           - { name: '4-session', path: 'tests/4-session-connectivity.test.js' }
           - { name: '5-stress', path: 'tests/5-stress-stability.test.js' }
+          - { name: '6-nvim', path: 'tests/6-nvim-performance.test.js' }
+          - { name: '7-regression', path: 'tests/7-regression-bugs.test.js' }
+          - { name: '8-tui', path: 'tests/8-tui-alternate-screen.test.js' }
+          - { name: '9-animations', path: 'tests/9-pane-animations.test.js' }
     name: e2e (${{ matrix.suite.name }})
 
     steps:
@@ -112,7 +161,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison fzf \
+            libevent-dev libncurses-dev bison fzf neovim \
             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev librsvg2-dev
 
