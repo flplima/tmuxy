@@ -995,25 +995,16 @@ pub fn run() {
             tmuxy_core::debug_log::log(&format!("themes: {:?}", themes_dir));
             tmuxy_core::debug_log::log(&format!("bin: {:?}", bin_dir));
 
-            // Refresh ~/.local/bin/tmuxy → this binary, async so a slow
-            // disk doesn't delay the splash window. Best-effort: failures
-            // are logged but don't block startup.
-            if let Ok(exe) = std::env::current_exe() {
-                tauri::async_runtime::spawn(async move {
-                    tmuxy_core::session::refresh_launcher(&exe);
-                });
-            } else {
-                tmuxy_core::debug_log::log(
-                    "current_exe() failed; tmuxy CLI shorthand not refreshed",
-                );
-            }
-
             // Patch the parent process PATH so any subprocess we spawn — including
             // executor::* paths that go through `sh -c "tmux ..."` — can resolve
             // tmux and the user's shell helpers. macOS launchd-spawned apps get
             // PATH=/usr/bin:/bin:/usr/sbin:/sbin (no Homebrew), which makes bare
             // `tmux` fail with "command not found" silently from inside the app.
             // Mirrors the per-child PATH augmentation in tmuxy_core::control_mode::connection.
+            //
+            // Done BEFORE the first async spawn / subprocess below so no other
+            // task reads PATH concurrently with this write — `set_var` racing a
+            // libc `getenv` on another thread is UB.
             #[cfg(target_os = "macos")]
             {
                 let extras = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
@@ -1029,13 +1020,25 @@ pub fn run() {
                     } else {
                         format!("{}:{}", missing.join(":"), current)
                     };
-                    // SAFETY: we're in setup before any threads/subprocesses are spawned.
                     std::env::set_var("PATH", &prefixed);
                     tmuxy_core::debug_log::log(&format!(
                         "patched parent PATH for macOS Homebrew: prepended {}",
                         missing.join(":")
                     ));
                 }
+            }
+
+            // Refresh ~/.local/bin/tmuxy → this binary, async so a slow
+            // disk doesn't delay the splash window. Best-effort: failures
+            // are logged but don't block startup.
+            if let Ok(exe) = std::env::current_exe() {
+                tauri::async_runtime::spawn(async move {
+                    tmuxy_core::session::refresh_launcher(&exe);
+                });
+            } else {
+                tmuxy_core::debug_log::log(
+                    "current_exe() failed; tmuxy CLI shorthand not refreshed",
+                );
             }
 
             // Create the main window programmatically so we can flip

@@ -208,6 +208,15 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
         // executor commands) resolves its socket/session from the env, setting
         // these two vars is enough to point the whole app at the new server.
         // Reset the failure counters: a deliberate switch is not a crash.
+        //
+        // KNOWN RACE (tracked, not yet fixed): these three vars are mutated
+        // here while #[tauri::command] handlers on other runtime threads read
+        // them (get_session(), executor socket resolution). They are not set
+        // atomically, so a command issued mid-switch can target the old server
+        // with the new session (or vice versa); `set_var` alongside libc
+        // `getenv` on another thread is also UB. The real fix is to hold an
+        // explicit ConnectTarget in MonitorState/Ctx that executor calls read,
+        // replacing env-var-as-app-state.
         let pending = monitor_state
             .pending_reconnect
             .write()
