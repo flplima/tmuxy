@@ -383,30 +383,6 @@ pub struct TmuxWindow {
     pub float_noheader: bool,
 }
 
-/// Tmux popup state
-/// Note: Popup control mode support requires tmux version with PR #4361 merged.
-/// Until then, popup state will always be None.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TmuxPopup {
-    /// Popup ID (unique identifier)
-    pub id: String,
-    /// Popup content (terminal cells)
-    pub content: PaneContent,
-    /// Cursor position
-    pub cursor_x: u32,
-    pub cursor_y: u32,
-    /// Popup dimensions
-    pub width: u32,
-    pub height: u32,
-    /// Position relative to window (centered by default)
-    pub x: u32,
-    pub y: u32,
-    /// Whether the popup is currently active (receiving input)
-    pub active: bool,
-    /// Command running in popup (if any)
-    pub command: String,
-}
-
 /// Full tmux state with all panes and windows
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxState {
@@ -422,10 +398,6 @@ pub struct TmuxState {
     pub total_height: u32,
     /// Rendered tmux status line with ANSI escape sequences
     pub status_line: String,
-    /// Active popup (if any)
-    /// Note: Requires tmux with control mode popup support (PR #4361)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub popup: Option<TmuxPopup>,
 }
 
 /// Serialize a line-number-keyed map with STRING keys. serde_json does this
@@ -599,43 +571,6 @@ impl WindowDelta {
     }
 }
 
-/// Delta update for popup (only changed fields, or None = popup closed)
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PopupDelta {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<PaneContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor_x: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor_y: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub width: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub height: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub x: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub y: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub command: Option<String>,
-}
-
-impl PopupDelta {
-    pub fn is_empty(&self) -> bool {
-        self.content.is_none()
-            && self.cursor_x.is_none()
-            && self.cursor_y.is_none()
-            && self.width.is_none()
-            && self.height.is_none()
-            && self.x.is_none()
-            && self.y.is_none()
-            && self.active.is_none()
-            && self.command.is_none()
-    }
-}
-
 /// Delta state update - only includes what changed
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxDelta {
@@ -667,10 +602,6 @@ pub struct TmuxDelta {
     pub total_width: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_height: Option<u32>,
-    /// Popup changed: Some(popup) = new/updated, Some(delta) = partial update, None field = removed
-    /// Using Option<Option<...>> where outer None = no change, Some(None) = popup closed, Some(Some(delta)) = popup updated
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub popup: Option<Option<TmuxPopup>>,
 }
 
 impl TmuxDelta {
@@ -686,7 +617,6 @@ impl TmuxDelta {
             status_line: None,
             total_width: None,
             total_height: None,
-            popup: None,
         }
     }
 
@@ -700,7 +630,6 @@ impl TmuxDelta {
             && self.status_line.is_none()
             && self.total_width.is_none()
             && self.total_height.is_none()
-            && self.popup.is_none()
     }
 }
 
@@ -821,9 +750,6 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, TmuxEr
         total_width,
         total_height,
         status_line,
-        // Popup state requires tmux with control mode popup support (PR #4361)
-        // Until that's merged, popup detection is not possible
-        popup: None,
     })
 }
 

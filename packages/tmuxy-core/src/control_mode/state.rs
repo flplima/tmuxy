@@ -4,8 +4,8 @@
 
 use super::parser::ControlModeEvent;
 use crate::{
-    extract_cells_from_screen, extract_cells_with_urls, PaneContent, TmuxPane, TmuxPopup,
-    TmuxState, TmuxWindow, WindowType,
+    extract_cells_from_screen, extract_cells_with_urls, PaneContent, TmuxPane, TmuxState,
+    TmuxWindow, WindowType,
 };
 use std::collections::HashMap;
 use tracing::warn;
@@ -627,76 +627,6 @@ impl WindowState {
     }
 }
 
-/// Popup state (for control mode popup support)
-pub struct PopupState {
-    /// Popup ID
-    pub id: String,
-
-    /// Terminal emulator for popup content
-    pub terminal: vt100::Parser,
-
-    /// Dimensions
-    pub width: u32,
-    pub height: u32,
-
-    /// Position
-    pub x: u32,
-    pub y: u32,
-
-    /// Whether the popup is active
-    pub active: bool,
-
-    /// Command running in popup
-    pub command: String,
-}
-
-impl PopupState {
-    pub fn new(id: &str, width: u32, height: u32, x: u32, y: u32, command: Option<String>) -> Self {
-        let w = (width as u16).max(1);
-        let h = (height as u16).max(1);
-        Self {
-            id: id.to_string(),
-            terminal: vt100::Parser::new(h, w, 0),
-            width,
-            height,
-            x,
-            y,
-            active: true,
-            command: command.unwrap_or_default(),
-        }
-    }
-
-    /// Process output for the popup
-    pub fn process_output(&mut self, content: &[u8]) {
-        safe_process(&mut self.terminal, content);
-    }
-
-    /// Get popup content as structured cells
-    pub fn get_content(&self) -> PaneContent {
-        extract_cells_from_screen(self.terminal.screen())
-    }
-
-    /// Convert to TmuxPopup for sending to frontend
-    pub fn to_tmux_popup(&self) -> TmuxPopup {
-        let screen = self.terminal.screen();
-        let cursor_x = screen.cursor_position().1 as u32;
-        let cursor_y = screen.cursor_position().0 as u32;
-
-        TmuxPopup {
-            id: self.id.clone(),
-            content: self.get_content(),
-            cursor_x,
-            cursor_y,
-            width: self.width,
-            height: self.height,
-            x: self.x,
-            y: self.y,
-            active: self.active,
-            command: self.command.clone(),
-        }
-    }
-}
-
 // ============================================================
 // Layout string parser
 // ============================================================
@@ -862,10 +792,6 @@ pub struct StateAggregator {
     /// Sequence number for delta updates
     delta_seq: u64,
 
-    /// Active popup state (if any)
-    /// Note: Requires tmux with control mode popup support (PR #4361)
-    popup: Option<PopupState>,
-
     /// When true, window/layout change events update internal state but
     /// return `state_changed: false` to suppress emission. Pane output
     /// events still emit immediately. Used during command-aware settling
@@ -951,7 +877,6 @@ impl StateAggregator {
             status_line_dirty: true, // Fetch on first state request
             prev_state: None,
             delta_seq: 0,
-            popup: None,
             suppress_window_emissions: false,
             panes_moved_window: std::collections::HashSet::new(),
             early_output: HashMap::new(),
@@ -979,7 +904,6 @@ impl StateAggregator {
             status_line_dirty: true, // Fetch on first state request
             prev_state: None,
             delta_seq: 0,
-            popup: None,
             suppress_window_emissions: false,
             panes_moved_window: std::collections::HashSet::new(),
             early_output: HashMap::new(),
@@ -1762,53 +1686,6 @@ impl StateAggregator {
             },
 
             // ============================================
-            // Popup Events (requires tmux with PR #4361)
-            // ============================================
-            ControlModeEvent::PopupOpen {
-                popup_id,
-                width,
-                height,
-                x,
-                y,
-                command,
-            } => {
-                self.popup = Some(PopupState::new(&popup_id, width, height, x, y, command));
-                ProcessEventResult {
-                    state_changed: true,
-                    change_type: ChangeType::Full, // Popup changes affect keyboard routing
-                    ..Default::default()
-                }
-            }
-
-            ControlModeEvent::PopupOutput { popup_id, content } => {
-                if let Some(ref mut popup) = self.popup {
-                    if popup.id == popup_id {
-                        popup.process_output(&content);
-                        return ProcessEventResult {
-                            state_changed: true,
-                            change_type: ChangeType::Full,
-                            ..Default::default()
-                        };
-                    }
-                }
-                ProcessEventResult::default()
-            }
-
-            ControlModeEvent::PopupClose { popup_id } => {
-                if let Some(ref popup) = self.popup {
-                    if popup.id == popup_id {
-                        self.popup = None;
-                        return ProcessEventResult {
-                            state_changed: true,
-                            change_type: ChangeType::Full,
-                            ..Default::default()
-                        };
-                    }
-                }
-                ProcessEventResult::default()
-            }
-
-            // ============================================
             // Flow Control Events (tmux 3.2+ pause-after)
             // ============================================
             ControlModeEvent::Pause { pane_id } => {
@@ -2472,38 +2349,6 @@ impl StateAggregator {
             delta.new_windows = Some(new_windows);
         }
 
-        // Check for popup changes
-        match (&current.popup, &prev.popup) {
-            (Some(curr_popup), None) => {
-                // Popup opened - send full popup state
-                delta.popup = Some(Some(curr_popup.clone()));
-            }
-            (None, Some(_)) => {
-                // Popup closed
-                delta.popup = Some(None);
-            }
-            (Some(curr_popup), Some(prev_popup)) => {
-                // Popup exists in both - check for changes
-                // For simplicity, send full popup if anything changed
-                if curr_popup.id != prev_popup.id
-                    || curr_popup.content != prev_popup.content
-                    || curr_popup.cursor_x != prev_popup.cursor_x
-                    || curr_popup.cursor_y != prev_popup.cursor_y
-                    || curr_popup.width != prev_popup.width
-                    || curr_popup.height != prev_popup.height
-                    || curr_popup.x != prev_popup.x
-                    || curr_popup.y != prev_popup.y
-                    || curr_popup.active != prev_popup.active
-                    || curr_popup.command != prev_popup.command
-                {
-                    delta.popup = Some(Some(curr_popup.clone()));
-                }
-            }
-            (None, None) => {
-                // No popup change
-            }
-        }
-
         // Nothing changed — skip emission entirely
         if delta.is_empty() {
             return None;
@@ -2736,7 +2581,6 @@ impl StateAggregator {
             total_width,
             total_height,
             status_line,
-            popup: self.popup.as_ref().map(|p| p.to_tmux_popup()),
         }
     }
 
@@ -2766,18 +2610,7 @@ impl StateAggregator {
         self.panes_moved_window.clear();
         self.cached_status_line.clear();
         self.status_line_dirty = true;
-        self.popup = None;
         self.suppress_window_emissions = false;
-    }
-
-    /// Check if a popup is currently active
-    pub fn has_popup(&self) -> bool {
-        self.popup.is_some()
-    }
-
-    /// Get the current popup state
-    pub fn get_popup(&self) -> Option<&PopupState> {
-        self.popup.as_ref()
     }
 }
 
