@@ -1137,31 +1137,14 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             // Core commands
-            commands::send_keys_to_tmux,
-            commands::process_key,
             commands::get_initial_state,
             commands::set_client_size,
-            commands::initialize_session,
-            commands::get_scrollback_history,
-            // Pane operations
+            // Pane/window operations exercised by the Tauri webdriver test
+            // (the production UI drives these through run_tmux_command).
             commands::split_pane_horizontal,
-            commands::split_pane_vertical,
-            commands::select_pane,
-            commands::select_pane_by_id,
-            commands::kill_pane,
-            commands::resize_pane,
-            commands::scroll_pane,
-            commands::send_mouse_event,
-            // Window operations
             commands::new_window,
-            commands::select_window,
-            commands::next_window,
-            commands::previous_window,
-            commands::kill_window,
-            commands::resize_window,
             // General
             commands::run_tmux_command,
-            commands::execute_prefix_binding,
             commands::get_key_bindings,
             commands::get_keybindings_snapshot,
             // Copy mode + themes (mirrors the SSE server's invoke surface so

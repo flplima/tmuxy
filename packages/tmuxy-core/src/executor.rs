@@ -3,7 +3,7 @@ use tracing::{debug, trace};
 
 use crate::constants::tmux_options;
 use crate::error::TmuxError;
-use crate::{WindowType, DEFAULT_SESSION_NAME};
+use crate::WindowType;
 
 type Result<T> = std::result::Result<T, TmuxError>;
 
@@ -69,37 +69,10 @@ pub fn execute_tmux_command(args: &[&str]) -> Result<String> {
     Ok(stdout.to_string())
 }
 
-pub fn capture_pane(session_name: &str) -> Result<String> {
-    execute_tmux_command(&[
-        "capture-pane",
-        "-t",
-        session_name,
-        "-p", // print to stdout
-        "-e", // include escape sequences
-    ])
-}
-
-/// Get the contents of the most recent tmux paste buffer
-pub fn show_buffer() -> Result<String> {
-    execute_tmux_command(&["show-buffer"])
-}
-
 /// Read a specific paste buffer by name (read-only; safe to run externally while
 /// control mode is attached). Used to mirror a copy-mode yank to the web clipboard.
 pub fn show_buffer_named(buffer_name: &str) -> Result<String> {
     execute_tmux_command(&["show-buffer", "-b", buffer_name])
-}
-
-pub fn capture_pane_with_history(session_name: &str) -> Result<String> {
-    execute_tmux_command(&[
-        "capture-pane",
-        "-t",
-        session_name,
-        "-p", // print to stdout
-        "-e", // include escape sequences
-        "-S",
-        "-", // Start from history beginning
-    ])
 }
 
 /// Capture a range of scrollback lines from a pane.
@@ -119,49 +92,9 @@ pub fn capture_pane_range(pane_id: &str, start: i64, end: i64) -> Result<String>
     ])
 }
 
-pub fn send_keys(session_name: &str, keys: &str) -> Result<()> {
-    execute_tmux_command(&["send-keys", "-t", session_name, keys])?;
-    Ok(())
-}
-
-pub fn get_pane_info(session_name: &str) -> Result<(u32, u32, u32, u32)> {
-    let output = execute_tmux_command(&[
-        "display-message",
-        "-t",
-        session_name,
-        "-p",
-        "#{pane_width},#{pane_height},#{cursor_x},#{cursor_y}",
-    ])?;
-
-    let parts: Vec<&str> = output.trim().split(',').collect();
-    if parts.len() != 4 {
-        return Err(TmuxError::other("Invalid pane info format"));
-    }
-
-    let width = parts[0]
-        .parse()
-        .map_err(|_| TmuxError::other("Invalid width"))?;
-    let height = parts[1]
-        .parse()
-        .map_err(|_| TmuxError::other("Invalid height"))?;
-    let cursor_x = parts[2]
-        .parse()
-        .map_err(|_| TmuxError::other("Invalid cursor_x"))?;
-    let cursor_y = parts[3]
-        .parse()
-        .map_err(|_| TmuxError::other("Invalid cursor_y"))?;
-
-    Ok((width, height, cursor_x, cursor_y))
-}
-
 // Tmux operations
 pub fn split_pane_horizontal(session_name: &str) -> Result<()> {
     execute_tmux_command(&["split-window", "-t", session_name, "-h"])?;
-    Ok(())
-}
-
-pub fn split_pane_vertical(session_name: &str) -> Result<()> {
-    execute_tmux_command(&["split-window", "-t", session_name, "-v"])?;
     Ok(())
 }
 
@@ -215,133 +148,6 @@ pub fn new_window(session_name: &str) -> Result<()> {
             WindowType::Tab.as_str(),
         ]);
     }
-    Ok(())
-}
-
-pub fn select_pane(session_name: &str, direction: &str) -> Result<()> {
-    let dir_flag = match direction {
-        "up" | "U" => "-U",
-        "down" | "D" => "-D",
-        "left" | "L" => "-L",
-        "right" | "R" => "-R",
-        _ => {
-            return Err(TmuxError::other(format!(
-                "Invalid direction: {}",
-                direction
-            )))
-        }
-    };
-    execute_tmux_command(&["select-pane", "-t", session_name, dir_flag])?;
-    Ok(())
-}
-
-pub fn select_window(session_name: &str, window: &str) -> Result<()> {
-    let target = format!("{}:{}", session_name, window);
-    execute_tmux_command(&["select-window", "-t", &target])?;
-    Ok(())
-}
-
-pub fn next_window(session_name: &str) -> Result<()> {
-    execute_tmux_command(&["next-window", "-t", session_name])?;
-    Ok(())
-}
-
-pub fn previous_window(session_name: &str) -> Result<()> {
-    execute_tmux_command(&["previous-window", "-t", session_name])?;
-    Ok(())
-}
-
-pub fn kill_pane(session_name: &str) -> Result<()> {
-    execute_tmux_command(&["kill-pane", "-t", session_name])?;
-    Ok(())
-}
-
-/// Select a specific pane by its ID (e.g., "%0", "%1")
-pub fn select_pane_by_id(pane_id: &str) -> Result<()> {
-    execute_tmux_command(&["select-pane", "-t", pane_id])?;
-    Ok(())
-}
-
-/// Scroll a pane up or down
-pub fn scroll_pane(pane_id: &str, direction: &str, amount: u32) -> Result<()> {
-    // Enter copy mode and scroll
-    execute_tmux_command(&["copy-mode", "-t", pane_id])?;
-
-    let scroll_cmd = match direction {
-        "up" => format!("send-keys -t {} -X scroll-up", pane_id),
-        "down" => format!("send-keys -t {} -X scroll-down", pane_id),
-        _ => {
-            return Err(TmuxError::other(format!(
-                "Invalid scroll direction: {}",
-                direction
-            )))
-        }
-    };
-
-    // Execute scroll command multiple times based on amount
-    for _ in 0..amount {
-        let args: Vec<&str> = scroll_cmd.split_whitespace().collect();
-        execute_tmux_command(&args)?;
-    }
-
-    Ok(())
-}
-
-/// Send mouse event to tmux pane
-/// event_type: "press", "release", "drag"
-/// button: 0 = left, 1 = middle, 2 = right, 64 = scroll up, 65 = scroll down
-/// x, y: terminal cell coordinates (0-indexed)
-pub fn send_mouse_event(
-    pane_id: &str,
-    event_type: &str,
-    button: u32,
-    x: u32,
-    y: u32,
-) -> Result<()> {
-    // tmux uses SGR mouse encoding (mode 1006)
-    // Format: \e[<Cb;Cx;CyM for press/drag, \e[<Cb;Cx;Cym for release
-    // Cb = button number (0=left, 1=middle, 2=right, 32+=motion, 64+=scroll)
-    let cb = match event_type {
-        "drag" => button + 32,
-        _ => button,
-    };
-
-    let suffix = match event_type {
-        "release" => "m",
-        _ => "M",
-    };
-
-    // SGR coordinates are 1-indexed
-    let seq = format!("\x1b[<{};{};{}{}", cb, x + 1, y + 1, suffix);
-
-    // Send the escape sequence as literal keys
-    execute_tmux_command(&["send-keys", "-t", pane_id, "-l", &seq])?;
-    Ok(())
-}
-
-/// Resize a pane by a relative amount
-/// direction: "L" (left/shrink width), "R" (right/grow width), "U" (up/shrink height), "D" (down/grow height)
-/// adjustment: number of cells to adjust
-pub fn resize_pane(pane_id: &str, direction: &str, adjustment: u32) -> Result<()> {
-    let dir_flag = match direction {
-        "L" | "left" => "-L",
-        "R" | "right" => "-R",
-        "U" | "up" => "-U",
-        "D" | "down" => "-D",
-        _ => {
-            return Err(TmuxError::other(format!(
-                "Invalid resize direction: {}",
-                direction
-            )))
-        }
-    };
-    execute_tmux_command(&[
-        "resize-pane",
-        "-t",
-        pane_id,
-        dir_flag,
-        &adjustment.to_string(),
-    ])?;
     Ok(())
 }
 
@@ -851,18 +657,6 @@ fn color_to_ansi(color: &str, is_fg: bool) -> Option<String> {
     color_code.map(|idx| format!("{};5;{}", base, idx))
 }
 
-/// Close/kill the current window
-pub fn kill_window(session_name: &str) -> Result<()> {
-    execute_tmux_command(&["kill-window", "-t", session_name])?;
-    Ok(())
-}
-
-/// Execute a raw tmux command string
-/// Supports compound commands with \; separator (e.g., "swap-pane -s %0 -t %1 \; select-layout main-vertical")
-pub fn run_tmux_command(cmd: &str) -> Result<String> {
-    run_tmux_command_for_session(DEFAULT_SESSION_NAME, cmd)
-}
-
 /// Execute a tmux command string, ensuring it targets the specified session.
 /// This function automatically adds session targeting to commands that need it,
 /// making it nearly impossible to accidentally affect the wrong session.
@@ -1100,86 +894,6 @@ fn fix_target_session(session_name: &str, target: &str, command_name: &str) -> S
     target.to_string()
 }
 
-/// Execute a prefix key binding by looking up the binding in tmux and executing it
-pub fn execute_prefix_binding(session_name: &str, key: &str) -> Result<()> {
-    // Query tmux for the binding in the prefix table
-    // Format: bind-key [-T key-table] key command [arguments]
-    // We need to look up bindings in the prefix table
-    let output = execute_tmux_command(&["list-keys", "-T", "prefix"])?;
-
-    // Parse the output to find the binding for this key
-    // Format: bind-key -T prefix h select-pane -L
-    for line in output.lines() {
-        // Parse the line to extract the key and command
-        // Example: bind-key -T prefix h select-pane -L
-        let parts: Vec<&str> = line.split_whitespace().collect();
-
-        if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == "prefix" {
-            let bound_key = parts[3];
-
-            // Unescape the bound key (tmux escapes special chars like " % $)
-            let unescaped_key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
-                &bound_key[1..]
-            } else {
-                bound_key
-            };
-
-            // Match the key
-            if unescaped_key == key {
-                // Found the binding, extract and execute the command
-                let command_parts: Vec<&str> = parts[4..].to_vec();
-
-                if command_parts.is_empty() {
-                    return Err(TmuxError::other(format!("Empty command for key: {}", key)));
-                }
-
-                // Build the tmux command with target session
-                let mut args = command_parts.clone();
-
-                // Add target session for commands that need it
-                let cmd = command_parts[0];
-                match cmd {
-                    "select-pane" | "split-window" | "new-window" | "kill-pane" | "next-window"
-                    | "previous-window" | "select-window" | "resize-pane" | "break-pane"
-                    | "next-layout" | "select-layout" | "last-pane" => {
-                        // Check if -t is already specified
-                        if !args.contains(&"-t") {
-                            args.push("-t");
-                            args.push(session_name);
-                        }
-                    }
-                    "copy-mode" | "send-prefix" | "command-prompt" => {
-                        if !args.contains(&"-t") {
-                            args.push("-t");
-                            args.push(session_name);
-                        }
-                    }
-                    "source-file" => {
-                        // source-file doesn't need a target
-                    }
-                    _ => {
-                        // For other commands, try adding target if not present
-                        if !args.contains(&"-t") {
-                            args.push("-t");
-                            args.push(session_name);
-                        }
-                    }
-                }
-
-                execute_tmux_command(&args)?;
-                return Ok(());
-            }
-        }
-    }
-
-    // No binding found - send the key as-is (like tmux would)
-    // First send the prefix, then the key
-    Err(TmuxError::other(format!(
-        "No prefix binding found for key: {}",
-        key
-    )))
-}
-
 /// Key binding info returned by get_prefix_bindings
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyBinding {
@@ -1336,26 +1050,6 @@ pub fn get_root_bindings() -> Result<Vec<KeyBinding>> {
     }
 
     Ok(bindings)
-}
-
-/// Process a key press - check root bindings first, then send-keys
-/// This allows `bind -n` keybindings to work through the web interface
-pub fn process_key(session_name: &str, key: &str) -> Result<()> {
-    // Get root bindings and check if this key matches
-    if let Ok(bindings) = get_root_bindings() {
-        for binding in bindings {
-            if binding.key == key {
-                // Execute the bound command instead of send-keys
-                // Replace any #{...} or session references with the actual session
-                let command = binding.command.replace("#{session_name}", session_name);
-
-                return run_tmux_command_for_session(session_name, &command).map(|_| ());
-            }
-        }
-    }
-
-    // No root binding found - send the key normally
-    send_keys(session_name, key)
 }
 
 #[cfg(test)]

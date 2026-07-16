@@ -503,15 +503,6 @@ async fn handle_command(
     conn_id: u64,
 ) -> Result<serde_json::Value, String> {
     match cmd {
-        ClientCommand::SendKeysToTmux { keys } => {
-            let cmd = format!("send -t {} {}", session, keys);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::ProcessKey { key } => {
-            tmuxy_core::process_key(session, &key)?;
-            Ok(serde_json::json!(null))
-        }
         ClientCommand::GetInitialState { cols, rows } => {
             // Apply client size before capturing state
             if let (Some(c), Some(r)) = (cols, rows) {
@@ -526,152 +517,6 @@ async fn handle_command(
             if cols > 0 && rows > 0 {
                 set_client_size(state, session, conn_id, cols, rows).await;
             }
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::InitializeSession => {
-            // Session is already created by TmuxMonitor::connect() when the SSE handler starts.
-            // No-op: avoid calling session::create_or_attach() which spawns external tmux commands
-            // that crash tmux 3.5a when control mode is attached.
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::GetScrollbackHistory => {
-            let history = executor::capture_pane_with_history(session)?;
-            Ok(serde_json::json!(history))
-        }
-        ClientCommand::GetBuffer => {
-            let buffer = executor::show_buffer()?;
-            Ok(serde_json::json!(buffer))
-        }
-        ClientCommand::SplitPaneHorizontal => {
-            let cmd = format!("splitw -t {} -h", session);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::SplitPaneVertical => {
-            let cmd = format!("splitw -t {} -v", session);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::NewWindow => {
-            let cmd = build_new_window_command(state, session).await;
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::SelectPane { direction } => {
-            let cmd = format!("selectp -t {} {}", session, direction.flag());
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::SelectWindow { window } => {
-            let cmd = format!("selectw -t {}:{}", session, window);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::NextWindow => {
-            let cmd = format!("next -t {}", session);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::PreviousWindow => {
-            let cmd = format!("prev -t {}", session);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::KillPane => {
-            let cmd = format!("killp -t {}", session);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::SelectPaneById { pane_id } => {
-            let cmd = format!("selectp -t {}", pane_id);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::ScrollPane {
-            pane_id,
-            direction,
-            amount,
-        } => {
-            let cmd = format!(
-                "copy-mode -t {} ; send -t {} -X {} -N {}",
-                pane_id,
-                pane_id,
-                direction.tmux_cmd(),
-                amount
-            );
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::SendMouseEvent {
-            pane_id,
-            event_type,
-            button,
-            x,
-            y,
-        } => {
-            executor::send_mouse_event(&pane_id, &event_type, button, x, y)?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::ExecutePrefixBinding { key } => {
-            // neww crashes tmux 3.5a control mode — use split+break workaround
-            if key == "c" {
-                let cmd = build_new_window_command(state, session).await;
-                send_via_control_mode(state, session, &cmd).await?;
-                return Ok(serde_json::json!(null));
-            }
-
-            let cmd = match key.as_str() {
-                // Window operations
-                "n" => format!("next -t {}", session),
-                "p" => format!("prev -t {}", session),
-                "l" => format!("last -t {}", session),
-                "&" => format!("killw -t {}", session),
-                // Pane operations
-                "\"" => format!("splitw -t {} -v", session),
-                "%" => format!("splitw -t {} -h", session),
-                "-" => format!("splitw -t {} -v", session),
-                "|" => format!("splitw -t {} -h", session),
-                "z" => format!("resizep -t {} -Z", session),
-                "x" => format!("killp -t {}", session),
-                "o" => format!("selectp -t {}:.+", session),
-                ";" => format!("selectp -t {} -l", session),
-                "!" => format!("breakp -t {}", session),
-                // Arrow navigation
-                "Up" | "ArrowUp" => format!("selectp -t {} -U", session),
-                "Down" | "ArrowDown" => format!("selectp -t {} -D", session),
-                "Left" | "ArrowLeft" => format!("selectp -t {} -L", session),
-                "Right" | "ArrowRight" => format!("selectp -t {} -R", session),
-                // Window selection by number
-                "0" => format!("selectw -t {}:0", session),
-                "1" => format!("selectw -t {}:1", session),
-                "2" => format!("selectw -t {}:2", session),
-                "3" => format!("selectw -t {}:3", session),
-                "4" => format!("selectw -t {}:4", session),
-                "5" => format!("selectw -t {}:5", session),
-                "6" => format!("selectw -t {}:6", session),
-                "7" => format!("selectw -t {}:7", session),
-                "8" => format!("selectw -t {}:8", session),
-                "9" => format!("selectw -t {}:9", session),
-                // Copy mode
-                "[" => format!("copy-mode -t {}", session),
-                // Layout
-                " " => format!("nextl -t {}", session),
-                _ => {
-                    return Err(format!("Unknown prefix key: {}", key));
-                }
-            };
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::KillWindow => {
-            let cmd = format!("killw -t {}", session);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::RefreshKeybindings => {
-            // Re-fetch keybindings from tmux and broadcast to all clients.
-            // Called after source-file or other config changes.
-            broadcast_keybindings(state, session).await;
             Ok(serde_json::json!(null))
         }
         ClientCommand::RunTmuxCommand { command } => {
@@ -733,41 +578,6 @@ async fn handle_command(
             } else {
                 Err("No monitor connection available".to_string())
             }
-        }
-        ClientCommand::ResizePane {
-            pane_id,
-            direction,
-            adjustment,
-        } => {
-            let cmd = format!("resizep -t {} {} {}", pane_id, direction.flag(), adjustment);
-            send_via_control_mode(state, session, &cmd).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::ResizeWindow { cols, rows } => {
-            let command_tx = {
-                let sessions = state.sessions.read().await;
-                sessions
-                    .get(session)
-                    .and_then(|s| s.monitor_command_tx.clone())
-            };
-
-            if let Some(tx) = command_tx {
-                tx.send(MonitorCommand::ResizeWindow { cols, rows })
-                    .await
-                    .map_err(|e| format!("Monitor channel error: {}", e))?;
-                Ok(serde_json::json!({"success": true}))
-            } else {
-                executor::resize_window(session, cols, rows)?;
-                Ok(serde_json::json!({"success": true}))
-            }
-        }
-        ClientCommand::GetKeyBindings => {
-            let bindings = tmuxy_core::get_prefix_bindings()?;
-            let prefix = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".to_string());
-            Ok(serde_json::json!({
-                "prefix": prefix,
-                "bindings": bindings
-            }))
         }
         ClientCommand::GetScrollbackCells {
             pane_id,
@@ -846,11 +656,6 @@ async fn handle_command(
                 "end": end,
                 "width": width
             }))
-        }
-        ClientCommand::ListDirectory { path } => {
-            let entries = list_directory(&path)?;
-            serde_json::to_value(entries)
-                .map_err(|e| format!("Failed to serialize directory entries: {}", e))
         }
         ClientCommand::GetThemeSettings => {
             let theme = state
@@ -965,10 +770,6 @@ async fn handle_command(
             if let Err(e) = tmuxy_core::session::write_managed_state(None, Some(&mode)) {
                 warn!(error = %e, "could not persist theme mode to tmuxy.state.conf");
             }
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::Ping => {
-            // No-op for keepalive
             Ok(serde_json::json!(null))
         }
     }

@@ -31,9 +31,7 @@ use serde::{Deserialize, Serialize};
 
 // Re-export key binding types and functions
 #[cfg(feature = "native")]
-pub use executor::{
-    get_prefix_bindings, get_prefix_key, get_root_bindings, process_key, KeyBinding,
-};
+pub use executor::{get_prefix_bindings, get_prefix_key, get_root_bindings, KeyBinding};
 
 /// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";
