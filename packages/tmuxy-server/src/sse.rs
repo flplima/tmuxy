@@ -359,7 +359,12 @@ pub async fn sse_handler(
         // header at all), we can't fill the gap from cache alone — the live
         // stream will just resume from the next event, and the client falls
         // back to its full state on the next StateUpdate::Full broadcast.
-        let mut last_replayed: u64 = last_event_id.unwrap_or(0);
+        // Only advance past events we actually replayed from the ring buffer.
+        // Seeding this from a stale Last-Event-Id would make the live loop's
+        // `seq <= last_replayed` dedupe drop every fresh event when the buffer
+        // can't serve the gap (server restart resets the seq counter, or a
+        // >buffer disconnect), freezing the UI.
+        let mut last_replayed: u64 = 0;
         let oldest = session_broadcast.oldest_seq();
         let buffer_can_serve = match (last_event_id, oldest) {
             (Some(le), Some(old)) => le >= old.saturating_sub(1),
@@ -666,6 +671,20 @@ async fn handle_command(
                 let cmd = build_new_window_command(state, session).await;
                 send_via_control_mode(state, session, &cmd).await?;
                 return Ok(serde_json::json!(null));
+            }
+
+            // Read-only session/window/pane enumeration is safe to run as a
+            // one-off external subprocess even while control mode is attached
+            // (docs/TMUX.md "Commands Safe to Run"). Run it synchronously and
+            // return stdout: the fire-and-forget control-mode path below can't
+            // return output, so a caller that needs it — the sidebar's sessions
+            // poll runs `list-windows -a` / `list-panes -a` to enumerate every
+            // session on the socket — would otherwise get null. Mirrors the
+            // Tauri `run_tmux_command` path (which already returns stdout).
+            if is_readonly_query(&command) {
+                return executor::run_tmux_command_for_session(session, &command)
+                    .map(|out| serde_json::json!(out))
+                    .map_err(|e| e.to_string());
             }
 
             // Detect source-file commands — keybindings may change
@@ -990,6 +1009,31 @@ fn compute_min_client_size(sizes: &HashMap<u64, (u32, u32)>) -> (u32, u32) {
     let min_cols = sizes.values().map(|(c, _)| *c).min().unwrap_or(80);
     let min_rows = sizes.values().map(|(_, r)| *r).min().unwrap_or(24);
     (min_cols, min_rows)
+}
+
+/// True for read-only tmux queries that are safe to run as a one-off external
+/// subprocess while a control-mode client is attached (docs/TMUX.md). These
+/// return stdout the fire-and-forget control-mode path can't.
+///
+/// The command is interpolated into `sh -c` by `run_tmux_command_for_session`,
+/// so any shell metacharacter can chain a mutating command onto a read
+/// (`list-panes -a && kill-server`, `$(...)`, backticks, pipes, redirection).
+/// We reject the full set of shell control/expansion characters — the only
+/// legitimate callers (the sidebar's `list-* -a -F '…'` poll) use just
+/// alphanumerics, spaces, `-`, single quotes, `#{…}`, `@`, and tabs.
+fn is_readonly_query(command: &str) -> bool {
+    // Any of these lets a mutating command ride along the `sh -c` invocation.
+    const SHELL_METACHARS: &[char] = &[
+        ';', '\n', '\r', '&', '|', '$', '`', '<', '>', '(', ')', '\\',
+    ];
+    if command.contains(SHELL_METACHARS) {
+        return false;
+    }
+    const READONLY_PREFIXES: &[&str] = &["list-windows", "list-panes", "list-sessions"];
+    let head = command.trim_start();
+    READONLY_PREFIXES
+        .iter()
+        .any(|p| head == *p || head.starts_with(&format!("{p} ")))
 }
 
 /// Build the `new-window` rewrite (splitw + breakp + resizew + window-tag).
@@ -1576,5 +1620,37 @@ mod tests {
         assert_eq!(parsed["event"], "clipboard");
         assert_eq!(parsed["data"]["pane_id"], "%4");
         assert_eq!(parsed["data"]["text"], "hello world");
+    }
+
+    #[test]
+    fn readonly_query_allows_session_enumeration_reads() {
+        // The exact commands the sidebar sessions poll issues, including the
+        // tab-joined multi-field format (literal tabs, not metacharacters).
+        assert!(is_readonly_query("list-windows -a -F '#{session_name}'"));
+        assert!(is_readonly_query("list-panes -a -F '#{pane_id}'"));
+        assert!(is_readonly_query("list-sessions"));
+        assert!(is_readonly_query(
+            "list-windows -a -F '#{session_name}\t#{window_id}\t#{@tmuxy-window-type}'"
+        ));
+    }
+
+    #[test]
+    fn readonly_query_rejects_mutations_and_smuggling() {
+        // Mutating commands must keep flowing through the control-mode channel.
+        assert!(!is_readonly_query("split-window -h"));
+        assert!(!is_readonly_query("kill-session -t foo"));
+        // A read must not carry a compound/multiline mutation past the guard.
+        assert!(!is_readonly_query("list-windows -a ; kill-server"));
+        assert!(!is_readonly_query("list-panes\nkill-session -t foo"));
+        // The command is run via `sh -c`, so every shell metacharacter that can
+        // chain a second command must be rejected, not just `;` and newlines.
+        assert!(!is_readonly_query("list-panes -a && kill-server"));
+        assert!(!is_readonly_query("list-panes -a | sh"));
+        assert!(!is_readonly_query("list-panes -a $(kill-server)"));
+        assert!(!is_readonly_query("list-panes -a `kill-server`"));
+        assert!(!is_readonly_query("list-panes -a > /etc/passwd"));
+        assert!(!is_readonly_query("list-panes -a & kill-server"));
+        // Prefix-only match must not let `list-windows-evil` style names through.
+        assert!(!is_readonly_query("list-windowsX"));
     }
 }
