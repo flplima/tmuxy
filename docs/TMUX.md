@@ -28,9 +28,9 @@ A "server" in the desktop app is a tmux server tmuxy drives — the local machin
 
 `TMUXY_SSH` is resolved centrally by `ssh_target()` / `tmux_argv(pty)` in `session.rs`: when set, every tmux invocation is wrapped as `ssh [-tt] <tail> tmux -L <socket> …` (the `-tt` pty flag is used for the `-CC` control-mode connection, omitted for one-off reads so captured output stays clean; the remote binary is bare `tmux`, resolved by the remote login shell). The local `-f <config>` flag is skipped over SSH — that path is local-only. This means the whole app (control mode + executor reads) drives the remote tmux server transparently.
 
-### Sessions tree (desktop app)
+### Sessions tree
 
-The live state the app holds is single-session (the attached session's windows/panes). The sidebar's **sessions→tabs→panes tree** is populated by a desktop-only poll (`serversActor`, `packages/tmuxy-ui/src/machines/actors/serversActor.ts`) that shells `list-windows -a` / `list-panes -a` through `run_tmux_command` (whose Tauri handler returns stdout) every ~1.5s. The active session's subtree is drawn from live state; other sessions come from the poll, and clicking one switches to it (`SWITCH_SESSION`). The poll and picker are inert on the web build (`isTauri()` is false), which renders the classic single-session flat tree.
+The live state the app holds is single-session (the attached session's windows/panes). The sidebar's **sessions→tabs→panes tree** is populated by a poll (`serversActor`, `packages/tmuxy-ui/src/machines/actors/serversActor.ts`) that shells `list-windows -a` / `list-panes -a` through `run_tmux_command` every ~1.5s. It runs on both the web and desktop builds — a client attached to a multi-session socket sees and can switch to (`SWITCH_SESSION`) every session; on web `switchSession` reconnects the SSE stream to the chosen session. The active session's subtree is drawn from live state; other sessions come from the poll. The tree only shows the session level when more than one session exists (a lone session stays a flat tab→pane tree). The poll is gated on the adapter's `enumeratesSessions` capability, so it stays inert on the single-session in-browser sandboxes (demo, v86). The **server picker** (saved-server list via `list_servers`) remains desktop-only.
 
 ## Control Mode Architecture
 
@@ -94,11 +94,14 @@ These are used in `tmuxy-core/src/executor.rs` and `session.rs`:
 | `display-message` | `executor.rs`                 | Query pane metadata (width, history size)                    |
 | `list-keys`       | `executor.rs`                 | Read keybindings from tmux config                            |
 | `show-options`    | `executor.rs`                 | Read tmux options                                            |
-| `list-windows`    | `executor.rs`                 | Used by `resize_window` fallback                             |
+| `list-windows`    | `executor.rs`, `sse.rs`       | `resize_window` fallback; sessions-tree enumeration (`-a`)   |
 | `send-keys -l`    | `executor.rs`                 | Mouse event SGR sequences (escape-heavy)                     |
-| `list-panes`      | `executor.rs`                 | Query pane info                                              |
+| `list-panes`      | `executor.rs`, `sse.rs`       | Pane info; sessions-tree enumeration (`-a`)                  |
+| `list-sessions`   | `sse.rs`                      | Sessions-tree enumeration                                    |
 
 These are safe because they either run **before** control mode connects, are **read-only queries**, or use `send-keys -l` for binary escape sequences that control mode handles differently.
+
+The web server's `RunTmuxCommand` handler (`sse.rs`) normally forwards commands to the control-mode channel fire-and-forget (no stdout back). The three `list-*` reads above are the exception: it runs them as one-off subprocesses via `executor::run_tmux_command_for_session` and returns their stdout, so the frontend's sessions poll can read output on web the same way it does under Tauri. A guard (`is_readonly_query`) rejects compound (`;`) or multiline strings so a mutation can't ride along a read.
 
 ### Shell Scripts and `run-shell`
 
@@ -122,9 +125,11 @@ This creates a new pane in the current window, then immediately breaks it into i
 - `bin/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
 - `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
 
-## Tauri Desktop App: Missing `new-window` Workaround
+## Tauri Desktop App: `new-window` Handling
 
-**Known gap:** The Tauri desktop app (`packages/tmuxy-tauri-app/src/commands.rs`) calls `executor::new_window()` which uses external `tmux new-window` without the `splitw ; breakp` workaround. This will crash tmux 3.5a when a control mode client is attached. The web server version (`tmuxy-server/src/sse.rs`) has the workaround but the Tauri code path bypasses it.
+The Tauri `run_tmux_command` handler (`packages/tmuxy-tauri-app/src/commands.rs`) intercepts `new-window`/`neww` and pushes the `splitw ; breakp` rewrite through the control-mode connection, exactly like the web server. The external `executor::new_window()` path survives only as a pre-connection fallback: it runs before any control-mode client is attached (during early startup, before the monitor connects), where the 3.5a crash — which requires an attached control-mode client — cannot occur. If that fallback ever crashes tmux, the reconnect loop recovers.
+
+The native desktop menu (`packages/tmuxy-tauri-app/src/gui.rs`) does **not** run tmux commands itself. It dispatches every tmux-affecting menu item to the frontend via `window.tmuxyMenuAction`, which routes through the same control-mode-safe adapter path as the in-app menu (including the `new-window` rewrite and the `@tmuxy-window-type` tag).
 
 ## Targeting: Use Stable IDs, Not Indices
 

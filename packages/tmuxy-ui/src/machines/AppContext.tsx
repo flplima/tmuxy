@@ -28,6 +28,7 @@ import {
   getActivePaneInGroup,
 } from './selectors';
 import { LeavingPanesContext } from './LeavingPanesContext';
+import { executeMenuAction } from '../components/menus/menuActions';
 import type { TmuxAdapter } from '../tmux/types';
 import { createAdapter } from '../tmux/adapters';
 import { createTmuxActor } from './actors/tmuxActor';
@@ -175,6 +176,12 @@ export function AppProvider({
       return originalSend(event as Parameters<typeof originalSend>[0]);
     };
     (window as unknown as { app: typeof actorRef }).app = actorRef;
+    // Let the Tauri native menu reuse the exact same action dispatch the
+    // in-app menu uses, so its items (including `tab-new`) route through the
+    // control-mode-safe adapter path instead of raw external tmux subprocesses.
+    (window as unknown as { tmuxyMenuAction: (actionId: string) => void }).tmuxyMenuAction = (
+      actionId: string,
+    ) => executeMenuAction(actorRef.send, actionId);
   }, [actorRef]);
 
   return (
@@ -240,28 +247,6 @@ export function useIsDragging(): boolean {
 export function useIsResizing(): boolean {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.resize !== null);
-}
-
-/**
- * Check if a drag operation is in the "committing" phase
- * (after user released mouse, waiting for tmux to confirm swap)
- * TODO: Implement proper committing state in drag machine
- */
-export function useIsCommittingDrag(): boolean {
-  // For now, always return false - proper implementation would
-  // check if drag machine is in a "committing" state
-  return false;
-}
-
-/**
- * Check if a resize operation is in the "committing" phase
- * (after user released mouse, waiting for tmux to confirm resize)
- * TODO: Implement proper committing state in resize machine
- */
-export function useIsCommittingResize(): boolean {
-  // For now, always return false - proper implementation would
-  // check if resize machine is in a "committing" state
-  return false;
 }
 
 /** Get a specific pane by ID (with resize preview). Falls back to the

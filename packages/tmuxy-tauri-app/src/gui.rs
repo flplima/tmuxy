@@ -607,60 +607,61 @@ fn display_theme_name(stem: &str) -> String {
         .join(" ")
 }
 
+/// Menu item IDs that map to a tmux operation. These are dispatched through the
+/// frontend's `executeMenuAction` (exposed as `window.tmuxyMenuAction`), which
+/// routes them via the control-mode-safe adapter path — including the
+/// `new-window` → `splitw ; breakp` rewrite and the `@tmuxy-window-type` tag.
+/// Running them here as external `sh -c "tmux …"` subprocesses would bypass
+/// control mode and can crash tmux 3.5a (e.g. a raw `new-window`). This list
+/// mirrors the tmux cases in `tmuxy-ui/src/components/menus/menuActions.ts`.
+const FRONTEND_MENU_ACTIONS: &[&str] = &[
+    "pane-split-below",
+    "pane-split-right",
+    "pane-next",
+    "pane-previous",
+    "pane-swap-prev",
+    "pane-swap-next",
+    "pane-move-new-tab",
+    "pane-add-to-group",
+    "pane-copy-mode",
+    "pane-paste",
+    "pane-clear",
+    "pane-close",
+    "view-zoom",
+    "tab-new",
+    "tab-next",
+    "tab-previous",
+    "tab-last",
+    "tab-rename",
+    "tab-close",
+    "session-new",
+    "session-rename",
+    "session-detach",
+    "session-kill",
+    "session-reload-config",
+    "view-layout-even-horizontal",
+    "view-layout-even-vertical",
+    "view-layout-main-horizontal",
+    "view-layout-main-vertical",
+    "view-layout-tiled",
+];
+
 /// Handle native menu item clicks.
 ///
-/// Tmux commands are executed directly via the control mode connection.
-/// Frontend-only actions (font size) are dispatched via window.eval().
+/// Tmux operations are dispatched to the frontend (`window.tmuxyMenuAction`),
+/// which runs them through the control-mode connection — the same path the
+/// in-app menu uses. Frontend-only actions (font size, theme) are dispatched
+/// via window.eval() too.
 fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id().0.as_str();
 
-    // Map menu IDs to tmux commands (mirrors menuActions.ts)
-    let tmux_cmd = match id {
-        // Pane
-        "pane-split-below" => Some("split-window -v"),
-        "pane-split-right" => Some("split-window -h"),
-        "pane-next" => Some("select-pane -t :.+"),
-        "pane-previous" => Some("last-pane"),
-        "pane-swap-prev" => Some("swap-pane -U"),
-        "pane-swap-next" => Some("swap-pane -D"),
-        "pane-move-new-tab" => Some("break-pane"),
-        "pane-add-to-group" => Some(
-            "run-shell \"$HOME/.config/tmuxy/bin/tmuxy/pane-group-add #{pane_id} #{pane_width} #{pane_height}\"",
-        ),
-        "pane-copy-mode" => Some("copy-mode"),
-        "pane-paste" => Some("paste-buffer"),
-        "pane-clear" => Some("send-keys -R \\; clear-history"),
-        "pane-close" => Some("kill-pane"),
-        "view-zoom" => Some("resize-pane -Z"),
-        // Tab
-        "tab-new" => Some("new-window"),
-        "tab-next" => Some("next-window"),
-        "tab-previous" => Some("previous-window"),
-        "tab-last" => Some("last-window"),
-        "tab-rename" => Some("command-prompt -I \"#W\" \"rename-window -- '%%'\""),
-        "tab-close" => Some("kill-window"),
-        // Session
-        "session-new" => Some("new-session -d"),
-        "session-rename" => Some("command-prompt -I \"#S\" \"rename-session -- '%%'\""),
-        "session-detach" => Some("detach-client"),
-        "session-kill" => Some("kill-session"),
-        // tmuxy's own config, NOT ~/.tmux.conf — sourcing the user's vanilla
-        // tmux config into the tmuxy server would drag their default-server
-        // bindings/options into the isolated tmuxy socket.
-        "session-reload-config" => Some("source-file ~/.config/tmuxy/tmuxy.conf"),
-        // View — Layouts
-        "view-layout-even-horizontal" => Some("select-layout even-horizontal"),
-        "view-layout-even-vertical" => Some("select-layout even-vertical"),
-        "view-layout-main-horizontal" => Some("select-layout main-horizontal"),
-        "view-layout-main-vertical" => Some("select-layout main-vertical"),
-        "view-layout-tiled" => Some("select-layout tiled"),
-        _ => None,
-    };
-
-    if let Some(cmd) = tmux_cmd {
-        let session = std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string());
-        if let Err(e) = executor::run_tmux_command_for_session(&session, cmd) {
-            eprintln!("[menu] Failed to execute '{}': {}", cmd, e);
+    if FRONTEND_MENU_ACTIONS.contains(&id) {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            // `id` is a fixed literal from the menu definition (not user input);
+            // `{id:?}` emits it as a quoted JS string literal.
+            if let Err(e) = window.eval(format!("window.tmuxyMenuAction?.({id:?})")) {
+                eprintln!("[menu] Failed to dispatch '{}': {}", id, e);
+            }
         }
         return;
     }

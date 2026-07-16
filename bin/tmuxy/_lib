@@ -34,6 +34,14 @@ _tmux() {
   command tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$@"
 }
 
+# Route a mutating tmux command through run-shell. These scripts run inside a
+# live pane with a control-mode client attached (the UI spawns them in floats),
+# so direct external mutations (new-session, set-environment, …) can crash the
+# tmux server on 3.5a — run-shell executes them in the server's own context.
+_run_safe() {
+  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
+}
+
 # Get the window type set on a window via @tmuxy-window-type.
 # Args: $1=window_id (e.g., @5)
 # Output: tab|float|float-backdrop|group  (empty if not set / foreign)

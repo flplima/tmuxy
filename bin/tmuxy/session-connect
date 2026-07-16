@@ -33,7 +33,10 @@ fi
 host=$(echo "$ssh_cmd" | awk '{print $NF}' | sed 's/.*@//')
 session_name="ssh_${host}"
 
-# Create session running the SSH command
-_tmux new-session -d -s "$session_name" "$ssh_cmd"
+# Create session running the SSH command. Route through run-shell — this runs
+# inside a control-mode-attached float, where a direct external new-session can
+# crash tmux 3.5a. Single-quote-escape the user-supplied command.
+safe_ssh_cmd="${ssh_cmd//\'/\'\\\'\'}"
+_run_safe "new-session -d -s '$session_name' '$safe_ssh_cmd'"
 echo "$session_name"
-_tmux set-environment -g TMUXY_SWITCH_TO "$session_name"
+_run_safe "set-environment -g TMUXY_SWITCH_TO '$session_name'"

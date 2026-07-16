@@ -18,31 +18,38 @@ describe('CLI run escape hatch', () => {
 
   describe('new-window interception', () => {
     test('intercepts new-window and uses safe alternative', () => {
-      const { stdout, stderr, exitCode, tmuxCalls } = runCLI(['run', 'new-window']);
+      const { stderr, exitCode, tmuxCalls } = runCLI(['run', 'new-window']);
       expect(exitCode).toBe(0);
       expect(stderr).toContain('new-window intercepted for safety');
-      // Should use split-window + break-pane (+ display-message to look up
-      // the new window id for the @tmuxy-window-type tag).
-      expect(tmuxCalls).toHaveLength(3);
-      expect(tmuxCalls[0].args[0]).toBe('split-window');
-      expect(tmuxCalls[1].args[0]).toBe('break-pane');
-      expect(tmuxCalls[2].args[0]).toBe('display-message');
-      expect(stdout.trim()).toBe('%99');
+      // Routes through run-shell as a single atomic splitw+breakp+tag command
+      // list (mirrors `tmuxy tab create`) — never a direct external tmux
+      // invocation, which would crash tmux 3.5a with control mode attached.
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        'tmux -L tmuxy splitw \\; breakp \\; set-option -w @tmuxy-window-type tab',
+      ]);
     });
 
     test('intercepts neww alias', () => {
       const { stderr, exitCode, tmuxCalls } = runCLI(['run', 'neww']);
       expect(exitCode).toBe(0);
       expect(stderr).toContain('new-window intercepted');
-      expect(tmuxCalls).toHaveLength(3);
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        'tmux -L tmuxy splitw \\; breakp \\; set-option -w @tmuxy-window-type tab',
+      ]);
     });
 
     test('intercepts new-window with -n name', () => {
       const { exitCode, tmuxCalls } = runCLI(['run', 'new-window', '-n', 'my-win']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[1].args[0]).toBe('break-pane');
-      expect(tmuxCalls[1].args).toContain('-n');
-      expect(tmuxCalls[1].args).toContain('my-win');
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].args).toEqual([
+        'run-shell',
+        "tmux -L tmuxy splitw \\; breakp -n 'my-win' \\; set-option -w @tmuxy-window-type tab",
+      ]);
     });
   });
 

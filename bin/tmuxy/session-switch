@@ -50,7 +50,7 @@ read -rp 'Select session (number or "new"): ' choice
 if [ "$choice" = "new" ]; then
   ts=$(date +%s)
   new_name="tmuxy_${ts}"
-  _tmux new-session -d -s "$new_name"
+  _run_safe "new-session -d -s '$new_name'"
   selected="$new_name"
 elif [[ "$choice" =~ ^[0-9]+$ ]]; then
   idx=$((choice - 1))
@@ -67,7 +67,9 @@ fi
 echo "$selected"
 
 if $float_mode; then
-  _tmux set-environment -g TMUXY_SWITCH_TO "$selected"
+  _run_safe "set-environment -g TMUXY_SWITCH_TO '$selected'"
 else
+  # switch-client acts on the calling client, so it must stay a direct call —
+  # run-shell would run without a client context and can't switch anything.
   _tmux switch-client -t "$selected"
 fi
