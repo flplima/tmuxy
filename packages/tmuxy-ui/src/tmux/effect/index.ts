@@ -7,17 +7,4 @@ export {
   type AdapterError,
 } from './AdapterError';
 export { toEffectAdapter, type EffectTmuxAdapter } from './EffectTmuxAdapter';
-export {
-  decodeStateUpdate,
-  decodeServerState,
-  decodeServerDelta,
-  decodeKeyBindings,
-} from './decoders';
 export * as Schemas from './schemas';
-export { eventSourceStream, type SseEvent, type SseStreamOptions } from './sseStream';
-export {
-  CompoundOps,
-  createAndRenameWindow,
-  withTemporaryWindow,
-  type CompoundOpsContext,
-} from './compoundOps';
