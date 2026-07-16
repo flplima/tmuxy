@@ -19,7 +19,7 @@ pub mod session;
 pub mod tmux_service;
 
 #[cfg(feature = "native")]
-pub use ctx::{Clock, Ctx, FileSystem, TmuxCommand};
+pub use ctx::{Clock, Ctx, TmuxCommand};
 #[cfg(feature = "native")]
 pub use tmux_service::{build_tmux_stack, TmuxRequest, TmuxService, TMUX_CALL_TIMEOUT};
 

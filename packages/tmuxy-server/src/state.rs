@@ -250,8 +250,7 @@ impl AppState {
     }
 
     /// Construct with an explicit context. Used by tests that want to swap in
-    /// `MockTmux`/`FakeClock`/`InMemoryFs` while keeping the same server
-    /// wiring otherwise.
+    /// `MockTmux`/`FakeClock` while keeping the same server wiring otherwise.
     pub fn with_ctx(ctx: Arc<Ctx>) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),

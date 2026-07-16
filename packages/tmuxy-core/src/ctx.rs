@@ -1,14 +1,9 @@
 //! Execution context with swappable backends.
 //!
-//! `Ctx` bundles the small set of capabilities that previously read
-//! straight from `std::process`, `std::time`, and `std::fs`. Each capability
-//! is a trait object so tests can substitute a fake without touching the
-//! real tmux server, the system clock, or the filesystem.
-//!
-//! This is the seed for Phase 4.9's broader migration — initially the
-//! production code path keeps using `executor::*` and `Instant::now()`
-//! directly, with `Ctx` exposed for new code (and the test substitutes that
-//! will arrive in Phases 4.9b / 5.7's retry middleware).
+//! `Ctx` bundles the small set of capabilities that previously read straight
+//! from `std::process` and `std::time`. Each capability is a trait object so
+//! tests can substitute a fake without touching the real tmux server or the
+//! system clock.
 //!
 //! The traits are intentionally narrow: each method maps to exactly one I/O
 //! operation, so a `MockTmux` can record argv-by-argv and return canned
@@ -35,16 +30,6 @@ pub trait Clock: Send + Sync {
     fn now(&self) -> Instant;
 }
 
-/// Minimal filesystem capability — just enough for `session.rs` config I/O.
-/// Tests use `InMemoryFs` so config-touch behaviour can be asserted without
-/// writing to disk.
-pub trait FileSystem: Send + Sync {
-    fn read_to_string(&self, path: &std::path::Path) -> Result<String, std::io::Error>;
-    fn write(&self, path: &std::path::Path, content: &[u8]) -> Result<(), std::io::Error>;
-    fn exists(&self, path: &std::path::Path) -> bool;
-    fn create_dir_all(&self, path: &std::path::Path) -> Result<(), std::io::Error>;
-}
-
 /// The execution context threaded through the codebase.
 ///
 /// Held behind `Arc` so background tasks can clone cheap handles. The
@@ -53,18 +38,15 @@ pub trait FileSystem: Send + Sync {
 pub struct Ctx {
     pub tmux: Arc<dyn TmuxCommand>,
     pub clock: Arc<dyn Clock>,
-    pub fs: Arc<dyn FileSystem>,
     pub retry_policy: RetryPolicy,
 }
 
 impl Ctx {
-    /// Build a production context using the real tmux binary, system clock,
-    /// and on-disk filesystem.
+    /// Build a production context using the real tmux binary and system clock.
     pub fn live() -> Arc<Self> {
         Arc::new(Self {
             tmux: Arc::new(LiveTmux),
             clock: Arc::new(LiveClock),
-            fs: Arc::new(LiveFs),
             retry_policy: RetryPolicy::standard(),
         })
     }
@@ -134,27 +116,6 @@ struct LiveClock;
 impl Clock for LiveClock {
     fn now(&self) -> Instant {
         Instant::now()
-    }
-}
-
-/// Production filesystem — wraps `std::fs`.
-struct LiveFs;
-
-impl FileSystem for LiveFs {
-    fn read_to_string(&self, path: &std::path::Path) -> Result<String, std::io::Error> {
-        std::fs::read_to_string(path)
-    }
-
-    fn write(&self, path: &std::path::Path, content: &[u8]) -> Result<(), std::io::Error> {
-        std::fs::write(path, content)
-    }
-
-    fn exists(&self, path: &std::path::Path) -> bool {
-        path.exists()
-    }
-
-    fn create_dir_all(&self, path: &std::path::Path) -> Result<(), std::io::Error> {
-        std::fs::create_dir_all(path)
     }
 }
 
@@ -247,60 +208,18 @@ impl Clock for FakeClock {
     }
 }
 
-/// In-memory filesystem stub. Stores written bytes; reads return them back.
-#[cfg(any(test, feature = "test-support"))]
-#[derive(Default)]
-pub struct InMemoryFs {
-    pub files: std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, Vec<u8>>>,
-}
-
-#[cfg(any(test, feature = "test-support"))]
-#[allow(clippy::unwrap_used)]
-impl FileSystem for InMemoryFs {
-    fn read_to_string(&self, path: &std::path::Path) -> Result<String, std::io::Error> {
-        match self.files.lock().unwrap().get(path) {
-            Some(bytes) => String::from_utf8(bytes.clone())
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("InMemoryFs: no entry for {:?}", path),
-            )),
-        }
-    }
-
-    fn write(&self, path: &std::path::Path, content: &[u8]) -> Result<(), std::io::Error> {
-        self.files
-            .lock()
-            .unwrap()
-            .insert(path.to_path_buf(), content.to_vec());
-        Ok(())
-    }
-
-    fn exists(&self, path: &std::path::Path) -> bool {
-        self.files.lock().unwrap().contains_key(path)
-    }
-
-    fn create_dir_all(&self, _path: &std::path::Path) -> Result<(), std::io::Error> {
-        // In-memory FS doesn't model directories separately — the file map
-        // is keyed by full path. create_dir_all is a no-op here.
-        Ok(())
-    }
-}
-
 /// Build a fully-substituted `Ctx` for tests. Defaults to retry-disabled so a
 /// test asserting failure doesn't get masked.
 #[cfg(any(test, feature = "test-support"))]
-pub fn test_ctx() -> (Arc<Ctx>, Arc<MockTmux>, Arc<FakeClock>, Arc<InMemoryFs>) {
+pub fn test_ctx() -> (Arc<Ctx>, Arc<MockTmux>, Arc<FakeClock>) {
     let tmux = Arc::new(MockTmux::new());
     let clock = Arc::new(FakeClock::new(Instant::now()));
-    let fs = Arc::new(InMemoryFs::default());
     let ctx = Arc::new(Ctx {
         tmux: tmux.clone(),
         clock: clock.clone(),
-        fs: fs.clone(),
         retry_policy: RetryPolicy::none(),
     });
-    (ctx, tmux, clock, fs)
+    (ctx, tmux, clock)
 }
 
 #[cfg(test)]
@@ -311,7 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn mock_tmux_returns_canned_response() {
-        let (ctx, tmux, _, _) = test_ctx();
+        let (ctx, tmux, _) = test_ctx();
         tmux.expect(&["has-session", "-t", "foo"], Ok("".into()));
         let out = ctx.tmux.run(&["has-session", "-t", "foo"]).await.unwrap();
         assert_eq!(out, "");
@@ -320,7 +239,7 @@ mod tests {
 
     #[tokio::test]
     async fn mock_tmux_unexpected_argv_errors() {
-        let (ctx, _, _, _) = test_ctx();
+        let (ctx, _, _) = test_ctx();
         let err = ctx.tmux.run(&["list-sessions"]).await.unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("list-sessions"));
@@ -333,15 +252,5 @@ mod tests {
         assert_eq!(clock.now(), base);
         clock.advance(Duration::from_millis(250));
         assert_eq!(clock.now() - base, Duration::from_millis(250));
-    }
-
-    #[test]
-    fn in_memory_fs_round_trip() {
-        let fs = InMemoryFs::default();
-        let path = std::path::Path::new("/tmp/test.conf");
-        assert!(!fs.exists(path));
-        fs.write(path, b"hello").unwrap();
-        assert!(fs.exists(path));
-        assert_eq!(fs.read_to_string(path).unwrap(), "hello");
     }
 }

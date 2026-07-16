@@ -1,7 +1,6 @@
 pub mod auth;
 pub mod command;
 mod dev;
-pub mod error;
 pub mod server;
 pub mod sse;
 pub mod state;
@@ -9,7 +8,6 @@ pub use tmuxy_connect as connect;
 pub use tmuxy_tree as tree;
 
 pub use command::ClientCommand;
-pub use error::ServerError;
 
 /// Initialize the tracing subscriber for the server.
 ///
