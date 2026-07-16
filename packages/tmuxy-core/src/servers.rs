@@ -128,22 +128,39 @@ pub fn servers_path() -> PathBuf {
     config_dir().join("servers.json")
 }
 
-/// Read saved servers, always guaranteeing a `localhost` entry at the front.
-/// A missing, empty, or unparseable file yields just `[localhost]` rather than
-/// erroring — a broken server list should never brick the picker.
-pub fn read_servers() -> Vec<Server> {
+/// Read and parse the servers file, distinguishing an absent file (`Ok(None)`)
+/// from one that exists but can't be read or parsed (`Err`). Mutating operations
+/// use this so they never overwrite an unparseable file — a transient corruption
+/// must not be silently turned into data loss.
+fn read_servers_strict() -> std::io::Result<Option<Vec<Server>>> {
     let path = servers_path();
-    let mut servers: Vec<Server> = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default();
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            let servers = serde_json::from_str(&text).map_err(std::io::Error::other)?;
+            Ok(Some(servers))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
 
+/// Guarantee a `localhost` entry at the front of the list.
+fn with_localhost(mut servers: Vec<Server>) -> Vec<Server> {
     // Localhost is implicit and always available; surface it first if the file
     // didn't include it (e.g. brand-new install or a hand-edited list).
     if !servers.iter().any(|s| s.id == LOCALHOST_ID) {
         servers.insert(0, Server::localhost());
     }
     servers
+}
+
+/// Read saved servers, always guaranteeing a `localhost` entry at the front.
+/// A missing, empty, or unparseable file yields just `[localhost]` rather than
+/// erroring — a broken server list should never brick the picker. Callers that
+/// then *write* the list back must instead use [`read_servers_strict`] so a
+/// parse failure aborts the write rather than persisting the empty fallback.
+pub fn read_servers() -> Vec<Server> {
+    with_localhost(read_servers_strict().ok().flatten().unwrap_or_default())
 }
 
 /// Overwrite the servers file with the given list.
@@ -159,7 +176,10 @@ pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
 /// Add (or replace, by `id`) a server and persist. Returns the updated list.
 /// The `localhost` entry can't be replaced away — it's re-guaranteed on read.
 pub fn add_server(server: Server) -> std::io::Result<Vec<Server>> {
-    let mut servers = read_servers();
+    // Refuse to overwrite a file that exists but can't be parsed — reading it
+    // leniently (empty fallback) and writing that back would wipe every saved
+    // server on one transient corruption.
+    let mut servers = with_localhost(read_servers_strict()?.unwrap_or_default());
     match servers.iter_mut().find(|s| s.id == server.id) {
         Some(existing) => *existing = server,
         None => servers.push(server),
