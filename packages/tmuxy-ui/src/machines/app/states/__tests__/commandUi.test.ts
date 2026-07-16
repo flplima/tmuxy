@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { commandUiState } from '../commandUi';
 import { commandUiActions } from '../../actions/commandUi';
-import { commandUiGuards } from '../../guards/commandUi';
+const commandUiGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 
 describe('commandUi state', () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { copyModeState } from '../copyMode';
 import { copyModeActions, copyModeExitTimes } from '../../actions/copyMode';
-import { copyModeGuards } from '../../guards/copyMode';
+const copyModeGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { CopyModeState, CellLine, TmuxPane } from '../../../../tmux/types';
 

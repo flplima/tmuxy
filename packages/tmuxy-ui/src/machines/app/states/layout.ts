@@ -36,4 +36,3 @@ export const layoutState = {
   },
 } as const;
 
-export const layoutSelectors = {};

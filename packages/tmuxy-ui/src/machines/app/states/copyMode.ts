@@ -26,4 +26,3 @@ export const copyModeState = {
   },
 } as const;
 
-export const copyModeSelectors = {};

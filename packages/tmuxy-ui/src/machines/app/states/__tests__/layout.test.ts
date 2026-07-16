@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
-import { layoutGuards } from '../../guards/layout';
+const layoutGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { ResizeState } from '../../../types';
 

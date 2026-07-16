@@ -16,4 +16,3 @@ export const commandUiState = {
   },
 } as const;
 
-export const commandUiSelectors = {};

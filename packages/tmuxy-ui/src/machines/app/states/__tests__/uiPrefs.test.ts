@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { uiPrefsState } from '../uiPrefs';
 import { uiPrefsActions } from '../../actions/uiPrefs';
-import { uiPrefsGuards } from '../../guards/uiPrefs';
+const uiPrefsGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 
 describe('uiPrefs state', () => {

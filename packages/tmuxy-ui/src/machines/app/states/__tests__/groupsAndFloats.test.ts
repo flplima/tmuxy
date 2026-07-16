@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { groupsAndFloatsState } from '../groupsAndFloats';
 import { groupsAndFloatsActions } from '../../actions/groupsAndFloats';
-import { groupsAndFloatsGuards } from '../../guards/groupsAndFloats';
+const groupsAndFloatsGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { FloatPaneState } from '../../../types';
 

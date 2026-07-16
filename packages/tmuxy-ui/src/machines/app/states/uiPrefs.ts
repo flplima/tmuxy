@@ -25,4 +25,3 @@ export const uiPrefsState = {
   },
 } as const;
 
-export const uiPrefsSelectors = {};

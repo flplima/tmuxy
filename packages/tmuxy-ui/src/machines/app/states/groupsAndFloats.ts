@@ -35,4 +35,3 @@ export const groupsAndFloatsState = {
   on: { ...groupsAndFloatsGlobalEvents, ...groupsAndFloatsIdleEvents },
 } as const;
 
-export const groupsAndFloatsSelectors = {};
