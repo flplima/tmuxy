@@ -269,12 +269,14 @@ impl PaneState {
         // Guard: vt100 panics on zero dimensions
         let w = (width as u16).max(1);
         let h = (height as u16).max(1);
+        let mut osc_parser = super::osc::OscParser::new();
+        osc_parser.set_viewport_height(height);
         Self {
             id: id.to_string(),
             index: 0,
             window_id: String::new(),
             terminal: vt100::Parser::new(h, w, 0),
-            osc_parser: super::osc::OscParser::new(),
+            osc_parser,
             image_parser: super::images::ImageParser::new(),
             image_store: HashMap::new(),
             x: 0,
@@ -358,6 +360,10 @@ impl PaneState {
         // Keep image placements: the capture text can't recreate them (tmux
         // strips image escapes from captured history).
         self.image_parser.reset_for_capture();
+        // capture-pane output carries no OSC 8 sequences (tmux strips them), so
+        // the old cell→URL map can only mis-attach stale URLs to fresh content
+        // at the same coordinates. Clear it and let live %output repopulate.
+        self.osc_parser.reset();
 
         // Strip trailing newline to prevent scroll when content exactly fills terminal.
         // capture-pane output typically ends with \n, but processing this final newline
@@ -410,6 +416,10 @@ impl PaneState {
             // replay was added for (content is reflowed, never lost).
             self.terminal.screen_mut().set_size(h, w);
             self.image_parser.reset();
+            // Drop stale hyperlink cell mappings (reflowed coordinates no longer
+            // match) and realign the scroll compensation to the new height.
+            self.osc_parser.reset();
+            self.osc_parser.set_viewport_height(height);
             true
         } else {
             false

@@ -88,7 +88,16 @@ pub struct ImageParser {
     /// Kitty chunked transfers in progress, keyed by image id (`i=`).
     /// Single-chunk transfers (no `m=` key) bypass this map.
     kitty_chunks: std::collections::HashMap<u32, KittyChunked>,
+    /// An image escape (iTerm2/kitty/sixel) split across `%output` chunks,
+    /// carried into the next `process()` call so a large payload isn't torn —
+    /// its header rendered as garbage text and the image dropped.
+    pending: Vec<u8>,
 }
+
+/// Upper bound on a buffered incomplete image escape. Inline images can be
+/// large, so this is generous; beyond it we assume a malformed stream and stop
+/// buffering rather than grow without bound.
+const MAX_PENDING_IMAGE: usize = 8 * 1024 * 1024;
 
 /// Result of processing raw output through the image parser.
 pub struct ImageProcessResult {
@@ -108,6 +117,7 @@ impl ImageParser {
         self.kitty_chunks.clear();
         self.cursor_row = 0;
         self.cursor_col = 0;
+        self.pending.clear();
     }
 
     /// Reset for a capture-pane refill: clear in-flight transfer state but
@@ -131,6 +141,16 @@ impl ImageParser {
     /// three supported protocols. Returns cleaned bytes (image sequences
     /// stripped) and any newly completed images to store.
     pub fn process(&mut self, content: &[u8]) -> ImageProcessResult {
+        // Prepend any incomplete image escape carried over from the last chunk.
+        let buffered;
+        let content: &[u8] = if self.pending.is_empty() {
+            content
+        } else {
+            self.pending.extend_from_slice(content);
+            buffered = std::mem::take(&mut self.pending);
+            &buffered
+        };
+
         let mut output = Vec::with_capacity(content.len());
         let mut new_images = Vec::new();
         let mut i = 0;
@@ -169,6 +189,21 @@ impl ImageParser {
                         }
                         i += consumed;
                         continue;
+                    }
+                }
+
+                // An image-capable escape (ESC ] / ESC _ / ESC P) that didn't
+                // parse AND has no terminator in the rest of the chunk is split
+                // across the %output boundary — buffer the tail and resume next
+                // call rather than leaking the torn header into vt100. (A
+                // complete-but-non-image ESC ] — e.g. OSC 8 — DOES have a
+                // terminator here, so it falls through to pass-through below and
+                // reaches the OSC parser as before.)
+                if matches!(nxt, b']' | b'_' | b'P') && !has_escape_terminator(&content[i + 2..]) {
+                    let tail = &content[i..];
+                    if tail.len() <= MAX_PENDING_IMAGE {
+                        self.pending.extend_from_slice(tail);
+                        break;
                     }
                 }
             }
@@ -532,6 +567,16 @@ fn parse_iterm2_dim(raw: &str, px_per_cell: u16) -> u16 {
     raw.parse::<u16>().unwrap_or(0)
 }
 
+/// True if `content` contains a string-sequence terminator (BEL or ST `ESC \`).
+/// Used to tell an *incomplete* image escape (none present → split across the
+/// %output boundary) from a complete one that simply isn't an image.
+fn has_escape_terminator(content: &[u8]) -> bool {
+    content
+        .iter()
+        .enumerate()
+        .any(|(i, &b)| b == 0x07 || (b == 0x1B && content.get(i + 1) == Some(&b'\\')))
+}
+
 /// Find the end of an OSC sequence (BEL or ESC \).
 /// Input starts after `ESC ]` (so `content[0]` is the first byte after `]`).
 /// Returns (bytes consumed from input INCLUDING terminator, content slice).
@@ -649,6 +694,31 @@ mod tests {
         let result = parser.process(input);
         assert_eq!(result.clean_bytes, b"Hello  World");
         assert_eq!(parser.placements.len(), 1);
+    }
+
+    #[test]
+    fn iterm2_image_split_across_chunks_is_buffered_not_torn() {
+        // Regression: a payload larger than one %output read used to have its
+        // header leaked into vt100 as garbage and the image dropped.
+        let mut parser = ImageParser::new();
+        let out1 = parser.process(b"\x1b]1337;File=inline=1;width=5;height=3:AA");
+        // Incomplete — buffered, nothing leaked to vt100 yet.
+        assert!(out1.clean_bytes.is_empty());
+        assert!(parser.placements.is_empty());
+        let out2 = parser.process(b"AA\x07done");
+        assert_eq!(out2.clean_bytes, b"done");
+        assert_eq!(parser.placements.len(), 1);
+        assert_eq!(out2.new_images.len(), 1);
+    }
+
+    #[test]
+    fn complete_osc8_hyperlink_passes_through_image_parser() {
+        // A complete non-image ESC ] sequence (OSC 8) has a terminator, so it
+        // must NOT be buffered — it passes through to reach the OSC parser.
+        let mut parser = ImageParser::new();
+        let out = parser.process(b"\x1b]8;;https://example.com\x07hi");
+        assert_eq!(out.clean_bytes, b"\x1b]8;;https://example.com\x07hi");
+        assert!(parser.placements.is_empty());
     }
 
     #[test]
