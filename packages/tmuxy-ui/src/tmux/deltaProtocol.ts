@@ -34,6 +34,20 @@ function isPaneContentEmpty(content: PaneContent): boolean {
 }
 
 /**
+ * Detect a gap in the delta sequence. Deltas carry a monotonic `seq`; a
+ * correctly-ordered stream advances it by exactly one each time. If a delta is
+ * dropped or reordered the seq jumps, and applying it to stale state silently
+ * diverges the client — so the adapter should refetch a full snapshot instead.
+ *
+ * `prevSeq` is the last applied delta seq, or `null` right after a full state
+ * (a fresh sync point, which never reports a gap). A seq that goes backwards or
+ * repeats is also treated as a gap.
+ */
+export function isDeltaSeqGap(prevSeq: number | null, delta: ServerDelta): boolean {
+  return prevSeq !== null && delta.seq !== prevSeq + 1;
+}
+
+/**
  * Handle a StateUpdate (full or delta), returning the new state.
  * Returns null if a delta arrives before any full state.
  */

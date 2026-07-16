@@ -1,6 +1,27 @@
 import { describe, test, expect } from 'vitest';
-import { handleStateUpdate, applyDelta } from '../deltaProtocol';
-import type { ServerState, ServerPane, StateUpdate } from '../types';
+import { handleStateUpdate, applyDelta, isDeltaSeqGap } from '../deltaProtocol';
+import type { ServerState, ServerPane, ServerDelta, StateUpdate } from '../types';
+
+describe('isDeltaSeqGap', () => {
+  const delta = (seq: number): ServerDelta => ({ seq });
+
+  test('no gap right after a full state (null prevSeq)', () => {
+    expect(isDeltaSeqGap(null, delta(7))).toBe(false);
+  });
+
+  test('no gap when seq advances by exactly one', () => {
+    expect(isDeltaSeqGap(5, delta(6))).toBe(false);
+  });
+
+  test('gap when a delta is dropped', () => {
+    expect(isDeltaSeqGap(5, delta(7))).toBe(true);
+  });
+
+  test('gap when seq goes backwards or repeats', () => {
+    expect(isDeltaSeqGap(5, delta(5))).toBe(true);
+    expect(isDeltaSeqGap(5, delta(4))).toBe(true);
+  });
+});
 
 function makePane(overrides: Partial<ServerPane> = {}): ServerPane {
   return {

@@ -17,8 +17,10 @@ use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 
 /// Number of recent broadcast messages retained per session for
-/// `Last-Event-Id` replay. Sized to match the broadcast channel capacity so
-/// any lagged client can recover without a full state snapshot.
+/// `Last-Event-Id` replay and lagged-subscriber recovery. Sized to match the
+/// broadcast channel capacity so a client that lags by up to a full buffer can
+/// recover from the ring without waiting for the next full state snapshot; a
+/// larger gap is covered by the next `StateUpdate::Full` broadcast.
 pub const EVENT_BUFFER_SIZE: usize = 100;
 
 /// A broadcast message tagged with its monotonic per-session sequence id.
@@ -35,7 +37,8 @@ pub type TaggedEvent = (u64, String);
 pub struct SessionBroadcast {
     /// Tokio broadcast channel — each subscribed client gets its own
     /// 100-message lag buffer here. The capacity matches `EVENT_BUFFER_SIZE`
-    /// so a client that hit `RecvError::Lagged` can replay from `recent`.
+    /// so a client that hit `RecvError::Lagged` replays from `recent` (the SSE
+    /// handler's `Lagged` arm calls `replay_since`).
     pub tx: broadcast::Sender<TaggedEvent>,
     /// Monotonic per-session counter — `fetch_add(1)` produces the next id.
     pub seq: AtomicU64,

@@ -402,7 +402,23 @@ pub async fn sse_handler(
                                 .data(msg));
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
-                            warn!(conn_id, lagged = n, "client lagged behind broadcast");
+                            // The subscriber fell behind and the channel dropped
+                            // `n` messages. Replay whatever is still in the ring
+                            // buffer above what we've already sent so the client
+                            // recovers without waiting for the next full snapshot.
+                            // If the gap exceeds the buffer, replay covers the
+                            // buffered tail and the next StateUpdate::Full fills
+                            // the rest. The `seq <= last_replayed` dedup below
+                            // absorbs any overlap with resumed delivery.
+                            warn!(conn_id, lagged = n, "client lagged; replaying ring buffer");
+                            for (seq, msg) in session_broadcast.replay_since(last_replayed) {
+                                let event_type = sse_event_type(&msg);
+                                last_replayed = seq;
+                                yield Ok(Event::default()
+                                    .event(event_type)
+                                    .id(seq.to_string())
+                                    .data(msg));
+                            }
                         }
                         Err(broadcast::error::RecvError::Closed) => {
                             break;
