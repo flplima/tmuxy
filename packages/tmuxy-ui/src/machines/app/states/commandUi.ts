@@ -15,4 +15,3 @@ export const commandUiState = {
     CLEAR_STATUS_MESSAGE: { actions: 'commandUi_clearStatusMessage' },
   },
 } as const;
-

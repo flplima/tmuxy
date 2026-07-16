@@ -422,10 +422,11 @@ export const RightClickContextMenus: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// Desktop sessions tree: SESSIONS_UPDATED groups the tree by session, with the
-// active session expanded to its live tabs/panes and other sessions expanded to
-// read-only foreign rows. (The web build never populates ctx.sessions; here we
-// deliver it the same way the desktop poll would.)
+// Multi-session tree: once more than one session exists, SESSIONS_UPDATED groups
+// the tree by session, with the active session expanded to its live tabs/panes
+// and other sessions expanded to read-only foreign rows. The `serversActor` poll
+// feeds this on web + desktop alike; here we deliver it the same way the poll
+// would.
 // ---------------------------------------------------------------------------
 
 export const GroupedSessionsTree: Story = {

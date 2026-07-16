@@ -160,7 +160,8 @@ export function selectPanes(context: AppMachineContext): TmuxPane[] {
 
 /**
  * Select all sessions on the current server for the sidebar sessions tree.
- * Desktop-only (empty on web — see the `serversActor` poll).
+ * Populated on web + desktop by the `serversActor` poll; empty on the demo/v86
+ * sandboxes.
  */
 export function selectSessions(context: AppMachineContext): SessionTreeNode[] {
   return context.sessions;

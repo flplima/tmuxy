@@ -25,4 +25,3 @@ export const copyModeState = {
     COPY_MODE_KEY: { actions: 'copyMode_key' },
   },
 } as const;
-

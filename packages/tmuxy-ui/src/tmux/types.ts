@@ -339,6 +339,14 @@ export interface TmuxAdapter {
    */
   onClipboard?(listener: ClipboardListener): () => void;
   switchSession?(sessionName: string): Promise<void>;
+  /**
+   * True when the adapter is attached to a real tmux server whose sessions can
+   * be enumerated (`list-windows -a` across every session) — the web
+   * `HttpAdapter` and the desktop Tauri adapter. Absent on the single-session
+   * in-browser sandboxes (demo, v86), where the sidebar's sessions poll would
+   * be pointless churn. Gates the `serversActor` poll.
+   */
+  enumeratesSessions?: boolean;
 }
 
 // ============================================

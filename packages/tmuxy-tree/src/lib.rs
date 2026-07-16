@@ -36,8 +36,6 @@ struct TabJson {
     id: String,
     index: u32,
     name: String,
-    #[allow(dead_code)]
-    panes: u32,
     active: bool,
 }
 
@@ -45,10 +43,6 @@ struct TabJson {
 struct PaneJson {
     id: String,
     tab: String,
-    #[allow(dead_code)]
-    width: u32,
-    #[allow(dead_code)]
-    height: u32,
     command: String,
     active: bool,
 }

@@ -24,4 +24,3 @@ export const uiPrefsState = {
     RESET_FONT_SIZE: { actions: 'uiPrefs_resetFontSize' },
   },
 } as const;
-

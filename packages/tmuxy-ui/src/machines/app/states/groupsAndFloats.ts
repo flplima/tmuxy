@@ -34,4 +34,3 @@ export const groupsAndFloatsIdleEvents = {
 export const groupsAndFloatsState = {
   on: { ...groupsAndFloatsGlobalEvents, ...groupsAndFloatsIdleEvents },
 } as const;
-

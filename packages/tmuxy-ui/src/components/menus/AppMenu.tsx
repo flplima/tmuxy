@@ -5,8 +5,11 @@
  * Submenus: Pane, Tab, Session, Theme, View, Debug, Help
  * Keybinding labels are derived from server-provided keybindings.
  *
- * TODO: Add native Tauri menu integration (useNativeMenu). For now, always show
- * the web-based hamburger menu even in Tauri.
+ * On macOS Tauri this hamburger is not rendered — `StatusBar` swaps it for the
+ * traffic-light spacer and the app uses the native macOS menu bar built in the
+ * Tauri layer (`gui.rs` `build_app_menu` / `handle_menu_event`). The web build
+ * and non-macOS Tauri (which have no native menu bar) render it as the primary
+ * app menu.
  */
 
 import { Menu, MenuItem, SubMenu, MenuDivider } from '@szhsin/react-menu';

@@ -35,4 +35,3 @@ export const layoutState = {
     DRAG_ERROR: { actions: 'layout_dragError' },
   },
 } as const;
-

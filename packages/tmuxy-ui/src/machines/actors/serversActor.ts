@@ -1,18 +1,20 @@
 /**
- * serversActor — desktop-only poll that feeds the sidebar's sessions→tabs→panes
- * tree.
+ * serversActor — poll that feeds the sidebar's sessions→tabs→panes tree.
  *
  * The live tmux state the app holds is single-session (the attached session's
- * windows/panes). To show *every* session on the current tmux server, this
+ * windows/panes). To show *every* session on the current tmux socket, this
  * actor periodically shells `list-windows -a` / `list-panes -a` through the
- * adapter (`run_tmux_command`, which returns stdout under Tauri), parses the
- * result into {@link SessionTreeNode}s, and sends `SESSIONS_UPDATED` to the
- * parent machine. It is inert on the web build (`isTauri()` is false there): the
- * web app is single-session and renders the classic flat tree.
+ * adapter (`run_tmux_command`, which returns stdout on web and desktop alike),
+ * parses the result into {@link SessionTreeNode}s, and sends `SESSIONS_UPDATED`
+ * to the parent machine. This runs on the web build too — a web client attached
+ * to a multi-session socket now sees and can switch to its sibling sessions.
  *
  * The active session's subtree is still drawn from live state by SidebarTree;
  * this poll supplies the *other* sessions, so a ~1.5s refresh lag on them is
  * fine.
+ *
+ * The saved-server list (which drives the desktop ServerPicker) is the only
+ * Tauri-gated part — see {@link createServersActor}.
  */
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxAdapter } from '../../tmux/types';
@@ -113,13 +115,21 @@ export function toServerInfos(result: ListServersResult | null | undefined): Ser
 }
 
 /**
- * Create the sessions-poll actor bound to `adapter`. On the web build it does
- * nothing (returns an immediate cleanup); under Tauri it polls every
+ * Create the sessions-poll actor bound to `adapter`. It polls every
  * {@link POLL_INTERVAL_MS} and can be nudged with `REFRESH_SESSIONS`.
+ *
+ * The sessions poll runs whenever the adapter is attached to a real tmux server
+ * (`adapter.enumeratesSessions` — the web `HttpAdapter` and the desktop Tauri
+ * adapter, not the single-session demo/v86 sandboxes): `list-windows -a` /
+ * `list-panes -a` enumerate all sessions on that socket, so the web build lists
+ * its socket's other sessions too (activating one reconnects the SSE stream via
+ * `HttpAdapter.switchSession`). The saved-server list is Tauri-only — it reads
+ * the desktop config and drives the ServerPicker, which web never renders.
  */
 export function createServersActor(adapter: TmuxAdapter) {
   return fromCallback<ServersActorEvent, ServersActorInput>(({ input, receive }) => {
-    if (!isTauri()) return () => {};
+    // In-browser sandboxes (demo, v86) are single-session — nothing to enumerate.
+    if (!adapter.enumeratesSessions) return () => {};
     const { parent } = input;
     let cancelled = false;
 
@@ -142,17 +152,21 @@ export function createServersActor(adapter: TmuxAdapter) {
         // Non-fatal — keep the last tree snapshot; the next tick retries.
       }
 
-      try {
-        const result = await adapter.invoke<ListServersResult>('list_servers');
-        if (!cancelled) {
-          parent.send({
-            type: 'SERVERS_UPDATED',
-            serverList: toServerInfos(result),
-            currentServerId: result?.currentId ?? 'localhost',
-          });
+      // Saved-server list is desktop-only (backed by the Tauri config); web has
+      // no ServerPicker, so skip the invoke rather than let it fail every tick.
+      if (isTauri()) {
+        try {
+          const result = await adapter.invoke<ListServersResult>('list_servers');
+          if (!cancelled) {
+            parent.send({
+              type: 'SERVERS_UPDATED',
+              serverList: toServerInfos(result),
+              currentServerId: result?.currentId ?? 'localhost',
+            });
+          }
+        } catch {
+          // Non-fatal — keep the last server list; the next tick retries.
         }
-      } catch {
-        // Non-fatal — keep the last server list; the next tick retries.
       }
     };
 

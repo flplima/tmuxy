@@ -104,6 +104,8 @@ Frontend `adapter.invoke(cmd, args)` is decoded into a typed `ClientCommand` var
 
 Read-only async tmux dispatch (e.g., scrollback fetch, theme get/set) flows through the Tower stack (`AppState::tmux_call`) so it picks up the standard timeout, retry, and tracing in one place. Sync helpers in `executor::*` remain for CLI/blocking contexts.
 
+**Gotcha — `run_tmux_command` return value differs by transport.** On the **web** server the generic `run_tmux_command` hands the command to the control-mode channel fire-and-forget and resolves to `null` — there is no stdout to return, because the result of a control-mode command arrives later as a state event, not as the POST response. On **Tauri** the same call falls through to an `executor::run_tmux_command_for_session` subprocess and **does** return the command's stdout. So a web caller that needs a command's output cannot use the plain path. The exception carved out for the sidebar sessions poll: the web `RunTmuxCommand` handler runs a small allowlist of read-only enumeration commands (`list-windows`/`list-panes`/`list-sessions`, gated by `is_readonly_query` in `sse.rs`) as one-off subprocesses and returns their stdout, matching Tauri — safe because these are read-only (see [TMUX.md](TMUX.md#commands-safe-to-run-as-external-subprocesses)). Prefer a dedicated typed command over widening that allowlist.
+
 ```
 Frontend
     │ adapter.invoke(cmd, args)

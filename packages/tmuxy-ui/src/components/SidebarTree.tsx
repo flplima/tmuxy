@@ -37,11 +37,12 @@ import type { TmuxPane, TmuxWindow } from '../machines/types';
 /**
  * A flattened, keyboard-navigable row.
  *
- * On the web build there is one session, so the tree is just `tab` → `pane`
- * rows (unchanged). Under the desktop app the `sessions` poll populates a
- * `session` level: the active session expands to its live `tab`/`pane` rows;
- * every other session expands to read-only `foreign-tab`/`foreign-pane` rows
- * whose activation switches to that session first.
+ * With a single session on the socket the tree is just `tab` → `pane` rows.
+ * When the `serversActor` poll reports more than one session (web or desktop,
+ * whenever the socket hosts several) a `session` level appears: the active
+ * session expands to its live `tab`/`pane` rows; every other session expands to
+ * read-only `foreign-tab`/`foreign-pane` rows whose activation switches to that
+ * session first.
  */
 type Row =
   | { kind: 'session'; name: string; active: boolean }
@@ -101,9 +102,10 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
 
-  // Sessions are only ever populated by the desktop poll; on web this stays
-  // empty and we render the classic single-session flat tree.
-  const grouped = sessions.length > 0;
+  // Only introduce the session level when the socket actually hosts more than
+  // one session; a lone session needs no disambiguating header, so it keeps the
+  // classic flat tab→pane tree (the common case on web and desktop alike).
+  const grouped = sessions.length > 1;
 
   // Flatten into the ordered row list (also the keyboard nav order).
   const rows = useMemo<Row[]>(() => {

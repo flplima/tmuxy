@@ -123,9 +123,10 @@ export interface SessionTreePane {
 /**
  * One tmux session as shown in the sidebar's sessions→tabs→panes tree.
  *
- * Populated only under the desktop app by the `serversActor` poll
- * (`list-windows -a` / `list-panes -a`); empty on the web build, which is
- * single-session and renders the classic flat tab/pane tree. The active
+ * Populated by the `serversActor` poll (`list-windows -a` / `list-panes -a`) on
+ * both the web and desktop builds, so a client attached to a multi-session
+ * socket lists all of them. Empty on the single-session in-browser sandboxes
+ * (demo, v86), which render the classic flat tab/pane tree. The active
  * session's subtree is drawn from live state, not this summary.
  */
 export interface SessionTreeNode {
@@ -261,8 +262,9 @@ export interface AppMachineContext {
   lastActivePaneByWindow: Record<string, string>;
   /**
    * All tmux sessions on the current server, for the sidebar sessions→tabs→panes
-   * tree. Desktop-only: populated by the `serversActor` poll; stays `[]` on the
-   * web build (which then renders the classic single-session flat tree).
+   * tree. Populated by the `serversActor` poll on web + desktop; stays `[]` on
+   * the single-session in-browser sandboxes (demo, v86), which then render the
+   * classic single-session flat tree.
    */
   sessions: SessionTreeNode[];
   /**
@@ -591,7 +593,7 @@ export type SessionSwitchRequestedEvent = {
   type: 'SESSION_SWITCH_REQUESTED';
   sessionName: string;
 };
-/** Sidebar sessions tree refreshed by the desktop poll (`serversActor`). */
+/** Sidebar sessions tree refreshed by the `serversActor` poll (web+desktop). */
 export type SessionsUpdatedEvent = {
   type: 'SESSIONS_UPDATED';
   sessions: SessionTreeNode[];
