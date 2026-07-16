@@ -52,7 +52,11 @@ export const ServerImagePlacement = Schema.Struct({
   col: Schema.Number,
   width_cells: Schema.Number,
   height_cells: Schema.Number,
-  protocol: Schema.Union(Schema.Literal('iterm2'), Schema.Literal('sixel')),
+  protocol: Schema.Union(
+    Schema.Literal('iterm2'),
+    Schema.Literal('kitty'),
+    Schema.Literal('sixel'),
+  ),
 });
 
 /** Full pane snapshot from the server. */
