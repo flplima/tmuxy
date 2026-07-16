@@ -302,7 +302,7 @@ export const appMachine = setup({
       input: ({ self }) => ({ parent: self }),
     },
     {
-      // Desktop-only sessions-tree poll (inert on web — see serversActor).
+      // Sessions-tree poll (runs on web + desktop; see serversActor).
       id: 'servers',
       src: 'serversActor',
       input: ({ self }) => ({ parent: self }),
@@ -337,7 +337,7 @@ export const appMachine = setup({
         return { log: next };
       }),
     },
-    // Sidebar sessions tree refreshed by the desktop-only `serversActor` poll.
+    // Sidebar sessions tree refreshed by the `serversActor` poll (web+desktop).
     // Root-level so it lands in any state (the poll runs continuously).
     SESSIONS_UPDATED: {
       actions: assign(({ event }) => ({ sessions: event.sessions })),
@@ -1506,11 +1506,21 @@ export const appMachine = setup({
               return;
             }
 
-            // Not in client-side copy mode: send SIGINT (C-c)
+            // Not in client-side copy mode: send SIGINT (C-c). Target the
+            // focused pane the same way every keyboardActor path does —
+            // `focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName`.
+            // Targeting the session (server-side active pane) delivered C-c to
+            // the hidden session-active pane when a float was focused, or to the
+            // previous pane right after an optimistic switch.
+            const activePane = context.activePaneId;
+            const realActivePane =
+              activePane && !activePane.startsWith('__placeholder_') ? activePane : null;
+            const sigintTarget =
+              context.focusedFloatPaneId ?? realActivePane ?? context.sessionName;
             enqueue(
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,
-                command: `send-keys -t ${context.sessionName} C-c`,
+                command: `send-keys -t ${sigintTarget} C-c`,
               }),
             );
           }),

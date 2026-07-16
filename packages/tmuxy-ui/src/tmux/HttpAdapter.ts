@@ -13,7 +13,7 @@ import {
   StateUpdate,
   KeyBindings,
 } from './types';
-import { handleStateUpdate } from './deltaProtocol';
+import { handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
 
@@ -52,6 +52,7 @@ function getEffectiveSession(): string {
  * sharing) and a careful conversion warrants its own focused pass.
  */
 export class HttpAdapter implements TmuxAdapter {
+  readonly enumeratesSessions = true;
   private eventSource: EventSource | null = null;
   private connectionId: number = 0;
   private connected = false;
@@ -72,6 +73,14 @@ export class HttpAdapter implements TmuxAdapter {
 
   // Delta protocol state
   private currentState: ServerState | null = null;
+  // Last applied delta seq (null right after a full snapshot). Used to detect a
+  // dropped/misordered delta and refetch a full state before it diverges.
+  private lastDeltaSeq: number | null = null;
+  // Last client size seen via set_client_size/get_initial_state — needed to
+  // refetch a full snapshot on a seq gap (get_initial_state takes cols/rows).
+  private lastCols = 0;
+  private lastRows = 0;
+  private resyncing = false;
 
   // rAF batching: coalesce SSE updates within a single display frame.
   // This prevents "painting" artifacts during full-screen redraws (neovim, etc.)
@@ -123,6 +132,22 @@ export class HttpAdapter implements TmuxAdapter {
           const data = JSON.parse(event.data);
           // Handle nested structure from server
           const update: StateUpdate = data.data || data;
+
+          // Delta seq-gap detection: a dropped or misordered delta would
+          // otherwise apply to stale state and silently diverge. On a gap,
+          // refetch a full snapshot instead of applying the delta.
+          if (update.type === 'delta') {
+            if (isDeltaSeqGap(this.lastDeltaSeq, update.delta)) {
+              this.lastDeltaSeq = null;
+              void this.resyncFullState();
+              return;
+            }
+            this.lastDeltaSeq = update.delta.seq;
+          } else {
+            // A full snapshot is a fresh sync point.
+            this.lastDeltaSeq = null;
+          }
+
           const newState = handleStateUpdate(update, this.currentState);
           if (newState) {
             this.currentState = newState;
@@ -263,10 +288,21 @@ export class HttpAdapter implements TmuxAdapter {
   }
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    // Cache the client size so a seq-gap resync can refetch get_initial_state.
+    if (
+      (cmd === 'set_client_size' || cmd === 'get_initial_state') &&
+      typeof args?.cols === 'number' &&
+      typeof args?.rows === 'number'
+    ) {
+      this.lastCols = args.cols;
+      this.lastRows = args.rows;
+    }
+
     // Special handling for get_initial_state: also set currentState so delta updates work
     if (cmd === 'get_initial_state') {
       const result = await this.invokeInternal<T>(cmd, args);
       this.currentState = result as ServerState;
+      this.lastDeltaSeq = null;
       return result;
     }
 
@@ -431,6 +467,7 @@ export class HttpAdapter implements TmuxAdapter {
   async switchSession(newSession: string): Promise<void> {
     sessionOverride = newSession;
     this.currentState = null;
+    this.lastDeltaSeq = null;
 
     // Close current connection without marking as intentional disconnect
     if (this.eventSource) {
@@ -474,6 +511,30 @@ export class HttpAdapter implements TmuxAdapter {
    * states within one 16.67ms display frame. rAF batching ensures only the final
    * (most complete) state is rendered, eliminating the visible "painting" effect.
    */
+  /**
+   * Refetch a full state snapshot after a delta seq gap. Uses the last client
+   * size seen via set_client_size/get_initial_state; if none has been seen yet,
+   * skips (the server's periodic full snapshot recovers). Guarded so overlapping
+   * gaps trigger a single refetch.
+   */
+  private async resyncFullState(): Promise<void> {
+    if (this.resyncing) return;
+    if (this.lastCols === 0 || this.lastRows === 0) return;
+    this.resyncing = true;
+    try {
+      const state = await this.invoke<ServerState>('get_initial_state', {
+        cols: this.lastCols,
+        rows: this.lastRows,
+      });
+      // invoke() already set currentState + reset lastDeltaSeq.
+      this.scheduleStateNotify(state);
+    } catch (e) {
+      console.error('Delta seq-gap resync failed; awaiting next full snapshot:', e);
+    } finally {
+      this.resyncing = false;
+    }
+  }
+
   private scheduleStateNotify(state: ServerState): void {
     this.pendingState = state;
     if (!this.rafScheduled) {
