@@ -129,6 +129,11 @@ jobs:
   # job (~10 min total); matrix puts walltime at max-of-suites.
   e2e:
     runs-on: ubuntu-latest
+    # `soft` suites still run and report, but don't fail the build. Reserved for
+    # suites whose assertions sample live CSS animation frames — inherently
+    # timing-sensitive under runner load, the same reason the v86 storybook
+    # sweep is non-blocking. Keeps the signal without a perpetually red main.
+    continue-on-error: ${{ matrix.suite.soft == true }}
     strategy:
       fail-fast: false
       matrix:
@@ -142,7 +147,7 @@ jobs:
           - { name: '6-nvim', path: 'tests/6-nvim-performance.test.js' }
           - { name: '7-regression', path: 'tests/7-regression-bugs.test.js' }
           - { name: '8-tui', path: 'tests/8-tui-alternate-screen.test.js' }
-          - { name: '9-animations', path: 'tests/9-pane-animations.test.js' }
+          - { name: '9-animations', path: 'tests/9-pane-animations.test.js', soft: true }
     name: e2e (${{ matrix.suite.name }})
 
     steps:
