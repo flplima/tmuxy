@@ -171,7 +171,11 @@ export const groupsAndFloatsActions = {
     // window/pane is created; toggling just flips the drawer's open flag.
     const willOpen = !context.sidebarOpen;
     enqueue(assign({ sidebarOpen: willOpen }));
-    if (!willOpen && context.sidebarFocused) {
+    if (willOpen) {
+      // The sessions poll idles while the sidebar is closed — kick an immediate
+      // refresh so the tree isn't empty for up to a poll interval on open.
+      enqueue(sendTo('servers', { type: 'REFRESH_SESSIONS' as const }));
+    } else if (context.sidebarFocused) {
       enqueue(assign({ sidebarFocused: false }));
       enqueue(sendTo('keyboard', { type: 'UPDATE_SIDEBAR_FOCUSED' as const, focused: false }));
     }
@@ -193,7 +197,12 @@ export const groupsAndFloatsActions = {
     never,
     never
   >(({ context, enqueue }) => {
-    if (!context.sidebarOpen) enqueue(assign({ sidebarOpen: true }));
+    if (!context.sidebarOpen) {
+      enqueue(assign({ sidebarOpen: true }));
+      // Sidebar just opened — refresh the sessions tree immediately (the poll
+      // idles while closed).
+      enqueue(sendTo('servers', { type: 'REFRESH_SESSIONS' as const }));
+    }
     enqueue(assign({ sidebarFocused: true }));
     enqueue(sendTo('keyboard', { type: 'UPDATE_SIDEBAR_FOCUSED' as const, focused: true }));
   }),

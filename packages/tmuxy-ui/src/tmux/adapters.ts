@@ -316,6 +316,16 @@ export class TauriAdapter implements TmuxAdapter {
     return () => this.clipboardListeners.delete(listener);
   }
 
+  /**
+   * Read-only tmux query that bypasses the mutation serial queue (see
+   * TmuxAdapter.queryReadonly) — go straight to the Tauri command instead of
+   * chaining onto `sendQueue`, so the sessions poll can't delay window ops.
+   */
+  async queryReadonly(command: string): Promise<string> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke<string>('run_tmux_command', { command });
+  }
+
   private notifyStateChange(state: ServerState) {
     // Closes the oldest outstanding input's round trip and feeds update-rate /
     // stall metrics (Axis-B, see latencyTracker).

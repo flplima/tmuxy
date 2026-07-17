@@ -329,6 +329,15 @@ export class HttpAdapter implements TmuxAdapter {
   }
 
   /**
+   * Read-only tmux query that bypasses the mutation serial queue (see
+   * TmuxAdapter.queryReadonly). The server runs these as one-off subprocesses
+   * that return stdout; ordering them against mutations only adds latency.
+   */
+  queryReadonly(command: string): Promise<string> {
+    return this.invokeInternal<string>('run_tmux_command', { command });
+  }
+
+  /**
    * Chain an invoke onto the serial sendQueue so it runs only after every
    * earlier mutating command has completed its POST. Errors are caught on
    * the queue chain so a single failure doesn't deadlock subsequent commands,
