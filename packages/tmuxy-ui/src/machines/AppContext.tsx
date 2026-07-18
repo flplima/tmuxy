@@ -271,19 +271,42 @@ export function useIsSinglePane(): boolean {
   return useSelector(actor, (snapshot) => selectIsSinglePaneFn(snapshot.context));
 }
 
-/** Get the group containing a pane, with resolved pane data and active pane ID */
-export function usePaneGroup(paneId: string): {
+interface PaneGroupResult {
   group: PaneGroup | undefined;
   groupPanes: TmuxPane[];
   activePaneId: string | null;
-} {
+}
+
+/**
+ * Equality for usePaneGroup's derived shape. Without it the selector returns a
+ * fresh object every snapshot, so every PaneHeader re-renders on every model
+ * update — including 60fps content-only deltas — and the common ungrouped case
+ * (`{ undefined, [], null }`) re-renders needlessly too. `group` is ref-stable
+ * (selectPaneGroupForPane is memoized on paneGroups) and groupPanes elements are
+ * refs into context.panes, so this compares faithfully: any relevant change
+ * (membership, a group pane's object, the active pane) still re-renders.
+ */
+function paneGroupResultEqual(a: PaneGroupResult, b: PaneGroupResult): boolean {
+  return (
+    a.group === b.group &&
+    a.activePaneId === b.activePaneId &&
+    shallowArrayEqual(a.groupPanes, b.groupPanes)
+  );
+}
+
+/** Get the group containing a pane, with resolved pane data and active pane ID */
+export function usePaneGroup(paneId: string): PaneGroupResult {
   const actor = useAppActor();
-  return useSelector(actor, (snapshot) => {
-    const group = selectPaneGroupForPane(snapshot.context, paneId);
-    const groupPanes = group ? selectPaneGroupPanesFn(snapshot.context, group) : [];
-    const activePaneId = group ? getActivePaneInGroup(snapshot.context, group) : null;
-    return { group, groupPanes, activePaneId };
-  });
+  return useSelector(
+    actor,
+    (snapshot): PaneGroupResult => {
+      const group = selectPaneGroupForPane(snapshot.context, paneId);
+      const groupPanes = group ? selectPaneGroupPanesFn(snapshot.context, group) : [];
+      const activePaneId = group ? getActivePaneInGroup(snapshot.context, group) : null;
+      return { group, groupPanes, activePaneId };
+    },
+    paneGroupResultEqual,
+  );
 }
 
 /** Get the copy mode state for a pane (undefined if not in copy mode) */
