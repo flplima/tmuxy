@@ -17,9 +17,6 @@ export const CONTAINER_PADDING = 8;
 // Pane header height = exactly 1 char height so header consumes exactly 1 terminal row
 export const PANE_HEADER_HEIGHT = CHAR_HEIGHT;
 
-// Pane border: 1px solid around each pane-layout-item
-export const PANE_BORDER = 1;
-
 // Vertical inset: 0 since header = char height
 export const PANE_INSET_Y = 0;
 

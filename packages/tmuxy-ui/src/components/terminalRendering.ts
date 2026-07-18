@@ -152,29 +152,6 @@ function lineSliceText(line: CellLine, start: number, end: number): string {
 }
 
 /**
- * Detect the dominant background color for a pane's content.
- * Samples multiple lines to find the most common non-default background.
- * Used to set the container background so gaps match the theme.
- */
-export function detectPaneBg(content: CellLine[]): string | null {
-  // Sample up to 5 lines from the content
-  const sampleIndices = [
-    0,
-    Math.floor(content.length / 4),
-    Math.floor(content.length / 2),
-    Math.floor((content.length * 3) / 4),
-    content.length - 1,
-  ];
-  for (const idx of sampleIndices) {
-    const line = content[idx];
-    if (!line || line.length === 0) continue;
-    const bg = detectLineBg(line);
-    if (bg) return bg;
-  }
-  return null;
-}
-
-/**
  * Detect the dominant background color for a line.
  * If more than half the cells share the same non-default bg, return it as CSS.
  * This covers neovim/lazyvim theme backgrounds that differ from the terminal default.

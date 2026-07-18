@@ -4,4 +4,3 @@
 
 export { usePaneMouse } from './usePaneMouse';
 export { usePaneTouch } from './usePaneTouch';
-export { usePrevious } from './usePrevious';

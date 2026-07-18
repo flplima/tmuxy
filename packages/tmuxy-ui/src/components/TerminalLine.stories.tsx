@@ -48,7 +48,6 @@ export const Plain: Story = {
     showCursor: false,
     inMode: false,
     isActive: true,
-    width: 80,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -66,7 +65,6 @@ export const WithCursor: Story = {
     showCursor: true,
     inMode: false,
     isActive: true,
-    width: 80,
   },
   play: async ({ canvasElement }) => {
     const cursor = canvasElement.querySelector('.terminal-cursor');
@@ -88,7 +86,6 @@ export const Styled: Story = {
     showCursor: false,
     inMode: false,
     isActive: true,
-    width: 80,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -107,7 +104,6 @@ export const Selection: Story = {
     inMode: false,
     isActive: true,
     selectionRange: { startCol: 4, endCol: 14 },
-    width: 80,
   },
   play: async ({ canvasElement }) => {
     // At least one span should carry the selection highlight class.

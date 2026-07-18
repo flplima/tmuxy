@@ -42,18 +42,6 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
     case 'pane-split-right':
       send({ type: 'SEND_COMMAND', command: 'split-window -h' });
       break;
-    case 'pane-navigate-up':
-      send({ type: 'SEND_COMMAND', command: 'select-pane -U' });
-      break;
-    case 'pane-navigate-down':
-      send({ type: 'SEND_COMMAND', command: 'select-pane -D' });
-      break;
-    case 'pane-navigate-left':
-      send({ type: 'SEND_COMMAND', command: 'select-pane -L' });
-      break;
-    case 'pane-navigate-right':
-      send({ type: 'SEND_COMMAND', command: 'select-pane -R' });
-      break;
     case 'pane-next':
       send({ type: 'SEND_COMMAND', command: 'select-pane -t :.+' });
       break;
@@ -169,9 +157,6 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       break;
 
     // Help actions
-    case 'help-keybindings':
-      send({ type: 'SEND_COMMAND', command: 'list-keys' });
-      break;
     case 'help-github':
       window.open(GITHUB_URL, '_blank');
       break;

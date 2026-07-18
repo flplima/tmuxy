@@ -216,8 +216,6 @@ export interface TerminalLineProps {
   isActive: boolean;
   cursorMode?: CursorMode;
   selectionRange?: { startCol: number; endCol: number } | null;
-  /** Terminal width in columns (needed to pad selection highlight beyond line content) */
-  width: number;
 }
 
 export const TerminalLine = memo(
@@ -231,7 +229,6 @@ export const TerminalLine = memo(
     isActive,
     cursorMode = 'block',
     selectionRange,
-    width: _width,
   }: TerminalLineProps) {
     const isCursorLine = showCursor && lineIndex === cursorY;
     const lineLength = line.length;

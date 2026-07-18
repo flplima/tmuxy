@@ -189,7 +189,6 @@ export const Terminal: React.FC<TerminalProps> = ({
             isActive={isActive}
             cursorMode={cursorMode}
             selectionRange={getSelectionRange(lineIndex)}
-            width={width}
           />
         ))}
       </pre>
