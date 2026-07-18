@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
 const layoutGuards = {};
@@ -145,5 +145,45 @@ describe('layout state', () => {
     });
     const ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag: null });
     expect(ctx.drag).toBeNull();
+  });
+
+  it('the 2s RESIZE_COMPLETED fallback clears a stale preview when no server update arrives', () => {
+    vi.useFakeTimers();
+    try {
+      const actor = mountState(layoutState, layoutActions, layoutGuards, {
+        resize: null,
+        resizeActive: false,
+      });
+      const resize = { paneId: '%1', handle: 'e' } as unknown as ResizeState;
+      sendAndGetContext(actor, { type: 'RESIZE_STATE_UPDATE', resize });
+      actor.send({ type: 'RESIZE_COMPLETED' });
+      // No new resize and no TMUX_STATE_UPDATE: the fallback nulls the preview.
+      vi.advanceTimersByTime(2000);
+      expect(actor.getSnapshot().context.resize).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the 2s RESIZE_COMPLETED fallback does not clobber a newer resize started within the window', () => {
+    vi.useFakeTimers();
+    try {
+      const actor = mountState(layoutState, layoutActions, layoutGuards, {
+        resize: null,
+        resizeActive: false,
+      });
+      const resizeA = { paneId: '%1', handle: 'e' } as unknown as ResizeState;
+      sendAndGetContext(actor, { type: 'RESIZE_STATE_UPDATE', resize: resizeA });
+      // Resize A finishes, scheduling the 2s fallback bound to A.
+      actor.send({ type: 'RESIZE_COMPLETED' });
+      // The user starts a fresh resize B before the fallback fires.
+      const resizeB = { paneId: '%2', handle: 's' } as unknown as ResizeState;
+      sendAndGetContext(actor, { type: 'RESIZE_STATE_UPDATE', resize: resizeB });
+      // A's stale timer fires — B's live preview must survive.
+      vi.advanceTimersByTime(2000);
+      expect(actor.getSnapshot().context.resize).toEqual(resizeB);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

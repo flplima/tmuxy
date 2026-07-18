@@ -202,9 +202,13 @@ export const layoutActions = {
     // arrives with server-confirmed pane sizes. Timeout fallback: clear
     // after 2s in case the server update is delayed.
     enqueue(({ self }) => {
+      // Capture the resize being previewed now. If the user starts a new
+      // resize within 2s, context.resize is replaced with a different object,
+      // and this stale timer must not null the new preview mid-drag.
+      const previewedResize = self.getSnapshot().context.resize;
       setTimeout(() => {
         const snap = self.getSnapshot();
-        if (snap.context.resize) {
+        if (snap.context.resize && snap.context.resize === previewedResize) {
           self.send({ type: 'RESIZE_STATE_UPDATE', resize: null });
         }
       }, 2000);
