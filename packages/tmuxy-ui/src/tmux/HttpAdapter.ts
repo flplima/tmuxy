@@ -31,14 +31,6 @@ function getSessionFromUrl(): string {
   return params.get('session') || 'tmuxy';
 }
 
-/** Override for session name (set by switchSession) */
-let sessionOverride: string | null = null;
-
-/** Get effective session name (override or URL param) */
-function getEffectiveSession(): string {
-  return sessionOverride || getSessionFromUrl();
-}
-
 /**
  * HTTP Adapter using SSE for server->client push and POST for client->server commands.
  *
@@ -62,6 +54,9 @@ export class HttpAdapter implements TmuxAdapter {
   private connectionId: number = 0;
   private connected = false;
   private reconnecting = false;
+  // Session-name override set by switchSession. Instance-scoped (not a module
+  // global) so multiple adapters — or a re-created one — don't share/leak it.
+  private sessionOverride: string | null = null;
   private reconnectAttempts = 0;
   private intentionalDisconnect = false;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -96,6 +91,11 @@ export class HttpAdapter implements TmuxAdapter {
   // Keyboard batching
   private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
 
+  /** Effective session name: the switchSession override, else the URL param. */
+  private getEffectiveSession(): string {
+    return this.sessionOverride || getSessionFromUrl();
+  }
+
   connect(): Promise<void> {
     if (this.connected && this.eventSource) return Promise.resolve();
     if (this.fatal)
@@ -114,7 +114,7 @@ export class HttpAdapter implements TmuxAdapter {
     }
 
     const pending = new Promise<void>((resolve, reject) => {
-      const session = getEffectiveSession();
+      const session = this.getEffectiveSession();
       const protocol = window.location.protocol;
       const host = window.location.host || 'localhost:3853';
       const eventsUrl = `${protocol}//${host}/events?session=${encodeURIComponent(session)}`;
@@ -415,7 +415,7 @@ export class HttpAdapter implements TmuxAdapter {
     // the next applied state update closes it (Axis-B, see latencyTracker).
     latencyTracker.markInput();
 
-    const session = getEffectiveSession();
+    const session = this.getEffectiveSession();
     const protocol = window.location.protocol;
     const host = window.location.host || 'localhost:3853';
     const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
@@ -444,7 +444,7 @@ export class HttpAdapter implements TmuxAdapter {
       await this.connect();
     }
 
-    const session = getEffectiveSession();
+    const session = this.getEffectiveSession();
     const protocol = window.location.protocol;
     const host = window.location.host || 'localhost:3853';
     const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
@@ -458,12 +458,21 @@ export class HttpAdapter implements TmuxAdapter {
       body: JSON.stringify({ cmd, args: args || {} }),
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.error || `HTTP ${response.status}`);
+      // A non-JSON error body — a reverse-proxy 502 page, a 401 auth
+      // challenge — must surface as the HTTP status, not a JSON SyntaxError
+      // from parsing HTML. Try for a structured {error}, fall back to status.
+      let message = `HTTP ${response.status}`;
+      try {
+        const errData = await response.json();
+        if (errData?.error) message = errData.error;
+      } catch {
+        // Non-JSON body: keep the HTTP status message.
+      }
+      throw new Error(message);
     }
 
+    const data = await response.json();
     return data.result as T;
   }
 
@@ -508,9 +517,14 @@ export class HttpAdapter implements TmuxAdapter {
   }
 
   async switchSession(newSession: string): Promise<void> {
-    sessionOverride = newSession;
+    this.sessionOverride = newSession;
     this.currentState = null;
     this.lastDeltaSeq = null;
+
+    // Switching sessions is a fresh start — clear a prior fatal so the switch
+    // isn't permanently rejected by connect()'s fatal guard (recovering from a
+    // dead session by switching to a live one must be possible without reload).
+    this.fatal = false;
 
     // Abandon any in-flight connect to the old session so connect() below
     // opens a fresh stream for the new session instead of reusing it.

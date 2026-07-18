@@ -13,7 +13,7 @@
  * shape so the assertion is independent of unrelated SSE/EventSource setup.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { HttpAdapter } from '../HttpAdapter';
 
 interface Resolver<T> {
@@ -137,6 +137,7 @@ describe('HttpAdapter connect() lifecycle', () => {
 
   afterEach(() => {
     (globalThis as Record<string, unknown>).EventSource = originalES;
+    vi.unstubAllGlobals();
   });
 
   const openStreams = () => MockEventSource.instances.filter((e) => !e.closed);
@@ -189,5 +190,42 @@ describe('HttpAdapter connect() lifecycle', () => {
     await expect(p).rejects.toThrow('tmux gone');
     // A later connect() is refused (fatal), not wedged on the cached promise.
     await expect(adapter.connect()).rejects.toThrow(/fatal/i);
+  });
+
+  it('switchSession clears a prior fatal so the new session can connect', async () => {
+    const adapter = new HttpAdapter();
+    const p = adapter.connect();
+    MockEventSource.instances[0].emit('fatal', { data: { message: 'dead session' } });
+    await expect(p).rejects.toThrow('dead session');
+
+    // Pre-fix, switchSession left this.fatal set and connect() rejected forever,
+    // so recovering by switching to a live session needed a page reload.
+    const switchP = adapter.switchSession('other');
+    const newEs = MockEventSource.instances[MockEventSource.instances.length - 1];
+    expect(newEs.url).toContain('session=other');
+    newEs.emit('connection-info', { data: { connection_id: 5 } });
+    await switchP;
+    expect(adapter.isConnected()).toBe(true);
+    adapter.disconnect();
+  });
+
+  it('invoke surfaces the HTTP status when an error response body is not JSON', async () => {
+    const adapter = new HttpAdapter();
+    const c = adapter.connect();
+    MockEventSource.instances[0].emit('connection-info', { data: { connection_id: 1 } });
+    await c;
+
+    // A reverse-proxy 502 HTML page: response.json() throws. The adapter must
+    // surface the HTTP status, not the JSON SyntaxError.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
+      }),
+    );
+    await expect(adapter.invoke('get_themes_list')).rejects.toThrow('HTTP 502');
+    adapter.disconnect();
   });
 });
