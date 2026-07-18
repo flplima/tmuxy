@@ -1074,7 +1074,11 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
     // optimistic swap completes). If routing is broken, the marker lands
     // in BETA and never shows up here — the wait times out and the
     // expectation below fails, which is the regression we want to catch.
-    await waitForTerminalText(ctx.page, marker, 10000);
+    // 20s (not 10s): the keystroke round-trip (type → tmux → SSE → DOM) can
+    // exceed 10s under CI-runner load, which flaked this test; a real routing
+    // bug still never surfaces the marker, so the longer wait only tolerates
+    // latency, it doesn't weaken the assertion.
+    await waitForTerminalText(ctx.page, marker, 20000);
 
     // The visible pane is ALPHA; assert ALPHA's fingerprint is also present
     // so we're not just matching against any pane that happens to render.
@@ -1108,7 +1112,7 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
         });
         return txt.includes('BETA_HOME');
       },
-      10000,
+      20000,
       'BETA pane to become visible',
     );
 
