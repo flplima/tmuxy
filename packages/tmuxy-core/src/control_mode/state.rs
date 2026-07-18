@@ -755,10 +755,6 @@ pub struct StateAggregator {
     /// Active window ID
     active_window_id: Option<String>,
 
-    /// Default pane dimensions (used when creating new panes)
-    default_width: u32,
-    default_height: u32,
-
     /// Pane IDs with a capture-pane command in flight. Used for de-duplication
     /// (don't send a second capture while one is pending) and to preserve the
     /// previous content of a resized pane until its capture lands (see
@@ -866,8 +862,6 @@ impl StateAggregator {
             panes: HashMap::new(),
             windows: HashMap::new(),
             active_window_id: None,
-            default_width: 80,
-            default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
             capture_armed: None,
             pending_buffer_reads: std::collections::VecDeque::new(),
@@ -893,8 +887,6 @@ impl StateAggregator {
             panes: HashMap::new(),
             windows: HashMap::new(),
             active_window_id: None,
-            default_width: 80,
-            default_height: 24,
             pending_captures: std::collections::VecDeque::new(),
             capture_armed: None,
             pending_buffer_reads: std::collections::VecDeque::new(),
@@ -913,11 +905,6 @@ impl StateAggregator {
         }
     }
 
-    /// Mark status line as needing refresh (call on window-related events)
-    pub fn mark_status_line_dirty(&mut self) {
-        self.status_line_dirty = true;
-    }
-
     /// Enable or disable window/layout emission suppression.
     /// When suppressed, window/layout events still update internal state
     /// but `process_event()` returns `state_changed: false` for those events.
@@ -933,28 +920,6 @@ impl StateAggregator {
     /// Get the current number of windows tracked by the aggregator.
     pub fn window_count(&self) -> usize {
         self.windows.len()
-    }
-
-    /// The LIVE active pane id (active pane of the active window) at read
-    /// time. Authoritative where replayed StateUpdates may carry a stale
-    /// active pane (an update computed before a select-pane landed).
-    pub fn live_active_pane_id(&self) -> Option<String> {
-        self.active_window_id
-            .as_ref()
-            .and_then(|wid| self.windows.get(wid))
-            .and_then(|w| w.active_pane_id.clone())
-    }
-
-    /// The LIVE active window id at read time.
-    pub fn live_active_window_id(&self) -> Option<String> {
-        self.active_window_id.clone()
-    }
-
-    /// Clear the suppression flag and return a state update with
-    /// all accumulated changes. Returns None if nothing changed.
-    pub fn force_emit(&mut self) -> Option<crate::StateUpdate> {
-        self.suppress_window_emissions = false;
-        self.to_state_update()
     }
 
     /// Arm settling for a multi-step compound command (e.g. `splitw ; breakp`).
@@ -1154,15 +1119,6 @@ impl StateAggregator {
     /// Check if any pane is currently in copy mode
     pub fn has_pane_in_copy_mode(&self) -> bool {
         self.panes.values().any(|p| p.in_mode)
-    }
-
-    /// Get IDs of panes currently in copy mode (only those with a valid window)
-    pub fn get_panes_in_copy_mode(&self) -> Vec<String> {
-        self.panes
-            .values()
-            .filter(|p| p.in_mode && !p.window_id.is_empty())
-            .map(|p| p.id.clone())
-            .collect()
     }
 
     /// Get copy mode pane info: (pane_id, scroll_position, height) for building capture-pane commands
@@ -1943,9 +1899,11 @@ impl StateAggregator {
         let mut is_list_windows_response = false;
         let mut seen_windows: std::collections::HashSet<String> = std::collections::HashSet::new();
         for line in output.lines() {
-            if line.contains('@') && line.contains(',') {
+            // list-windows rows are TAB-separated (constants::LIST_WINDOWS_CMD);
+            // list-panes rows are comma-separated, so the two never cross-detect.
+            if line.contains('@') && line.contains('\t') {
                 // Extract window_id before parsing (first field starts with @)
-                if let Some(wid) = line.split(',').next() {
+                if let Some(wid) = line.split('\t').next() {
                     let wid = wid.trim();
                     if wid.starts_with('@') {
                         seen_windows.insert(wid.to_string());
@@ -2138,7 +2096,10 @@ impl StateAggregator {
     /// `@id,index,name,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,group_panes`
     /// where every column after `active` is a `@tmuxy-*` user option that may be empty.
     fn parse_list_windows_line(&mut self, line: &str) {
-        let parts: Vec<&str> = line.split(',').collect();
+        // TAB-separated (see constants::LIST_WINDOWS_CMD): window_name is free
+        // text, so a comma delimiter would let a name like `build, test` shift
+        // every subsequent field.
+        let parts: Vec<&str> = line.split('\t').collect();
         if parts.len() < 4 {
             return;
         }
@@ -2512,12 +2473,6 @@ impl StateAggregator {
         delta
     }
 
-    /// Reset delta tracking (force full state on next call)
-    pub fn reset_delta_tracking(&mut self) {
-        self.prev_state = None;
-        self.delta_seq = 0;
-    }
-
     /// Convert current state to TmuxState for the frontend.
     pub fn to_tmux_state(&mut self) -> TmuxState {
         let active_window = self.active_window_id.as_ref();
@@ -2582,35 +2537,6 @@ impl StateAggregator {
             total_height,
             status_line,
         }
-    }
-
-    /// Get a reference to a pane by ID.
-    pub fn get_pane(&self, pane_id: &str) -> Option<&PaneState> {
-        self.panes.get(pane_id)
-    }
-
-    /// Get a mutable reference to a pane by ID.
-    pub fn get_pane_mut(&mut self, pane_id: &str) -> Option<&mut PaneState> {
-        self.panes.get_mut(pane_id)
-    }
-
-    /// Set default dimensions for new panes.
-    pub fn set_default_dimensions(&mut self, width: u32, height: u32) {
-        self.default_width = width;
-        self.default_height = height;
-    }
-
-    /// Clear all state (for reconnection).
-    pub fn clear(&mut self) {
-        self.panes.clear();
-        self.windows.clear();
-        self.active_window_id = None;
-        self.pending_captures.clear();
-        self.capture_armed = None;
-        self.panes_moved_window.clear();
-        self.cached_status_line.clear();
-        self.status_line_dirty = true;
-        self.suppress_window_emissions = false;
     }
 }
 
@@ -2826,6 +2752,25 @@ mod tests {
         assert_eq!(pane.title, title);
         assert_eq!(pane.border_title, border);
         assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
+    fn list_windows_name_with_commas_keeps_fields_aligned() {
+        // Regression: window_name is free text; under the old comma format a
+        // name like "build, test" shifted window_active/@tmuxy-window-type and
+        // every float field. TAB-separated fields (LIST_WINDOWS_CMD) fix it.
+        let name = "build, test";
+        // @id \t index \t name \t active \t type \t float_parent \t fw \t fh \t
+        // drawer \t bg \t noheader \t group_panes
+        let line = format!("@7\t3\t{name}\t1\ttab\t\t\t\t\t\t\t");
+        let mut agg = StateAggregator::new();
+        agg.parse_list_windows_line(&line);
+        let w = agg.windows.get("@7").expect("window parsed");
+        assert_eq!(w.index, 3, "index must not be shifted by the comma name");
+        assert_eq!(w.name, name);
+        assert!(w.active);
+        assert_eq!(w.window_type, Some(WindowType::Tab));
+        assert_eq!(agg.active_window_id.as_deref(), Some("@7"));
     }
 
     #[test]

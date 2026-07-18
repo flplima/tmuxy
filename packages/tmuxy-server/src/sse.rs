@@ -272,10 +272,12 @@ pub async fn sse_handler(
             let monitor_session = session.clone();
             let monitor_state = state.clone();
             let monitor_broadcast = session_conns.broadcast.clone();
-            // Track in the structured `JoinSet` so `shutdown_signal` drains it
-            // on Ctrl+C. We also keep a `JoinHandle` separately on the
-            // `SessionConnections` so the deferred-cleanup path can poll
-            // `is_finished` / drive graceful shutdown of just one session.
+            // Plain `tokio::spawn` (not the `AppState` JoinSet): we keep the
+            // `JoinHandle` on `SessionConnections` so the deferred-cleanup path
+            // can poll `is_finished` / shut down just one session. On server
+            // Ctrl+C the task isn't joined by `shutdown_signal`; instead
+            // `start_monitoring`'s own `shutdown.is_cancelled()` checks break
+            // its loop promptly.
             let handle = tokio::spawn(async move {
                 start_monitoring(monitor_broadcast, monitor_session, monitor_state).await;
             });
@@ -510,7 +512,15 @@ async fn handle_command(
                     set_client_size(state, session, conn_id, c, r).await;
                 }
             }
-            let snapshot = tmuxy_core::capture_window_state_for_session(session)?;
+            // capture_window_state_for_session shells several synchronous tmux
+            // subprocesses; run it off the async worker threads so a slow
+            // capture on connect doesn't stall the runtime under multi-client load.
+            let session_owned = session.to_string();
+            let snapshot = tokio::task::spawn_blocking(move || {
+                tmuxy_core::capture_window_state_for_session(&session_owned)
+            })
+            .await
+            .map_err(|e| format!("capture task failed: {}", e))??;
             serde_json::to_value(snapshot).map_err(|e| format!("Failed to serialize state: {}", e))
         }
         ClientCommand::SetClientSize { cols, rows } => {
@@ -1039,90 +1049,25 @@ async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) 
 }
 
 // ============================================
-// Directory Listing
-// ============================================
-
-#[derive(Debug, Serialize)]
-pub struct DirectoryEntry {
-    pub name: String,
-    pub path: String,
-    pub is_dir: bool,
-    pub is_symlink: bool,
-}
-
-pub fn list_directory(path: &str) -> Result<Vec<DirectoryEntry>, String> {
-    let path = std::path::Path::new(path);
-
-    let abs_path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .map_err(|e| format!("Failed to get cwd: {}", e))?
-            .join(path)
-    };
-
-    let canonical = abs_path
-        .canonicalize()
-        .map_err(|e| format!("Failed to resolve path: {}", e))?;
-
-    let mut entries = Vec::new();
-
-    let dir =
-        std::fs::read_dir(&canonical).map_err(|e| format!("Failed to read directory: {}", e))?;
-
-    for entry in dir {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let metadata = entry
-            .metadata()
-            .map_err(|e| format!("Failed to read metadata: {}", e))?;
-
-        let name = entry.file_name().to_string_lossy().to_string();
-
-        if name.starts_with('.') {
-            continue;
-        }
-
-        let entry_path = entry.path();
-        let path_str = entry_path.to_string_lossy().to_string();
-
-        entries.push(DirectoryEntry {
-            name,
-            path: path_str,
-            is_dir: metadata.is_dir(),
-            is_symlink: metadata.file_type().is_symlink(),
-        });
-    }
-
-    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
-
-    Ok(entries)
-}
-
-// ============================================
 // Monitoring (Control Mode)
 // ============================================
 
-pub async fn start_monitoring(
-    broadcast: Arc<crate::state::SessionBroadcast>,
-    session: String,
-    state: Arc<AppState>,
-) {
-    let use_control_mode = std::env::var("TMUXY_USE_POLLING")
-        .map(|v| v != "1" && v != "true")
-        .unwrap_or(true);
-
-    if use_control_mode {
-        start_monitoring_control_mode(broadcast, session, state).await;
-    } else {
-        start_monitoring_polling(broadcast).await;
-    }
+/// `has-session` check run off the async worker threads (it shells a
+/// synchronous tmux subprocess, which would otherwise block a tokio worker).
+async fn session_exists(session: &str) -> bool {
+    let session = session.to_string();
+    tokio::task::spawn_blocking(move || {
+        tmuxy_core::session::tmux_command()
+            .args(["has-session", "-t", &session])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
 }
 
-async fn start_monitoring_control_mode(
+pub async fn start_monitoring(
     broadcast: Arc<crate::state::SessionBroadcast>,
     session: String,
     state: Arc<AppState>,
@@ -1186,13 +1131,9 @@ async fn start_monitoring_control_mode(
         // create_session=true to recreate it.
         let mut connect_config = config.clone();
         if !is_first_connect {
-            let session_exists = tmuxy_core::session::tmux_command()
-                .args(["has-session", "-t", &session])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+            let exists = session_exists(&session).await;
 
-            if !session_exists {
+            if !exists {
                 if ever_ran_successfully {
                     // Session was intentionally destroyed (e.g., kill-session from test cleanup)
                     info!(%session, "tmux session no longer exists (was running), stopping monitor loop");
@@ -1211,71 +1152,58 @@ async fn start_monitoring_control_mode(
         // `new-session -d` through an existing monitor's CC connection. Running
         // external `tmux new-session -d` while a CC client is attached crashes
         // tmux 3.5a. Routing through CC avoids this.
-        if connect_config.create_session {
-            let session_exists = tmuxy_core::session::tmux_command()
-                .args(["has-session", "-t", &session])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+        if connect_config.create_session && !session_exists(&session).await {
+            // Find an existing running monitor to route through
+            let existing_tx = {
+                let sessions = state.sessions.read().await;
+                sessions.iter().find_map(|(name, conns)| {
+                    if name == &session {
+                        return None;
+                    }
+                    conns
+                        .monitor_command_tx
+                        .clone()
+                        .map(|tx| (name.clone(), tx))
+                })
+            };
 
-            if !session_exists {
-                // Find an existing running monitor to route through
-                let existing_tx = {
-                    let sessions = state.sessions.read().await;
-                    sessions.iter().find_map(|(name, conns)| {
-                        if name == &session {
-                            return None;
-                        }
-                        conns
-                            .monitor_command_tx
-                            .clone()
-                            .map(|tx| (name.clone(), tx))
+            if let Some((via_session, tx)) = existing_tx {
+                let working_dir = connect_config
+                    .working_dir
+                    .as_ref()
+                    .map(|d| format!(" -c '{}'", d.display()))
+                    .unwrap_or_default();
+                let create_cmd = format!(
+                    "new-session -d -s {} -x {} -y {}{}",
+                    session,
+                    tmuxy_core::control_mode::INITIAL_PTY_COLS,
+                    tmuxy_core::control_mode::INITIAL_PTY_ROWS,
+                    working_dir
+                );
+                info!(%session, %via_session, "creating session via existing CC client");
+                let _ = tx
+                    .send(tmuxy_core::control_mode::MonitorCommand::RunCommand {
+                        command: create_cmd,
                     })
-                };
-
-                if let Some((via_session, tx)) = existing_tx {
-                    let working_dir = connect_config
-                        .working_dir
-                        .as_ref()
-                        .map(|d| format!(" -c '{}'", d.display()))
-                        .unwrap_or_default();
-                    let create_cmd = format!(
-                        "new-session -d -s {} -x {} -y {}{}",
-                        session,
-                        tmuxy_core::control_mode::INITIAL_PTY_COLS,
-                        tmuxy_core::control_mode::INITIAL_PTY_ROWS,
-                        working_dir
-                    );
-                    info!(%session, %via_session, "creating session via existing CC client");
-                    let _ = tx
-                        .send(tmuxy_core::control_mode::MonitorCommand::RunCommand {
-                            command: create_cmd,
-                        })
-                        .await;
-                    // Wait for the session to actually exist before attaching CC.
-                    // The RunCommand is async — it goes through the monitor's event
-                    // loop and then tmux processes it. Poll has-session to confirm.
-                    let mut created = false;
-                    for _ in 0..50 {
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                        let exists = tmuxy_core::session::tmux_command()
-                            .args(["has-session", "-t", &session])
-                            .output()
-                            .map(|o| o.status.success())
-                            .unwrap_or(false);
-                        if exists {
-                            created = true;
-                            info!(%session, "session created successfully via CC");
-                            break;
-                        }
+                    .await;
+                // Wait for the session to actually exist before attaching CC.
+                // The RunCommand is async — it goes through the monitor's event
+                // loop and then tmux processes it. Poll has-session to confirm.
+                let mut created = false;
+                for _ in 0..50 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    if session_exists(&session).await {
+                        created = true;
+                        info!(%session, "session created successfully via CC");
+                        break;
                     }
-                    if created {
-                        // Session exists, just attach (no creation needed)
-                        connect_config.create_session = false;
-                    } else {
-                        warn!(%session, "session creation via CC timed out, falling back to direct creation");
-                        // Fall through with create_session still true
-                    }
+                }
+                if created {
+                    // Session exists, just attach (no creation needed)
+                    connect_config.create_session = false;
+                } else {
+                    warn!(%session, "session creation via CC timed out, falling back to direct creation");
+                    // Fall through with create_session still true
                 }
             }
         }
@@ -1366,56 +1294,6 @@ async fn start_monitoring_control_mode(
             _ = shutdown.cancelled() => {}
         }
         backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
-    }
-}
-
-async fn start_monitoring_polling(broadcast: Arc<crate::state::SessionBroadcast>) {
-    let mut interval = tokio::time::interval(Duration::from_millis(100));
-    let mut previous_hash = String::new();
-
-    loop {
-        interval.tick().await;
-
-        match tmuxy_core::capture_window_state() {
-            Ok(state) => {
-                let pane_hash: String = state
-                    .panes
-                    .iter()
-                    .map(|p| {
-                        format!(
-                            "{}:{}:{}",
-                            p.id,
-                            p.active,
-                            tmuxy_core::content_to_hash_string(&p.content)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("|");
-                let window_hash: String = state
-                    .windows
-                    .iter()
-                    .map(|w| format!("{}:{}:{}", w.index, w.name, w.active))
-                    .collect::<Vec<_>>()
-                    .join("|");
-                let current_hash = format!("{}||{}", pane_hash, window_hash);
-
-                if current_hash != previous_hash {
-                    let event = SseEvent::StateUpdate(Box::new(StateUpdate::Full { state }));
-                    if let Some(s) = encode_event(&event) {
-                        broadcast.broadcast(s);
-                    }
-                    previous_hash = current_hash;
-                }
-            }
-            Err(e) => {
-                let event = SseEvent::Error {
-                    message: e.to_string(),
-                };
-                if let Some(s) = encode_event(&event) {
-                    broadcast.broadcast(s);
-                }
-            }
-        }
     }
 }
 

@@ -207,24 +207,6 @@ impl WasmTmux {
                 )
             })
     }
-
-    /// The aggregator's LIVE active pane id — authoritative at read time.
-    /// Deltas/fulls computed earlier in a burst can carry a stale active pane
-    /// (emitted before a select-pane landed); hosts stamp this over the
-    /// replayed state so "active" never time-travels.
-    pub fn active_pane_id(&self) -> Option<String> {
-        self.inner.agg.live_active_pane_id()
-    }
-
-    /// The aggregator's LIVE active window id at read time.
-    pub fn active_window_id(&self) -> Option<String> {
-        self.inner.agg.live_active_window_id()
-    }
-
-    /// Set the status-line text (fetched out-of-band by the host).
-    pub fn set_status_line(&mut self, status: String) {
-        self.inner.agg.set_status_line(status);
-    }
 }
 
 #[cfg(test)]

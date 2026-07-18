@@ -123,19 +123,6 @@ pub type TerminalLine = Vec<TerminalCell>;
 /// Pane content as structured cells (pre-parsed from ANSI)
 pub type PaneContent = Vec<TerminalLine>;
 
-/// Convert pane content to a string for hashing/comparison purposes
-pub fn content_to_hash_string(content: &PaneContent) -> String {
-    content
-        .iter()
-        .map(|line| {
-            line.iter()
-                .map(|cell| cell.char.as_str())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("")
-}
-
 /// Extract structured cells from a vt100 screen.
 /// This is the single source of truth for cell extraction, used by both
 /// parse_ansi_to_cells (polling mode) and PaneState::get_content (control mode).
@@ -643,15 +630,11 @@ pub enum StateUpdate {
     Delta { delta: TmuxDelta },
 }
 
-/// Capture the state of all panes in the current window
+/// Capture the state of all panes in a specific session's current window, via
+/// one-off external tmux reads (the polling/snapshot fallback path — the live
+/// server/Tauri paths get state from the control-mode aggregator instead).
 #[cfg(feature = "native")]
-pub fn capture_state() -> Result<TmuxState, TmuxError> {
-    capture_state_for_session(DEFAULT_SESSION_NAME)
-}
-
-/// Capture the state of all panes in a specific session's current window
-#[cfg(feature = "native")]
-pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, TmuxError> {
+pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState, TmuxError> {
     let pane_infos = executor::get_all_panes_info(session_name)?;
     let window_infos = executor::get_windows(session_name)?;
 
@@ -711,9 +694,9 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, TmuxEr
         });
     }
 
-    // Polling mode doesn't fetch @tmuxy-* options. Without them, every window
-    // is treated as foreign (window_type: None) — polling is a legacy fallback
-    // used by capture_state callers that don't have control mode available.
+    // This external-read path doesn't fetch @tmuxy-* options. Without them,
+    // every window is treated as foreign (window_type: None) — acceptable
+    // because this is only the fallback/snapshot path, not the live one.
     let windows: Vec<TmuxWindow> = window_infos
         .into_iter()
         .map(|w| TmuxWindow {
@@ -749,17 +732,6 @@ pub fn capture_state_for_session(session_name: &str) -> Result<TmuxState, TmuxEr
         total_height,
         status_line,
     })
-}
-
-// Alias for backwards compatibility
-#[cfg(feature = "native")]
-pub fn capture_window_state() -> Result<TmuxState, TmuxError> {
-    capture_state()
-}
-
-#[cfg(feature = "native")]
-pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState, TmuxError> {
-    capture_state_for_session(session_name)
 }
 
 #[cfg(test)]

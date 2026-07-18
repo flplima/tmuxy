@@ -18,7 +18,7 @@ If any of these assumptions are violated, the risks described below apply.
 
 ## Authentication
 
-**By default the web server performs no authentication.** With no password configured, any client that can reach the server's network port can open an SSE connection, send arbitrary commands via `POST /commands`, and read filesystem entries via `/api/file` / `/api/directory`. There are no session tokens, no API keys, no cookies, and no per-user permissions.
+**By default the web server performs no authentication.** With no password configured, any client that can reach the server's network port can open an SSE connection, send arbitrary commands via `POST /commands`, and read filesystem entries via `/api/file`. There are no session tokens, no API keys, no cookies, and no per-user permissions.
 
 This default is intended for a trusted network (loopback, LAN, SSH tunnel, VPN, or behind an authenticating reverse proxy). The default threat model assumes everyone who can reach the server is authorized to control it.
 
@@ -78,7 +78,7 @@ The Tauri app has no network-level authentication concerns — all communication
 
 ### 4. Unrestricted File Access (High)
 
-**Risk:** The `/api/file` endpoint reads arbitrary files and `/api/directory` lists arbitrary directories, with no path restrictions beyond Unix file permissions.
+**Risk:** The `/api/file` endpoint reads arbitrary files, with no path restrictions beyond Unix file permissions.
 
 **Impact:** Information disclosure — SSH keys, configuration files, source code, credentials, and any file readable by the server process.
 
@@ -194,7 +194,7 @@ Not yet implemented, but would improve the security posture:
 - **Command allowlisting** — Restrict which tmux commands clients can execute
 - **Read-only mode** — View terminal output without command execution
 - **Audit logging** — Log all commands and client connections
-- **Path restrictions** — Limit `/api/file` and `/api/directory` to specific directories
+- **Path restrictions** — Limit `/api/file` to specific directories
 - **Rate limiting** — Prevent command flooding
 
 ## Related

@@ -268,11 +268,22 @@ async fn serve_embedded(uri: axum::http::Uri) -> Response {
         let mime = mime_for_path(path);
         build_response(StatusCode::OK, mime, file.data.into_owned())
     } else if path.starts_with("themes/") && path.ends_with(".css") {
-        // Custom theme CSS not in the embedded bundle — try ~/.config/tmuxy/themes/
-        let theme_path = tmuxy_core::session::config_dir().join(path);
-        match std::fs::read(&theme_path) {
-            Ok(data) => build_response(StatusCode::OK, "text/css; charset=utf-8", data),
-            Err(_) => StatusCode::NOT_FOUND.into_response(),
+        // Custom theme CSS not in the embedded bundle — try ~/.config/tmuxy/themes/.
+        // Canonicalize and confirm the resolved path stays under the themes dir:
+        // axum doesn't normalize `..`, so `themes/../../../etc/foo.css` would
+        // otherwise escape config_dir() and read any .css file on disk.
+        let themes_dir = tmuxy_core::session::config_dir().join("themes");
+        let served = themes_dir.canonicalize().ok().and_then(|canon_themes| {
+            tmuxy_core::session::config_dir()
+                .join(path)
+                .canonicalize()
+                .ok()
+                .filter(|p| p.starts_with(&canon_themes))
+                .and_then(|p| std::fs::read(&p).ok())
+        });
+        match served {
+            Some(data) => build_response(StatusCode::OK, "text/css; charset=utf-8", data),
+            None => StatusCode::NOT_FOUND.into_response(),
         }
     } else if let Some(index) = FrontendAssets::get("index.html") {
         // SPA fallback

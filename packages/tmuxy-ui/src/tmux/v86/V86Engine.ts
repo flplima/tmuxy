@@ -71,8 +71,6 @@ interface WasmCore {
   snapshot(): ServerState;
   initial_sync(): string[];
   image_url(paneId: string, imageId: number): string | undefined;
-  active_pane_id(): string | undefined;
-  active_window_id(): string | undefined;
   parse_scrollback(text: string, width: number): PaneContent;
 }
 interface WasmModule {

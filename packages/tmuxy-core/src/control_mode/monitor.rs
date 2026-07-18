@@ -13,7 +13,7 @@ use super::state::{
 use crate::constants::tmux_formats;
 use crate::ctx::Ctx;
 use crate::error::TmuxError;
-use crate::{StateUpdate, TmuxState};
+use crate::StateUpdate;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -870,33 +870,6 @@ impl TmuxMonitor {
                 false
             }
         }
-    }
-
-    /// Send a tmux command through control mode.
-    ///
-    /// Returns the command number for tracking the response.
-    pub async fn send_command(&mut self, cmd: &str) -> Result<u32, TmuxError> {
-        self.connection.send_command(cmd).await
-    }
-
-    /// Get current state without waiting for events.
-    pub fn current_state(&mut self) -> TmuxState {
-        self.aggregator.to_tmux_state()
-    }
-
-    /// Check if the connection is still alive.
-    pub fn is_alive(&mut self) -> bool {
-        self.connection.is_alive()
-    }
-
-    /// Kill the monitor connection.
-    pub async fn kill(&mut self) -> Result<(), TmuxError> {
-        self.connection.kill().await
-    }
-
-    /// Get the configuration.
-    pub fn config(&self) -> &MonitorConfig {
-        &self.config
     }
 }
 

@@ -416,6 +416,12 @@ pub fn capture_status_line(session_name: &str, width: usize) -> Result<String> {
 
 /// Evaluate #(cmd) patterns in a tmux format string by running the shell commands
 fn evaluate_shell_commands(input: &str) -> String {
+    // When attached to a remote server (TMUXY_SSH), the `#(cmd)` snippets come
+    // from the REMOTE tmux config and must not run on the local host — doing so
+    // produces wrong results at best and executes remote-controlled command
+    // strings locally at worst. Skip evaluation (drop the `#(...)` segment)
+    // rather than shelling out.
+    let allow_local_exec = crate::session::ssh_target().is_none();
     let mut result = String::new();
     let mut chars = input.chars().peekable();
 
@@ -439,14 +445,16 @@ fn evaluate_shell_commands(input: &str) -> String {
                     cmd.push(ch);
                 }
             }
-            // Execute the command and use its output
-            if let Ok(output) = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(&cmd)
-                .output()
-            {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                result.push_str(stdout.trim_end_matches('\n'));
+            // Execute the command and use its output (local server only).
+            if allow_local_exec {
+                if let Ok(output) = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(&cmd)
+                    .output()
+                {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    result.push_str(stdout.trim_end_matches('\n'));
+                }
             }
         } else {
             result.push(c);

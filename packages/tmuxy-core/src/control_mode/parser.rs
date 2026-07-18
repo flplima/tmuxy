@@ -168,6 +168,13 @@ impl Parser {
     }
 
     fn handle_end(&mut self, _line: &str, success: bool) -> Option<ControlModeEvent> {
+        // A stray %end/%error with no matching %begin would otherwise emit a
+        // CommandResponse carrying the previous block's stale timestamp/
+        // command_num and an empty body, which downstream treats as a real
+        // (state-changing) response.
+        if !self.in_response {
+            return None;
+        }
         let event = ControlModeEvent::CommandResponse {
             timestamp: self.response_timestamp,
             command_num: self.response_command_num,
@@ -558,6 +565,15 @@ mod tests {
             }
             _ => panic!("Expected CommandResponse event"),
         }
+    }
+
+    #[test]
+    fn stray_end_without_begin_is_ignored() {
+        // A %end/%error with no matching %begin must not emit a bogus
+        // CommandResponse (stale timestamp/command_num, empty body).
+        let mut parser = Parser::new();
+        assert!(parser.parse_line("%end 1234567890 0 0").is_none());
+        assert!(parser.parse_line("%error 1234567890 1 0").is_none());
     }
 
     #[test]

@@ -306,8 +306,7 @@ Beyond the core SSE/HTTP protocol, the web server exposes:
 |----------|--------|---------|
 | `/events` | GET | SSE stream (state updates, connection info) |
 | `/commands` | POST | tmux commands (no authentication unless `--password` is set — see SECURITY.md) |
-| `/api/snapshot` | GET | UI-vs-tmux consistency snapshot (testing/debugging) |
 | `/api/file` | GET | Read file contents (used by widget panes) |
-| `/api/directory` | GET | List directory contents (used by widget panes) |
+| `/api/images/{pane_id}/{image_id}` | GET | Serve a decoded inline-image blob |
 
-The `/api/file` and `/api/directory` endpoints exist for widget rendering (markdown viewer, image viewer). Like every route they are gated by the optional `--password` Basic auth, but have no path restrictions beyond that. See [SECURITY.md](SECURITY.md) for the implications.
+The `/api/file` endpoint exists for widget rendering (markdown viewer, image viewer). Like every route it is gated by the optional `--password` Basic auth, but has no path restrictions beyond that. See [SECURITY.md](SECURITY.md) for the implications.

@@ -302,10 +302,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/events", get(crate::sse::sse_handler))
         .route("/commands", post(crate::sse::commands_handler))
-        .route("/api/snapshot", get(snapshot_handler))
-        .route("/api/directory", get(directory_handler))
         .route("/api/file", get(file_handler))
-        .route("/api/themes", get(themes_handler))
         .route("/api/images/{pane_id}/{image_id}", get(image_handler))
         .layer(
             CorsLayer::new()
@@ -345,105 +342,6 @@ async fn file_handler(Query(query): Query<FileQuery>) -> Response {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct DirectoryQuery {
-    path: Option<String>,
-}
-
-async fn directory_handler(Query(query): Query<DirectoryQuery>) -> Response {
-    let path = query.path.unwrap_or_else(|| "/".to_string());
-
-    match crate::sse::list_directory(&path) {
-        Ok(entries) => match serde_json::to_value(&entries) {
-            Ok(v) => json_response(StatusCode::OK, &v),
-            Err(e) => json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &serde_json::json!({ "error": e.to_string() }),
-            ),
-        },
-        Err(e) => json_response(StatusCode::BAD_REQUEST, &serde_json::json!({ "error": e })),
-    }
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct SnapshotQuery {
-    session: Option<String>,
-}
-
-async fn snapshot_handler(Query(query): Query<SnapshotQuery>) -> Response {
-    let session = query
-        .session
-        .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
-
-    let workspace_root = find_workspace_root();
-
-    let release_path = workspace_root.join("target/release/tmux-capture");
-    let debug_path = workspace_root.join("target/debug/tmux-capture");
-
-    let binary_path = if release_path.exists() {
-        release_path
-    } else if debug_path.exists() {
-        debug_path
-    } else {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &serde_json::json!({
-                "error": "tmux-capture binary not found. Run: cargo build -p tmuxy-core --bin tmux-capture",
-            }),
-        );
-    };
-
-    let output = match std::process::Command::new(&binary_path)
-        .args([&session, "200"])
-        .current_dir(&workspace_root)
-        .output()
-    {
-        Ok(output) => output,
-        Err(e) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &serde_json::json!({
-                    "error": format!("Failed to run tmux-capture: {}", e),
-                }),
-            );
-        }
-    };
-
-    if !output.status.success() {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &serde_json::json!({
-                "error": format!("tmux-capture failed: {}", String::from_utf8_lossy(&output.stderr)),
-            }),
-        );
-    }
-
-    let relative_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let snapshot_path = workspace_root.join(&relative_path);
-
-    match std::fs::read_to_string(&snapshot_path) {
-        Ok(content) => {
-            let lines: Vec<&str> = content.lines().collect();
-            let rows = lines.len();
-            let cols = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-            json_response(
-                StatusCode::OK,
-                &serde_json::json!({
-                    "rows": rows,
-                    "cols": cols,
-                    "lines": lines,
-                }),
-            )
-        }
-        Err(e) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &serde_json::json!({
-                "error": format!("Failed to read snapshot file '{}': {}", snapshot_path.display(), e),
-            }),
-        ),
-    }
-}
-
 async fn image_handler(
     State(state): State<Arc<AppState>>,
     Path((pane_id, image_id)): Path<(String, u32)>,
@@ -462,40 +360,6 @@ async fn image_handler(
             &serde_json::json!({ "error": "image not found" }),
         ),
     }
-}
-
-async fn themes_handler() -> Response {
-    let themes_dir = tmuxy_core::session::config_dir().join("themes");
-    let mut names: Vec<String> = std::fs::read_dir(&themes_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().to_string();
-            name.strip_suffix(".css").map(|n| n.to_string())
-        })
-        .collect();
-    names.sort();
-
-    let json: Vec<serde_json::Value> = names
-        .into_iter()
-        .map(|name| {
-            let display_name = name
-                .split('-')
-                .map(|word| {
-                    let mut chars = word.chars();
-                    match chars.next() {
-                        None => String::new(),
-                        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            serde_json::json!({ "name": name, "displayName": display_name })
-        })
-        .collect();
-
-    json_response(StatusCode::OK, &serde_json::Value::Array(json))
 }
 
 /// Find the workspace root (directory with package.json containing "workspaces")

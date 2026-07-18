@@ -1,5 +1,6 @@
 /**
- * Debug utilities - getSnapshot() and getTmuxSnapshot() for comparing UI vs tmux content
+ * Debug utilities - getSnapshot() renders the UI's terminal content for
+ * comparison against tmux's own capture-pane output.
  */
 
 import type { TmuxPane, TmuxWindow } from '../tmux/types';
@@ -20,7 +21,6 @@ interface AppState {
 declare global {
   interface Window {
     getSnapshot: () => string[];
-    getTmuxSnapshot: () => Promise<string[]>;
     /** Last N events sent to the app machine (for the Debug menu). */
     getRecentEvents: () => Array<{ timestamp: number; type: string; event: unknown }>;
     /** Wrapped by AppContext so every send is captured into the ring buffer. */
@@ -261,30 +261,8 @@ function buildSnapshot(): string[] {
   return grid.map((row) => row.join(''));
 }
 
-/**
- * Fetch tmux snapshot from the API endpoint.
- * Returns an array of strings where each string is one full row.
- */
-async function fetchTmuxSnapshot(): Promise<string[]> {
-  try {
-    const session = new URL(window.location.href).searchParams.get('session');
-    const url = session ? `/api/snapshot?session=${encodeURIComponent(session)}` : '/api/snapshot';
-    const response = await fetch(url);
-    const data = (await response.json()) as
-      | { rows: number; cols: number; lines: string[] }
-      | { error: string };
-    if ('error' in data) {
-      return [`Error: ${data.error}`];
-    }
-    return data.lines;
-  } catch (error) {
-    return [`Fetch error: ${error}`];
-  }
-}
-
 export function initDebugHelpers(): void {
   window.getSnapshot = buildSnapshot;
-  window.getTmuxSnapshot = fetchTmuxSnapshot;
   window.getRecentEvents = () => recentEvents.slice();
   window.__tmuxyRecordEvent = recordEvent;
 }
