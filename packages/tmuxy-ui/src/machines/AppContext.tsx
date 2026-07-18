@@ -28,7 +28,7 @@ import {
   getActivePaneInGroup,
 } from './selectors';
 import { LeavingPanesContext } from './LeavingPanesContext';
-import { executeMenuAction } from '../components/menus/menuActions';
+import { activeCloseTarget, executeMenuAction } from '../components/menus/menuActions';
 import type { TmuxAdapter } from '../tmux/types';
 import { createAdapter } from '../tmux/adapters';
 import { createTmuxActor } from './actors/tmuxActor';
@@ -181,7 +181,14 @@ export function AppProvider({
     // control-mode-safe adapter path instead of raw external tmux subprocesses.
     (window as unknown as { tmuxyMenuAction: (actionId: string) => void }).tmuxyMenuAction = (
       actionId: string,
-    ) => executeMenuAction(actorRef.send, actionId);
+    ) => {
+      const { activePaneId, focusedFloatPaneId } = actorRef.getSnapshot().context;
+      executeMenuAction(
+        actorRef.send,
+        actionId,
+        activeCloseTarget(activePaneId, focusedFloatPaneId),
+      );
+    };
   }, [actorRef]);
 
   return (

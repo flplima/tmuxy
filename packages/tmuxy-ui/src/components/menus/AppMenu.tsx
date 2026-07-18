@@ -27,7 +27,7 @@ import {
   selectAvailableThemes,
 } from '../../machines/AppContext';
 import { getKeybindingLabel } from './keybindingLabel';
-import { executeMenuAction } from './menuActions';
+import { activeCloseTarget, executeMenuAction } from './menuActions';
 import { PaneMenuItems } from './PaneMenuItems';
 import type { KeyBindings } from '../../machines/types';
 import './AppMenu.css';
@@ -47,11 +47,13 @@ export function AppMenu() {
   const themeName = useAppSelector(selectThemeName);
   const themeMode = useAppSelector(selectThemeMode);
   const availableThemes = useAppSelector(selectAvailableThemes);
+  const activePaneId = useAppSelector((c) => c.activePaneId);
+  const focusedFloatPaneId = useAppSelector((c) => c.focusedFloatPaneId);
 
   const isSingleWindow = windows.filter((w) => w.windowType === 'tab').length <= 1;
 
   const handleAction = (actionId: string) => {
-    executeMenuAction(send, actionId);
+    executeMenuAction(send, actionId, activeCloseTarget(activePaneId, focusedFloatPaneId));
   };
 
   const menuButton = (

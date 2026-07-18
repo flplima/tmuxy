@@ -11,9 +11,29 @@ const GITHUB_URL = 'https://github.com/flplima/tmuxy';
 type Send = (event: AppMachineEvent) => void;
 
 /**
- * Execute a menu action by ID.
+ * Resolve the pane a menu "Close Pane" should target when the menu isn't
+ * anchored to a specific pane (the hamburger AppMenu and the Tauri native
+ * menu): the focused float, else the real active pane, else undefined so the
+ * caller falls back to tmux's server-active pane. Mirrors the focus-target
+ * resolution every keyboardActor path uses (`focusedFloatPaneId ??
+ * realPaneId(activePaneId)`), so close hits the pane the user sees as active.
  */
-export function executeMenuAction(send: Send, actionId: string): void {
+export function activeCloseTarget(
+  activePaneId: string | null,
+  focusedFloatPaneId: string | null,
+): string | undefined {
+  const realActive =
+    activePaneId && !activePaneId.startsWith('__placeholder_') ? activePaneId : null;
+  return focusedFloatPaneId ?? realActive ?? undefined;
+}
+
+/**
+ * Execute a menu action by ID. `closeTargetPaneId` — when the caller knows the
+ * pane a group-aware "Close Pane" should act on — routes pane-close through the
+ * group-aware CLOSE_PANE path instead of a raw kill-pane that bypasses group
+ * teardown (see activeCloseTarget).
+ */
+export function executeMenuAction(send: Send, actionId: string, closeTargetPaneId?: string): void {
   switch (actionId) {
     // Pane actions
     case 'pane-split-below':
@@ -66,7 +86,15 @@ export function executeMenuAction(send: Send, actionId: string): void {
       send({ type: 'SEND_COMMAND', command: 'send-keys -R \\; clear-history' });
       break;
     case 'pane-close':
-      send({ type: 'SEND_COMMAND', command: 'kill-pane' });
+      // Group members and floats need the group-aware close script; a raw
+      // kill-pane leaves the group window and its @tmuxy-group-panes option
+      // stale. Route through CLOSE_PANE when we know which pane to close;
+      // otherwise fall back to tmux's server-active pane.
+      if (closeTargetPaneId) {
+        send({ type: 'CLOSE_PANE', paneId: closeTargetPaneId });
+      } else {
+        send({ type: 'SEND_COMMAND', command: 'kill-pane' });
+      }
       break;
 
     // Tab actions
