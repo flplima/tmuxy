@@ -52,11 +52,17 @@ function lineFor(
   return isRowLoaded(loadedRanges, row) ? EMPTY_LINE : PLACEHOLDER_LINE;
 }
 
+/** The only `CopyModeState` fields selection geometry depends on. */
+type SelectionInput = Pick<
+  CopyModeState,
+  'selectionAnchor' | 'selectionMode' | 'cursorRow' | 'cursorCol' | 'width'
+>;
+
 /**
  * Compute per-line selection ranges from copy mode state
  */
 function computeScrollbackSelection(
-  state: CopyModeState,
+  state: SelectionInput,
 ): (lineIndex: number) => { startCol: number; endCol: number } | null {
   const { selectionAnchor, selectionMode, cursorRow, cursorCol, width } = state;
   if (!selectionAnchor || !selectionMode) return () => null;
@@ -105,16 +111,12 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
   >([]);
 
   const { totalLines, scrollTop, height, cursorRow, cursorCol, lines, loadedRanges } = copyState;
+  const { selectionAnchor, selectionMode, width } = copyState;
 
   const getSelectionRange = useMemo(
-    () => computeScrollbackSelection(copyState),
-    [
-      copyState.selectionAnchor,
-      copyState.selectionMode,
-      copyState.cursorRow,
-      copyState.cursorCol,
-      copyState.width,
-    ],
+    () =>
+      computeScrollbackSelection({ selectionAnchor, selectionMode, cursorRow, cursorCol, width }),
+    [selectionAnchor, selectionMode, cursorRow, cursorCol, width],
   );
 
   // Visible line range with overscan buffer (1 screen above + 1 screen below)

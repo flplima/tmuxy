@@ -81,9 +81,26 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
   // Document-level mouseup listener ref (for cleanup when mouse released outside pane)
   const documentMouseUpRef = useRef<(() => void) | null>(null);
   const pendingTimers = useRef<number[]>([]);
+  // Unmount cleanup: tear down every timer/listener this hook can leave
+  // running. A pane can unmount mid-drag (e.g. tmux kills it during a
+  // selection), which would otherwise leave the auto-scroll interval firing
+  // COPY_MODE_CURSOR_MOVE forever and the document-level mouseup listener
+  // calling setSelectionStart on a dead component.
   useEffect(() => {
     const timers = pendingTimers;
-    return () => timers.current.forEach(clearTimeout);
+    const autoScrollTimer = autoScrollTimerRef;
+    const documentMouseUp = documentMouseUpRef;
+    return () => {
+      timers.current.forEach(clearTimeout);
+      if (autoScrollTimer.current !== null) {
+        clearInterval(autoScrollTimer.current);
+        autoScrollTimer.current = null;
+      }
+      if (documentMouseUp.current) {
+        document.removeEventListener('mouseup', documentMouseUp.current);
+        documentMouseUp.current = null;
+      }
+    };
   }, []);
 
   // Clear selection start when copy mode exits
@@ -355,6 +372,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       pixelToCell,
       contentRef,
       options.paneHeight,
+      startAutoScroll,
       stopAutoScroll,
     ],
   );

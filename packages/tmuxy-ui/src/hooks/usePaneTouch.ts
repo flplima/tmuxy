@@ -10,7 +10,7 @@
  *   3. Normal shell → proxy to scroll container (enters copy mode)
  */
 
-import { useCallback, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 import { sendScrollLines } from './scrollUtils';
 import { focusMobileInput } from '../utils/mobileKeyboard';
@@ -69,6 +69,20 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
       cancelAnimationFrame(momentumRAFRef.current);
       momentumRAFRef.current = null;
     }
+  }, []);
+
+  // Unmount cleanup: cancel any in-flight momentum animation. TerminalPane
+  // consumes the hook without wiring cancelMomentum() to unmount, so without
+  // this a flick that unmounts the pane (tmux kills it) keeps the rAF loop
+  // mutating scrollTop / sending into a dead pane until velocity decays.
+  useEffect(() => {
+    const raf = momentumRAFRef;
+    return () => {
+      if (raf.current !== null) {
+        cancelAnimationFrame(raf.current);
+        raf.current = null;
+      }
+    };
   }, []);
 
   // Process a pixel delta: accumulate into lines and dispatch
