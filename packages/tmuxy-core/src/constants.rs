@@ -63,17 +63,19 @@ pub mod tmux_options {
 /// constants ensures the parser (`StateAggregator::process_event`) only ever
 /// has to handle one column layout.
 pub mod tmux_formats {
-    /// `list-windows -F '<...>'` format. Fields are TAB-separated (not comma):
-    /// `#{window_name}` is free text and a name like `build, test` would shift
-    /// every later field under a comma format. Tabs effectively never appear in
-    /// window names, matching the sidebar poll's tab-joined rows.
+    /// `list-windows -F '<...>'` format, comma-separated. `#{window_name}` is
+    /// free text (a name like `build, test` contains commas), so it is placed
+    /// LAST — the parser splits the fixed fields off the front and takes the
+    /// remainder as the name, so its commas can't shift any field. (A tab
+    /// delimiter would be cleaner but the v86 serial console mangles tabs; all
+    /// other fields — ids, numbers, enums, space-joined pane ids — are
+    /// comma-free.)
     pub const LIST_WINDOWS_CMD: &str = concat!(
         "list-windows -F '",
-        "#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t",
-        "#{@tmuxy-window-type}\t#{@tmuxy-float-parent}\t",
-        "#{@tmuxy-float-width}\t#{@tmuxy-float-height}\t",
-        "#{@tmuxy-float-drawer}\t#{@tmuxy-float-bg}\t",
-        "#{@tmuxy-float-noheader}\t#{@tmuxy-group-panes}'",
+        "#{window_id},#{window_index},#{window_active},#{@tmuxy-window-type},",
+        "#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},",
+        "#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},",
+        "#{@tmuxy-group-panes},#{window_name}'",
     );
 
     /// `list-panes -s -F '<...>'` format. The session-scope flag (`-s`) is

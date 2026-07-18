@@ -1899,11 +1899,9 @@ impl StateAggregator {
         let mut is_list_windows_response = false;
         let mut seen_windows: std::collections::HashSet<String> = std::collections::HashSet::new();
         for line in output.lines() {
-            // list-windows rows are TAB-separated (constants::LIST_WINDOWS_CMD);
-            // list-panes rows are comma-separated, so the two never cross-detect.
-            if line.contains('@') && line.contains('\t') {
+            if line.contains('@') && line.contains(',') {
                 // Extract window_id before parsing (first field starts with @)
-                if let Some(wid) = line.split('\t').next() {
+                if let Some(wid) = line.split(',').next() {
                     let wid = wid.trim();
                     if wid.starts_with('@') {
                         seen_windows.insert(wid.to_string());
@@ -2092,15 +2090,16 @@ impl StateAggregator {
         Some((pane_id_string, needs_capture))
     }
 
-    /// Parse a line from list-windows output. Expected format:
-    /// `@id,index,name,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,group_panes`
-    /// where every column after `active` is a `@tmuxy-*` user option that may be empty.
+    /// Parse a line from list-windows output. Expected format (comma-separated,
+    /// see constants::LIST_WINDOWS_CMD):
+    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,group_panes,name`
+    /// `window_name` is LAST and free text — we `splitn` so its own commas stay
+    /// in the trailing field and can't shift any parsed column. Every column
+    /// after `active` is a `@tmuxy-*` user option that may be empty.
     fn parse_list_windows_line(&mut self, line: &str) {
-        // TAB-separated (see constants::LIST_WINDOWS_CMD): window_name is free
-        // text, so a comma delimiter would let a name like `build, test` shift
-        // every subsequent field.
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 4 {
+        // 12 fields; splitn keeps window_name (the 12th) intact even with commas.
+        let parts: Vec<&str> = line.splitn(12, ',').collect();
+        if parts.len() < 11 {
             return;
         }
 
@@ -2110,8 +2109,8 @@ impl StateAggregator {
         }
 
         let index: u32 = parts[1].parse().unwrap_or(0);
-        let name = parts[2].to_string();
-        let active = parts[3] == "1";
+        let active = parts[2] == "1";
+        let name = parts.get(11).map(|s| s.to_string()).unwrap_or_default();
 
         let opt = |idx: usize| -> Option<String> {
             parts
@@ -2121,16 +2120,16 @@ impl StateAggregator {
                 .map(|s| s.to_string())
         };
 
-        let window_type = opt(4).and_then(|s| WindowType::parse(&s));
-        let float_parent = opt(5);
-        let float_width = opt(6).and_then(|s| s.parse::<u32>().ok());
-        let float_height = opt(7).and_then(|s| s.parse::<u32>().ok());
-        let float_drawer = opt(8);
-        let float_bg = opt(9);
-        let float_noheader = opt(10).is_some_and(|s| s == "1");
+        let window_type = opt(3).and_then(|s| WindowType::parse(&s));
+        let float_parent = opt(4);
+        let float_width = opt(5).and_then(|s| s.parse::<u32>().ok());
+        let float_height = opt(6).and_then(|s| s.parse::<u32>().ok());
+        let float_drawer = opt(7);
+        let float_bg = opt(8);
+        let float_noheader = opt(9).is_some_and(|s| s == "1");
         // Group pane membership stored as space-separated (e.g. "%4 %6 %7")
         // to avoid colliding with the comma-separated list-windows format.
-        let group_panes = opt(11).map(|s| {
+        let group_panes = opt(10).map(|s| {
             s.split_whitespace()
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>()
@@ -2756,13 +2755,12 @@ mod tests {
 
     #[test]
     fn list_windows_name_with_commas_keeps_fields_aligned() {
-        // Regression: window_name is free text; under the old comma format a
-        // name like "build, test" shifted window_active/@tmuxy-window-type and
-        // every float field. TAB-separated fields (LIST_WINDOWS_CMD) fix it.
+        // Regression: window_name is free text; placing it LAST (see
+        // LIST_WINDOWS_CMD) means a name like "build, test" stays in the
+        // trailing field and can't shift window_active/@tmuxy-window-type/floats.
         let name = "build, test";
-        // @id \t index \t name \t active \t type \t float_parent \t fw \t fh \t
-        // drawer \t bg \t noheader \t group_panes
-        let line = format!("@7\t3\t{name}\t1\ttab\t\t\t\t\t\t\t");
+        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,group,name
+        let line = format!("@7,3,1,tab,,,,,,,,{name}");
         let mut agg = StateAggregator::new();
         agg.parse_list_windows_line(&line);
         let w = agg.windows.get("@7").expect("window parsed");
