@@ -54,6 +54,11 @@ function getEffectiveSession(): string {
 export class HttpAdapter implements TmuxAdapter {
   readonly enumeratesSessions = true;
   private eventSource: EventSource | null = null;
+  // In-flight connect(): a reconnect timer and an auto-connect from invoke()
+  // can both call connect() while `connected` is false. Without deduping, the
+  // second opens a second EventSource that overwrites `this.eventSource`,
+  // orphaning the first (open, all listeners attached, never closable).
+  private connectPromise: Promise<void> | null = null;
   private connectionId: number = 0;
   private connected = false;
   private reconnecting = false;
@@ -95,10 +100,20 @@ export class HttpAdapter implements TmuxAdapter {
     if (this.connected && this.eventSource) return Promise.resolve();
     if (this.fatal)
       return Promise.reject(new Error('tmux backend is in fatal state; refresh required'));
+    // A connect is already in flight — reuse it instead of opening a rival
+    // EventSource (see connectPromise above).
+    if (this.connectPromise) return this.connectPromise;
 
     this.intentionalDisconnect = false;
 
-    return new Promise((resolve, reject) => {
+    // Defensively close any lingering stream before opening a new one, so a
+    // path that reached here with a half-open EventSource can't leak it.
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+
+    const pending = new Promise<void>((resolve, reject) => {
       const session = getEffectiveSession();
       const protocol = window.location.protocol;
       const host = window.location.host || 'localhost:3853';
@@ -220,6 +235,11 @@ export class HttpAdapter implements TmuxAdapter {
             this.eventSource = null;
           }
           this.notifyFatal(message);
+          // If fatal arrives as the first event (before connection-info), the
+          // connect() promise would otherwise never settle and — now that it's
+          // cached in connectPromise — wedge every future connect(). Reject it;
+          // a no-op if connection-info already resolved it.
+          reject(new Error(message));
         } catch (e) {
           console.error('Failed to parse fatal event:', e);
         }
@@ -253,6 +273,17 @@ export class HttpAdapter implements TmuxAdapter {
         }
       };
     });
+
+    // Clear the in-flight marker once settled so the next connect() (after a
+    // drop) can start fresh. On success `connected` is already true, so the
+    // early-return above short-circuits before this matters. The identity
+    // check avoids a stale settle (from a forcibly-torn-down connect) nulling
+    // a newer connect's marker.
+    const chained = pending.finally(() => {
+      if (this.connectPromise === chained) this.connectPromise = null;
+    });
+    this.connectPromise = chained;
+    return chained;
   }
 
   disconnect(): void {
@@ -269,6 +300,9 @@ export class HttpAdapter implements TmuxAdapter {
 
     this.pendingState = null;
     this.rafScheduled = false;
+
+    // Abandon any in-flight connect so a later reconnect starts fresh.
+    this.connectPromise = null;
 
     if (this.eventSource) {
       this.eventSource.close();
@@ -477,6 +511,10 @@ export class HttpAdapter implements TmuxAdapter {
     sessionOverride = newSession;
     this.currentState = null;
     this.lastDeltaSeq = null;
+
+    // Abandon any in-flight connect to the old session so connect() below
+    // opens a fresh stream for the new session instead of reusing it.
+    this.connectPromise = null;
 
     // Close current connection without marking as intentional disconnect
     if (this.eventSource) {

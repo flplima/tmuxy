@@ -13,7 +13,8 @@
  * shape so the assertion is independent of unrelated SSE/EventSource setup.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { HttpAdapter } from '../HttpAdapter';
 
 interface Resolver<T> {
   resolve: (value: T) => void;
@@ -96,5 +97,97 @@ describe('Serialized invoke ordering', () => {
 
     await expect(failing).rejects.toThrow('boom');
     expect(await ok).toBe('next');
+  });
+});
+
+/**
+ * Minimal EventSource stand-in — jsdom ships none. Records every instance so a
+ * test can assert how many streams were opened and whether stale ones were
+ * closed (the duplicate-stream / orphan-leak bug lives exactly here).
+ */
+class MockEventSource {
+  static instances: MockEventSource[] = [];
+  url: string;
+  closed = false;
+  onerror: ((e: unknown) => void) | null = null;
+  private listeners: Record<string, Array<(e: { data: string }) => void>> = {};
+  constructor(url: string) {
+    this.url = url;
+    MockEventSource.instances.push(this);
+  }
+  addEventListener(type: string, cb: (e: { data: string }) => void): void {
+    (this.listeners[type] ||= []).push(cb);
+  }
+  emit(type: string, payload: unknown): void {
+    for (const cb of this.listeners[type] ?? []) cb({ data: JSON.stringify(payload) });
+  }
+  close(): void {
+    this.closed = true;
+  }
+}
+
+describe('HttpAdapter connect() lifecycle', () => {
+  let originalES: unknown;
+
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    originalES = (globalThis as Record<string, unknown>).EventSource;
+    (globalThis as Record<string, unknown>).EventSource = MockEventSource;
+  });
+
+  afterEach(() => {
+    (globalThis as Record<string, unknown>).EventSource = originalES;
+  });
+
+  const openStreams = () => MockEventSource.instances.filter((e) => !e.closed);
+
+  it('dedupes concurrent connect() calls into a single EventSource', async () => {
+    const adapter = new HttpAdapter();
+    const p1 = adapter.connect();
+    const p2 = adapter.connect();
+    // Two callers, one stream.
+    expect(MockEventSource.instances.length).toBe(1);
+
+    MockEventSource.instances[0].emit('connection-info', {
+      data: { connection_id: 1, default_shell: 'bash' },
+    });
+    await Promise.all([p1, p2]);
+
+    expect(adapter.isConnected()).toBe(true);
+    expect(openStreams().length).toBe(1);
+    adapter.disconnect();
+  });
+
+  it('a connect() racing a dropped connection never orphans a stream', async () => {
+    const adapter = new HttpAdapter();
+    const first = adapter.connect();
+    MockEventSource.instances[0].emit('connection-info', { data: { connection_id: 1 } });
+    await first;
+
+    // Drop: onerror while connected closes ES1 and schedules a reconnect timer.
+    const es1 = MockEventSource.instances[0];
+    es1.onerror?.(new Event('error'));
+    expect(es1.closed).toBe(true);
+    expect(adapter.isConnected()).toBe(false);
+
+    // An auto-connect from an invoke and the reconnect timer both call connect()
+    // during the reconnect window: exactly one new stream, and ES1 stays closed.
+    const a = adapter.connect();
+    const b = adapter.connect();
+    expect(MockEventSource.instances.length).toBe(2);
+
+    MockEventSource.instances[1].emit('connection-info', { data: { connection_id: 2 } });
+    await Promise.all([a, b]);
+    expect(openStreams().length).toBe(1);
+    adapter.disconnect();
+  });
+
+  it('a fatal first event rejects connect() instead of hanging', async () => {
+    const adapter = new HttpAdapter();
+    const p = adapter.connect();
+    MockEventSource.instances[0].emit('fatal', { data: { message: 'tmux gone' } });
+    await expect(p).rejects.toThrow('tmux gone');
+    // A later connect() is refused (fatal), not wedged on the cached promise.
+    await expect(adapter.connect()).rejects.toThrow(/fatal/i);
   });
 });
