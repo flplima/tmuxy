@@ -60,10 +60,19 @@ function useFetchFile(filePath: string | undefined, seq: string | undefined) {
         return res.text();
       })
       .then((text) => {
+        // Drop stale/out-of-order responses: if a newer __SEQ__ (or file) has
+        // started fetching, lastFetchRef has advanced past this key, so an
+        // earlier request resolving late must not clobber the newer content.
+        // This also guards the post-unmount setState (nothing re-matches once
+        // a later render fires).
+        if (lastFetchRef.current !== fetchKey) return;
         setContent(text);
         setError(null);
       })
-      .catch((err) => setError(String(err)));
+      .catch((err) => {
+        if (lastFetchRef.current !== fetchKey) return;
+        setError(String(err));
+      });
   }
 
   return { content, error };
