@@ -63,7 +63,9 @@ import type { ServersActorEvent } from '../actors/serversActor';
  */
 function resolveWindowTarget(command: string, activeWindowId: string | null): string {
   if (activeWindowId && command.includes('-t :.')) {
-    return command.replace(/-t :\./, `-t ${activeWindowId}.`);
+    // Global: a compound command (e.g. `selectw -t :. ; swapw -t :.`) can carry
+    // more than one relative window target — resolve every one, not just the first.
+    return command.replace(/-t :\./g, `-t ${activeWindowId}.`);
   }
   return command;
 }

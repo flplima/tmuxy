@@ -40,25 +40,8 @@ function cellColorToCss(color: CellColor): string {
 }
 
 function getAnsi256Color(index: number): string {
-  const standard16 = [
-    '#000000',
-    '#cd0000',
-    '#00cd00',
-    '#cdcd00',
-    '#0000ee',
-    '#cd00cd',
-    '#00cdcd',
-    '#e5e5e5',
-    '#7f7f7f',
-    '#ff0000',
-    '#00ff00',
-    '#ffff00',
-    '#5c5cff',
-    '#ff00ff',
-    '#00ffff',
-    '#ffffff',
-  ];
-  if (index < 16) return standard16[index];
+  // Only ever called for index >= 16 — cellColorToCss handles 0..15 via the
+  // theme CSS-var path before reaching here.
   if (index < 232) {
     const i = index - 16;
     const r = Math.floor(i / 36);
