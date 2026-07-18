@@ -115,6 +115,10 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
             inMode={pane.inMode}
             copyCursorX={pane.copyCursorX}
             copyCursorY={pane.copyCursorY}
+            width={pane.width}
+            selectionPresent={pane.selectionPresent}
+            selectionStartX={pane.selectionStartX}
+            selectionStartY={pane.selectionStartY}
             cursorShape={pane.cursorShape}
           />
         </div>
@@ -161,6 +165,10 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
             inMode={pane.inMode}
             copyCursorX={pane.copyCursorX}
             copyCursorY={pane.copyCursorY}
+            width={pane.width}
+            selectionPresent={pane.selectionPresent}
+            selectionStartX={pane.selectionStartX}
+            selectionStartY={pane.selectionStartY}
             cursorShape={pane.cursorShape}
           />
         </div>
