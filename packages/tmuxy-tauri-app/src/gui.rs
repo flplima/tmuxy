@@ -843,7 +843,7 @@ fn copy_logs_to_clipboard(app: &tauri::AppHandle) {
         Ok(content) => content,
         Err(e) => {
             let msg = format!("Could not read log file at {}: {}", path.display(), e);
-            show_status_message(app, &msg, true);
+            show_status_message(app, &msg);
             return;
         }
     };
@@ -862,14 +862,10 @@ fn copy_logs_to_clipboard(app: &tauri::AppHandle) {
 
     match app.clipboard().write_text(payload) {
         Ok(()) => {
-            show_status_message(
-                app,
-                &format!("Copied {} log to clipboard", path.display()),
-                false,
-            );
+            show_status_message(app, &format!("Copied {} log to clipboard", path.display()));
         }
         Err(e) => {
-            show_status_message(app, &format!("Failed to write clipboard: {}", e), true);
+            show_status_message(app, &format!("Failed to write clipboard: {}", e));
         }
     }
 }
@@ -925,15 +921,17 @@ fn build_log_header(path: &std::path::Path) -> String {
 }
 
 /// Forward a transient status banner to the React UI via window.eval.
-/// Matches `ShowStatusMessageEvent` in tmuxy-ui (event.text). The is_error
-/// flag is reserved for future styling but currently both render the same.
-fn show_status_message(app: &tauri::AppHandle, message: &str, _is_error: bool) {
+/// Matches `ShowStatusMessageEvent` in tmuxy-ui (event.text).
+fn show_status_message(app: &tauri::AppHandle, message: &str) {
     if let Some(window) = app.get_webview_window("main") {
-        let escaped = message.replace('\\', "\\\\").replace('\'', "\\'");
-        let js = format!(
-            "window.app?.send({{ type: 'SHOW_STATUS_MESSAGE', text: '{}' }})",
-            escaped
-        );
+        // serde_json produces a complete JS string literal, including escapes
+        // for newlines. Hand-rolling `\\` and `'` missed `\n`/`\r`, so a
+        // multi-line message (an fs error with a path plus context) produced a
+        // JS syntax error and the banner silently never appeared.
+        let Ok(text) = serde_json::to_string(message) else {
+            return;
+        };
+        let js = format!("window.app?.send({{ type: 'SHOW_STATUS_MESSAGE', text: {text} }})");
         let _ = window.eval(js);
     }
 }

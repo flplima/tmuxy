@@ -194,8 +194,14 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
     const MAX_BACKOFF: Duration = Duration::from_secs(10);
     const MAX_CONSECUTIVE_FAILURES: u32 = 5;
     const MIN_HEALTHY_DURATION: Duration = Duration::from_secs(5);
+    /// How often a parked monitor checks for a user-requested reconnect.
+    const PARKED_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
     let mut consecutive_failures: u32 = 0;
+    // Set after MAX_CONSECUTIVE_FAILURES. The loop stays alive and waits for a
+    // deliberate user reconnect rather than returning — see the parked block
+    // at the top of the loop.
+    let mut parked = false;
 
     // Build once and clone the Arc per reconnect attempt — the live ctx is
     // cheap to share and lets the Tauri app participate in the same Ctx
@@ -203,6 +209,30 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
     let ctx = tmuxy_core::Ctx::live();
 
     loop {
+        // Parked after giving up: wait for the user to ask for a different
+        // server instead of returning. Returning left `request_reconnect`
+        // writing a `pending_reconnect` that nothing would ever read, while
+        // `connect_server` still returned Ok(()) — so after a transient tmux
+        // flap the sidebar's server picker silently no-opped until the app
+        // was relaunched. A deliberate reconnect is a legitimate revival path.
+        if parked {
+            loop {
+                let has_pending = monitor_state
+                    .pending_reconnect
+                    .read()
+                    .map(|g| g.is_some())
+                    .unwrap_or(false);
+                if has_pending {
+                    break;
+                }
+                tokio::time::sleep(PARKED_POLL_INTERVAL).await;
+            }
+            parked = false;
+            consecutive_failures = 0;
+            backoff = Duration::from_millis(100);
+            tmuxy_core::debug_log::log("[monitor] reviving parked monitor for a user reconnect");
+        }
+
         // Apply a pending `tmuxy connect` reconnect before connecting. Because
         // every tmux call (the control-mode connection AND the one-off
         // executor commands) resolves its socket/session from the env, setting
@@ -299,7 +329,8 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
                         );
                         emit_fatal(&app, &final_msg);
                         tmuxy_core::debug_log::log(&format!("[monitor] FATAL: {}", final_msg));
-                        return;
+                        parked = true;
+                        continue;
                     }
                 }
             }
@@ -317,7 +348,8 @@ pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
                     );
                     emit_fatal(&app, &final_msg);
                     tmuxy_core::debug_log::log(&format!("[monitor] FATAL: {}", final_msg));
-                    return;
+                    parked = true;
+                    continue;
                 }
             }
         }

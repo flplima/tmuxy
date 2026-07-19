@@ -88,16 +88,10 @@ pub async fn run_tmux_command(
         if let Some(tx) = cmd_tx {
             let session = get_session();
             let size = state.last_client_size.read().ok().and_then(|g| *g);
-            let rewrite = match size {
-                Some((cols, rows)) => format!(
-                    "splitw -t {} ; breakp ; resizew -x {} -y {} ; set-option -w @tmuxy-window-type tab",
-                    session, cols, rows
-                ),
-                None => format!(
-                    "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
-                    session
-                ),
-            };
+            // Shared with the SSE server so the rewrite shape and the window
+            // tag can't drift between transports; also quotes the session,
+            // which can contain whitespace when it comes from servers.json.
+            let rewrite = tmuxy_core::executor::new_window_rewrite(&session, size);
             tx.send(MonitorCommand::RunCommand { command: rewrite })
                 .await
                 .map_err(|e| format!("Monitor channel error: {}", e))?;

@@ -732,6 +732,39 @@ pub fn run_tmux_command_for_session(session_name: &str, cmd: &str) -> Result<Str
     Ok(stdout.to_string())
 }
 
+/// Single-quote a value for interpolation into a tmux command string.
+///
+/// Session names come from `servers.json` and the connect form, so they can
+/// contain whitespace (which would silently truncate the target) or `;`
+/// (which would append extra commands to the list).
+pub fn tmux_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+/// Build the `new-window` rewrite: `new-window`/`neww` crashes tmux 3.5a with
+/// control mode attached, so both transports send `splitw ; breakp` instead.
+///
+/// `resizew` targets the current window, which is the new one after `breakp`,
+/// so the new window matches the viewport at creation rather than inheriting
+/// the half-width post-split size or the control-mode PTY default.
+///
+/// Shared by the SSE server and the Tauri app so the rewrite shape and the
+/// window tag can't drift apart between transports.
+pub fn new_window_rewrite(session: &str, size: Option<(u32, u32)>) -> String {
+    let session = tmux_quote(session);
+    let tag = format!(
+        "set-option -w {} {}",
+        tmux_options::WINDOW_TYPE,
+        WindowType::Tab.as_str()
+    );
+    match size {
+        Some((cols, rows)) => {
+            format!("splitw -t {session} ; breakp ; resizew -x {cols} -y {rows} ; {tag}")
+        }
+        None => format!("splitw -t {session} ; breakp ; {tag}"),
+    }
+}
+
 /// Split a compound tmux command on the `\;` separators that are *outside*
 /// quotes.
 ///
@@ -1123,6 +1156,32 @@ mod tests {
     // `test_capture_pane_parsing`) split a literal string and asserted the
     // split — they exercised `str::split`/`str::lines`, not this module.
     // Replaced with coverage of the actual parsing helpers below.
+
+    #[test]
+    fn new_window_rewrite_quotes_the_session() {
+        // Session names come from servers.json / the connect form, so they can
+        // contain whitespace (which truncated the target) or `;` (which
+        // appended extra commands to the list).
+        let out = new_window_rewrite("my session", None);
+        assert!(out.contains("splitw -t 'my session' ;"), "{out}");
+
+        let out = new_window_rewrite("evil ; kill-server", None);
+        assert!(out.contains("-t 'evil ; kill-server'"), "{out}");
+
+        let out = new_window_rewrite("it's", None);
+        assert!(out.contains(r"-t 'it'\''s'"), "{out}");
+    }
+
+    #[test]
+    fn new_window_rewrite_includes_resize_only_with_a_size() {
+        let sized = new_window_rewrite("tmuxy", Some((120, 40)));
+        assert!(sized.contains("resizew -x 120 -y 40"), "{sized}");
+        assert!(sized.contains("@tmuxy-window-type tab"), "{sized}");
+
+        let plain = new_window_rewrite("tmuxy", None);
+        assert!(!plain.contains("resizew"), "{plain}");
+        assert!(plain.contains("@tmuxy-window-type tab"), "{plain}");
+    }
 
     #[test]
     fn split_compound_respects_quotes() {

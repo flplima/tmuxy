@@ -887,9 +887,8 @@ fn is_readonly_query(command: &str) -> bool {
 }
 
 /// Build the `new-window` rewrite (splitw + breakp + resizew + window-tag).
-/// `resizew` targets the current window, which is the new one after `breakp`,
-/// so the new window matches the viewport at creation rather than inheriting
-/// the half-width post-split size or the 200x50 control-mode PTY default.
+/// Resolves the viewport size, then defers to `executor::new_window_rewrite`
+/// so the Tauri app and this server can't drift on the rewrite shape.
 async fn build_new_window_command(state: &Arc<AppState>, session: &str) -> String {
     let resize = {
         let sessions = state.sessions.read().await;
@@ -901,17 +900,7 @@ async fn build_new_window_command(state: &Arc<AppState>, session: &str) -> Strin
             }
         })
     };
-    if let Some((cols, rows)) = resize {
-        format!(
-            "splitw -t {} ; breakp ; resizew -x {} -y {} ; set-option -w @tmuxy-window-type tab",
-            session, cols, rows
-        )
-    } else {
-        format!(
-            "splitw -t {} ; breakp ; set-option -w @tmuxy-window-type tab",
-            session
-        )
-    }
+    executor::new_window_rewrite(session, resize)
 }
 
 /// Store a client's viewport size and resize the tmux session.
