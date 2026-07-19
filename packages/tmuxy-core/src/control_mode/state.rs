@@ -1525,22 +1525,26 @@ impl StateAggregator {
                     return ProcessEventResult::default();
                 }
 
-                // Every mutating command the frontend sends — including each
-                // send-keys keystroke batch — comes back as an empty ack. An
-                // empty body carries no state, so treating it as a Full change
-                // forced a whole TmuxState rebuild, per-pane clone and diff on
-                // every keypress. Nothing to parse means nothing changed.
-                //
-                // A non-empty body is still assumed to be list-panes/
-                // list-windows output. Marker-wrapping the self-issued list
-                // commands (as captures already are) would let this be exact
-                // rather than sniffed.
-                if !success || output.trim().is_empty() {
-                    return ProcessEventResult::default();
-                }
+                // NOTE: every unmarked SUCCESSFUL response — including the
+                // empty ack of each send-keys batch — intentionally falls
+                // through to a Full change below. An attempted optimization
+                // (return None for empty acks, sparing a full TmuxState
+                // rebuild per keystroke) regressed keystroke routing after a
+                // pane-group tab click: the compound run-shell's empty ack is
+                // one of the signals the frontend's optimistic-swap
+                // convergence rides on, and suppressing it sent the first
+                // post-click keystroke to the stale pane (7-regression
+                // group-click E2E). Revisit only after the self-issued
+                // list-panes/list-windows commands are marker-routed like
+                // captures, so command completions can be classified exactly
+                // instead of by ack shape.
 
                 // Not a capture-pane response - parse list-panes/list-windows responses to update state
-                let resized_panes = self.handle_command_response(&output);
+                let resized_panes = if success {
+                    self.handle_command_response(&output)
+                } else {
+                    Vec::new()
+                };
                 ProcessEventResult {
                     state_changed: true,
                     panes_needing_refresh: resized_panes,
@@ -2497,29 +2501,27 @@ mod tests {
         agg.panes.insert(pane_id.to_string(), pane);
     }
 
-    /// An empty command ack must not be reported as a state change.
+    /// Empty command acks MUST keep reporting a Full change.
     ///
-    /// Every mutating command — including each send-keys batch the keyboard
-    /// actor sends — returns `%begin`/`%end` with no body. Treating those as
-    /// `ChangeType::Full` forced a full TmuxState rebuild + diff per keystroke.
+    /// This pins the revert of an attempted optimization (empty acks →
+    /// `ChangeType::None`): the frontend's pane-group swap convergence rides
+    /// on ack-driven emissions, and silencing them routed the first
+    /// post-click keystroke to the stale pane (7-regression group-click
+    /// E2E). Do not silence empty acks until command completions are
+    /// marker-routed and can be classified exactly.
     #[test]
-    fn empty_command_ack_reports_no_change() {
+    fn empty_command_ack_still_emits_full_change() {
         let mut agg = StateAggregator::new();
         seed_pane(&mut agg, "%0", "@0");
 
-        for body in ["", "   ", "\n", "  \n  "] {
-            let r = agg.process_event(ControlModeEvent::CommandResponse {
-                timestamp: 0,
-                command_num: 0,
-                output: body.to_string(),
-                success: true,
-            });
-            assert!(
-                !r.state_changed,
-                "empty ack {body:?} must not report a state change"
-            );
-            assert!(matches!(r.change_type, ChangeType::None));
-        }
+        let r = agg.process_event(ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: String::new(),
+            success: true,
+        });
+        assert!(r.state_changed, "empty ack must still emit");
+        assert!(matches!(r.change_type, ChangeType::Full));
     }
 
     /// Arbitrary command output must not be mistaken for list-panes records.

@@ -196,9 +196,14 @@ describe('Pane split/kill animations', () => {
     //    in the pane's birth update and the code's documented fallback fades
     //    the pane at its final geometry. Asserting the morph unconditionally
     //    made this designed fallback a test failure on loaded runners.
-    const geometryMorphRan =
-      splitRec.enterTransitionProps.includes('width') ||
-      splitRec.enterTransitionProps.includes('left');
+    // Any geometry property counts: a stacked split animates top/height
+    // (width and left never change), a side-by-side split animates
+    // left/width. The old width||left check only passed when sub-pixel
+    // rounding jiggled width — the real morph on CI ran top/height and was
+    // misclassified as the fade path.
+    const geometryMorphRan = ['width', 'left', 'height', 'top'].some((prop) =>
+      splitRec.enterTransitionProps.includes(prop),
+    );
     if (geometryMorphRan) {
       // Morph path: started (≈) at the source's pre-split box — roughly
       // double the final half-box area — and converged (direction-agnostic).
