@@ -14,7 +14,6 @@ use std::convert::Infallible;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use tmuxy_core::constants::tmux_options;
 use tmuxy_core::control_mode::{
     LogKind, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
 };
@@ -130,11 +129,7 @@ impl StateEmitter for SseEmitter {
 
     fn on_initial_sync_complete(&self) {
         // Broadcast keybindings now that config has been sourced and settings enforced.
-        let keybindings = KeyBindings {
-            prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
-            prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
-            root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
-        };
+        let keybindings = KeyBindings::current();
         self.send_event(&SseEvent::KeyBindings(keybindings));
     }
 
@@ -169,6 +164,19 @@ pub struct KeyBindings {
     pub prefix_key: String,
     pub prefix_bindings: Vec<tmuxy_core::KeyBinding>,
     pub root_bindings: Vec<tmuxy_core::KeyBinding>,
+}
+
+impl KeyBindings {
+    /// Snapshot the live tmux bindings with the standard fallbacks. The one
+    /// assembly point for the SSE greeting, `on_initial_sync_complete`, and
+    /// `broadcast_keybindings` (previously three identical copies).
+    fn current() -> Self {
+        Self {
+            prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
+            prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
+            root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -351,11 +359,7 @@ pub async fn sse_handler(
         // (monitor already running, config already sourced), this is the only
         // chance to receive them. The monitor also broadcasts updated keybindings
         // via on_initial_sync_complete() after sourcing config for the first time.
-        let keybindings = KeyBindings {
-            prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
-            prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
-            root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
-        };
+        let keybindings = KeyBindings::current();
         let kb_event = SseEvent::KeyBindings(keybindings);
         if let Some(s) = encode_event(&kb_event) {
             yield Ok(Event::default().event("keybindings").data(s));
@@ -691,118 +695,15 @@ async fn handle_command(
             }))
         }
         ClientCommand::GetThemeSettings => {
-            let theme = state
-                .tmux_call(
-                    vec![
-                        "show-options".into(),
-                        "-gqv".into(),
-                        tmux_options::THEME.into(),
-                    ],
-                    "theme:get",
-                )
-                .await
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default();
-            let mode = state
-                .tmux_call(
-                    vec![
-                        "show-options".into(),
-                        "-gqv".into(),
-                        tmux_options::THEME_MODE.into(),
-                    ],
-                    "theme-mode:get",
-                )
-                .await
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default();
-            Ok(serde_json::json!({
-                "theme": if theme.is_empty() { "default".to_string() } else { theme },
-                "mode": if mode.is_empty() { "dark".to_string() } else { mode },
-            }))
+            Ok(tmuxy_core::theme::get_theme_settings(&state.ctx).await)
         }
         ClientCommand::SetTheme { name, mode } => {
-            state
-                .tmux_call(
-                    vec![
-                        "set-option".into(),
-                        "-g".into(),
-                        tmux_options::THEME.into(),
-                        name.clone(),
-                    ],
-                    "theme:set",
-                )
-                .await
-                .map_err(|e| format!("Failed to set theme: {}", e))?;
-            if let Some(ref m) = mode {
-                state
-                    .tmux_call(
-                        vec![
-                            "set-option".into(),
-                            "-g".into(),
-                            tmux_options::THEME_MODE.into(),
-                            m.clone(),
-                        ],
-                        "theme-mode:set",
-                    )
-                    .await
-                    .map_err(|e| format!("Failed to set theme mode: {}", e))?;
-            }
-            // Persist so the choice survives a tmux server restart.
-            if let Err(e) = tmuxy_core::session::write_managed_state(Some(&name), mode.as_deref()) {
-                warn!(error = %e, "could not persist theme to tmuxy.state.conf");
-            }
+            tmuxy_core::theme::set_theme(&state.ctx, &name, mode.as_deref()).await?;
             Ok(serde_json::json!(null))
         }
-        ClientCommand::GetThemesList => {
-            // Read available theme CSS files from ~/.config/tmuxy/themes/
-            let themes_dir = tmuxy_core::session::config_dir().join("themes");
-            let mut names: Vec<String> = std::fs::read_dir(&themes_dir)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter_map(|entry| {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    name.strip_suffix(".css").map(|n| n.to_string())
-                })
-                .collect();
-            names.sort();
-
-            let themes: Vec<serde_json::Value> = names
-                .into_iter()
-                .map(|name| {
-                    let display_name = name
-                        .split('-')
-                        .map(|word| {
-                            let mut chars = word.chars();
-                            match chars.next() {
-                                None => String::new(),
-                                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    serde_json::json!({ "name": name, "displayName": display_name })
-                })
-                .collect();
-
-            Ok(serde_json::json!(themes))
-        }
+        ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
         ClientCommand::SetThemeMode { mode } => {
-            state
-                .tmux_call(
-                    vec![
-                        "set-option".into(),
-                        "-g".into(),
-                        tmux_options::THEME_MODE.into(),
-                        mode.clone(),
-                    ],
-                    "theme-mode:set",
-                )
-                .await
-                .map_err(|e| format!("Failed to set theme mode: {}", e))?;
-            if let Err(e) = tmuxy_core::session::write_managed_state(None, Some(&mode)) {
-                warn!(error = %e, "could not persist theme mode to tmuxy.state.conf");
-            }
+            tmuxy_core::theme::set_theme_mode(&state.ctx, &mode).await?;
             Ok(serde_json::json!(null))
         }
     }
@@ -814,11 +715,7 @@ async fn handle_command(
 
 /// Re-fetch keybindings from tmux and broadcast to all SSE clients for a session.
 async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
-    let keybindings = KeyBindings {
-        prefix_key: tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into()),
-        prefix_bindings: tmuxy_core::get_prefix_bindings().unwrap_or_default(),
-        root_bindings: tmuxy_core::get_root_bindings().unwrap_or_default(),
-    };
+    let keybindings = KeyBindings::current();
     let kb_event = SseEvent::KeyBindings(keybindings);
     let Some(msg) = encode_event(&kb_event) else {
         return;

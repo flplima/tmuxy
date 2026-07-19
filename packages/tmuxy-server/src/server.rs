@@ -1,4 +1,3 @@
-use axum::body::Body;
 use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -9,7 +8,7 @@ use tokio::signal;
 use tracing::{error, warn};
 
 use crate::dev;
-use crate::state::AppState;
+use crate::state::{build_response, AppState};
 
 #[derive(Embed)]
 #[folder = "../tmuxy-ui/dist/"]
@@ -256,14 +255,6 @@ async fn serve_embedded(uri: axum::http::Uri) -> Response {
     // Response::builder().body() returns Err only for invalid header values, which
     // none of these literal mime types can produce — fall back to a 500 on the
     // off-chance the embedded asset's mime string somehow becomes invalid.
-    let build_response = |status: StatusCode, mime: &str, body: Vec<u8>| {
-        Response::builder()
-            .status(status)
-            .header("Content-Type", mime)
-            .body(Body::from(body))
-            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
-    };
-
     if let Some(file) = FrontendAssets::get(path) {
         let mime = mime_for_path(path);
         build_response(StatusCode::OK, mime, file.data.into_owned())

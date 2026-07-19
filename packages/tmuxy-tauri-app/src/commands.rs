@@ -2,14 +2,11 @@ use serde_json::Value;
 use std::sync::Arc;
 use tauri::State;
 use tmuxy_core::control_mode::MonitorCommand;
-use tmuxy_core::{executor, session, Ctx};
+use tmuxy_core::{executor, Ctx};
 
 use crate::monitor::{KeyBindingsState, MonitorState};
 
-/// Get session name from environment or use default
-fn get_session() -> String {
-    std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string())
-}
+use tmuxy_core::session::session_name as get_session;
 
 #[tauri::command]
 pub async fn get_initial_state(
@@ -186,30 +183,7 @@ pub async fn get_scrollback_cells(
 
 #[tauri::command]
 pub async fn get_theme_settings(ctx: State<'_, Arc<Ctx>>) -> Result<Value, String> {
-    let theme = ctx
-        .tmux_call(
-            vec!["show-options".into(), "-gqv".into(), "@tmuxy-theme".into()],
-            "get_theme",
-        )
-        .await
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
-    let mode = ctx
-        .tmux_call(
-            vec![
-                "show-options".into(),
-                "-gqv".into(),
-                "@tmuxy-theme-mode".into(),
-            ],
-            "get_theme_mode",
-        )
-        .await
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
-    Ok(serde_json::json!({
-        "theme": if theme.is_empty() { "default".to_string() } else { theme },
-        "mode": if mode.is_empty() { "dark".to_string() } else { mode },
-    }))
+    Ok(tmuxy_core::theme::get_theme_settings(&ctx).await)
 }
 
 #[tauri::command]
@@ -218,97 +192,17 @@ pub async fn set_theme(
     name: String,
     mode: Option<String>,
 ) -> Result<(), String> {
-    ctx.tmux_call(
-        vec![
-            "set-option".into(),
-            "-g".into(),
-            "@tmuxy-theme".into(),
-            name.clone(),
-        ],
-        "set_theme",
-    )
-    .await
-    .map_err(|e| format!("Failed to set theme: {}", e))?;
-    if let Some(ref m) = mode {
-        ctx.tmux_call(
-            vec![
-                "set-option".into(),
-                "-g".into(),
-                "@tmuxy-theme-mode".into(),
-                m.clone(),
-            ],
-            "set_theme_mode",
-        )
-        .await
-        .map_err(|e| format!("Failed to set theme mode: {}", e))?;
-    }
-    // Persist to tmuxy.state.conf so the choice survives a tmux server
-    // restart (e.g. fully quitting the app). Failure here is non-fatal —
-    // the live tmux option is already set, just won't outlive the server.
-    if let Err(e) = session::write_managed_state(Some(&name), mode.as_deref()) {
-        eprintln!(
-            "Warning: could not persist theme to tmuxy.state.conf: {}",
-            e
-        );
-    }
-    Ok(())
+    tmuxy_core::theme::set_theme(&ctx, &name, mode.as_deref()).await
 }
 
 #[tauri::command]
 pub async fn set_theme_mode(ctx: State<'_, Arc<Ctx>>, mode: String) -> Result<(), String> {
-    ctx.tmux_call(
-        vec![
-            "set-option".into(),
-            "-g".into(),
-            "@tmuxy-theme-mode".into(),
-            mode.clone(),
-        ],
-        "set_theme_mode",
-    )
-    .await
-    .map_err(|e| format!("Failed to set theme mode: {}", e))?;
-    if let Err(e) = session::write_managed_state(None, Some(&mode)) {
-        eprintln!(
-            "Warning: could not persist theme mode to tmuxy.state.conf: {}",
-            e
-        );
-    }
-    Ok(())
+    tmuxy_core::theme::set_theme_mode(&ctx, &mode).await
 }
 
 #[tauri::command]
 pub async fn get_themes_list() -> Result<Value, String> {
-    let themes_dir = session::config_dir().join("themes");
-    let mut names: Vec<String> = std::fs::read_dir(&themes_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().to_string();
-            name.strip_suffix(".css").map(|n| n.to_string())
-        })
-        .collect();
-    names.sort();
-
-    let themes: Vec<Value> = names
-        .into_iter()
-        .map(|name| {
-            let display_name = name
-                .split('-')
-                .map(|word| {
-                    let mut chars = word.chars();
-                    match chars.next() {
-                        None => String::new(),
-                        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            serde_json::json!({ "name": name, "displayName": display_name })
-        })
-        .collect();
-
-    Ok(serde_json::json!(themes))
+    Ok(tmuxy_core::theme::get_themes_list())
 }
 
 #[tauri::command]

@@ -884,18 +884,10 @@ fn add_session_target_if_needed(
             // Default: add -t session_name
             Ok(format!("{} -t {}", cmd, session_name))
         }
-        "resize-window" => {
-            // resize-window should target the session
-            Ok(format!("{} -t {}", cmd, session_name))
-        }
-        "send-keys" | "send-prefix" => {
-            // These often have pane targets, but default to session
-            Ok(format!("{} -t {}", cmd, session_name))
-        }
-        _ => {
-            // Default: add -t session_name
-            Ok(format!("{} -t {}", cmd, session_name))
-        }
+        // Everything else — including resize-window and send-keys/send-prefix,
+        // which used to have their own byte-identical arms — defaults to
+        // targeting the session.
+        _ => Ok(format!("{} -t {}", cmd, session_name)),
     }
 }
 
@@ -1004,23 +996,31 @@ pub struct KeyBinding {
 /// Get all prefix key bindings from tmux
 pub fn get_prefix_bindings() -> Result<Vec<KeyBinding>> {
     let output = execute_tmux_command(&["list-keys", "-T", "prefix"])?;
+    Ok(parse_bindings("prefix", &output))
+}
 
+/// Parse `tmux list-keys -T <table>` output into `KeyBinding`s.
+///
+/// One parser for every table — the prefix and root paths used to carry
+/// separate copies, and the root copy computed the `-r` indices but then
+/// hardcoded `repeat: false`, silently losing repeat bindings.
+fn parse_bindings(table: &str, output: &str) -> Vec<KeyBinding> {
     let mut bindings = Vec::new();
 
     for line in output.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
 
         // tmux list-keys output format:
-        //   bind-key    -T prefix KEY command...
-        //   bind-key -r -T prefix KEY command...
+        //   bind-key    -T <table> KEY command...
+        //   bind-key -r -T <table> KEY command...
         // The -r flag shifts all subsequent indices by 1.
         let (key_idx, cmd_idx, is_repeat) = if parts.len() >= 6
             && parts[0] == "bind-key"
             && parts[1] == "-r"
-            && parts[3] == "prefix"
+            && parts[3] == table
         {
             (4, 5, true)
-        } else if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == "prefix" {
+        } else if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == table {
             (3, 4, false)
         } else {
             continue;
@@ -1030,59 +1030,60 @@ pub fn get_prefix_bindings() -> Result<Vec<KeyBinding>> {
             continue;
         }
 
-        {
-            let bound_key = parts[key_idx];
+        let bound_key = parts[key_idx];
 
-            // Unescape the key
-            let key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
-                bound_key[1..].to_string()
-            } else {
-                bound_key.to_string()
-            };
+        // Unescape the key
+        let key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
+            bound_key[1..].to_string()
+        } else {
+            bound_key.to_string()
+        };
 
-            // Get the command (everything after the key)
-            let command = parts[cmd_idx..].join(" ");
+        // Get the command (everything after the key)
+        let command = parts[cmd_idx..].join(" ");
+        let description = describe_binding(parts[cmd_idx], &command);
 
-            // Generate description based on command
-            let description = match parts[cmd_idx] {
-                "split-window" => {
-                    if command.contains("-h") {
-                        "Split pane vertically".to_string()
-                    } else {
-                        "Split pane horizontally".to_string()
-                    }
-                }
-                "resize-pane" => {
-                    if command.contains("-Z") {
-                        "Toggle pane fullscreen".to_string()
-                    } else {
-                        "Resize pane".to_string()
-                    }
-                }
-                "select-pane" => "Select pane".to_string(),
-                "last-pane" => "Switch to last active pane".to_string(),
-                "next-layout" => "Cycle through pane layouts".to_string(),
-                "break-pane" => "Convert pane to window".to_string(),
-                "copy-mode" => "Enter copy mode".to_string(),
-                "command-prompt" => "Enter command mode".to_string(),
-                "new-window" => "Create new window".to_string(),
-                "kill-window" => "Close window".to_string(),
-                "next-window" => "Next window".to_string(),
-                "previous-window" => "Previous window".to_string(),
-                "select-window" => "Select window".to_string(),
-                _ => command.clone(),
-            };
-
-            bindings.push(KeyBinding {
-                key,
-                command,
-                description,
-                repeat: is_repeat,
-            });
-        }
+        bindings.push(KeyBinding {
+            key,
+            command,
+            description,
+            repeat: is_repeat,
+        });
     }
 
-    Ok(bindings)
+    bindings
+}
+
+/// Human description for the common commands the menus surface.
+fn describe_binding(command_name: &str, command: &str) -> String {
+    match command_name {
+        "split-window" => {
+            if command.contains("-h") {
+                "Split pane vertically".to_string()
+            } else {
+                "Split pane horizontally".to_string()
+            }
+        }
+        "resize-pane" => {
+            if command.contains("-Z") {
+                "Toggle pane fullscreen".to_string()
+            } else {
+                "Resize pane".to_string()
+            }
+        }
+        "select-pane" => "Select pane".to_string(),
+        "last-pane" => "Switch to last active pane".to_string(),
+        "next-layout" => "Cycle through pane layouts".to_string(),
+        "break-pane" => "Convert pane to window".to_string(),
+        "copy-mode" => "Enter copy mode".to_string(),
+        "command-prompt" => "Enter command mode".to_string(),
+        "new-window" => "Create new window".to_string(),
+        "kill-window" => "Close window".to_string(),
+        "next-window" => "Next window".to_string(),
+        "previous-window" => "Previous window".to_string(),
+        "select-window" => "Select window".to_string(),
+        _ => command.to_string(),
+    }
 }
 
 /// Get the tmux prefix key
@@ -1102,49 +1103,7 @@ pub fn get_prefix_key() -> Result<String> {
 /// These are keybindings that work without pressing the prefix key first
 pub fn get_root_bindings() -> Result<Vec<KeyBinding>> {
     let output = execute_tmux_command(&["list-keys", "-T", "root"])?;
-
-    let mut bindings = Vec::new();
-
-    for line in output.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-
-        // Format: bind-key    -T root KEY command...
-        //     or: bind-key -r -T root KEY command...
-        let (key_idx, cmd_idx) =
-            if parts.len() >= 6 && parts[0] == "bind-key" && parts[1] == "-r" && parts[3] == "root"
-            {
-                (4, 5)
-            } else if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == "root" {
-                (3, 4)
-            } else {
-                continue;
-            };
-
-        if cmd_idx >= parts.len() {
-            continue;
-        }
-
-        let bound_key = parts[key_idx];
-
-        // Unescape the key
-        let key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
-            bound_key[1..].to_string()
-        } else {
-            bound_key.to_string()
-        };
-
-        // Get the command (everything after the key)
-        let command = parts[cmd_idx..].join(" ");
-
-        bindings.push(KeyBinding {
-            key,
-            command,
-            description: String::new(),
-            repeat: false,
-        });
-    }
-
-    Ok(bindings)
+    Ok(parse_bindings("root", &output))
 }
 
 #[cfg(test)]
@@ -1156,6 +1115,31 @@ mod tests {
     // `test_capture_pane_parsing`) split a literal string and asserted the
     // split — they exercised `str::split`/`str::lines`, not this module.
     // Replaced with coverage of the actual parsing helpers below.
+
+    #[test]
+    fn parse_bindings_handles_plain_and_repeat_forms() {
+        let output = "\
+bind-key    -T prefix % split-window -h
+bind-key -r -T prefix h resize-pane -L 5
+bind-key    -T root C-Left select-pane -L
+bind-key    -T prefix \\% send-keys %";
+        let prefix = parse_bindings("prefix", output);
+        assert_eq!(prefix.len(), 3);
+        assert_eq!(prefix[0].key, "%");
+        assert_eq!(prefix[0].description, "Split pane vertically");
+        assert!(!prefix[0].repeat);
+        // -r bindings keep their repeat flag (the old root copy hardcoded
+        // repeat: false — this drift is what the shared parser fixes).
+        assert_eq!(prefix[1].key, "h");
+        assert!(prefix[1].repeat);
+        // Escaped keys are unescaped.
+        assert_eq!(prefix[2].key, "%");
+
+        let root = parse_bindings("root", output);
+        assert_eq!(root.len(), 1);
+        assert_eq!(root[0].key, "C-Left");
+        assert_eq!(root[0].description, "Select pane");
+    }
 
     #[test]
     fn new_window_rewrite_quotes_the_session() {

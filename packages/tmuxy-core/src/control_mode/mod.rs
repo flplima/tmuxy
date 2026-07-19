@@ -35,5 +35,6 @@ pub use octal::decode_octal;
 pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};
 pub use state::{
-    capture_command, capture_command_range, ChangeType, SideEffect, StateAggregator, StepResult,
+    capture_command, capture_command_range, normalize_capture_bytes, ChangeType, SideEffect,
+    StateAggregator, StepResult,
 };

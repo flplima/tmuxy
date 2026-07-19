@@ -7,10 +7,7 @@ use tmuxy_core::control_mode::{
 };
 use tmuxy_core::StateUpdate;
 
-/// Get session name from environment or use default
-fn get_session() -> String {
-    std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string())
-}
+use tmuxy_core::session::session_name as get_session;
 
 /// A target for the monitor to (re)connect to: a tmux socket + session.
 /// Drives `tmuxy connect` — live-switching the desktop app to a different

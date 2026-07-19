@@ -362,29 +362,7 @@ impl PaneState {
         // at the same coordinates. Clear it and let live %output repopulate.
         self.osc_parser.reset();
 
-        // Strip trailing newline to prevent scroll when content exactly fills terminal.
-        // capture-pane output typically ends with \n, but processing this final newline
-        // would push the cursor past the last row, causing unwanted scroll.
-        let content = if content.ends_with(b"\n") {
-            &content[..content.len() - 1]
-        } else {
-            content
-        };
-
-        // Normalize newlines: capture-pane outputs \n only, but vt100 treats \n as
-        // "move down" without returning to column 0. We need \r\n for proper line handling.
-        let normalized: Vec<u8> = content
-            .iter()
-            .flat_map(|&b| {
-                if b == b'\n' {
-                    vec![b'\r', b'\n']
-                } else {
-                    vec![b]
-                }
-            })
-            .collect();
-
-        // Process the normalized content
+        let normalized = normalize_capture_bytes(content);
         safe_process(&mut self.terminal, &normalized);
     }
 
@@ -450,26 +428,7 @@ impl PaneState {
         let h = (self.height as u16).max(1);
         let mut temp_terminal = vt100::Parser::new(h, w, 0);
 
-        // Strip trailing newline to prevent scroll when content exactly fills terminal.
-        let content = if content.ends_with(b"\n") {
-            &content[..content.len() - 1]
-        } else {
-            content
-        };
-
-        // Normalize newlines: capture-pane outputs \n only, but vt100 treats \n as
-        // "move down" without returning to column 0. We need \r\n for proper line handling.
-        let normalized: Vec<u8> = content
-            .iter()
-            .flat_map(|&b| {
-                if b == b'\n' {
-                    vec![b'\r', b'\n']
-                } else {
-                    vec![b]
-                }
-            })
-            .collect();
-
+        let normalized = normalize_capture_bytes(content);
         safe_process(&mut temp_terminal, &normalized);
         self.copy_mode_content = Some(std::sync::Arc::new(extract_cells_from_screen(
             temp_terminal.screen(),
@@ -823,6 +782,23 @@ pub(crate) const SETTLING_MAX: std::time::Duration = std::time::Duration::from_m
 /// exact: any other command's response (a send-keys ack has EMPTY output,
 /// indistinguishable from capturing a blank pane) can otherwise steal a
 /// pending capture and shunt one pane's content into another.
+/// Prepare capture-pane bytes for vt100: strip the trailing newline (which
+/// would push the cursor past the last row and scroll) and expand `\n` to
+/// `\r\n` (vt100 treats bare `\n` as move-down without a carriage return).
+/// One implementation — this used to be copy-pasted at every capture-feed
+/// site, plus once in `lib.rs`.
+pub fn normalize_capture_bytes(content: &[u8]) -> Vec<u8> {
+    let content = content.strip_suffix(b"\n").unwrap_or(content);
+    let mut out = Vec::with_capacity(content.len() + content.len() / 16);
+    for &b in content {
+        if b == b'\n' {
+            out.push(b'\r');
+        }
+        out.push(b);
+    }
+    out
+}
+
 /// Does this line look like a `list-panes` record (`%<digits>,...`)?
 ///
 /// tmux pane ids are always `%` followed by digits, and `LIST_PANES_CMD` puts
@@ -850,43 +826,26 @@ pub const CAPTURE_END_MARKER: &str = "TMUXY_CAP_END";
 /// can swallow it entirely). Bare digits are expansion-proof; the response
 /// router re-prefixes the `%`.
 pub fn capture_command(pane_id: &str) -> String {
-    let bare = pane_id.trim_start_matches('%');
-    format!(
-        "display-message -p '{CAPTURE_BEGIN_MARKER} {bare}' ; capture-pane -t {pane_id} -p -e ; display-message -p '{CAPTURE_END_MARKER}'"
-    )
+    marker_wrapped_capture(pane_id, "")
 }
 
 /// `capture_command` for an explicit scrollback range (copy-mode sync).
 pub fn capture_command_range(pane_id: &str, start: i64, end: i64) -> String {
+    marker_wrapped_capture(pane_id, &format!(" -S {start} -E {end}"))
+}
+
+/// Shared marker-bracket format for both capture commands, so the BEGIN/END
+/// bracketing can't drift between the plain and ranged variants.
+fn marker_wrapped_capture(pane_id: &str, range: &str) -> String {
     let bare = pane_id.trim_start_matches('%');
     format!(
-        "display-message -p '{CAPTURE_BEGIN_MARKER} {bare}' ; capture-pane -t {pane_id} -p -e -S {start} -E {end} ; display-message -p '{CAPTURE_END_MARKER}'"
+        "display-message -p '{CAPTURE_BEGIN_MARKER} {bare}' ; capture-pane -t {pane_id} -p -e{range} ; display-message -p '{CAPTURE_END_MARKER}'"
     )
 }
 
 impl StateAggregator {
     pub fn new() -> Self {
-        Self {
-            session_name: crate::DEFAULT_SESSION_NAME.to_string(),
-            panes: HashMap::new(),
-            windows: HashMap::new(),
-            active_window_id: None,
-            pending_captures: std::collections::VecDeque::new(),
-            capture_armed: None,
-            pending_buffer_reads: std::collections::VecDeque::new(),
-            buffer_read_armed: false,
-
-            cached_status_line: String::new(),
-            status_line_dirty: true, // Fetch on first state request
-            prev_state: None,
-            delta_seq: 0,
-            suppress_window_emissions: false,
-            panes_moved_window: std::collections::HashSet::new(),
-            early_output: HashMap::new(),
-            settling_until: None,
-            settling_started: None,
-            settling_awaiting_first_event: false,
-        }
+        Self::with_session_name(crate::DEFAULT_SESSION_NAME)
     }
 
     /// Create with a specific session name
@@ -1261,63 +1220,41 @@ impl StateAggregator {
         }]
     }
 
+    /// Shared body of the `%output` / `%extended-output` arms.
+    fn output_result(&mut self, pane_id: String, content: &[u8]) -> ProcessEventResult {
+        let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, content);
+        let new_images = if new_imgs.is_empty() {
+            Vec::new()
+        } else {
+            vec![(pane_id.clone(), new_imgs)]
+        };
+        let clipboard_writes = clipboard
+            .map(|text| vec![(pane_id.clone(), text)])
+            .unwrap_or_default();
+        ProcessEventResult {
+            state_changed: changed,
+            panes_needing_refresh: Vec::new(),
+            change_type: if changed {
+                ChangeType::PaneOutput { pane_id }
+            } else {
+                ChangeType::None
+            },
+            new_images,
+            clipboard_writes,
+            commands: Vec::new(),
+        }
+    }
+
     /// Process a control mode event.
     /// Returns information about state changes and any panes that need content refresh.
     pub fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
         match event {
-            ControlModeEvent::Output { pane_id, content } => {
-                let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, &content);
-                let new_images = if new_imgs.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![(pane_id.clone(), new_imgs)]
-                };
-                let clipboard_writes = clipboard
-                    .map(|text| vec![(pane_id.clone(), text)])
-                    .unwrap_or_default();
-                ProcessEventResult {
-                    state_changed: changed,
-                    panes_needing_refresh: Vec::new(),
-                    change_type: if changed {
-                        ChangeType::PaneOutput {
-                            pane_id: pane_id.clone(),
-                        }
-                    } else {
-                        ChangeType::None
-                    },
-                    new_images,
-                    clipboard_writes,
-                    commands: Vec::new(),
-                }
-            }
-
-            ControlModeEvent::ExtendedOutput {
+            // %output and %extended-output differ only in the extra metadata
+            // the parser already discarded — one handler serves both.
+            ControlModeEvent::Output { pane_id, content }
+            | ControlModeEvent::ExtendedOutput {
                 pane_id, content, ..
-            } => {
-                let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, &content);
-                let new_images = if new_imgs.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![(pane_id.clone(), new_imgs)]
-                };
-                let clipboard_writes = clipboard
-                    .map(|text| vec![(pane_id.clone(), text)])
-                    .unwrap_or_default();
-                ProcessEventResult {
-                    state_changed: changed,
-                    panes_needing_refresh: Vec::new(),
-                    change_type: if changed {
-                        ChangeType::PaneOutput {
-                            pane_id: pane_id.clone(),
-                        }
-                    } else {
-                        ChangeType::None
-                    },
-                    new_images,
-                    clipboard_writes,
-                    commands: Vec::new(),
-                }
-            }
+            } => self.output_result(pane_id, &content),
 
             ControlModeEvent::LayoutChange {
                 window_id,

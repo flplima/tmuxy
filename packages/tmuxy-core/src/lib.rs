@@ -16,6 +16,8 @@ pub mod servers;
 #[cfg(feature = "native")]
 pub mod session;
 #[cfg(feature = "native")]
+pub mod theme;
+#[cfg(feature = "native")]
 pub mod tmux_service;
 
 #[cfg(feature = "native")]
@@ -212,23 +214,7 @@ pub fn parse_scrollback_to_cells(content: &str, width: u32) -> PaneContent {
 pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneContent {
     let mut parser = vt100::Parser::new(height as u16, width as u16, 0);
 
-    // Strip trailing newline to prevent scroll when content exactly fills terminal.
-    // capture-pane output typically ends with \n, but processing this final newline
-    // would push the cursor past the last row, causing unwanted scroll.
-    let content = content.strip_suffix('\n').unwrap_or(content);
-
-    // Normalize newlines for vt100
-    let normalized: Vec<u8> = content
-        .bytes()
-        .flat_map(|b| {
-            if b == b'\n' {
-                vec![b'\r', b'\n']
-            } else {
-                vec![b]
-            }
-        })
-        .collect();
-
+    let normalized = control_mode::normalize_capture_bytes(content.as_bytes());
     parser.process(&normalized);
     extract_cells_from_screen(parser.screen())
 }

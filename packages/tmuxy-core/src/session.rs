@@ -482,6 +482,13 @@ pub fn write_managed_state(
 /// so the running server's `show-options -gqv @tmuxy-theme` (etc.) returns
 /// the persisted value. Called once during session init — failure on any
 /// individual `set-option` is logged but doesn't abort startup.
+/// The session tmuxy targets: `TMUXY_SESSION` env or the default.
+/// One resolution point — the Tauri app used to carry two private copies
+/// plus an inline third in gui.rs.
+pub fn session_name() -> String {
+    std::env::var("TMUXY_SESSION").unwrap_or_else(|_| crate::DEFAULT_SESSION_NAME.to_string())
+}
+
 pub fn apply_managed_state(session_name: &str) {
     let state = read_managed_state();
     let pairs: [(Option<&str>, &str); 2] = [

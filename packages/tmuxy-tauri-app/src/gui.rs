@@ -421,7 +421,7 @@ fn build_app_menu(
         )?)
         .separator();
     for name in tmuxy_core::session::list_themes() {
-        let label = display_theme_name(&name);
+        let label = tmuxy_core::theme::display_theme_name(&name);
         theme_builder = theme_builder.item(&MenuItem::with_id(
             app,
             format!("theme-set-{}", name),
@@ -589,22 +589,6 @@ fn build_app_menu(
         .build()?;
 
     Ok(menu)
-}
-
-/// Convert a theme file stem into a display label: "tokyonight" → "Tokyonight",
-/// "cold-harbor" → "Cold Harbor". Mirrors the rough capitalization the web
-/// menu uses for `displayName`.
-fn display_theme_name(stem: &str) -> String {
-    stem.split('-')
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Menu item IDs that map to a tmux operation. These are dispatched through the
@@ -1054,8 +1038,7 @@ pub fn run() {
             // itself via control mode (avoids race between sync creation and
             // async monitor connection where the session can die in between)
             let tmux_bin = session::tmux_path();
-            let session_name =
-                std::env::var("TMUXY_SESSION").unwrap_or_else(|_| "tmuxy".to_string());
+            let session_name = tmuxy_core::session::session_name();
             tmuxy_core::debug_log::log(&format!("tmux binary: {}", tmux_bin));
             eprintln!("[tmuxy] tmux binary: {}", tmux_bin);
             eprintln!("[tmuxy] session name: {}", session_name);

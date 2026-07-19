@@ -113,3 +113,33 @@ pub mod control_events {
     pub const CONTINUE: &str = "%continue ";
     pub const EXIT: &str = "%exit";
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The module's stated purpose is "a typo can't diverge a sender from its
+    /// reader" — but `concat!` can't interpolate consts, so the format
+    /// strings repeat the option names as literals. This test is the
+    /// lockstep guard: every `@tmuxy-*` option must appear verbatim in the
+    /// list-windows format the parser consumes.
+    #[test]
+    fn list_windows_cmd_embeds_every_float_and_group_option() {
+        for option in [
+            tmux_options::WINDOW_TYPE,
+            tmux_options::FLOAT_PARENT,
+            tmux_options::FLOAT_WIDTH,
+            tmux_options::FLOAT_HEIGHT,
+            tmux_options::FLOAT_DRAWER,
+            tmux_options::FLOAT_BG,
+            tmux_options::FLOAT_NOHEADER,
+            tmux_options::GROUP_PANES,
+        ] {
+            assert!(
+                tmux_formats::LIST_WINDOWS_CMD.contains(&format!("#{{{option}}}")),
+                "LIST_WINDOWS_CMD is missing #{{{option}}} — the format string \
+                 and the tmux_options constant have diverged"
+            );
+        }
+    }
+}

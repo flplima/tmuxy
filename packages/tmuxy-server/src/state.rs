@@ -158,7 +158,7 @@ mod broadcast_tests {
 /// module pass static `&'static str` mime types, so the unwrap path is
 /// effectively unreachable — but if a future caller somehow injects a bad
 /// header value we'd rather return a 500 than panic the server thread.
-fn build_response(status: StatusCode, mime: &str, body: impl Into<Body>) -> Response {
+pub(crate) fn build_response(status: StatusCode, mime: &str, body: impl Into<Body>) -> Response {
     Response::builder()
         .status(status)
         .header("Content-Type", mime)

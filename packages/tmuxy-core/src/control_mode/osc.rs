@@ -149,20 +149,10 @@ impl OscParser {
         if content.len() < 2 || content[0] != 0x1B || content[1] != b']' {
             return None;
         }
-
-        let start = 2; // Skip ESC ]
-        for i in start..content.len() {
-            // ST (String Terminator): ESC \
-            if i + 1 < content.len() && content[i] == 0x1B && content[i + 1] == b'\\' {
-                return Some((i + 2, &content[start..i]));
-            }
-            // BEL (alternative terminator)
-            if content[i] == 0x07 {
-                return Some((i + 1, &content[start..i]));
-            }
-        }
-
-        None
+        // Delegate the terminator scan to the shared implementation in
+        // `images.rs`; offsets are body-relative there, so shift by the
+        // 2-byte `ESC ]` prefix this method consumed.
+        super::images::find_osc_end(&content[2..]).map(|(consumed, body)| (consumed + 2, body))
     }
 
     /// Parse an OSC sequence content
