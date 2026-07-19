@@ -274,8 +274,13 @@ async function assertStateMatches(page, options = {}) {
 
       lastErrors = result.errors;
     } catch (e) {
-      // Page may be closing — skip
-      return;
+      // A closing page ends the check; any other exception is a failed
+      // attempt (the old blanket return made exceptions pass silently).
+      const msg = String((e && e.message) || e);
+      if (/Target closed|Session closed|browser has been closed|detached/i.test(msg)) {
+        return;
+      }
+      lastErrors = [`attempt threw: ${msg}`];
     }
   }
 

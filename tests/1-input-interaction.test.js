@@ -31,6 +31,7 @@ const {
   readMouseEvents,
   stopMouseCapture,
   ensureMouseCaptureStopped,
+  pasteText,
 } = require('./helpers');
 
 // ==================== Touch Scroll Helpers ====================
@@ -248,16 +249,45 @@ describe('Scenario 2: Keyboard Basics', () => {
     // Step 6: Arrow-up history recall
     await runCommand(ctx.page, 'echo history_test_123', 'history_test_123');
     await runCommand(ctx.page, 'echo second_command', 'second_command');
+    // Count occurrences BEFORE recall — the typed command + its output already
+    // put 2 on screen, so an absolute threshold was satisfied before the
+    // feature under test ever ran (the old assertion could not fail).
+    const before = (await getTerminalText(ctx.page)).split('history_test_123').length - 1;
     await ctx.page.keyboard.press('ArrowUp');
     await delay(DELAYS.SHORT);
     await ctx.page.keyboard.press('ArrowUp');
     await delay(DELAYS.SHORT);
     await pressEnter(ctx.page);
     await delay(DELAYS.LONG);
-    const text = await getTerminalText(ctx.page);
-    expect(text.split('history_test_123').length).toBeGreaterThan(2);
+    const after = (await getTerminalText(ctx.page)).split('history_test_123').length - 1;
+    // Recall re-types the command and re-runs it: at least 2 new occurrences.
+    expect(after).toBeGreaterThanOrEqual(before + 2);
     await assertContentMatch(ctx.page, 'Scenario 2 end');
   }, 180000);
+});
+
+// ==================== Scenario 2b: Browser Paste ====================
+
+describe('Scenario 2b: Browser Paste', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('paste event delivers text to the terminal, including multi-word content', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await focusPage(ctx.page);
+
+    // Paste rides the browser ClipboardEvent path (window paste listener →
+    // machine → adapter → tmux paste buffer) — previously implemented but
+    // never exercised by any test.
+    const TOKEN = `PASTE_${Date.now()}`;
+    await pasteText(ctx.page, `echo ${TOKEN} with spaces`);
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, `${TOKEN} with spaces`);
+  }, 60000);
 });
 
 // ==================== Scenario 7: Mouse Click & Scroll ====================

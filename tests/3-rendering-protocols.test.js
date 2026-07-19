@@ -103,13 +103,25 @@ describe('Scenario 16: Unicode Rendering', () => {
     const afterCjk = await runCommand(ctx.page, 'echo "AFTER_CJK"', 'AFTER_CJK');
     expect(afterCjk).toContain('AFTER_CJK');
 
-    // Step 4: Emoji - single codepoint
-    await runCommand(ctx.page, 'echo "EMOJI_TEST: X X X END_EMOJI"', 'EMOJI_TEST');
+    // Step 4: Emoji - single codepoint (the old payload said EMOJI but
+    // contained only ASCII X's, so the wide-glyph path was never exercised)
+    // printf expands \xNN, so the typed command stays ASCII-safe while the
+    // terminal receives real UTF-8 emoji bytes.
+    await runCommand(
+      ctx.page,
+      'printf "EMOJI_TEST: \\xf0\\x9f\\x98\\x80 \\xe2\\x9c\\x85 END_EMOJI\\n"',
+      'EMOJI_TEST',
+    );
     const emojiText = await getTerminalText(ctx.page);
+    expect(emojiText).toContain('\u{1f600}');
     expect(emojiText).toContain('END_EMOJI');
 
-    // Step 5: Emoji - multi-codepoint (terminal should not break)
-    await runCommand(ctx.page, 'echo "MULTI_EMOJI_START END_MULTI"', 'MULTI_EMOJI_START');
+    // Step 5: Emoji - multi-codepoint ZWJ sequence (terminal should not break)
+    await runCommand(
+      ctx.page,
+      'printf "MULTI_EMOJI_START \\xf0\\x9f\\x91\\xa9\\xe2\\x80\\x8d\\xf0\\x9f\\x92\\xbb END_MULTI\\n"',
+      'MULTI_EMOJI_START',
+    );
     const multiEmoji = await getTerminalText(ctx.page);
     expect(multiEmoji).toContain('END_MULTI');
     await runCommand(ctx.page, 'echo "AFTER_EMOJI"', 'AFTER_EMOJI');
@@ -215,21 +227,25 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       const text = await getTerminalText(ctx.page);
       expect(text).toContain('Click Here');
 
+      // OSC 8 hyperlinks render as real anchors (TerminalLine wraps runs
+      // carrying a cell URL in <a href>). This is what distinguishes this
+      // test from Scenario 14, which only checks the text; the old version
+      // computed linkInfo and asserted nothing.
       const linkInfo = await ctx.page.evaluate(() => {
-        const terminal = document.querySelector('[role="log"]');
-        if (!terminal) return { hasLinks: false };
-
-        const anchors = terminal.querySelectorAll('a[href]');
-        const dataHrefs = terminal.querySelectorAll('[data-href]');
-
+        const anchors = Array.from(document.querySelectorAll('.terminal-content a[href]'));
         return {
-          hasLinks: anchors.length > 0 || dataHrefs.length > 0,
-          anchorCount: anchors.length,
-          dataHrefCount: dataHrefs.length,
+          count: anchors.length,
+          hrefs: anchors.map((a) => a.getAttribute('href')),
+          visible: anchors.map((a) => {
+            const r = a.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          }),
         };
       });
-
-      // OSC 8 hyperlinks render as text; clickable links are a future enhancement
+      expect(linkInfo.count).toBeGreaterThan(0);
+      expect(linkInfo.hrefs.some((h) => h && h.includes('example.com'))).toBe(true);
+      // Rendered, not just present: the anchor must occupy space on screen.
+      expect(linkInfo.visible.some(Boolean)).toBe(true);
     });
 
     test('Multiple hyperlinks on same line render correctly', async () => {
@@ -355,15 +371,19 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     expect(images[0].widthCells).toBe(10);
     expect(images[0].heightCells).toBe(5);
 
-    // Verify <img> element rendered in DOM
+    // Verify <img> element rendered AND visible — an element in the DOM but
+    // clipped to zero size is not an image the user can see (TESTS.md).
     const imgInfo = await ctx.page.evaluate(() => {
       const img = document.querySelector('.terminal-image');
       if (!img) return null;
-      return { src: img.src, tagName: img.tagName };
+      const r = img.getBoundingClientRect();
+      return { src: img.src, tagName: img.tagName, width: r.width, height: r.height };
     });
     expect(imgInfo).not.toBeNull();
     expect(imgInfo.tagName).toBe('IMG');
     expect(imgInfo.src).toContain('/api/images/');
+    expect(imgInfo.width).toBeGreaterThan(0);
+    expect(imgInfo.height).toBeGreaterThan(0);
   }, 60000);
 
   test('iTerm2 non-inline file download is ignored (no placement)', async () => {
@@ -395,13 +415,14 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     expect(kitty.widthCells).toBe(12);
     expect(kitty.heightCells).toBe(4);
 
-    // <img> rendered with data-protocol="kitty" attribute.
-    const protocols = await ctx.page.evaluate(() =>
-      Array.from(document.querySelectorAll('.terminal-image')).map((el) =>
-        el.getAttribute('data-protocol'),
-      ),
+    // <img> rendered with data-protocol="kitty" AND occupying screen space.
+    const kittyEls = await ctx.page.evaluate(() =>
+      Array.from(document.querySelectorAll('.terminal-image')).map((el) => {
+        const r = el.getBoundingClientRect();
+        return { protocol: el.getAttribute('data-protocol'), visible: r.width > 0 && r.height > 0 };
+      }),
     );
-    expect(protocols).toContain('kitty');
+    expect(kittyEls.some((e) => e.protocol === 'kitty' && e.visible)).toBe(true);
   }, 60000);
 
   test('Sixel (DCS Pq): placement created from a real-decoded bitmap', async () => {
@@ -416,22 +437,22 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     const cmd = `printf '\\ePq#0;2;100;0;0#0~~~\\e\\\\' && echo SIXEL_SENT`;
     await runCommand(ctx.page, cmd, 'SIXEL_SENT');
 
-    // Sixel decoding can fail on toy inputs depending on the icy_sixel
-    // tolerance; if a placement appears, validate its shape, otherwise
-    // confirm the terminal at least survived (matches the parser's
-    // permissive behavior).
-    const images = await getImagePlacements(ctx.page);
+    // Unconditional: the core unit test (images.rs sixel_decoded_to_png)
+    // proves this exact toy input decodes, so a missing placement here is a
+    // real regression. The old `if (sixel)` guard let a total sixel-decode
+    // failure pass green.
+    const images = await waitForImages(ctx.page);
     const sixel = images.find((img) => img.protocol === 'sixel');
-    if (sixel) {
-      expect(sixel.widthCells).toBeGreaterThanOrEqual(1);
-      expect(sixel.heightCells).toBeGreaterThanOrEqual(1);
-      const protocols = await ctx.page.evaluate(() =>
-        Array.from(document.querySelectorAll('.terminal-image')).map((el) =>
-          el.getAttribute('data-protocol'),
-        ),
-      );
-      expect(protocols).toContain('sixel');
-    }
+    expect(sixel).toBeDefined();
+    expect(sixel.widthCells).toBeGreaterThanOrEqual(1);
+    expect(sixel.heightCells).toBeGreaterThanOrEqual(1);
+    const sixelEls = await ctx.page.evaluate(() =>
+      Array.from(document.querySelectorAll('.terminal-image')).map((el) => {
+        const r = el.getBoundingClientRect();
+        return { protocol: el.getAttribute('data-protocol'), visible: r.width > 0 && r.height > 0 };
+      }),
+    );
+    expect(sixelEls.some((e) => e.protocol === 'sixel' && e.visible)).toBe(true);
 
     // Either way, the terminal must remain usable.
     await runCommand(ctx.page, 'echo AFTER_SIXEL', 'AFTER_SIXEL');

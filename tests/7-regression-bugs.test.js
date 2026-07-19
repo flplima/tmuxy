@@ -25,7 +25,7 @@ const {
   getCopyModeState,
   DELAYS,
 } = require('./helpers');
-const { tmuxCmd } = require('./helpers/tmux-socket');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
 // ==================== Scenario: Content persistence after split/close ====================
 
@@ -225,11 +225,10 @@ describe('Scenario: Pane border-status enforced to top', () => {
     const sessionName = await ctx.page.evaluate(
       () => window.app?.getSnapshot()?.context?.sessionName || '',
     );
-    const { execSync } = require('child_process');
-    const status = execSync(
-      `${tmuxCmd()} show-options -t ${sessionName} -v pane-border-status 2>/dev/null || echo "off"`,
-      { encoding: 'utf-8', timeout: 5000 },
-    ).trim();
+    const status = tmuxExec(
+      `show-options -t ${sessionName} -v pane-border-status 2>/dev/null || echo "off"`,
+      { timeout: 5000 },
+    );
     expect(status).toBe('top');
   });
 });
@@ -804,8 +803,7 @@ describe('Scenario: Tab switch shows panes instantly', () => {
     const emptyRaf = samples.filter(isEmptyFrame);
     const emptyMutation = mutations.filter(isEmptyFrame);
     if (emptyRaf.length > 0 || emptyMutation.length > 0) {
-      // eslint-disable-next-line no-console
-      console.log(
+      console.warn(
         'empty frames (raf):',
         JSON.stringify(emptyRaf.slice(0, 3), null, 2),
         '\nempty frames (mutation):',
@@ -938,8 +936,7 @@ describe('Scenario: Tab switch shows panes instantly', () => {
     const emptyRaf = samples.filter(isEmpty);
     const emptyMutation = mutations.filter(isEmpty);
     if (emptyRaf.length > 0 || emptyMutation.length > 0) {
-      // eslint-disable-next-line no-console
-      console.log(
+      console.warn(
         'multi empty frames (raf):',
         JSON.stringify(emptyRaf.slice(0, 3), null, 2),
         '\nmulti empty frames (mutation):',
@@ -1258,8 +1255,7 @@ describe('Scenario: rapid pane-group tab switches do not blink previously-visibl
       return present.length > 1;
     });
     if (multiMarkerFrames.length > 0) {
-      // eslint-disable-next-line no-console
-      console.log('multi-marker frames:', JSON.stringify(multiMarkerFrames.slice(0, 3), null, 2));
+      console.warn('multi-marker frames:', JSON.stringify(multiMarkerFrames.slice(0, 3), null, 2));
     }
     expect(multiMarkerFrames).toEqual([]);
 
@@ -1302,12 +1298,10 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
 
   // Ground truth straight from tmux: the window tmux itself considers active.
   const tmuxActiveWindow = () => {
-    const out = require('child_process')
-      .execSync(`${tmuxCmd()} list-windows -t ${ctx.session.name} -F '#{window_id}|#{window_active}'`, {
-        encoding: 'utf-8',
-        timeout: 5000,
-      })
-      .trim();
+    const out = tmuxExec(
+      `list-windows -t ${ctx.session.name} -F '#{window_id}|#{window_active}'`,
+      { timeout: 5000 },
+    );
     const active = out
       .split('\n')
       .map((l) => l.split('|'))

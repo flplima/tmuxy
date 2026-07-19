@@ -26,6 +26,7 @@ const {
   selectWindowKeyboard,
   lastWindowKeyboard,
   renameWindowKeyboard,
+  killWindowKeyboard,
   selectLayoutKeyboard,
   tmuxCommandKeyboard,
   clickPaneGroupAdd,
@@ -228,17 +229,17 @@ describe('Scenario 4: Window Lifecycle', () => {
     let windows = await ctx.session.getWindowInfo();
     expect(windows.find((w) => w.name === 'MyRenamedWindow')).toBeDefined();
 
-    // Step 8: Close windows until only 1 remains (use stable window IDs,
-    // not indices which can shift; adapter path avoids keyboard focus races)
-    windows = await ctx.session.getWindowInfo();
-    const curWinIdx = await ctx.session.getCurrentWindowIndex();
-    for (const w of windows) {
-      if (String(w.index) !== String(curWinIdx)) {
-        await ctx.session._exec(`kill-window -t ${w.id}`);
-        await delay(DELAYS.SHORT);
-      }
+    // Step 8: Close windows until only 1 remains — through the real user
+    // path (prefix + :kill-window kills the current window; tmux then
+    // focuses another, so repeating converges). The old version called
+    // _exec('kill-window'), skipping the entire keyboard → machine → adapter
+    // chain where close bugs live (TESTS.md: use real user paths).
+    let winCount = await ctx.session.getWindowCount();
+    while (winCount > 1) {
+      await killWindowKeyboard(ctx.page);
+      await waitForWindowCount(ctx.page, winCount - 1);
+      winCount = await ctx.session.getWindowCount();
     }
-    await delay(DELAYS.SYNC);
     await waitForWindowCount(ctx.page, 1);
     expect(await ctx.session.getWindowCount()).toBe(1);
 
@@ -290,11 +291,19 @@ describe('Scenario 5: Pane Groups', () => {
     const menuButton = await ctx.page.$('.pane-header-menu');
     expect(menuButton).not.toBeNull();
 
-    // Step 3: Record original (ALPHA) pane ID
+    // Step 3: Record original (ALPHA) pane ID and stamp its CONTENT with a
+    // token — pane identity is verified below by what the user actually sees
+    // rendered, not only by state-level ids (a swap that renders the wrong
+    // pane's content under the right id would pass an id-only check).
     const alphaPaneId = await ctx.page.evaluate(() => {
       return window.app?.getSnapshot()?.context?.activePaneId || null;
     });
     expect(alphaPaneId).not.toBeNull();
+    const ALPHA_TOKEN = `ALPHA_CONTENT_${Date.now()}`;
+    await focusPage(ctx.page);
+    await typeInTerminal(ctx.page, `echo ${ALPHA_TOKEN}`);
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, ALPHA_TOKEN);
 
     // Step 4: Create group
     expect(await isHeaderGrouped(ctx.page)).toBe(false);
@@ -336,6 +345,8 @@ describe('Scenario 5: Pane Groups', () => {
       return window.app?.getSnapshot()?.context?.activePaneId || null;
     });
     expect(afterSwitchId).toBe(alphaPaneId);
+    // Content fingerprint: the VISIBLE pane must show ALPHA's scrollback.
+    await waitForTerminalText(ctx.page, ALPHA_TOKEN);
 
     // Step 7: Switch back to BETA pane and verify identity
     const betaIdx = tabs.findIndex((t) => t.active); // currently on ALPHA's tab
@@ -581,14 +592,20 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       'typed output in float DOM',
     );
 
-    // Step 8: Input isolation check.
-    // BUG: On CI, page.keyboard.type() bypasses the keyboard actor's
-    // focusedFloatPaneId routing — keys go to activePaneId (background pane)
-    // in addition to the float. This is a known CDP/headless keyboard routing
-    // issue, not a product bug (real users type via the browser's native
-    // keyboard path which correctly routes through the keyboard actor).
-    // TODO: Fix keyboard actor to handle CDP-dispatched keydown events
-    // that arrive before UPDATE_FOCUSED_FLOAT is processed.
+    // Step 8: Input-focus isolation. Full DOM-level isolation (token must
+    // NOT appear in the background pane) cannot be asserted under CDP:
+    // headless keyboard events can race UPDATE_FOCUSED_FLOAT and leak to
+    // activePaneId — a harness artifact, not a product bug. What IS stable
+    // and meaningful: typing must not steal focus away from the float.
+    const focusAfterTyping = await ctx.page.evaluate(() => {
+      const c = window.app?.getSnapshot()?.context;
+      return {
+        focusedFloat: c?.focusedFloatPaneId ?? null,
+        floatIds: Object.keys(c?.floatPanes ?? {}),
+      };
+    });
+    expect(focusAfterTyping.focusedFloat).not.toBeNull();
+    expect(focusAfterTyping.floatIds).toContain(focusAfterTyping.focusedFloat);
 
     // Step 9: Background pane still visible while float is open
     const bgVisible = await ctx.page.evaluate((id) => {
@@ -814,14 +831,30 @@ describe('Scenario 11: Status Bar', () => {
     });
     expect(tabText).toContain('RENAMED_WINDOW');
 
-    // Step 8: Close window via tmux (removing the non-active one)
-    const windows = await ctx.session.getWindowInfo();
-    const inactiveWindow = windows.find((w) => !w.active);
-    if (inactiveWindow) {
-      await tmuxCommandKeyboard(ctx.page, `kill-window -t :${inactiveWindow.index}`);
-      await delay(DELAYS.SYNC);
-      await waitForWindowCount(ctx.page, 1);
+    // Step 8: Close a tab through the ACTUAL UI affordance the test name
+    // promises: right-click the inactive tab → "Close Tab" in the context
+    // menu. (The old version typed `kill-window -t :N` into the command
+    // prompt while the test name claimed "close via button".)
+    const tabsForClose = await ctx.page.$$('.tab-name:not(.tab-add)');
+    let tabToClose = null;
+    for (const t of tabsForClose) {
+      const isActive = await t.evaluate((el) => el.classList.contains('tab-name-active'));
+      if (!isActive) {
+        tabToClose = t;
+        break;
+      }
     }
+    expect(tabToClose).not.toBeNull();
+    await tabToClose.click({ button: 'right' });
+    await ctx.page.waitForSelector('[role="menu"]', { timeout: 5000 });
+    const closeItem = await ctx.page.evaluateHandle(() => {
+      const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+      return items.find((el) => (el.textContent || '').startsWith('Close Tab')) ?? null;
+    });
+    expect(await closeItem.evaluate((el) => el !== null)).toBe(true);
+    await closeItem.asElement().click();
+    await delay(DELAYS.SYNC);
+    await waitForWindowCount(ctx.page, 1);
     expect(await ctx.session.getWindowCount()).toBe(1);
   }, 180000);
 });
@@ -883,17 +916,11 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     await inactiveTab.click();
     await delay(DELAYS.SYNC);
 
-    // Step 6: Verify we switched — active pane should be win1PaneId
-    await ctx.session
-      .waitForState((ctx) => ctx.activePaneId === win1PaneId, 5000)
-      .catch(() => {
-        // The waitForState stringifies the function, so win1PaneId won't be in scope.
-        // Use page.evaluate instead.
-      });
-    // Use direct evaluate to check active pane
-    const activeAfterSwitch = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId,
-    );
+    // Step 6: Verify we switched — active pane must become win1PaneId.
+    // (The old version stringified a closure over win1PaneId, saw undefined
+    // in the page, and swallowed the resulting failure with .catch — the
+    // "verification" could not fail.)
+    await ctx.session.waitForState((c, id) => c.activePaneId === id, win1PaneId, 5000);
 
     // Step 7: Type a marker in window 1
     const MARKER_W1 = `W1_MARKER_${Date.now()}`;

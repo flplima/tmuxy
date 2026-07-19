@@ -125,16 +125,22 @@ describe('Nvim Performance & Correctness', () => {
     await ctx.page.keyboard.press('i');
     await delay(DELAYS.LONG);
 
-    // Type a paragraph and measure time for it to appear
+    // Type a paragraph and measure the FULL round-trip: keystrokes → tmux →
+    // SSE → rendered DOM. The old version timed only the local
+    // keyboard.type() call and asserted on that — the wait for the text was
+    // outside the timer, so a 30s render delay passed as long as typing
+    // itself was quick.
     const paragraph =
       'The quick brown fox jumps over the lazy dog. Performance testing in progress.';
-    const typeTime = await typeWithTiming(ctx.page, paragraph);
-
-    // Wait for the text to appear in the terminal
+    const start = Date.now();
+    await typeWithTiming(ctx.page, paragraph);
     await waitForTerminalText(ctx.page, 'lazy dog', 10000);
+    const roundTrip = Date.now() - start;
 
-    // Generous threshold: typing + round-trip should complete within 5s
-    expect(typeTime).toBeLessThan(5000);
+    // Generous threshold: typing + round-trip should complete within 10s (the
+    // waitForTerminalText timeout bounds it anyway; this asserts the number
+    // we actually measured).
+    expect(roundTrip).toBeLessThan(10000);
 
     // Exit nvim
     await ctx.page.keyboard.press('Escape');

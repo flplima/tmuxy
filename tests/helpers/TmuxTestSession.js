@@ -191,10 +191,18 @@ class TmuxTestSession {
 
   /**
    * Wait for browser state to match expected condition.
-   * @param {Function} predicateFn - Function that receives context and returns true when met
+   *
+   * The predicate is STRINGIFIED and re-evaluated in the page, so it must not
+   * close over test-scope variables — pass them via `arg` instead:
+   *   session.waitForState((ctx, id) => ctx.activePaneId === id, paneId)
+   * (A closure would silently see `undefined` in the page, which is how this
+   * helper used to "pass" while asserting nothing.)
+   *
+   * @param {Function} predicateFn - (context, arg) => boolean
+   * @param {*} [arg] - Serializable value forwarded to the predicate
    * @param {number} timeout - Max wait time in ms (default 5000)
    */
-  async waitForState(predicateFn, timeout = 5000) {
+  async waitForState(predicateFn, arg = undefined, timeout = 5000) {
     if (!this.page) {
       throw new Error('Page not set - call setPage() after navigation');
     }
@@ -203,12 +211,15 @@ class TmuxTestSession {
     const start = Date.now();
 
     while (Date.now() - start < timeout) {
-      const result = await this.page.evaluate((fnStr) => {
-        const fn = eval(`(${fnStr})`);
-        const snapshot = window.app?.getSnapshot?.();
-        if (!snapshot) return false;
-        return fn(snapshot.context);
-      }, predicateStr);
+      const result = await this.page.evaluate(
+        ({ fnStr, fnArg }) => {
+          const fn = eval(`(${fnStr})`);
+          const snapshot = window.app?.getSnapshot?.();
+          if (!snapshot) return false;
+          return fn(snapshot.context, fnArg);
+        },
+        { fnStr: predicateStr, fnArg: arg },
+      );
 
       if (result) return;
       await new Promise((r) => setTimeout(r, 50));

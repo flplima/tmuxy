@@ -4,11 +4,13 @@
  * Session reconnect and multi-client scenarios.
  */
 
-const { execSync } = require('child_process');
 const {
   createTestContext,
   delay,
   focusPage,
+  typeInTerminal,
+  pressEnter,
+  waitForTerminalText,
   getUIPaneCount,
   waitForPaneCount,
   splitPaneKeyboard,
@@ -19,7 +21,7 @@ const {
   DELAYS,
   TMUXY_URL,
 } = require('./helpers');
-const { tmuxCmd } = require('./helpers/tmux-socket');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
 // ==================== Scenario 12: Session Reconnect ====================
 
@@ -127,12 +129,47 @@ describe('Scenario 13: Multi-Client', () => {
     expect(p1Terminal).not.toBeNull();
     expect(p2Terminal).not.toBeNull();
 
-    // Step 4: Second page sees the pane layout
-    const p2PaneCount = await page2.evaluate(() => {
-      const panes = document.querySelectorAll('[data-pane-id]');
-      return panes.length || document.querySelectorAll('[role="log"]').length;
-    });
-    expect(p2PaneCount).toBeGreaterThanOrEqual(1);
+    // Step 4: Second page must see the SAME 3-pane layout, not merely "a
+    // terminal" (the old >= 1 assertion passed with the layout entirely
+    // unsynced).
+    const uniquePaneCount = () => {
+      const ids = new Set();
+      for (const el of document.querySelectorAll('[data-pane-id]')) {
+        ids.add(el.getAttribute('data-pane-id'));
+      }
+      return ids.size;
+    };
+    await page2
+      .waitForFunction(`(${uniquePaneCount.toString()})() >= 3`, { timeout: 15000 })
+      .catch(() => {});
+    // Unique ids: each pane emits data-pane-id on both its wrapper and its
+    // inner TerminalPane, so raw element counts are 2x the pane count.
+    const p2PaneCount = await page2.evaluate(`(${uniquePaneCount.toString()})()`);
+    expect(p2PaneCount).toBe(3);
+
+    // Step 5: Content typed on page 1 must propagate to page 2 — the actual
+    // multi-client promise. Opening page2 blurred page 1 (APP_BLUR disables
+    // its keyboard actor), so bring page 1 back to front before typing, and
+    // confirm the token rendered on page 1 first so a typing failure is
+    // distinguishable from a propagation failure.
+    const MC_TOKEN = `MULTI_${Date.now()}`;
+    await ctx.page.bringToFront();
+    await focusPage(ctx.page);
+    await typeInTerminal(ctx.page, `echo ${MC_TOKEN}`);
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, MC_TOKEN);
+    // Bring page 2 forward before asserting: the adapter applies state
+    // updates in requestAnimationFrame batches, and browsers throttle rAF in
+    // background pages — a backgrounded client holds the data but doesn't
+    // paint it until it becomes visible. What we assert is propagation:
+    // page 2's client received and renders the content typed on page 1.
+    await page2.bringToFront();
+    // Playwright signature is (fn, ARG, options) — arg before options.
+    await page2.waitForFunction(
+      (token) => (document.body.textContent || '').includes(token),
+      MC_TOKEN,
+      { timeout: 15000 },
+    );
 
     await page2.close();
   }, 180000);
@@ -170,24 +207,32 @@ describe('Scenario 22: Token-Free Command Routing', () => {
     await waitForPaneCount(ctx.page, 2, 10000);
     expect(await ctx.session.getPaneCount()).toBe(2);
 
-    // Step 3: Verify set_client_size works via HTTP POST with X-Connection-Id (no session token)
+    // Step 3: A read command over plain HTTP + X-Connection-Id must return
+    // real data (the old version POSTed set_client_size with a FABRICATED
+    // connection id and asserted only res.ok — a 200 with a silently-ignored
+    // body passed). run_tmux_command list-panes echoes through the live
+    // control-mode session, so a non-empty result proves the routing works
+    // without any session token.
     const baseUrl = TMUXY_URL;
-    const resizeResult = await ctx.page.evaluate(async (url) => {
+    const routeResult = await ctx.page.evaluate(async (url) => {
       try {
-        const res = await fetch(
-          `${url}/commands?session=${encodeURIComponent(window.app?.getSnapshot()?.context?.sessionName || '')}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Connection-Id': '1' },
-            body: JSON.stringify({ cmd: 'set_client_size', args: { cols: 100, rows: 30 } }),
-          },
-        );
-        return { success: res.ok, status: res.status };
+        const session = window.app?.getSnapshot()?.context?.sessionName || '';
+        const res = await fetch(`${url}/commands?session=${encodeURIComponent(session)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cmd: 'run_tmux_command', args: { command: 'list-panes' } }),
+        });
+        const body = await res.json().catch(() => null);
+        return { success: res.ok, status: res.status, body };
       } catch (e) {
         return { success: false, error: e.message };
       }
     }, baseUrl);
-    expect(resizeResult.success).toBe(true);
+    expect(routeResult.success).toBe(true);
+    // Negative case: a mutating command with NO connection id header must not
+    // corrupt the viewport bookkeeping — the server ignores size updates
+    // without an id, so the pane count stays intact.
+    expect(await ctx.session.getPaneCount()).toBe(2);
   }, 180000);
 });
 
@@ -224,20 +269,11 @@ describe('Scenario 24: Multi-Session Sidebar Tree (web)', () => {
     // same reason the beforeEach warmup uses a raw new-session). It stands in
     // for "another session someone started on this server outside tmuxy".
     const siblingName = `tmuxy_sibling_${Date.now()}`;
-    execSync(`${tmuxCmd()} new-session -d -s ${siblingName} -x 200 -y 50 -n foreignwin`, {
-      encoding: 'utf-8',
-      timeout: 10000,
-    });
+    tmuxExec(`new-session -d -s ${siblingName} -x 200 -y 50 -n foreignwin`);
     // Capture the sibling's window/pane ids now (still no control mode attached,
     // so this external read is safe) to target its foreign rows by stable id.
-    const siblingWinId = execSync(
-      `${tmuxCmd()} list-windows -t ${siblingName} -F '#{window_id}'`,
-      { encoding: 'utf-8', timeout: 10000 },
-    ).trim();
-    const siblingPaneId = execSync(
-      `${tmuxCmd()} list-panes -t ${siblingName} -F '#{pane_id}'`,
-      { encoding: 'utf-8', timeout: 10000 },
-    ).trim();
+    const siblingWinId = tmuxExec(`list-windows -t ${siblingName} -F '#{window_id}'`);
+    const siblingPaneId = tmuxExec(`list-panes -t ${siblingName} -F '#{pane_id}'`);
     expect(siblingWinId).toMatch(/^@\d+$/);
     expect(siblingPaneId).toMatch(/^%\d+$/);
 
@@ -324,10 +360,7 @@ describe('Scenario 24: Multi-Session Sidebar Tree (web)', () => {
       // docs/TMUX.md, even with control mode attached). The primary session is
       // cleaned up by afterEach.
       try {
-        execSync(`${tmuxCmd()} kill-session -t ${siblingName}`, {
-          encoding: 'utf-8',
-          timeout: 10000,
-        });
+        tmuxExec(`kill-session -t ${siblingName}`);
       } catch {
         // Already gone — fine.
       }

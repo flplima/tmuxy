@@ -21,4 +21,18 @@ function tmuxCmd() {
   return `tmux ${socket.includes('/') ? '-S' : '-L'} ${socket}`;
 }
 
-module.exports = { tmuxSocket, tmuxCmd };
+/**
+ * Run one tmux command against the test socket and return trimmed stdout.
+ *
+ * The ONLY sanctioned way for a `*.test.js` file to shell out to tmux —
+ * ESLint bans direct `execSync`/`child_process` there so ad-hoc calls can't
+ * bypass the user-path rule or the socket isolation. Reserve it for
+ * environment setup (e.g. creating a sibling session the UI can't create)
+ * and ground-truth reads that are explicitly safe per docs/TMUX.md.
+ */
+function tmuxExec(args, { timeout = 10000 } = {}) {
+  const { execSync } = require('child_process');
+  return execSync(`${tmuxCmd()} ${args}`, { encoding: 'utf-8', timeout }).trim();
+}
+
+module.exports = { tmuxSocket, tmuxCmd, tmuxExec };

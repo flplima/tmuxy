@@ -126,9 +126,12 @@ async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
     }
   }
 
-  // Terminal content may not be fully loaded
-  await delay(DELAYS.MEDIUM);
-  return url;
+  // All retries exhausted with no rendered prompt: fail here, where the
+  // cause is clear, instead of returning the URL and letting the caller die
+  // later on an unrelated-looking assertion.
+  throw new Error(
+    `navigateToSession: terminal content never rendered for '${sessionName}' after ${maxRetries} attempts`,
+  );
 }
 
 /**
@@ -274,10 +277,16 @@ async function waitForPaneCount(page, expectedCount, timeout = 3000) {
   try {
     await page.waitForFunction(
       (count) => {
-        // Check both data-pane-id elements and [role="log"] elements
-        const paneIds = document.querySelectorAll('[data-pane-id]');
-        const logs = document.querySelectorAll('[role="log"]');
-        return paneIds.length === count || logs.length === count;
+        // Count UNIQUE pane ids (matching getUIPaneCount): each pane emits
+        // data-pane-id on both its layout wrapper and its inner TerminalPane,
+        // and sidebar tree rows repeat the same ids — raw element counts are
+        // 2x+ the real pane count. The old OR with [role="log"] could
+        // satisfy the wait while the real pane elements disagreed.
+        const ids = new Set();
+        for (const el of document.querySelectorAll('[data-pane-id]')) {
+          ids.add(el.getAttribute('data-pane-id'));
+        }
+        return ids.size === count;
       },
       expectedCount,
       { timeout, polling: 50 },

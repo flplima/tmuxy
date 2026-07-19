@@ -48,6 +48,19 @@ export default [
           selector: "CallExpression[callee.name='tmuxRun']",
           message: 'tmuxRun bypasses browser input. Use typeInTerminal() + pressEnter() instead.',
         },
+        // Direct child_process use bypasses both the user-path rule above and
+        // the tmux socket isolation. Environment setup and sanctioned
+        // ground-truth reads go through tmuxExec() in helpers/tmux-socket.js.
+        {
+          selector: "CallExpression[callee.name='execSync']",
+          message:
+            'Do not shell out directly from test files. Use tmuxExec() from helpers/tmux-socket.js (setup/ground-truth only) or a session helper.',
+        },
+        {
+          selector: "CallExpression[callee.name='require'][arguments.0.value='child_process']",
+          message:
+            'Do not import child_process in test files. Use tmuxExec() from helpers/tmux-socket.js.',
+        },
       ],
     },
   },

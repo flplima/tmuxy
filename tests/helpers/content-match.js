@@ -225,8 +225,14 @@ async function assertContentMatch(page, label) {
 
       if (lastErrors.length === 0) return; // Success
     } catch (e) {
-      // Page may be closing or tmux session gone
-      return;
+      // Only a genuinely-closing page may end the assertion early. Anything
+      // else (a tmux error, a selector typo) must count as a failed attempt —
+      // the old blanket `return` turned every exception into a green pass.
+      const msg = String((e && e.message) || e);
+      if (/Target closed|Session closed|browser has been closed|detached/i.test(msg)) {
+        return;
+      }
+      lastErrors.push(`attempt threw: ${msg}`);
     }
   }
 
