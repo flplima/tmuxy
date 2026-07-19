@@ -116,17 +116,15 @@ describe('Pure component stories', () => {
 });
 
 describe('Provider/App story module import sanity', () => {
+  // These stories need live providers/adapters, so they can't be rendered
+  // here — composeStories() itself throws on malformed story exports, and
+  // the count assertion catches an accidentally emptied module. (A per-story
+  // `typeof Story === 'function'` loop used to run here, but it could not
+  // fail once composeStories succeeded — pure noise.)
   for (const [name, mod] of Object.entries(PROVIDER_STORY_MODULES)) {
-    describe(name, () => {
+    it(`${name} composes with at least one story`, () => {
       const composed = composeStories(mod);
-      it('has at least one story', () => {
-        expect(Object.keys(composed).length).toBeGreaterThan(0);
-      });
-      for (const [storyName, Story] of Object.entries(composed)) {
-        it(`composes ${storyName} into a callable component`, () => {
-          expect(typeof Story).toBe('function');
-        });
-      }
+      expect(Object.keys(composed).length).toBeGreaterThan(0);
     });
   }
 });

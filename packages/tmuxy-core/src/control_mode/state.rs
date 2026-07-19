@@ -2939,10 +2939,19 @@ mod tests {
         });
         assert_eq!(agg.windows.get("@1").unwrap().index, 2);
 
-        // tmux reports @1 actually at index 5 — the provisional yields.
-        if let Some(w) = agg.windows.get_mut("@1") {
-            w.index = 5;
-        }
-        assert_eq!(agg.windows.get("@1").unwrap().index, 5);
+        // tmux reports @1 actually at index 5 — drive the correction through
+        // the real parser (a list-windows line arriving as a command
+        // response), not by hand-assigning the field.
+        agg.process_event(ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: "@1,5,1,tab,,,,,,,,shell".to_string(),
+            success: true,
+        });
+        assert_eq!(
+            agg.windows.get("@1").unwrap().index,
+            5,
+            "authoritative list-windows index must overwrite the provisional"
+        );
     }
 }

@@ -3,7 +3,7 @@ import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
 const layoutGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
-import type { ResizeState } from '../../../types';
+import type { ResizeState, DragState } from '../../../types';
 
 describe('layout state', () => {
   it('SELECT_TAB flips activeWindowId and computes optimistic activePaneId', () => {
@@ -143,7 +143,14 @@ describe('layout state', () => {
     const actor = mountState(layoutState, layoutActions, layoutGuards, {
       drag: null,
     });
-    const ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag: null });
+    // A real drag payload must land verbatim... (null → null asserted
+    // nothing: the previous version of this test passed even with the
+    // handler deleted).
+    const drag = { paneId: '%2', currentX: 10, currentY: 20 } as unknown as DragState;
+    let ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag });
+    expect(ctx.drag).toEqual(drag);
+    // ...and null must clear it again.
+    ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag: null });
     expect(ctx.drag).toBeNull();
   });
 

@@ -40,6 +40,22 @@ describe('commandUi state', () => {
     expect(ctx.commandMode).toBeNull();
   });
 
+  it('COMMAND_MODE_SUBMIT substitutes %% in the template with the typed value', () => {
+    // The template drives the real tab-rename prompt (command-prompt -p ...
+    // "rename-window '%%'"). Observe the substitution through the only
+    // window this harness has: a display-message template whose %% lands in
+    // the resulting status message.
+    const actor = mountState(commandUiState, commandUiActions, commandUiGuards, {
+      commandMode: { prompt: 'name:', input: '', template: 'display-message "renamed to %%"' },
+    });
+    const ctx = sendAndGetContext(actor, {
+      type: 'COMMAND_MODE_SUBMIT',
+      value: 'build',
+    });
+    expect(ctx.statusMessage?.text).toBe('renamed to build');
+    expect(ctx.commandMode).toBeNull();
+  });
+
   it('COMMAND_MODE_SUBMIT with display-message sets statusMessage', () => {
     const actor = mountState(commandUiState, commandUiActions, commandUiGuards, {
       commandMode: { prompt: ':', input: '', template: null },

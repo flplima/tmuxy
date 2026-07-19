@@ -1,37 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  TransportError,
-  ProtocolError,
-  TmuxError,
-  Cancelled,
-  classifyAdapterError,
-} from '../AdapterError';
-
-describe('AdapterError ADT', () => {
-  it('TransportError is _tag-tagged for exhaustive matching', () => {
-    const e = new TransportError({ cause: 'network down' });
-    expect(e._tag).toBe('TransportError');
-  });
-
-  it('ProtocolError captures reason and raw payload', () => {
-    const e = new ProtocolError({ reason: 'invalid JSON', raw: '{...' });
-    expect(e._tag).toBe('ProtocolError');
-    expect(e.reason).toBe('invalid JSON');
-    expect(e.raw).toBe('{...');
-  });
-
-  it('TmuxError captures command and stderr', () => {
-    const e = new TmuxError({ command: 'kill-pane', stderr: 'no such pane' });
-    expect(e._tag).toBe('TmuxError');
-    expect(e.command).toBe('kill-pane');
-    expect(e.stderr).toBe('no such pane');
-  });
-
-  it('Cancelled is distinguishable from other errors', () => {
-    const e = new Cancelled({ reason: 'fiber interrupted' });
-    expect(e._tag).toBe('Cancelled');
-  });
-});
+import { TmuxError, classifyAdapterError } from '../AdapterError';
 
 describe('classifyAdapterError', () => {
   it('passes through already-tagged errors unchanged', () => {

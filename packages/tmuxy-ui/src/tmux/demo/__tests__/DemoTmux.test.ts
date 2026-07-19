@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { DemoTmux } from '../DemoTmux';
+import { Schema } from 'effect';
+import * as Schemas from '../../effect/schemas';
 
 describe('DemoTmux', () => {
   let tmux: DemoTmux;
@@ -224,41 +226,15 @@ describe('DemoTmux', () => {
   });
 
   describe('state serialization', () => {
-    it('produces valid ServerState shape', () => {
+    it('emits protocol-valid ServerState (decodes through the wire schema)', () => {
+      // Decode through the SAME Effect schema the production adapter uses for
+      // get_initial_state. This checks VALUES against the wire contract, not
+      // just key presence (the previous toHaveProperty checks re-verified
+      // what TypeScript already guaranteed).
+      tmux.splitPane('horizontal');
+      tmux.createFloat({ width: 30, height: 8 });
       const state = tmux.getState();
-      expect(state).toHaveProperty('session_name');
-      expect(state).toHaveProperty('active_window_id');
-      expect(state).toHaveProperty('active_pane_id');
-      expect(state).toHaveProperty('panes');
-      expect(state).toHaveProperty('windows');
-      expect(state).toHaveProperty('total_width');
-      expect(state).toHaveProperty('total_height');
-      expect(state).toHaveProperty('status_line');
-    });
-
-    it('panes have required fields', () => {
-      const pane = tmux.getState().panes[0];
-      expect(pane).toHaveProperty('id');
-      expect(pane).toHaveProperty('tmux_id');
-      expect(pane).toHaveProperty('window_id');
-      expect(pane).toHaveProperty('content');
-      expect(pane).toHaveProperty('cursor_x');
-      expect(pane).toHaveProperty('cursor_y');
-      expect(pane).toHaveProperty('width');
-      expect(pane).toHaveProperty('height');
-      expect(pane).toHaveProperty('x');
-      expect(pane).toHaveProperty('y');
-      expect(pane).toHaveProperty('active');
-      expect(pane).toHaveProperty('command');
-    });
-
-    it('windows have required fields', () => {
-      const win = tmux.getState().windows[0];
-      expect(win).toHaveProperty('id');
-      expect(win).toHaveProperty('index');
-      expect(win).toHaveProperty('name');
-      expect(win).toHaveProperty('active');
-      expect(win).toHaveProperty('window_type');
+      expect(() => Schema.decodeUnknownSync(Schemas.ServerState)(state)).not.toThrow();
     });
   });
   describe('float sizing', () => {

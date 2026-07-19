@@ -794,13 +794,16 @@ mod tests {
         let result = parser.process(input);
 
         assert!(result.clean_bytes.is_empty());
-        // Sixel sometimes fails on toy inputs; if we did decode, the
-        // placement protocol must match.
-        if !parser.placements.is_empty() {
-            assert_eq!(parser.placements[0].protocol, ImageProtocol::Sixel);
-            assert_eq!(result.new_images.len(), 1);
-            assert!(result.new_images[0].1.data.starts_with(b"\x89PNG"));
-        }
+        // Unconditional: with the assertions previously guarded behind
+        // `if !placements.is_empty()`, a total sixel-decode regression (every
+        // image silently dropped) passed green.
+        assert!(
+            !parser.placements.is_empty(),
+            "sixel input must produce a placement"
+        );
+        assert_eq!(parser.placements[0].protocol, ImageProtocol::Sixel);
+        assert_eq!(result.new_images.len(), 1);
+        assert!(result.new_images[0].1.data.starts_with(b"\x89PNG"));
     }
 
     #[test]
