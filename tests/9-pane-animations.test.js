@@ -174,25 +174,42 @@ describe('Pane split/kill animations', () => {
     );
     const splitRec = await readAnimationRecorder(ctx.page);
 
-    // The enter morph ran: geometry + opacity transitions on .pane-entering.
+    // The enter animation ran, with opacity in every case.
     expect(splitRec.enterSeen).toBe(true);
     expect(splitRec.enterTransitionProps).toContain('opacity');
-    expect(
-      splitRec.enterTransitionProps.includes('width') ||
-        splitRec.enterTransitionProps.includes('left'),
-    ).toBe(true);
 
-    // First sample: the new pane started (≈) at the source pane's pre-split
-    // box — roughly double the area of its final half-box, translucent —
-    // and converged (direction-agnostic: works for stacked or side-by-side).
     const finals = await getVisiblePaneRects(ctx.page);
     expect(finals.length).toBe(2);
     const maxFinalArea = Math.max(...finals.map((r) => r.width * r.height));
     const first = splitRec.enterSamples[0];
     const last = splitRec.enterSamples[splitRec.enterSamples.length - 1];
-    expect(first.width * first.height).toBeGreaterThan(maxFinalArea * 1.5);
     expect(first.opacity).toBeLessThan(1);
-    expect(last.width * last.height).toBeLessThan(first.width * first.height);
+
+    // Two DESIGNED outcomes (PaneLayout's enter path):
+    //  - Morph: findEnterFromBox found the source pane's pre-split box (the
+    //    source shrank in the SAME state update the new pane arrived in) and
+    //    the pane FLIPs from it — geometry transitions run, and the first
+    //    sample is ≈ the source's double-size box converging to the half box.
+    //  - Fade in place: the split landed as TWO updates (source shrink first,
+    //    new pane after — common under CI load, where tmux's layout-change
+    //    and list-panes events don't coalesce), so nothing "plausibly shrank"
+    //    in the pane's birth update and the code's documented fallback fades
+    //    the pane at its final geometry. Asserting the morph unconditionally
+    //    made this designed fallback a test failure on loaded runners.
+    const geometryMorphRan =
+      splitRec.enterTransitionProps.includes('width') ||
+      splitRec.enterTransitionProps.includes('left');
+    if (geometryMorphRan) {
+      // Morph path: started (≈) at the source's pre-split box — roughly
+      // double the final half-box area — and converged (direction-agnostic).
+      expect(first.width * first.height).toBeGreaterThan(maxFinalArea * 1.5);
+      expect(last.width * last.height).toBeLessThan(first.width * first.height);
+    } else {
+      // Fade-in-place path: the pane must already sit at (≈) its final
+      // half-box — never a flash at some third geometry.
+      expect(first.width * first.height).toBeLessThanOrEqual(maxFinalArea * 1.1);
+      expect(last.width * last.height).toBeLessThanOrEqual(maxFinalArea * 1.1);
+    }
 
     // End state: two panes visibly tiled (mosaic panes share only their 1px
     // outline edge), the new pane is active and takes typing.
