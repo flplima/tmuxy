@@ -82,15 +82,14 @@ For every assertion, ask: **"What bug would make this assertion fail?"** If you 
 
 ### Environment
 
-- Tests connect to Chrome via CDP on port 9222 (never install Playwright browsers)
+- Tests connect to an existing Chrome via CDP on port 9222 — never install Playwright browsers locally (CI provisions its own chromium; that's the one exception)
 - All E2E tests run sequentially (`maxWorkers: 1`) — they share one tmux server
 - Dev server must be running (`npm start`)
 
 ### Session Lifecycle
 
-- Each `describe` block gets its own tmux session via `createTestContext()`
-- Call `destroyViaAdapter()` before closing the browser page
-- Never leave tmux sessions or windows behind — cleanup in `afterAll`
+- Each **test** gets a fresh tmux session: `createTestContext()`'s `beforeEach` creates a `TmuxTestSession`, and `afterEach` destroys it
+- Never leave tmux sessions or windows behind — the context's `afterEach`/`afterAll` handle cleanup; don't bypass them
 
 ### Timing
 

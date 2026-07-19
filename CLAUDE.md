@@ -13,6 +13,8 @@ See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and de
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
+See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
+See [docs/WINDOW-TAGS.md](docs/WINDOW-TAGS.md) for the `@tmuxy-*` window-option schema that marks tmuxy-managed windows (tabs, floats, groups).
 
 ## Project Structure
 
@@ -24,12 +26,15 @@ tmuxy/
 │   ├── tmuxy-ui/             # React/Vite frontend
 │   │   └── src/tmux/demo/    # In-browser demo engine (DemoAdapter, DemoTmux, LifoShell)
 │   ├── tmuxy-demo/           # Next.js demo site (static export → GitHub Pages)
+│   ├── tmuxy-wasm/           # Rust: wasm-bindgen facade over tmuxy-core (browser-side parsing)
+│   ├── tmuxy-connect/        # Rust: standalone "add a server" TUI form (tmuxy connect)
+│   ├── tmuxy-tree/           # Rust: standalone sidebar tree TUI (tmuxy tree)
 │   └── tmuxy-tauri-app/      # Tauri desktop app wrapper
 ├── bin/
 │   ├── tmuxy-cli              # Shell dispatcher (symlinked as ~/.local/bin/tmuxy)
 │   └── tmuxy/                 # Shell scripts for floats, groups, widgets
 ├── tests/                    # E2E tests (Jest + Playwright)
-│   ├── helpers/              # One file per helper function
+│   ├── helpers/              # Test helpers, one module per domain
 │   └── *.test.js             # Test suites grouped by operation
 └── docs/                     # Project documentation
 ```
@@ -69,6 +74,16 @@ tmuxy tab prev                         # Previous tab
 tmuxy tab rename <name>                # Rename current tab
 tmuxy tab layout [next|even-h|...]     # Change pane layout
 
+# Session operations
+tmuxy session switch [--float]         # Interactive session switcher
+tmuxy session connect [--web]          # SSH connection prompt
+
+# Navigation (groups → splits → tabs)
+tmuxy nav <left|right|up|down|next|prev>  # Navigate across groups, splits, and tabs
+
+# Sidebar tree
+tmuxy tree                             # Open the interactive tabs+panes tree view
+
 # Widgets
 tmuxy widget image /path/to/img.png    # Display image widget
 tmuxy widget markdown README.md        # Display markdown widget
@@ -99,6 +114,7 @@ tmuxy server                           # Start production server (0.0.0.0:9000, 
 tmuxy server --host 127.0.0.1          # Bind to localhost only
 tmuxy server --password <secret>       # Require HTTP Basic auth (any username); also TMUXY_PASSWORD env
 tmuxy server stop                      # Stop production server
+tmuxy server status                    # Show server status
 ```
 
 Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> --help` for details.
@@ -153,7 +169,7 @@ Key rules:
 - **Test what the user sees, not what the DOM contains.** An element in the DOM but clipped by `overflow: hidden` is not visible. Always verify bounding rects, not just element existence or `textContent`.
 - **Use real user paths.** If a user creates a float by typing `tmuxy pane float`, the test should type that command — not call `_exec('break-pane')`. Adapter calls skip the entire chain where bugs live.
 - **One feature, one test.** Cover create → verify visible → interact → close in a single test. Do not split into separate "check state" and "check DOM" tests.
-- **Never install Playwright browsers** (`npx playwright install`). Tests connect to Chrome via CDP on port 9222.
+- **Never install Playwright browsers locally** (`npx playwright install`). In the dev environment, tests connect to an existing Chrome via CDP on port 9222. (CI is the exception: its workflows provision their own chromium because the runners start empty.)
 - All E2E tests run **sequentially** (`maxWorkers: 1`) — they share one tmux server.
 - Copy mode is a client-side reimplementation: it renders scrollback in `ScrollbackTerminal` (native browser scrolling), fetches history from tmux on demand, and handles vi keybindings, cursor movement, and selection in the browser. Drive it via real user input (`prefix [`, vi keys, wheel/touch scroll, mouse drag/double/triple-click) and assert on the rendered scrollback and on the client engine via `getCopyModeState()` (reads `copyModeStates[paneId]`: loaded lines, cursor, selection, scrollTop) — not `send-keys -X` tmux commands.
 

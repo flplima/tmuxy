@@ -1,12 +1,12 @@
 /**
- * TmuxStatusBar - Bottom status line with hints, tmux status, host, and session
+ * TmuxStatusBar - Bottom status bar with keybinding hints, host, and session
  *
- * Layout: [left: hints] [center: tmux status line] [right: host + session]
+ * Layout: [left: hints (prefix/copy-mode aware)] [center: status messages] [right: host + session]
  *
- * Three center-area modes (cascading priority):
- * 1. Command mode: shows command prompt input (like tmux prefix+:)
- * 2. Status message: shows temporary message (from display-message)
- * 3. Default: renders tmux status line with ANSI colors
+ * - Command mode replaces the whole bar with a full-width prompt input (like tmux prefix+:)
+ * - Center shows only temporary display-message output; the raw tmux status
+ *   line is NOT rendered — hardcoded hints (left) and host/session (right) stand in
+ * - Host is clickable (desktop: open the connect float); session opens the session float
  */
 
 import { useRef, useEffect, useCallback } from 'react';

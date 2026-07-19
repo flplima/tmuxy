@@ -2,7 +2,7 @@
  * keybindingLabel - Format tmux keybinding labels for menu display
  *
  * Looks up a binding key from keybindings.prefix_bindings by matching the command field,
- * then formats the prefix key for display (e.g., "C-b %" → "^B %").
+ * then formats the prefix key for display (e.g., "C-b %" → "ctrl+b %").
  */
 
 import type { KeyBindings } from '../../machines/types';
@@ -40,7 +40,7 @@ function formatBindingKey(key: string): string {
 
 /**
  * Look up a keybinding label for a tmux command.
- * Returns formatted string like "^B %" or undefined if no binding found.
+ * Returns formatted string like "ctrl+b %" or undefined if no binding found.
  */
 export function getKeybindingLabel(
   keybindings: KeyBindings | null,

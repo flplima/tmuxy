@@ -2,7 +2,7 @@
  * uiPrefs state — parallel state for theme, font size, animations.
  *
  * Owns context fields: themeName, themeMode, availableThemes, baseFontSize,
- * enableAnimations, suppressLayoutTransition.
+ * enableAnimations.
  *
  * Action implementations live in ../actions/uiPrefs.ts.
  *

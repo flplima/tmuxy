@@ -78,7 +78,7 @@ We use DOM rendering (spans), not canvas or WebGL.
 
 ### 9. Cross-Session Features (Revised)
 
-Session switching is supported via `tmuxy session switch` and the status bar session picker. One tmuxy instance connects to one session at a time, but can switch between sessions without page reload.
+Session switching is supported via `tmuxy session switch` and the sidebar sessions tree (see `SidebarTree.tsx`). One tmuxy instance connects to one session at a time, but can switch between sessions without page reload.
 
 ### 10. SSH via Web Server
 

@@ -1,8 +1,8 @@
 # Window Tags
 
-tmuxy distinguishes windows it manages from foreign tmux windows using a set of per-window tmux user-options under the `@tmuxy-*` namespace. The discriminator option, `@tmuxy-window-type`, replaces the legacy `__float_*` / `__group_*` name-prefix conventions.
+tmuxy distinguishes windows it manages from foreign tmux windows using a set of per-window tmux user-options under the `@tmuxy-*` namespace. The discriminator option, `@tmuxy-window-type`, replaced the legacy `__float_*` / `__group_*` name-prefix conventions.
 
-This document is the canonical reference for the schema and the source of truth for the migration that introduces it.
+This document describes the window-tag system: the canonical reference for the schema and how the frontend, backend, and shell scripts consume it. The migration that introduced the tags is complete; the steps below are kept as a record of how it landed.
 
 ## Filtering rule
 
@@ -21,7 +21,7 @@ All options are scoped per window (`set-option -w -t <window-id>`).
 | `@tmuxy-float-drawer` | `top` \| `bottom` \| `left` \| `right` \| unset | drawer-style floats |
 | `@tmuxy-float-bg` | `blur` \| `dim` \| unset | floats with a backdrop |
 | `@tmuxy-float-noheader` | `1` \| unset | floats that hide the header chrome |
-| `@tmuxy-group-panes` | comma-separated pane ids, e.g. `%4,%6,%7` | pane-group windows |
+| `@tmuxy-group-panes` | space-separated pane ids, e.g. `%4 %6 %7` | pane-group windows |
 
 ### `@tmuxy-float-parent` semantics
 
@@ -44,7 +44,7 @@ Group membership lives in `@tmuxy-group-panes`. The window name no longer encode
 
 Every tab/pane/group/float operation goes through the existing optimistic pipeline in `packages/tmuxy-ui/src/tmux/store/`:
 
-- single-step ops use `TmuxOp` + `predict` + `reconcile` (see `tmux/store/ops.ts` and `tmux/store/TmuxStore.ts:161-241`)
+- single-step ops use `TmuxOp` + `predict` + `reconcile` (see `tmux/store/ops.ts` and `tmux/store/TmuxStore.ts`)
 - multi-step ops use `Effect` programs in `tmux/effect/compoundOps.ts` with structured rollback
 
 No tab or pane operation is allowed to be a fire-and-forget `RawCommand` after this migration — every mutation predicts a local patch, dispatches the tmux command, and reconciles against the next server snapshot.
@@ -82,12 +82,9 @@ Land in this order. Each step is independently reviewable and keeps the tree gre
 
 ### A. Read path (additive, no behavior change)
 
-1. Extend the `list-windows` format string in `packages/tmuxy-core/src/control_mode/monitor.rs:201,453,725` to fetch the new options:
-   ```
-   #{window_id},#{window_index},#{window_name},#{window_active},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},#{@tmuxy-group-panes}
-   ```
-2. In `packages/tmuxy-core/src/control_mode/state.rs:521,529`, parse the new fields into `WindowState`. Keep `is_float_window_name` / `parse_pane_group_window_name` as a **fallback** for any window where `@tmuxy-window-type` is empty but the name still matches the old prefix — guarantees nothing disappears before step D runs.
-3. Update `TmuxWindow` in `packages/tmuxy-core/src/lib.rs:296` and `packages/tmuxy-ui/src/tmux/types.ts:65` to carry `windowType: 'tab' | 'float' | 'float-backdrop' | 'group' | null` and the metadata fields directly. `isPaneGroupWindow` / `isFloatWindow` derive from `windowType` — keep them as getters during the transition.
+1. Extend the `list-windows` format string in `packages/tmuxy-core/src/control_mode/monitor.rs` to fetch the new options (the shared format string lives in `packages/tmuxy-core/src/constants.rs`).
+2. In `packages/tmuxy-core/src/control_mode/state.rs`, parse the new fields into `WindowState`. Keep `is_float_window_name` / `parse_pane_group_window_name` as a **fallback** for any window where `@tmuxy-window-type` is empty but the name still matches the old prefix — guarantees nothing disappears before step D runs.
+3. Update `TmuxWindow` in `packages/tmuxy-core/src/lib.rs` and `packages/tmuxy-ui/src/tmux/types.ts` to carry `windowType: 'tab' | 'float' | 'float-backdrop' | 'group' | null` and the metadata fields directly. `isPaneGroupWindow` / `isFloatWindow` derive from `windowType` — keep them as getters during the transition.
 
 ### B. Write path
 
@@ -98,10 +95,10 @@ Land in this order. Each step is independently reviewable and keeps the tree gre
 
 ### C. Frontend cutover
 
-1. Replace name-prefix parsing in `packages/tmuxy-ui/src/machines/app/helpers.ts:208-237` (`parseFloatWindowPaneId`) and `groupState.ts:19,51` (`isGroupWindow`) with direct reads of `window.windowType` and `window.floatParent` / `window.groupPanes` from `TmuxWindow`.
-2. Update filters in `selectors.ts:247`, `WindowTabs.tsx:55`, `AppMenu.tsx:49`, `appMachine.ts:130` to use `w.windowType === 'tab'` (or `w.windowType != null` where the test was "is tmuxy-managed").
-3. Replace hardcoded `__float_session` / `__float_connect` names in `actions/groupsAndFloats.ts:36,55` with semantically-named windows that get tagged via `createFloat`.
-4. Demo engine (`packages/tmuxy-ui/src/tmux/demo/DemoTmux.ts`) carries `windowType` on its in-memory windows and drops all `startsWith('__group_')` / `startsWith('__float_')` checks (lines 117, 141-142, 177-178, 376, 386, 786, 801, 1019-1035).
+1. Replace name-prefix parsing in `packages/tmuxy-ui/src/machines/app/helpers.ts` (`parseFloatWindowPaneId`) and `groupState.ts` (`isGroupWindow`) with direct reads of `window.windowType` and `window.floatParent` / `window.groupPanes` from `TmuxWindow`.
+2. Update filters in `selectors.ts`, `WindowTabs.tsx`, `AppMenu.tsx`, `appMachine.ts` to use `w.windowType === 'tab'` (or `w.windowType != null` where the test was "is tmuxy-managed").
+3. Replace hardcoded `__float_session` / `__float_connect` names in `actions/groupsAndFloats.ts` with semantically-named windows that get tagged via `createFloat`.
+4. Demo engine (`packages/tmuxy-ui/src/tmux/demo/DemoTmux.ts`) carries `windowType` on its in-memory windows and drops all `startsWith('__group_')` / `startsWith('__float_')` checks.
 
 ### D. One-time migration (runs at server startup, idempotent)
 
@@ -129,14 +126,14 @@ Re-running is a no-op because each branch short-circuits on the first line. User
 
 Once step D has shipped and bake time has passed (one or two version cuts is plenty; CLAUDE.md says no backwards-compat shim is required for this project):
 
-- delete `is_float_window_name` and `parse_pane_group_window_name` in `tmuxy-core/src/lib.rs:316-340` and their tests at `:785-814`
-- delete all `__group_*` / `__float_*` filter glob patterns in `bin/tmuxy/_lib:89,132` and shell scripts
-- delete the demo engine's name-prefix branches in `DemoTmux.ts:117,141-142,177-178,786,801,1019-1035`
+- delete `is_float_window_name` and `parse_pane_group_window_name` in `tmuxy-core/src/lib.rs` and their tests
+- delete all `__group_*` / `__float_*` filter glob patterns in `bin/tmuxy/_lib` and shell scripts
+- delete the demo engine's name-prefix branches in `DemoTmux.ts`
 - delete `isPaneGroupWindow` / `isFloatWindow` getters once nothing outside the type definition reads them
 
 ### F. Tests
 
-- Update `tests/helpers/consistency.js:47` and `tests/helpers/snapshot-compare.js:167-285` to filter and categorize on `w.windowType`, not name patterns.
+- Update `tests/helpers/consistency.js` and `tests/helpers/snapshot-compare.js` to filter and categorize on `w.windowType`, not name patterns.
 - Add new tests covering:
   - a window without `@tmuxy-window-type` is absent from `selectVisibleWindows` and from the React tab strip
   - `tmuxy tab adopt @<id>` makes a foreign window visible
@@ -149,6 +146,6 @@ Once step D has shipped and bake time has passed (one or two version cuts is ple
 1. **Foreign-window adoption UX.** Step D auto-tags every existing window as `tab` on first run, so no user loses anything at upgrade time. New windows created outside tmuxy (raw `tmux neww`, IDE plugins) stay foreign, which is the goal — but it's a UX change worth documenting in `docs/TMUX.md`. The `tmuxy tab adopt @<id>` CLI command (and a UI affordance under the foreign-window menu) gives users an explicit escape hatch.
 2. **User-option persistence.** Window user-options survive `rename-window` and `move-window` between sessions — verified against the existing `@float_parent` usage. They do not survive `kill-window` (irrelevant) or being recreated by a different process (`neww` from a shell starts untagged, which is the intended foreign behavior).
 3. **Backdrop linkage.** `@tmuxy-float-parent` on a backdrop points to a window id, which is stable for the window's lifetime in tmux. Safe.
-4. **Float drawer/bg/noheader variants.** The current naming scheme encodes `_drawer_<top|bottom|left|right>`, `_bg_<blur|dim|...>`, and `_noheader`. Confirm in `bin/tmuxy/float-create:60-68` that no other suffix variants exist before deleting the name parser — there's a risk of missing an undocumented combo.
+4. **Float drawer/bg/noheader variants.** The current naming scheme encodes `_drawer_<top|bottom|left|right>`, `_bg_<blur|dim|...>`, and `_noheader`. Confirm in `bin/tmuxy/float-create` that no other suffix variants exist before deleting the name parser — there's a risk of missing an undocumented combo.
 5. **Demo engine parity.** The demo engine has no tmux to set options on, so it stores `windowType` directly on its in-memory window objects. The migration step is a no-op in the demo. Make sure the demo and real adapters expose the same `TmuxWindow` shape so consumers don't branch.
 6. **Optimistic predictions for new ops.** `KillWindow` / `KillPane` predictions need to compute the next active window/pane the same way tmux does (most-recently-used in the same session). The MRU order tracking already exists in `TmuxStore`'s predict context — reuse it; don't reinvent.

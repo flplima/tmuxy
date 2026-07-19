@@ -3,7 +3,9 @@
  *
  * Renders loaded scrollback content as a positioned <pre> block inside Pane's
  * shared scroll container. Only visible AND loaded lines are rendered.
- * Uses imperative DOM updates (same as Terminal) for consistent performance.
+ * Uses imperative DOM updates via terminalRendering.ts. NOTE: this is a
+ * SEPARATE renderer from Terminal's React-based TerminalLine.tsx — the two
+ * implementations must be kept in sync manually (styles, selection, cursor).
  * Selection is computed client-side from cursor/anchor positions.
  */
 

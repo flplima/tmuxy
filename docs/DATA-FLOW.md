@@ -38,7 +38,7 @@ Tauri IPC has lower latency than HTTP since communication is in-process. The Tau
 
 ## Adapter Pattern
 
-Both transports implement the `TmuxAdapter` interface defined in `tmuxy-ui/src/tmux/types.ts`. Key methods: `connect()`, `disconnect()`, `isConnected()`, `isReconnecting()`, `invoke<T>(cmd, args?)`, `onStateChange(listener)`, `onError(listener)`, `onConnectionInfo(listener)`, `onReconnection(listener)`, `onKeyBindings(listener)`.
+Both transports implement the `TmuxAdapter` interface defined in `tmuxy-ui/src/tmux/types.ts`. Key methods: `connect()`, `disconnect()`, `isConnected()`, `isReconnecting()`, `invoke<T>(cmd, args?)`, `onStateChange(listener)`, `onError(listener)`, `onConnectionInfo(listener)`, `onReconnection(listener)`, `onKeyBindings(listener)`, `onLog(listener)`, `onFatal(listener)`. Optional members: `onClipboard(listener)` (OSC 52 clipboard writes), `switchSession(sessionName)`, `enumeratesSessions` (gates the sidebar sessions poll), and `queryReadonly(command)` (read-only queries that bypass the mutation queue).
 
 The `tmuxActor` XState actor uses whichever adapter is injected, making the frontend transport-agnostic. Two more adapters exist beyond the SSE and Tauri transports: `DemoAdapter` (in-browser demo — simulates a tmux backend) and `V86TmuxAdapter` (fully client-side **real** tmux — see Scenario 4 below).
 
@@ -59,7 +59,7 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 
 1. App starts, reads `TMUXY_SESSION` env var (defaults to "tmuxy")
 2. `monitor::start_monitoring()` spawns a background task that connects to tmux control mode
-3. On connection failure: exponential backoff (100ms to 10s max), retries indefinitely
+3. On connection failure: exponential backoff (100ms to 10s max); after 5 consecutive failures the monitor **parks** — the loop stays alive but stops retrying until a user-requested reconnect (`tmuxy connect` or the sidebar server picker) revives it (see `packages/tmuxy-tauri-app/src/monitor.rs`)
 4. Once connected: emits keybindings, then enters the monitor event loop
 5. Frontend's `TauriAdapter.connect()` sets up event listeners for `tmux-state-update`, `tmux-keybindings`, and `tmux-error`
 6. No explicit disconnect — the monitor runs for the app's lifetime
@@ -192,9 +192,7 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 
 ### Scenario 2: Developer Using Tauri Desktop App with Remote tmux via SSH
 
-> **Status: NOT IMPLEMENTED.** The Tauri app currently connects only to local tmux sessions. This scenario describes a potential future feature.
-
-**Envisioned setup:** Developer runs the Tauri app locally but attaches to a tmux session on a remote server via SSH.
+**Setup:** Developer runs the Tauri app locally but attaches to a tmux session on a remote server via SSH.
 
 ```
 ┌──────────────────────────┐         ┌──────────────────────────┐
@@ -207,17 +205,12 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 └──────────────────────────┘         └──────────────────────────┘
 ```
 
-**What would be needed:**
-- SSH tunnel integration in the Tauri app (or the Rust backend)
-- `tmux -CC attach-session` over the SSH connection's stdin/stdout
-- Auto-reconnection on SSH disconnects (exponential backoff, session resumption)
-- Handling latency: the adaptive throttling in `TmuxMonitor` (16ms intervals at high throughput) would help, but additional buffering or local echo might be needed for high-latency connections
-
-**What exists today:**
-- The `TmuxMonitor` and `ControlModeConnection` are transport-agnostic — they read/write stdin/stdout of a child process. Wrapping `ssh user@host tmux -CC attach-session -t dev` as the child process could work with minimal core changes.
-- No SSH library or tunnel management exists in the codebase
-- No reconnection-over-SSH logic exists
-- The Tauri app's `monitor.rs` has exponential backoff on connection failure, but it assumes local tmux
+**How it works:**
+- There is no SSH library — tmuxy shells out to the system `ssh` client. The `TMUXY_SSH` env var holds a whitespace-separated ssh argv tail (options plus destination, e.g. `-p 2222 user@host`). When set, every tmux invocation is wrapped as `ssh … tmux …` by `tmux_argv`/`ssh_target` in `packages/tmuxy-core/src/session.rs` — with `-tt` (remote tty allocation) for the `-CC` control-mode attach, and without it for one-off reads.
+- Saved servers live in `~/.config/tmuxy/servers.json` (`packages/tmuxy-core/src/servers.rs`); each entry's optional `ssh` field maps to the same `TMUXY_SSH` value. The desktop sidebar's server picker and the `tmuxy connect` form select an entry and reconnect the monitor live.
+- The `TmuxMonitor` and `ControlModeConnection` are transport-agnostic — they read/write stdin/stdout of a child process, so the ssh hop is invisible to them.
+- The Tauri monitor's reconnect loop (backoff, park after repeated failures, revive on user reconnect — see Connection Lifecycle above) applies to SSH targets the same as local ones.
+- Latency is handled by the monitor's adaptive throttling; there is no local echo or input prediction (see [NON-GOALS.md](NON-GOALS.md)).
 
 ### Scenario 3: Remote Server with Web Access
 
@@ -296,7 +289,7 @@ Key pieces (all under `tmuxy-ui/src/tmux/v86/`):
 
 Used by the Storybook `Scenarios/Application` stories and intended for the public demo. Assets (kernel, BIOS, state snapshot, wasm bindings) are served statically; nothing leaves the browser.
 
-This scenario is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (cached on the build-script hash), starts a Storybook dev server, and drives every `v86`-tagged story on one shared page (`scripts/probe-spikes.mjs`). The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests.
+This scenario is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (cached on the build-script hash), starts a Storybook dev server, and drives every `v86`-tagged story on one shared page (`tmuxy-ui/scripts/probe-spikes.mjs`). The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests.
 
 ## Additional API Endpoints
 

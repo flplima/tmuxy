@@ -8,13 +8,13 @@ This document covers what's supported, how the pipeline works, and how to test e
 
 | Protocol | DCS / OSC / APC | Backend | Frontend | Notes |
 |----------|----------------|---------|----------|-------|
-| **OSC 8 — Hyperlinks** | `ESC ] 8 ; … ; <url> ST` | `control_mode/osc.rs` (style on cell) | `TerminalLine.tsx` → `<a href>` | Requires `terminal-features "*:hyperlinks"` in tmux |
+| **OSC 8 — Hyperlinks** | `ESC ] 8 ; … ; <url> ST` | `control_mode/osc.rs` (style on cell) | `TerminalLine.tsx` → `<a href>` | Parsed from the control-mode stream; no `terminal-features` setting needed |
 | **OSC 1337 — iTerm2 Inline Images** | `ESC ] 1337 ; File=… : <base64> BEL` | `control_mode/images.rs::try_parse_iterm2` | `Terminal.tsx` → `<img src="/api/images/…">` | Base64 of any browser-renderable format |
 | **APC _G — Kitty Graphics** | `ESC _ G <keys> ; <payload> ESC \` | `control_mode/images.rs::try_parse_kitty` | same | Supports chunked transfer (`m=1`/`m=0`) and formats `f=24`/`f=32`/`f=100` |
 | **DCS Pq — Sixel** | `ESC P q … ESC \` | `control_mode/images.rs::try_parse_sixel` | same | Decoded by `icy_sixel`, re-encoded as PNG before serving |
 | **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `control_mode/osc.rs` parser → `StateEmitter::write_clipboard` → SSE `clipboard` event (web) / `tmux-clipboard` (Tauri) | `TmuxAdapter.onClipboard` → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. Storybook coverage: `App/Resilience > ClipboardOSC52`. |
 
-OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser (see the `images.rs` and `osc.rs` parsers), but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. The frontend `richContentParser.ts` / `RichContent.tsx` modules predate this work and are used only for widget markdown rendering, not for inline image decoding.
+OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser — all parsing lives in `tmuxy-core/src/control_mode/images.rs` and `tmuxy-core/src/control_mode/osc.rs` — but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. On the frontend, `Terminal.tsx` renders image placements and `TerminalLine.tsx` renders hyperlink cells.
 
 ## How tmux preserves the sequences
 
@@ -22,7 +22,7 @@ Tmuxy speaks **tmux control mode** (`-CC`), and tmux forwards every escape seque
 
 Two tmux options matter:
 
-- `set -g allow-passthrough on` — required so tmux doesn't refuse to relay the sequences. Tmuxy's bundled `~/.tmuxy.conf` sets this.
+- `set -g allow-passthrough on` — required so tmux doesn't refuse to relay the sequences. The monitor sets this automatically on every session at connect time (see `sync_initial_state` in `tmuxy-core/src/control_mode/monitor.rs`).
 - `set -g default-terminal "tmux-256color"` (or another terminfo entry that does **not** include image capabilities) — keeps tmux from trying to act on the sequences itself.
 
 The parser is permissive about line wrapping and stray printable bytes between chunked Kitty packets, since tmux re-flows output around its own column wrapping.

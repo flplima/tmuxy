@@ -9,13 +9,13 @@
  * MIGRATED HERE (the cleanly-layout-owned events):
  *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
  *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED,
- *   DRAG_STATE_UPDATE,
- *   ANIMATION_DRAG_COMPLETE.
+ *   DRAG_STATE_UPDATE.
  *
  * STILL IN appMachine.ts (cross-cutting orchestrators that touch multiple
  * states' fields and don't extract cleanly without restructuring):
  *   - SEND_TMUX_COMMAND (optimistic intercept, also writes commandMode/statusMessage)
- *   - TMUX_STATE_UPDATE (the ~600-line reconciliation — sliced via helpers/tmuxStateSlices.ts)
+ *   - TMUX_STATE_UPDATE (one-liner relay to tmuxStore for reconcile; the heavy
+ *     downstream work runs in the TMUX_MODEL_UPDATE handler)
  *   - FOCUS_PANE (writes focusedFloatPaneId which is groupsAndFloats-owned)
  *   - SELECT_PANE_GROUP_TAB (dispatches a GroupSwitch op to the store)
  *   - DRAG_START (large assign that snapshots pane positions)

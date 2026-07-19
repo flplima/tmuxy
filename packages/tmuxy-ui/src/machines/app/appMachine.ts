@@ -73,11 +73,11 @@ function resolveWindowTarget(command: string, activeWindowId: string | null): st
 /**
  * Materialize a mutable snapshot view from the TmuxClientModel.
  *
- * The downstream TMUX_MODEL_UPDATE handler mutates the snapshot in place
- * (mostly: temporary pinning during select-tab grace and group-switch
- * freeze). The store's TmuxSnapshot is readonly, so we shallow-clone the
- * arrays once at handler entry to keep that older code shape working
- * without scattering `as unknown` casts.
+ * The derived arrays are passed through by REFERENCE — no cloning. The
+ * store already preserves identity for unchanged panes/windows/arrays, so
+ * spreading here would hand every subscriber a fresh identity on every
+ * tick. This function only widens the store's readonly TmuxSnapshot types
+ * to the mutable shapes the machine context declares.
  */
 function snapshotFromModel(model: TmuxClientModel): {
   panes: TmuxSnapshot['panes'][number][];
@@ -372,7 +372,7 @@ export const appMachine = setup({
     // Backend gave up reconnecting. The status screen reads `fatalError` to
     // show a non-recoverable banner instead of the "connecting…" spinner.
     // Target the `disconnected` terminal state so live-only event handlers
-    // (idle, reconnecting, syncing) all stop firing.
+    // (connecting, idle, reconnecting) all stop firing.
     TMUX_FATAL: {
       target: '.disconnected',
       actions: assign(({ event }) => ({
@@ -1575,7 +1575,7 @@ export const appMachine = setup({
      * an explicit TMUX_DISCONNECTED. The status screen reads `fatalError`
      * (set by the global TMUX_FATAL handler) to show a non-recoverable
      * banner. No auto-recovery — the user reloads the page or restarts the
-     * server. Live-state handlers (idle, syncing, reconnecting) are
+     * server. Live-state handlers (connecting, idle, reconnecting) are
      * intentionally absent so dispatch attempts no-op cleanly.
      */
     disconnected: {

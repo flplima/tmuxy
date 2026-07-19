@@ -102,7 +102,7 @@ Tunables live on `MonitorConfig`. The exact durations + thresholds drift as we t
 
 ### appMachine
 
-The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Five top-level states arranged as a connection lifecycle:
+The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Four top-level states arranged as a connection lifecycle:
 
 - **`connecting`** — Initial. Waiting for the backend handshake. Transitions to `idle` on `TMUX_CONNECTED`.
 - **`idle`** — Live and operational. Handles all normal interactions. The "syncing" sub-flavor — connected, but with one or more optimistic ops in flight — is a derived flag (`tmuxStore.model.ops.length > 0`) surfaced to selectors; it does not gate any handlers, so the user never feels a perceptible mode change when an op is pending.
@@ -141,13 +141,17 @@ The context holds all frontend state. Key fields:
 
 ### Actors
 
-The machine spawns three persistent actors:
+The machine invokes five persistent actors:
 
 **`tmuxActor`** (`tmuxy-ui/src/machines/actors/tmuxActor.ts`) — Bridge to the Rust backend. Receives `SEND_COMMAND`, `INVOKE`, `FETCH_INITIAL_STATE`, `FETCH_THEME_SETTINGS`, etc. from the parent. Sends `TMUX_CONNECTED`, `TMUX_STATE_UPDATE`, `TMUX_ERROR`, `CONNECTION_INFO`, `KEYBINDINGS_RECEIVED`, `TMUX_CLIPBOARD` to the parent.
+
+**`tmuxStoreActor`** (`tmuxy-ui/src/machines/actors/tmuxStoreActor.ts`) — Bridges the Tier-3 client model (`TmuxStore`) into XState. Receives `DISPATCH_COMMAND` (optimistic dispatch) and `RECONCILE_SERVER` (server snapshot reconciliation) from the parent; forwards every model change back as `TMUX_MODEL_UPDATE`.
 
 **`keyboardActor`** (`tmuxy-ui/src/machines/actors/keyboardActor.ts`) — DOM keyboard input handling. Manages prefix mode (waits for next key after prefix), IME composition support (suppresses individual keydowns during CJK input), copy mode interception (all keys captured and sent as `COPY_MODE_KEY` when the active pane is in client-side copy mode), root bindings (bypass prefix), and paste chunking (large pastes split into 500-char chunks). Sends `SEND_TMUX_COMMAND`, `KEY_PRESS`, and `COPY_SELECTION` to the parent.
 
 **`sizeActor`** (`tmuxy-ui/src/machines/actors/sizeActor.ts`) — Viewport tracking. Measures monospace font char dimensions on start, listens to window resize (debounced 100ms), observes container with `ResizeObserver`. Sends `SET_CHAR_SIZE`, `SET_TARGET_SIZE`, `SET_CONTAINER_SIZE` to the parent.
+
+**`serversActor`** (`tmuxy-ui/src/machines/actors/serversActor.ts`) — Polls the sessions tree for the sidebar (runs on web and desktop when the adapter sets `enumeratesSessions`).
 
 ### Child Machines
 
@@ -186,13 +190,13 @@ Anything that changes the user's perceived "focused pane" MUST keep three pieces
 | State                          | Owner                | Why it matters                                                                 |
 |--------------------------------|----------------------|--------------------------------------------------------------------------------|
 | `context.activePaneId`         | appMachine           | Drives the UI focus indicator (PaneHeader tab highlight, pane border, etc.).   |
-| `activePaneId` (local)         | keyboardActor        | Used as the `-t` target for every `send-keys`, paste, and IME-commit command.  |
+| `activePaneId` (local)         | keyboardActor        | Resolved as the `-t` target for every `send-keys`, paste, and IME-commit command: a focused float pane wins, then the active pane (placeholder ids filtered out), then the session name. |
 | Server-side active pane        | tmux                 | Used by any prefix/root binding that omits `-t` (e.g., `split-window`).        |
 
 Rules an action that flips focus must follow:
 
 1. **Set `activePaneId` in context** — via `assign({ activePaneId: ... })`.
-2. **Push `UPDATE_ACTIVE_PANE` to the keyboard actor** — so the next keypress already targets the new pane. The keyboardActor stores `activePaneId` as a local variable (see `tmuxy-ui/src/machines/actors/keyboardActor.ts`) and only re-reads it on this event or on `TMUX_STATE_UPDATE`.
+2. **Push `UPDATE_ACTIVE_PANE` to the keyboard actor** — so the next keypress already targets the new pane. The keyboardActor stores `activePaneId` as a local variable (see `tmuxy-ui/src/machines/actors/keyboardActor.ts`) and only updates it on this event.
 3. **Don't trust tmux's active pane** — for the third case, prefix and root bindings are auto-pinned at dispatch time: keyboardActor prepends `select-pane -t <activePaneId> \;` to every binding command. New code should not bypass this.
 
 Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_TAB` (pane-group tab clicks) in `appMachine.ts`. Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these via `resolveTabNavTarget` / `resolvePaneGroupNavTarget` so they share the same optimism.
@@ -210,14 +214,11 @@ machines/app/
 │                          # remap) but the optimistic-apply path is now a
 │                          # one-liner sendTo('tmuxStore', DISPATCH_COMMAND).
 │                          # TMUX_STATE_UPDATE is one-liner sendTo('tmuxStore',
-│                          # RECONCILE_SERVER); the heavy downstream work
-│                          # (groups, floats, copy-mode detect, animations)
-│                          # runs in the TMUX_MODEL_UPDATE handler.
+│                          # RECONCILE_SERVER); the TMUX_MODEL_UPDATE handler
+│                          # mirrors the model into context directly via
+│                          # snapshotFromModel, then runs the heavy downstream
+│                          # work (groups, floats, copy-mode detect, animations).
 ├── context.ts             # createInitialContext() and FIELD_OWNERS registry
-├── tmuxStateSlices.ts     # Per-state slice helpers for TMUX_STATE_UPDATE
-│                          # (sliceCopyModeStates, sliceStatusLine,
-│                          # sliceActivationOrder, sliceLastActivePaneByWindow,
-│                          # detectRemovedPanes).
 ├── helpers.ts             # transformServerState, parseCommandPrompt,
 │                          # parseDisplayMessage, STATUS_MESSAGE_DURATION.
 ├── states/                # One file per parallel state — exports the state
@@ -289,7 +290,7 @@ Components consume the machine via hooks defined in `tmuxy-ui/src/machines/AppCo
 - `usePaneGroup(paneId)` — Get group info for a pane
 - `useIsDragging()`, `useIsResizing()` — Operation state checks
 
-Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `selectPreviewPanes` (with resize preview), `selectVisiblePanes`, `selectWindows`, `selectGridDimensions`, `selectPaneGroups`, `selectFloatPanes`, `selectIsConnected`, etc.
+Selectors are defined in `tmuxy-ui/src/machines/selectors.ts` and include: `selectPreviewPanes` (with resize preview), `selectVisiblePanes`, `selectWindows`, `selectVisibleWindows`, `selectGridDimensions`, `selectCharSize`, `selectPaneById`, `selectPaneGroupForPane`, etc.
 
 ### Pane enter/leave animations (component-local)
 
@@ -315,4 +316,4 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 
 5. **Copy mode is client-side** — the `copyMode` parallel state owns per-pane `CopyModeState` (loaded scrollback `lines`, cursor, selection, scrollTop). Scrollback is fetched on demand from tmux (`FETCH_SCROLLBACK_CELLS` → `get_scrollback_cells` → `COPY_MODE_CHUNK_LOADED`) and rendered in a natively-scrolling container; vi keybindings (via `COPY_MODE_KEY` → `handleCopyModeKey`), cursor movement, mouse selection, and scroll position are all client-owned. The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag and capturing history. See [COPY-MODE.md](COPY-MODE.md).
 
-6. **Group state** — Pane groups are stored in tmux's session-level environment variable (`TMUXY_GROUPS` as compact JSON). The backend reads this on state sync and includes it in state updates. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `bin/tmuxy/`.
+6. **Group state** — Pane-group membership is stored in the `@tmuxy-group-panes` window option (a space-separated list of pane ids on the group's window; see [TMUX.md](TMUX.md) and [WINDOW-TAGS.md](WINDOW-TAGS.md)). The backend reads it on state sync and includes it in state updates. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `bin/tmuxy/`.

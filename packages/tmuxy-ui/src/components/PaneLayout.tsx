@@ -1,8 +1,11 @@
 /**
- * PaneLayout renders tmux panes using CSS positioning with spring animations
+ * PaneLayout renders tmux panes using absolute CSS positioning
  *
- * - Drag by pane header to swap panes (pane follows cursor with spring physics)
+ * - Drag by pane header to swap panes (dragged pane follows the cursor)
  * - Resize from dividers between panes
+ * - Enter/leave/shift lifecycle: CSS-transition FLIP morphs for pane
+ *   split/kill/geometry changes, tracked component-locally via refs and a
+ *   tick reducer (see STATE-MANAGEMENT.md "Pane enter/leave animations")
  * - Events sent to appMachine on mouse actions
  */
 

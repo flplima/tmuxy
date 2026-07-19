@@ -31,6 +31,10 @@ const {
   selectWindowKeyboard,
 } = require('./helpers/window-ops');
 const { DELAYS } = require('./helpers/config');
+const { tmuxCmd } = require('./helpers/tmux-socket');
+
+// QA runs target the production server's socket unless overridden.
+process.env.TMUX_SOCKET = process.env.TMUX_SOCKET || 'tmuxy-prod';
 
 const SESSION = 'tmuxy-qa';
 const URL = 'http://localhost:9000';
@@ -463,7 +467,7 @@ async function main() {
     }
     try {
       const { execSync } = require('child_process');
-      execSync('tmux -L tmuxy-prod kill-session -t tmuxy-qa 2>/dev/null || true');
+      execSync(`${tmuxCmd()} kill-session -t ${SESSION} 2>/dev/null || true`);
     } catch {}
 
     // Summary

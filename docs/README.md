@@ -26,6 +26,7 @@ This directory contains architectural and design documentation for the tmuxy pro
 |----------|---------------|-----------------|
 | [TMUX.md](TMUX.md) | Control mode architecture, command routing rules (which commands must use control mode vs. safe as subprocesses), `new-window` crash workaround, version-specific bugs, tmux configuration, flow control | Any work involving tmux commands, pane/window operations, or shell scripts |
 | [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation: vi keybindings, scrollback loading, selection/clipboard, entry/exit triggers, key files | Working on copy mode, scrollback, or keyboard handling during copy mode |
+| [WINDOW-TAGS.md](WINDOW-TAGS.md) | The `@tmuxy-*` per-window user-option schema that marks tmuxy-managed windows (tabs, floats, groups) and how it is consumed | Working on floats, pane groups, tabs, or window filtering |
 
 ### Security & Constraints
 
@@ -39,6 +40,7 @@ This directory contains architectural and design documentation for the tmuxy pro
 | Document | What it covers | When to read it |
 |----------|---------------|-----------------|
 | [TESTS.md](TESTS.md) | Testing guidelines and principles for all test types | Writing or debugging tests |
+| [PERFORMANCE.md](PERFORMANCE.md) | Speed measurement along two independent axes: core + client processing (Axis A) vs transport (Axis B), and the harness for each | Benchmarking, profiling, or investigating latency |
 
 ### Protocols & Rendering
 

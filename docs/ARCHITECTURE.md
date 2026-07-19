@@ -61,7 +61,7 @@ Like native tmux, when multiple browser clients connect to the same session, the
 
 2. **All commands through control mode** — External tmux subprocess calls can crash the tmux server when control mode is attached. See [TMUX.md](TMUX.md).
 
-3. **State machine + client model in frontend** — XState owns UI-mode finite states (connecting / idle / removingPane, drag, resize, copy mode, command mode). The tmux world itself lives in a dedicated `TmuxClientModel` (`src/tmux/store/`) with explicit committed / pending-ops / derived layers, owned by an Effect-managed Ref. The appMachine bridges them by routing `SEND_TMUX_COMMAND` and `TMUX_STATE_UPDATE` through `tmuxStoreActor`. React components remain purely presentational — no `useEffect` side effects.
+3. **State machine + client model in frontend** — XState owns UI-mode finite states (connecting / idle / reconnecting / disconnected, drag, resize, copy mode, command mode). The tmux world itself lives in a dedicated `TmuxClientModel` (`src/tmux/store/`) with explicit committed / pending-ops / derived layers, owned by an Effect-managed Ref. The appMachine bridges them by routing `SEND_TMUX_COMMAND` and `TMUX_STATE_UPDATE` through `tmuxStoreActor`. React components remain purely presentational — no `useEffect` side effects.
 
 4. **Adapter pattern for transport** — `TmuxAdapter` interface abstracts SSE/HTTP vs Tauri IPC, making the frontend transport-agnostic.
 
@@ -84,6 +84,8 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 | `tmuxy-ui`        | React frontend, XState machine, optimistic `TmuxClientModel`, Effect-based adapter facade with typed errors, in-browser demo engine, and the v86 client-side adapter (real tmux in an in-browser x86 emulator).            |
 | `tmuxy-wasm`      | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script.           |
 | `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` + `Ctx` plumbing as the server; transport is native IPC instead of SSE/HTTP.                                                                                            |
+| `tmuxy-connect`   | Standalone TUI for the "add a server" form (`tmuxy connect`), which the desktop app opens in a float. `bin/tmuxy-cli` prefers this binary when present.                                                                    |
+| `tmuxy-tree`      | Standalone TUI for the sidebar sessions→tabs→panes tree (`tmuxy tree`), packaged separately so the v86 guest can run it. `bin/tmuxy-cli` prefers this binary when present.                                                 |
 
 ## Related Documentation
 

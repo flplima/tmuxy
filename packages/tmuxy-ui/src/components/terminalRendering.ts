@@ -1,7 +1,9 @@
 /**
  * Imperative DOM rendering for terminal lines.
  *
- * Shared between Terminal (normal mode) and ScrollbackTerminal (copy mode).
+ * Used ONLY by ScrollbackTerminal (copy mode). Terminal (normal mode) has a
+ * separate React-based renderer in TerminalLine.tsx — the two implementations
+ * must be kept in sync manually.
  * Groups consecutive cells by style into <span> elements for efficiency.
  */
 

@@ -154,19 +154,9 @@ This matters especially in automation and tests where multiple operations happen
 
 ## tmux Configuration
 
-For multi-client viewport sizing to work correctly, tmux needs:
+No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically. On every session connect, the monitor's initial sync (`sync_initial_state` in `tmuxy-core/src/control_mode/monitor.rs`) sets `window-size manual` and `aggressive-resize off` (so multi-client viewport sizing stays under tmuxy's control), plus `allow-passthrough on`, `mouse on`, `focus-events on`, pane-border options, and title options. Settings are applied per-session rather than globally, to avoid a tmux 3.5a crash triggered by global settings under control mode.
 
-```bash
-# ~/.tmux.conf or .devcontainer/.tmuxy.conf
-setw -g aggressive-resize off   # Don't auto-resize to largest client
-set -g window-size manual       # Manual control over window size
-```
-
-For OSC 8 hyperlink support:
-
-```bash
-set -g terminal-features "hyperlinks"
-```
+OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/control_mode/osc.rs`), so no `terminal-features` setting is required either.
 
 ## Flow Control
 
@@ -215,9 +205,9 @@ Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{p
 
 `GROUPS` is a bash built-in variable (array of user group IDs). Never use it as a custom variable name in shell scripts executed via `run-shell` — it silently contains the wrong value. Use `GRP_JSON` or similar instead.
 
-## JSON in tmux Environment Variables
+## Group State in Window Options
 
-tmux doesn't handle newlines in environment variables. Always use `jq -c` (compact, single-line output) when storing JSON via `set-environment`.
+Pane-group membership is stored in the `@tmuxy-group-panes` window option — a space-separated list of pane ids on the group's window. The shell helpers in `bin/tmuxy/_lib` read and write it via `show-options -wqv` / `set-option -w`, and windows are typed via the `@tmuxy-window-type` option (see [WINDOW-TAGS.md](WINDOW-TAGS.md)).
 
 ## Related
 
