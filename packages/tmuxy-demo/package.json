@@ -1,6 +1,6 @@
 {
   "name": "tmuxy-demo",
-  "version": "0.0.10-alpha.39",
+  "version": "0.0.10-alpha.40",
   "private": true,
   "scripts": {
     "predev": "bash ../../bin/kill-port 9003",
