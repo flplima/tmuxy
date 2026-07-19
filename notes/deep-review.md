@@ -125,13 +125,34 @@ work, and **~220 remain open**. The per-area sections below are therefore
       banner and story smoke tests; testing it directly needs either a test-only
       export or driving output through the sandbox. Tauri's hardcoded
       `defaultShell: 'bash'` is also still open.
-- [ ] **Phase 5 — Dead-code sweep.** Remaining per-area lists: core
-      `SendTmuxBatch`/`StepResult.state_changed`/`TestEmitter`/`try_recv`,
-      `session::kill_session`/`read_theme_css`/`TmuxError::ParseFailure`, UI
-      `machines/index.ts` barrel + unused constants + six never-sent events + 14
-      dead selectors, store `removeOp`/`cancelOp`/`OpTimedOut`, demo dead
-      exports, and the dead test helpers (`helpers/assertions.js`,
-      `helpers/tmux.js`, 8 of 10 `helpers/performance.js` exports).
+- [x] **Phase 5 — Dead-code sweep** (commits `2811ab5`, `cecb01c`). Rust:
+      `try_recv`/`command_counter`/`is_alive` and the whole command-number
+      mechanism (send fns now return `Result<()>`), the ignored
+      `ClientDetached`/`ClientSessionChanged` events (making `process_event`'s
+      match exhaustive — future variants are compile errors), `SendTmuxBatch`,
+      `StepResult.state_changed`, `queue_resize_captures`+`pending_resize_count`,
+      `TestEmitter`, dead constants, `kill_session`/`read_theme_css`/
+      `TmuxError::ParseFailure`/`TmuxRequest::new`, `bin/dev`'s unreachable
+      trap; also fixed the initial-sync order to panes-first (the load-bearing
+      order `refresh_after_window_add` documents). UI: the `machines/index.ts`
+      and `tmux/index.ts` barrels, unused constants, TEN never-sent events end
+      to end (incl. `DRAG_CANCEL`/`RESIZE_CANCEL`/`ENTER_COMMAND_MODE`), the
+      `groupsAndFloatsState` alias, 14 dead selectors, `lastUpdateTime`/
+      `connectionId`, the unused delta-schema graph, store dead members
+      (`removeOp`/`cancelOp`/`resetToServer`/`OpTimedOut`/...). Demo: unused
+      story helpers, write-only `updateStats`/`lastExitCode`, `isLastPane`/
+      `closeFloat`, dead `start` script. Tests: `helpers/assertions.js` +
+      `helpers/tmux.js` deleted whole, `performance.js` 10→2 exports, the dead
+      `splitPaneUI` chain, four dead `TmuxTestSession` methods, the unused
+      `glitchDetection` option, ten unused imports, the discarded `dbg` block.
+      **Bonus:** `schemas.ts` now carries the compile-time hand-written⇄schema
+      cross-check its header had falsely claimed — verified to fail when the
+      kitty drift is reintroduced.
+      **Left open:** the three Tauri commands kept for the webdriver test
+      (documented in gui.rs), `TMUXY_CONNECT_SSH` (product call), QA scripts
+      (possibly used by the qa agent — not deleted), `FLOAT_*` constants left
+      because building the format strings from them is the better fix (phase 6
+      DRY territory).
 - [ ] **Phase 6 — DRY.** Theme listing + title-casing (still ×2 after the dead
       route went), `KeyBindings::current()`, the `new-window` rewrite string,
       `get_session()`, the `Output`/`ExtendedOutput` arms, newline
