@@ -16,15 +16,8 @@ import {
   selectWindows,
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
-import { getKeybindingLabel } from './menus/keybindingLabel';
-import type { KeyBindings } from '../machines/types';
+import { KeyLabel } from './menus/KeyLabel';
 import './menus/AppMenu.css';
-
-function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
-  const label = getKeybindingLabel(keybindings, command);
-  if (!label) return null;
-  return <span className="menu-keybinding">{label}</span>;
-}
 
 interface TabContextMenuProps {
   /** tmux window index the actions target (Close/Rename operate on this tab). */

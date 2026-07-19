@@ -5,7 +5,8 @@
  */
 
 import { transformServerState as _transform } from '../../machines/app/helpers';
-import type { ServerState, TmuxPane, TmuxWindow, CellLine } from '../types';
+import { cellLinesEqual } from '../deltaProtocol';
+import type { ServerState, TmuxPane, TmuxWindow } from '../types';
 import type { TmuxSnapshot } from './types';
 
 export function transformServerState(payload: ServerState): TmuxSnapshot {
@@ -27,39 +28,13 @@ export function transformServerState(payload: ServerState): TmuxSnapshot {
  * content LINES keep their identity so the TerminalLine memo comparator
  * still short-circuits.
  */
-function linesEqual(a: CellLine, b: CellLine): boolean {
-  if (a === b) return true;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const ca = a[i];
-    const cb = b[i];
-    if (ca.c !== cb.c) return false;
-    const sa = ca.s;
-    const sb = cb.s;
-    if (sa === sb) continue;
-    if (!sa || !sb) return false;
-    if (
-      sa.bold !== sb.bold ||
-      sa.dim !== sb.dim ||
-      sa.italic !== sb.italic ||
-      sa.underline !== sb.underline ||
-      sa.inverse !== sb.inverse ||
-      sa.url !== sb.url ||
-      JSON.stringify(sa.fg) !== JSON.stringify(sb.fg) ||
-      JSON.stringify(sa.bg) !== JSON.stringify(sb.bg)
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
 
 function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
   // Content: reuse the previous line object wherever the line is value-equal.
   let contentSame = prev.content.length === next.content.length;
   const content = next.content.map((line, i) => {
     const prevLine = prev.content[i];
-    if (prevLine && linesEqual(prevLine, line)) return prevLine;
+    if (prevLine && cellLinesEqual(prevLine, line)) return prevLine;
     contentSame = false;
     return line;
   });

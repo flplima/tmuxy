@@ -180,7 +180,15 @@ export function applyDelta(state: ServerState, delta: ServerDelta): ServerState 
  * Compare two cell lines for deep equality.
  * Returns true if both lines have the same characters and styles.
  */
-function cellLinesEqual(a: CellLine, b: CellLine): boolean {
+/**
+ * Cell-line equality with wire-shape normalization: `null`/`undefined` styles
+ * are both "no style", and absent boolean flags equal `false`. Exported as
+ * THE line comparator — `store/adapters.ts` used to carry its own
+ * `linesEqual` with stricter semantics (`undefined !== false`), so the two
+ * halves of the pipeline disagreed about what "changed" means.
+ */
+export function cellLinesEqual(a: CellLine, b: CellLine): boolean {
+  if (a === b) return true;
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     const ca = a[i],

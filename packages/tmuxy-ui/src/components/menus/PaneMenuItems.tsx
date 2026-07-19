@@ -3,14 +3,8 @@
  */
 
 import { MenuItem, MenuDivider } from '@szhsin/react-menu';
-import { getKeybindingLabel } from './keybindingLabel';
 import type { KeyBindings } from '../../machines/types';
-
-function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
-  const label = getKeybindingLabel(keybindings, command);
-  if (!label) return null;
-  return <span className="menu-keybinding">{label}</span>;
-}
+import { KeyLabel } from './KeyLabel';
 
 interface PaneMenuItemsProps {
   keybindings: KeyBindings | null;

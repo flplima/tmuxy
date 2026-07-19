@@ -8,54 +8,15 @@
  */
 
 import type { CellLine, CellStyle, CellColor } from '../tmux/types';
+import { cellColorToCss, isWideChar } from './terminalShared';
 import { detectUrls } from '../utils/urlDetect';
 
 // ============================================
 // Color conversion
 // ============================================
 
-const STANDARD_16_VARS = [
-  'var(--term-black)',
-  'var(--term-red)',
-  'var(--term-green)',
-  'var(--term-yellow)',
-  'var(--term-blue)',
-  'var(--term-magenta)',
-  'var(--term-cyan)',
-  'var(--term-white)',
-  'var(--term-bright-black)',
-  'var(--term-bright-red)',
-  'var(--term-bright-green)',
-  'var(--term-bright-yellow)',
-  'var(--term-bright-blue)',
-  'var(--term-bright-magenta)',
-  'var(--term-bright-cyan)',
-  'var(--term-bright-white)',
-];
-
-function cellColorToCss(color: CellColor): string {
-  if (typeof color === 'number') {
-    if (color < 16) return STANDARD_16_VARS[color];
-    return getAnsi256Color(color);
-  }
-  return `rgb(${color.r}, ${color.g}, ${color.b})`;
-}
-
-function getAnsi256Color(index: number): string {
-  // Only ever called for index >= 16 — cellColorToCss handles 0..15 via the
-  // theme CSS-var path before reaching here.
-  if (index < 232) {
-    const i = index - 16;
-    const r = Math.floor(i / 36);
-    const g = Math.floor((i % 36) / 6);
-    const b = i % 6;
-    const toHex = (v: number) => (v === 0 ? 0 : 55 + v * 40).toString(16).padStart(2, '0');
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
-  const gray = 8 + (index - 232) * 10;
-  const hex = gray.toString(16).padStart(2, '0');
-  return `#${hex}${hex}${hex}`;
-}
+// Color conversion + wide-char classification live in terminalShared.ts,
+// shared with TerminalLine.tsx so the two renderers can't drift on them.
 
 // ============================================
 // Style helpers
@@ -196,6 +157,7 @@ export function renderLineToDOM(
   let groupStyle = line[0].s;
   let groupSelected = selRange ? 0 >= selRange.startCol && 0 <= selRange.endCol : false;
   let groupUrlIdx = line[0].s?.url ? -1 : urlIdxOf(0);
+  let groupWide = isWideChar(line[0].c);
 
   const flush = (end: number) => {
     const text = lineSliceText(line, groupStart, end);
@@ -203,28 +165,38 @@ export function renderLineToDOM(
     const autoUrl = !oscUrl && groupUrlIdx >= 0 ? autoUrls[groupUrlIdx].url : undefined;
     const linkUrl = oscUrl || autoUrl;
 
+    let target: HTMLElement;
     if (linkUrl) {
       const a = document.createElement('a');
       a.href = linkUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       a.className = oscUrl ? 'terminal-hyperlink' : 'terminal-autolink';
-      applyStyleToElement(a, groupStyle, groupSelected);
-      a.textContent = text;
-      el.appendChild(a);
+      target = a;
     } else {
-      const span = document.createElement('span');
-      applyStyleToElement(span, groupStyle, groupSelected);
-      span.textContent = text;
-      el.appendChild(span);
+      target = document.createElement('span');
     }
+    applyStyleToElement(target as HTMLSpanElement, groupStyle, groupSelected);
+    // Pin the span to an exact number of character cells, matching
+    // TerminalLine's stable-grid behaviour: a glyph whose advance differs
+    // from the cell (emoji, CJK) paints within/over its fixed box instead of
+    // pushing the rest of the line. Wide chars sit in their own 1-cell box
+    // (see the group-break below) and overflow into the blank continuation
+    // cell — previously the scrollback renderer had neither, so wide glyphs
+    // misaligned copy-mode lines against the live-terminal grid.
+    target.style.width = `${end - groupStart}ch`;
+    target.textContent = text;
+    el.appendChild(target);
   };
 
   for (let i = 1; i < line.length; i++) {
     const cell = line[i];
     const selected = selRange ? i >= selRange.startCol && i <= selRange.endCol : false;
     const cellUrlIdx = cell.s?.url ? -1 : urlIdxOf(i);
+    const wide = isWideChar(cell.c);
     if (
+      wide ||
+      groupWide ||
       !stylesMatch(cell.s, groupStyle) ||
       selected !== groupSelected ||
       cellUrlIdx !== groupUrlIdx
@@ -234,6 +206,7 @@ export function renderLineToDOM(
       groupStyle = cell.s;
       groupSelected = selected;
       groupUrlIdx = cellUrlIdx;
+      groupWide = wide;
     }
   }
   flush(line.length);

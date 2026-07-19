@@ -26,17 +26,10 @@ import {
   selectThemeMode,
   selectAvailableThemes,
 } from '../../machines/AppContext';
-import { getKeybindingLabel } from './keybindingLabel';
 import { activeCloseTarget, executeMenuAction } from './menuActions';
 import { PaneMenuItems } from './PaneMenuItems';
-import type { KeyBindings } from '../../machines/types';
+import { KeyLabel } from './KeyLabel';
 import './AppMenu.css';
-
-function KeyLabel({ keybindings, command }: { keybindings: KeyBindings | null; command: string }) {
-  const label = getKeybindingLabel(keybindings, command);
-  if (!label) return null;
-  return <span className="menu-keybinding">{label}</span>;
-}
 
 export function AppMenu() {
   const send = useAppSend();
