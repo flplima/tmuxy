@@ -825,25 +825,6 @@ pub fn refresh_launcher(exe_path: &std::path::Path) {
     }
 }
 
-/// Read a theme CSS file by name from ~/.config/tmuxy/themes/<name>.css.
-/// Falls back to the bundled copy if the user's directory doesn't have it
-/// (e.g. they deleted a default but the menu still references it).
-pub fn read_theme_css(name: &str) -> Result<String> {
-    let path = config_dir().join("themes").join(format!("{}.css", name));
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        return Ok(content);
-    }
-
-    let filename = format!("{}.css", name);
-    for (bundled_name, bundled_content) in BUNDLED_THEMES {
-        if *bundled_name == filename {
-            return Ok((*bundled_content).to_string());
-        }
-    }
-
-    Err(TmuxError::other(format!("theme '{}' not found", name)))
-}
-
 pub fn session_exists(session_name: &str) -> Result<bool> {
     crate::debug_log::log_cmd(
         "has-session",
@@ -913,8 +894,9 @@ pub fn create_session(session_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Source the tmuxy config file in an existing session
-pub fn source_config(_session_name: &str) -> Result<()> {
+/// Source the tmuxy config file (server-global — tmux `source-file` is not
+/// session-scoped, which is why this takes no session parameter).
+pub fn source_config() -> Result<()> {
     let Some(config_path) = get_config_path() else {
         return Ok(()); // No config to source
     };
@@ -933,22 +915,13 @@ pub fn create_or_attach(session_name: &str) -> Result<()> {
         create_session(session_name)?;
     } else {
         // Source config for existing session
-        let _ = source_config(session_name);
+        let _ = source_config();
     }
     // Re-apply persisted app state (theme, etc.). Runs whether the session
     // was just created or already existed — in both cases tmux's globals
     // may have been reset (fresh server) or carry stale values from a prior
     // tmuxy build. Failure is logged inside the helper, not returned.
     apply_managed_state(session_name);
-    Ok(())
-}
-
-pub fn kill_session(session_name: &str) -> Result<()> {
-    tmux_command()
-        .args(["kill-session", "-t", session_name])
-        .output()
-        .map_err(|e| format!("Failed to kill session: {}", e))?;
-
     Ok(())
 }
 

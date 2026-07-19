@@ -1,13 +1,14 @@
 //! Retry policy as data.
 //!
-//! Effect.ts-style "policy as data" for the retry-eligible operations
-//! (`capture_pane`, `list_panes`, `has_session`). Each call site declares the
-//! intent — "this is a transient query that's safe to retry" — and the policy
-//! decides how many attempts, what backoff, and whether jitter applies.
+//! Effect.ts-style "policy as data" for retry-eligible operations. Retries
+//! apply only to dispatch through `Ctx::tmux_call` (the tower stack in
+//! `tmux_service.rs`) — the sync executor helpers don't route through this
+//! module. Each call site declares the intent — "this is a transient query
+//! that's safe to retry" — and the policy decides how many attempts, what
+//! backoff, and whether jitter applies.
 //!
-//! **Not** for control-mode command sends (`monitor::send_command` and
-//! friends). Those are once-only: tmux numbers each command sequentially and
-//! a retry would race the original response. The is_retryable() classifier on
+//! **Not** for control-mode command sends (`ControlModeConnection` and
+//! friends). Those are once-only: a retry would race the original response. The is_retryable() classifier on
 //! `TmuxError` keeps the distinction explicit — `ControlMode` errors aren't
 //! marked retryable by default.
 

@@ -15,9 +15,7 @@
 //!   - `ProcessExited { reason }` — control mode `%exit` was received or the
 //!     PTY EOF'd. The supervisor can decide whether to reconnect.
 //!   - `Timeout { operation, after }` — an operation exceeded its deadline.
-//!     The retry-policy machinery (Phase 5.7) inspects `operation`.
-//!   - `ParseFailure { context, raw }` — control-mode parser couldn't decode a
-//!     line. The line itself is preserved for diagnostics.
+//!     The retry-policy machinery inspects `operation`.
 //!   - `SessionNotFound { name }` — `has-session` returned non-zero. The UI
 //!     should ask the user to create the session.
 //!   - `PaneNotFound { id }` — referenced pane id no longer exists. The
@@ -48,12 +46,6 @@ pub enum TmuxError {
         after: std::time::Duration,
     },
 
-    /// The control-mode parser couldn't decode a line.
-    /// `context` describes which event family was expected;
-    /// `raw` preserves the literal input for debugging.
-    #[error("failed to parse {context}: {raw}")]
-    ParseFailure { context: String, raw: String },
-
     /// `has-session` (or equivalent) reports the named session doesn't exist.
     #[error("tmux session '{name}' does not exist")]
     SessionNotFound { name: String },
@@ -82,7 +74,7 @@ impl TmuxError {
     }
 
     /// True when the error is plausibly transient and worth retrying.
-    /// Retry policies in Phase 5.7 consult this to decide whether to back off
+    /// Retry policies in the retry layer consult this to decide whether to back off
     /// or surface.
     pub fn is_retryable(&self) -> bool {
         matches!(
@@ -111,7 +103,7 @@ impl From<&str> for TmuxError {
 /// Bridge in the opposite direction for the remaining `Result<_, String>`
 /// call sites (notably `tmuxy-server/src/sse.rs::handle_command`). Lets the
 /// `?` operator stringify a `TmuxError` so the SSE handler can keep its
-/// existing String-typed wire contract. Phase 2.4 will replace that contract
+/// existing String-typed wire contract. a typed-progress channel would replace that contract if it is ever needed.
 /// outright; until then, this preserves the JSON error shape the frontend
 /// already understands.
 impl From<TmuxError> for String {

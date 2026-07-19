@@ -69,7 +69,6 @@ impl Session {
                     }
                 }
                 SideEffect::SendTmuxCommand(cmd) => out.commands.push(cmd),
-                SideEffect::SendTmuxBatch(cmds) => out.commands.extend(cmds),
                 SideEffect::AdoptUntaggedWindows(cmds) => out.commands.extend(cmds),
                 SideEffect::RefreshAfterWindowAdd => {
                     out.commands.push(tmux_formats::LIST_PANES_CMD.to_string());

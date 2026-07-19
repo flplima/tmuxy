@@ -125,7 +125,6 @@ pub struct ProcessEventResult {
 pub struct StepResult {
     pub effects: Vec<SideEffect>,
     pub change_type: ChangeType,
-    pub state_changed: bool,
 }
 
 /// Typed side effect emitted by the sans-IO state machine.
@@ -139,8 +138,6 @@ pub enum SideEffect {
     /// Send a tmux command through control mode. The runtime is expected to
     /// dispatch this via `ControlModeConnection::send_command(s)`.
     SendTmuxCommand(String),
-    /// Send multiple commands as a single batched write.
-    SendTmuxBatch(Vec<String>),
     /// Capture-pane is needed for these pane ids — emit list-panes first,
     /// then capture each. Surfaced as its own variant so the monitor can
     /// preserve the ordering invariant documented in `refresh_panes`.
@@ -1032,23 +1029,6 @@ impl StateAggregator {
         queued
     }
 
-    /// Queue captures that are known to be resize-triggered.
-    /// Unlike `queue_captures`, these are triggered by resize layout changes.
-    /// Previously suppressed the next %output after capture, but that caused
-    /// legitimate output to be silently dropped when `pending_resize_count`
-    /// leaked across unrelated layout changes (e.g. pane kills).
-    /// Queue resize-triggered captures. Returns only newly queued pane IDs.
-    pub fn queue_resize_captures(&mut self, pane_ids: &[String]) -> Vec<String> {
-        let mut queued = Vec::new();
-        for pane_id in pane_ids {
-            if !self.pending_captures.contains(pane_id) {
-                self.pending_captures.push_back(pane_id.clone());
-                queued.push(pane_id.clone());
-            }
-        }
-        queued
-    }
-
     /// Get the list of window IDs
     pub fn window_ids(&self) -> Vec<String> {
         self.windows.keys().cloned().collect()
@@ -1250,7 +1230,6 @@ impl StateAggregator {
         StepResult {
             effects,
             change_type: result.change_type,
-            state_changed: result.state_changed,
         }
     }
 
@@ -1689,8 +1668,6 @@ impl StateAggregator {
                 }
                 ProcessEventResult::default()
             }
-
-            _ => ProcessEventResult::default(),
         }
     }
 

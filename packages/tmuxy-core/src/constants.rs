@@ -35,27 +35,15 @@ pub mod tmux_options {
     /// `1` to suppress the float's header chrome.
     pub const FLOAT_NOHEADER: &str = "@tmuxy-float-noheader";
 
-    /// CSV of pane IDs belonging to a group window (e.g. `%4,%6,%7`).
+    /// Space-separated pane IDs belonging to a group window (e.g. `%4 %6 %7`).
+    /// Space-joined specifically so the value can't collide with the
+    /// comma-separated `list-windows` format it rides in.
     pub const GROUP_PANES: &str = "@tmuxy-group-panes";
 
     /// Active CSS theme name (file stem under `~/.config/tmuxy/themes/`).
     pub const THEME: &str = "@tmuxy-theme";
     /// Theme mode: `dark` / `light`.
     pub const THEME_MODE: &str = "@tmuxy-theme-mode";
-
-    /// Subset of `@tmuxy-*` window options the monitor requests in every
-    /// `list-windows -F` call. Kept here so the format-string in
-    /// `monitor.rs` stays in lockstep with the parser that consumes it.
-    pub const WINDOW_LIST_FORMAT_OPTIONS: &[&str] = &[
-        WINDOW_TYPE,
-        FLOAT_PARENT,
-        FLOAT_WIDTH,
-        FLOAT_HEIGHT,
-        FLOAT_DRAWER,
-        FLOAT_BG,
-        FLOAT_NOHEADER,
-        GROUP_PANES,
-    ];
 }
 
 /// Compile-time format strings the monitor passes to `list-windows -F` and
@@ -113,7 +101,6 @@ pub mod control_events {
     pub const WINDOW_CLOSE: &str = "%window-close ";
     pub const UNLINKED_WINDOW_ADD: &str = "%unlinked-window-add ";
     pub const UNLINKED_WINDOW_CLOSE: &str = "%unlinked-window-close ";
-    pub const UNLINKED_WINDOW_RENAMED: &str = "%unlinked-window-renamed ";
     pub const WINDOW_RENAMED: &str = "%window-renamed ";
     pub const WINDOW_PANE_CHANGED: &str = "%window-pane-changed ";
     pub const PANE_MODE_CHANGED: &str = "%pane-mode-changed ";
@@ -124,8 +111,5 @@ pub mod control_events {
     pub const PASTE_BUFFER_CHANGED: &str = "%paste-buffer-changed ";
     pub const PAUSE: &str = "%pause ";
     pub const CONTINUE: &str = "%continue ";
-    pub const CLIENT_DETACHED: &str = "%client-detached ";
-    pub const CLIENT_SESSION_CHANGED: &str = "%client-session-changed ";
     pub const EXIT: &str = "%exit";
-    pub const SUBSCRIPTION_CHANGED: &str = "%subscription-changed ";
 }

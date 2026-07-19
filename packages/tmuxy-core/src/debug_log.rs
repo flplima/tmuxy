@@ -1,4 +1,4 @@
-//! Debug logger that writes to /tmp/tmuxy-debug.log
+//! Debug logger that writes to ~/tmuxy-debug.log
 //!
 //! Logs shell commands, their outputs, and diagnostic info to help
 //! investigate issues on macOS where the app behaves differently

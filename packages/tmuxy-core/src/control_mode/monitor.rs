@@ -268,7 +268,6 @@ pub struct TmuxMonitor {
 
     /// Count of pending resize commands sent. When >0, the next PaneLayout
     /// changes are resize-triggered (SIGWINCH may produce stale %output).
-    pending_resize_count: u32,
 
     /// True once we've tagged every untagged window with @tmuxy-window-type.
     /// Reset every connect; the first list-windows response triggers the
@@ -317,7 +316,6 @@ impl TmuxMonitor {
                 aggregator: StateAggregator::new(),
                 config,
                 command_rx,
-                pending_resize_count: 0,
                 window_tags_migrated: false,
                 ctx,
             },
@@ -363,14 +361,16 @@ impl TmuxMonitor {
             .send_command("refresh-client -f pause-after=5")
             .await?;
 
-        // Get list of windows (including float window options)
-        self.connection
-            .send_command(tmux_formats::LIST_WINDOWS_CMD)
-            .await?;
-
-        // Get list of panes with all details (for current session only)
+        // Panes BEFORE windows — the same load-bearing order
+        // `refresh_after_window_add` documents: emitting window state before
+        // its panes exist would surface a window with missing panes. The wasm
+        // mirror (`tmuxy-wasm/src/lib.rs`) uses the same order.
         self.connection
             .send_command(tmux_formats::LIST_PANES_CMD)
+            .await?;
+
+        self.connection
+            .send_command(tmux_formats::LIST_WINDOWS_CMD)
             .await?;
 
         // Capture current content of each pane
@@ -414,7 +414,7 @@ impl TmuxMonitor {
         // window-size manual is set earlier in sync_initial_state() before resizew,
         // so that the resize doesn't trigger SIGWINCH prompt redraws.
 
-        // Window-level settings (setw -g)
+        // Window-level settings (setw, deliberately WITHOUT -g — see below)
         let window_settings = [
             // Disable aggressive-resize — tmuxy manages sizing.
             ("aggressive-resize", "off"),
@@ -602,8 +602,7 @@ impl TmuxMonitor {
                     self.refresh_after_window_add(emitter).await;
                 }
                 SideEffect::RefreshPanes { pane_ids } => {
-                    self.refresh_panes(emitter, &step.change_type, &pane_ids)
-                        .await;
+                    self.refresh_panes(emitter, &pane_ids).await;
                 }
                 SideEffect::ResumePane(pane_id) => {
                     let cmd = format!("refresh-client -A '{}:continue'", pane_id);
@@ -614,18 +613,13 @@ impl TmuxMonitor {
                 SideEffect::EmitState { change } => {
                     self.handle_state_change(emitter, rs, &change);
                 }
-                // Variants reserved for future migrations — the current monitor
-                // routes raw commands through dedicated paths, so these are
-                // unreachable today. They stay in the enum so the API is
-                // stable as more I/O migrates onto effects.
+                // Emitted by the aggregator's in-band paths (e.g. the
+                // paste-buffer read). The native monitor mostly routes raw
+                // commands through dedicated channels, so this arm fires
+                // rarely — the wasm host is the primary consumer.
                 SideEffect::SendTmuxCommand(cmd) => {
                     if let Err(e) = self.connection.send_command(&cmd).await {
                         emitter.emit_error(format!("Failed to send command: {}", e));
-                    }
-                }
-                SideEffect::SendTmuxBatch(cmds) => {
-                    if let Err(e) = self.connection.send_commands_batch(&cmds).await {
-                        emitter.emit_error(format!("Failed to batch send: {}", e));
                     }
                 }
             }
@@ -651,19 +645,8 @@ impl TmuxMonitor {
     /// each pane that flagged itself as needing refresh. Ordering is load-bearing:
     /// list-panes must precede capture-pane so the cursor repositioning logic uses
     /// the updated `tmux_cursor_x/y` when capture responses arrive.
-    async fn refresh_panes<E: StateEmitter>(
-        &mut self,
-        emitter: &E,
-        change: &ChangeType,
-        pane_ids: &[String],
-    ) {
-        let queued_panes =
-            if self.pending_resize_count > 0 && matches!(change, ChangeType::PaneLayout) {
-                self.pending_resize_count -= 1;
-                self.aggregator.queue_resize_captures(pane_ids)
-            } else {
-                self.aggregator.queue_captures(pane_ids)
-            };
+    async fn refresh_panes<E: StateEmitter>(&mut self, emitter: &E, pane_ids: &[String]) {
+        let queued_panes = self.aggregator.queue_captures(pane_ids);
 
         let mut commands: Vec<String> = vec![tmux_formats::LIST_PANES_CMD.to_string()];
         commands.extend(queued_panes.iter().map(|pane_id| capture_command(pane_id)));
@@ -832,7 +815,6 @@ impl TmuxMonitor {
                     if let Err(e) = self.connection.send_command(&resize_cmd).await {
                         emitter.emit_error(format!("Failed to resize window: {}", e));
                     } else {
-                        self.pending_resize_count += 1;
                         trace!(cmd = %resize_cmd, "sent resize command");
                     }
                 } else {
@@ -843,8 +825,6 @@ impl TmuxMonitor {
                     debug!(count = cmds.len(), "resizing windows");
                     if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                         emitter.emit_error(format!("Failed to resize windows: {}", e));
-                    } else {
-                        self.pending_resize_count += 1;
                     }
                 }
                 true
@@ -908,26 +888,6 @@ fn is_multi_step_run_shell(command: &str) -> bool {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
-
-    // Reusable test fixture — kept for future StateEmitter tests even though
-    // none of the current tests instantiate it.
-    #[allow(dead_code)]
-    struct TestEmitter {
-        updates: Arc<Mutex<Vec<StateUpdate>>>,
-        errors: Arc<Mutex<Vec<String>>>,
-    }
-
-    impl super::super::log::LogSink for TestEmitter {}
-
-    impl StateEmitter for TestEmitter {
-        fn emit_state(&self, update: StateUpdate) {
-            self.updates.lock().unwrap().push(update);
-        }
-
-        fn emit_error(&self, error: String) {
-            self.errors.lock().unwrap().push(error);
-        }
-    }
 
     #[test]
     fn test_config_default() {

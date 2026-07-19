@@ -81,16 +81,6 @@ pub enum ControlModeEvent {
     /// Flow control: pane continued
     Continue { pane_id: String },
 
-    /// Client detached
-    ClientDetached { client: String },
-
-    /// Client session changed
-    ClientSessionChanged {
-        client: String,
-        session_id: String,
-        session_name: String,
-    },
-
     /// Control mode client exiting
     Exit { reason: Option<String> },
 
@@ -277,17 +267,10 @@ impl Parser {
             });
         }
 
-        // %client-detached client
-        if let Some(rest) = line.strip_prefix(ev::CLIENT_DETACHED) {
-            return Some(ControlModeEvent::ClientDetached {
-                client: rest.trim().to_string(),
-            });
-        }
-
-        // %client-session-changed client session-id name
-        if line.starts_with(ev::CLIENT_SESSION_CHANGED) {
-            return self.parse_client_session_changed(line);
-        }
+        // %client-detached / %client-session-changed are intentionally
+        // ignored: they describe OTHER clients on the same server, and no
+        // consumer (aggregator, monitor, wasm) has ever acted on them. They
+        // fall through to the unknown-line None below.
 
         // %exit [reason]
         if let Some(rest) = line.strip_prefix(ev::EXIT) {
@@ -426,22 +409,6 @@ impl Parser {
             Some(ControlModeEvent::SessionWindowChanged {
                 session_id: parts[0].to_string(),
                 window_id: parts[1].to_string(),
-            })
-        } else {
-            None
-        }
-    }
-
-    fn parse_client_session_changed(&self, line: &str) -> Option<ControlModeEvent> {
-        // %client-session-changed client session-id name
-        let rest = &line["%client-session-changed ".len()..];
-        let parts: Vec<&str> = rest.splitn(3, ' ').collect();
-
-        if parts.len() >= 3 {
-            Some(ControlModeEvent::ClientSessionChanged {
-                client: parts[0].to_string(),
-                session_id: parts[1].to_string(),
-                session_name: parts[2].to_string(),
             })
         } else {
             None

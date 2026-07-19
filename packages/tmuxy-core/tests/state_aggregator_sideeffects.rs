@@ -13,7 +13,6 @@ fn variant_names(effects: &[SideEffect]) -> Vec<&'static str> {
         .iter()
         .map(|e| match e {
             SideEffect::SendTmuxCommand(_) => "SendTmuxCommand",
-            SideEffect::SendTmuxBatch(_) => "SendTmuxBatch",
             SideEffect::RefreshPanes { .. } => "RefreshPanes",
             SideEffect::RefreshAfterWindowAdd => "RefreshAfterWindowAdd",
             SideEffect::AdoptUntaggedWindows(_) => "AdoptUntaggedWindows",
@@ -101,7 +100,7 @@ fn step_never_returns_empty_variant_pattern_for_known_events() {
 }
 
 #[test]
-fn change_type_is_surfaced_even_when_state_changed_is_false() {
+fn change_type_is_surfaced_even_when_emission_is_suppressed() {
     // Pre-condition: a window exists so close can suppress-but-still-flag.
     let mut agg = StateAggregator::new();
     agg.step(ControlModeEvent::WindowAdd {
@@ -113,8 +112,11 @@ fn change_type_is_surfaced_even_when_state_changed_is_false() {
         window_id: "@9".into(),
     });
     assert!(
-        !result.state_changed,
-        "expected state_changed=false while suppression is on"
+        !result
+            .effects
+            .iter()
+            .any(|e| matches!(e, SideEffect::EmitState { .. })),
+        "no EmitState may fire while suppression is on"
     );
     assert_eq!(
         result.change_type,

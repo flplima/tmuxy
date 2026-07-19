@@ -77,9 +77,6 @@ pub struct ControlModeConnection {
     /// Receiver for parsed events
     event_rx: mpsc::Receiver<ControlModeEvent>,
 
-    /// Command counter for tracking responses
-    command_counter: u32,
-
     /// Bounded buffer of recent raw lines from the PTY master (parsed or
     /// otherwise). Consulted when send_command fails so the error message
     /// can include whatever tmux said on its way out — e.g. an error
@@ -291,7 +288,6 @@ impl ControlModeConnection {
             child,
             pty_writer,
             event_rx: rx,
-            command_counter: 0,
             recent_output,
         })
     }
@@ -508,15 +504,10 @@ impl ControlModeConnection {
     /// Send a tmux command through control mode.
     ///
     /// Commands are sent as plain text followed by newline.
-    /// The response will come as a `CommandResponse` event.
-    /// Returns the command number that tmux will use in the response.
-    pub async fn send_command(&mut self, cmd: &str) -> Result<u32, TmuxError> {
-        // Note: tmux command numbers start at 0, and we track them in sync.
-        // We capture the current counter value BEFORE incrementing so it matches
-        // what tmux will report in the %begin/%end response.
-        let cmd_num = self.command_counter;
-        self.command_counter += 1;
-
+    /// The response will come as a `CommandResponse` event. Response
+    /// correlation happens via the `TMUXY_CAP_BEGIN`/`END` markers, not
+    /// command numbers, so nothing is returned on success.
+    pub async fn send_command(&mut self, cmd: &str) -> Result<(), TmuxError> {
         if let Err(e) = self
             .pty_writer
             .write_all(format!("{}\n", cmd).as_bytes())
@@ -529,7 +520,7 @@ impl ControlModeConnection {
             return Err(self.enrich_io_error("Failed to flush stdin", &e).await);
         }
 
-        Ok(cmd_num)
+        Ok(())
     }
 
     /// Append captured subprocess stderr to an io::Error message.
@@ -549,14 +540,10 @@ impl ControlModeConnection {
     ///
     /// More efficient than calling send_command multiple times because
     /// it reduces system calls by batching writes and flushing once.
-    /// Returns the command number of the first command (what tmux will report).
-    pub async fn send_commands_batch(&mut self, commands: &[String]) -> Result<u32, TmuxError> {
+    pub async fn send_commands_batch(&mut self, commands: &[String]) -> Result<(), TmuxError> {
         if commands.is_empty() {
-            return Ok(self.command_counter);
+            return Ok(());
         }
-
-        // Capture first command number BEFORE incrementing (to match tmux's numbering)
-        let first_cmd_num = self.command_counter;
 
         // Write all commands without flushing
         for cmd in commands {
@@ -567,7 +554,6 @@ impl ControlModeConnection {
             {
                 return Err(self.enrich_io_error("Failed to send command", &e).await);
             }
-            self.command_counter += 1;
         }
 
         // Single flush for all commands
@@ -575,7 +561,7 @@ impl ControlModeConnection {
             return Err(self.enrich_io_error("Failed to flush stdin", &e).await);
         }
 
-        Ok(first_cmd_num)
+        Ok(())
     }
 
     /// Receive the next event from control mode.
@@ -583,19 +569,6 @@ impl ControlModeConnection {
     /// Returns `None` if the connection is closed.
     pub async fn recv(&mut self) -> Option<ControlModeEvent> {
         self.event_rx.recv().await
-    }
-
-    /// Try to receive an event without blocking.
-    pub fn try_recv(&mut self) -> Option<ControlModeEvent> {
-        self.event_rx.try_recv().ok()
-    }
-
-    /// Check if the connection is still alive.
-    pub fn is_alive(&mut self) -> bool {
-        match self.child.try_wait() {
-            Ok(None) => true, // Still running
-            _ => false,       // Exited or error
-        }
     }
 
     /// Kill the control mode connection.
@@ -631,11 +604,6 @@ impl ControlModeConnection {
                 warn!("graceful detach timed out (process may linger)");
             }
         }
-    }
-
-    /// Get the current command counter value.
-    pub fn command_counter(&self) -> u32 {
-        self.command_counter
     }
 }
 

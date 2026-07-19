@@ -1,12 +1,12 @@
 //! Tower-style middleware composition for tmux command invocations.
 //!
-//! Phase 5.10 — wraps the `TmuxCommand` trait in a `tower::Service` so retry,
+//! Wraps the `TmuxCommand` trait in a `tower::Service` so retry,
 //! timeout, and tracing are all composed via `ServiceBuilder` rather than
 //! hand-rolled inside each call site. The single composition point makes
 //! "every tmux call gets a 1-second timeout" a one-line change.
 //!
 //! The service is built on top of `Ctx::tmux` so the test substitution
-//! (Phase 4.9's `MockTmux`) still flows through — middleware composes around
+//! (`MockTmux`) still flows through — middleware composes around
 //! the trait object, it doesn't replace it.
 
 use crate::ctx::TmuxCommand;
@@ -33,13 +33,6 @@ pub struct TmuxRequest {
 }
 
 impl TmuxRequest {
-    pub fn new(args: Vec<String>) -> Self {
-        Self {
-            args,
-            op_name: None,
-        }
-    }
-
     pub fn with_name(args: Vec<String>, name: impl Into<String>) -> Self {
         Self {
             args,
@@ -285,11 +278,10 @@ mod tests {
             .ready()
             .await
             .unwrap()
-            .call(TmuxRequest::new(vec![
-                "display-message".into(),
-                "-p".into(),
-                "x".into(),
-            ]))
+            .call(TmuxRequest::with_name(
+                vec!["display-message".into(), "-p".into(), "x".into()],
+                "display-message",
+            ))
             .await
             .unwrap();
         assert_eq!(out, "ok");
@@ -369,7 +361,7 @@ mod tests {
             .ready()
             .await
             .unwrap()
-            .call(TmuxRequest::new(vec!["op".into()]))
+            .call(TmuxRequest::with_name(vec!["op".into()], "op"))
             .await
             .unwrap();
         assert_eq!(out, "ok");

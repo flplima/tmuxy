@@ -31,15 +31,6 @@ case "$SOCKET" in
   *) SOCKET_FLAG="-L" ;;
 esac
 
-# Cleanup function for graceful shutdown
-cleanup() {
-    echo "[dev] Shutting down..."
-    jobs -p | xargs -r kill 2>/dev/null || true
-    exit 0
-}
-
-trap cleanup SIGINT SIGTERM
-
 echo "[dev] Starting development server with hot reload..."
 echo "[dev] Port: $PORT, Socket: $SOCKET"
 echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src"
