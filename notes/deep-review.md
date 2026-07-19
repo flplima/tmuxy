@@ -66,18 +66,39 @@ work, and **~220 remain open**. The per-area sections below are therefore
       `float-create` command-mode empty-id guard; `devcontainer --name` arity;
       `resize-window` message aligned with TMUX.md; `load-buffer -` documented
       in the safe-externals table. CLI suite 175 → 180 tests, all green.
-- [ ] **Phase 2 — Rust correctness.** Server: geometry `unwrap_or(80)`/`(0)`
-      swallowing parse errors, the unnamed 200ms `source-file` settle, conn_id 0
-      collisions. Core: the unrouted-`CommandResponse` full rebuild (fires on
-      every keystroke ack) and the spoofable list-panes sniff, blocking
-      subprocesses in the async monitor loop, copy-mode capture dedup bypass,
-      snapshot aborting when a pane dies mid-capture, compound-command splitting
-      that ignores quoting, the `TraceLayer` span that misses its async work.
-- [ ] **Phase 3 — Tauri desktop.** Fatal give-up leaves the monitor
-      unrecoverable while `connect_server` returns `Ok` (server picker silently
-      no-ops until relaunch); unquoted session-name interpolation;
-      `show_status_message` newline escaping; `TMUXY_CONNECT_SSH` read with no
-      writer; blocking subprocesses in async commands.
+- [x] **Phase 2 — Rust correctness** (commit `078cf5d`). Aggregator no longer
+      reports a `ChangeType::Full` for empty command acks — every send-keys
+      batch was forcing a full TmuxState rebuild + diff *per keystroke*; the
+      list-panes sniff now requires the `%<digits>,` shape tmux actually emits
+      so arbitrary `RunCommand` output can't conjure ghost panes. Scrollback
+      geometry fails loudly instead of `unwrap_or(80)`/`(0)`; `set_client_size`
+      treats a missing `x-connection-id` as absent rather than colliding on the
+      real id 0; copy-mode sync queues before sending (no duplicate captures at
+      the 50ms cadence); snapshot skips a pane that vanished mid-capture instead
+      of aborting wholesale; `process_compound_command` splits on `\;` only
+      outside quotes and stops treating a post-`-l` `-t` as a target; the
+      `TraceLayer` span is attached to the future so it actually covers the
+      dispatch/timeout/retries. Named the 200ms `source-file` settle, corrected
+      the false `kill_on_drop` comment, and replaced two tautological executor
+      tests with real helper coverage.
+      **Still open in this area:** the blocking subprocesses inside the async
+      monitor loop (`get_status_line`, `show_buffer_named`) and the full
+      marker-routing of self-issued list commands, which would make the sniff
+      exact rather than heuristic.
+- [x] **Phase 3 — Tauri desktop** (commit `6cc630c`). The monitor now parks and
+      waits for a user reconnect instead of returning after
+      `MAX_CONSECUTIVE_FAILURES` — previously a transient tmux flap left the
+      sidebar server picker silently no-opping until relaunch while
+      `connect_server` still returned `Ok(())`. Hoisted
+      `executor::new_window_rewrite` into tmuxy-core (quoting the session, which
+      whitespace or a `;` previously broke) and pointed both transports at it.
+      `show_status_message` uses `serde_json::to_string`, so a multi-line error
+      no longer produces a JS syntax error and a silently missing banner; its
+      speculative `_is_error` parameter is gone.
+      **Still open in this area:** `TMUXY_CONNECT_SSH` is read with no writer
+      (wire `tmuxy connect` to publish it, or drop the read — a product call);
+      blocking subprocesses in async commands; the `std::env::set_var` reconnect
+      race, whose real fix is the `ConnectTarget`-in-state refactor.
 - [ ] **Phase 4 — Frontend + demo bugs.** Input silently dropped while
       `reconnecting` (two comments claim otherwise); Tauri's hardcoded
       `defaultShell: 'bash'`; the six demo-engine bugs (`exit` killing the wrong
