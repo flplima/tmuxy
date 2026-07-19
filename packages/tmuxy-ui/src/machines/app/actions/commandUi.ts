@@ -20,17 +20,6 @@ export const commandUiActions = {
     return { prefixActive: event.active };
   }),
 
-  commandUi_enterCommandMode: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
-    if (event.type !== 'ENTER_COMMAND_MODE') return {};
-    return {
-      commandMode: {
-        prompt: event.prompt ?? ':',
-        input: event.initialValue ?? '',
-        template: event.template ?? null,
-      },
-    };
-  }),
-
   commandUi_submitCommandMode: enqueueActions<
     Ctx,
     Evt,

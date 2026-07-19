@@ -190,15 +190,6 @@ class TmuxTestSession {
   }
 
   /**
-   * Execute a tmux command targeting this session.
-   * @param {string} command - Command with -t placeholder for session
-   * @returns {Promise<string>|string}
-   */
-  _execSession(command) {
-    return this._exec(`${command} -t ${this.name}`);
-  }
-
-  /**
    * Wait for browser state to match expected condition.
    * @param {Function} predicateFn - Function that receives context and returns true when met
    * @param {number} timeout - Max wait time in ms (default 5000)
@@ -433,84 +424,6 @@ class TmuxTestSession {
       return false;
     }
     return false;
-  }
-
-  /**
-   * Check if current pane is in copy mode.
-   * When browser is connected, polls the state for up to 1 second since
-   * copy mode status is only updated via periodic list-panes sync (500ms).
-   */
-  async isPaneInCopyMode() {
-    if (this.page) {
-      // Poll for up to 1s since state sync is every 500ms
-      for (let i = 0; i < 20; i++) {
-        const state = await this._getBrowserState();
-        if (state) {
-          const activePane = state.panes.find((p) => p.id === state.activePaneId);
-          if (activePane && activePane.inMode) return true;
-        }
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      return false;
-    }
-    try {
-      const result = this.runCommandSync(`display-message -t ${this.name} -p "#{pane_in_mode}"`);
-      return result.trim() === '1';
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Get current scroll position (0 = at bottom).
-   * Note: scroll_position is not available in browser state, so this falls back
-   * to checking inMode as a proxy when browser is connected.
-   */
-  async getScrollPosition() {
-    if (this.page) {
-      const state = await this._waitForBrowserState();
-      if (!state) return 0;
-      const activePane = state.panes.find((p) => p.id === state.activePaneId);
-      return activePane && activePane.inMode ? 1 : 0;
-    }
-    try {
-      const result = this.runCommandSync(`display-message -t ${this.name} -p "#{scroll_position}"`);
-      return parseInt(result.trim(), 10) || 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  /**
-   * Get pane border titles
-   * Returns a map of pane_id -> title string
-   */
-  async getPaneBorderTitles() {
-    if (this.page) {
-      const state = await this._waitForBrowserState();
-      if (state) {
-        const titles = {};
-        state.panes
-          .filter((p) => p.windowId === state.activeWindowId)
-          .forEach((p) => {
-            titles[p.id] = p.title;
-          });
-        return titles;
-      }
-      return {};
-    }
-    const result = this.runCommandSync(`list-panes -t ${this.name} -F "#{pane_id}|#{pane_title}"`);
-    const titles = {};
-    result
-      .split('\n')
-      .filter((line) => line.trim())
-      .forEach((line) => {
-        const sep = line.indexOf('|');
-        if (sep !== -1) {
-          titles[line.slice(0, sep)] = line.slice(sep + 1);
-        }
-      });
-    return titles;
   }
 
   // ==================== Window Queries ====================

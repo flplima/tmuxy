@@ -317,10 +317,3 @@ export function createTmuxActor(adapter: TmuxAdapter) {
     };
   });
 }
-
-/**
- * Helper to send command to tmux actor
- */
-export function sendTmuxCommand(command: string): TmuxActorEvent {
-  return { type: 'SEND_COMMAND', command };
-}

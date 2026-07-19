@@ -15,27 +15,6 @@ describe('commandUi state', () => {
     expect(ctx.prefixActive).toBe(false);
   });
 
-  it('ENTER_COMMAND_MODE opens command prompt with defaults', () => {
-    const actor = mountState(commandUiState, commandUiActions, commandUiGuards);
-    const ctx = sendAndGetContext(actor, { type: 'ENTER_COMMAND_MODE' });
-    expect(ctx.commandMode).toEqual({ prompt: ':', input: '', template: null });
-  });
-
-  it('ENTER_COMMAND_MODE accepts custom prompt, initialValue, template', () => {
-    const actor = mountState(commandUiState, commandUiActions, commandUiGuards);
-    const ctx = sendAndGetContext(actor, {
-      type: 'ENTER_COMMAND_MODE',
-      prompt: 'rename-window:',
-      initialValue: 'old-name',
-      template: 'rename-window %%',
-    });
-    expect(ctx.commandMode).toEqual({
-      prompt: 'rename-window:',
-      input: 'old-name',
-      template: 'rename-window %%',
-    });
-  });
-
   it('COMMAND_MODE_CANCEL clears commandMode', () => {
     const actor = mountState(commandUiState, commandUiActions, commandUiGuards, {
       commandMode: { prompt: ':', input: 'whatever', template: null },

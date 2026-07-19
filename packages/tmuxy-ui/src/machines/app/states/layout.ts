@@ -13,8 +13,8 @@
  *
  * Migrated events (these spread into states.idle.on):
  *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
- *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED, RESIZE_ERROR,
- *   DRAG_STATE_UPDATE, DRAG_ERROR.
+ *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED,
+ *   DRAG_STATE_UPDATE.
  *
  * Cross-cutting / orchestrator events remain inline in appMachine.ts —
  * see the JSDoc on layoutActions for the explicit list.
@@ -30,8 +30,6 @@ export const layoutState = {
     KEY_PRESS: { actions: 'layout_forwardKeyToDragResize' },
     RESIZE_STATE_UPDATE: { actions: 'layout_applyResizeState' },
     RESIZE_COMPLETED: { actions: 'layout_resizeCompleted' },
-    RESIZE_ERROR: { actions: 'layout_resizeError' },
     DRAG_STATE_UPDATE: { actions: 'layout_dragStateUpdate' },
-    DRAG_ERROR: { actions: 'layout_dragError' },
   },
 } as const;

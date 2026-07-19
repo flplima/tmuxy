@@ -479,7 +479,6 @@ export const appMachine = setup({
     // Connection info events
     CONNECTION_INFO: {
       actions: assign(({ event }) => ({
-        connectionId: event.connectionId,
         defaultShell: event.defaultShell,
       })),
     },
@@ -914,7 +913,6 @@ export const appMachine = setup({
                 paneGroups,
                 floatPanes,
                 copyModeStates: updatedCopyModeStates,
-                lastUpdateTime: Date.now(),
                 // Clear held resize preview only after resize drag ends.
                 // During active resize, keep the preview to avoid size jumps
                 // from intermediate %layout-change events.
@@ -1247,12 +1245,9 @@ export const appMachine = setup({
         DRAG_END: {
           actions: sendTo('dragLogic', { type: 'DRAG_END' }),
         },
-        DRAG_CANCEL: {
-          actions: sendTo('dragLogic', { type: 'DRAG_CANCEL' }),
-        },
-
-        // Events from Drag Machine — DRAG_STATE_UPDATE and DRAG_ERROR handled by layoutState
-        DRAG_COMPLETED: {},
+        // Events from Drag Machine — DRAG_STATE_UPDATE handled by layoutState
+        // (drag cancel happens via the Escape KEY_PRESS guard inside the
+        // drag machine, not a separate event)
 
         // Resize Events - Forward to resize machine with full context
         RESIZE_START: {
@@ -1269,15 +1264,8 @@ export const appMachine = setup({
         RESIZE_END: {
           actions: sendTo('resizeLogic', { type: 'RESIZE_END' }),
         },
-        RESIZE_CANCEL: {
-          actions: sendTo('resizeLogic', { type: 'RESIZE_CANCEL' }),
-        },
-
         // Forward KEY_PRESS to drag and resize machines for Escape handling
-        // KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED, RESIZE_ERROR — handled by layoutState
-
-        // Animation events
-        ANIMATION_DRAG_COMPLETE: {},
+        // KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED — handled by layoutState
 
         // Pane Operations
         FOCUS_PANE: {

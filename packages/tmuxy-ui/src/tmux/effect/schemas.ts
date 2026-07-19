@@ -8,12 +8,13 @@
  * ProtocolError rather than blowing up deep inside deltaProtocol.ts.
  *
  * The decoded types are inferred (`Schema.Schema.Type<typeof Foo>`) — the
- * existing hand-written interfaces in ../types.ts are still authoritative
- * for now, and we cross-check that the schemas match them via a type
- * assertion at the end of this file.
+ * existing hand-written interfaces in ../types.ts are still authoritative,
+ * and the assertion at the end of this file cross-checks that every
+ * hand-written ServerState satisfies the schema's decoded type.
  */
 
 import { Schema } from 'effect';
+import type { ServerState as HandWrittenServerState } from '../types';
 
 /** Color: indexed (0-255) or RGB. */
 export const CellColor = Schema.Union(
@@ -121,93 +122,17 @@ export const ServerState = Schema.Struct({
   status_line: Schema.String,
 });
 
-/**
- * Per-pane delta — every field optional. `content` is a sparse map of
- * line index → CellLine (only changed lines).
- */
-export const PaneDelta = Schema.Struct({
-  window_id: Schema.optional(Schema.String),
-  content: Schema.optional(Schema.Record({ key: Schema.String, value: CellLine })),
-  cursor_x: Schema.optional(Schema.Number),
-  cursor_y: Schema.optional(Schema.Number),
-  width: Schema.optional(Schema.Number),
-  height: Schema.optional(Schema.Number),
-  x: Schema.optional(Schema.Number),
-  y: Schema.optional(Schema.Number),
-  active: Schema.optional(Schema.Boolean),
-  command: Schema.optional(Schema.String),
-  title: Schema.optional(Schema.String),
-  border_title: Schema.optional(Schema.String),
-  in_mode: Schema.optional(Schema.Boolean),
-  copy_cursor_x: Schema.optional(Schema.Number),
-  copy_cursor_y: Schema.optional(Schema.Number),
-  alternate_on: Schema.optional(Schema.Boolean),
-  mouse_any_flag: Schema.optional(Schema.Boolean),
-  paused: Schema.optional(Schema.Boolean),
-  history_size: Schema.optional(Schema.Number),
-  selection_present: Schema.optional(Schema.Boolean),
-  selection_start_x: Schema.optional(Schema.Number),
-  selection_start_y: Schema.optional(Schema.Number),
-  images: Schema.optional(Schema.Array(ServerImagePlacement)),
-  cursor_shape: Schema.optional(Schema.Number),
-  cursor_hidden: Schema.optional(Schema.Boolean),
-});
-
-/** Per-window delta — every field optional. */
-export const WindowDelta = Schema.Struct({
-  name: Schema.optional(Schema.String),
-  active: Schema.optional(Schema.Boolean),
-  window_type: Schema.optional(Schema.NullOr(WindowType)),
-  group_panes: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
-  float_parent: Schema.optional(Schema.NullOr(Schema.String)),
-  float_width: Schema.optional(Schema.NullOr(Schema.Number)),
-  float_height: Schema.optional(Schema.NullOr(Schema.Number)),
-  float_drawer: Schema.optional(Schema.NullOr(Schema.String)),
-  float_bg: Schema.optional(Schema.NullOr(Schema.String)),
-  float_noheader: Schema.optional(Schema.Boolean),
-});
-
-/** Server delta envelope. `null` value in panes/windows means removed. */
-export const ServerDelta = Schema.Struct({
-  seq: Schema.Number,
-  panes: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.NullOr(PaneDelta) })),
-  windows: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.NullOr(WindowDelta) }),
-  ),
-  new_panes: Schema.optional(Schema.Array(ServerPane)),
-  new_windows: Schema.optional(Schema.Array(ServerWindow)),
-  active_window_id: Schema.optional(Schema.String),
-  active_pane_id: Schema.optional(Schema.String),
-  status_line: Schema.optional(Schema.String),
-  total_width: Schema.optional(Schema.Number),
-  total_height: Schema.optional(Schema.Number),
-});
-
-/** Tagged-union top-level SSE payload. */
-export const StateUpdate = Schema.Union(
-  Schema.Struct({ type: Schema.Literal('full'), state: ServerState }),
-  Schema.Struct({ type: Schema.Literal('delta'), delta: ServerDelta }),
-);
-
-/** Individual keybinding entry. */
-export const KeyBinding = Schema.Struct({
-  key: Schema.String,
-  command: Schema.String,
-  description: Schema.String,
-  repeat: Schema.optional(Schema.Boolean),
-});
-
-/** Full keybindings payload from the server. */
-export const KeyBindings = Schema.Struct({
-  prefix_key: Schema.String,
-  prefix_bindings: Schema.Array(KeyBinding),
-  root_bindings: Schema.Array(KeyBinding),
-});
-
 // Schema-derived TS types. The existing hand-written interfaces in
 // ../types.ts remain the public contract — these are used only by
-// decoders below to keep the protocol boundary type-safe.
+// decoders to keep the protocol boundary type-safe.
 export type ServerStateSchema = Schema.Schema.Type<typeof ServerState>;
-export type ServerDeltaSchema = Schema.Schema.Type<typeof ServerDelta>;
-export type StateUpdateSchema = Schema.Schema.Type<typeof StateUpdate>;
-export type KeyBindingsSchema = Schema.Schema.Type<typeof KeyBindings>;
+
+// Compile-time cross-check: every hand-written ServerState must be accepted
+// by the schema's decoded type. If the schema is NARROWER than ../types.ts —
+// the kitty-placement bug was exactly this (the schema's protocol union was
+// missing 'kitty') — this line fails to compile. (The reverse direction is
+// blocked by Schema.Array's readonly arrays; a schema that is WIDER than the
+// hand-written type only makes decoding more permissive.)
+const _assertHandWrittenSatisfiesSchema: (s: HandWrittenServerState) => ServerStateSchema = (s) =>
+  s;
+void _assertHandWrittenSatisfiesSchema;

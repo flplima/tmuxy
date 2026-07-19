@@ -8,8 +8,8 @@
  *
  * MIGRATED HERE (the cleanly-layout-owned events):
  *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
- *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED, RESIZE_ERROR,
- *   DRAG_STATE_UPDATE, DRAG_COMPLETED, DRAG_ERROR,
+ *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED,
+ *   DRAG_STATE_UPDATE,
  *   ANIMATION_DRAG_COMPLETE.
  *
  * STILL IN appMachine.ts (cross-cutting orchestrators that touch multiple
@@ -215,23 +215,8 @@ export const layoutActions = {
     });
   }),
 
-  layout_resizeError: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
-    if (event.type !== 'RESIZE_ERROR') return {};
-    // cross-cutting: `error` is parent-owned, but layout exposes resize
-    // errors through the same surface so the existing error UI keeps working.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { error: event.error, resize: null, resizeActive: false } as any;
-  }),
-
   layout_dragStateUpdate: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
     if (event.type !== 'DRAG_STATE_UPDATE') return {};
     return { drag: event.drag };
-  }),
-
-  layout_dragError: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
-    if (event.type !== 'DRAG_ERROR') return {};
-    // cross-cutting: `error` is parent-owned (see layout_resizeError).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { error: event.error, drag: null } as any;
   }),
 };

@@ -373,11 +373,3 @@ export class GlitchRecorder {
     return report;
   }
 }
-
-/** Convenience: construct + start in one call. */
-export function startGlitchRecorder(
-  scope: Element,
-  options: GlitchRecorderOptions = {},
-): GlitchRecorder {
-  return new GlitchRecorder(scope, options);
-}

@@ -11,13 +11,7 @@
  */
 
 import { setup, assign, sendParent, enqueueActions, fromCallback } from 'xstate';
-import type {
-  DragMachineContext,
-  DragMachineEvent,
-  DragState,
-  KeyPressEvent,
-  TmuxPane,
-} from '../types';
+import type { DragMachineContext, DragMachineEvent, DragState, KeyPressEvent } from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { findSwapTarget } from './helpers';
 import { haptics } from '../../utils/haptics';
@@ -35,7 +29,6 @@ export const dragMachine = setup({
       type: 'DRAG_STATE_UPDATE' as const,
       drag: context.drag,
     })),
-    notifyCompleted: sendParent({ type: 'DRAG_COMPLETED' as const }),
     hapticSwap: () => haptics.trigger('selection'),
   },
   actors: {
@@ -137,11 +130,6 @@ export const dragMachine = setup({
           guard: 'isEscapeKey',
           target: 'idle',
           actions: [assign({ drag: null }), 'notifyStateUpdate'],
-        },
-        SYNC_PANES: {
-          actions: assign(({ event }) => ({
-            panes: (event as { type: 'SYNC_PANES'; panes: TmuxPane[] }).panes,
-          })),
         },
         DRAG_MOVE: {
           actions: enqueueActions(({ context, event, enqueue }) => {
@@ -260,12 +248,7 @@ export const dragMachine = setup({
             // Swaps already happened on hover — just clear state
             assign({ drag: null }),
             'notifyStateUpdate',
-            'notifyCompleted',
           ],
-        },
-        DRAG_CANCEL: {
-          target: 'idle',
-          actions: [assign({ drag: null }), 'notifyStateUpdate'],
         },
       },
     },

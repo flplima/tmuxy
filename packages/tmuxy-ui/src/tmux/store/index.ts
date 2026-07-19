@@ -21,9 +21,7 @@ export {
   EMPTY_SNAPSHOT,
   EMPTY_MODEL,
   OP_STALE_TIMEOUT_MS,
-  IDENTITY_PATCH,
   OpRejectedByTmux,
-  OpTimedOut,
   OpTransportError,
 } from './types';
 
@@ -36,14 +34,11 @@ export { predict, reconcile } from './ops';
 export {
   recomputeDerived,
   addPendingOp,
-  removeOp,
   rollbackOp,
   applyServerSnapshot,
   modelFromSnapshot,
   makePendingOp,
   generateOpId,
-  markOpFailed,
-  setOpStatus,
 } from './model';
 export type { ReconcileResult, RollbackEntry } from './model';
 

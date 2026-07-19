@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupsAndFloatsState } from '../groupsAndFloats';
+import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from '../groupsAndFloats';
 import { groupsAndFloatsActions } from '../../actions/groupsAndFloats';
 const groupsAndFloatsGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
@@ -14,6 +14,12 @@ function makeFloat(paneId: string, extra: Partial<FloatPaneState> = {}): FloatPa
     ...extra,
   };
 }
+
+// Compose the two event maps exactly as appMachine spreads them, so the test
+// drives the same handler set the real machine mounts.
+const groupsAndFloatsState = {
+  on: { ...groupsAndFloatsGlobalEvents, ...groupsAndFloatsIdleEvents },
+} as const;
 
 describe('groupsAndFloats state', () => {
   it('CLOSE_FLOAT removes the float from floatPanes', () => {

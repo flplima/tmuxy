@@ -17,7 +17,7 @@
  * existing selector and hook working without modification.
  */
 
-import { Cause, Effect, Exit, Option, Ref } from 'effect';
+import { Effect, Ref } from 'effect';
 import type { AdapterError } from '../effect/AdapterError';
 import type { EffectTmuxAdapter } from '../effect/EffectTmuxAdapter';
 import type { ServerState } from '../types';
@@ -108,18 +108,12 @@ export interface TmuxStore {
    */
   readonly reconcile: (state: ServerState) => Effect.Effect<ReadonlyArray<RollbackEntry>>;
 
-  /** Force a reset to a fresh server snapshot, dropping any pending ops. */
-  readonly resetToServer: (state: ServerState) => Effect.Effect<void>;
-
   /**
    * Drop everything (committed, ops, paneKeyOverrides). Used on session
    * switch when we don't yet have a new server snapshot to reset against —
    * the store starts empty and rebuilds on the next reconcile.
    */
   readonly clear: () => Effect.Effect<void>;
-
-  /** Per-op cancellation hook for use cases like resize drag-end. */
-  readonly cancelOp: (opId: OpId) => Effect.Effect<void>;
 
   /**
    * Subscribe to model changes. The listener fires after every committed
@@ -287,26 +281,6 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
         notify(EMPTY_MODEL);
       });
 
-    const resetToServer = (state: ServerState): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const snapshot = serverStateToSnapshot(state);
-        const reset: TmuxClientModel = {
-          committed: snapshot,
-          ops: [],
-          derived: snapshot,
-          paneKeyOverrides: {},
-        };
-        yield* Ref.set(ref, reset);
-        notify(reset);
-      });
-
-    const cancelOp = (opId: OpId): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const { model: next } = rollbackOp(yield* Ref.get(ref), opId, 'cancelled');
-        yield* Ref.set(ref, next);
-        notify(next);
-      });
-
     const subscribe = (listener: StoreListener): (() => void) => {
       listeners.add(listener);
       // Fire once on subscribe so the bridge can sync immediately.
@@ -329,9 +303,7 @@ export function makeTmuxStore(config: TmuxStoreConfig): Effect.Effect<TmuxStore>
       dispatch,
       dispatchCommand,
       reconcile,
-      resetToServer,
       clear,
-      cancelOp,
       subscribe,
       setPredictContext,
     };
@@ -353,14 +325,4 @@ function describeAdapterError(err: AdapterError): string {
     case 'Cancelled':
       return 'cancelled';
   }
-}
-
-/** Pull a one-shot Option from a Cause, used in narrow error handlers. */
-export function _failureFromCause<E>(cause: Cause.Cause<E>): Option.Option<E> {
-  return Cause.failureOption(cause);
-}
-
-/** Convenience for callers that already have an Exit. */
-export function _isExitFailure<A, E>(exit: Exit.Exit<A, E>): exit is Exit.Failure<A, E> {
-  return Exit.isFailure(exit);
 }

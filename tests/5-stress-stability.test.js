@@ -10,7 +10,6 @@ const {
   delay,
   runCommand,
   getUIPaneCount,
-  sendKeyCombo,
   waitForPaneCount,
   waitForWindowCount,
   withConsistencyChecks,

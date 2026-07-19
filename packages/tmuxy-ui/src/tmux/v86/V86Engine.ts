@@ -305,10 +305,6 @@ export class V86Engine {
     (
       window as unknown as { __tmuxyImageSrc?: (p: string, i: number) => string | undefined }
     ).__tmuxyImageSrc = (paneId, imageId) => this.core?.image_url(paneId, imageId);
-    // Test hook: lets stories assert bursts ride the delta wire path.
-    (window as unknown as { __v86UpdateStats?: { full: number; delta: number } }).__v86UpdateStats =
-      this.updateStats;
-
     // Throughput: v86 emits serial one byte at a time. Coalesce a burst into a
     // single feed() on a short timer instead of one wasm call per byte. Reads the
     // CURRENT core/attached flag dynamically so it survives a core swap on reset.
@@ -319,8 +315,6 @@ export class V86Engine {
       const chunk = serialBuf;
       serialBuf = '';
       if (!chunk || !this.attached || !this.core) return;
-      if (chunk.includes('1337') || chunk.includes(']1337'))
-        (window as unknown as { __osc?: string[] }).__osc?.push(chunk.slice(0, 400));
       if (this.captures.size > 0) this.scanCaptures(chunk);
       this.emit(this.core.feed(chunk));
       // `%exit` ends the control-mode conversation (server died / kill-server /
@@ -465,28 +459,18 @@ export class V86Engine {
     for (const cmd of this.core?.initial_sync() ?? []) this.send(cmd);
   }
 
-  /** full/delta counts since boot — test hook + perf visibility. */
-  readonly updateStats = { full: 0, delta: 0 };
-
   private emit(out: FeedOutput): void {
     if (!this.core || !this.emu) return;
     for (const [ok, firstLine] of out.responses ?? []) this.onResponse(ok, firstLine);
     for (const cmd of out.commands) this.send(cmd);
     for (const [paneId, text] of out.clipboard) this.sink?.onClipboard(paneId, text);
     if (out.updates.length === 0) return;
-    // Count the core's wire-protocol emissions (full vs delta) — the protocol
-    // itself is exercised and asserted (Throughput, DeltaProtocol stories) even
-    // though the EMITTED state below comes from a per-batch snapshot.
-    //
-    // KNOWN LIMITATION (documented in the gap plan): chaining the updates via
-    // handleStateUpdate is not usable as the emitted state yet — an update
-    // computed earlier in a burst carries a pre-select-pane active id, and the
-    // appMachine's optimistic-focus/layout-transition heuristics (tuned against
+    // KNOWN LIMITATION: chaining the updates via handleStateUpdate is not
+    // usable as the emitted state yet — an update computed earlier in a burst
+    // carries a pre-select-pane active id, and the appMachine's
+    // optimistic-focus/layout-transition heuristics (tuned against
     // server-timed emissions) permanently pin the stale focus. The per-batch
     // snapshot is always internally consistent, which those heuristics assume.
-    for (const update of out.updates) {
-      this.updateStats[update.type === 'full' ? 'full' : 'delta'] += 1;
-    }
     const state = this.core.snapshot();
     // serde-wasm-bindgen serializes Option::None as `undefined`; the wire
     // schema (and the strict get_initial_state decode) expects `null`.

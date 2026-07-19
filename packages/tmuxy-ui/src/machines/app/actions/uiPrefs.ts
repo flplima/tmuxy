@@ -31,8 +31,6 @@ type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
 
 export const uiPrefsActions = {
-  uiPrefs_setAnimationRoot: assign<Ctx, Evt, undefined, Evt, never>(() => ({})),
-
   uiPrefs_applyTheme: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ event, context, enqueue }) => {
       if (event.type !== 'SET_THEME') return;

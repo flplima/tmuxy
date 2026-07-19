@@ -244,10 +244,6 @@ export const resizeMachine = setup({
             'notifyCompleted',
           ],
         },
-        RESIZE_CANCEL: {
-          target: 'idle',
-          actions: [assign({ resize: null }), 'notifyStateUpdate'],
-        },
       },
     },
   },

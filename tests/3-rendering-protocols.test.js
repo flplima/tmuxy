@@ -14,7 +14,6 @@ const {
   typeInTerminal,
   pressEnter,
   DELAYS,
-  TMUXY_URL,
 } = require('./helpers');
 
 // ==================== Scenario 14: OSC Protocols ====================

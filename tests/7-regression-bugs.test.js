@@ -464,25 +464,6 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     ctx.session.runCommand(`copy-mode -t ${paneId}`);
     await delay(DELAYS.LONG);
 
-    // Dump state to diagnose what landed.
-    const dbg = await ctx.page.evaluate((id) => {
-      const snap = window.app?.getSnapshot();
-      const cs = snap?.context?.copyModeStates?.[id];
-      const pane = snap?.context?.panes?.find((p) => p.tmuxId === id);
-      return {
-        paneInMode: pane?.inMode,
-        paneHistorySize: pane?.historySize,
-        cs: cs
-          ? {
-              historySize: cs.historySize,
-              totalLines: cs.totalLines,
-              loading: cs.loading,
-              loadedRanges: JSON.stringify(cs.loadedRanges),
-              linesCount: cs.lines.size,
-            }
-          : null,
-      };
-    }, paneId);
     // Wait for client copy mode + full scrollback coverage.
     // Playwright's waitForFunction signature is `(fn, arg, options)` — getting
     // the order wrong (passing options where arg should be) silently feeds the

@@ -180,8 +180,6 @@ export interface AppMachineContext {
   resizeActive: boolean;
   charWidth: number;
   charHeight: number;
-  /** Connection ID assigned by the server */
-  connectionId: number | null;
   /** Default shell name (e.g., "bash", "zsh") from server */
   defaultShell: string;
   /** Tmux status line with ANSI escape codes */
@@ -189,8 +187,6 @@ export interface AppMachineContext {
   /** Container dimensions for centering calculations */
   containerWidth: number;
   containerHeight: number;
-  /** Timestamp of last tmux state update (for activity tracking) */
-  lastUpdateTime: number;
   /** Float pane positions and states (keyed by pane ID) */
   floatPanes: Record<string, FloatPaneState>;
   /** Pane ID of the currently focused float (keyboard routes here instead of session) */
@@ -310,8 +306,6 @@ export type DragMachineEvent =
     }
   | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
   | { type: 'DRAG_END' }
-  | { type: 'DRAG_CANCEL' }
-  | { type: 'SYNC_PANES'; panes: TmuxPane[] }
   | KeyPressEvent;
 
 // ============================================
@@ -338,7 +332,6 @@ export type ResizeMachineEvent =
     }
   | { type: 'RESIZE_MOVE'; clientX: number; clientY: number }
   | { type: 'RESIZE_END' }
-  | { type: 'RESIZE_CANCEL' }
   | KeyPressEvent;
 
 // ============================================
@@ -348,16 +341,13 @@ export type ResizeMachineEvent =
 /** Events sent from drag machine to parent */
 export type DragParentEvent =
   | { type: 'SEND_TMUX_COMMAND'; command: string }
-  | { type: 'DRAG_STATE_UPDATE'; drag: DragState | null }
-  | { type: 'DRAG_COMPLETED' }
-  | { type: 'DRAG_ERROR'; error: string };
+  | { type: 'DRAG_STATE_UPDATE'; drag: DragState | null };
 
 /** Events sent from resize machine to parent */
 export type ResizeParentEvent =
   | { type: 'SEND_TMUX_COMMAND'; command: string }
   | { type: 'RESIZE_STATE_UPDATE'; resize: ResizeState | null }
-  | { type: 'RESIZE_COMPLETED' }
-  | { type: 'RESIZE_ERROR'; error: string };
+  | { type: 'RESIZE_COMPLETED' };
 
 /** All events from child machines to parent */
 export type ChildMachineEvent = DragParentEvent | ResizeParentEvent;
@@ -428,7 +418,6 @@ export type DragStartEvent = {
 };
 export type DragMoveEvent = { type: 'DRAG_MOVE'; clientX: number; clientY: number };
 export type DragEndEvent = { type: 'DRAG_END' };
-export type DragCancelEvent = { type: 'DRAG_CANCEL' };
 
 // Resize events
 export type ResizeStartEvent = {
@@ -440,7 +429,6 @@ export type ResizeStartEvent = {
 };
 export type ResizeMoveEvent = { type: 'RESIZE_MOVE'; clientX: number; clientY: number };
 export type ResizeEndEvent = { type: 'RESIZE_END' };
-export type ResizeCancelEvent = { type: 'RESIZE_CANCEL' };
 
 // Keyboard events
 export type KeyPressEvent = {
@@ -457,12 +445,8 @@ export type PrefixModeChangeEvent = { type: 'PREFIX_MODE_CHANGE'; active: boolea
 export type SetCharSizeEvent = { type: 'SET_CHAR_SIZE'; charWidth: number; charHeight: number };
 export type SetTargetSizeEvent = { type: 'SET_TARGET_SIZE'; cols: number; rows: number };
 export type SetContainerSizeEvent = { type: 'SET_CONTAINER_SIZE'; width: number; height: number };
-export type SetAnimationRootEvent = { type: 'SET_ANIMATION_ROOT'; element: HTMLElement };
 export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLElement };
 export type StopObserveContainerEvent = { type: 'STOP_OBSERVE_CONTAINER' };
-
-// Animation events from animation actor
-export type AnimationDragCompleteEvent = { type: 'ANIMATION_DRAG_COMPLETE' };
 
 // Pane events
 export type FocusPaneEvent = { type: 'FOCUS_PANE'; paneId: string };
@@ -568,12 +552,6 @@ export type CopyModeLineSelectEvent = {
 // Group switch detection event (fired internally when switch detected in state update)
 
 // Command mode events
-export type EnterCommandModeEvent = {
-  type: 'ENTER_COMMAND_MODE';
-  prompt?: string;
-  initialValue?: string;
-  template?: string | null;
-};
 export type CommandModeSubmitEvent = { type: 'COMMAND_MODE_SUBMIT'; value: string };
 export type CommandModeCancelEvent = { type: 'COMMAND_MODE_CANCEL' };
 export type ShowStatusMessageEvent = { type: 'SHOW_STATUS_MESSAGE'; text: string };
@@ -646,19 +624,15 @@ export type AppMachineEvent =
   | DragStartEvent
   | DragMoveEvent
   | DragEndEvent
-  | DragCancelEvent
   | ResizeStartEvent
   | ResizeMoveEvent
   | ResizeEndEvent
-  | ResizeCancelEvent
   | KeyPressEvent
   | SetCharSizeEvent
   | SetTargetSizeEvent
   | SetContainerSizeEvent
-  | SetAnimationRootEvent
   | ObserveContainerEvent
   | StopObserveContainerEvent
-  | AnimationDragCompleteEvent
   | FocusPaneEvent
   | SendCommandEvent
   | SendKeysEvent
@@ -686,7 +660,6 @@ export type AppMachineEvent =
   | FocusSidebarEvent
   | BlurSidebarEvent
   | WriteToPaneEvent
-  | EnterCommandModeEvent
   | CommandModeSubmitEvent
   | CommandModeCancelEvent
   | ShowStatusMessageEvent

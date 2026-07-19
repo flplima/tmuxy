@@ -33,15 +33,6 @@ function getSessionFromUrl(): string {
 
 /**
  * HTTP Adapter using SSE for server->client push and POST for client->server commands.
- *
- * MIGRATION NOTE (Phase E2): the SSE event handling here is the next
- * Effect-based migration target. See `./effect/sseStream.ts` for the
- * Stream-based foundation (typed cancellation, composable retry via
- * Schedule, ProtocolError-typed parse failures). The refactor wasn't
- * landed in the same commit because the live SSE flow has six
- * interlocking behaviors (first-event-resolves-connect, rAF batching,
- * exponential reconnect, fatal handling, switchSession, delta-state
- * sharing) and a careful conversion warrants its own focused pass.
  */
 export class HttpAdapter implements TmuxAdapter {
   readonly enumeratesSessions = true;

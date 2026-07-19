@@ -104,29 +104,6 @@ export function armPaintProbe(
 }
 
 /**
- * Arm a probe, run `act` (the user input), and assert the first matching
- * mutation painted within `frames` animation frames. Returns the measured
- * frame count.
- */
-export async function expectPaintWithin(
-  scope: Element,
-  act: () => void | Promise<void>,
-  opts: {
-    frames?: number;
-    timeoutMs?: number;
-    matches?: (rec: MutationRecord) => boolean;
-  } = {},
-): Promise<number> {
-  const probe = armPaintProbe(scope, opts.matches);
-  try {
-    await act();
-    return await probe.wait(opts.frames ?? 2, opts.timeoutMs ?? 3000);
-  } finally {
-    probe.stop();
-  }
-}
-
-/**
  * Matcher factory: a mutation that adds an element matching `selector`
  * (directly or in the added subtree).
  */
@@ -136,27 +113,4 @@ export function addsElement(selector: string): (rec: MutationRecord) => boolean 
     Array.from(rec.addedNodes).some(
       (n) => n instanceof Element && (n.matches(selector) || n.querySelector(selector) !== null),
     );
-}
-
-/**
- * Matcher factory: a mutation that removes an element matching `selector`
- * (directly or in the removed subtree).
- */
-export function removesElement(selector: string): (rec: MutationRecord) => boolean {
-  return (rec) =>
-    rec.type === 'childList' &&
-    Array.from(rec.removedNodes).some(
-      (n) => n instanceof Element && (n.matches(selector) || n.querySelector(selector) !== null),
-    );
-}
-
-/**
- * Matcher factory: `attr` changed on an element matching `selector`.
- */
-export function changesAttribute(selector: string, attr: string): (rec: MutationRecord) => boolean {
-  return (rec) =>
-    rec.type === 'attributes' &&
-    rec.attributeName === attr &&
-    rec.target instanceof Element &&
-    rec.target.matches(selector);
 }

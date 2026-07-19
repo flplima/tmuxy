@@ -7,8 +7,6 @@ export interface ShellContext {
   tmux?: DemoTmux;
 }
 
-export type CommandFn = (args: string[], ctx: ShellContext) => CommandResult;
-
 export interface CommandResult {
   output: string;
   exitCode: number;

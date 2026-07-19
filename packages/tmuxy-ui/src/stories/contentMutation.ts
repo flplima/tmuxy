@@ -156,8 +156,3 @@ export class ContentMutationRecorder {
     }
   }
 }
-
-/** Convenience: construct + start observing in one call. */
-export function startContentMutationRecorder(scope: Element): ContentMutationRecorder {
-  return new ContentMutationRecorder(scope);
-}

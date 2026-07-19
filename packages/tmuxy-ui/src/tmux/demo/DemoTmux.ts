@@ -900,14 +900,6 @@ export class DemoTmux {
     return paneId;
   }
 
-  closeFloat(paneId: string): boolean {
-    const pane = this.panes.get(paneId);
-    if (!pane) return false;
-    const window = this.windows.find((w) => w.id === pane.windowId);
-    if (!window || window.windowType !== 'float') return false;
-    return this.killWindow(window.id);
-  }
-
   // ============================================
   // Pane Groups
   // ============================================
@@ -1230,11 +1222,6 @@ export class DemoTmux {
       ratio: mid / items.length,
       children: [left, right],
     };
-  }
-
-  /** Returns true if there is only one pane across all windows */
-  isLastPane(): boolean {
-    return this.panes.size <= 1 && this.windows.length <= 1;
   }
 
   /** Replace a pane's content with a widget marker + content lines */

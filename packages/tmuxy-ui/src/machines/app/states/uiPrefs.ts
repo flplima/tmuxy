@@ -14,7 +14,6 @@
 
 export const uiPrefsState = {
   on: {
-    SET_ANIMATION_ROOT: { actions: 'uiPrefs_setAnimationRoot' },
     SET_THEME: { actions: 'uiPrefs_applyTheme' },
     SET_THEME_MODE: { actions: 'uiPrefs_applyThemeMode' },
     THEME_SETTINGS_RECEIVED: { actions: 'uiPrefs_acceptThemeSettings' },

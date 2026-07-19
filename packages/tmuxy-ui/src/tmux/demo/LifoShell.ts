@@ -19,7 +19,6 @@ export class LifoShell {
   inputBuffer = '';
   cursorPos = 0;
   historyIndex = -1;
-  lastExitCode = 0;
 
   /** Called after an async command completes — triggers state re-emit in DemoAdapter */
   onUpdate?: () => void;
@@ -380,7 +379,6 @@ export class LifoShell {
           this.writeOutput(output);
         }
       }
-      this.lastExitCode = result.exitCode;
     } catch (e: unknown) {
       const isAbort =
         e instanceof Error && (e.name === 'AbortError' || e.message.includes('abort'));
@@ -392,7 +390,6 @@ export class LifoShell {
         this.writeText(msg);
         this.newline();
       }
-      this.lastExitCode = 1;
     } finally {
       this.busy = false;
       this.abortController = null;

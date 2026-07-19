@@ -5,8 +5,7 @@
   "scripts": {
     "predev": "bash ../../bin/kill-port 9003",
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
+    "build": "next build"
   },
   "dependencies": {
     "@lifo-sh/core": "^0.5.0",

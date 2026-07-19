@@ -3,8 +3,6 @@ import type {
   LogEntry,
   TmuxPane,
   PaneGroup,
-  ResizeState,
-  FloatPaneState,
   KeyBindings,
   SessionTreeNode,
   ServerInfo,
@@ -133,25 +131,6 @@ export const selectPreviewPanes = createMemoizedSelector(
 );
 
 /**
- * Get the original position of the dragged pane (before any swaps).
- * Used to keep the dragged pane visually stable during real-time swaps.
- */
-export function selectDragOriginalPosition(context: AppMachineContext): {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} | null {
-  if (!context.drag) return null;
-  return {
-    x: context.drag.originalX,
-    y: context.drag.originalY,
-    width: context.drag.originalWidth,
-    height: context.drag.originalHeight,
-  };
-}
-
-/**
  * Select raw panes (unmodified server state)
  */
 export function selectPanes(context: AppMachineContext): TmuxPane[] {
@@ -219,14 +198,6 @@ export function selectDragOffsetY(context: AppMachineContext): number {
 // Resize Selectors
 // ============================================
 
-export function selectResize(context: AppMachineContext): ResizeState | null {
-  return context.resize;
-}
-
-export function selectResizePixelDelta(context: AppMachineContext): { x: number; y: number } {
-  return context.resize?.pixelDelta ?? { x: 0, y: 0 };
-}
-
 // ============================================
 // Window/Pane Selectors
 // ============================================
@@ -258,17 +229,9 @@ export const selectVisibleWindows = createMemoizedSelector(
     selectWindows(context).filter((w) => w.windowType === 'tab' && w.name !== ''),
 );
 
-export function selectActiveWindowId(context: AppMachineContext): string | null {
-  return context.activeWindowId;
-}
-
 // ============================================
 // Connection Selectors
 // ============================================
-
-export function selectIsConnected(context: AppMachineContext): boolean {
-  return context.connected;
-}
 
 export function selectError(context: AppMachineContext): string | null {
   return context.error;
@@ -335,53 +298,9 @@ export const selectCharSize = createMemoizedSelector(
 // Pane Pixel Dimension Selectors
 // ============================================
 
-export interface PanePixelDimensions {
-  paneId: string;
-  pixelX: number;
-  pixelY: number;
-  pixelWidth: number;
-  pixelHeight: number;
-}
-
-/**
- * Get pixel dimensions for all panes (computed from char dimensions)
- * Useful for resize preview and layout calculations
- */
-function selectPanePixelDimensionsUncached(
-  context: AppMachineContext,
-): Map<string, PanePixelDimensions> {
-  const { charWidth, charHeight } = context;
-  const result = new Map<string, PanePixelDimensions>();
-
-  for (const pane of context.panes) {
-    result.set(pane.tmuxId, {
-      paneId: pane.tmuxId,
-      pixelX: pane.x * charWidth,
-      pixelY: pane.y * charHeight,
-      pixelWidth: pane.width * charWidth,
-      pixelHeight: pane.height * charHeight,
-    });
-  }
-
-  return result;
-}
-
-export const selectPanePixelDimensions = createMemoizedSelector(
-  (ctx: AppMachineContext) => ({
-    panes: ctx.panes,
-    charWidth: ctx.charWidth,
-    charHeight: ctx.charHeight,
-  }),
-  selectPanePixelDimensionsUncached,
-);
-
 // ============================================
 // Pane Group Selectors
 // ============================================
-
-export function selectPaneGroups(context: AppMachineContext): Record<string, PaneGroup> {
-  return context.paneGroups;
-}
 
 /**
  * Get the active pane ID in a group (derived from which pane is in the active window)
@@ -394,14 +313,6 @@ export function getActivePaneInGroup(context: AppMachineContext, group: PaneGrou
     }
   }
   return null;
-}
-
-/**
- * Get the active index in a group (derived from which pane is in the active window)
- */
-export function getActiveIndexInGroup(context: AppMachineContext, group: PaneGroup): number {
-  const activePaneId = getActivePaneInGroup(context, group);
-  return activePaneId ? group.paneIds.indexOf(activePaneId) : 0;
 }
 
 /**
@@ -534,38 +445,9 @@ export function selectPaneGroupPanes(context: AppMachineContext, group: PaneGrou
 // Float Selectors
 // ============================================
 
-export function selectFloatPanes(context: AppMachineContext): FloatPaneState[] {
-  return Object.values(context.floatPanes);
-}
-
-export function selectFloatPaneState(
-  context: AppMachineContext,
-  paneId: string,
-): FloatPaneState | undefined {
-  return context.floatPanes[paneId];
-}
-
-/**
- * Get all float panes (visible whenever they exist)
- */
-export function selectVisibleFloatPanes(context: AppMachineContext): FloatPaneState[] {
-  return Object.values(context.floatPanes);
-}
-
-/**
- * Get float pane IDs (for filtering from tiled panes)
- */
-export function selectFloatPaneIds(context: AppMachineContext): string[] {
-  return Object.keys(context.floatPanes);
-}
-
 // ============================================
 // Status Line Selector
 // ============================================
-
-export function selectStatusLine(context: AppMachineContext): string {
-  return context.statusLine;
-}
 
 // ============================================
 // Single Pane Selector
@@ -734,8 +616,4 @@ export function selectAvailableThemes(
   context: AppMachineContext,
 ): Array<{ name: string; displayName: string }> {
   return context.availableThemes;
-}
-
-export function selectBaseFontSize(context: AppMachineContext): number {
-  return context.baseFontSize;
 }

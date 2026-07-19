@@ -29,9 +29,8 @@ const { tmuxRun } = require('./cli');
  *   Enable for rendering-focused suites (basic connectivity, floating panes,
  *   status bar, OSC protocols). Disabled by default for logic/functional suites
  *   to avoid the polling overhead.
- * @param {boolean} [options.glitchDetection=false] - Enable glitch detection in afterEach.
- *   When enabled, afterEach will assert no glitches were detected during the test.
- *   Can also be used manually via ctx.glitchDetector.
+ * Glitch detection is started per-test via ctx.startGlitchDetection(); the
+ * afterEach assert runs whenever a detector is active.
  *
  * Usage:
  * const ctx = createTestContext({ snapshot: true });
@@ -42,7 +41,7 @@ const { tmuxRun } = require('./cli');
  *
  * Then use ctx.page, ctx.browser, ctx.session in tests
  */
-function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
+function createTestContext({ snapshot = false } = {}) {
   const ctx = {
     browser: null,
     page: null,
@@ -50,7 +49,7 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
     testSession: null, // Session name (for backwards compatibility)
     browserAvailable: true,
     serverAvailable: true,
-    glitchDetector: null, // GlitchDetector instance (when glitchDetection enabled)
+    glitchDetector: null, // GlitchDetector instance (set by startGlitchDetection)
   };
 
   ctx.beforeAll = async () => {
@@ -201,12 +200,6 @@ function createTestContext({ snapshot = false, glitchDetection = false } = {}) {
     // Source tmuxy config (routes through control mode)
     await ctx.session.sourceConfig();
     await focusPage(ctx.page);
-
-    // Auto-start glitch detection if enabled
-    if (glitchDetection) {
-      ctx.glitchDetector = new GlitchDetector(ctx.page);
-      await ctx.glitchDetector.start();
-    }
   };
 
   /**

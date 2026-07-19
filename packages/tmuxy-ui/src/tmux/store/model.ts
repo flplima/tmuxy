@@ -38,46 +38,6 @@ export function addPendingOp(model: TmuxClientModel, op: PendingOp): TmuxClientM
 }
 
 /**
- * Drop one op by id (used after a reconciler verdict of matched/failed).
- * If the op was a Split with a confirmed real pane id, record the
- * `realId → placeholderId` mapping so React keys stay stable when the
- * placeholder element morphs into the real pane.
- */
-export function removeOp(model: TmuxClientModel, opId: OpId, realId?: string): TmuxClientModel {
-  const op = model.ops.find((o) => o.id === opId);
-  let paneKeyOverrides = model.paneKeyOverrides;
-  if (op && op.op._tag === 'Split' && realId) {
-    const placeholderId = (op.meta as { placeholderId?: string }).placeholderId;
-    if (placeholderId) {
-      paneKeyOverrides = { ...paneKeyOverrides, [realId]: placeholderId };
-    }
-  }
-  const ops = model.ops.filter((o) => o.id !== opId);
-  return recomputeDerived({ ...model, ops, paneKeyOverrides });
-}
-
-/**
- * Mark an op as failed without removing it. The op stops contributing to
- * `derived` (so the optimistic patch disappears from the UI) but stays in
- * the log so a follow-up tick can drop it cleanly. Useful when a transport
- * error fires before any server delta arrives — we want the rollback to be
- * visible immediately but the op-failure observable to consumers.
- */
-export function markOpFailed(model: TmuxClientModel, opId: OpId): TmuxClientModel {
-  const ops = model.ops.map((o) => (o.id === opId ? { ...o, status: 'failed' as const } : o));
-  return recomputeDerived({ ...model, ops });
-}
-
-export function setOpStatus(
-  model: TmuxClientModel,
-  opId: OpId,
-  status: PendingOp['status'],
-): TmuxClientModel {
-  const ops = model.ops.map((o) => (o.id === opId ? { ...o, status } : o));
-  return recomputeDerived({ ...model, ops });
-}
-
-/**
  * Apply a fresh server snapshot to the model:
  *   1. Replace `committed` with the new snapshot.
  *   2. Run each pending op's reconciler.

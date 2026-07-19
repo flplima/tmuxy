@@ -29,8 +29,3 @@ export const groupsAndFloatsIdleEvents = {
   FOCUS_SIDEBAR: { actions: 'groupsAndFloats_focusSidebar' },
   BLUR_SIDEBAR: { actions: 'groupsAndFloats_blurSidebar' },
 } as const;
-
-// Back-compat alias for the index.ts re-export contract.
-export const groupsAndFloatsState = {
-  on: { ...groupsAndFloatsGlobalEvents, ...groupsAndFloatsIdleEvents },
-} as const;

@@ -106,10 +106,6 @@ export type TmuxOp =
  */
 export type Patch = (s: TmuxSnapshot) => TmuxSnapshot;
 
-/** A patch that doesn't mutate the snapshot — for ops we send through tmux
- *  but can't (or don't want to) predict locally. */
-export const IDENTITY_PATCH: Patch = (s) => s;
-
 // ============================================
 // PendingOp — an op in flight
 // ============================================
@@ -198,19 +194,13 @@ export class OpRejectedByTmux extends Data.TaggedError('OpRejectedByTmux')<{
   readonly stderr: string;
 }> {}
 
-export class OpTimedOut extends Data.TaggedError('OpTimedOut')<{
-  readonly opId: OpId;
-  readonly command: string;
-  readonly elapsedMs: number;
-}> {}
-
 export class OpTransportError extends Data.TaggedError('OpTransportError')<{
   readonly opId: OpId;
   readonly command: string;
   readonly cause: unknown;
 }> {}
 
-export type OpError = OpRejectedByTmux | OpTimedOut | OpTransportError;
+export type OpError = OpRejectedByTmux | OpTransportError;
 
 // ============================================
 // Op result for the reconciler

@@ -43,8 +43,6 @@ export type TmuxStoreActorEvent =
   | { type: 'DISPATCH_OP'; op: TmuxOp; command: string }
   /** Push a fresh server snapshot into the store's reconciler. */
   | { type: 'RECONCILE_SERVER'; state: ServerState }
-  /** Reset the store after a session-changed or initial-state full snapshot. */
-  | { type: 'RESET_TO_SERVER'; state: ServerState }
   /**
    * Drop every pending op + committed/derived snapshot. Used on SWITCH_SESSION
    * before the new session's first state-update arrives — without this, pending
@@ -99,9 +97,7 @@ export function createTmuxStoreActor(store: TmuxStore) {
             const reason =
               e._tag === 'OpRejectedByTmux'
                 ? e.stderr
-                : e._tag === 'OpTimedOut'
-                  ? `timed out after ${e.elapsedMs}ms`
-                  : String((e as { cause?: unknown }).cause ?? 'transport error');
+                : String((e as { cause?: unknown }).cause ?? 'transport error');
             parent.send({ type: 'TMUX_ERROR', error: `${command}: ${reason}` });
           }
         }
@@ -150,11 +146,6 @@ export function createTmuxStoreActor(store: TmuxStore) {
             });
           }
         }
-        return;
-      }
-
-      if (event.type === 'RESET_TO_SERVER') {
-        Effect.runSync(store.resetToServer(event.state));
         return;
       }
 

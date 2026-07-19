@@ -86,21 +86,6 @@ export interface TmuxWindow {
   floatNoheader: boolean;
 }
 
-export interface TmuxState {
-  /** Session name (e.g., "tmuxy") */
-  sessionName: string;
-  /** Active window ID (e.g., "@0") */
-  activeWindowId: string | null;
-  /** Active pane ID (e.g., "%0") */
-  activePaneId: string | null;
-  panes: TmuxPane[];
-  windows: TmuxWindow[];
-  totalWidth: number;
-  totalHeight: number;
-  connected: boolean;
-  error: string | null;
-}
-
 // ============================================
 // Structured Cell Types (from Rust backend)
 // ============================================

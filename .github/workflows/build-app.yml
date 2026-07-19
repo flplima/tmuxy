@@ -188,8 +188,6 @@ jobs:
         if: matrix.platform == 'macos'
         run: node tests/smoke/macos-sparse-path-test.js "${{ matrix.binary }}"
 
-      # --- Collect Artifacts ---
-
       # --- Collect & Upload Artifacts ---
       # Linux uploads .deb and .AppImage as separate artifacts
 

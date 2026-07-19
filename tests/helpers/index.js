@@ -6,9 +6,7 @@
 
 const config = require('./config');
 const browser = require('./browser');
-const tmux = require('./tmux');
 const ui = require('./ui');
-const assertions = require('./assertions');
 const testSetup = require('./test-setup');
 const performance = require('./performance');
 const TmuxTestSession = require('./TmuxTestSession');
@@ -28,14 +26,8 @@ module.exports = {
   // Browser
   ...browser,
 
-  // Tmux
-  ...tmux,
-
   // UI
   ...ui,
-
-  // Assertions
-  ...assertions,
 
   // Test Setup
   ...testSetup,

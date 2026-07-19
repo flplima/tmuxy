@@ -8,7 +8,7 @@
  *
  * Usage:
  *   const eff = toEffectAdapter(adapter);
- *   const program = eff.invoke<TmuxState>('get_initial_state');
+ *   const program = eff.invoke<ServerState>('get_initial_state');
  *   Effect.runPromiseExit(program).then(exit => { ... });
  *
  * Cancellation: when the surrounding fiber is interrupted, the wrapper does
