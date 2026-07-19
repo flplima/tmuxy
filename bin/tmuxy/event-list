@@ -6,6 +6,11 @@
 set -euo pipefail
 shopt -s nullglob
 
+# Source _lib for socket resolution so a standalone invocation inside a pane
+# reports the same namespace event-emit/event-wait use (they source it too).
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS_DIR/_lib"
+
 SOCKET="${TMUX_SOCKET:-tmuxy}"
 BASE="/tmp/tmuxy-events/$SOCKET"
 

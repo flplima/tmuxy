@@ -164,6 +164,11 @@ SCRIPT
   NEW_PANE_ID=$(cat "$TMPID")
   rm -f "$TMPID"
 
+  if [ -z "$NEW_PANE_ID" ]; then
+    echo "Error: failed to create float pane" >&2
+    exit 1
+  fi
+
   BREAK_CMD=$(build_break_and_tag_float "$NEW_PANE_ID" "$CURRENT_WIN")
   _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $BREAK_CMD"
 

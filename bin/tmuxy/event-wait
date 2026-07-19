@@ -18,6 +18,12 @@ DIR="/tmp/tmuxy-events/$SOCKET/$NAME"
 mkdir -p "$DIR"
 
 while true; do
+  # Hold the same lock event-emit uses for the whole scan-and-consume: without
+  # it two waiters can both `cat` a message before either advances the cursor,
+  # delivering it twice. Released before blocking so emit can still take it.
+  exec 9>"$DIR/.lock"
+  flock 9
+
   # Read cursor (last consumed sequence number)
   CURSOR=$(cat "$DIR/cursor" 2>/dev/null || echo -1)
 
@@ -44,9 +50,11 @@ while true; do
     cat "$BEST"
     echo "$BEST_N" > "$DIR/cursor"
     rm -f "$BEST"
+    exec 9>&-
     exit 0
   fi
 
-  # No pending message — block until signaled
+  # No pending message — release the lock, then block until signaled
+  exec 9>&-
   _tmux wait-for "tmuxy_evt_${NAME}"
 done

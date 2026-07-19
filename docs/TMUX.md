@@ -98,6 +98,7 @@ These are used in `tmuxy-core/src/executor.rs` and `session.rs`:
 | `send-keys -l`    | `executor.rs`                 | Mouse event SGR sequences (escape-heavy)                     |
 | `list-panes`      | `executor.rs`, `sse.rs`       | Pane info; sessions-tree enumeration (`-a`)                  |
 | `list-sessions`   | `sse.rs`                      | Sessions-tree enumeration                                    |
+| `load-buffer -`   | `bin/tmuxy-cli` (`pane paste`)| Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
 
 These are safe because they either run **before** control mode connects, are **read-only queries**, or use `send-keys -l` for binary escape sequences that control mode handles differently.
 

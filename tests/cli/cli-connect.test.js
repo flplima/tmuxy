@@ -8,13 +8,16 @@ describe('CLI connect subcommand', () => {
     const { exitCode, tmuxCalls } = runCLI(['connect', 'default', 'work']);
     expect(exitCode).toBe(0);
     expect(tmuxCalls).toHaveLength(2);
+    // Order matters: the desktop app's watcher polls TMUXY_CONNECT_TO, so the
+    // session must be published FIRST. Publishing _TO first lets the 2s poll
+    // fire between the two writes and attach the default session instead.
     expect(tmuxCalls[0].args).toEqual([
       'run-shell',
-      "tmux -L tmuxy set-environment -g TMUXY_CONNECT_TO 'default'",
+      "tmux -L tmuxy set-environment -g TMUXY_CONNECT_SESSION 'work'",
     ]);
     expect(tmuxCalls[1].args).toEqual([
       'run-shell',
-      "tmux -L tmuxy set-environment -g TMUXY_CONNECT_SESSION 'work'",
+      "tmux -L tmuxy set-environment -g TMUXY_CONNECT_TO 'default'",
     ]);
   });
 

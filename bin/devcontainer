@@ -45,7 +45,9 @@ OVERRIDE_NAME=""
 ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
-        --name) OVERRIDE_NAME="$2"; shift 2 ;;
+        --name)
+      [ $# -ge 2 ] || { echo "Error: --name requires a value" >&2; exit 1; }
+      OVERRIDE_NAME="$2"; shift 2 ;;
         *)      ARGS+=("$1"); shift ;;
     esac
 done
