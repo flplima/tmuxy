@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tower::{Service, ServiceBuilder, ServiceExt};
-use tracing::{instrument, trace};
+use tracing::{trace, Instrument};
 
 /// Default per-call deadline for `Ctx::tmux_call`. Five seconds covers every
 /// observed tmux roundtrip on the supported targets while keeping a wedged
@@ -248,11 +248,20 @@ where
         self.inner.poll_ready(cx)
     }
 
-    #[instrument(skip(self, req), fields(op = req.op_name(), argc = req.args.len()))]
     fn call(&mut self, req: TmuxRequest) -> Self::Future {
-        trace!("dispatching tmux service request");
+        // Build the span manually and attach it to the FUTURE. `#[instrument]`
+        // on this fn would only cover future *construction* — it would open and
+        // close before the dispatch, timeout and retries ever ran, so none of
+        // the inner emits would carry these fields.
+        let span = tracing::info_span!("tmux_call", op = req.op_name(), argc = req.args.len());
         let mut inner = self.inner.clone();
-        Box::pin(async move { inner.call(req).await })
+        Box::pin(
+            async move {
+                trace!("dispatching tmux service request");
+                inner.call(req).await
+            }
+            .instrument(span),
+        )
     }
 }
 

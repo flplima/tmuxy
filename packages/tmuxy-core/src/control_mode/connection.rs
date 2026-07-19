@@ -639,8 +639,8 @@ impl ControlModeConnection {
     }
 }
 
-impl Drop for ControlModeConnection {
-    fn drop(&mut self) {
-        // kill_on_drop is set, so this is handled automatically
-    }
-}
+// No `Drop` impl: `kill_on_drop` is NOT set on the spawned child (pty-process
+// requires an explicit `Command::kill_on_drop(true)`, and tokio defaults to
+// false). Cleanup relies on the PTY instead — dropping the master sends SIGHUP
+// to the tmux client, which detaches it. `graceful_close` is the intended path
+// and deliberately avoids SIGKILL so tmux can detach cleanly.

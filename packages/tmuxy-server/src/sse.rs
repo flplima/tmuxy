@@ -25,6 +25,14 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::command::ClientCommand;
 use crate::state::{AppState, SessionConnections};
 
+/// How long to wait after a `source-file` before re-reading keybindings.
+///
+/// `RunCommand` is fire-and-forget into the monitor channel, so there is no
+/// response to key off — this is a settle window, not a guarantee. A slow
+/// `source-file` can still broadcast the pre-source bindings; the correct fix
+/// is to await the command's control-mode response.
+const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
+
 // ============================================
 // SSE State Emitter (Adapter Pattern)
 // ============================================
@@ -444,17 +452,20 @@ pub async fn commands_handler(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    // Get session from query param (required)
+    // Session from the query param, defaulting to the standard session name.
     let session = query
         .session
         .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
 
-    // Get connection ID from header (used by set_client_size; default to 0)
-    let conn_id: u64 = headers
+    // Connection ID from the header. Every SSE client is handed its own id in
+    // the `connection-info` greeting, so a missing header means the caller
+    // never opened a stream. Keep it as None rather than defaulting to 0 —
+    // 0 is a real allocated id, and header-less callers used to overwrite that
+    // connection's viewport entry and skew the min-size computation.
+    let conn_id: Option<u64> = headers
         .get("x-connection-id")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+        .and_then(|s| s.parse().ok());
 
     // Decode into the typed enum. A parse failure still returns 400 with the
     // serde error in the body — the existing wire contract (`{ "error": ... }`)
@@ -502,7 +513,7 @@ async fn handle_command(
     cmd: ClientCommand,
     session: &str,
     state: &Arc<AppState>,
-    conn_id: u64,
+    conn_id: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     match cmd {
         ClientCommand::GetInitialState { cols, rows } => {
@@ -533,7 +544,7 @@ async fn handle_command(
             // Block raw resize-window commands from clients — resize must go through
             // set_client_size to prevent stale SSE connections from overriding sizes.
             if command.starts_with("resize-window") || command.starts_with("resizew") {
-                warn!(conn_id, %command, "blocked resize command (use set_client_size)");
+                warn!(?conn_id, %command, "blocked resize command (use set_client_size)");
                 return Ok(serde_json::json!(null));
             }
 
@@ -575,12 +586,11 @@ async fn handle_command(
                 })
                 .await
                 .map_err(|e| format!("Monitor channel error: {}", e))?;
-                trace!(conn_id, %command, "client sent command via control mode");
+                trace!(?conn_id, %command, "client sent command via control mode");
 
                 // After source-file, re-broadcast keybindings (prefix key may have changed)
                 if is_source_file {
-                    // Brief delay to let tmux process the source-file
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    tokio::time::sleep(SOURCE_FILE_SETTLE).await;
                     broadcast_keybindings(state, session).await;
                 }
 
@@ -614,7 +624,15 @@ async fn handle_command(
                 )
                 .await
                 .map_err(|e| format!("Failed to get pane width: {}", e))?;
-            let width: u32 = width_output.trim().parse().unwrap_or(80);
+            // Don't fall back to a default: a wrong width silently re-wraps
+            // every captured line at the wrong column. Fail so the client can
+            // retry instead of rendering corrupted scrollback.
+            let width: u32 = width_output.trim().parse().map_err(|_| {
+                format!(
+                    "Failed to parse pane width from tmux: {:?}",
+                    width_output.trim()
+                )
+            })?;
 
             let history_output = state
                 .tmux_call_with_policy(
@@ -630,7 +648,12 @@ async fn handle_command(
                 )
                 .await
                 .map_err(|e| format!("Failed to get history size: {}", e))?;
-            let history_size: u32 = history_output.trim().parse().unwrap_or(0);
+            let history_size: u32 = history_output.trim().parse().map_err(|_| {
+                format!(
+                    "Failed to parse history size from tmux: {:?}",
+                    history_output.trim()
+                )
+            })?;
 
             // capture-pane wants the special `-S start -E end` form built
             // inline so dispatch directly through the stack rather than the
@@ -895,7 +918,22 @@ async fn build_new_window_command(state: &Arc<AppState>, session: &str) -> Strin
 /// Skips the resize command if the computed minimum is the same as the last resize
 /// to prevent feedback loops when multiple clients have different viewport sizes.
 #[instrument(skip(state), fields(%session))]
-async fn set_client_size(state: &Arc<AppState>, session: &str, conn_id: u64, cols: u32, rows: u32) {
+async fn set_client_size(
+    state: &Arc<AppState>,
+    session: &str,
+    conn_id: Option<u64>,
+    cols: u32,
+    rows: u32,
+) {
+    // Without an id we cannot tell one caller's viewport from another's, and
+    // guessing would corrupt the min-size computation for every real client.
+    let Some(conn_id) = conn_id else {
+        warn!(
+            cols,
+            rows, "ignoring client size without an x-connection-id header"
+        );
+        return;
+    };
     trace!(conn_id, cols, rows, "client set size");
     let (min_size, command_tx) = {
         let mut sessions = state.sessions.write().await;

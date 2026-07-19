@@ -732,18 +732,66 @@ pub fn run_tmux_command_for_session(session_name: &str, cmd: &str) -> Result<Str
     Ok(stdout.to_string())
 }
 
+/// Split a compound tmux command on the `\;` separators that are *outside*
+/// quotes.
+///
+/// A plain `cmd.split("\\;")` also splits inside quoted payloads, so
+/// `send-keys -l 'a\;b'` was torn into two bogus commands.
+fn split_compound(cmd: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut chars = cmd.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double => {
+                in_single = !in_single;
+                current.push(c);
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                current.push(c);
+            }
+            '\\' if !in_single && !in_double && chars.peek() == Some(&';') => {
+                chars.next();
+                parts.push(std::mem::take(&mut current));
+            }
+            _ => current.push(c),
+        }
+    }
+    parts.push(current);
+    parts
+}
+
+/// Is `-t` present as the target flag (rather than as literal payload)?
+///
+/// `send-keys -l` switches the rest of the line to literal text, so a `-t`
+/// after it is content the user is typing, not a target selector.
+fn has_target_flag(parts: &[&str]) -> bool {
+    for part in parts {
+        if *part == "-l" {
+            return false;
+        }
+        if *part == "-t" {
+            return true;
+        }
+    }
+    false
+}
+
 /// Process a potentially compound tmux command, adding session targeting where needed
 fn process_compound_command(
     session_name: &str,
     cmd: &str,
     targeted_commands: &[&str],
 ) -> Result<String> {
-    // Split by \; for compound commands, but be careful with quoted strings
-    let parts: Vec<&str> = cmd.split("\\;").collect();
+    let parts = split_compound(cmd);
 
     let mut processed_parts = Vec::new();
 
-    for part in parts {
+    for part in &parts {
         let part = part.trim();
         if part.is_empty() {
             continue;
@@ -775,7 +823,7 @@ fn add_session_target_if_needed(
     }
 
     // Check if -t is already specified
-    let has_target = parts.contains(&"-t");
+    let has_target = has_target_flag(&parts);
 
     if has_target {
         // Validate and potentially fix existing targets
@@ -791,7 +839,13 @@ fn add_session_target_if_needed(
                 // If it's just a number, prepend session
                 if window_arg.parse::<u32>().is_ok() || window_arg.starts_with('@') {
                     let target = format!("{}:{}", session_name, window_arg);
-                    return Ok(cmd.replace(&format!(" {}", window_arg), &format!(" -t {}", target)));
+                    // replacen: rewrite only the argument occurrence, not
+                    // every later occurrence of the same substring.
+                    return Ok(cmd.replacen(
+                        &format!(" {}", window_arg),
+                        &format!(" -t {}", target),
+                        1,
+                    ));
                 }
             }
             // Default: add -t session_name
@@ -1065,26 +1119,58 @@ pub fn get_root_bindings() -> Result<Vec<KeyBinding>> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_pane_info_parsing() {
-        let output = "80,24,5,10";
-        let parts: Vec<&str> = output.split(',').collect();
+    // NOTE: the previous two tests here (`test_pane_info_parsing`,
+    // `test_capture_pane_parsing`) split a literal string and asserted the
+    // split — they exercised `str::split`/`str::lines`, not this module.
+    // Replaced with coverage of the actual parsing helpers below.
 
-        assert_eq!(parts.len(), 4);
-        assert_eq!(parts[0].parse::<u32>().unwrap(), 80);
-        assert_eq!(parts[1].parse::<u32>().unwrap(), 24);
-        assert_eq!(parts[2].parse::<u32>().unwrap(), 5);
-        assert_eq!(parts[3].parse::<u32>().unwrap(), 10);
+    #[test]
+    fn split_compound_respects_quotes() {
+        // Unquoted separators split.
+        assert_eq!(
+            split_compound("splitw \\; breakp"),
+            vec!["splitw ".to_string(), " breakp".to_string()]
+        );
+        // A separator inside single quotes is payload, not a separator.
+        assert_eq!(
+            split_compound("send-keys -l 'a\\;b'"),
+            vec!["send-keys -l 'a\\;b'".to_string()]
+        );
+        // Same for double quotes.
+        assert_eq!(
+            split_compound("send-keys -l \"a\\;b\""),
+            vec!["send-keys -l \"a\\;b\"".to_string()]
+        );
+        // Mixed: quoted payload preserved, real separator still splits.
+        assert_eq!(
+            split_compound("send-keys -l 'a\\;b' \\; selectp -t %1"),
+            vec![
+                "send-keys -l 'a\\;b' ".to_string(),
+                " selectp -t %1".to_string()
+            ]
+        );
     }
 
     #[test]
-    fn test_capture_pane_parsing() {
-        let content = "line1\nline2\nline3".to_string();
-        let lines: Vec<String> = content.lines().map(String::from).collect();
+    fn has_target_flag_ignores_literal_payload() {
+        assert!(has_target_flag(&["select-pane", "-t", "%1"]));
+        assert!(has_target_flag(&["send-keys", "-t", "%1", "-l", "hi"]));
+        // `-t` AFTER send-keys' -l is literal text the user is typing.
+        assert!(!has_target_flag(&["send-keys", "-l", "-t"]));
+        assert!(!has_target_flag(&["send-keys", "-l", "some -t text"]));
+        assert!(!has_target_flag(&["next-window"]));
+    }
 
-        assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0], "line1");
-        assert_eq!(lines[2], "line3");
+    #[test]
+    fn compound_command_with_quoted_separator_stays_one_command() {
+        // Previously the quoted `\;` split this into two bogus commands.
+        let out =
+            process_compound_command("tmuxy", "send-keys -l 'a\\;b'", &["send-keys"]).unwrap();
+        assert!(
+            !out.contains("\\; b'"),
+            "quoted separator must not split the command: {out}"
+        );
+        assert!(out.contains("'a\\;b'"), "payload must survive: {out}");
     }
 
     #[test]

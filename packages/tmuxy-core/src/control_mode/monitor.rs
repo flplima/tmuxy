@@ -778,8 +778,17 @@ impl TmuxMonitor {
             let copy_pane_info = self.aggregator.get_copy_mode_pane_info();
             let copy_pane_ids: Vec<String> =
                 copy_pane_info.iter().map(|(id, _, _)| id.clone()).collect();
+            // Queue first and send only what was newly queued, mirroring
+            // refresh_panes. Building a capture for every copy-mode pane and
+            // ignoring the queued subset meant that at the 50ms copy-mode
+            // cadence a slow response piled duplicate captures onto the
+            // connection for panes whose capture was already in flight.
+            let queued = self.aggregator.queue_captures(&copy_pane_ids);
             let mut cmds = vec![tmux_formats::LIST_PANES_CMD.to_string()];
             for (pane_id, scroll_pos, height) in &copy_pane_info {
+                if !queued.contains(pane_id) {
+                    continue;
+                }
                 if *scroll_pos > 0 {
                     let start = -(*scroll_pos as i64) - (*height as i64) + 1;
                     let end = -(*scroll_pos as i64);
@@ -788,7 +797,6 @@ impl TmuxMonitor {
                     cmds.push(capture_command(pane_id));
                 }
             }
-            let _ = self.aggregator.queue_captures(&copy_pane_ids);
             if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                 emitter.emit_error(format!("Failed to sync copy mode: {}", e));
             }

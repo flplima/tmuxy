@@ -646,7 +646,22 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
     let mut total_height = 0u32;
 
     for info in pane_infos {
-        let content = executor::capture_pane_by_id(&info.id)?;
+        // A pane can be closed between list-panes and capture-pane. Skip the
+        // one that vanished rather than aborting the whole snapshot — losing
+        // every other pane (and failing GetInitialState outright) over one
+        // dead pane is far worse than omitting it, and the next refresh will
+        // drop it from the layout anyway.
+        let content = match executor::capture_pane_by_id(&info.id) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::debug!(
+                    pane = %info.id,
+                    error = %e,
+                    "pane vanished during snapshot capture; skipping"
+                );
+                continue;
+            }
+        };
 
         // Track total dimensions
         let pane_right = info.x + info.width;

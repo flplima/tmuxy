@@ -826,6 +826,18 @@ pub(crate) const SETTLING_MAX: std::time::Duration = std::time::Duration::from_m
 /// exact: any other command's response (a send-keys ack has EMPTY output,
 /// indistinguishable from capturing a blank pane) can otherwise steal a
 /// pending capture and shunt one pane's content into another.
+/// Does this line look like a `list-panes` record (`%<digits>,...`)?
+///
+/// tmux pane ids are always `%` followed by digits, and `LIST_PANES_CMD` puts
+/// `#{pane_id}` first, so a genuine record always starts that way.
+fn is_list_panes_line(line: &str) -> bool {
+    let Some(rest) = line.trim_start().strip_prefix('%') else {
+        return false;
+    };
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    !digits.is_empty() && rest[digits.len()..].starts_with(',')
+}
+
 pub const CAPTURE_BEGIN_MARKER: &str = "TMUXY_CAP_BEGIN";
 /// Marker printed immediately AFTER a self-issued capture-pane command.
 pub const CAPTURE_END_MARKER: &str = "TMUXY_CAP_END";
@@ -1597,12 +1609,22 @@ impl StateAggregator {
                     return ProcessEventResult::default();
                 }
 
+                // Every mutating command the frontend sends — including each
+                // send-keys keystroke batch — comes back as an empty ack. An
+                // empty body carries no state, so treating it as a Full change
+                // forced a whole TmuxState rebuild, per-pane clone and diff on
+                // every keypress. Nothing to parse means nothing changed.
+                //
+                // A non-empty body is still assumed to be list-panes/
+                // list-windows output. Marker-wrapping the self-issued list
+                // commands (as captures already are) would let this be exact
+                // rather than sniffed.
+                if !success || output.trim().is_empty() {
+                    return ProcessEventResult::default();
+                }
+
                 // Not a capture-pane response - parse list-panes/list-windows responses to update state
-                let resized_panes = if success {
-                    self.handle_command_response(&output)
-                } else {
-                    Vec::new()
-                };
+                let resized_panes = self.handle_command_response(&output);
                 ProcessEventResult {
                     state_changed: true,
                     panes_needing_refresh: resized_panes,
@@ -1861,9 +1883,13 @@ impl StateAggregator {
         let mut resized_panes: Vec<String> = Vec::new();
         let mut is_list_panes_response = false;
 
-        // Try to parse as list-panes output
+        // Try to parse as list-panes output. Require the shape tmux actually
+        // emits — `%<digits>,` at the start of the line — rather than "contains
+        // a % and a comma" anywhere, so arbitrary RunCommand output flowing
+        // through this same channel can't be mistaken for pane records and
+        // conjure ghost panes into the aggregator.
         for line in output.lines() {
-            if line.contains('%') && line.contains(',') {
+            if is_list_panes_line(line) {
                 if let Some((pane_id, was_resized)) = self.parse_list_panes_line(line) {
                     seen_panes.insert(pane_id.clone());
                     if was_resized {
@@ -2555,6 +2581,63 @@ mod tests {
         let mut pane = PaneState::new(pane_id, 80, 24);
         pane.window_id = window_id.to_string();
         agg.panes.insert(pane_id.to_string(), pane);
+    }
+
+    /// An empty command ack must not be reported as a state change.
+    ///
+    /// Every mutating command — including each send-keys batch the keyboard
+    /// actor sends — returns `%begin`/`%end` with no body. Treating those as
+    /// `ChangeType::Full` forced a full TmuxState rebuild + diff per keystroke.
+    #[test]
+    fn empty_command_ack_reports_no_change() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+
+        for body in ["", "   ", "\n", "  \n  "] {
+            let r = agg.process_event(ControlModeEvent::CommandResponse {
+                timestamp: 0,
+                command_num: 0,
+                output: body.to_string(),
+                success: true,
+            });
+            assert!(
+                !r.state_changed,
+                "empty ack {body:?} must not report a state change"
+            );
+            assert!(matches!(r.change_type, ChangeType::None));
+        }
+    }
+
+    /// Arbitrary command output must not be mistaken for list-panes records.
+    ///
+    /// `RunCommand` output flows through the same response channel, so a line
+    /// that merely contains a `%` and a comma used to be fed to the pane
+    /// parser and could conjure ghost panes.
+    #[test]
+    fn non_list_panes_output_does_not_create_panes() {
+        let mut agg = StateAggregator::new();
+        let before = agg.panes.len();
+
+        agg.process_event(ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            // Shapes that pass the old `contains('%') && contains(',')` sniff.
+            output: "100% done, thanks\ncpu: 3%, mem: 40%\n[%foo,bar]".to_string(),
+            success: true,
+        });
+
+        assert_eq!(agg.panes.len(), before, "no ghost panes may be created");
+    }
+
+    #[test]
+    fn is_list_panes_line_matches_only_real_pane_records() {
+        assert!(is_list_panes_line("%0,1,0,0,80,24"));
+        assert!(is_list_panes_line("%12,3,"));
+        assert!(!is_list_panes_line("100% done, thanks"));
+        assert!(!is_list_panes_line("%foo,bar"));
+        assert!(!is_list_panes_line("%0"));
+        assert!(!is_list_panes_line("x%0,1"));
+        assert!(!is_list_panes_line(""));
     }
 
     /// A response between the capture markers is attributed to exactly the
