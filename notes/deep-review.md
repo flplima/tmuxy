@@ -99,11 +99,32 @@ work, and **~220 remain open**. The per-area sections below are therefore
       (wire `tmuxy connect` to publish it, or drop the read — a product call);
       blocking subprocesses in async commands; the `std::env::set_var` reconnect
       race, whose real fix is the `ConnectTarget`-in-state refactor.
-- [ ] **Phase 4 — Frontend + demo bugs.** Input silently dropped while
-      `reconnecting` (two comments claim otherwise); Tauri's hardcoded
-      `defaultShell: 'bash'`; the six demo-engine bugs (`exit` killing the wrong
-      pane, `setSize` clobbering float dimensions, the CSI scanner swallowing
-      text, double-unescaping, `groupAdd` window-id leak, multi-line widgets).
+- [x] **Phase 4 — Frontend + demo bugs** (commit `3bc4f83`). All six
+      demo-engine bugs fixed: `exit` now kills the shell's own pane (shells are
+      bound to their pane id at construction) rather than the active one;
+      `setSize` leaves float windows alone so a float no longer snaps to
+      fullscreen on any viewport change; `getState` reports a float/group/
+      sidebar pane's own shell dimensions instead of the whole surface; the CSI
+      scanner terminates at the real final-byte range (`\x1b[K`, `\x1b[1A`,
+      `\x1b[?25l` previously ate the text after them) and `parseSGR` consumes
+      38/48 extended-colour arguments; `handleSendKeys` no longer
+      double-unescapes (pasting `'quoted'` typed `quoted`); `groupAdd` allocates
+      a window id only when it creates one; multi-line `write-widget` is
+      detected before the newline split. Also corrected the two `appMachine`
+      comments that claimed `reconnecting` shares idle's handlers — it does not,
+      so input is dropped while the banner is up (which matches the transport
+      being down; buffering would need an explicit queue).
+      **Verification note:** the group-allocation regression test was checked
+      against the pre-fix code and does fail there. An earlier draft asserting
+      "no pane references a missing window" passed even with the bug
+      reintroduced — `swapGroupPanes` always overwrites the phantom id — so that
+      assertion was replaced rather than kept as false assurance.
+      **Still open in this area:** the demo section's remaining ~25 findings are
+      dead code, duplication and test-quality, not bugs. `LifoShell`'s CSI
+      scanner has no public entry point, so it is covered only indirectly by the
+      banner and story smoke tests; testing it directly needs either a test-only
+      export or driving output through the sandbox. Tauri's hardcoded
+      `defaultShell: 'bash'` is also still open.
 - [ ] **Phase 5 — Dead-code sweep.** Remaining per-area lists: core
       `SendTmuxBatch`/`StepResult.state_changed`/`TestEmitter`/`try_recv`,
       `session::kill_session`/`read_theme_css`/`TmuxError::ParseFailure`, UI
