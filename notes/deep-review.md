@@ -57,6 +57,41 @@ work, and **~220 remain open**. The per-area sections below are therefore
 
 ### Remediation phases
 
+- [~] **Phase 6 — DRY** (commits `4944902`, `aa1819f`; in progress). Done:
+      - **Rust transport pairs:** new `tmuxy_core::theme` module replaces the
+        drifted theme-handler copies in the SSE server and Tauri app (and
+        gui.rs's third `display_theme_name`); `KeyBindings::current()`
+        replaces the ×3 assembly in sse.rs; one `parse_bindings` derives the
+        prefix AND root binding parsers — fixing the root copy's hardcoded
+        `repeat: false` and empty descriptions, with the previously-untested
+        parser now unit-tested; `%output`/`%extended-output` share one arm;
+        `normalize_capture_bytes` replaces four inlined copies;
+        `StateAggregator::new` delegates; the capture-command marker format
+        has one source; `find_osc_end` shared between osc.rs/images.rs;
+        `session::session_name()` replaces three `get_session` copies;
+        `build_response` deduped; the three identical
+        `add_session_target_if_needed` arms collapsed; a lockstep test now
+        enforces that every `@tmuxy-*` constant appears in
+        `LIST_WINDOWS_CMD`.
+      - **UI renderer pair:** `terminalShared.ts` owns the color mapping +
+        `isWideChar` for both renderers, and the divergence it hid is fixed —
+        the copy-mode scrollback renderer now pins spans to `${n}ch` and
+        breaks groups at wide chars, so CJK/emoji no longer misalign
+        copy-mode lines against the live grid. One `cellLinesEqual` is now
+        THE line comparator (store adapters' stricter private copy could
+        flag `undefined` vs `false` style flags as changes). One `KeyLabel`
+        component replaces three.
+      **Still open in phase 6:** the HttpAdapter/TauriAdapter listener/queue
+      machinery extraction (~150 lines each — the largest remaining item, and
+      the riskiest); shared TabMenuItems for AppMenu/TabContextMenu;
+      pixelToCell (each side binds different refs — thin win);
+      closeFloat/closeTopFloat + copy-mode-exit + DragState + appMachine
+      intercept helpers; suite-7 sampler dedup; the demo
+      `DEFAULT_KEYBINDINGS` drift; `pane-group-next`/`prev` →
+      `pane-group-step`; the CI composite actions for the tmux build and
+      Storybook start; the root `lint`/`build` script overlaps.
+
+
 - [x] **Phase 1 — Shell layer bugs** (commit `745ee84`). `run_safe` argument
       flattening (the headline one: `tmuxy run rename-window "my tab"` renamed
       the tab to `my`) fixed with a new `shquote` helper applied at every
