@@ -157,11 +157,82 @@ work, and **~220 remain open**. The per-area sections below are therefore
       route went), `KeyBindings::current()`, the `new-window` rewrite string,
       `get_session()`, the `Output`/`ExtendedOutput` arms, newline
       normalization, bind-key parsing, `build_response`.
-- [ ] **Phase 7 — Docs + test quality.** 22 open doc-drift findings (SSH
-      "NOT IMPLEMENTED" for a shipped feature, `TMUXY_GROUPS`, WINDOW-TAGS.md
-      as plan-doc-as-truth, missing crates/CLI nouns) and the 41 open E2E
-      findings (tests that cannot fail, adapter calls instead of user paths,
-      image tests that never check visibility).
+- [x] **Phase 7a — Test quality** (commits `14a9173`, `5656197`). Done:
+      - **Unit tier:** the tautological `list_windows_still_corrects_a_wrong_
+        provisional_index` now drives the real parser; the sixel test asserts
+        unconditionally (guard hid a total-decode regression); the four
+        AdapterError ADT tests (library behavior) deleted; layout's
+        `drag: null → null` round-trip replaced with a real payload;
+        commandUi gains a template-`%%`-substitution observation; the smoke
+        suite's per-story `typeof Story` loop (could not fail post-compose)
+        replaced with per-module composition checks; DemoTmux's
+        `toHaveProperty` shape tests replaced by decoding `getState()`
+        through the production wire schema.
+      - **E2E assertions that could not fail, fixed:** arrow-up history
+        (threshold was met before the feature ran → before/after delta);
+        `waitForState` (stringified closures saw `undefined` in the page and
+        the caller swallowed the failure → new `arg` pass-through +
+        asserting caller); OSC 8 detailed test now asserts rendered
+        `<a href>` anchors with bounding rects (they exist since the phase-2
+        OSC fix — the "future enhancement" comment was stale); emoji tests
+        now contain actual emoji (via printf `\xNN`); sixel E2E conditional
+        made unconditional; iTerm2/kitty images assert visible bounding
+        rects; multi-client asserts the full 3-pane layout AND cross-page
+        content propagation (was `>= 1` pane); token-free routing asserts
+        real data through `run_tmux_command` (was `res.ok` on a fabricated
+        conn id); nvim perf times the full round-trip (was timing only local
+        keyboard.type).
+      - **Real user paths:** window-lifecycle close now loops
+        `killWindowKeyboard` (was `_exec('kill-window')`); Status Bar "close
+        via button" actually right-clicks the tab and picks "Close Tab" (was
+        typing kill-window into the command prompt); pane-group identity
+        gains a rendered-content fingerprint; float test asserts typing
+        doesn't steal focus from the float (full DOM isolation stays
+        unassertable under CDP — documented).
+      - **New coverage:** browser-paste E2E (pasteText was implemented,
+        never called); 5 CLI tests for `tmuxy event emit/wait/list`
+        (exactly-once delivery, ordering, pending counts).
+      - **Deleted:** suite 5's Category 15 (15.1–15.3 duplicated Scenario 20
+        via the adapter; 15.4 tested the GlitchDetector harness itself).
+      - **Harness:** `waitForPaneCount` counts only `[data-pane-id]` (the OR
+        with `[role=log]` could mask layout bugs); `assertContentMatch`/
+        `verifyConsistency` no longer turn arbitrary exceptions into green
+        (only a genuinely-closing page ends them early);
+        `navigateToSession` throws after exhausting retries instead of
+        returning the URL; direct `execSync`/`child_process` banned in
+        `*.test.js` via ESLint with `tmuxExec()` in tmux-socket.js as the
+        sanctioned setup/ground-truth path.
+      **E2E validation:** suites 1-5 were run against the live server + CDP
+      locally (TMUX_SOCKET=tmuxy-prod). Two of my own new assertions were
+      caught and fixed in the process: the multi-client waitForFunction used
+      the puppeteer arg order (Playwright is `(fn, arg, options)` — the
+      predicate was testing the options object), and the tightened
+      `waitForPaneCount` initially counted raw `[data-pane-id]` elements
+      (each pane emits the attribute twice — wrapper + TerminalPane); it now
+      counts unique ids like `getUIPaneCount`, which also halved Scenario
+      18's wall time (203s → 96s) because the wait actually waits now.
+      Known environmental failure: suite 2's Scenario 6d (sidebar tree
+      Enter) fails on a shared server with an extra session — the tree then
+      shows a session level and row 0 isn't a tab. CI runs isolated and is
+      unaffected; making the test robust to pre-existing sessions is a
+      possible follow-up.
+      **Still open in the tests area:** copy-mode search coverage,
+      --password auth coverage, the fixed-`delay()` sweeps, duplicate
+      scenario numbers across suites, and the three MutationObserver
+      sampler duplications in suite 7 (left deliberately: extracting them
+      risks breaking delicate paint-timing tests without a cheap way to
+      verify).
+- [x] **Phase 7b — Docs** (commit `e2b9532`). All 22 verified doc-drift
+      findings fixed: DATA-FLOW's SSH "NOT IMPLEMENTED" for a shipped
+      feature, the dead `TMUXY_GROUPS` mechanism in TMUX.md and
+      STATE-MANAGEMENT, wrong state/actor/selector inventories,
+      WINDOW-TAGS.md rewritten from plan-doc to present tense, CLAUDE.md's
+      missing crates/CLI nouns/doc links, RICH-RENDERING's nonexistent
+      modules, and ~10 stale code comments (headers claiming shared
+      renderers, spring physics, `^B` formatting, etc.). TESTS.md/CLAUDE.md
+      test-doc contradictions (`destroyViaAdapter`, per-describe lifecycle,
+      "one file per helper", Playwright-install scoping) fixed alongside;
+      QA scripts now resolve their socket through helpers/tmux-socket.js.
 
 ---
 
