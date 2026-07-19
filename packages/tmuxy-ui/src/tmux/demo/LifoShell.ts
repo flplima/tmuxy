@@ -3,6 +3,15 @@ import type { PaneContent, CellLine, TerminalCell, CellStyle } from '../types';
 import type { DemoTmux } from './DemoTmux';
 import { tmuxy as tmuxyCmd } from './commands/tmuxy';
 
+/**
+ * Is `ch` a CSI final byte? CSI sequences run `\x1b[` + parameter/intermediate
+ * bytes + one final byte in the range 0x40-0x7E.
+ */
+function isCsiFinal(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return code >= 0x40 && code <= 0x7e;
+}
+
 export class LifoShell {
   cwd: string;
   env: Map<string, string>;
@@ -18,6 +27,7 @@ export class LifoShell {
   private sandbox: Sandbox | null = null;
   private sandboxPromise: Promise<Sandbox>;
   private tmux?: DemoTmux;
+  private ownPaneId: string | null = null;
   private busy = false;
   private abortController: AbortController | null = null;
 
@@ -99,8 +109,15 @@ export class LifoShell {
     });
   }
 
-  setTmux(tmux: DemoTmux): void {
+  /**
+   * Bind this shell to its host pane. `paneId` is required so `exit` can kill
+   * the pane the shell actually lives in: keys routed via `send-keys -t %N`
+   * reach a shell that may not be the active pane (a float never becomes the
+   * active window), and a bare `killPane()` kills the ACTIVE pane instead.
+   */
+  setTmux(tmux: DemoTmux, paneId: string): void {
     this.tmux = tmux;
+    this.ownPaneId = paneId;
   }
 
   // ============================================
@@ -126,6 +143,14 @@ export class LifoShell {
 
   getHistorySize(): number {
     return this.scrollback.length;
+  }
+
+  getWidth(): number {
+    return this.width;
+  }
+
+  getHeight(): number {
+    return this.height;
   }
 
   getScrollbackContent(start: number, end: number): PaneContent {
@@ -315,7 +340,7 @@ export class LifoShell {
     this.savedInput = '';
 
     if (line === 'exit') {
-      this.tmux?.killPane();
+      this.tmux?.killPane(this.ownPaneId ?? undefined);
       this.onUpdate?.();
       return;
     }
@@ -531,10 +556,14 @@ export class LifoShell {
         i = text[j] === '\x1b' ? j + 2 : j + 1;
         continue;
       }
-      // CSI sequences (SGR, etc.)
+      // CSI sequences (SGR, etc.). Terminate at the first byte in the CSI
+      // final range (0x40-0x7E) and ignore finals we don't implement.
+      // Scanning only for 'm'/'J'/'H' ran straight past common sequences like
+      // \x1b[K, \x1b[1A and \x1b[?25l, consuming ordinary text until the next
+      // literal m/J/H anywhere in the string and silently dropping it.
       if (text[i] === '\x1b' && text[i + 1] === '[') {
         let j = i + 2;
-        while (j < text.length && text[j] !== 'm' && text[j] !== 'J' && text[j] !== 'H') j++;
+        while (j < text.length && !isCsiFinal(text[j])) j++;
         if (j < text.length) {
           if (text[j] === 'm') {
             currentStyle = this.parseSGR(text.slice(i + 2, j), currentStyle);
@@ -556,7 +585,28 @@ export class LifoShell {
     const codes = params.split(';').map(Number);
     const style: CellStyle = current ? { ...current } : {};
 
-    for (const code of codes) {
+    for (let i = 0; i < codes.length; i++) {
+      const code = codes[i];
+      // Extended colour: 38/48 consume their arguments. `38;5;N` (256-colour)
+      // and `38;2;R;G;B` (truecolour). Without this the trailing values were
+      // read as standalone codes, so `38;5;31` set fg=1 from the `31`.
+      if (code === 38 || code === 48) {
+        const isFg = code === 38;
+        const mode = codes[i + 1];
+        if (mode === 5) {
+          const n = codes[i + 2];
+          if (Number.isFinite(n)) {
+            if (isFg) style.fg = n;
+            else style.bg = n;
+          }
+          i += 2;
+        } else if (mode === 2) {
+          // Truecolour isn't representable in CellStyle's palette index;
+          // skip the three components rather than misreading them.
+          i += 4;
+        }
+        continue;
+      }
       if (code === 0) return undefined;
       if (code === 1) style.bold = true;
       if (code === 3) style.italic = true;

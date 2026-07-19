@@ -261,4 +261,85 @@ describe('DemoTmux', () => {
       expect(win).toHaveProperty('window_type');
     });
   });
+  describe('float sizing', () => {
+    it('keeps its own dimensions across a viewport resize', () => {
+      // A float is a hidden window in real tmux and keeps its own size.
+      // setSize used to apply the surface layout to float windows too, so any
+      // set_client_size snapped the float to fullscreen.
+      const floatId = tmux.createFloat({ width: 40, height: 10 });
+      expect(floatId).not.toBeNull();
+
+      tmux.setSize(120, 40);
+
+      const pane = tmux.getState().panes.find((p) => p.tmux_id === floatId);
+      expect(pane).toBeDefined();
+      expect(pane?.width).toBe(40);
+      expect(pane?.height).toBe(10);
+    });
+  });
+
+  describe('pane groups', () => {
+    it('does not consume a window id when joining an existing group', () => {
+      // groupAdd used to call allocWindowId() unconditionally and stamp the
+      // result on the new pane, even when joining an EXISTING group — so a
+      // window id was burned for a window that was never created, and the
+      // pane briefly referenced it (corrected only as a side effect of
+      // swapGroupPanes). Allocate only in the create-group branch.
+      const first = tmux.groupAdd('%0');
+      expect(first).not.toBeNull();
+
+      const idsBefore = new Set(tmux.getState().windows.map((w) => w.id));
+      tmux.groupAdd(first ?? undefined);
+
+      // Joining an existing group creates no window, so the next window
+      // created must take the very next id — nothing was burned in between.
+      tmux.newWindow();
+      const created = tmux
+        .getState()
+        .windows.map((w) => w.id)
+        .filter((id) => !idsBefore.has(id));
+      expect(created).toHaveLength(1);
+
+      const maxBefore = Math.max(...[...idsBefore].map((id) => parseInt(id.slice(1), 10)));
+      expect(parseInt(created[0].slice(1), 10)).toBe(maxBefore + 1);
+    });
+
+    it('joining an existing group does not create a second group window', () => {
+      const first = tmux.groupAdd('%0');
+      const groupWindows = () => tmux.getState().windows.filter((w) => w.window_type === 'group');
+      expect(groupWindows()).toHaveLength(1);
+
+      tmux.groupAdd(first ?? undefined);
+      expect(groupWindows()).toHaveLength(1);
+    });
+
+    it('every pane references a window that exists', () => {
+      const first = tmux.groupAdd('%0');
+      tmux.groupAdd(first ?? undefined);
+
+      const state = tmux.getState();
+      const windowIds = new Set(state.windows.map((w) => w.id));
+      for (const pane of state.panes) {
+        expect(windowIds.has(pane.window_id)).toBe(true);
+      }
+    });
+  });
+
+  describe('shell exit', () => {
+    it('exit kills the pane the shell lives in, not the active pane', () => {
+      // Keys routed via send-keys -t %N reach a shell that may not be the
+      // active pane; a bare killPane() killed the ACTIVE pane instead.
+      const floatId = tmux.createFloat({ width: 40, height: 10 });
+      expect(floatId).not.toBeNull();
+      const activeBefore = tmux.getState().active_pane_id;
+      expect(activeBefore).not.toBe(floatId);
+
+      for (const ch of 'exit') tmux.sendKeyToPane(floatId as string, ch);
+      tmux.sendKeyToPane(floatId as string, 'Enter');
+
+      const state = tmux.getState();
+      expect(state.panes.find((p) => p.tmux_id === floatId)).toBeUndefined();
+      expect(state.panes.find((p) => p.tmux_id === activeBefore)).toBeDefined();
+    });
+  });
 });

@@ -66,6 +66,12 @@ export interface CreateFloatOptions {
   height?: number;
 }
 
+/**
+ * Index for hidden windows (groups, floats). Far above any real tab index so
+ * hidden chrome never collides with — or reorders — the user's tabs.
+ */
+const GROUP_WINDOW_INDEX_BASE = 1000;
+
 // ============================================
 // DemoTmux Engine
 // ============================================
@@ -91,9 +97,9 @@ export class DemoTmux {
     this.onAsyncUpdate = cb;
   }
 
-  private makeShell(width: number, height: number): LifoShell {
+  private makeShell(paneId: string, width: number, height: number): LifoShell {
     const shell = new LifoShell(width, height);
-    shell.setTmux(this);
+    shell.setTmux(this, paneId);
     shell.onUpdate = () => this.onAsyncUpdate?.();
     return shell;
   }
@@ -107,7 +113,7 @@ export class DemoTmux {
     const windowId = this.allocWindowId();
 
     // Subtract 1 row for header (pane-border-status top occupies row 0)
-    const shell = this.makeShell(this.totalWidth, Math.max(this.totalHeight - 1, 1));
+    const shell = this.makeShell(paneId, this.totalWidth, Math.max(this.totalHeight - 1, 1));
     shell.writeBanner();
     shell.writePrompt();
 
@@ -141,9 +147,12 @@ export class DemoTmux {
     this.totalWidth = cols;
     this.totalHeight = rows;
     for (const win of this.windows) {
-      if (win.windowType !== 'group') {
-        this.applyLayout(win);
-      }
+      // Floats keep their own size, like real tmux (a float is a hidden
+      // window). Applying the surface layout to them resized a float created
+      // at floatWidth x floatHeight to the full surface on the next
+      // set_client_size, so it snapped to fullscreen on any viewport change.
+      if (win.windowType === 'group' || win.windowType === 'float') continue;
+      this.applyLayout(win);
     }
   }
 
@@ -184,9 +193,13 @@ export class DemoTmux {
         content: pane.shell.getContent(),
         cursor_x: pane.shell.getCursorX(),
         cursor_y: pane.shell.getCursorY(),
-        width: pos?.width ?? this.totalWidth,
+        // Panes outside the active window's layout (floats, group members,
+        // the sidebar) have no computed position — report their shell's own
+        // grid rather than the whole surface, which disagreed with both the
+        // shell content and the float_width/float_height metadata.
+        width: pos?.width ?? pane.shell.getWidth(),
         // computePositions already returns content-only height (header row excluded).
-        height: pos?.height ?? this.totalHeight,
+        height: pos?.height ?? pane.shell.getHeight(),
         x: pos?.x ?? 0,
         y: pos?.y ?? 0,
         active: pane.id === this.activePaneId,
@@ -273,7 +286,7 @@ export class DemoTmux {
     const newW = direction === 'vertical' ? Math.floor(w / 2) : w;
     const newH = direction === 'horizontal' ? Math.floor(h / 2) : h;
 
-    const shell = this.makeShell(newW, newH);
+    const shell = this.makeShell(paneId, newW, newH);
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -346,7 +359,7 @@ export class DemoTmux {
     const paneId = this.allocPaneId();
 
     // Subtract 1 row for header (pane-border-status top occupies row 0)
-    const shell = this.makeShell(this.totalWidth, Math.max(this.totalHeight - 1, 1));
+    const shell = this.makeShell(paneId, this.totalWidth, Math.max(this.totalHeight - 1, 1));
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -849,7 +862,7 @@ export class DemoTmux {
     const floatW = options.width ?? Math.min(80, Math.floor(this.totalWidth * 0.75));
     const floatH = options.height ?? Math.min(20, Math.floor(this.totalHeight * 0.75));
 
-    const shell = this.makeShell(floatW, floatH);
+    const shell = this.makeShell(paneId, floatW, floatH);
     shell.writePrompt();
 
     const pane: FakePane = {
@@ -863,7 +876,7 @@ export class DemoTmux {
     this.panes.set(paneId, pane);
 
     const usedIndices = new Set(this.windows.map((w) => w.index));
-    let index = 1000;
+    let index = GROUP_WINDOW_INDEX_BASE;
     while (usedIndices.has(index)) index++;
 
     const window: FakeWindow = {
@@ -917,7 +930,7 @@ export class DemoTmux {
     const w = pos?.width ?? this.totalWidth;
     const h = pos?.height ?? this.totalHeight;
 
-    const shell = this.makeShell(w, h);
+    const shell = this.makeShell(newPaneId, w, h);
     shell.writePrompt();
 
     // Find existing group for this pane
@@ -926,28 +939,22 @@ export class DemoTmux {
       ? [...(existingGroup.groupPanes ?? []), newPaneId]
       : [targetId, newPaneId];
 
-    // Create new pane in a hidden group window
-    const groupWindowId = this.allocWindowId();
-    const usedIndices = new Set(this.windows.map((w2) => w2.index));
-    let index = 1000;
-    while (usedIndices.has(index)) index++;
-
-    const newPane: FakePane = {
-      id: newPaneId,
-      numericId: newNumericId,
-      windowId: groupWindowId,
-      shell,
-      command: 'bash',
-      title: 'bash',
-    };
-    this.panes.set(newPaneId, newPane);
-
-    // Update or create group window
+    // Resolve the group window the new pane belongs to. Only allocate a window
+    // id in the create branch: allocating it unconditionally left the new pane
+    // pointing at a window that was never created, corrected only as a side
+    // effect of swapGroupPanes — so if that early-returned the pane was
+    // permanently invisible.
+    let groupWindow: FakeWindow;
     if (existingGroup) {
       existingGroup.groupPanes = groupPaneIds;
+      groupWindow = existingGroup;
     } else {
-      const groupWindow: FakeWindow = {
-        id: groupWindowId,
+      const usedIndices = new Set(this.windows.map((w2) => w2.index));
+      let index = GROUP_WINDOW_INDEX_BASE;
+      while (usedIndices.has(index)) index++;
+
+      groupWindow = {
+        id: this.allocWindowId(),
         index,
         name: 'group',
         manualName: true,
@@ -959,13 +966,18 @@ export class DemoTmux {
       this.windows.push(groupWindow);
     }
 
+    const newPane: FakePane = {
+      id: newPaneId,
+      numericId: newNumericId,
+      windowId: groupWindow.id,
+      shell,
+      command: 'bash',
+      title: 'bash',
+    };
+    this.panes.set(newPaneId, newPane);
+
     // Swap the new pane into view (replace target in the active layout)
-    this.swapGroupPanes(
-      targetId,
-      newPaneId,
-      window,
-      existingGroup ?? this.windows[this.windows.length - 1],
-    );
+    this.swapGroupPanes(targetId, newPaneId, window, groupWindow);
 
     return newPaneId;
   }

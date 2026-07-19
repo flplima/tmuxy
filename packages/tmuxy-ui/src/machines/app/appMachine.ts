@@ -382,8 +382,14 @@ export const appMachine = setup({
     },
     // SSE/Tauri adapter detected the channel dropped and is retrying.
     // Global so the transition fires from any live state.
-    // The reconnecting state shares idle's handlers via the
-    // event spreads below, just with a banner mounted.
+    // NOTE: `reconnecting` does NOT share idle's handlers — it declares its
+    // own small `on` block (server state in, reconnect/disconnect out). Input
+    // events (SEND_TMUX_COMMAND, KEY_PRESS, FOCUS_PANE, drag/resize) are
+    // therefore dropped while the banner is up, which matches the transport
+    // being down: there is nothing to send them over. The keyboard actor
+    // stays enabled, so keystrokes are swallowed rather than reaching the
+    // browser. If we ever want them buffered and flushed on reconnect, that
+    // needs an explicit queue, not a handler spread.
     TMUX_RECONNECTING: {
       target: '.reconnecting',
       actions: assign(({ event }) => ({
@@ -1534,8 +1540,9 @@ export const appMachine = setup({
      * SSE/Tauri channel dropped and the adapter is retrying. Distinct from
      * `connecting` (cold start, no prior state) so the UI can show a "lost
      * connection, retrying…" banner over the stale layout instead of the
-     * full status screen. State updates that arrive during reconnection
-     * still flow through the idle handlers via the shared event spreads —
+     * full status screen. Only the four handlers below are active: server
+     * state still flows in (so the layout stays fresh), but user input is
+     * dropped for the duration — see the TMUX_RECONNECTING note above.
      * TMUX_RECONNECTED swaps back to idle once a fresh server snapshot
      * lands, and the store's reconciler runs against pending ops then.
      */

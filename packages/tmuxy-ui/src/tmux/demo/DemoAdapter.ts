@@ -361,6 +361,15 @@ export class DemoAdapter implements TmuxAdapter {
   }
 
   private handleTmuxCommand(commandStr: string): void {
+    // write-widget takes multi-line content as its last argument, so it must
+    // be detected BEFORE the newline split — otherwise a runtime widget was
+    // shredded into garbage commands. (It only ever worked because the demo
+    // site passes multi-line widgets through initCommands, which bypasses
+    // this path.)
+    if (/^\s*write-widget\s/.test(commandStr)) {
+      this.handleSingleCommand(commandStr.trim());
+      return;
+    }
     // Handle multi-line commands (from paste)
     const commands = commandStr.split('\n');
     for (const cmd of commands) {
@@ -733,16 +742,20 @@ export class DemoAdapter implements TmuxAdapter {
     }
 
     if (literal) {
-      // Literal text - join all remaining args
+      // Literal text - join all remaining args.
+      //
+      // parseTmuxCommand has ALREADY stripped the surrounding quotes and
+      // resolved `'\''` escapes, so no further unescaping belongs here. The
+      // previous `.replace(/^'|'$/g, '')` stripped genuine leading/trailing
+      // quotes from the payload — pasting `'quoted'` typed `quoted` — and the
+      // `'\''` replace could never match post-parse text.
       const text = keys.join(' ');
-      // Unescape single quotes: '\'' → '
-      const unescaped = text.replace(/^'|'$/g, '').replace(/'\\'''/g, "'");
       if (targetPaneId) {
-        for (const ch of unescaped) {
+        for (const ch of text) {
           this.tmux.sendKeyToPane(targetPaneId, ch);
         }
       } else {
-        this.tmux.sendLiteral(unescaped);
+        this.tmux.sendLiteral(text);
       }
     } else {
       // Key names
