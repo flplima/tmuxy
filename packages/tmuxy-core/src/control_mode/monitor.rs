@@ -274,6 +274,21 @@ pub struct TmuxMonitor {
     /// one-time auto-adopt of pre-existing windows.
     window_tags_migrated: bool,
 
+    /// Last viewport size the client asked for, in cells.
+    ///
+    /// A client's first resize routinely arrives before the initial
+    /// `list-windows` response has been aggregated, so there are no window ids
+    /// to target yet and only the current window can be sized. Remembering the
+    /// request lets `apply_client_size` re-apply it to every window as soon as
+    /// they are known — otherwise every non-current window keeps whatever size
+    /// the previous client left it at, for the life of the session.
+    client_size: Option<(u32, u32)>,
+
+    /// Number of windows `client_size` has been applied to. Compared against
+    /// the aggregator's window count after every step so a window set that
+    /// grows (initial list-windows landing, a new tab) gets sized.
+    sized_window_count: usize,
+
     /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
     /// inside the loop so tests can advance time with `FakeClock`.
     ctx: Arc<Ctx>,
@@ -317,6 +332,8 @@ impl TmuxMonitor {
                 config,
                 command_rx,
                 window_tags_migrated: false,
+                client_size: None,
+                sized_window_count: 0,
                 ctx,
             },
             command_tx,
@@ -625,7 +642,45 @@ impl TmuxMonitor {
             }
         }
 
+        // Size any windows the client's viewport has not reached yet. This runs
+        // AFTER the step's own effects: injecting commands before them jumps the
+        // queue ahead of this step's EmitState, and the window payload that
+        // carries @tmuxy-window-type gets dropped — leaving the frontend with
+        // untagged windows and an empty tab strip.
+        if self.client_size.is_some() && self.aggregator.window_count() > self.sized_window_count {
+            self.apply_client_size(emitter).await;
+        }
+
         true
+    }
+
+    /// Resize every window the aggregator knows about to the remembered client
+    /// size. No-op until a client has actually reported a size.
+    ///
+    /// tmuxy sets `window-size manual`, so tmux will not size windows on its
+    /// own — every window has to be resized explicitly, and an untargeted
+    /// `resizew` only reaches the session's *current* window.
+    async fn apply_client_size<E: StateEmitter>(&mut self, emitter: &E) {
+        let Some((cols, rows)) = self.client_size else {
+            return;
+        };
+        let window_ids = self.aggregator.window_ids();
+        if window_ids.is_empty() {
+            return;
+        }
+        let cmds: Vec<String> = window_ids
+            .iter()
+            .map(|wid| format!("resizew -t {} -x {} -y {}", wid, cols, rows))
+            .collect();
+        debug!(
+            count = cmds.len(),
+            cols, rows, "applying client size to windows"
+        );
+        if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+            emitter.emit_error(format!("Failed to resize windows: {}", e));
+        } else {
+            self.sized_window_count = window_ids.len();
+        }
     }
 
     /// After WindowAdd: list-panes BEFORE list-windows. break-pane creating a float
@@ -809,8 +864,16 @@ impl TmuxMonitor {
         match cmd {
             Some(MonitorCommand::ResizeWindow { cols, rows }) => {
                 debug!(cols, rows, "processing ResizeWindow");
+                // Remember it first: if the window list has not arrived yet this
+                // is the only record of what the client asked for, and
+                // `apply_client_size` replays it once the windows are known.
+                self.client_size = Some((cols, rows));
+                self.sized_window_count = 0;
                 let window_ids = self.aggregator.window_ids();
                 if window_ids.is_empty() {
+                    // Nothing to target yet — size the current window so the
+                    // visible pane is right immediately; the rest follow when
+                    // the window list lands.
                     let resize_cmd = format!("resizew -x {} -y {}", cols, rows);
                     if let Err(e) = self.connection.send_command(&resize_cmd).await {
                         emitter.emit_error(format!("Failed to resize window: {}", e));
@@ -818,14 +881,7 @@ impl TmuxMonitor {
                         trace!(cmd = %resize_cmd, "sent resize command");
                     }
                 } else {
-                    let cmds: Vec<String> = window_ids
-                        .iter()
-                        .map(|wid| format!("resizew -t {} -x {} -y {}", wid, cols, rows))
-                        .collect();
-                    debug!(count = cmds.len(), "resizing windows");
-                    if let Err(e) = self.connection.send_commands_batch(&cmds).await {
-                        emitter.emit_error(format!("Failed to resize windows: {}", e));
-                    }
+                    self.apply_client_size(emitter).await;
                 }
                 true
             }

@@ -352,6 +352,10 @@ pub struct TmuxWindow {
     /// True if the float hides its header chrome (from @tmuxy-float-noheader).
     #[serde(default, skip_serializing_if = "is_false")]
     pub float_noheader: bool,
+    /// True while a pane in this window is zoomed. tmux hides every other pane
+    /// when zoomed; the frontend must not keep painting them underneath.
+    #[serde(default)]
+    pub zoomed: bool,
 }
 
 /// Full tmux state with all panes and windows
@@ -525,6 +529,10 @@ pub struct WindowDelta {
     pub float_bg: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_noheader: Option<bool>,
+    /// True while this window has a zoomed pane. tmux hides the other panes
+    /// entirely when zoomed, so the frontend needs this to do the same.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zoomed: Option<bool>,
 }
 
 impl WindowDelta {
@@ -539,6 +547,7 @@ impl WindowDelta {
             && self.float_drawer.is_none()
             && self.float_bg.is_none()
             && self.float_noheader.is_none()
+            && self.zoomed.is_none()
     }
 }
 
@@ -695,9 +704,11 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
         });
     }
 
-    // This external-read path doesn't fetch @tmuxy-* options. Without them,
-    // every window is treated as foreign (window_type: None) — acceptable
-    // because this is only the fallback/snapshot path, not the live one.
+    // This path serves `get_initial_state`, which is a client's only baseline
+    // until the next FULL broadcast — and the first full broadcast is
+    // per-server, so a client connecting after it receives deltas only.
+    // Anything missing here stays missing for that client: window_type drives
+    // the tab strip, and zoom decides whether a pane renders full-screen.
     let windows: Vec<TmuxWindow> = window_infos
         .into_iter()
         .map(|w| TmuxWindow {
@@ -705,14 +716,20 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
             index: w.index,
             name: w.name,
             active: w.active,
-            window_type: None,
-            group_panes: None,
-            float_parent: None,
+            window_type: WindowType::parse(&w.window_type),
+            group_panes: (!w.group_panes.is_empty()).then(|| {
+                w.group_panes
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect()
+            }),
+            float_parent: (!w.float_parent.is_empty()).then(|| w.float_parent.clone()),
             float_width: None,
             float_height: None,
             float_drawer: None,
             float_bg: None,
             float_noheader: false,
+            zoomed: w.zoomed,
         })
         .collect();
 

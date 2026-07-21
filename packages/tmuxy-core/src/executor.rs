@@ -42,6 +42,14 @@ pub struct WindowInfo {
     pub index: u32,
     pub name: String,
     pub active: bool,
+    /// True while a pane in this window is zoomed.
+    pub zoomed: bool,
+    /// Raw `@tmuxy-window-type` (empty when the window is not tmuxy-managed).
+    pub window_type: String,
+    /// Raw `@tmuxy-float-parent`.
+    pub float_parent: String,
+    /// Raw `@tmuxy-group-panes`, space separated.
+    pub group_panes: String,
 }
 
 pub fn execute_tmux_command(args: &[&str]) -> Result<String> {
@@ -297,28 +305,39 @@ pub fn capture_pane_by_id(pane_id: &str) -> Result<String> {
 
 /// Get list of all windows in a session
 pub fn get_windows(session_name: &str) -> Result<Vec<WindowInfo>> {
-    // Format: window_id,window_index,window_name,window_active
+    // This snapshot serves `get_initial_state`, which is a client's ONLY
+    // baseline until the next full broadcast — and the first full broadcast is
+    // per-server, not per-client, so a client that connects after it never gets
+    // one. Anything omitted here is therefore invisible to that client
+    // indefinitely: without @tmuxy-window-type every window looks foreign and
+    // the tab strip renders empty.
+    //
+    // window_name is LAST so its own commas cannot shift a parsed column.
     let output = execute_tmux_command(&[
         "list-windows",
         "-t",
         session_name,
         "-F",
-        "#{window_id},#{window_index},#{window_name},#{window_active}",
+        "#{window_id},#{window_index},#{window_active},#{window_zoomed_flag},         #{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-group-panes},#{window_name}",
     ])?;
 
     let mut windows = Vec::new();
 
     for line in output.lines() {
-        let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() < 4 {
+        let parts: Vec<&str> = line.splitn(8, ',').collect();
+        if parts.len() < 8 {
             continue;
         }
 
         windows.push(WindowInfo {
             id: parts[0].to_string(),
             index: parts[1].parse().unwrap_or(0),
-            name: parts[2].to_string(),
-            active: parts[3] == "1",
+            active: parts[2] == "1",
+            zoomed: parts[3] == "1",
+            window_type: parts[4].trim().to_string(),
+            float_parent: parts[5].trim().to_string(),
+            group_panes: parts[6].trim().to_string(),
+            name: parts[7].to_string(),
         });
     }
 

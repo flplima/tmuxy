@@ -34,3 +34,6 @@ strip = true
 
 [profile.release.package.tmuxy-tauri-app]
 strip = false
+
+[patch.crates-io]
+vt100 = { path = "vendor/vt100" }
