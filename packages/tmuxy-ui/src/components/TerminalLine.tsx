@@ -14,6 +14,7 @@ import { LogProfiler } from '../utils/renderLog';
 import type { CursorMode } from './Cursor';
 import type { CellLine, TerminalCell, CellStyle } from '../tmux/types';
 import { cellColorToCss, isWideChar } from './terminalShared';
+import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls } from '../utils/urlDetect';
 
 /**
@@ -174,6 +175,7 @@ export const TerminalLine = memo(
         sk: number;
         autoUrlIdx: number;
         wide: boolean;
+        blockCh: string | null;
       } | null = null;
 
       const flushGroup = () => {
@@ -188,6 +190,7 @@ export const TerminalLine = memo(
         // horizontal jitter when only a few characters changed (e.g. spinners).
         let style: CSSProperties = currentGroup.style ? buildCellStyle(currentGroup.style) : {};
         style.width = `${currentGroup.cells.length}ch`;
+        const blockCh = currentGroup.blockCh;
         const startIdx = currentGroup.startIdx;
         // OSC 8 explicit URL takes priority over auto-detected
         const oscUrl = currentGroup.style?.url;
@@ -202,6 +205,19 @@ export const TerminalLine = memo(
         const selectedClass = currentGroup.selected ? 'terminal-selected' : undefined;
         if (currentGroup.selected) {
           style = { ...style, color: 'var(--term-black)', backgroundColor: '#c0c0c0' };
+        }
+
+        // Block Elements are drawn as CSS rectangles rather than font glyphs so
+        // they fill the cell exactly and stacked rows tile seamlessly. The
+        // character stays as (transparent) text, keeping copy/paste intact.
+        if (blockCh) {
+          const painted = blockGlyphStyle(
+            blockCh,
+            (style.color as string) ?? 'var(--terminal-fg, #fff)',
+          );
+          if (painted) {
+            style = { ...style, ...painted, color: 'transparent' };
+          }
         }
 
         // Check if cursor is in this group
@@ -284,6 +300,7 @@ export const TerminalLine = memo(
         const selected = isCellSelected(i);
         const cellUrlIdx = cell.s?.url ? -1 : urlIdx(i); // skip auto-detect if OSC 8
         const wide = isWideChar(cell.c);
+        const blockCh = isBlockGlyph(cell.c) ? cell.c : null;
 
         if (
           currentGroup &&
@@ -292,6 +309,9 @@ export const TerminalLine = memo(
           // the blank continuation cell rather than shifting a grouped span.
           !wide &&
           !currentGroup.wide &&
+          // A geometric block run is one repeated glyph: a different block
+          // char (or ordinary text) needs its own box to paint into.
+          blockCh === currentGroup.blockCh &&
           cellSK === currentGroup.sk &&
           selected === currentGroup.selected &&
           cellUrlIdx === currentGroup.autoUrlIdx
@@ -307,6 +327,7 @@ export const TerminalLine = memo(
             sk: cellSK,
             autoUrlIdx: cellUrlIdx,
             wide,
+            blockCh,
           };
         }
       }
