@@ -129,18 +129,29 @@ function countLifecycleClasses(page) {
  * so generate some terminal traffic first, then wait for the gate to drop.
  */
 async function waitForAnimationsEnabled(page) {
-  await typeInTerminal(page, 'echo anim warmup');
-  await pressEnter(page);
-  await waitForTerminalText(page, 'anim warmup');
-  await waitForCondition(
-    page,
-    () =>
-      page.evaluate(
-        () => !document.querySelector('.pane-layout')?.classList.contains('pane-layout-no-animations'),
-      ),
-    10000,
-    'layout animations enabled',
-  );
+  const gateOpen = () =>
+    page.evaluate(
+      () => !document.querySelector('.pane-layout')?.classList.contains('pane-layout-no-animations'),
+    );
+
+  // The gate needs a QUIET model update — one carrying no dimension change and
+  // no optimistic patch. A single warmup then waiting passively is a coin flip:
+  // if that update lands dirty (or batches with its confirm), nothing else ever
+  // arrives on an idle session and the wait times out. So keep generating
+  // traffic until the gate actually opens, rather than hoping one burst did it.
+  for (let attempt = 0; attempt < 6; attempt++) {
+    if (await gateOpen()) return;
+    await typeInTerminal(page, `echo anim warmup ${attempt}`);
+    await pressEnter(page);
+    await waitForTerminalText(page, `anim warmup ${attempt}`);
+    try {
+      await waitForCondition(page, gateOpen, 3000, 'layout animations enabled');
+      return;
+    } catch {
+      // Not yet — another quiet update is needed; loop and produce one.
+    }
+  }
+  throw new Error('Timed out waiting for layout animations enabled after 6 warmup bursts');
 }
 
 describe('Pane split/kill animations', () => {
