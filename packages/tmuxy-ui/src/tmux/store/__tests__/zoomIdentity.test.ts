@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { preserveSnapshotIdentity } from '../adapters';
-import type { TmuxSnapshot } from '../model';
+import type { TmuxSnapshot } from '../types';
 import type { TmuxWindow } from '../../types';
 
 /**
