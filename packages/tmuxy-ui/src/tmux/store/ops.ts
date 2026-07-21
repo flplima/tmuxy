@@ -546,6 +546,7 @@ function predictNewWindow(
     floatDrawer: null,
     floatBg: null,
     floatNoheader: false,
+    zoomed: false,
   };
   // Size the placeholder pane to the current viewport so the new tab renders
   // full-width immediately instead of waiting for the server's resize delta.

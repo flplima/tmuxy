@@ -312,5 +312,6 @@ function applyWindowDelta(window: ServerWindow, delta: WindowDelta): ServerWindo
     ...(delta.float_drawer !== undefined && { float_drawer: delta.float_drawer }),
     ...(delta.float_bg !== undefined && { float_bg: delta.float_bg }),
     ...(delta.float_noheader !== undefined && { float_noheader: delta.float_noheader }),
+    ...(delta.zoomed !== undefined && { zoomed: delta.zoomed }),
   };
 }
