@@ -248,6 +248,29 @@ export function createKeyboardActor() {
         }
       }
 
+      // Read the machine's live activePaneId (and copy-mode states) straight off
+      // the parent snapshot, rather than trusting the cached closure below.
+      //
+      // A pane-group tab click runs `assign({ activePaneId })` synchronously in
+      // the machine transition, but the `UPDATE_ACTIVE_PANE` event that refreshes
+      // our closure is delivered a task later. A key fired in the same tick as
+      // the click would therefore target the previously-active pane — the first
+      // character after a tab switch lands in the wrong pane. Reading the
+      // snapshot here closes that window; `activePaneId` (the cached closure)
+      // remains the fallback if the read ever throws.
+      let liveActivePaneId = activePaneId;
+      let liveCopyStates: Record<string, CopyModeState> | undefined;
+      try {
+        const snapshot = input.parent.getSnapshot() as {
+          context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
+        };
+        const ctx = snapshot?.context;
+        if (ctx?.activePaneId !== undefined) liveActivePaneId = ctx.activePaneId;
+        liveCopyStates = ctx?.copyModeStates;
+      } catch (_) {
+        /* keep the cached closure values */
+      }
+
       // Copy mode is per-pane and derived (not synced): a pane is in copy mode
       // iff the *currently active* pane has a CopyModeState. Deriving this fresh
       // on every keydown — rather than tracking a pushed boolean — means
@@ -257,16 +280,7 @@ export function createKeyboardActor() {
       // hijacked by an underlying pane's copy mode.
       let activeCopyState: CopyModeState | undefined;
       if (!focusedFloatPaneId && !sidebarFocused) {
-        try {
-          const snapshot = input.parent.getSnapshot() as {
-            context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
-          };
-          const ctx = snapshot?.context;
-          const copyPaneId = ctx?.activePaneId;
-          activeCopyState = copyPaneId ? ctx?.copyModeStates?.[copyPaneId] : undefined;
-        } catch (_) {
-          /* ignore */
-        }
+        activeCopyState = liveActivePaneId ? liveCopyStates?.[liveActivePaneId] : undefined;
       }
       const copyModeActive = !!activeCopyState;
 
@@ -346,7 +360,7 @@ export function createKeyboardActor() {
         if (inPrefixMode) {
           // Double prefix sends literal prefix key to the shell
           resetPrefixMode();
-          const prefixTarget = focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
+          const prefixTarget = focusedFloatPaneId ?? realPaneId(liveActivePaneId) ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${prefixTarget} ${prefixKey}`,
@@ -424,7 +438,7 @@ export function createKeyboardActor() {
           // aligns tmux's view with ours before the binding executes; for
           // bindings that carry their own target (e.g., `select-pane -L`), the
           // prepend is a harmless no-op since the binding overrides it.
-          const target = focusedFloatPaneId ?? realPaneId(activePaneId);
+          const target = focusedFloatPaneId ?? realPaneId(liveActivePaneId);
           const command = target
             ? `select-pane -t ${target} \\; ${bindingCommand}`
             : bindingCommand;
@@ -474,7 +488,7 @@ export function createKeyboardActor() {
         // Same prefix-pin treatment as prefix bindings — root bindings (bind -n)
         // also run against tmux's server-side active pane and need the
         // post-tab-switch / post-group-swap race guarded the same way.
-        const target = focusedFloatPaneId ?? realPaneId(activePaneId);
+        const target = focusedFloatPaneId ?? realPaneId(liveActivePaneId);
         const command = target ? `select-pane -t ${target} \\; ${rootCommand}` : rootCommand;
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
@@ -496,7 +510,7 @@ export function createKeyboardActor() {
       // Target priority: focused float > active pane ID > session name
       // Using activePaneId ensures input reaches the correct pane immediately
       // after an optimistic tab switch (before tmux processes select-window).
-      const target = focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
+      const target = focusedFloatPaneId ?? realPaneId(liveActivePaneId) ?? sessionName;
       // Use literal mode (-l) for single printable chars to avoid tmux syntax interpretation
       let command: string;
       if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
