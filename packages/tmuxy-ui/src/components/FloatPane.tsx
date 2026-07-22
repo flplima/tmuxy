@@ -9,7 +9,7 @@
  * Green border on all sides when active
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
@@ -22,6 +22,7 @@ import {
 import { LogProfiler } from '../utils/renderLog';
 import type { FloatPaneState } from '../machines/types';
 import type { TmuxPane } from '../machines/types';
+import { focusKeyboardInput, focusMobileInput } from '../utils/mobileKeyboard';
 
 interface FloatPaneProps {
   floatState: FloatPaneState;
@@ -45,15 +46,63 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const isFocused = focusedFloatPaneId === floatState.paneId;
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
+  const focusPointerTypeRef = useRef<string | null>(null);
 
   const handleClose = useCallback(() => {
     send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
   }, [send, floatState.paneId]);
 
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    focusPointerTypeRef.current = event.pointerType;
+    if (event.pointerType === 'touch') event.preventDefault();
+  }, []);
+
+  useEffect(() => {
+    const handleWindowPointerUp = (event: PointerEvent) => {
+      const pointerType = event.pointerType;
+      // Keep the modality through the click that browsers dispatch after pointerup.
+      window.setTimeout(() => {
+        if (focusPointerTypeRef.current === pointerType) focusPointerTypeRef.current = null;
+      }, 0);
+    };
+    const handleWindowPointerCancel = () => {
+      focusPointerTypeRef.current = null;
+    };
+
+    window.addEventListener('pointerup', handleWindowPointerUp);
+    window.addEventListener('pointercancel', handleWindowPointerCancel);
+    return () => {
+      window.removeEventListener('pointerup', handleWindowPointerUp);
+      window.removeEventListener('pointercancel', handleWindowPointerCancel);
+    };
+  }, []);
+
+  const handleFocus = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      if (event.target !== event.currentTarget || focusPointerTypeRef.current !== null) return;
       send({ type: 'FOCUS_PANE', paneId: floatState.paneId });
+      focusKeyboardInput(floatState.paneId);
+    },
+    [send, floatState.paneId],
+  );
+
+  const handleClick = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      const pointerType = focusPointerTypeRef.current;
+      focusPointerTypeRef.current = null;
+      const target = event.target as HTMLElement;
+      const shouldFocusKeyboard = !target.closest(
+        'button, input, textarea, select, [contenteditable="true"]',
+      );
+      if (shouldFocusKeyboard && pointerType === 'touch') {
+        focusMobileInput(floatState.paneId);
+      }
+
+      send({ type: 'FOCUS_PANE', paneId: floatState.paneId });
+      if (shouldFocusKeyboard && pointerType !== 'touch') {
+        focusKeyboardInput(floatState.paneId);
+      }
     },
     [send, floatState.paneId],
   );
@@ -105,6 +154,9 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
           className="float-content"
           style={{ width: floatWidth, height: terminalHeight }}
           onClick={handleClick}
+          tabIndex={0}
+          onPointerDown={handlePointerDown}
+          onFocus={handleFocus}
         >
           <Terminal
             content={pane.content}
@@ -148,6 +200,8 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
     >
       <div
         className="float-container"
+        onPointerDown={handlePointerDown}
+        onFocus={handleFocus}
         onClick={handleClick}
         tabIndex={0}
         data-pane-id={pane.tmuxId}

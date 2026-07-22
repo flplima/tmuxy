@@ -1,5 +1,5 @@
 /**
- * mobileKeyboard - Manages a hidden input that summons the virtual keyboard on touch devices.
+ * mobileKeyboard - Manages the hidden text input used by desktop IMEs and touch keyboards.
  *
  * Ownership:
  *  - keyboardActor calls setupMobileKeyboard() at startup to register a handler for
@@ -10,15 +10,19 @@
  * Key event routing:
  *  - Special keys (Backspace, Enter, arrows, Escape) fire reliable keydown events
  *    that bubble to window and are handled by keyboardActor's existing keydown listener.
- *  - Printable characters on mobile often only fire an `input` event (no reliable keydown).
- *    The `input` event handler here forwards them via the registered onText callback.
- *  - To avoid double-sending on browsers that fire both keydown AND input for a char,
- *    keyboardActor skips printable keydown events whose target is this input element.
+ *  - Printable characters and finalized IME compositions arrive through `input` or
+ *    `compositionend` events and are forwarded through the registered callback.
+ *  - keyboardActor skips printable keydowns from this input so text is sent once.
  */
 
 let input: HTMLInputElement | null = null;
 let activePaneId: string | null = null;
-let onText: ((text: string) => void) | null = null;
+let onText: ((text: string, paneId: string | null) => void) | null = null;
+let handlerOwner: symbol | null = null;
+let isComposing = false;
+let compositionPaneId: string | null = null;
+let suppressCommittedText: string | null = null;
+let clearSuppressionTimer: number | null = null;
 
 function ensureInput(): HTMLInputElement {
   if (!input) {
@@ -39,14 +43,46 @@ function ensureInput(): HTMLInputElement {
       left: '-100px',
     });
 
-    input.addEventListener('input', (e) => {
-      const ev = e as InputEvent;
-      // Only forward inserted text — special keys (Backspace, Enter) are handled
-      // by keyboardActor's window keydown listener. Skip during IME composition.
-      if (ev.inputType === 'insertText' && ev.data && !ev.isComposing && onText) {
-        onText(ev.data);
+    input.addEventListener('compositionstart', () => {
+      isComposing = true;
+      compositionPaneId = activePaneId;
+      suppressCommittedText = null;
+      if (clearSuppressionTimer !== null) {
+        window.clearTimeout(clearSuppressionTimer);
+        clearSuppressionTimer = null;
       }
-      // Always clear so the next keystroke starts from an empty field
+    });
+
+    input.addEventListener('compositionend', (event) => {
+      isComposing = false;
+      const targetPaneId = compositionPaneId ?? activePaneId;
+      compositionPaneId = null;
+      if (event.data && onText) {
+        onText(event.data, targetPaneId);
+        suppressCommittedText = event.data;
+        clearSuppressionTimer = window.setTimeout(() => {
+          suppressCommittedText = null;
+          clearSuppressionTimer = null;
+        }, 0);
+      }
+      if (input) input.value = '';
+    });
+
+    input.addEventListener('input', (event) => {
+      const inputEvent = event as InputEvent;
+      if (inputEvent.isComposing || isComposing) return;
+
+      if (inputEvent.inputType === 'insertText' && inputEvent.data && onText) {
+        if (inputEvent.data === suppressCommittedText) {
+          suppressCommittedText = null;
+          if (clearSuppressionTimer !== null) {
+            window.clearTimeout(clearSuppressionTimer);
+            clearSuppressionTimer = null;
+          }
+        } else {
+          onText(inputEvent.data, activePaneId);
+        }
+      }
       if (input) input.value = '';
     });
 
@@ -60,17 +96,54 @@ export function isTouchDevice(): boolean {
 }
 
 /** Called by keyboardActor at startup to register the character-forwarding handler. */
-export function setupMobileKeyboard(handler: (text: string) => void): () => void {
+export function setupMobileKeyboard(
+  handler: (text: string, paneId: string | null) => void,
+): () => void {
+  const owner = Symbol();
+  handlerOwner = owner;
   onText = handler;
   ensureInput();
   return () => {
+    if (handlerOwner !== owner) return;
+    handlerOwner = null;
     onText = null;
+    activePaneId = null;
+    isComposing = false;
+    compositionPaneId = null;
+    suppressCommittedText = null;
+    if (clearSuppressionTimer !== null) {
+      window.clearTimeout(clearSuppressionTimer);
+      clearSuppressionTimer = null;
+    }
+    if (input) {
+      input.value = '';
+      input.blur();
+    }
   };
 }
 
 /** Returns the hidden input element so keyboardActor can identify it via event.target. */
 export function getMobileInput(): HTMLInputElement | null {
   return input;
+}
+
+/** Updates the pane target without changing DOM focus. */
+export function setKeyboardInputTarget(paneId: string | null): void {
+  activePaneId = paneId;
+}
+
+function focusInput(paneId: string): void {
+  setKeyboardInputTarget(paneId);
+  const inp = ensureInput();
+  if (document.activeElement !== inp) {
+    inp.value = '';
+    inp.focus({ preventScroll: true });
+  }
+}
+
+/** Moves mouse or keyboard input to the hidden editable element. */
+export function focusKeyboardInput(paneId: string): void {
+  focusInput(paneId);
 }
 
 /**
@@ -88,8 +161,6 @@ export function focusMobileInput(paneId: string): void {
     inp.blur();
     activePaneId = null;
   } else {
-    activePaneId = paneId;
-    inp.value = '';
-    inp.focus();
+    focusInput(paneId);
   }
 }

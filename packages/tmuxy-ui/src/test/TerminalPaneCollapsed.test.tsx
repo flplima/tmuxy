@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import type { Mock } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 // Mock AppContext hooks before importing the component under test.
 vi.mock('../machines/AppContext', () => ({
@@ -22,10 +23,13 @@ vi.mock('../components/ScrollbackTerminal', () => ({
   ScrollbackTerminal: () => <div data-testid="scrollback" />,
 }));
 vi.mock('../components/PaneHeader', () => ({
-  PaneHeader: () => <div data-testid="pane-header" />,
+  PaneHeader: () => <div className="pane-header" data-testid="pane-header" />,
 }));
 vi.mock('../components/SelectionContextMenu', () => ({
   SelectionContextMenu: () => <div data-testid="selection-menu" />,
+}));
+vi.mock('../utils/mobileKeyboard', () => ({
+  focusKeyboardInput: vi.fn(),
 }));
 
 const noopHandlers = {
@@ -49,10 +53,14 @@ vi.mock('../hooks', () => ({
 
 import * as AppContext from '../machines/AppContext';
 import { TerminalPane } from '../components/TerminalPane';
+import * as mobileKeyboard from '../utils/mobileKeyboard';
 
-const mockUsePane = AppContext.usePane as ReturnType<typeof vi.fn>;
-const mockUseAppSelector = AppContext.useAppSelector as ReturnType<typeof vi.fn>;
-const mockSelectCharSize = AppContext.selectCharSize as ReturnType<typeof vi.fn>;
+const mockUseAppSend = AppContext.useAppSend as Mock;
+const mockUsePane = AppContext.usePane as Mock;
+const mockUseAppSelector = AppContext.useAppSelector as Mock;
+const mockSelectCharSize = AppContext.selectCharSize as Mock;
+const mockFocusKeyboardInput = vi.mocked(mobileKeyboard.focusKeyboardInput);
+const mockSend = vi.fn();
 
 function makePane(overrides: Record<string, unknown>) {
   return {
@@ -89,6 +97,7 @@ function makePane(overrides: Record<string, unknown>) {
 describe('TerminalPane — collapsed (stacked) pane', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseAppSend.mockReturnValue(mockSend);
     const ctx = { charWidth: 9.6, charHeight: 21, focusedFloatPaneId: null };
     mockSelectCharSize.mockImplementation(() => ({ charWidth: 9.6, charHeight: 21 }));
     mockUseAppSelector.mockImplementation((sel: (c: typeof ctx) => unknown) => sel(ctx));
@@ -99,6 +108,79 @@ describe('TerminalPane — collapsed (stacked) pane', () => {
     render(<TerminalPane paneId="%1" />);
     expect(screen.getByTestId('pane-header')).toBeInTheDocument();
     expect(screen.getByTestId('terminal-content')).toBeInTheDocument();
+  });
+
+  it('syncs the active pane before moving keyboard focus to the hidden input', () => {
+    mockUsePane.mockReturnValue(makePane({ height: 24 }));
+    render(<TerminalPane paneId="%1" />);
+
+    screen.getByRole('group', { name: 'Pane %1: zsh' }).focus();
+
+    expect(mockSend).toHaveBeenCalledWith({ type: 'FOCUS_PANE', paneId: '%1' });
+    expect(mockFocusKeyboardInput).toHaveBeenCalledWith('%1');
+    expect(mockSend.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFocusKeyboardInput.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('leaves touch-origin focus to the touch handler', () => {
+    mockUsePane.mockReturnValue(makePane({ height: 24 }));
+    render(<TerminalPane paneId="%1" />);
+    const pane = screen.getByRole('group', { name: 'Pane %1: zsh' });
+
+    fireEvent.pointerDown(pane, { pointerType: 'touch' });
+    pane.focus();
+
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockFocusKeyboardInput).not.toHaveBeenCalled();
+  });
+
+  it('does not repeat pane selection when focus follows mouse down', () => {
+    mockUsePane.mockReturnValue(makePane({ height: 24 }));
+    noopHandlers.handleMouseDown.mockImplementationOnce(() => {
+      mockSend({ type: 'FOCUS_PANE', paneId: '%1' });
+    });
+    render(<TerminalPane paneId="%1" />);
+    const pane = screen.getByRole('group', { name: 'Pane %1: zsh' });
+
+    fireEvent.pointerDown(pane, { pointerType: 'mouse' });
+    fireEvent.mouseDown(pane);
+    pane.focus();
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockFocusKeyboardInput).toHaveBeenCalledWith('%1');
+  });
+
+  it('focuses a header-clicked pane before moving keyboard input to it', () => {
+    mockUsePane.mockReturnValue(makePane({ height: 24 }));
+    render(<TerminalPane paneId="%1" />);
+    const pane = screen.getByRole('group', { name: 'Pane %1: zsh' });
+
+    fireEvent.pointerDown(screen.getByTestId('pane-header'), { pointerType: 'mouse' });
+    fireEvent.mouseDown(screen.getByTestId('pane-header'));
+    pane.focus();
+
+    expect(mockSend).toHaveBeenCalledWith({ type: 'FOCUS_PANE', paneId: '%1' });
+    expect(mockFocusKeyboardInput).toHaveBeenCalledWith('%1');
+    expect(mockSend.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFocusKeyboardInput.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('focuses a pane when the initial mouse down is a triple click', () => {
+    mockUsePane.mockReturnValue(makePane({ height: 24 }));
+    render(<TerminalPane paneId="%1" />);
+    const pane = screen.getByRole('group', { name: 'Pane %1: zsh' });
+
+    fireEvent.pointerDown(pane, { pointerType: 'mouse' });
+    fireEvent.mouseDown(pane, { detail: 3, button: 0 });
+    pane.focus();
+
+    expect(noopHandlers.handleTripleClick).toHaveBeenCalled();
+    expect(mockSend).toHaveBeenCalledWith({ type: 'FOCUS_PANE', paneId: '%1' });
+    expect(mockSend.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFocusKeyboardInput.mock.invocationCallOrder[0],
+    );
   });
 
   it('hides terminal content for a collapsed pane (height === 1), keeping the header', () => {
