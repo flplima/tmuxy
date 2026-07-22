@@ -63,7 +63,7 @@ pub mod tmux_formats {
         "#{window_id},#{window_index},#{window_active},#{@tmuxy-window-type},",
         "#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},",
         "#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},",
-        "#{@tmuxy-group-panes},#{window_name}'",
+        "#{@tmuxy-group-panes},#{window_zoomed_flag},#{window_name}'",
     );
 
     /// `list-panes -s -F '<...>'` format. The session-scope flag (`-s`) is
@@ -113,6 +113,16 @@ pub mod control_events {
     pub const CONTINUE: &str = "%continue ";
     pub const EXIT: &str = "%exit";
 }
+
+/// Rows of emulator-side scrollback kept per pane.
+///
+/// This is NOT user-facing history (copy mode fetches that from tmux on
+/// demand). It exists so a pane that SHRINKS can push its top rows somewhere
+/// and pull them back when it GROWS again — which is what tmux does on
+/// reflow. With zero scrollback those rows are destroyed, and the pane renders
+/// permanently offset until a capture-pane refill or `clear`. A pane can never
+/// grow by more than one screen height, so a couple of hundred rows is ample.
+pub const REFLOW_SCROLLBACK_ROWS: usize = 256;
 
 #[cfg(test)]
 mod tests {

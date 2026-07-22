@@ -84,6 +84,9 @@ export interface TmuxWindow {
   floatBg: string | null;
   /** True when the float hides its header chrome. */
   floatNoheader: boolean;
+  /** True while a pane in this window is zoomed (tmux hides the others).
+   *  Absent is equivalent to false. */
+  zoomed?: boolean;
 }
 
 // ============================================
@@ -204,6 +207,7 @@ export interface ServerWindow {
   float_drawer?: string | null;
   float_bg?: string | null;
   float_noheader?: boolean;
+  zoomed?: boolean;
 }
 
 export interface ServerState {
@@ -261,6 +265,7 @@ export interface WindowDelta {
   float_drawer?: string | null;
   float_bg?: string | null;
   float_noheader?: boolean;
+  zoomed?: boolean;
 }
 
 export interface ServerDelta {

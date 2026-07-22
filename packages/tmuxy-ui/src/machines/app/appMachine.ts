@@ -679,7 +679,8 @@ export const appMachine = setup({
                   w.floatWidth !== prev.floatWidth ||
                   w.floatHeight !== prev.floatHeight ||
                   w.floatBg !== prev.floatBg ||
-                  w.floatNoheader !== prev.floatNoheader
+                  w.floatNoheader !== prev.floatNoheader ||
+                  Boolean(w.zoomed) !== Boolean(prev.zoomed)
                 ) {
                   return true;
                 }

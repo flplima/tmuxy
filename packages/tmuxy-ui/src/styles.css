@@ -145,6 +145,9 @@
      sync with PANE_ENTER_MS / PANE_LEAVE_MS (constants/layout.ts). */
   --transition-pane-enter: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --transition-pane-leave: 160ms ease-in;
+  /* Zoom toggle: the pane grows to fill the window. Same easing as the enter
+     morph so a zoom reads as the same kind of motion as a split. */
+  --transition-pane-zoom: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* Shadows */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -157,6 +160,8 @@
   --z-elevated: 50;
   --z-dragging: 3;
   --z-pane-anim: 4;
+  /* A zoomed pane covers the whole layout — above every other pane state. */
+  --z-zoomed: 5;
   --z-dropdown: 1000;
 }
 
@@ -514,6 +519,15 @@
   );
 }
 
+/* Zoomed pane: fully opaque. The active-pane surface is deliberately
+   translucent so the layout behind it reads through, but a zoomed pane IS the
+   layout — tmux shows nothing else. Leaving it translucent let the hidden
+   siblings' text bleed through the "full screen" pane. */
+.pane-layout-item.pane-zoomed {
+  background-color: var(--bg-dark);
+  z-index: var(--z-zoomed);
+}
+
 /* Copy mode: distinct bright-green outline so the mode is unmistakable. The
    base active rule drops the outline, so re-establish the full outline here. */
 .pane-layout-item.pane-active.pane-copy-mode {
@@ -649,6 +663,21 @@
 /* Disable position transitions during resize for instant feedback */
 .pane-layout-resizing .pane-layout-item {
   transition: box-shadow var(--transition-layout);
+}
+
+/* ...except the pane being zoomed. Toggling zoom changes surviving pane
+   geometry, which sets suppressLayoutTransition and would otherwise snap the
+   pane to full size in one frame. Scoped to the zoomed pane only, so genuine
+   drag-resizes keep their instant feedback. Same carve-out the enter/shift
+   morphs use above. */
+.pane-layout-resizing .pane-layout-item.pane-zoomed {
+  transition:
+    left var(--transition-pane-zoom),
+    top var(--transition-pane-zoom),
+    width var(--transition-pane-zoom),
+    height var(--transition-pane-zoom),
+    background-color var(--transition-active);
+  will-change: left, top, width, height;
 }
 
 /* Ghost indicator - shows dragged pane's current grid position */

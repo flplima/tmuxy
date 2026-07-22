@@ -112,6 +112,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
+  // tmux shows ONLY the zoomed pane — the others are not visible at all. The
+  // layout still knows their geometry, so without this they keep painting
+  // underneath and show through the zoomed pane's translucent surface.
+  const isZoomed = useAppSelector((ctx) =>
+    Boolean(ctx.windows.find((w) => w.id === ctx.activeWindowId)?.zoomed),
+  );
   const allPanes = useAppSelector((ctx) => ctx.panes);
   const isDragging = useIsDragging();
   const isResizing = useIsResizing();
@@ -134,6 +140,21 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       totalHeight: Math.max(...visiblePanes.map((p) => p.y + p.height)),
     };
   }, [visiblePanes, serverTotalWidth, serverTotalHeight]);
+
+  // Which pane tmux has expanded to fill the window, or null when not zoomed.
+  //
+  // Identified by geometry rather than by `pane.active`: when a window is
+  // zoomed tmux reports exactly one pane at the full window extent, and that is
+  // true regardless of which client holds focus. Keying off `active` would drop
+  // the zoom treatment (or, worse, hide every pane) whenever the active flag has
+  // not propagated yet.
+  const zoomedPaneId = useMemo(() => {
+    if (!isZoomed) return null;
+    const full = visiblePanes.find(
+      (p) => p.x + p.width >= totalWidth && p.y + p.height >= totalHeight,
+    );
+    return full?.tmuxId ?? null;
+  }, [isZoomed, visiblePanes, totalWidth, totalHeight]);
 
   // Half a charWidth — each pane reaches this far into the tmux separator
   // column on both sides so adjacent panes' outlines coincide pixel-for-pixel
@@ -261,6 +282,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       const classes = ['pane-layout-item'];
       const isActive = pane.active && !focusedFloatPaneId;
       classes.push(isActive ? 'pane-active' : 'pane-inactive');
+      if (pane.tmuxId === zoomedPaneId) {
+        classes.push('pane-zoomed');
+      }
       if (pane.tmuxId === draggedPaneId) {
         classes.push('pane-dragging');
       } else if (enterAnimsRef.current.has(key)) {
@@ -270,7 +294,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       }
       return classes.join(' ');
     },
-    [draggedPaneId, focusedFloatPaneId],
+    [draggedPaneId, focusedFloatPaneId, zoomedPaneId],
   );
 
   // Merge visible + hidden panes into one stable-ordered list so React
@@ -280,7 +304,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // (paneKeyOverrides honored so placeholder→real transitions stay stable).
   const renderedPanes = useMemo(() => {
     const items: { pane: TmuxPane; hidden: boolean }[] = [];
-    for (const pane of visiblePanes) items.push({ pane, hidden: false });
+    for (const pane of visiblePanes) {
+      // Hidden rather than dropped: the pane keeps its DOM and terminal state,
+      // so unzooming restores it instantly and it stays interactive.
+      const hiddenByZoom = zoomedPaneId !== null && pane.tmuxId !== zoomedPaneId;
+      items.push({ pane, hidden: hiddenByZoom });
+    }
     for (const pane of hiddenWindowPanes) items.push({ pane, hidden: true });
     items.sort((a, b) => {
       const ka = paneKeyOverrides[a.pane.tmuxId] ?? a.pane.tmuxId;
@@ -288,7 +317,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
     return items;
-  }, [visiblePanes, hiddenWindowPanes, paneKeyOverrides]);
+  }, [visiblePanes, hiddenWindowPanes, paneKeyOverrides, zoomedPaneId]);
 
   // ============================================
   // Pane enter/leave/shift lifecycle (split & kill morph animations)

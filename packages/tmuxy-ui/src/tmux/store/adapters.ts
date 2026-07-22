@@ -82,6 +82,10 @@ function preserveWindow(prev: TmuxWindow, next: TmuxWindow): TmuxWindow {
     prev.floatDrawer === next.floatDrawer &&
     prev.floatBg === next.floatBg &&
     prev.floatNoheader === next.floatNoheader &&
+    // Zoom toggles change nothing else about the window, so omitting it here
+    // pins the old object identity and the UI stays stuck in (or out of) zoom
+    // until some unrelated field happens to change.
+    Boolean(prev.zoomed) === Boolean(next.zoomed) &&
     (prev.groupPanes === next.groupPanes ||
       (prev.groupPanes?.join(',') ?? null) === (next.groupPanes?.join(',') ?? null));
   return same ? prev : next;

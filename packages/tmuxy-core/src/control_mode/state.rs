@@ -272,7 +272,7 @@ impl PaneState {
             id: id.to_string(),
             index: 0,
             window_id: String::new(),
-            terminal: vt100::Parser::new(h, w, 0),
+            terminal: vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS),
             osc_parser,
             image_parser: super::images::ImageParser::new(),
             image_store: HashMap::new(),
@@ -353,7 +353,7 @@ impl PaneState {
         // Create fresh terminal to clear all state
         let w = (self.width as u16).max(1);
         let h = (self.height as u16).max(1);
-        self.terminal = vt100::Parser::new(h, w, 0);
+        self.terminal = vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
         // Keep image placements: the capture text can't recreate them (tmux
         // strips image escapes from captured history).
         self.image_parser.reset_for_capture();
@@ -579,6 +579,7 @@ impl WindowState {
             float_drawer: self.float_drawer.clone(),
             float_bg: self.float_bg.clone(),
             float_noheader: self.float_noheader,
+            zoomed: self.zoomed,
         }
     }
 }
@@ -1740,7 +1741,8 @@ impl StateAggregator {
                     // When only the window changed (same dimensions), reset manually.
                     let w = (pane.width as u16).max(1);
                     let h = (pane.height as u16).max(1);
-                    pane.terminal = vt100::Parser::new(h, w, 0);
+                    pane.terminal =
+                        vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
                     pane.image_parser.reset();
                     pane.content_dirty = true;
                     pane.cached_content = None;
@@ -2036,14 +2038,14 @@ impl StateAggregator {
 
     /// Parse a line from list-windows output. Expected format (comma-separated,
     /// see constants::LIST_WINDOWS_CMD):
-    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,group_panes,name`
+    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,group_panes,zoomed,name`
     /// `window_name` is LAST and free text — we `splitn` so its own commas stay
     /// in the trailing field and can't shift any parsed column. Every column
     /// after `active` is a `@tmuxy-*` user option that may be empty.
     fn parse_list_windows_line(&mut self, line: &str) {
-        // 12 fields; splitn keeps window_name (the 12th) intact even with commas.
-        let parts: Vec<&str> = line.splitn(12, ',').collect();
-        if parts.len() < 11 {
+        // 13 fields; splitn keeps window_name (the 13th) intact even with commas.
+        let parts: Vec<&str> = line.splitn(13, ',').collect();
+        if parts.len() < 12 {
             return;
         }
 
@@ -2054,7 +2056,7 @@ impl StateAggregator {
 
         let index: u32 = parts[1].parse().unwrap_or(0);
         let active = parts[2] == "1";
-        let name = parts.get(11).map(|s| s.to_string()).unwrap_or_default();
+        let name = parts.get(12).map(|s| s.to_string()).unwrap_or_default();
 
         let opt = |idx: usize| -> Option<String> {
             parts
@@ -2078,6 +2080,11 @@ impl StateAggregator {
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>()
         });
+        // Authoritative zoom state. Deriving it only from `%layout-change`
+        // flags loses it whenever window state is rebuilt from list-windows —
+        // e.g. every fresh client connect, which is exactly when a client
+        // attaching to an already-zoomed window needs it.
+        let zoomed = opt(11).is_some_and(|s| s == "1");
 
         let window = self
             .windows
@@ -2089,6 +2096,7 @@ impl StateAggregator {
         window.active = active;
         window.window_type = window_type;
         window.group_panes = group_panes;
+        window.zoomed = zoomed;
         window.float_parent = float_parent;
         window.float_width = float_width;
         window.float_height = float_height;
@@ -2411,6 +2419,9 @@ impl StateAggregator {
         }
         if prev.float_noheader != curr.float_noheader {
             delta.float_noheader = Some(curr.float_noheader);
+        }
+        if prev.zoomed != curr.zoomed {
+            delta.zoomed = Some(curr.zoomed);
         }
 
         delta
@@ -2758,8 +2769,8 @@ mod tests {
         // LIST_WINDOWS_CMD) means a name like "build, test" stays in the
         // trailing field and can't shift window_active/@tmuxy-window-type/floats.
         let name = "build, test";
-        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,group,name
-        let line = format!("@7,3,1,tab,,,,,,,,{name}");
+        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,group,zoomed,name
+        let line = format!("@7,3,1,tab,,,,,,,,0,{name}");
         let mut agg = StateAggregator::new();
         agg.parse_list_windows_line(&line);
         let w = agg.windows.get("@7").expect("window parsed");
@@ -2767,7 +2778,23 @@ mod tests {
         assert_eq!(w.name, name);
         assert!(w.active);
         assert_eq!(w.window_type, Some(WindowType::Tab));
+        assert!(!w.zoomed);
         assert_eq!(agg.active_window_id.as_deref(), Some("@7"));
+    }
+
+    /// Zoom has to come from `list-windows`, not only from `%layout-change`
+    /// flags: window state is rebuilt from list-windows on every fresh client
+    /// connect, which is exactly when a client attaching to an already-zoomed
+    /// window would otherwise render it un-zoomed.
+    #[test]
+    fn list_windows_carries_the_zoom_flag() {
+        let mut agg = StateAggregator::new();
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,1,editor");
+        assert!(agg.windows.get("@9").expect("window parsed").zoomed);
+
+        // ...and clears it again when the window is no longer zoomed.
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,0,editor");
+        assert!(!agg.windows.get("@9").expect("window parsed").zoomed);
     }
 
     #[test]
