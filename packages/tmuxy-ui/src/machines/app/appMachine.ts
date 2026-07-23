@@ -1413,6 +1413,23 @@ export const appMachine = setup({
               return;
             }
 
+            // Flip the active pane SYNCHRONOUSLY — machine context and keyboard
+            // actor both — before any store round-trip. A keystroke fired in the
+            // same tick as the click reads its send-keys target from
+            // context.activePaneId (via the keyboard actor's snapshot read); if
+            // that flip waited for the store's GroupSwitch op to patch `derived`
+            // and echo back through TMUX_MODEL_UPDATE, the first character after
+            // the click would still carry the previous pane's id and land in the
+            // wrong pane. The store op below still owns the visual swap; this
+            // only fixes the input target, which cannot afford to wait.
+            enqueue(assign({ activePaneId: clickedPaneId }));
+            enqueue(
+              sendTo('keyboard', {
+                type: 'UPDATE_ACTIVE_PANE' as const,
+                paneId: clickedPaneId,
+              }),
+            );
+
             const group = Object.values(context.paneGroups).find((g) =>
               g.paneIds.includes(clickedPaneId),
             );
@@ -1431,17 +1448,10 @@ export const appMachine = setup({
                 })()
               : null;
 
-            // No group or no visible peer: still flip activePaneId so the
-            // header highlight + keyboard target update, but skip the swap
-            // bookkeeping. The run-shell command will no-op in tmux too.
+            // No group or no visible peer: no swap bookkeeping, just run the
+            // switch command (a no-op in tmux). activePaneId is already flipped
+            // above.
             if (!group || !visiblePane || visiblePane.tmuxId === clickedPaneId) {
-              enqueue(assign({ activePaneId: clickedPaneId }));
-              enqueue(
-                sendTo('keyboard', {
-                  type: 'UPDATE_ACTIVE_PANE' as const,
-                  paneId: clickedPaneId,
-                }),
-              );
               enqueue(
                 sendTo('tmux', {
                   type: 'SEND_COMMAND' as const,
@@ -1468,13 +1478,6 @@ export const appMachine = setup({
                   visiblePaneId: visiblePane.tmuxId,
                 },
                 command: `run-shell "$HOME/.config/tmuxy/bin/tmuxy/pane-group-switch ${clickedPaneId}"`,
-              }),
-            );
-
-            enqueue(
-              sendTo('keyboard', {
-                type: 'UPDATE_ACTIVE_PANE' as const,
-                paneId: clickedPaneId,
               }),
             );
           }),
