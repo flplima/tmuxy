@@ -42,6 +42,10 @@ export class HttpAdapter implements TmuxAdapter {
   // second opens a second EventSource that overwrites `this.eventSource`,
   // orphaning the first (open, all listeners attached, never closable).
   private connectPromise: Promise<void> | null = null;
+  /** Monotonic ownership token for the currently active EventSource. */
+  private connectionGeneration = 0;
+  /** Rejects a pre-handshake connect when a newer session supersedes it. */
+  private rejectPendingConnect: ((reason: Error) => void) | null = null;
   private connectionId: number = 0;
   private connected = false;
   private reconnecting = false;
@@ -104,15 +108,21 @@ export class HttpAdapter implements TmuxAdapter {
       this.eventSource = null;
     }
 
+    const generation = ++this.connectionGeneration;
     const pending = new Promise<void>((resolve, reject) => {
       const session = this.getEffectiveSession();
       const protocol = window.location.protocol;
       const host = window.location.host || 'localhost:3853';
       const eventsUrl = `${protocol}//${host}/events?session=${encodeURIComponent(session)}`;
 
-      this.eventSource = new EventSource(eventsUrl);
+      const eventSource = new EventSource(eventsUrl);
+      this.eventSource = eventSource;
+      this.rejectPendingConnect = reject;
+      const isCurrent = () =>
+        generation === this.connectionGeneration && this.eventSource === eventSource;
 
-      this.eventSource.addEventListener('connection-info', (event: MessageEvent) => {
+      eventSource.addEventListener('connection-info', (event: MessageEvent) => {
+        if (!isCurrent()) return;
         try {
           const data = JSON.parse(event.data);
           this.connectionId = data.data?.connection_id ?? data.connection_id ?? 0;
@@ -127,13 +137,15 @@ export class HttpAdapter implements TmuxAdapter {
 
           const defaultShell = data.data?.default_shell ?? data.default_shell ?? 'bash';
           this.notifyConnectionInfo(this.connectionId, defaultShell);
+          this.rejectPendingConnect = null;
           resolve();
         } catch (e) {
           console.error('Failed to parse connection-info:', e);
         }
       });
 
-      this.eventSource.addEventListener('state-update', (event: MessageEvent) => {
+      eventSource.addEventListener('state-update', (event: MessageEvent) => {
+        if (!isCurrent()) return;
         try {
           const data = JSON.parse(event.data);
           // Handle nested structure from server
@@ -145,7 +157,7 @@ export class HttpAdapter implements TmuxAdapter {
           if (update.type === 'delta') {
             if (isDeltaSeqGap(this.lastDeltaSeq, update.delta)) {
               this.lastDeltaSeq = null;
-              void this.resyncFullState();
+              void this.resyncFullState(generation);
               return;
             }
             this.lastDeltaSeq = update.delta.seq;
@@ -164,7 +176,8 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      this.eventSource.addEventListener('keybindings', (event: MessageEvent) => {
+      eventSource.addEventListener('keybindings', (event: MessageEvent) => {
+        if (!isCurrent()) return;
         try {
           const data = JSON.parse(event.data);
           const keybindings: KeyBindings = data.data || data;
@@ -174,7 +187,8 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      this.eventSource.addEventListener('error', (event: MessageEvent) => {
+      eventSource.addEventListener('error', (event: MessageEvent) => {
+        if (!isCurrent()) return;
         try {
           const data = JSON.parse(event.data);
           const message = data.data?.message || data.message || 'Unknown error';
@@ -186,7 +200,8 @@ export class HttpAdapter implements TmuxAdapter {
 
       // OSC 52 clipboard write requests from terminal applications.
       // Mirrored into the system clipboard via navigator.clipboard.writeText.
-      this.eventSource.addEventListener('clipboard', (event: MessageEvent) => {
+      eventSource.addEventListener('clipboard', (event: MessageEvent) => {
+        if (!isCurrent()) return;
         try {
           const data = JSON.parse(event.data);
           const payload = data.data || data;
@@ -198,7 +213,8 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      this.eventSource.addEventListener('log', (event: MessageEvent) => {
+      eventSource.addEventListener('log', (event: MessageEvent) => {
+        if (!isCurrent()) return;
         try {
           const data = JSON.parse(event.data);
           const payload = data.data || data;
@@ -213,7 +229,8 @@ export class HttpAdapter implements TmuxAdapter {
       // Backend gave up reconnecting — terminal state, no more events. Suppress
       // EventSource auto-reconnect so the UI surfaces the error instead of a
       // silent retry storm.
-      this.eventSource.addEventListener('fatal', (event: MessageEvent) => {
+      eventSource.addEventListener('fatal', (event: MessageEvent) => {
+        if (!isCurrent()) return;
         try {
           const data = JSON.parse(event.data);
           const message = String((data.data?.message ?? data.message) || 'tmux unavailable');
@@ -221,8 +238,8 @@ export class HttpAdapter implements TmuxAdapter {
           this.intentionalDisconnect = true;
           this.connected = false;
           this.reconnecting = false;
-          if (this.eventSource) {
-            this.eventSource.close();
+          if (this.eventSource === eventSource) {
+            eventSource.close();
             this.eventSource = null;
           }
           this.notifyFatal(message);
@@ -230,22 +247,25 @@ export class HttpAdapter implements TmuxAdapter {
           // connect() promise would otherwise never settle and — now that it's
           // cached in connectPromise — wedge every future connect(). Reject it;
           // a no-op if connection-info already resolved it.
+          this.rejectPendingConnect = null;
           reject(new Error(message));
         } catch (e) {
           console.error('Failed to parse fatal event:', e);
         }
       });
 
-      this.eventSource.onerror = () => {
+      eventSource.onerror = () => {
+        if (!isCurrent()) return;
         if (!this.connected) {
           // Connection failed to establish — close the EventSource to prevent
           // the browser's built-in auto-reconnection from creating a storm of
           // server-side connections and monitor spawns.
-          if (this.eventSource) {
-            this.eventSource.close();
+          if (this.eventSource === eventSource) {
+            eventSource.close();
             this.eventSource = null;
           }
           this.notifyError('Failed to connect to SSE');
+          this.rejectPendingConnect = null;
           reject(new Error('Failed to connect to SSE'));
           return;
         }
@@ -254,8 +274,8 @@ export class HttpAdapter implements TmuxAdapter {
         this.connected = false;
         this.connectionId = 0;
 
-        if (this.eventSource) {
-          this.eventSource.close();
+        if (this.eventSource === eventSource) {
+          eventSource.close();
           this.eventSource = null;
         }
 
@@ -271,7 +291,10 @@ export class HttpAdapter implements TmuxAdapter {
     // check avoids a stale settle (from a forcibly-torn-down connect) nulling
     // a newer connect's marker.
     const chained = pending.finally(() => {
-      if (this.connectPromise === chained) this.connectPromise = null;
+      if (this.connectPromise === chained) {
+        this.connectPromise = null;
+        this.rejectPendingConnect = null;
+      }
     });
     this.connectPromise = chained;
     return chained;
@@ -292,16 +315,7 @@ export class HttpAdapter implements TmuxAdapter {
     this.pendingState = null;
     this.rafScheduled = false;
 
-    // Abandon any in-flight connect so a later reconnect starts fresh.
-    this.connectPromise = null;
-
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
-    }
-
-    this.connected = false;
-    this.connectionId = 0;
+    this.supersedeConnection('Connection closed');
   }
 
   isConnected(): boolean {
@@ -517,20 +531,40 @@ export class HttpAdapter implements TmuxAdapter {
     // dead session by switching to a live one must be possible without reload).
     this.fatal = false;
 
-    // Abandon any in-flight connect to the old session so connect() below
-    // opens a fresh stream for the new session instead of reusing it.
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    // Settle any pre-handshake promise and invalidate every callback owned by
+    // the old stream before the new session opens its EventSource.
+    this.supersedeConnection(`Session switch superseded by ${newSession}`);
+
+    // Reconnect to new session
+    await this.connect();
+  }
+
+  /**
+   * Invalidate and close the current stream without notifying adapter error
+   * listeners. Session replacement and intentional disconnect are control
+   * flow, not transport failures.
+   */
+  private supersedeConnection(reason: string): void {
+    this.connectionGeneration += 1;
+    const reject = this.rejectPendingConnect;
+    this.rejectPendingConnect = null;
     this.connectPromise = null;
 
-    // Close current connection without marking as intentional disconnect
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
     }
+
+    this.pendingState = null;
+    this.resyncing = false;
     this.connected = false;
     this.connectionId = 0;
-
-    // Reconnect to new session
-    await this.connect();
+    reject?.(new Error(reason));
   }
 
   private attemptReconnect(): void {
@@ -569,21 +603,27 @@ export class HttpAdapter implements TmuxAdapter {
    * skips (the server's periodic full snapshot recovers). Guarded so overlapping
    * gaps trigger a single refetch.
    */
-  private async resyncFullState(): Promise<void> {
+  private async resyncFullState(generation = this.connectionGeneration): Promise<void> {
+    if (generation !== this.connectionGeneration) return;
     if (this.resyncing) return;
     if (this.lastCols === 0 || this.lastRows === 0) return;
     this.resyncing = true;
     try {
-      const state = await this.invoke<ServerState>('get_initial_state', {
+      const state = await this.invokeInternal<ServerState>('get_initial_state', {
         cols: this.lastCols,
         rows: this.lastRows,
       });
-      // invoke() already set currentState + reset lastDeltaSeq.
-      this.scheduleStateNotify(state);
+      // A session switch may have superseded this request while its POST was in
+      // flight. Only the owning stream may install and publish the snapshot.
+      if (generation === this.connectionGeneration) {
+        this.currentState = state;
+        this.lastDeltaSeq = null;
+        this.scheduleStateNotify(state);
+      }
     } catch (e) {
       console.error('Delta seq-gap resync failed; awaiting next full snapshot:', e);
     } finally {
-      this.resyncing = false;
+      if (generation === this.connectionGeneration) this.resyncing = false;
     }
   }
 

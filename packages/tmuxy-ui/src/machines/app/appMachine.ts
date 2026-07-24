@@ -344,6 +344,11 @@ export const appMachine = setup({
     SESSIONS_UPDATED: {
       actions: assign(({ event }) => ({ sessions: event.sessions })),
     },
+    // Repository/worktree discovery is independent from the faster tmux
+    // session poll and only decorates the tmux-owned tree.
+    GIT_REPOSITORIES_UPDATED: {
+      actions: assign(({ event }) => ({ repositories: event.repositories })),
+    },
     // Sidebar server picker refreshed by the same desktop-only poll.
     SERVERS_UPDATED: {
       actions: assign(({ event }) => ({
@@ -525,6 +530,8 @@ export const appMachine = setup({
           sendTo('tmux', {
             type: 'SWITCH_SESSION' as const,
             sessionName: event.sessionName,
+            windowId: event.windowId,
+            paneId: event.paneId,
           }),
         );
         // Update browser URL without reload

@@ -44,6 +44,9 @@ pub enum ClientCommand {
     RunTmuxCommand {
         command: String,
     },
+    ListGitWorktrees {
+        paths: Vec<String>,
+    },
     GetScrollbackCells {
         #[serde(rename = "paneId")]
         pane_id: String,
@@ -189,5 +192,25 @@ mod tests {
             }
             other => panic!("expected GetScrollbackCells, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn worktree_discovery_requires_explicit_paths() {
+        let cmd = parse(json!({
+            "cmd": "list_git_worktrees",
+            "args": { "paths": ["/repo", "/repo-feature"] }
+        }));
+        match cmd {
+            ClientCommand::ListGitWorktrees { paths } => {
+                assert_eq!(paths, ["/repo", "/repo-feature"]);
+            }
+            other => panic!("expected ListGitWorktrees, got {other:?}"),
+        }
+
+        let missing = serde_json::from_value::<ClientCommand>(json!({
+            "cmd": "list_git_worktrees",
+            "args": {}
+        }));
+        assert!(missing.is_err());
     }
 }

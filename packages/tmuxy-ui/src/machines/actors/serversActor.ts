@@ -23,7 +23,8 @@
  */
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxAdapter } from '../../tmux/types';
-import type { SessionTreeNode, ServerInfo } from '../types';
+import type { GitRepository, SessionTreeNode } from '../../workspaces/model';
+import type { ServerInfo } from '../types';
 import { isTauri } from '../../tmux/adapters';
 
 export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
@@ -38,6 +39,8 @@ export interface ServersActorInput {
 // skipped entirely while the sidebar is closed, and an immediate refresh fires
 // on open (REFRESH_SESSIONS), so this only governs the steady-state refresh.
 const POLL_INTERVAL_MS = 4000;
+/** Git discovery is slower than tmux enumeration, so refresh it less often. */
+const WORKTREE_POLL_INTERVAL_MS = 15_000;
 
 /** Field separator embedded in the tmux `-F` format (a literal tab). */
 const SEP = '\t';
@@ -48,7 +51,7 @@ const HIDDEN_WINDOW_TYPES = new Set(['float', 'float-backdrop', 'group', 'sideba
 // One `list-windows -a` / `list-panes -a` row, tab-joined. `#{@tmuxy-window-type}`
 // is empty for foreign (e.g. vanilla-tmux) windows — those are kept as tabs.
 const WINDOWS_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{window_index}${SEP}#{window_name}${SEP}#{@tmuxy-window-type}`;
-const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}`;
+const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_current_path}${SEP}#{pane_active}`;
 
 export const LIST_WINDOWS_COMMAND = `list-windows -a -F '${WINDOWS_FORMAT}'`;
 export const LIST_PANES_COMMAND = `list-panes -a -F '${PANES_FORMAT}'`;
@@ -88,13 +91,14 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
 
   for (const line of panesOut.split('\n')) {
     if (!line) continue;
-    const [session, windowId, paneId, command, active] = line.split(SEP);
+    const [session, windowId, paneId, command, cwd, active] = line.split(SEP);
     if (!session || !windowId || !paneId) continue;
     if (!keptWindowIds.has(windowId)) continue;
     ensure(session).panes.push({
       id: paneId,
       windowId,
       command: command ?? '',
+      cwd: cwd ?? '',
       active: active === '1',
     });
   }
@@ -105,6 +109,13 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
   }
   nodes.sort((a, b) => a.sessionName.localeCompare(b.sessionName));
   return nodes;
+}
+
+/** Stable, de-duplicated pane paths passed to read-only Git discovery. */
+export function collectPaneCwds(sessions: SessionTreeNode[]): string[] {
+  return Array.from(
+    new Set(sessions.flatMap((session) => session.panes.map((pane) => pane.cwd)).filter(Boolean)),
+  ).sort();
 }
 
 /** Shape returned by the `list_servers` Tauri command. */
@@ -147,6 +158,12 @@ export function createServersActor(adapter: TmuxAdapter) {
     if (!adapter.enumeratesSessions) return () => {};
     const { parent } = input;
     let cancelled = false;
+    let lastWorktreePathsKey: string | null = null;
+    let lastWorktreePollAt = 0;
+    const initialSnapshot = parent.getSnapshot() as
+      | { context?: { repositories?: GitRepository[] } }
+      | undefined;
+    let lastRepositoriesJson = JSON.stringify(initialSnapshot?.context?.repositories ?? []);
 
     // Read a tmux query off the mutation serial queue when the adapter supports
     // it (web + Tauri do), so the poll's external-subprocess reads never sit in
@@ -175,11 +192,46 @@ export function createServersActor(adapter: TmuxAdapter) {
           query(LIST_WINDOWS_COMMAND),
           query(LIST_PANES_COMMAND),
         ]);
+        const sessions = parseSessions(windowsOut ?? '', panesOut ?? '');
         if (!cancelled) {
           parent.send({
             type: 'SESSIONS_UPDATED',
-            sessions: parseSessions(windowsOut ?? '', panesOut ?? ''),
+            sessions,
           });
+        }
+
+        const paths = collectPaneCwds(sessions);
+        const pathsKey = JSON.stringify(paths);
+        if (paths.length === 0) {
+          // Never ask the backend to infer a scan root. Empty observed paths
+          // clear stale decoration and remain an entirely local operation.
+          lastWorktreePathsKey = pathsKey;
+          lastWorktreePollAt = 0;
+          if (!cancelled && lastRepositoriesJson !== '[]') {
+            lastRepositoriesJson = '[]';
+            parent.send({ type: 'GIT_REPOSITORIES_UPDATED', repositories: [] });
+          }
+        } else {
+          const now = Date.now();
+          const shouldDiscover =
+            pathsKey !== lastWorktreePathsKey ||
+            now - lastWorktreePollAt >= WORKTREE_POLL_INTERVAL_MS;
+          if (shouldDiscover) {
+            lastWorktreePathsKey = pathsKey;
+            lastWorktreePollAt = now;
+            try {
+              const repositories =
+                (await adapter.invoke<GitRepository[]>('list_git_worktrees', { paths })) ?? [];
+              const repositoriesJson = JSON.stringify(repositories);
+              if (!cancelled && repositoriesJson !== lastRepositoriesJson) {
+                lastRepositoriesJson = repositoriesJson;
+                parent.send({ type: 'GIT_REPOSITORIES_UPDATED', repositories });
+              }
+            } catch {
+              // Non-fatal — keep the last Git decoration; the slower cadence
+              // retries without affecting the tmux-owned session tree.
+            }
+          }
         }
       } catch {
         // Non-fatal — keep the last tree snapshot; the next tick retries.
@@ -203,16 +255,41 @@ export function createServersActor(adapter: TmuxAdapter) {
       }
     };
 
+    // Keep at most one poll in flight. Triggers that arrive during a poll
+    // collapse into one follow-up run, so an older async result can never land
+    // after a newer poll. `force` only bypasses the closed-sidebar gate; Git's
+    // unchanged-path cadence remains authoritative.
+    let tickRunning = false;
+    let tickQueued = false;
+    let queuedForce = false;
+    const requestTick = (force = false) => {
+      tickQueued = true;
+      queuedForce ||= force;
+      if (tickRunning) return;
+
+      tickRunning = true;
+      void (async () => {
+        while (tickQueued && !cancelled) {
+          const nextForce = queuedForce;
+          tickQueued = false;
+          queuedForce = false;
+          await tick(nextForce);
+        }
+        tickRunning = false;
+      })();
+    };
+
     // Initial tick respects the sidebar gate (closed at startup → no-op). The
-    // interval refreshes while open; REFRESH_SESSIONS forces an immediate poll.
-    void tick();
-    const handle = setInterval(() => void tick(), POLL_INTERVAL_MS);
+    // interval refreshes while open; REFRESH_SESSIONS queues an immediate poll.
+    requestTick();
+    const handle = setInterval(() => requestTick(), POLL_INTERVAL_MS);
     receive((event) => {
-      if (event.type === 'REFRESH_SESSIONS') void tick(true);
+      if (event.type === 'REFRESH_SESSIONS') requestTick(true);
     });
 
     return () => {
       cancelled = true;
+      tickQueued = false;
       clearInterval(handle);
     };
   });

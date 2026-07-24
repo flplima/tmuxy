@@ -178,24 +178,28 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
             reports the reduced width so tmux re-tiles the panes into the space
             that's left — never under the sidebar. */}
         {showLayout && <Sidebar />}
-        <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
-          {!showLayout ? (
-            <StatusScreen
-              error={error}
-              fatalError={fatalError}
-              isConnecting={isConnecting}
-              log={log}
-            />
-          ) : (
-            <>
-              <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
-              {/* Float panes overlay - renders above tiled panes */}
-              <FloatContainer />
-            </>
-          )}
+        {/* Terminal-owned column. Keeping the tmux status line here scopes it
+            to the terminal grid; it must never extend underneath the tree. */}
+        <div className="terminal-column">
+          <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
+            {!showLayout ? (
+              <StatusScreen
+                error={error}
+                fatalError={fatalError}
+                isConnecting={isConnecting}
+                log={log}
+              />
+            ) : (
+              <>
+                <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
+                {/* Float panes overlay - renders above tiled panes */}
+                <FloatContainer />
+              </>
+            )}
+          </div>
+          <TmuxStatusBar />
         </div>
       </div>
-      <TmuxStatusBar />
       {/* Dev-only latency overlay; mounted only when enabled via ?perf /
           localStorage so it and its store subscription cost nothing otherwise. */}
       {latencyTracker.isEnabled() && <PerfHud />}
