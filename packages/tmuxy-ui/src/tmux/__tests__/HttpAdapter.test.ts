@@ -209,6 +209,54 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
+  it('gives the newest rapid session switch exclusive stream ownership', async () => {
+    const adapter = new HttpAdapter();
+    const errors: string[] = [];
+    const connections: number[] = [];
+    adapter.onError((error) => errors.push(error));
+    adapter.onConnectionInfo((connectionId) => connections.push(connectionId));
+
+    const initial = adapter.connect();
+    MockEventSource.instances[0].emit('connection-info', { data: { connection_id: 1 } });
+    await initial;
+    connections.length = 0;
+
+    const switchA = adapter.switchSession('session-a');
+    const switchAOutcome = switchA.then(
+      () => 'resolved',
+      () => 'rejected',
+    );
+    const streamA = MockEventSource.instances[1];
+    expect(streamA.url).toContain('session=session-a');
+
+    const switchB = adapter.switchSession('session-b');
+    const streamB = MockEventSource.instances[2];
+    expect(streamA.closed).toBe(true);
+    expect(streamB.url).toContain('session=session-b');
+    expect(await switchAOutcome).toBe('rejected');
+
+    // Closing an EventSource does not guarantee already-queued callbacks are
+    // discarded. A stale stream must not reconnect, emit errors, or claim the
+    // adapter after the newer switch owns it.
+    streamA.emit('connection-info', { data: { connection_id: 10 } });
+    streamA.emit('error', { data: { message: 'stale server error' } });
+    streamA.emit('fatal', { data: { message: 'stale fatal' } });
+    streamA.onerror?.(new Event('error'));
+
+    expect(adapter.isConnected()).toBe(false);
+    expect(connections).toEqual([]);
+    expect(errors).toEqual([]);
+
+    streamB.emit('connection-info', { data: { connection_id: 20 } });
+    await switchB;
+
+    expect(adapter.isConnected()).toBe(true);
+    expect(connections).toEqual([20]);
+    expect(errors).toEqual([]);
+    expect(openStreams()).toEqual([streamB]);
+    adapter.disconnect();
+  });
+
   it('invoke surfaces the HTTP status when an error response body is not JSON', async () => {
     const adapter = new HttpAdapter();
     const c = adapter.connect();

@@ -5,6 +5,7 @@ import type {
   PaneGroup,
   KeyBindings,
   SessionTreeNode,
+  GitRepository,
   ServerInfo,
 } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
@@ -144,6 +145,11 @@ export function selectPanes(context: AppMachineContext): TmuxPane[] {
  */
 export function selectSessions(context: AppMachineContext): SessionTreeNode[] {
   return context.sessions;
+}
+
+/** Git repositories/worktrees discovered for the current session paths. */
+export function selectRepositories(context: AppMachineContext): GitRepository[] {
+  return context.repositories;
 }
 
 /** Saved servers for the sidebar picker (desktop-only; empty on web). */

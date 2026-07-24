@@ -1,7 +1,9 @@
 /**
  * StatusBar - Top bar with hamburger menu and window tabs
  *
- * Content is centered to match pane/status-bar width (totalWidth * charWidth).
+ * The bar is viewport-owned app chrome. It deliberately does not derive its
+ * width from the terminal grid: opening a layout panel changes the grid width
+ * and must not move the menu, sidebar toggle, or tabs.
  *
  * On macOS Tauri: hides the hamburger menu (native menu bar is used instead),
  * adds spacing for the traffic light window buttons, and makes the bar draggable
@@ -12,7 +14,7 @@
 
 import { memo, useCallback } from 'react';
 import type { RenderTabline } from '../App';
-import { useAppSelector, useAppState, selectGridDimensions } from '../machines/AppContext';
+import { useAppSelector, useAppState } from '../machines/AppContext';
 import { selectReconnectAttempt } from '../machines/selectors';
 import { isTauri } from '../tmux/adapters';
 import { LogProfiler } from '../utils/renderLog';
@@ -29,11 +31,8 @@ export const StatusBar = memo(function StatusBar({
 }: {
   renderTabline?: RenderTabline;
 }) {
-  const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
   const isReconnecting = useAppState('reconnecting');
   const reconnectAttempt = useAppSelector(selectReconnectAttempt);
-
-  const contentWidth = totalWidth > 0 ? totalWidth * charWidth : undefined;
 
   // On macOS Tauri, mousedown on the statusbar starts window dragging
   // via the Tauri JS API (data-tauri-drag-region doesn't work reliably).
@@ -81,10 +80,7 @@ export const StatusBar = memo(function StatusBar({
   return (
     <LogProfiler id="StatusBar">
       <div className="statusbar" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick}>
-        <div
-          className="statusbar-inner"
-          style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
-        >
+        <div className="statusbar-inner">
           {renderTabline ? renderTabline({ children: defaultContent }) : defaultContent}
           <ConnectionStatus reconnecting={isReconnecting} reconnectAttempt={reconnectAttempt} />
         </div>

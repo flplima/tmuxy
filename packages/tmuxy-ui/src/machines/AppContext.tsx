@@ -60,6 +60,7 @@ export {
   selectPreviewPanes,
   selectPanes,
   selectSessions,
+  selectRepositories,
   selectServerList,
   selectCurrentServerId,
   selectDraggedPaneId,

@@ -12,9 +12,17 @@ import type {
   KeyBinding,
   CopyModeState,
 } from '../tmux/types';
+import type { GitRepository, SessionTreeNode } from '../workspaces/model';
 
 // Re-export domain types
 export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState };
+export type {
+  GitRepository,
+  GitWorktree,
+  SessionTreeNode,
+  SessionTreePane,
+  SessionTreeWindow,
+} from '../workspaces/model';
 
 // ============================================
 // Shared State Types
@@ -100,39 +108,6 @@ export interface LogEntry {
   timestamp: number;
   kind: 'command' | 'output' | 'error' | 'info';
   message: string;
-}
-
-/**
- * A lightweight window in another session's subtree (sidebar sessions tree).
- * Only the fields needed to render and switch — not a full {@link TmuxWindow}.
- */
-export interface SessionTreeWindow {
-  id: string;
-  index: number;
-  name: string;
-}
-
-/** A lightweight pane in another session's subtree. */
-export interface SessionTreePane {
-  id: string;
-  windowId: string;
-  command: string;
-  active: boolean;
-}
-
-/**
- * One tmux session as shown in the sidebar's sessions→tabs→panes tree.
- *
- * Populated by the `serversActor` poll (`list-windows -a` / `list-panes -a`) on
- * both the web and desktop builds, so a client attached to a multi-session
- * socket lists all of them. Empty on the single-session in-browser sandboxes
- * (demo, v86), which render the classic flat tab/pane tree. The active
- * session's subtree is drawn from live state, not this summary.
- */
-export interface SessionTreeNode {
-  sessionName: string;
-  windows: SessionTreeWindow[];
-  panes: SessionTreePane[];
 }
 
 /**
@@ -263,6 +238,12 @@ export interface AppMachineContext {
    * classic single-session flat tree.
    */
   sessions: SessionTreeNode[];
+  /**
+   * Repositories discovered from the current pane paths. Real tmux adapters
+   * populate this while the sidebar is open; in-browser demo adapters leave it
+   * empty and keep the classic session/tab/pane tree.
+   */
+  repositories: GitRepository[];
   /**
    * Saved tmux servers for the sidebar server picker. Desktop-only: populated
    * by the `serversActor` poll (`list_servers`); stays `[]` on the web build,
@@ -562,7 +543,13 @@ export type AppFocusEvent = { type: 'APP_FOCUS' };
 export type AppBlurEvent = { type: 'APP_BLUR' };
 
 // Session events
-export type SwitchSessionEvent = { type: 'SWITCH_SESSION'; sessionName: string };
+export type SwitchSessionEvent = {
+  type: 'SWITCH_SESSION';
+  sessionName: string;
+  /** Stable targets selected after the adapter has attached to the new session. */
+  windowId?: string;
+  paneId?: string;
+};
 export type OpenSessionFloatEvent = { type: 'OPEN_SESSION_FLOAT' };
 export type OpenConnectFloatEvent = { type: 'OPEN_CONNECT_FLOAT' };
 /** Open the `tmuxy connect` "add a server" form in a float (desktop only). */
@@ -575,6 +562,11 @@ export type SessionSwitchRequestedEvent = {
 export type SessionsUpdatedEvent = {
   type: 'SESSIONS_UPDATED';
   sessions: SessionTreeNode[];
+};
+/** Git repositories/worktrees refreshed from the paths in the session tree. */
+export type GitRepositoriesUpdatedEvent = {
+  type: 'GIT_REPOSITORIES_UPDATED';
+  repositories: GitRepository[];
 };
 /** Sidebar server picker refreshed by the desktop poll (`serversActor`). */
 export type ServersUpdatedEvent = {
@@ -677,6 +669,7 @@ export type AppMachineEvent =
   | OpenAddServerFloatEvent
   | SessionSwitchRequestedEvent
   | SessionsUpdatedEvent
+  | GitRepositoriesUpdatedEvent
   | ServersUpdatedEvent
   | IncreaseFontSizeEvent
   | DecreaseFontSizeEvent

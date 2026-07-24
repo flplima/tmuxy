@@ -10,7 +10,7 @@
  * `prefix t`; focused via a click or Ctrl+h from the leftmost pane.
  */
 
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { SidebarTree } from './SidebarTree';
 import { ServerPicker } from './ServerPicker';
 import {
@@ -20,12 +20,20 @@ import {
   selectCharSize,
   selectServerList,
   selectCurrentServerId,
+  selectSessions,
+  selectRepositories,
 } from '../machines/AppContext';
 import { SIDEBAR_COLS } from '../machines/constants';
 import { isTauri } from '../tmux/adapters';
 import { LogProfiler } from '../utils/renderLog';
+import { createSidebarTreeIndex, gitContextLabel, gitContextTitle } from './sidebarTreeModel';
 
 export const Sidebar = memo(function Sidebar() {
+  // Keep the closed sidebar subscription surface to one boolean. Session and
+  // workspace updates should not rerender an invisible tree.
+  const sidebarOpen = useAppSelector((context) => context.sidebarOpen);
+  if (!sidebarOpen) return null;
+
   return (
     <LogProfiler id="Sidebar">
       <SidebarInner />
@@ -35,11 +43,23 @@ export const Sidebar = memo(function Sidebar() {
 
 function SidebarInner() {
   const send = useAppSend();
-  const sidebarOpen = useAppSelector((ctx) => ctx.sidebarOpen);
   const sidebarFocused = useAppSelector((ctx) => ctx.sidebarFocused);
   const { charWidth } = useAppSelector(selectCharSize);
   const serverList = useAppSelectorShallow(selectServerList);
   const currentServerId = useAppSelector(selectCurrentServerId);
+  const sessions = useAppSelectorShallow(selectSessions);
+  const repositories = useAppSelectorShallow(selectRepositories);
+  const sessionName = useAppSelector((context) => context.sessionName);
+
+  // Fixed column width, in lockstep with the tab pane widths (same charWidth).
+  const width = SIDEBAR_COLS * charWidth;
+  const treeIndex = useMemo(
+    () => createSidebarTreeIndex(sessions, repositories),
+    [repositories, sessions],
+  );
+  const activeGitContext = treeIndex.sessionGitSummaries.get(sessionName);
+  const showHeaderContext =
+    sessions.length <= 1 && activeGitContext && activeGitContext.kind !== 'none';
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -60,20 +80,23 @@ function SidebarInner() {
     send({ type: 'OPEN_ADD_SERVER_FLOAT' });
   }, [send]);
 
-  if (!sidebarOpen) return null;
-
-  // Fixed column width, in lockstep with the tab pane widths (same charWidth).
-  const width = SIDEBAR_COLS * charWidth;
-
   return (
     <aside
       className={`sidebar-fixed${sidebarFocused ? ' is-focused' : ''}`}
       style={{ flex: `0 0 ${width}px`, width, minWidth: width, maxWidth: width }}
       onClick={handleClick}
       data-testid="sidebar-content"
+      data-sidebar-width={width}
     >
-      <div className="sidebar-header">tree</div>
-      <SidebarTree focused={sidebarFocused} />
+      <div className="sidebar-header">
+        <span className="sidebar-header-label">tree</span>
+        {showHeaderContext && activeGitContext && (
+          <span className="sidebar-header-context" title={gitContextTitle(activeGitContext)}>
+            {gitContextLabel(activeGitContext)}
+          </span>
+        )}
+      </div>
+      <SidebarTree focused={sidebarFocused} index={treeIndex} />
       {/* Server picker is desktop-only; the web build is fixed to its socket. */}
       {isTauri() && (
         <ServerPicker
