@@ -95,13 +95,18 @@ export class HttpAdapter implements TmuxAdapter {
   // refetch a full snapshot on a seq gap (get_initial_state takes cols/rows).
   private lastCols = 0;
   private lastRows = 0;
-  private resyncing = false;
+  // Single-flight guard for the delta-seq-gap resync: a live fiber means one is
+  // in progress. A fiber (vs. a boolean) can't desync — its finalizer always
+  // clears the slot — and it can be interrupted on disconnect.
+  private resyncFiber: Fiber.RuntimeFiber<void, never> | null = null;
 
   // rAF batching: coalesce SSE updates within a single display frame.
   // This prevents "painting" artifacts during full-screen redraws (neovim, etc.)
   // where multiple intermediate states arrive within one frame interval.
+  // pendingState holds the latest; rafFiber is the single in-flight frame — a
+  // fiber (not a boolean) so its finalizer cancels the rAF on interrupt.
   private pendingState: ServerState | null = null;
-  private rafScheduled = false;
+  private rafFiber: Fiber.RuntimeFiber<void, never> | null = null;
 
   // Keyboard batching
   private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
@@ -144,12 +149,20 @@ export class HttpAdapter implements TmuxAdapter {
 
     this.keyBatcher.destroy();
     this.pendingState = null;
-    this.rafScheduled = false;
+    if (this.rafFiber) {
+      Effect.runFork(Fiber.interrupt(this.rafFiber));
+      this.rafFiber = null;
+    }
 
     // Interrupt the reconnect fiber; its scoped finalizer closes the stream.
     if (this.channelFiber) {
       Effect.runFork(Fiber.interrupt(this.channelFiber));
       this.channelFiber = null;
+    }
+    // Drop any in-flight delta-seq-gap resync too.
+    if (this.resyncFiber) {
+      Effect.runFork(Fiber.interrupt(this.resyncFiber));
+      this.resyncFiber = null;
     }
     if (this.eventSource) {
       this.eventSource.close();
@@ -263,7 +276,7 @@ export class HttpAdapter implements TmuxAdapter {
           if (update.type === 'delta') {
             if (isDeltaSeqGap(this.lastDeltaSeq, update.delta)) {
               this.lastDeltaSeq = null;
-              void this.resyncFullState();
+              this.resyncFullState();
               return;
             }
             this.lastDeltaSeq = update.delta.seq;
@@ -621,35 +634,57 @@ export class HttpAdapter implements TmuxAdapter {
    * skips (the server's periodic full snapshot recovers). Guarded so overlapping
    * gaps trigger a single refetch.
    */
-  private async resyncFullState(): Promise<void> {
-    if (this.resyncing) return;
+  private resyncFullState(): void {
+    if (this.resyncFiber) return; // single-flight: a resync is already running
     if (this.lastCols === 0 || this.lastRows === 0) return;
-    this.resyncing = true;
-    try {
-      const state = await this.invoke<ServerState>('get_initial_state', {
-        cols: this.lastCols,
-        rows: this.lastRows,
-      });
+    const program = Effect.tryPromise({
+      try: () =>
+        this.invoke<ServerState>('get_initial_state', {
+          cols: this.lastCols,
+          rows: this.lastRows,
+        }),
+      catch: (e) => e,
+    }).pipe(
       // invoke() already set currentState + reset lastDeltaSeq.
-      this.scheduleStateNotify(state);
-    } catch (e) {
-      console.error('Delta seq-gap resync failed; awaiting next full snapshot:', e);
-    } finally {
-      this.resyncing = false;
-    }
+      Effect.flatMap((state) => Effect.sync(() => this.scheduleStateNotify(state))),
+      Effect.catchAll((e) =>
+        Effect.sync(() =>
+          console.error('Delta seq-gap resync failed; awaiting next full snapshot:', e),
+        ),
+      ),
+      // Clear the slot on success, failure, or interruption so the next gap can
+      // trigger a fresh resync.
+      Effect.ensuring(
+        Effect.sync(() => {
+          this.resyncFiber = null;
+        }),
+      ),
+    );
+    this.resyncFiber = Effect.runFork(program);
   }
 
   private scheduleStateNotify(state: ServerState): void {
     this.pendingState = state;
-    if (!this.rafScheduled) {
-      this.rafScheduled = true;
-      requestAnimationFrame(() => {
-        this.rafScheduled = false;
-        const s = this.pendingState;
-        this.pendingState = null;
-        if (s) this.notifyStateChange(s);
-      });
-    }
+    if (this.rafFiber) return; // a frame is already scheduled; latest wins
+    const program = Effect.async<void>((resume) => {
+      const id = requestAnimationFrame(() => resume(Effect.void));
+      // Interrupting the fiber (disconnect) cancels the pending frame.
+      return Effect.sync(() => cancelAnimationFrame(id));
+    }).pipe(
+      Effect.flatMap(() =>
+        Effect.sync(() => {
+          const s = this.pendingState;
+          this.pendingState = null;
+          if (s) this.notifyStateChange(s);
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          this.rafFiber = null;
+        }),
+      ),
+    );
+    this.rafFiber = Effect.runFork(program);
   }
 
   private notifyStateChange(state: ServerState): void {
