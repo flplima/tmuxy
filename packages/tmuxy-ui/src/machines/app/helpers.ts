@@ -94,6 +94,12 @@ export function parseDisplayMessage(command: string): string | null {
 
 export const STATUS_MESSAGE_DURATION = 5000;
 
+// Shared id for the delayed CLEAR_STATUS_MESSAGE raise. Re-scheduling with the
+// same id (after cancel) means a newer status message restarts the window
+// instead of the previous message's timer clearing it early — the actor owns
+// the timer, so it is cancelled automatically when the machine stops.
+export const STATUS_MESSAGE_CLEAR_ID = 'statusMessageClear';
+
 /**
  * Convert snake_case object keys to camelCase
  */

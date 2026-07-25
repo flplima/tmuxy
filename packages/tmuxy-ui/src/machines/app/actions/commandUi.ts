@@ -7,9 +7,14 @@
  * SEND_TMUX_COMMAND interception logic.
  */
 
-import { assign, enqueueActions, sendTo } from 'xstate';
+import { assign, cancel, enqueueActions, raise, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import { parseCommandPrompt, parseDisplayMessage, STATUS_MESSAGE_DURATION } from '../helpers';
+import {
+  parseCommandPrompt,
+  parseDisplayMessage,
+  STATUS_MESSAGE_DURATION,
+  STATUS_MESSAGE_CLEAR_ID,
+} from '../helpers';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -45,11 +50,13 @@ export const commandUiActions = {
       const msg = parseDisplayMessage(finalCommand);
       if (msg !== null) {
         enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
-        enqueue(({ self }) => {
-          setTimeout(() => {
-            self.send({ type: 'CLEAR_STATUS_MESSAGE' });
-          }, STATUS_MESSAGE_DURATION);
-        });
+        enqueue(cancel(STATUS_MESSAGE_CLEAR_ID));
+        enqueue(
+          raise(
+            { type: 'CLEAR_STATUS_MESSAGE' },
+            { delay: STATUS_MESSAGE_DURATION, id: STATUS_MESSAGE_CLEAR_ID },
+          ),
+        );
         return;
       }
     }
@@ -101,21 +108,19 @@ export const commandUiActions = {
         statusMessage: { text: event.text, timestamp: Date.now() },
       }),
     );
-    enqueue(({ self }) => {
-      setTimeout(() => {
-        self.send({ type: 'CLEAR_STATUS_MESSAGE' });
-      }, STATUS_MESSAGE_DURATION);
-    });
+    enqueue(cancel(STATUS_MESSAGE_CLEAR_ID));
+    enqueue(
+      raise(
+        { type: 'CLEAR_STATUS_MESSAGE' },
+        { delay: STATUS_MESSAGE_DURATION, id: STATUS_MESSAGE_CLEAR_ID },
+      ),
+    );
   }),
 
-  commandUi_clearStatusMessage: assign<Ctx, Evt, undefined, Evt, never>(({ context }) => {
-    // Only clear if the message is old enough (prevents clearing a newer message)
-    if (
-      context.statusMessage &&
-      Date.now() - context.statusMessage.timestamp >= STATUS_MESSAGE_DURATION - 100
-    ) {
-      return { statusMessage: null };
-    }
-    return {};
+  // The delayed CLEAR_STATUS_MESSAGE raise is cancelled and re-scheduled by id
+  // whenever a new message is shown, so whatever reaches here is the current
+  // message's own expiry — no timestamp guard needed.
+  commandUi_clearStatusMessage: assign<Ctx, Evt, undefined, Evt, never>({
+    statusMessage: null,
   }),
 };

@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { commandUiState } from '../commandUi';
 import { commandUiActions } from '../../actions/commandUi';
 const commandUiGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
+import { STATUS_MESSAGE_DURATION } from '../../helpers';
 
 describe('commandUi state', () => {
   it('PREFIX_MODE_CHANGE toggles prefixActive', () => {
@@ -73,20 +74,40 @@ describe('commandUi state', () => {
     expect(ctx.statusMessage?.text).toBe('saved');
   });
 
-  it('CLEAR_STATUS_MESSAGE clears only sufficiently-old messages', () => {
+  it('CLEAR_STATUS_MESSAGE clears the message', () => {
     const actor = mountState(commandUiState, commandUiActions, commandUiGuards, {
-      statusMessage: { text: 'fresh', timestamp: Date.now() },
-    });
-    const ctx = sendAndGetContext(actor, { type: 'CLEAR_STATUS_MESSAGE' });
-    // Fresh message must NOT be cleared (race protection)
-    expect(ctx.statusMessage?.text).toBe('fresh');
-  });
-
-  it('CLEAR_STATUS_MESSAGE does clear old messages', () => {
-    const actor = mountState(commandUiState, commandUiActions, commandUiGuards, {
-      statusMessage: { text: 'stale', timestamp: Date.now() - 10_000 },
+      statusMessage: { text: 'anything', timestamp: Date.now() },
     });
     const ctx = sendAndGetContext(actor, { type: 'CLEAR_STATUS_MESSAGE' });
     expect(ctx.statusMessage).toBeNull();
+  });
+
+  describe('status message auto-clear (delayed raise)', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('auto-clears the status message after STATUS_MESSAGE_DURATION', () => {
+      vi.useFakeTimers();
+      const actor = mountState(commandUiState, commandUiActions, commandUiGuards);
+      actor.send({ type: 'SHOW_STATUS_MESSAGE', text: 'saved' });
+      expect(actor.getSnapshot().context.statusMessage?.text).toBe('saved');
+      vi.advanceTimersByTime(STATUS_MESSAGE_DURATION);
+      expect(actor.getSnapshot().context.statusMessage).toBeNull();
+    });
+
+    it('re-showing a message restarts the window instead of clearing the newer one early', () => {
+      vi.useFakeTimers();
+      const actor = mountState(commandUiState, commandUiActions, commandUiGuards);
+      actor.send({ type: 'SHOW_STATUS_MESSAGE', text: 'first' });
+      // Just before the first message's timer fires, show a second one — this
+      // cancels the first's delayed clear and schedules a fresh one.
+      vi.advanceTimersByTime(STATUS_MESSAGE_DURATION - 1000);
+      actor.send({ type: 'SHOW_STATUS_MESSAGE', text: 'second' });
+      // Past when the first would have expired: the second must still be shown.
+      vi.advanceTimersByTime(1000);
+      expect(actor.getSnapshot().context.statusMessage?.text).toBe('second');
+      // A full window after the second message: now it clears.
+      vi.advanceTimersByTime(STATUS_MESSAGE_DURATION - 1000);
+      expect(actor.getSnapshot().context.statusMessage).toBeNull();
+    });
   });
 });

@@ -42,6 +42,7 @@ import {
   parseCommandPrompt,
   parseDisplayMessage,
   STATUS_MESSAGE_DURATION,
+  STATUS_MESSAGE_CLEAR_ID,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
 import type { CopyModeState, CellLine } from '../../tmux/types';
@@ -1083,11 +1084,11 @@ export const appMachine = setup({
               const msg = parseDisplayMessage(tail);
               if (msg !== null) {
                 enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
-                enqueue(({ self }) => {
-                  setTimeout(() => {
-                    self.send({ type: 'CLEAR_STATUS_MESSAGE' });
-                  }, STATUS_MESSAGE_DURATION);
-                });
+                enqueue.cancel(STATUS_MESSAGE_CLEAR_ID);
+                enqueue.raise(
+                  { type: 'CLEAR_STATUS_MESSAGE' },
+                  { delay: STATUS_MESSAGE_DURATION, id: STATUS_MESSAGE_CLEAR_ID },
+                );
                 return;
               }
             }
@@ -1347,11 +1348,11 @@ export const appMachine = setup({
               const msg = parseDisplayMessage(tail);
               if (msg !== null) {
                 enqueue(assign({ statusMessage: { text: msg, timestamp: Date.now() } }));
-                enqueue(({ self }) => {
-                  setTimeout(() => {
-                    self.send({ type: 'CLEAR_STATUS_MESSAGE' });
-                  }, STATUS_MESSAGE_DURATION);
-                });
+                enqueue.cancel(STATUS_MESSAGE_CLEAR_ID);
+                enqueue.raise(
+                  { type: 'CLEAR_STATUS_MESSAGE' },
+                  { delay: STATUS_MESSAGE_DURATION, id: STATUS_MESSAGE_CLEAR_ID },
+                );
                 return;
               }
             }

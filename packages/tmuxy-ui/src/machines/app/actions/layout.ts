@@ -23,6 +23,12 @@
  */
 
 import { assign, enqueueActions, sendTo } from 'xstate';
+
+// Fallback for clearing the optimistic resize preview if the server-confirmed
+// TMUX_STATE_UPDATE never arrives. Scheduled as a delayed self-event by id and
+// cancelled when a fresh preview supersedes it (see layout_applyResizeState).
+const RESIZE_PREVIEW_CLEAR_ID = 'resizePreviewClear';
+const RESIZE_PREVIEW_FALLBACK_MS = 2000;
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 
 type Ctx = AppMachineContext;
@@ -181,9 +187,22 @@ export const layoutActions = {
     enqueue(sendTo('resizeLogic', event));
   }),
 
-  layout_applyResizeState: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
-    if (event.type !== 'RESIZE_STATE_UPDATE') return {};
-    return { resize: event.resize, resizeActive: event.resize !== null };
+  layout_applyResizeState: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ event, enqueue }) => {
+    if (event.type !== 'RESIZE_STATE_UPDATE') return;
+    enqueue.assign({ resize: event.resize, resizeActive: event.resize !== null });
+    // A fresh preview supersedes any pending fallback-clear of the previous
+    // one, so it never nulls the newer preview mid-drag.
+    if (event.resize !== null) enqueue.cancel(RESIZE_PREVIEW_CLEAR_ID);
   }),
 
   layout_resizeCompleted: enqueueActions<
@@ -198,21 +217,16 @@ export const layoutActions = {
     never
   >(({ enqueue }) => {
     enqueue(assign({ resizeActive: false }));
-    // Keep resize state as optimistic preview until next TMUX_STATE_UPDATE
-    // arrives with server-confirmed pane sizes. Timeout fallback: clear
-    // after 2s in case the server update is delayed.
-    enqueue(({ self }) => {
-      // Capture the resize being previewed now. If the user starts a new
-      // resize within 2s, context.resize is replaced with a different object,
-      // and this stale timer must not null the new preview mid-drag.
-      const previewedResize = self.getSnapshot().context.resize;
-      setTimeout(() => {
-        const snap = self.getSnapshot();
-        if (snap.context.resize && snap.context.resize === previewedResize) {
-          self.send({ type: 'RESIZE_STATE_UPDATE', resize: null });
-        }
-      }, 2000);
-    });
+    // Keep resize state as an optimistic preview until the next
+    // TMUX_STATE_UPDATE arrives with server-confirmed pane sizes. Fallback: a
+    // delayed self-event clears it if that update is delayed. The raise is
+    // cancelled/re-scheduled by id, and cancelled when a new preview arrives,
+    // so a stale timer never nulls a newer preview.
+    enqueue.cancel(RESIZE_PREVIEW_CLEAR_ID);
+    enqueue.raise(
+      { type: 'RESIZE_STATE_UPDATE', resize: null },
+      { delay: RESIZE_PREVIEW_FALLBACK_MS, id: RESIZE_PREVIEW_CLEAR_ID },
+    );
   }),
 
   layout_dragStateUpdate: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
