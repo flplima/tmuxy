@@ -11,10 +11,18 @@
  */
 
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
+import { Effect, Fiber } from 'effect';
 import type { AppMachineEvent } from '../machines/types';
 import { sendScrollLines } from './scrollUtils';
 import { focusMobileInput } from '../utils/mobileKeyboard';
 import { haptics } from '../utils/haptics';
+
+/** One animation frame as an Effect resolving to its rAF timestamp; its
+ *  finalizer cancels the pending frame when the fiber is interrupted. */
+const nextFrame = Effect.async<number>((resume) => {
+  const id = requestAnimationFrame((t) => resume(Effect.succeed(t)));
+  return Effect.sync(() => cancelAnimationFrame(id));
+});
 
 interface UsePaneTouchOptions {
   paneId: string;
@@ -54,33 +62,33 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   // Touch tracking state
   const lastTouchYRef = useRef(0);
   const remainderRef = useRef(0);
-  const momentumRAFRef = useRef<number | null>(null);
+  // The momentum animation as a supervised fiber. Interrupting it stops the
+  // decay loop and cancels the pending frame (nextFrame's finalizer) — this
+  // replaces both cancelAnimationFrame and the old "new touch started" guard.
+  const momentumFiberRef = useRef<Fiber.RuntimeFiber<void, never> | null>(null);
   const tapStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Velocity tracking: store recent (timestamp, y) samples for averaging
   const velocitySamplesRef = useRef<Array<{ t: number; y: number }>>([]);
 
-  // Whether touch is active (prevents momentum from running after a new touch)
-  const touchActiveRef = useRef(false);
-
   // Cancel any running momentum animation
   const cancelMomentum = useCallback(() => {
-    if (momentumRAFRef.current !== null) {
-      cancelAnimationFrame(momentumRAFRef.current);
-      momentumRAFRef.current = null;
+    if (momentumFiberRef.current !== null) {
+      Effect.runFork(Fiber.interrupt(momentumFiberRef.current));
+      momentumFiberRef.current = null;
     }
   }, []);
 
-  // Unmount cleanup: cancel any in-flight momentum animation. TerminalPane
+  // Unmount cleanup: interrupt any in-flight momentum fiber. TerminalPane
   // consumes the hook without wiring cancelMomentum() to unmount, so without
-  // this a flick that unmounts the pane (tmux kills it) keeps the rAF loop
+  // this a flick that unmounts the pane (tmux kills it) keeps the loop
   // mutating scrollTop / sending into a dead pane until velocity decays.
   useEffect(() => {
-    const raf = momentumRAFRef;
+    const fiber = momentumFiberRef;
     return () => {
-      if (raf.current !== null) {
-        cancelAnimationFrame(raf.current);
-        raf.current = null;
+      if (fiber.current !== null) {
+        Effect.runFork(Fiber.interrupt(fiber.current));
+        fiber.current = null;
       }
     };
   }, []);
@@ -121,7 +129,6 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
       // Only handle single-finger touch
       if (e.touches.length !== 1) return;
 
-      touchActiveRef.current = true;
       cancelMomentum();
       remainderRef.current = 0;
 
@@ -159,8 +166,6 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
 
   const handleTouchEnd = useCallback(
     (e: TouchEvent) => {
-      touchActiveRef.current = false;
-
       // Tap detection: small displacement = open/toggle mobile keyboard
       if (tapStartRef.current && e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
@@ -192,31 +197,39 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
 
       if (Math.abs(velocity) < MIN_VELOCITY) return;
 
-      // Start momentum animation
+      // Start momentum animation. A new touch (cancelMomentum in touchStart) or
+      // unmount interrupts the fiber, which stops the loop and cancels the
+      // pending frame — no touch-active guard needed.
       let lastFrameTime = performance.now();
 
-      const momentumTick = (now: number) => {
-        if (touchActiveRef.current) return; // new touch started, stop
+      const step = (): Effect.Effect<void> =>
+        nextFrame.pipe(
+          Effect.flatMap((now) => {
+            const elapsed = now - lastFrameTime;
+            lastFrameTime = now;
 
-        const elapsed = now - lastFrameTime;
-        lastFrameTime = now;
+            // Exponential decay
+            velocity *= Math.pow(DECELERATION_RATE, elapsed);
 
-        // Exponential decay
-        velocity *= Math.pow(DECELERATION_RATE, elapsed);
+            if (Math.abs(velocity) < MIN_VELOCITY) {
+              remainderRef.current = 0;
+              return Effect.void;
+            }
 
-        if (Math.abs(velocity) < MIN_VELOCITY) {
-          momentumRAFRef.current = null;
-          remainderRef.current = 0;
-          return;
-        }
+            processPixelDelta(velocity * elapsed);
+            return step();
+          }),
+        );
 
-        const deltaPixels = velocity * elapsed;
-        processPixelDelta(deltaPixels);
-
-        momentumRAFRef.current = requestAnimationFrame(momentumTick);
-      };
-
-      momentumRAFRef.current = requestAnimationFrame(momentumTick);
+      momentumFiberRef.current = Effect.runFork(
+        step().pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              momentumFiberRef.current = null;
+            }),
+          ),
+        ),
+      );
     },
     [send, paneId, processPixelDelta],
   );
