@@ -80,11 +80,11 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const scrollIndicatorTimer = useRef<number | null>(null);
 
   // Context menu timeout refs (cleaned on unmount to prevent stale state updates)
-  const contextMenuTimers = useRef<number[]>([]);
-  useEffect(() => {
-    const timers = contextMenuTimers;
-    return () => timers.current.forEach(clearTimeout);
-  }, []);
+  // Right-click-menu sequencing without fixed delays: a word-select deferred
+  // until copy mode is active, and the menu position to show once the selection
+  // actually appears in state. Driven by the effect after showMenuFromSnapshot.
+  const pendingWordSelectRef = useRef<{ row: number; col: number } | null>(null);
+  const pendingMenuRef = useRef<{ x: number; y: number } | null>(null);
 
   const flashScrollIndicator = useCallback(() => {
     const el = scrollIndicatorRef.current;
@@ -243,6 +243,22 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
     [actor, paneId],
   );
 
+  // Two-stage context-menu sequencing, off state transitions rather than
+  // setTimeout guesses: (1) once copy mode is active, run the deferred
+  // word-select; (2) once that produces a selection, show the menu from it.
+  useEffect(() => {
+    if (pendingWordSelectRef.current && copyState) {
+      const { row, col } = pendingWordSelectRef.current;
+      pendingWordSelectRef.current = null;
+      send({ type: 'COPY_MODE_WORD_SELECT', paneId, row, col, broad: true });
+    }
+    if (pendingMenuRef.current && copyState?.selectionMode) {
+      const { x, y } = pendingMenuRef.current;
+      pendingMenuRef.current = null;
+      showMenuFromSnapshot(x, y);
+    }
+  }, [copyState, send, paneId, showMenuFromSnapshot]);
+
   // Handle right-click context menu for text selection
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -274,22 +290,14 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
           setSelectionMenu({ x: menuX, y: menuY, text });
         }
       } else if (!copyState) {
-        // Not in copy mode — enter copy mode, select word, then show menu
+        // Not in copy mode — enter it; the effect runs the word-select once copy
+        // mode is active, then shows the menu once the selection appears.
         send({ type: 'ENTER_COPY_MODE', paneId });
-        const t1 = window.setTimeout(() => {
-          send({
-            type: 'COPY_MODE_WORD_SELECT',
-            paneId,
-            row: cellRow,
-            col: cellCol,
-            broad: true,
-          });
-          const t2 = window.setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
-          contextMenuTimers.current.push(t2);
-        }, 100);
-        contextMenuTimers.current.push(t1);
+        pendingWordSelectRef.current = { row: cellRow, col: cellCol };
+        pendingMenuRef.current = { x: menuX, y: menuY };
       } else {
-        // In copy mode but no selection — select word, then show menu
+        // In copy mode but no selection — select word now; the effect shows the
+        // menu once the selection lands in state.
         send({
           type: 'COPY_MODE_WORD_SELECT',
           paneId,
@@ -297,8 +305,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
           col: cellCol,
           broad: true,
         });
-        const t = window.setTimeout(() => showMenuFromSnapshot(menuX, menuY), 50);
-        contextMenuTimers.current.push(t);
+        pendingMenuRef.current = { x: menuX, y: menuY };
       }
     },
     [
