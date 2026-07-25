@@ -268,4 +268,41 @@ describe('HttpAdapter connect() lifecycle', () => {
     await expect(adapter.invoke('get_themes_list')).rejects.toThrow('HTTP 502');
     adapter.disconnect();
   });
+
+  it('runs run_tmux_command through the serial queue in issue order', async () => {
+    const adapter = new HttpAdapter();
+    const c = adapter.connect();
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
+    await c;
+
+    // Each POST resolves only when the test releases it, so the second command
+    // cannot complete before the first unless the queue reordered them.
+    const posted: string[] = [];
+    const releases: Array<() => void> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_url: string, init: { body: string }) => {
+        const command = JSON.parse(init.body).args.command as string;
+        posted.push(command);
+        return new Promise((resolve) => {
+          releases.push(() =>
+            resolve({ ok: true, json: () => Promise.resolve({ result: command }) }),
+          );
+        });
+      }),
+    );
+
+    const r1 = adapter.invoke<string>('run_tmux_command', { command: 'first' });
+    const r2 = adapter.invoke<string>('run_tmux_command', { command: 'second' });
+
+    // Only the first POST has left the browser; the second waits behind it.
+    await vi.waitFor(() => expect(posted).toEqual(['first']));
+    releases[0]();
+    await vi.waitFor(() => expect(posted).toEqual(['first', 'second']));
+    releases[1]();
+
+    expect(await r1).toBe('first');
+    expect(await r2).toBe('second');
+    adapter.disconnect();
+  });
 });

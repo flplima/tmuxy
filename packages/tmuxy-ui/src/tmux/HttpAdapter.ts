@@ -16,7 +16,7 @@ import {
 import { handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
-import { Effect, Fiber, Schedule } from 'effect';
+import { Effect, Fiber, Queue, Schedule } from 'effect';
 
 /**
  * Reconnection backoff: retry forever, exponential from 1s, capped at 30s.
@@ -111,12 +111,28 @@ export class HttpAdapter implements TmuxAdapter {
   // Keyboard batching
   private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
 
+  // Serialized command queue: keystroke and mutating-command POSTs must leave
+  // the browser strictly in issue order — concurrent POSTs can arrive reordered,
+  // transposing characters or landing a split in the previous tab. Producers
+  // offer a task Effect; one consumer fiber (started in the constructor) drains
+  // them FIFO, one at a time. Unbounded: the producers are user keystrokes.
+  private readonly commandQueue = Effect.runSync(Queue.unbounded<Effect.Effect<void>>());
+
   /**
    * @param opts.reconnectSchedule override the backoff policy — tests inject a
    *   zero-delay schedule so reconnection is synchronous instead of real-time.
    */
   constructor(opts: { reconnectSchedule?: Schedule.Schedule<unknown> } = {}) {
     this.reconnectSchedule = opts.reconnectSchedule ?? RECONNECT_SCHEDULE;
+    // Drain the command queue for the adapter's lifetime: take one task, run it
+    // to completion, repeat. Awaiting each task before the next take is what
+    // keeps the POSTs serial.
+    Effect.runFork(
+      Queue.take(this.commandQueue).pipe(
+        Effect.flatMap((task) => task.pipe(Effect.ignore)),
+        Effect.forever,
+      ),
+    );
   }
 
   /** Effective session name: the switchSession override, else the URL param. */
@@ -460,22 +476,14 @@ export class HttpAdapter implements TmuxAdapter {
       resolveOuter = res;
       rejectOuter = rej;
     });
-    this.sendQueue = this.sendQueue.then(async () => {
-      try {
-        const result = await this.invokeInternal<T>(cmd, args);
-        resolveOuter(result);
-      } catch (err) {
-        rejectOuter(err);
-      }
-    });
+    // The task settles the outer promise itself, so its Effect never fails —
+    // one task's error can't stall the queue for the next command.
+    const task = Effect.promise(() =>
+      this.invokeInternal<T>(cmd, args).then(resolveOuter, rejectOuter),
+    );
+    Effect.runSync(Queue.offer(this.commandQueue, task));
     return outer;
   }
-
-  // Serialized send queue: ensures keystroke HTTP requests are sent one at a
-  // time so they arrive at the server in order.  Without this, concurrent
-  // fire-and-forget POSTs can arrive out of order, causing character
-  // transposition.
-  private sendQueue: Promise<void> = Promise.resolve();
 
   /**
    * Send a command in order (serialized, but caller doesn't await)
@@ -496,8 +504,8 @@ export class HttpAdapter implements TmuxAdapter {
     const commandsUrl = `${protocol}//${host}/commands?session=${encodeURIComponent(session)}`;
     const connId = String(this.connectionId);
 
-    // Chain onto the serial queue so requests go one at a time
-    this.sendQueue = this.sendQueue.then(() =>
+    // Offer onto the serial queue so requests go one at a time.
+    const task = Effect.promise(() =>
       fetch(commandsUrl, {
         method: 'POST',
         headers: {
@@ -509,6 +517,7 @@ export class HttpAdapter implements TmuxAdapter {
         .then(() => {})
         .catch(() => {}),
     );
+    Effect.runSync(Queue.offer(this.commandQueue, task));
   }
 
   /**
