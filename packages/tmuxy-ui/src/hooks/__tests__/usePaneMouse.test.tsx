@@ -140,3 +140,66 @@ describe('usePaneMouse.handleWheel', () => {
     expect(events.every((e) => e.type !== 'ENTER_COPY_MODE')).toBe(true);
   });
 });
+
+describe('usePaneMouse — copy-mode selection sequencing', () => {
+  function setupSeq(initialCopyModeActive: boolean) {
+    const events: AppMachineEvent[] = [];
+    const send = (e: AppMachineEvent) => events.push(e);
+    const contentRef = createRef<HTMLDivElement>();
+    const scrollRef = createRef<HTMLDivElement>();
+    (contentRef as { current: HTMLDivElement }).current = document.createElement('div');
+    (scrollRef as { current: HTMLDivElement }).current = document.createElement('div');
+    const baseProps = {
+      paneId: '%1',
+      charWidth: 8,
+      charHeight: 18,
+      mouseAnyFlag: false,
+      alternateOn: false,
+      inMode: false,
+      copyModeActive: initialCopyModeActive,
+      paneHeight: 24,
+      contentRef,
+      scrollRef,
+      historySize: 100,
+    };
+    const { result, rerender } = renderHook((p: typeof baseProps) => usePaneMouse(send, p), {
+      initialProps: baseProps,
+    });
+    return { result, events, rerender, baseProps };
+  }
+
+  const clickEvent = (detail: number): React.MouseEvent =>
+    ({
+      target: document.createElement('div'),
+      detail,
+      clientX: 0,
+      clientY: 0,
+      preventDefault: () => {},
+    }) as unknown as React.MouseEvent;
+
+  it('defers word-select until copy mode actually becomes active', () => {
+    const { result, events, rerender, baseProps } = setupSeq(false);
+    result.current.handleDoubleClick(clickEvent(2));
+    // Entered copy mode, but the selection waits for it to initialize.
+    expect(events.some((e) => e.type === 'ENTER_COPY_MODE')).toBe(true);
+    expect(events.some((e) => e.type === 'COPY_MODE_WORD_SELECT')).toBe(false);
+    // Copy mode initializes → the deferred selection fires (no fixed delay).
+    rerender({ ...baseProps, copyModeActive: true });
+    expect(events.some((e) => e.type === 'COPY_MODE_WORD_SELECT')).toBe(true);
+  });
+
+  it('word-selects immediately when copy mode is already active', () => {
+    const { result, events } = setupSeq(true);
+    result.current.handleDoubleClick(clickEvent(2));
+    expect(events.some((e) => e.type === 'COPY_MODE_WORD_SELECT')).toBe(true);
+  });
+
+  it('defers line-select until copy mode becomes active', () => {
+    const { result, events, rerender, baseProps } = setupSeq(false);
+    result.current.handleTripleClick(clickEvent(3));
+    expect(events.some((e) => e.type === 'ENTER_COPY_MODE')).toBe(true);
+    expect(events.some((e) => e.type === 'COPY_MODE_LINE_SELECT')).toBe(false);
+    rerender({ ...baseProps, copyModeActive: true });
+    expect(events.some((e) => e.type === 'COPY_MODE_LINE_SELECT')).toBe(true);
+  });
+});

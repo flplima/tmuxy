@@ -80,18 +80,28 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
   const autoScrollColRef = useRef(0);
   // Document-level mouseup listener ref (for cleanup when mouse released outside pane)
   const documentMouseUpRef = useRef<(() => void) | null>(null);
-  const pendingTimers = useRef<number[]>([]);
+  // A selection action deferred until copy mode is actually active. Set when a
+  // drag / double- / triple-click has to ENTER_COPY_MODE first; the effect
+  // below runs it the moment copyModeActive flips true. This sequences the
+  // selection off the real state transition instead of a fixed setTimeout that
+  // guessed how long copy-mode initialization takes.
+  const pendingSelectionRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (copyModeActive && pendingSelectionRef.current) {
+      pendingSelectionRef.current();
+      pendingSelectionRef.current = null;
+    }
+  }, [copyModeActive]);
+
   // Unmount cleanup: tear down every timer/listener this hook can leave
   // running. A pane can unmount mid-drag (e.g. tmux kills it during a
   // selection), which would otherwise leave the auto-scroll interval firing
   // COPY_MODE_CURSOR_MOVE forever and the document-level mouseup listener
   // calling setSelectionStart on a dead component.
   useEffect(() => {
-    const timers = pendingTimers;
     const autoScrollTimer = autoScrollTimerRef;
     const documentMouseUp = documentMouseUpRef;
     return () => {
-      timers.current.forEach(clearTimeout);
       if (autoScrollTimer.current !== null) {
         clearInterval(autoScrollTimer.current);
         autoScrollTimer.current = null;
@@ -316,14 +326,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         isDraggingForSelectionRef.current = true;
         const start = dragStartRef.current;
 
-        // Enter client-side copy mode if not already active
-        if (!copyModeActive) {
-          send({ type: 'ENTER_COPY_MODE', paneId });
-        }
-
-        // We'll set selection after copy mode state is initialized
-        // For now, use a small delay for state to propagate
-        const t = window.setTimeout(() => {
+        const startSelection = () =>
           send({
             type: 'COPY_MODE_SELECTION_START',
             paneId,
@@ -331,8 +334,15 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
             row: start.y,
             col: start.x,
           });
-        }, 50);
-        pendingTimers.current.push(t);
+
+        // Enter client-side copy mode if not already active, deferring the
+        // selection start until it is; otherwise start selecting immediately.
+        if (!copyModeActive) {
+          send({ type: 'ENTER_COPY_MODE', paneId });
+          pendingSelectionRef.current = startSelection;
+        } else {
+          startSelection();
+        }
         lastCellRef.current = { ...start };
       }
 
@@ -505,11 +515,9 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
 
       if (!copyModeActive) {
         send({ type: 'ENTER_COPY_MODE', paneId });
-        // Delay word select until copy mode state is initialized
-        const t = window.setTimeout(() => {
+        // Defer word select until copy mode is active (not a fixed delay).
+        pendingSelectionRef.current = () =>
           send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
-        }, 100);
-        pendingTimers.current.push(t);
       } else {
         send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
       }
@@ -529,11 +537,9 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
 
       if (!copyModeActive) {
         send({ type: 'ENTER_COPY_MODE', paneId });
-        // Delay line select until copy mode state is initialized
-        const t = window.setTimeout(() => {
+        // Defer line select until copy mode is active (not a fixed delay).
+        pendingSelectionRef.current = () =>
           send({ type: 'COPY_MODE_LINE_SELECT', paneId, row: cell.y });
-        }, 100);
-        pendingTimers.current.push(t);
       } else {
         send({ type: 'COPY_MODE_LINE_SELECT', paneId, row: cell.y });
       }
