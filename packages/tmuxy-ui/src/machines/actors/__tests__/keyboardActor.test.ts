@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { createActor, createMachine, assign, type AnyActorRef } from 'xstate';
 import { createKeyboardActor } from '../keyboardActor';
 
@@ -155,5 +155,36 @@ describe('keyboardActor — active-pane target uses the live snapshot', () => {
 
     pressKey({ key: 'b' });
     expect(lastSendCommand(events)).toBe("send-keys -t %7 -l 'b'");
+  });
+});
+
+describe('keyboardActor — prefix mode', () => {
+  afterEach(() => vi.useRealTimers());
+
+  const prefixActives = (events: Array<{ type: string; [k: string]: unknown }>): boolean[] =>
+    events.filter((e) => e.type === 'PREFIX_MODE_CHANGE').map((e) => e.active as boolean);
+
+  it('entering prefix mode (Ctrl+A) announces PREFIX_MODE_CHANGE active', () => {
+    const { events } = spawnKeyboardActor('%3');
+    pressKey({ key: 'a', ctrlKey: true });
+    expect(prefixActives(events).at(-1)).toBe(true);
+  });
+
+  it('auto-exits prefix mode after the timeout', () => {
+    vi.useFakeTimers();
+    const { events } = spawnKeyboardActor('%3');
+    pressKey({ key: 'a', ctrlKey: true });
+    expect(prefixActives(events).at(-1)).toBe(true);
+    // The 8s prefix window elapses with no binding pressed.
+    vi.advanceTimersByTime(8000);
+    expect(prefixActives(events).at(-1)).toBe(false);
+  });
+
+  it('double prefix exits prefix mode and sends the literal prefix key', () => {
+    const { events } = spawnKeyboardActor('%3');
+    pressKey({ key: 'a', ctrlKey: true }); // enter
+    pressKey({ key: 'a', ctrlKey: true }); // double → exit + literal
+    expect(prefixActives(events).at(-1)).toBe(false);
+    expect(lastSendCommand(events)).toBe('send-keys -t %3 C-a');
   });
 });

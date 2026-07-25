@@ -137,8 +137,6 @@ export function createKeyboardActor() {
     let isComposing = false;
     // Text pending copy via native clipboard event (client-side copy mode yank)
     let pendingCopyText: string | null = null;
-    let inPrefixMode = false;
-    let prefixTimeout: ReturnType<typeof setTimeout> | null = null;
 
     // Dynamic keybindings from server
     let prefixKey = 'C-a'; // Default, will be updated from server
@@ -166,27 +164,42 @@ export function createKeyboardActor() {
         })
       : null;
 
-    const resetPrefixMode = (notify = true) => {
-      const wasActive = inPrefixMode;
-      inPrefixMode = false;
-      if (prefixTimeout) {
-        clearTimeout(prefixTimeout);
-        prefixTimeout = null;
-      }
-      if (notify && wasActive) {
-        input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
+    // Prefix mode as a small self-contained unit: it owns the active flag, the
+    // auto-exit timer, and the PREFIX_MODE_CHANGE notifications. Every entry/exit
+    // goes through enter()/exit(), so no caller has to remember to clear the
+    // timer or fire the event — the "state with a timeout" that the scattered
+    // boolean + setTimeout used to model by hand.
+    let prefixActive = false;
+    let prefixTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearPrefixTimer = () => {
+      if (prefixTimer) {
+        clearTimeout(prefixTimer);
+        prefixTimer = null;
       }
     };
-
-    const enterPrefixMode = () => {
-      inPrefixMode = true;
-      input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: true });
-      // Reset after timeout
-      prefixTimeout = setTimeout(() => {
-        inPrefixMode = false;
-        prefixTimeout = null;
-        input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
-      }, PREFIX_TIMEOUT_MS);
+    const prefixMode = {
+      get active() {
+        return prefixActive;
+      },
+      enter() {
+        prefixActive = true;
+        input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: true });
+        clearPrefixTimer();
+        prefixTimer = setTimeout(() => {
+          prefixActive = false;
+          prefixTimer = null;
+          input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
+        }, PREFIX_TIMEOUT_MS);
+      },
+      // Leave prefix mode. notify=false is the silent teardown path.
+      exit(notify = true) {
+        const wasActive = prefixActive;
+        prefixActive = false;
+        clearPrefixTimer();
+        if (notify && wasActive) {
+          input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
+        }
+      },
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -357,9 +370,9 @@ export function createKeyboardActor() {
       // would trigger the "double prefix" handler, resetting prefix mode
       // before the user can press the binding key.
       if (formattedKey === prefixKey && !event.repeat) {
-        if (inPrefixMode) {
+        if (prefixMode.active) {
           // Double prefix sends literal prefix key to the shell
-          resetPrefixMode();
+          prefixMode.exit();
           const prefixTarget = focusedFloatPaneId ?? realPaneId(liveActivePaneId) ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
@@ -367,7 +380,7 @@ export function createKeyboardActor() {
           });
         } else {
           // Enter prefix mode
-          enterPrefixMode();
+          prefixMode.enter();
         }
 
         input.parent.send({
@@ -381,16 +394,11 @@ export function createKeyboardActor() {
         return;
       }
 
-      // If in prefix mode, look up the binding
-      if (inPrefixMode) {
-        // Clear the current prefix timeout but don't notify yet —
-        // we may re-enter prefix mode below for repeat bindings.
-        if (prefixTimeout) {
-          clearTimeout(prefixTimeout);
-          prefixTimeout = null;
-        }
-        inPrefixMode = false;
-
+      // If in prefix mode, look up the binding. Each terminal branch below
+      // leaves prefix mode via prefixMode.exit() (or re-arms via enter() for
+      // repeat bindings), which handles the timer and notification — so there
+      // is no manual clear/notify to keep in sync here.
+      if (prefixMode.active) {
         // Determine the binding key — map DOM key values to tmux key names
         let bindingKey = KEY_MAP[event.key] ?? event.key;
 
@@ -417,7 +425,7 @@ export function createKeyboardActor() {
         // regardless of any server-side binding for `t`.
         if (bindingKey === 't') {
           input.parent.send({ type: 'TOGGLE_SIDEBAR' });
-          input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
+          prefixMode.exit();
           input.parent.send({
             type: 'KEY_PRESS',
             key: event.key,
@@ -451,9 +459,9 @@ export function createKeyboardActor() {
           // This lets users press e.g. prefix+o o o to cycle panes without
           // re-pressing the prefix key each time.
           if (prefixRepeatKeys.has(bindingKey)) {
-            enterPrefixMode();
+            prefixMode.enter();
           } else {
-            input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
+            prefixMode.exit();
           }
 
           input.parent.send({
@@ -468,7 +476,7 @@ export function createKeyboardActor() {
         }
 
         // Unknown binding - just ignore (like tmux does)
-        input.parent.send({ type: 'PREFIX_MODE_CHANGE', active: false });
+        prefixMode.exit();
         input.parent.send({
           type: 'KEY_PRESS',
           key: event.key,
@@ -630,7 +638,7 @@ export function createKeyboardActor() {
 
     return () => {
       cleanupMobileKeyboard?.();
-      resetPrefixMode(false);
+      prefixMode.exit(false);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);
