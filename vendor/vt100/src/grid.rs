@@ -733,18 +733,18 @@ impl Grid {
     }
 
     pub fn col_wrap(&mut self, width: u16, wrap: bool) {
-        if self.pos.col > self.size.cols - width {
+        if self.pos.col > self.size.cols.saturating_sub(width) {
             let mut prev_pos = self.pos;
             self.pos.col = 0;
             let scrolled = self.row_inc_scroll(1);
-            prev_pos.row -= scrolled;
+            // On a single-row grid (scroll_bottom == 0) row_inc_scroll can
+            // scroll more rows than prev_pos.row, so saturate rather than
+            // underflow; the previous row may also no longer exist.
+            prev_pos.row = prev_pos.row.saturating_sub(scrolled);
             let new_pos = self.pos;
-            self.drawing_row_mut(prev_pos.row)
-                // we assume self.pos.row is always valid, and so prev_pos.row
-                // must be valid because it is always less than or equal to
-                // self.pos.row
-                .unwrap()
-                .wrap(wrap && prev_pos.row + 1 == new_pos.row);
+            if let Some(row) = self.drawing_row_mut(prev_pos.row) {
+                row.wrap(wrap && prev_pos.row + 1 == new_pos.row);
+            }
         }
     }
 

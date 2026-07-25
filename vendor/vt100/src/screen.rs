@@ -712,11 +712,20 @@ impl Screen {
             // don't even try to draw control characters
             return;
         }
-        let width = width
+        let width: u16 = width
             .unwrap_or(1)
             .try_into()
             // width() can only return 0, 1, or 2
             .unwrap();
+
+        // A character cannot occupy more columns than the grid has. On a
+        // degenerately narrow grid (e.g. a single column) a wide character
+        // would otherwise reference a continuation cell that does not exist
+        // and panic; clamp it to the available width instead.
+        if size.cols == 0 {
+            return;
+        }
+        let width = width.min(size.cols);
 
         // it doesn't make any sense to wrap if the last column in a row
         // didn't already have contents. don't try to handle the case where a
@@ -727,7 +736,7 @@ impl Screen {
         // (xterm handles this by introducing the concept of triple width
         // cells, which i really don't want to do).
         let mut wrap = false;
-        if pos.col > size.cols - width {
+        if pos.col > size.cols.saturating_sub(width) {
             let last_cell = self
                 .grid()
                 .drawing_cell(crate::grid::Pos {
