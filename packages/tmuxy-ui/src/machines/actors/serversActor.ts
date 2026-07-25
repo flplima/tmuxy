@@ -22,6 +22,7 @@
  * Tauri-gated part — see {@link createServersActor}.
  */
 import { fromCallback, type AnyActorRef } from 'xstate';
+import { Effect, Fiber, Schedule } from 'effect';
 import type { TmuxAdapter } from '../../tmux/types';
 import type { SessionTreeNode, ServerInfo } from '../types';
 import { isTauri } from '../../tmux/adapters';
@@ -146,7 +147,6 @@ export function createServersActor(adapter: TmuxAdapter) {
     // In-browser sandboxes (demo, v86) are single-session — nothing to enumerate.
     if (!adapter.enumeratesSessions) return () => {};
     const { parent } = input;
-    let cancelled = false;
 
     // Read a tmux query off the mutation serial queue when the adapter supports
     // it (web + Tauri do), so the poll's external-subprocess reads never sit in
@@ -154,66 +154,69 @@ export function createServersActor(adapter: TmuxAdapter) {
     const query = (command: string): Promise<string> =>
       adapter.queryReadonly?.(command) ?? adapter.invoke<string>('run_tmux_command', { command });
 
-    const tick = async (force = false) => {
-      // Only enumerate while the tree is actually visible. The poll shells
-      // read-only tmux commands as external subprocesses; running them
-      // continuously (even with the sidebar closed) contends with the
-      // control-mode pipeline and delays window creation/`@tmuxy-window-type`
-      // tagging. No tree shown → nothing to refresh. `force` bypasses the check
-      // for the explicit REFRESH_SESSIONS nudge raised as the sidebar opens
-      // (whose context commit may not be visible yet).
-      if (!force) {
-        const snap = parent.getSnapshot() as { context?: { sidebarOpen?: boolean } } | undefined;
-        if (snap?.context?.sidebarOpen !== true) return;
-      }
-
-      // Sessions tree (from tmux) and the saved-server list (from the config
-      // file) are independent; refresh each on its own so one failing doesn't
-      // blank the other.
-      try {
-        const [windowsOut, panesOut] = await Promise.all([
-          query(LIST_WINDOWS_COMMAND),
-          query(LIST_PANES_COMMAND),
-        ]);
-        if (!cancelled) {
-          parent.send({
-            type: 'SESSIONS_UPDATED',
-            sessions: parseSessions(windowsOut ?? '', panesOut ?? ''),
-          });
+    // One poll tick as an Effect. Modelling it in Effect means interrupting the
+    // poll fiber (on stop) between a query and its parent.send drops the stale
+    // send — no `cancelled` flag to thread through. suspend() re-reads the
+    // sidebar gate on every repeat.
+    const tick = (force = false): Effect.Effect<void> =>
+      Effect.suspend(() => {
+        // Only enumerate while the tree is actually visible. The poll shells
+        // read-only tmux commands as external subprocesses; running them
+        // continuously (even with the sidebar closed) contends with the
+        // control-mode pipeline and delays window creation/`@tmuxy-window-type`
+        // tagging. `force` bypasses the check for the REFRESH_SESSIONS nudge
+        // raised as the sidebar opens (whose context commit may not be visible).
+        if (!force) {
+          const snap = parent.getSnapshot() as { context?: { sidebarOpen?: boolean } } | undefined;
+          if (snap?.context?.sidebarOpen !== true) return Effect.void;
         }
-      } catch {
-        // Non-fatal — keep the last tree snapshot; the next tick retries.
-      }
 
-      // Saved-server list is desktop-only (backed by the Tauri config); web has
-      // no ServerPicker, so skip the invoke rather than let it fail every tick.
-      if (isTauri()) {
-        try {
-          const result = await adapter.invoke<ListServersResult>('list_servers');
-          if (!cancelled) {
-            parent.send({
-              type: 'SERVERS_UPDATED',
-              serverList: toServerInfos(result),
-              currentServerId: result?.currentId ?? 'localhost',
-            });
-          }
-        } catch {
-          // Non-fatal — keep the last server list; the next tick retries.
-        }
-      }
-    };
+        // Sessions tree (tmux) and the saved-server list (config file) are
+        // independent; each is ignore()d so one failing doesn't blank the other,
+        // and they run in sequence exactly as before.
+        const sessions = Effect.tryPromise(() =>
+          Promise.all([query(LIST_WINDOWS_COMMAND), query(LIST_PANES_COMMAND)]),
+        ).pipe(
+          Effect.flatMap(([windowsOut, panesOut]) =>
+            Effect.sync(() =>
+              parent.send({
+                type: 'SESSIONS_UPDATED',
+                sessions: parseSessions(windowsOut ?? '', panesOut ?? ''),
+              }),
+            ),
+          ),
+          Effect.ignore,
+        );
 
-    // Initial tick respects the sidebar gate (closed at startup → no-op). The
-    // interval refreshes while open; REFRESH_SESSIONS forces an immediate poll.
-    void tick();
-    const handle = setInterval(() => void tick(), POLL_INTERVAL_MS);
+        // Saved-server list is desktop-only (backed by the Tauri config); web
+        // has no ServerPicker, so skip the invoke rather than fail every tick.
+        const servers = isTauri()
+          ? Effect.tryPromise(() => adapter.invoke<ListServersResult>('list_servers')).pipe(
+              Effect.flatMap((result) =>
+                Effect.sync(() =>
+                  parent.send({
+                    type: 'SERVERS_UPDATED',
+                    serverList: toServerInfos(result),
+                    currentServerId: result?.currentId ?? 'localhost',
+                  }),
+                ),
+              ),
+              Effect.ignore,
+            )
+          : Effect.void;
+
+        return Effect.zipRight(sessions, servers);
+      });
+
+    // Initial tick (respects the sidebar gate) then repeat while attached. The
+    // repeat cadence governs steady-state refresh; REFRESH_SESSIONS forces one.
+    const pollFiber = Effect.runFork(Effect.repeat(tick(), Schedule.spaced(POLL_INTERVAL_MS)));
     receive((event) => {
-      if (event.type === 'REFRESH_SESSIONS') void tick(true);
+      if (event.type === 'REFRESH_SESSIONS') Effect.runFork(tick(true));
     });
 
     return () => {
-      cancelled = true;
-      clearInterval(handle);
+      Effect.runFork(Fiber.interrupt(pollFiber));
     };
   });
 }
