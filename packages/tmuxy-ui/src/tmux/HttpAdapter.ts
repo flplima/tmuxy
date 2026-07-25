@@ -16,10 +16,29 @@ import {
 import { handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
+import { Effect, Fiber, Schedule } from 'effect';
 
-// Reconnection constants (for EventSource manual reconnection with backoff)
-const MAX_RECONNECT_DELAY_MS = 30000;
-const INITIAL_RECONNECT_DELAY_MS = 1000;
+/**
+ * Reconnection backoff: retry forever, exponential from 1s, capped at 30s.
+ *
+ * `Schedule.either` recurs while EITHER input recurs and takes the SHORTER of
+ * the two delays — so the exponential (1s, 2s, 4s, …) is clamped by the
+ * constant 30s spacing, and the constant's infinite recurrence keeps the loop
+ * retrying indefinitely until the connection is re-established or the fiber is
+ * interrupted. Modelling reconnection as an Effect Schedule (rather than a
+ * hand-rolled setTimeout + flag machine) means "keep retrying with backoff"
+ * is the schedule's definition — an establish-failure and a mid-session drop
+ * are the same program failure, so neither can silently end the retry loop.
+ */
+const RECONNECT_SCHEDULE = Schedule.exponential('1 seconds').pipe(
+  Schedule.either(Schedule.spaced('30 seconds')),
+);
+
+/** A connect() caller waiting for the channel to (re)reach the connected state. */
+interface ConnectWaiter {
+  resolve: () => void;
+  reject: (reason: unknown) => void;
+}
 
 /**
  * Get the session name from URL query parameters.
@@ -37,11 +56,17 @@ function getSessionFromUrl(): string {
 export class HttpAdapter implements TmuxAdapter {
   readonly enumeratesSessions = true;
   private eventSource: EventSource | null = null;
-  // In-flight connect(): a reconnect timer and an auto-connect from invoke()
-  // can both call connect() while `connected` is false. Without deduping, the
-  // second opens a second EventSource that overwrites `this.eventSource`,
-  // orphaning the first (open, all listeners attached, never closable).
-  private connectPromise: Promise<void> | null = null;
+  // The supervised reconnect fiber. One Effect.retry loop owns opening the
+  // EventSource and reopening it with backoff, so there is never a rival
+  // stream to orphan and no hand-maintained timer to forget to reschedule.
+  // Null when no channel is running.
+  private channelFiber: Fiber.RuntimeFiber<void, never> | null = null;
+  // connect() callers waiting for the channel to next reach the connected
+  // state. Resolved on connection-info, rejected on fatal / disconnect /
+  // session switch — so a connect() issued during a reconnect window waits
+  // for the real reconnection instead of resolving against a dead stream.
+  private connectWaiters: ConnectWaiter[] = [];
+  private readonly reconnectSchedule: Schedule.Schedule<unknown>;
   private connectionId: number = 0;
   private connected = false;
   private reconnecting = false;
@@ -50,7 +75,6 @@ export class HttpAdapter implements TmuxAdapter {
   private sessionOverride: string | null = null;
   private reconnectAttempts = 0;
   private intentionalDisconnect = false;
-  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
   private stateListeners = new Set<StateListener>();
   private errorListeners = new Set<ErrorListener>();
@@ -82,6 +106,14 @@ export class HttpAdapter implements TmuxAdapter {
   // Keyboard batching
   private keyBatcher = new KeyBatcher((cmd, args) => this.sendCommandFireAndForget(cmd, args));
 
+  /**
+   * @param opts.reconnectSchedule override the backoff policy — tests inject a
+   *   zero-delay schedule so reconnection is synchronous instead of real-time.
+   */
+  constructor(opts: { reconnectSchedule?: Schedule.Schedule<unknown> } = {}) {
+    this.reconnectSchedule = opts.reconnectSchedule ?? RECONNECT_SCHEDULE;
+  }
+
   /** Effective session name: the switchSession override, else the URL param. */
   private getEffectiveSession(): string {
     return this.sessionOverride || getSessionFromUrl();
@@ -91,28 +123,114 @@ export class HttpAdapter implements TmuxAdapter {
     if (this.connected && this.eventSource) return Promise.resolve();
     if (this.fatal)
       return Promise.reject(new Error('tmux backend is in fatal state; refresh required'));
-    // A connect is already in flight — reuse it instead of opening a rival
-    // EventSource (see connectPromise above).
-    if (this.connectPromise) return this.connectPromise;
 
     this.intentionalDisconnect = false;
 
-    // Defensively close any lingering stream before opening a new one, so a
-    // path that reached here with a half-open EventSource can't leak it.
+    // One supervised fiber owns the stream and its reconnect loop. A second
+    // caller (e.g. an auto-connect from invoke() during a reconnect window)
+    // does NOT open a rival EventSource — it just waits for the same connected
+    // transition, so a stream can never be orphaned.
+    if (!this.channelFiber) this.startChannel();
+
+    return new Promise<void>((resolve, reject) => {
+      this.connectWaiters.push({ resolve, reject });
+    });
+  }
+
+  disconnect(): void {
+    this.intentionalDisconnect = true;
+    this.reconnectAttempts = 0;
+    this.reconnecting = false;
+
+    this.keyBatcher.destroy();
+    this.pendingState = null;
+    this.rafScheduled = false;
+
+    // Interrupt the reconnect fiber; its scoped finalizer closes the stream.
+    if (this.channelFiber) {
+      Effect.runFork(Fiber.interrupt(this.channelFiber));
+      this.channelFiber = null;
+    }
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
     }
 
-    const pending = new Promise<void>((resolve, reject) => {
-      const session = this.getEffectiveSession();
-      const protocol = window.location.protocol;
-      const host = window.location.host || 'localhost:3853';
-      const eventsUrl = `${protocol}//${host}/events?session=${encodeURIComponent(session)}`;
+    this.connected = false;
+    this.connectionId = 0;
+    // Nobody is going to connect now — release anyone still awaiting connect().
+    this.failConnectWaiters(new Error('disconnected'));
+  }
 
-      this.eventSource = new EventSource(eventsUrl);
+  /**
+   * Fork the supervised reconnect loop. `openConnection` fails whenever the
+   * stream ends (establish failure OR mid-session drop — the same to the loop),
+   * and `Effect.retry` reopens it on the backoff schedule until connected or
+   * the fiber is interrupted. A fatal event flips `this.fatal`, which the retry
+   * `while` predicate reads to STOP retrying and surface the terminal error to
+   * any waiting connect() callers. There is no reschedule call to forget, so
+   * the establish-failure dead-loop the old imperative path had is impossible.
+   */
+  private startChannel(): void {
+    // Resolve the events URL here, on the caller's stack, rather than inside the
+    // fiber: `window` is only reliably bound synchronously. The URL is fixed for
+    // the channel's lifetime (a session change tears the channel down and starts
+    // a new one), so reconnect attempts reuse it.
+    const session = this.getEffectiveSession();
+    const protocol = window.location.protocol;
+    const host = window.location.host || 'localhost:3853';
+    const eventsUrl = `${protocol}//${host}/events?session=${encodeURIComponent(session)}`;
 
-      this.eventSource.addEventListener('connection-info', (event: MessageEvent) => {
+    const program = this.openConnection(eventsUrl).pipe(
+      Effect.retry({ schedule: this.reconnectSchedule, while: () => !this.fatal }),
+      // The loop only ends un-interrupted when retrying stops (fatal). Settle
+      // any outstanding connect() callers with that terminal error.
+      Effect.catchAll((cause) =>
+        Effect.sync(() =>
+          this.failConnectWaiters(cause instanceof Error ? cause : new Error(String(cause))),
+        ),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          this.channelFiber = null;
+        }),
+      ),
+    );
+    this.channelFiber = Effect.runFork(program);
+  }
+
+  /**
+   * Open a single EventSource. The returned effect stays suspended for the
+   * LIFETIME of that connection — its handlers fire side effects (notify*,
+   * resolve waiters) while connected — and only completes, as a failure, when
+   * the connection ends. Retrying it therefore reconnects. Its scoped finalizer
+   * closes the stream on interruption (disconnect / session switch).
+   */
+  private openConnection(eventsUrl: string): Effect.Effect<never, Error> {
+    return Effect.async<never, Error>((resume) => {
+      const es = new EventSource(eventsUrl);
+      this.eventSource = es;
+
+      // End this connection exactly once: close the stream, mark disconnected,
+      // announce reconnection (unless intentional/fatal), then fail the effect
+      // so the retry schedule takes over.
+      let ended = false;
+      const endConnection = (error: Error): void => {
+        if (ended) return;
+        ended = true;
+        es.close();
+        if (this.eventSource === es) this.eventSource = null;
+        this.connected = false;
+        this.connectionId = 0;
+        if (!this.intentionalDisconnect && !this.fatal) {
+          this.reconnecting = true;
+          this.reconnectAttempts++;
+          this.notifyReconnection(true, this.reconnectAttempts);
+        }
+        resume(Effect.fail(error));
+      };
+
+      es.addEventListener('connection-info', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
           this.connectionId = data.data?.connection_id ?? data.connection_id ?? 0;
@@ -127,13 +245,13 @@ export class HttpAdapter implements TmuxAdapter {
 
           const defaultShell = data.data?.default_shell ?? data.default_shell ?? 'bash';
           this.notifyConnectionInfo(this.connectionId, defaultShell);
-          resolve();
+          this.resolveConnectWaiters();
         } catch (e) {
           console.error('Failed to parse connection-info:', e);
         }
       });
 
-      this.eventSource.addEventListener('state-update', (event: MessageEvent) => {
+      es.addEventListener('state-update', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
           // Handle nested structure from server
@@ -164,7 +282,7 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      this.eventSource.addEventListener('keybindings', (event: MessageEvent) => {
+      es.addEventListener('keybindings', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
           const keybindings: KeyBindings = data.data || data;
@@ -174,7 +292,7 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      this.eventSource.addEventListener('error', (event: MessageEvent) => {
+      es.addEventListener('error', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
           const message = data.data?.message || data.message || 'Unknown error';
@@ -186,7 +304,7 @@ export class HttpAdapter implements TmuxAdapter {
 
       // OSC 52 clipboard write requests from terminal applications.
       // Mirrored into the system clipboard via navigator.clipboard.writeText.
-      this.eventSource.addEventListener('clipboard', (event: MessageEvent) => {
+      es.addEventListener('clipboard', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
           const payload = data.data || data;
@@ -198,7 +316,7 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      this.eventSource.addEventListener('log', (event: MessageEvent) => {
+      es.addEventListener('log', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
           const payload = data.data || data;
@@ -210,98 +328,51 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      // Backend gave up reconnecting — terminal state, no more events. Suppress
-      // EventSource auto-reconnect so the UI surfaces the error instead of a
-      // silent retry storm.
-      this.eventSource.addEventListener('fatal', (event: MessageEvent) => {
+      // Backend gave up reconnecting — terminal state, no more events. Flip the
+      // flag the retry `while` predicate checks so the loop stops instead of
+      // reconnecting into a dead backend, then end the connection.
+      es.addEventListener('fatal', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
           const message = String((data.data?.message ?? data.message) || 'tmux unavailable');
           this.fatal = true;
-          this.intentionalDisconnect = true;
-          this.connected = false;
-          this.reconnecting = false;
-          if (this.eventSource) {
-            this.eventSource.close();
-            this.eventSource = null;
-          }
           this.notifyFatal(message);
-          // If fatal arrives as the first event (before connection-info), the
-          // connect() promise would otherwise never settle and — now that it's
-          // cached in connectPromise — wedge every future connect(). Reject it;
-          // a no-op if connection-info already resolved it.
-          reject(new Error(message));
+          endConnection(new Error(message));
         } catch (e) {
           console.error('Failed to parse fatal event:', e);
         }
       });
 
-      this.eventSource.onerror = () => {
-        if (!this.connected) {
-          // Connection failed to establish — close the EventSource to prevent
-          // the browser's built-in auto-reconnection from creating a storm of
-          // server-side connections and monitor spawns.
-          if (this.eventSource) {
-            this.eventSource.close();
-            this.eventSource = null;
-          }
-          this.notifyError('Failed to connect to SSE');
-          reject(new Error('Failed to connect to SSE'));
-          return;
-        }
-
-        // Connection lost - attempt reconnect
-        this.connected = false;
-        this.connectionId = 0;
-
-        if (this.eventSource) {
-          this.eventSource.close();
-          this.eventSource = null;
-        }
-
-        if (!this.intentionalDisconnect) {
-          this.attemptReconnect();
-        }
+      es.onerror = () => {
+        // Establish failure and mid-session drop are the same to the retry
+        // loop — end the connection and let the schedule pick the next attempt.
+        endConnection(
+          new Error(this.connected ? 'SSE connection lost' : 'Failed to connect to SSE'),
+        );
       };
-    });
 
-    // Clear the in-flight marker once settled so the next connect() (after a
-    // drop) can start fresh. On success `connected` is already true, so the
-    // early-return above short-circuits before this matters. The identity
-    // check avoids a stale settle (from a forcibly-torn-down connect) nulling
-    // a newer connect's marker.
-    const chained = pending.finally(() => {
-      if (this.connectPromise === chained) this.connectPromise = null;
+      // Interrupt (disconnect / switchSession): close the stream we opened.
+      return Effect.sync(() => {
+        if (ended) return;
+        ended = true;
+        es.close();
+        if (this.eventSource === es) this.eventSource = null;
+      });
     });
-    this.connectPromise = chained;
-    return chained;
   }
 
-  disconnect(): void {
-    this.intentionalDisconnect = true;
-    this.reconnectAttempts = 0;
-    this.reconnecting = false;
+  /** Resolve everyone awaiting connect() — a connection-info arrived. */
+  private resolveConnectWaiters(): void {
+    const waiters = this.connectWaiters;
+    this.connectWaiters = [];
+    for (const w of waiters) w.resolve();
+  }
 
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-
-    this.keyBatcher.destroy();
-
-    this.pendingState = null;
-    this.rafScheduled = false;
-
-    // Abandon any in-flight connect so a later reconnect starts fresh.
-    this.connectPromise = null;
-
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
-    }
-
-    this.connected = false;
-    this.connectionId = 0;
+  /** Reject everyone awaiting connect() (fatal / disconnect / session switch). */
+  private failConnectWaiters(reason: unknown): void {
+    const waiters = this.connectWaiters;
+    this.connectWaiters = [];
+    for (const w of waiters) w.reject(reason);
   }
 
   isConnected(): boolean {
@@ -517,44 +588,25 @@ export class HttpAdapter implements TmuxAdapter {
     // dead session by switching to a live one must be possible without reload).
     this.fatal = false;
 
-    // Abandon any in-flight connect to the old session so connect() below
-    // opens a fresh stream for the new session instead of reusing it.
-    this.connectPromise = null;
-
-    // Close current connection without marking as intentional disconnect
+    // Tear down the current channel fiber (its finalizer closes the stream) so
+    // connect() below starts a fresh loop for the new session. Reject anyone
+    // still awaiting the old session's connect().
+    if (this.channelFiber) {
+      Effect.runFork(Fiber.interrupt(this.channelFiber));
+      this.channelFiber = null;
+    }
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
     }
     this.connected = false;
     this.connectionId = 0;
+    this.reconnecting = false;
+    this.reconnectAttempts = 0;
+    this.failConnectWaiters(new Error('switching session'));
 
     // Reconnect to new session
     await this.connect();
-  }
-
-  private attemptReconnect(): void {
-    if (!this.reconnecting) {
-      this.reconnecting = true;
-    }
-
-    this.reconnectAttempts++;
-    this.notifyReconnection(true, this.reconnectAttempts);
-
-    const delay = Math.min(
-      INITIAL_RECONNECT_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1),
-      MAX_RECONNECT_DELAY_MS,
-    );
-
-    console.log(`[HttpAdapter] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-
-    this.reconnectTimeout = setTimeout(() => {
-      this.reconnectTimeout = null;
-      this.connect().catch((err) => {
-        console.error('[HttpAdapter] Reconnect failed:', err);
-        // Will trigger onerror which calls attemptReconnect again
-      });
-    }, delay);
   }
 
   /**

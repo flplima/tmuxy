@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Schedule } from 'effect';
 import { HttpAdapter } from '../HttpAdapter';
 
 interface Resolver<T> {
@@ -142,16 +143,25 @@ describe('HttpAdapter connect() lifecycle', () => {
 
   const openStreams = () => MockEventSource.instances.filter((e) => !e.closed);
 
+  // The channel opens its EventSource on a microtask (the Effect fiber), so a
+  // test must await the stream's existence before driving it. The fiber itself
+  // is created synchronously by connect(), so dedupe still holds immediately.
+  const stream = async (i: number): Promise<MockEventSource> => {
+    await vi.waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThan(i));
+    return MockEventSource.instances[i];
+  };
+
   it('dedupes concurrent connect() calls into a single EventSource', async () => {
     const adapter = new HttpAdapter();
     const p1 = adapter.connect();
     const p2 = adapter.connect();
-    // Two callers, one stream.
+    // Two callers, one stream: the supervised fiber is created synchronously by
+    // the first connect(), so the second dedupes onto it instead of opening a
+    // rival stream.
+    const es = await stream(0);
     expect(MockEventSource.instances.length).toBe(1);
 
-    MockEventSource.instances[0].emit('connection-info', {
-      data: { connection_id: 1, default_shell: 'bash' },
-    });
+    es.emit('connection-info', { data: { connection_id: 1, default_shell: 'bash' } });
     await Promise.all([p1, p2]);
 
     expect(adapter.isConnected()).toBe(true);
@@ -159,26 +169,56 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
-  it('a connect() racing a dropped connection never orphans a stream', async () => {
-    const adapter = new HttpAdapter();
+  it('reopens one stream after a drop without orphaning, and dedupes concurrent connect()', async () => {
+    // Near-zero backoff so the supervised fiber reopens promptly under vitest.
+    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
     const first = adapter.connect();
-    MockEventSource.instances[0].emit('connection-info', { data: { connection_id: 1 } });
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
     await first;
 
-    // Drop: onerror while connected closes ES1 and schedules a reconnect timer.
+    // Drop: onerror closes ES1, marks disconnected; the fiber schedules a reopen.
     const es1 = MockEventSource.instances[0];
     es1.onerror?.(new Event('error'));
     expect(es1.closed).toBe(true);
     expect(adapter.isConnected()).toBe(false);
 
-    // An auto-connect from an invoke and the reconnect timer both call connect()
-    // during the reconnect window: exactly one new stream, and ES1 stays closed.
+    // Callers during the reconnect window don't spawn rival streams — the fiber
+    // owns reopening; they just wait for the next connected transition.
     const a = adapter.connect();
     const b = adapter.connect();
-    expect(MockEventSource.instances.length).toBe(2);
+
+    // Exactly one NEW stream opens (total 2); ES1 stays closed.
+    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(2));
+    expect(openStreams().length).toBe(1);
 
     MockEventSource.instances[1].emit('connection-info', { data: { connection_id: 2 } });
     await Promise.all([a, b]);
+    expect(adapter.isConnected()).toBe(true);
+    expect(openStreams().length).toBe(1);
+    adapter.disconnect();
+  });
+
+  it('keeps retrying when a reconnect attempt fails to establish (no dead-loop)', async () => {
+    // Regression: the old imperative path scheduled a reconnect only from the
+    // *connected-then-dropped* branch. When a reconnect's EventSource failed to
+    // OPEN, onerror rejected and returned without rescheduling, so the loop died
+    // and the client stayed disconnected until a manual reload. The Schedule
+    // treats an establish failure and a drop identically, so it must retry both.
+    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
+    const first = adapter.connect();
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
+    await first;
+
+    // Drop → fiber reopens ES2.
+    MockEventSource.instances[0].onerror?.(new Event('error'));
+    // ES2 never reaches connected and errors (server still restarting). The old
+    // code gave up here; the Schedule must reopen ES3.
+    (await stream(1)).onerror?.(new Event('error'));
+
+    // Server finally answers on the third stream — the client recovers on its
+    // own, no reload.
+    (await stream(2)).emit('connection-info', { data: { connection_id: 3 } });
+    await vi.waitFor(() => expect(adapter.isConnected()).toBe(true));
     expect(openStreams().length).toBe(1);
     adapter.disconnect();
   });
@@ -186,7 +226,7 @@ describe('HttpAdapter connect() lifecycle', () => {
   it('a fatal first event rejects connect() instead of hanging', async () => {
     const adapter = new HttpAdapter();
     const p = adapter.connect();
-    MockEventSource.instances[0].emit('fatal', { data: { message: 'tmux gone' } });
+    (await stream(0)).emit('fatal', { data: { message: 'tmux gone' } });
     await expect(p).rejects.toThrow('tmux gone');
     // A later connect() is refused (fatal), not wedged on the cached promise.
     await expect(adapter.connect()).rejects.toThrow(/fatal/i);
@@ -195,13 +235,13 @@ describe('HttpAdapter connect() lifecycle', () => {
   it('switchSession clears a prior fatal so the new session can connect', async () => {
     const adapter = new HttpAdapter();
     const p = adapter.connect();
-    MockEventSource.instances[0].emit('fatal', { data: { message: 'dead session' } });
+    (await stream(0)).emit('fatal', { data: { message: 'dead session' } });
     await expect(p).rejects.toThrow('dead session');
 
     // Pre-fix, switchSession left this.fatal set and connect() rejected forever,
     // so recovering by switching to a live session needed a page reload.
     const switchP = adapter.switchSession('other');
-    const newEs = MockEventSource.instances[MockEventSource.instances.length - 1];
+    const newEs = await stream(1);
     expect(newEs.url).toContain('session=other');
     newEs.emit('connection-info', { data: { connection_id: 5 } });
     await switchP;
@@ -212,7 +252,7 @@ describe('HttpAdapter connect() lifecycle', () => {
   it('invoke surfaces the HTTP status when an error response body is not JSON', async () => {
     const adapter = new HttpAdapter();
     const c = adapter.connect();
-    MockEventSource.instances[0].emit('connection-info', { data: { connection_id: 1 } });
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
     await c;
 
     // A reverse-proxy 502 HTML page: response.json() throws. The adapter must
