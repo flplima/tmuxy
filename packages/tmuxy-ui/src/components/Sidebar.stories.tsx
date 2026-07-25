@@ -321,11 +321,17 @@ export const FixedSidebarReflowsPanes: Story = {
       { timeout: 6000, interval: 200 },
     );
 
-    // Sidebar column is full-height (matches the pane area height).
-    const paneArea = canvasElement.querySelector('.pane-container') as HTMLElement;
-    expect(sidebar.getBoundingClientRect().height).toBeGreaterThan(
-      paneArea.getBoundingClientRect().height - 4,
-    );
+    // Sidebar and terminal column share the app-body height, while the
+    // terminal-owned tmux status line begins after the sidebar's right edge.
+    const terminalColumn = canvasElement.querySelector('.terminal-column') as HTMLElement;
+    const tmuxStatusBar = canvasElement.querySelector('.tmux-status-bar') as HTMLElement;
+    const sidebarRect = sidebar.getBoundingClientRect();
+    const terminalColumnRect = terminalColumn.getBoundingClientRect();
+    const tmuxStatusBarRect = tmuxStatusBar.getBoundingClientRect();
+    expect(Math.abs(sidebarRect.height - terminalColumnRect.height)).toBeLessThan(2);
+    expect(Math.abs(sidebarRect.bottom - terminalColumnRect.bottom)).toBeLessThan(2);
+    expect(tmuxStatusBarRect.left).toBeGreaterThanOrEqual(sidebarRect.right - 1);
+    expect(Math.abs(tmuxStatusBarRect.width - terminalColumnRect.width)).toBeLessThan(2);
   },
 };
 
@@ -457,7 +463,7 @@ export const GroupedSessionsTree: Story = {
         {
           sessionName: 'work',
           windows: [{ id: '@9', index: 0, name: 'editor' }],
-          panes: [{ id: '%9', windowId: '@9', command: 'nvim', active: true }],
+          panes: [{ id: '%9', windowId: '@9', command: 'nvim', cwd: '/code/work', active: true }],
         },
       ],
     });

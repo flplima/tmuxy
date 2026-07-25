@@ -151,7 +151,7 @@ The machine invokes five persistent actors:
 
 **`sizeActor`** (`tmuxy-ui/src/machines/actors/sizeActor.ts`) — Viewport tracking. Measures monospace font char dimensions on start, listens to window resize (debounced 100ms), observes container with `ResizeObserver`. Sends `SET_CHAR_SIZE`, `SET_TARGET_SIZE`, `SET_CONTAINER_SIZE` to the parent.
 
-**`serversActor`** (`tmuxy-ui/src/machines/actors/serversActor.ts`) — Polls the sessions tree for the sidebar (runs on web and desktop when the adapter sets `enumeratesSessions`).
+**`serversActor`** (`tmuxy-ui/src/machines/actors/serversActor.ts`) — Polls the sessions tree for the sidebar (runs on web and desktop when the adapter sets `enumeratesSessions`). Polls are serialized and coalesced; local pane paths also drive a slower, read-only Git worktree discovery used only to decorate the tmux-owned hierarchy.
 
 ### Child Machines
 

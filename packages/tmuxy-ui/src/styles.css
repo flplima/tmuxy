@@ -181,8 +181,19 @@
   -webkit-user-select: none;
 }
 
+.terminal-column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .app-container .pane-container {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   position: relative;
   overflow: hidden;
   display: flex;
@@ -1443,9 +1454,11 @@
   min-width: 0;
 }
 
-/* Fixed left sidebar column (full height, fixed width). */
+/* Fixed left sidebar column. Let the app body's flex cross-axis provide the
+   height so the tree and terminal column fill the same content viewport. */
 .sidebar-fixed {
-  height: 100%;
+  align-self: stretch;
+  min-height: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -1460,16 +1473,37 @@
 
 .sidebar-header {
   flex: 0 0 auto;
-  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 8px;
   font-family: var(--font-mono);
-  font-size: 0.85em;
+  font-size: 0.78em;
   color: var(--term-bright-black);
   border-bottom: 1px solid var(--term-bright-black, #313244);
 }
 
+.sidebar-header-label {
+  flex: 0 0 auto;
+  text-transform: lowercase;
+}
+
+.sidebar-header-context {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--term-cyan);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sidebar-fixed .sidebar-tree {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 4px 0;
 }
 
@@ -1480,24 +1514,24 @@
   user-select: none;
 }
 
-.sidebar-tree-tab,
-.sidebar-tree-pane {
-  display: flex;
+.sidebar-tree-row {
+  display: grid;
+  grid-template-columns: 14px 14px minmax(0, 1fr) minmax(0, max-content);
   align-items: center;
   gap: 4px;
+  min-height: 24px;
   padding: 2px 8px;
+  box-sizing: border-box;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
 }
 
 .sidebar-tree-pane {
-  padding-left: 26px;
   color: var(--term-bright-black);
 }
 
-.sidebar-tree-tab:hover,
-.sidebar-tree-pane:hover {
+.sidebar-tree-row:hover {
   background: rgba(255, 255, 255, 0.06);
 }
 
@@ -1507,7 +1541,8 @@
 }
 
 .sidebar-tree-tab.is-selected,
-.sidebar-tree-pane.is-selected {
+.sidebar-tree-pane.is-selected,
+.sidebar-tree-session.is-selected {
   background: rgba(137, 180, 250, 0.18);
 }
 
@@ -1521,8 +1556,24 @@
 }
 
 .sidebar-tree-twisty {
+  width: 14px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--term-bright-black);
   font-size: 0.7em;
+  cursor: pointer;
+}
+
+.sidebar-tree-twisty-spacer {
+  display: inline-block;
+  width: 14px;
+  height: 18px;
+}
+
+.sidebar-tree-twisty:hover {
+  color: var(--term-foreground);
 }
 
 .sidebar-tree-icon {
@@ -1532,33 +1583,64 @@
 }
 
 .sidebar-tree-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 /* Session header row (desktop sessions→tabs→panes tree). */
 .sidebar-tree-session {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
   font-weight: 600;
   text-transform: none;
 }
 
-.sidebar-tree-session:hover {
-  background: rgba(255, 255, 255, 0.06);
+.sidebar-tree-status-dot {
+  justify-self: center;
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--term-bright-black);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.sidebar-tree-status-dot.is-active {
+  border-color: var(--term-green);
+  background: var(--term-green);
+  box-shadow: 0 0 0 2px rgba(166, 227, 161, 0.12);
 }
 
 .sidebar-tree-session.is-active .sidebar-tree-label {
   color: var(--term-green);
 }
 
-.sidebar-tree-session.is-selected {
-  background: rgba(137, 180, 250, 0.18);
+.sidebar-tree-trailing {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 140px;
+}
+
+.sidebar-tree-git-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--term-bright-black);
+  font-size: 0.72em;
+  line-height: 1;
+}
+
+.sidebar-tree-git-badge.is-mixed {
+  color: var(--term-yellow);
+}
+
+.sidebar-tree-git-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Rows for sessions the app is not attached to — dimmed, read-only. */

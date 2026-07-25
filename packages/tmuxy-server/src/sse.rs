@@ -603,6 +603,16 @@ async fn handle_command(
                 Err("No monitor connection available".to_string())
             }
         }
+        ClientCommand::ListGitWorktrees { paths } => {
+            let repositories = tokio::task::spawn_blocking(move || {
+                tmuxy_core::worktrees::list_git_worktrees(paths)
+            })
+            .await
+            .map_err(|e| format!("worktree discovery task failed: {e}"))?
+            .map_err(|e| e.to_string())?;
+            serde_json::to_value(repositories)
+                .map_err(|e| format!("failed to serialize worktrees: {e}"))
+        }
         ClientCommand::GetScrollbackCells {
             pane_id,
             start,

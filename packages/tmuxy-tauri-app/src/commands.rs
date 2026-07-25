@@ -238,6 +238,19 @@ pub async fn list_servers() -> Result<Value, String> {
     }))
 }
 
+/// Discover Git worktrees from the working directories observed in tmux panes.
+/// Git subprocess and filesystem I/O stay off Tauri's async runtime.
+#[tauri::command]
+pub async fn list_git_worktrees(paths: Vec<String>) -> Result<Value, String> {
+    let repositories = tauri::async_runtime::spawn_blocking(move || {
+        tmuxy_core::worktrees::list_git_worktrees(paths)
+    })
+    .await
+    .map_err(|e| format!("worktree discovery task failed: {e}"))?
+    .map_err(|e| e.to_string())?;
+    serde_json::to_value(repositories).map_err(|e| e.to_string())
+}
+
 /// Reconnect the desktop app to a saved server by id: resolve it from
 /// servers.json and ask the monitor to retarget its socket, SSH tunnel, and
 /// session live (no relaunch). Routes through the same [`request_reconnect`]

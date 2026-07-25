@@ -1140,6 +1140,8 @@ pub fn run() {
             // live-reconnect to one (localhost socket switch or remote SSH).
             commands::list_servers,
             commands::connect_server,
+            // Read-only Git context for the tmux sidebar tree.
+            commands::list_git_worktrees,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

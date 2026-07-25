@@ -64,6 +64,7 @@ export const FIELD_OWNERS = {
   containerWidth: 'parent',
   containerHeight: 'parent',
   sessions: 'parent',
+  repositories: 'parent',
   serverList: 'parent',
   currentServerId: 'parent',
 
@@ -141,6 +142,7 @@ export function createInitialContext(): AppMachineContext {
     containerWidth: 0,
     containerHeight: 0,
     sessions: [],
+    repositories: [],
     serverList: [],
     currentServerId: '',
     floatPanes: {},

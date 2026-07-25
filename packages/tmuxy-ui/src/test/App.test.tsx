@@ -143,4 +143,28 @@ describe('App', () => {
     expect(screen.getByTestId('status-bar')).toBeInTheDocument();
     expect(screen.getByTestId('tmux-status-bar')).toBeInTheDocument();
   });
+
+  it('scopes the tmux status bar to the terminal column beside the sidebar', () => {
+    mockUseAppSelector.mockImplementation((selector) => {
+      if (selector === AppContext.selectPreviewPanes) return [{ tmuxId: '%0' }];
+      if (selector === AppContext.selectError) return null;
+      if (selector === AppContext.selectFatalError) return null;
+      if (selector === AppContext.selectLog) return [];
+      if (selector === AppContext.selectContainerSize) return { width: 800, height: 600 };
+      return undefined;
+    });
+    mockUseAppState.mockReturnValue(false);
+
+    const { container } = render(<App />);
+    const appBody = container.querySelector('.app-body');
+    const terminalColumn = container.querySelector('.terminal-column');
+    const sidebar = screen.getByTestId('sidebar');
+    const tmuxStatusBar = screen.getByTestId('tmux-status-bar');
+
+    expect(terminalColumn).not.toBeNull();
+    expect(sidebar.parentElement).toBe(appBody);
+    expect(terminalColumn?.parentElement).toBe(appBody);
+    expect(tmuxStatusBar.parentElement).toBe(terminalColumn);
+    expect(terminalColumn?.contains(sidebar)).toBe(false);
+  });
 });

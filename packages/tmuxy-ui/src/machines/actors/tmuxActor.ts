@@ -10,7 +10,7 @@ export type TmuxActorEvent =
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: string; start: number; end: number }
   | { type: 'FETCH_THEME_SETTINGS' }
   | { type: 'FETCH_THEMES_LIST' }
-  | { type: 'SWITCH_SESSION'; sessionName: string }
+  | { type: 'SWITCH_SESSION'; sessionName: string; windowId?: string; paneId?: string }
   | { type: 'CHECK_SESSION_SWITCH' };
 
 export interface TmuxActorInput {
@@ -69,11 +69,14 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       effect: Effect.Effect<T, AdapterError>,
       opts: {
         onSuccess?: (value: T) => void;
+        /** Drop both success and failure when this operation was superseded. */
+        isCurrent?: () => boolean;
         logPrefix?: string;
         silentFail?: boolean;
       } = {},
     ) => {
       void Effect.runPromiseExit(effect).then((exit) => {
+        if (opts.isCurrent && !opts.isCurrent()) return;
         if (Exit.isSuccess(exit)) {
           opts.onSuccess?.(exit.value);
           return;
@@ -104,6 +107,10 @@ export function createTmuxActor(adapter: TmuxAdapter) {
      * the parent never sees the stale chunk.
      */
     const scrollbackFibers = new Map<string, Fiber.RuntimeFiber<unknown, AdapterError>>();
+    // A completed older switch must never select its target after a newer
+    // switch has started. The adapters already serialize/replace connection
+    // work; this token makes the follow-up selection latest-wins.
+    let sessionSwitchGeneration = 0;
 
     logInfo('Connecting to tmux backend...');
 
@@ -268,7 +275,23 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           silentFail: true,
         });
       } else if (event.type === 'SWITCH_SESSION') {
+        const generation = ++sessionSwitchGeneration;
+        const isCurrent = () => generation === sessionSwitchGeneration;
         run(eff.switchSession(event.sessionName), {
+          isCurrent,
+          onSuccess: () => {
+            const commands: string[] = [];
+            if (event.windowId) commands.push(`select-window -t ${event.windowId}`);
+            if (event.paneId) commands.push(`select-pane -t ${event.paneId}`);
+            if (commands.length === 0) return;
+
+            const command = commands.join(' ; ');
+            logCommand(command);
+            run(eff.invoke<void>('run_tmux_command', { command }), {
+              isCurrent,
+              logPrefix: command,
+            });
+          },
           logPrefix: `switch-session ${event.sessionName}`,
         });
       } else if (event.type === 'CHECK_SESSION_SWITCH') {
