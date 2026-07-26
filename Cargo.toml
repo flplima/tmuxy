@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.10-alpha.42"
+version = "0.0.10-alpha.43"
 edition = "2021"
 authors = ["Felipe"]
 
