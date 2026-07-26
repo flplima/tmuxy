@@ -445,18 +445,15 @@ jobs:
               bin.install Dir["tmuxy_*.AppImage"].first => "tmuxy"
             end
 
-            # Homebrew 6.0+ sandboxes post_install ($HOME is read-only),
-            # so .desktop/icon install runs outside brew via caveats.
+            # The applications-menu entry cannot be installed from here:
+            # Homebrew 6 sandboxes post_install with a read-only $HOME, and
+            # Homebrew's own share/applications is not on XDG_DATA_DIRS. The
+            # app registers itself on launch instead (see
+            # packages/tmuxy-tauri-app/src/desktop.rs).
             def caveats
               <<~EOS
-                To add tmuxy to your application menu, run once:
-                  #{bin}/tmuxy --appimage-extract usr/share 2>/dev/null; \\
-                  mkdir -p ~/.local/share/applications ~/.local/share/icons; \\
-                  sed 's|Exec=.*|Exec=#{bin}/tmuxy gui|;s|Icon=.*|Icon=tmuxy|;s|StartupWMClass=.*|StartupWMClass=tmuxy|' \\
-                    squashfs-root/usr/share/applications/tmuxy.desktop \\
-                    > ~/.local/share/applications/tmuxy.desktop; \\
-                  cp -r squashfs-root/usr/share/icons/hicolor ~/.local/share/icons/; \\
-                  rm -rf squashfs-root
+                Run `tmuxy` once to add it to your applications menu.
+                Set TMUXY_NO_DESKTOP_ENTRY=1 to skip that.
               EOS
             end
 

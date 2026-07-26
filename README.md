@@ -71,6 +71,10 @@ brew install flplima/tap/tmuxy
 This installs the AppImage as the `tmuxy` command. Running it needs FUSE
 (`libfuse2` on Debian/Ubuntu) at runtime.
 
+Run `tmuxy` once and it adds itself to the applications menu, so the GUI is
+launchable without the terminal from then on. Set `TMUXY_NO_DESKTOP_ENTRY=1`
+to skip that.
+
 Prefer a native package? Grab the `.deb` or `.AppImage` directly from the
 [Releases page](https://github.com/flplima/tmuxy/releases).
 

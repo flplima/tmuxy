@@ -2,10 +2,18 @@
 
 mod cli;
 mod commands;
+#[cfg(target_os = "linux")]
+mod desktop;
 mod gui;
 mod monitor;
 
 fn main() {
+    // Register with the applications menu before dispatching, so a user who
+    // only ever runs `tmuxy server` still gets a launcher. No-ops in a few
+    // microseconds once the entry is current.
+    #[cfg(target_os = "linux")]
+    desktop::ensure_entry();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     match args.first().map(|s| s.as_str()) {

@@ -18,6 +18,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "DeveloperTool",
     "resources": [
       "../../bin/tmuxy-cli",
       "../../bin/tmuxy/*"
