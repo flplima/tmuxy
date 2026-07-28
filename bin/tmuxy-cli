@@ -842,7 +842,9 @@ cmd_connect() {
   if [ -z "$session" ]; then
     # `|| true` so a missing/empty target server (list-sessions exits non-zero)
     # doesn't trip `set -e`/pipefail; fall back to `tmuxy`.
-    session="$(command tmux "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null | head -1 || true)"
+    # Skip the hidden __tmuxy_stash session (it parks group members and sorts
+    # before real sessions, so a naive `head -1` would attach to it).
+    session="$(command tmux "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null | grep -vFx '__tmuxy_stash' | head -1 || true)"
     [ -z "$session" ] && session="tmuxy"
   fi
 

@@ -2,9 +2,18 @@
 # Shared helpers for tmuxy shell scripts.
 #
 # Window typing is sourced from the @tmuxy-window-type window option, with
-# values: tab | float | float-backdrop | group. Group membership lives in
-# @tmuxy-group-panes (space-separated pane ids). Windows without @tmuxy-window-type
-# are foreign — tmuxy ignores them.
+# values: tab | float | float-backdrop. Windows without @tmuxy-window-type are
+# foreign — tmuxy ignores them.
+#
+# Pane groups are identified by a per-pane @tmuxy-group-id option (e.g. g5) set
+# on every member. The visible member lives in the attached session; the hidden
+# members are parked in the dedicated __tmuxy_stash session (one window each),
+# so a native `tmux attach` never sees them. Membership follows the pane across
+# a cross-session swap-pane, so there is no separate list to keep in sync.
+
+# The session hidden pane-group members are parked in. Kept out of every session
+# picker/tree (matches tmuxy-core `STASH_SESSION`).
+STASH_SESSION="__tmuxy_stash"
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -44,67 +53,85 @@ _run_safe() {
 
 # Get the window type set on a window via @tmuxy-window-type.
 # Args: $1=window_id (e.g., @5)
-# Output: tab|float|float-backdrop|group  (empty if not set / foreign)
+# Output: tab|float|float-backdrop  (empty if not set / foreign)
 window_type() {
   _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
 }
 
-# Find the group window containing a given pane.
-# Args: $1=pane_id (e.g., %4)
-# Output: window id of the group (e.g., @5), or empty string.
-find_group_for_pane() {
-  local pane_id="$1"
-  _tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}' \
-    | while IFS='|' read -r wid wtype wpanes; do
-        if [ "$wtype" != "group" ]; then
-          continue
-        fi
-        for pid in $wpanes; do
-          if [ "$pid" = "$pane_id" ]; then
-            echo "$wid"
-            return
-          fi
-        done
+# Ensure the stash session exists, creating it detached if needed.
+# new-session -d (a detached, separate session) is control-mode safe — unlike
+# new-window, which crashes the server — and the core suppresses the resulting
+# %sessions-changed. Idempotent.
+ensure_stash_session() {
+  if ! _tmux has-session -t "$STASH_SESSION" 2>/dev/null; then
+    _tmux new-session -d -s "$STASH_SESSION" -x 80 -y 24 2>/dev/null || true
+  fi
+}
+
+# Read a pane's @tmuxy-group-id.
+# Args: $1=pane_id
+# Output: group id (e.g. g5), or empty if the pane is not grouped.
+group_id_of_pane() {
+  _tmux show-options -pqv -t "$1" @tmuxy-group-id 2>/dev/null
+}
+
+# Set a pane's @tmuxy-group-id.
+# Args: $1=pane_id  $2=group_id
+set_group_id() {
+  _tmux set-option -p -t "$1" @tmuxy-group-id "$2"
+}
+
+# Clear a pane's @tmuxy-group-id (degroup a lone survivor).
+# Args: $1=pane_id
+clear_group_id() {
+  _tmux set-option -pu -t "$1" @tmuxy-group-id 2>/dev/null || true
+}
+
+# Mint a fresh group id from an anchor pane id: %5 -> g5. Pane ids are never
+# reused within a server, so this is unique and stable for the group's life.
+# Args: $1=anchor_pane_id
+new_group_id() {
+  echo "g${1#%}"
+}
+
+# List every pane belonging to a group, ordered by pane-id number (stable).
+# Args: $1=group_id
+# Output: pane ids, one per line (e.g. %4\n%6\n%7)
+group_members() {
+  local gid="$1"
+  _tmux list-panes -a -F '#{pane_id} #{@tmuxy-group-id}' \
+    | awk -v g="$gid" '$2 == g { print $1 }' \
+    | sort -t'%' -k2,2n
+}
+
+# The visible member of a group — the one NOT parked in the stash session.
+# Args: $1=group_id
+# Output: pane id, or empty.
+visible_member() {
+  local gid="$1"
+  _tmux list-panes -a -F '#{session_name} #{pane_id} #{@tmuxy-group-id}' \
+    | awk -v g="$gid" -v stash="$STASH_SESSION" \
+        '$3 == g && $1 != stash { print $2; exit }'
+}
+
+# Kill stash windows for any group that has no visible member left (its tab was
+# closed wholesale, orphaning the hidden members). Idempotent; safe to call
+# after any group mutation.
+gc_groups() {
+  _tmux list-panes -a -F '#{session_name} #{window_id} #{pane_id} #{@tmuxy-group-id}' \
+    | awk -v stash="$STASH_SESSION" '
+        $4 != "" {
+          if ($1 == stash) { stash_win[$4] = stash_win[$4] " " $2 }
+          else { has_visible[$4] = 1 }
+        }
+        END {
+          for (g in stash_win) {
+            if (!(g in has_visible)) print stash_win[g]
+          }
+        }' \
+    | tr ' ' '\n' | sort -u | while read -r wid; do
+        [ -n "$wid" ] && _tmux kill-window -t "$wid" 2>/dev/null || true
       done
-}
-
-# Read the @tmuxy-group-panes list off a group window.
-# Args: $1=window_id of the group
-# Output: space-separated pane ids (e.g., %4 %6 %7)
-parse_group_panes() {
-  _tmux show-options -wqv -t "$1" @tmuxy-group-panes 2>/dev/null
-}
-
-# Write the @tmuxy-group-panes list onto a group window.
-# Args: $1=window_id  $2..=pane ids
-set_group_panes() {
-  local wid="$1"
-  shift
-  local joined="$*"
-  _tmux set-option -w -t "$wid" @tmuxy-group-panes "$joined"
-}
-
-# Find which pane from a list lives in a visible tab window
-# (window_type == "tab"). Used to pick the pane to swap into view
-# when navigating within a group.
-# Args: paneId1 paneId2 ...
-# Output: the pane id in a tab window, or empty string.
-find_visible_pane_from_list() {
-  local tab_wins
-  tab_wins=$(_tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}' \
-    | awk -F'|' '$2 == "tab" { print $1 }')
-  local pane_list
-  pane_list=$(_tmux list-panes -s -F '#{pane_id},#{window_id}')
-
-  for pid in "$@"; do
-    local win_id
-    win_id=$(echo "$pane_list" | grep "^${pid}," | cut -d',' -f2)
-    if echo "$tab_wins" | grep -qx "$win_id"; then
-      echo "$pid"
-      return
-    fi
-  done
-  echo ""
 }
 
 # Get active window ID

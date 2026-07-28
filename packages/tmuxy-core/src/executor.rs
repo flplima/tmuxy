@@ -48,8 +48,6 @@ pub struct WindowInfo {
     pub window_type: String,
     /// Raw `@tmuxy-float-parent`.
     pub float_parent: String,
-    /// Raw `@tmuxy-group-panes`, space separated.
-    pub group_panes: String,
 }
 
 pub fn execute_tmux_command(args: &[&str]) -> Result<String> {
@@ -318,14 +316,14 @@ pub fn get_windows(session_name: &str) -> Result<Vec<WindowInfo>> {
         "-t",
         session_name,
         "-F",
-        "#{window_id},#{window_index},#{window_active},#{window_zoomed_flag},         #{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-group-panes},#{window_name}",
+        "#{window_id},#{window_index},#{window_active},#{window_zoomed_flag},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{window_name}",
     ])?;
 
     let mut windows = Vec::new();
 
     for line in output.lines() {
-        let parts: Vec<&str> = line.splitn(8, ',').collect();
-        if parts.len() < 8 {
+        let parts: Vec<&str> = line.splitn(7, ',').collect();
+        if parts.len() < 7 {
             continue;
         }
 
@@ -336,8 +334,7 @@ pub fn get_windows(session_name: &str) -> Result<Vec<WindowInfo>> {
             zoomed: parts[3] == "1",
             window_type: parts[4].trim().to_string(),
             float_parent: parts[5].trim().to_string(),
-            group_panes: parts[6].trim().to_string(),
-            name: parts[7].to_string(),
+            name: parts[6].to_string(),
         });
     }
 

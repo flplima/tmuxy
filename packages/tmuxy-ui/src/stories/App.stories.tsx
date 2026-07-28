@@ -148,13 +148,30 @@ type ReconstructedWindow = {
   index: number;
   active: boolean;
   windowType: string | null;
-  groupPanes: string[] | null;
   floatDrawer: string | null;
 };
 const windows = (): ReconstructedWindow[] =>
   (
     window as unknown as { app: { getSnapshot(): { context: { windows: ReconstructedWindow[] } } } }
   ).app.getSnapshot().context.windows;
+
+/**
+ * Pane groups keyed by group id (`@tmuxy-group-id`). Group membership is
+ * intrinsic to panes now, not encoded in a group window, so these tests read
+ * the reconstructed `paneGroups` map rather than scanning windows.
+ */
+const paneGroupsState = (): Array<{ id: string; paneIds: string[] }> =>
+  Object.values(
+    (
+      window as unknown as {
+        app: {
+          getSnapshot(): {
+            context: { paneGroups: Record<string, { id: string; paneIds: string[] }> };
+          };
+        };
+      }
+    ).app.getSnapshot().context.paneGroups ?? {},
+  );
 
 const meta: Meta<typeof V86AppHarness> = {
   title: 'Scenarios/Application',
@@ -425,10 +442,10 @@ export const Drawer: Story = {
 };
 
 /**
- * Pane group: `tmuxy pane group add` splits a pane and breaks it into a group
- * window tagged `@tmuxy-window-type=group` with `@tmuxy-group-panes` listing the
- * grouped pane ids — one atomic tmux command list. The WASM core reconstructs
- * the group membership the UI uses to render grouped panes as header tabs.
+ * Pane group: `tmuxy pane group add` splits a pane, parks the hidden member in
+ * the stash session, and tags every member with a `@tmuxy-group-id` pane option.
+ * The WASM core reconstructs group membership by grouping panes on that id — the
+ * UI renders grouped panes as header tabs.
  */
 export const PaneGroup: Story = {
   args: { height: 600 },
@@ -438,13 +455,10 @@ export const PaneGroup: Story = {
     pasteLine('tmuxy pane group add');
     // A group window with ≥2 member panes must be reconstructed from the live
     // list-windows metadata by the real Rust engine.
-    await waitFor(
-      () =>
-        expect(
-          windows().some((w) => w.windowType === 'group' && (w.groupPanes?.length ?? 0) >= 2),
-        ).toBe(true),
-      { timeout: 30000, interval: 500 },
-    );
+    await waitFor(() => expect(paneGroupsState().some((g) => g.paneIds.length >= 2)).toBe(true), {
+      timeout: 30000,
+      interval: 500,
+    });
   },
 };
 
@@ -1974,9 +1988,9 @@ export const GroupSwitchNextPrev: Story = {
     let members: string[] = [];
     await waitFor(
       () => {
-        const g = windows().find((w) => w.windowType === 'group');
-        expect(g?.groupPanes?.length ?? 0).toBe(2);
-        members = g!.groupPanes!;
+        const g = paneGroupsState()[0];
+        expect(g?.paneIds.length ?? 0).toBe(2);
+        members = g!.paneIds;
       },
       { timeout: 30000, interval: 500 },
     );
@@ -2028,9 +2042,9 @@ export const GroupCloseMember: Story = {
     let members: string[] = [];
     await waitFor(
       () => {
-        const g = windows().find((w) => w.windowType === 'group');
-        expect(g?.groupPanes?.length ?? 0).toBe(2);
-        members = g!.groupPanes!;
+        const g = paneGroupsState()[0];
+        expect(g?.paneIds.length ?? 0).toBe(2);
+        members = g!.paneIds;
       },
       { timeout: 30000, interval: 500 },
     );
@@ -2043,7 +2057,7 @@ export const GroupCloseMember: Story = {
     pasteLine('tmuxy pane group close');
     await waitFor(
       () => {
-        expect(windows().some((w) => w.windowType === 'group')).toBe(false);
+        expect(paneGroupsState().length).toBe(0);
         expect(paneIds(canvas)).not.toContain(added);
         expect(paneIds(canvas)).toContain(original);
       },
@@ -2923,7 +2937,9 @@ export const SharedIsolation: Story = {
     await focusFirstPane(canvas, userEvent.setup());
     expect(paneIds(canvas).sort()).toEqual(['%0', '%1']);
     expect(tabWindows().length).toBe(1);
-    expect(windows().some((w) => w.windowType === 'float' || w.windowType === 'group')).toBe(false);
+    expect(windows().some((w) => w.windowType === 'float') || paneGroupsState().length > 0).toBe(
+      false,
+    );
     const text = paneGroups(canvas)
       .map((p: HTMLElement) => p.textContent ?? '')
       .join('');

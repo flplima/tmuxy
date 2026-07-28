@@ -151,43 +151,34 @@ export function transformServerState(payload: ServerState): {
 }
 
 /**
- * Build pane groups from windows.
+ * Build pane groups from panes.
  *
- * Group windows carry @tmuxy-window-type=group plus a pane membership list
- * in @tmuxy-group-panes (e.g., ["%4","%6","%7"]). The membership list is the
- * group identity; multiple windows can mirror the same group.
+ * Group membership is intrinsic to each pane via `@tmuxy-group-id` (e.g. `g5`) —
+ * the visible member (a real pane in the active session) and each hidden member
+ * (a stub emitted from the stash session) all carry the same id. A group is any
+ * id shared by two or more panes; members are ordered by pane-id number so the
+ * tab order is stable and matches the shell navigation helpers.
  */
-export function buildGroupsFromWindows(
-  windows: TmuxWindow[],
+export function buildGroupsFromPanes(
   panes: TmuxPane[],
-  _activeWindowId: string | null,
 ): Record<string, { id: string; paneIds: string[] }> {
-  const groups: Record<string, { id: string; paneIds: string[] }> = {};
-  const existingPaneIds = new Set(panes.map((p) => p.tmuxId));
-
-  // Track which groups we've already seen (by sorted key for dedup)
-  const seenGroups = new Map<string, string[]>(); // sorted key -> ordered paneIds
-
-  for (const window of windows) {
-    if (window.windowType !== 'group') continue;
-    if (!window.groupPanes || window.groupPanes.length < 2) continue;
-
-    const key = window.groupPanes.slice().sort().join(',');
-    if (!seenGroups.has(key)) {
-      seenGroups.set(key, window.groupPanes);
-    }
+  const byGroup = new Map<string, string[]>();
+  for (const pane of panes) {
+    if (!pane.groupId) continue;
+    const list = byGroup.get(pane.groupId) ?? [];
+    list.push(pane.tmuxId);
+    byGroup.set(pane.groupId, list);
   }
 
-  // Build groups, filtering dead panes
-  for (const [key, orderedPaneIds] of seenGroups) {
-    const validPaneIds = orderedPaneIds.filter((id) => existingPaneIds.has(id));
+  const paneNumber = (id: string) => parseInt(id.replace(/^%/, ''), 10) || 0;
 
-    if (validPaneIds.length >= 2) {
-      groups[key] = {
-        id: key,
-        paneIds: validPaneIds,
-      };
-    }
+  const groups: Record<string, { id: string; paneIds: string[] }> = {};
+  for (const [gid, paneIds] of byGroup) {
+    if (paneIds.length < 2) continue;
+    groups[gid] = {
+      id: gid,
+      paneIds: paneIds.slice().sort((a, b) => paneNumber(a) - paneNumber(b)),
+    };
   }
 
   return groups;
@@ -202,7 +193,6 @@ function normalizeWindow(w: TmuxWindow): TmuxWindow {
   return {
     ...w,
     windowType: w.windowType ?? null,
-    groupPanes: w.groupPanes ?? null,
     floatParent: w.floatParent ?? null,
     floatWidth: w.floatWidth ?? null,
     floatHeight: w.floatHeight ?? null,

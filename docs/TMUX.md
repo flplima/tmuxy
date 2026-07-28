@@ -205,9 +205,11 @@ Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{p
 
 `GROUPS` is a bash built-in variable (array of user group IDs). Never use it as a custom variable name in shell scripts executed via `run-shell` — it silently contains the wrong value. Use `GRP_JSON` or similar instead.
 
-## Group State in Window Options
+## Group State and the Stash Session
 
-Pane-group membership is stored in the `@tmuxy-group-panes` window option — a space-separated list of pane ids on the group's window. The shell helpers in `bin/tmuxy/_lib` read and write it via `show-options -wqv` / `set-option -w`, and windows are typed via the `@tmuxy-window-type` option (see [WINDOW-TAGS.md](WINDOW-TAGS.md)).
+Pane-group membership is stored per pane in the `@tmuxy-group-id` option (e.g. `g5`), set on every member. The **visible** member is an ordinary pane in the attached session; the **hidden** members are parked one-per-window in a dedicated session, `__tmuxy_stash`, which is never attached and is filtered out of every session enumeration (the sidebar tree, `session switch`, the server picker). Because a pane's options travel with it across a **cross-session `swap-pane`**, switching tabs moves the target member into the visible slot and the previous one into the stash with no membership bookkeeping — verified behavior on tmux 3.7.
+
+The stash session is created lazily (`new-session -d -s __tmuxy_stash`, control-mode safe) by the `bin/tmuxy/pane-group-*` helpers, which read/write `@tmuxy-group-id` via `show-options -pqv` / `set-option -p` and locate members with `list-panes -a`. Closing a group member runs `gc_groups`, and each `pane-group-add` sweeps first, so hidden members orphaned by a wholesale tab-kill are reaped on the next group operation. Even before that sweep they are invisible: the backend prunes any stash member whose group has no visible pane from the emitted state, so an orphan never renders as a phantom tab. The backend enumerates hidden members with a `stashmember,`-prefixed `list-panes` and emits them as pane stubs carrying `group_id`; see [WINDOW-TAGS.md](WINDOW-TAGS.md). Windows are still typed via `@tmuxy-window-type` (`tab`/`float`/`float-backdrop`/`sidebar`) — there is no longer a `group` window type.
 
 ## Related
 

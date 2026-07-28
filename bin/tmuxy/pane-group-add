@@ -4,6 +4,10 @@
 #
 # If the active pane is already in a group, adds to that group.
 # Otherwise creates a new group with the active pane + new pane.
+#
+# The new pane becomes the visible member (in the attached session); the old
+# visible member is parked in the stash session. Membership is carried by the
+# per-pane @tmuxy-group-id option, which follows each pane across the swap.
 
 set -euo pipefail
 source "$(dirname "$0")/_lib"
@@ -12,53 +16,28 @@ PANE_ID="$1"
 PANE_WIDTH="$2"
 PANE_HEIGHT="$3"
 
-# Check if active pane is already in a group (returns the group's window id)
-EXISTING_GROUP_WIN=$(find_group_for_pane "$PANE_ID")
+ensure_stash_session
 
-# Compute the new group membership before any tmux mutation so we can pass it
-# in a single atomic `break-pane ; set-option ; set-option` command — this
-# guarantees the window options are visible by the time the monitor processes
-# the WindowAdd event from break-pane.
-if [ -n "$EXISTING_GROUP_WIN" ]; then
-  CURRENT_PANES=$(parse_group_panes "$EXISTING_GROUP_WIN")
+# Reap any hidden members orphaned by an earlier wholesale tab-kill before
+# adding more — bounds stash accumulation without a separate GC trigger.
+gc_groups
+
+# Reuse the anchor's group id, or mint one and tag the anchor to open a group.
+GID=$(group_id_of_pane "$PANE_ID")
+if [ -z "$GID" ]; then
+  GID=$(new_group_id "$PANE_ID")
+  set_group_id "$PANE_ID" "$GID"
 fi
 
-# Create new pane via split-window (separate call — needs to return the pane id)
+# Create the new pane in the current window, then atomically break it into its
+# own window in the stash session AND tag its group id — a single command list
+# so the option is set by the time the monitor processes the move.
 NEW_PANE_ID=$(_tmux split-window -dP -F '#{pane_id}')
+_tmux break-pane -d -s "$NEW_PANE_ID" -t "${STASH_SESSION}:" \; \
+  set-option -p -t "$NEW_PANE_ID" @tmuxy-group-id "$GID"
 
-# Break the new pane into its own window AND tag the window type + group panes
-# in one tmux command list. set-option `-t $NEW_PANE_ID` targets the pane's
-# window, which after break-pane is the freshly created group window.
-if [ -n "$EXISTING_GROUP_WIN" ]; then
-  GROUP_LIST="$CURRENT_PANES $NEW_PANE_ID"
-else
-  GROUP_LIST="$PANE_ID $NEW_PANE_ID"
-fi
-_tmux break-pane -d -s "$NEW_PANE_ID" -n group \; \
-  set-option -w -t "$NEW_PANE_ID" @tmuxy-window-type group \; \
-  set-option -w -t "$NEW_PANE_ID" @tmuxy-group-panes "$GROUP_LIST"
-
-NEW_WIN_ID=$(pane_window "$NEW_PANE_ID")
-
-if [ -n "$EXISTING_GROUP_WIN" ]; then
-  # Propagate the updated membership to every existing group window that
-  # mirrors the old membership (so navigation between mirrored panes sees
-  # the same group).
-  _tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}' \
-    | while IFS='|' read -r wid wtype wpanes; do
-        if [ "$wtype" != "group" ] || [ "$wid" = "$NEW_WIN_ID" ]; then
-          continue
-        fi
-        if [ "$wpanes" = "$CURRENT_PANES" ]; then
-          set_group_panes "$wid" $GROUP_LIST
-        fi
-      done
-fi
-
-# Resize the new window to match the source pane
+# Size the stash window to the visible slot, then swap the new pane into view.
 _tmux resize-window -t "$NEW_PANE_ID" -x "$PANE_WIDTH" -y "$PANE_HEIGHT"
-
-# Auto-switch: swap new pane into visible position
 _tmux swap-pane -s "$NEW_PANE_ID" -t "$PANE_ID"
 
 refresh_panes

@@ -44,7 +44,10 @@ const POLL_INTERVAL_MS = 4000;
 const SEP = '\t';
 
 /** tmux window types that are tmuxy-internal chrome, hidden from the tree. */
-const HIDDEN_WINDOW_TYPES = new Set(['float', 'float-backdrop', 'group', 'sidebar']);
+const HIDDEN_WINDOW_TYPES = new Set(['float', 'float-backdrop', 'sidebar']);
+
+/** The stash session parks hidden pane-group members; never show it in the tree. */
+const STASH_SESSION = '__tmuxy_stash';
 
 // One `list-windows -a` / `list-panes -a` row, tab-joined. `#{@tmuxy-window-type}`
 // is empty for foreign (e.g. vanilla-tmux) windows — those are kept as tabs.
@@ -78,6 +81,7 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
     if (!line) continue;
     const [session, windowId, index, name, type] = line.split(SEP);
     if (!session || !windowId) continue;
+    if (session === STASH_SESSION) continue;
     if (HIDDEN_WINDOW_TYPES.has(type)) continue;
     keptWindowIds.add(windowId);
     ensure(session).windows.push({

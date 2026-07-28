@@ -26,20 +26,24 @@ describe('parseSessions', () => {
     expect(work?.panes.find((p) => p.id === '%1')?.command).toBe('nvim');
   });
 
-  it('keeps foreign (untagged) windows but drops tmuxy-internal ones', () => {
+  it('keeps foreign (untagged) windows, drops internal windows and the stash session', () => {
     const windows = [
       row('main', '@0', '0', 'work', ''), // vanilla tmux window — no type
       row('main', '@1', '1', 'float', 'float'),
-      row('main', '@2', '2', 'grp', 'group'),
       row('main', '@3', '3', 'bar', 'float-backdrop'),
       row('main', '@4', '4', 'side', 'sidebar'),
+      row('__tmuxy_stash', '@9', '0', 'grp', ''), // hidden group member's window
     ].join('\n');
     const panes = [
       row('main', '@0', '%0', 'zsh', '1'),
       row('main', '@1', '%1', 'fzf', '1'), // pane in a hidden window → dropped
+      row('__tmuxy_stash', '@9', '%9', 'vim', '1'), // stash pane → dropped
     ].join('\n');
 
-    const [session] = parseSessions(windows, panes);
+    const sessions = parseSessions(windows, panes);
+    // The stash session never surfaces as a session at all.
+    expect(sessions.map((s) => s.sessionName)).toEqual(['main']);
+    const [session] = sessions;
     expect(session.windows.map((w) => w.id)).toEqual(['@0']);
     expect(session.panes.map((p) => p.id)).toEqual(['%0']);
   });

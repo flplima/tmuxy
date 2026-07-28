@@ -244,7 +244,13 @@ pub struct TmuxPane {
     pub command: String,
     pub title: String,        // pane title (set by shell/application)
     pub border_title: String, // evaluated pane-border-format from tmux config
-    pub in_mode: bool,        // true if in copy mode
+    /// Pane-group identity from `@tmuxy-group-id` (e.g. `g5`). `None` unless the
+    /// pane belongs to a group. Set on the visible member and every hidden
+    /// member (the latter emitted as lightweight stubs from the stash session),
+    /// so the frontend reconstructs group membership by grouping on this value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    pub in_mode: bool, // true if in copy mode
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
     /// True if the application is in alternate screen mode (vim, less, htop)
@@ -290,9 +296,8 @@ pub enum WindowType {
     Tab,
     Float,
     FloatBackdrop,
-    Group,
     /// The left sidebar's hidden window (runs the `tmuxy tree` TUI). Excluded
-    /// from the tab bar like floats/groups; rendered in the UI as a left drawer.
+    /// from the tab bar like floats; rendered in the UI as a left drawer.
     Sidebar,
 }
 
@@ -302,7 +307,6 @@ impl WindowType {
             "tab" => Some(WindowType::Tab),
             "float" => Some(WindowType::Float),
             "float-backdrop" => Some(WindowType::FloatBackdrop),
-            "group" => Some(WindowType::Group),
             "sidebar" => Some(WindowType::Sidebar),
             _ => None,
         }
@@ -313,7 +317,6 @@ impl WindowType {
             WindowType::Tab => "tab",
             WindowType::Float => "float",
             WindowType::FloatBackdrop => "float-backdrop",
-            WindowType::Group => "group",
             WindowType::Sidebar => "sidebar",
         }
     }
@@ -330,9 +333,6 @@ pub struct TmuxWindow {
     /// Window type as set via @tmuxy-window-type. None = foreign window.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_type: Option<WindowType>,
-    /// Group pane membership (from @tmuxy-group-panes), e.g. ["%4","%6","%7"].
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_panes: Option<Vec<String>>,
     /// Parent window ID for a float (the launcher window) or backdrop (the float).
     /// Sourced from @tmuxy-float-parent.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -437,6 +437,10 @@ pub struct PaneDelta {
     /// Border title (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub border_title: Option<String>,
+    /// Pane-group id (only if changed). Outer `Option` = "changed?"; inner
+    /// `Option` = the new value (`None` clears it — the pane left its group).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<Option<String>>,
     /// Copy mode state (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_mode: Option<bool>,
@@ -490,6 +494,7 @@ impl PaneDelta {
             && self.command.is_none()
             && self.title.is_none()
             && self.border_title.is_none()
+            && self.group_id.is_none()
             && self.in_mode.is_none()
             && self.copy_cursor_x.is_none()
             && self.copy_cursor_y.is_none()
@@ -516,8 +521,6 @@ pub struct WindowDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_type: Option<Option<WindowType>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_panes: Option<Option<Vec<String>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub float_parent: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_width: Option<Option<u32>>,
@@ -540,7 +543,6 @@ impl WindowDelta {
         self.name.is_none()
             && self.active.is_none()
             && self.window_type.is_none()
-            && self.group_panes.is_none()
             && self.float_parent.is_none()
             && self.float_width.is_none()
             && self.float_height.is_none()
@@ -683,6 +685,10 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
             command: info.command,
             title: info.title,
             border_title: info.border_title,
+            // Group membership arrives with the first control-mode list-panes
+            // delta (which carries `@tmuxy-group-id`); the polling baseline omits
+            // it, so a group tab strip appears a beat after the initial snapshot.
+            group_id: None,
             in_mode: info.in_mode,
             copy_cursor_x: info.copy_cursor_x,
             copy_cursor_y: info.copy_cursor_y,
@@ -717,12 +723,6 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
             name: w.name,
             active: w.active,
             window_type: WindowType::parse(&w.window_type),
-            group_panes: (!w.group_panes.is_empty()).then(|| {
-                w.group_panes
-                    .split_whitespace()
-                    .map(str::to_string)
-                    .collect()
-            }),
             float_parent: (!w.float_parent.is_empty()).then(|| w.float_parent.clone()),
             float_width: None,
             float_height: None,
@@ -763,7 +763,6 @@ mod tests {
             WindowType::Tab,
             WindowType::Float,
             WindowType::FloatBackdrop,
-            WindowType::Group,
             WindowType::Sidebar,
         ] {
             let s = ty.as_str();

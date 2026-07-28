@@ -35,16 +35,27 @@ pub mod tmux_options {
     /// `1` to suppress the float's header chrome.
     pub const FLOAT_NOHEADER: &str = "@tmuxy-float-noheader";
 
-    /// Space-separated pane IDs belonging to a group window (e.g. `%4 %6 %7`).
-    /// Space-joined specifically so the value can't collide with the
-    /// comma-separated `list-windows` format it rides in.
-    pub const GROUP_PANES: &str = "@tmuxy-group-panes";
+    /// Pane-scoped group identity (e.g. `g5`). Set on every member of a pane
+    /// group — the visible member (in the attached session) and each hidden
+    /// member (parked in the [`crate::constants::STASH_SESSION`]). Panes sharing
+    /// a value belong to the same group; membership is intrinsic to the pane and
+    /// follows it across a cross-session `swap-pane`, so there is no separate
+    /// membership list to keep in sync.
+    pub const GROUP_ID: &str = "@tmuxy-group-id";
 
     /// Active CSS theme name (file stem under `~/.config/tmuxy/themes/`).
     pub const THEME: &str = "@tmuxy-theme";
     /// Theme mode: `dark` / `light`.
     pub const THEME_MODE: &str = "@tmuxy-theme-mode";
 }
+
+/// The dedicated tmux session tmuxy parks HIDDEN panes in (non-active pane-group
+/// members). It is never attached, never shown in any session enumeration, and
+/// created lazily by the pane-group shell helpers. Keeping hidden panes here —
+/// rather than as extra windows in the attached session — means a native
+/// `tmux attach` (or any non-tmuxy client) sees only the user's real tabs, and
+/// the attached session's window list maps 1:1 to the tmuxy tab strip.
+pub const STASH_SESSION: &str = "__tmuxy_stash";
 
 /// Compile-time format strings the monitor passes to `list-windows -F` and
 /// `list-panes -F`. Both forms appear verbatim in multiple places; sharing the
@@ -63,11 +74,13 @@ pub mod tmux_formats {
         "#{window_id},#{window_index},#{window_active},#{@tmuxy-window-type},",
         "#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},",
         "#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},",
-        "#{@tmuxy-group-panes},#{window_zoomed_flag},#{window_name}'",
+        "#{window_zoomed_flag},#{window_name}'",
     );
 
     /// `list-panes -s -F '<...>'` format. The session-scope flag (`-s`) is
     /// included so the monitor never accidentally drops to window scope.
+    /// `#{@tmuxy-group-id}` rides in the fixed tail (non-free-text: `g<digits>`
+    /// or empty) so it can't collide with the two free-text fields.
     pub const LIST_PANES_CMD: &str = concat!(
         "list-panes -s -F '",
         "#{pane_id},#{pane_index},",
@@ -80,7 +93,23 @@ pub mod tmux_formats {
         "#{window_id},#{T:pane-border-format},",
         "#{alternate_on},#{mouse_any_flag},",
         "#{selection_present},",
-        "#{selection_start_x},#{selection_start_y},#{history_size}'",
+        "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id}'",
+    );
+
+    /// Enumerates the HIDDEN pane-group members parked in
+    /// [`super::STASH_SESSION`]. Each row is prefixed with the literal
+    /// `stashmember,` sentinel so the response parser routes it to the
+    /// stash-member handler instead of the active-session pane/window parsers —
+    /// the fields carry only what a group tab strip needs (id, its stash window,
+    /// group id, command, title). `pane_title` is last so its own commas stay in
+    /// the trailing field. A server-wide `-a` scan filtered to the stash session
+    /// by `-f` returns EMPTY (not an error) when the stash session doesn't exist
+    /// yet — which is the common case on every refresh before any group is made,
+    /// so it must not spam `%error` responses.
+    pub const LIST_STASH_PANES_CMD: &str = concat!(
+        "list-panes -a -f '#{==:#{session_name},__tmuxy_stash}' -F '",
+        "stashmember,#{pane_id},#{window_id},#{@tmuxy-group-id},",
+        "#{pane_current_command},#{pane_title}'",
     );
 }
 
@@ -134,7 +163,7 @@ mod tests {
     /// lockstep guard: every `@tmuxy-*` option must appear verbatim in the
     /// list-windows format the parser consumes.
     #[test]
-    fn list_windows_cmd_embeds_every_float_and_group_option() {
+    fn list_windows_cmd_embeds_every_float_option() {
         for option in [
             tmux_options::WINDOW_TYPE,
             tmux_options::FLOAT_PARENT,
@@ -143,7 +172,6 @@ mod tests {
             tmux_options::FLOAT_DRAWER,
             tmux_options::FLOAT_BG,
             tmux_options::FLOAT_NOHEADER,
-            tmux_options::GROUP_PANES,
         ] {
             assert!(
                 tmux_formats::LIST_WINDOWS_CMD.contains(&format!("#{{{option}}}")),
@@ -151,5 +179,25 @@ mod tests {
                  and the tmux_options constant have diverged"
             );
         }
+    }
+
+    /// The group id rides in the pane format now (pane-scoped), and the stash
+    /// enumeration must carry it too — same lockstep guard against a divergent
+    /// literal.
+    #[test]
+    fn list_panes_cmds_embed_group_id() {
+        let opt = tmux_options::GROUP_ID;
+        assert!(
+            tmux_formats::LIST_PANES_CMD.contains(&format!("#{{{opt}}}")),
+            "LIST_PANES_CMD is missing #{{{opt}}}"
+        );
+        assert!(
+            tmux_formats::LIST_STASH_PANES_CMD.contains(&format!("#{{{opt}}}")),
+            "LIST_STASH_PANES_CMD is missing #{{{opt}}}"
+        );
+        assert!(
+            tmux_formats::LIST_STASH_PANES_CMD.contains(STASH_SESSION),
+            "LIST_STASH_PANES_CMD must target the stash session by name"
+        );
     }
 }

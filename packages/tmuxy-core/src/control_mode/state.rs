@@ -207,6 +207,9 @@ pub struct PaneState {
     /// Evaluated pane-border-format from tmux config
     pub border_title: String,
 
+    /// Pane-group identity from `@tmuxy-group-id` (e.g. `g5`), or `None`.
+    pub group_id: Option<String>,
+
     /// In copy mode
     pub in_mode: bool,
 
@@ -284,6 +287,7 @@ impl PaneState {
             command: String::new(),
             title: String::new(),
             border_title: String::new(),
+            group_id: None,
             in_mode: false,
             copy_cursor_x: 0,
             copy_cursor_y: 0,
@@ -478,6 +482,7 @@ impl PaneState {
             command: self.command.clone(),
             title: self.title.clone(),
             border_title: self.border_title.clone(),
+            group_id: self.group_id.clone(),
             in_mode: self.in_mode,
             copy_cursor_x: self.copy_cursor_x,
             copy_cursor_y: self.copy_cursor_y,
@@ -516,9 +521,6 @@ pub struct WindowState {
     /// None = foreign window, ignored by the frontend.
     pub window_type: Option<WindowType>,
 
-    /// Group pane membership from @tmuxy-group-panes (e.g. ["%4","%6","%7"]).
-    pub group_panes: Option<Vec<String>>,
-
     /// Parent window ID for float / backdrop (@tmuxy-float-parent).
     pub float_parent: Option<String>,
 
@@ -553,7 +555,6 @@ impl WindowState {
             active: false,
             layout: String::new(),
             window_type: None,
-            group_panes: None,
             float_parent: None,
             float_width: None,
             float_height: None,
@@ -572,7 +573,6 @@ impl WindowState {
             name: self.name.clone(),
             active: self.active,
             window_type: self.window_type,
-            group_panes: self.group_panes.clone(),
             float_parent: self.float_parent.clone(),
             float_width: self.float_width,
             float_height: self.float_height,
@@ -763,6 +763,14 @@ pub struct StateAggregator {
     /// so parse_layout() can replay it when the pane is created.
     early_output: HashMap<String, Vec<u8>>,
 
+    /// HIDDEN pane-group members parked in the stash session, keyed by pane id.
+    /// These are not real panes in this session's plane — they carry only what a
+    /// group tab strip needs (window id, group id, command, title). Rebuilt from
+    /// each `LIST_STASH_PANES_CMD` response and emitted as lightweight
+    /// `TmuxPane` stubs (see `to_tmux_state`). The frontend tells a stub from the
+    /// visible member by its window id (a stash window is never the active one).
+    stash_members: HashMap<String, StashMember>,
+
     /// Compound-command settling state. When armed (`settling_until.is_some()`),
     /// window/layout emissions are suppressed and the aggregator's `tick(now)`
     /// is responsible for firing the consolidated state emit when the deadline
@@ -810,6 +818,66 @@ fn is_list_panes_line(line: &str) -> bool {
     };
     let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
     !digits.is_empty() && rest[digits.len()..].starts_with(',')
+}
+
+/// Literal sentinel prefixed on every `LIST_STASH_PANES_CMD` row so a stash
+/// response routes to the stash-member handler and never reaches the
+/// active-session pane/window parsers (a stash row carries a `@<id>` window id
+/// that would otherwise trip the list-windows loop).
+const STASH_MEMBER_PREFIX: &str = "stashmember,";
+
+fn is_stash_member_line(line: &str) -> bool {
+    line.trim_start().starts_with(STASH_MEMBER_PREFIX)
+}
+
+/// A HIDDEN pane-group member living in the stash session — just enough to
+/// render its tab in a group strip. Emitted as a lightweight `TmuxPane` stub.
+#[derive(Debug, Clone)]
+struct StashMember {
+    /// The pane's window in the stash session (never the attached session's
+    /// active window, so the frontend treats the emitted stub as hidden).
+    window_id: String,
+    /// `@tmuxy-group-id` value tying it to its group.
+    group_id: String,
+    command: String,
+    title: String,
+}
+
+/// Build the wire stub for a hidden group member. It has no rendered content or
+/// geometry — the frontend only reads its id, group id, command, and title to
+/// draw the member's tab; its content streams in via a real pane once the user
+/// swaps it into view.
+fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
+    TmuxPane {
+        id: 0,
+        tmux_id: pane_id.to_string(),
+        window_id: member.window_id.clone(),
+        content: std::sync::Arc::new(PaneContent::default()),
+        cursor_x: 0,
+        cursor_y: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        active: false,
+        command: member.command.clone(),
+        title: member.title.clone(),
+        border_title: String::new(),
+        group_id: Some(member.group_id.clone()),
+        in_mode: false,
+        copy_cursor_x: 0,
+        copy_cursor_y: 0,
+        alternate_on: false,
+        mouse_any_flag: false,
+        paused: false,
+        history_size: 0,
+        selection_present: false,
+        selection_start_x: 0,
+        selection_start_y: 0,
+        images: Vec::new(),
+        cursor_shape: 0,
+        cursor_hidden: false,
+    }
 }
 
 pub const CAPTURE_BEGIN_MARKER: &str = "TMUXY_CAP_BEGIN";
@@ -868,6 +936,7 @@ impl StateAggregator {
             suppress_window_emissions: false,
             panes_moved_window: std::collections::HashSet::new(),
             early_output: HashMap::new(),
+            stash_members: HashMap::new(),
             settling_until: None,
             settling_started: None,
             settling_awaiting_first_event: false,
@@ -1020,7 +1089,6 @@ impl StateAggregator {
     /// Name-based inference (defensive, in case set-option from a tmuxy script
     /// hasn't propagated yet):
     /// - `float` or `__float_*` → Float
-    /// - `group` or `__group_*` → Group
     /// - `__sidebar` → Sidebar
     /// - anything else → Tab (auto-adopt: existing user windows become tabs)
     pub fn collect_window_tag_commands(&mut self) -> Vec<String> {
@@ -1031,8 +1099,6 @@ impl StateAggregator {
             }
             let inferred = if window.name == "float" || window.name.starts_with("__float_") {
                 WindowType::Float
-            } else if window.name == "group" || window.name.starts_with("__group_") {
-                WindowType::Group
             } else if window.name == "__sidebar" {
                 WindowType::Sidebar
             } else {
@@ -1796,8 +1862,51 @@ impl StateAggregator {
         resized_panes
     }
 
+    /// Rebuild the hidden pane-group member map from a `LIST_STASH_PANES_CMD`
+    /// response. Row shape: `stashmember,<pane>,<window>,<group-id>,<cmd>,<title>`
+    /// (title is free text and last). Members without a group id are ignored.
+    fn rebuild_stash_members(&mut self, output: &str) {
+        let mut members = HashMap::new();
+        for line in output.lines() {
+            if !is_stash_member_line(line) {
+                continue;
+            }
+            let parts: Vec<&str> = line.trim_start().splitn(6, ',').collect();
+            if parts.len() < 6 {
+                continue;
+            }
+            let pane_id = parts[1].trim();
+            let window_id = parts[2].trim();
+            let group_id = parts[3].trim();
+            if !pane_id.starts_with('%') || group_id.is_empty() {
+                continue;
+            }
+            members.insert(
+                pane_id.to_string(),
+                StashMember {
+                    window_id: window_id.to_string(),
+                    group_id: group_id.to_string(),
+                    command: parts[4].to_string(),
+                    title: parts[5].to_string(),
+                },
+            );
+        }
+        self.stash_members = members;
+    }
+
     /// Handle command response (list-panes, list-windows) and return list of panes that were resized.
     fn handle_command_response(&mut self, output: &str) -> Vec<String> {
+        // A stash-members response (LIST_STASH_PANES_CMD) is a self-contained
+        // block: rebuild the hidden-member map from it and return, so its rows
+        // never reach the active-session pane/window parsers below. An empty
+        // block (no rows) can't be told apart from an errored/absent stash
+        // session, so leave the map as-is on empty; `to_tmux_state` prunes any
+        // member whose group no longer has a visible pane.
+        if output.lines().any(is_stash_member_line) {
+            self.rebuild_stash_members(output);
+            return Vec::new();
+        }
+
         // Track which panes we see in this response
         let mut seen_panes: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut resized_panes: Vec<String> = Vec::new();
@@ -1905,10 +2014,11 @@ impl StateAggregator {
         // copy_cursor_y, scroll_position. Everything between command and those
         // four fields is pane_title; everything between window_id and the fixed
         // 6-field tail is border_title.
-        let num_tail_fields = 6;
+        let num_tail_fields = 7;
 
         // Tail fields (fixed, never free-text): alternate_on, mouse_any_flag,
-        // selection_present, selection_start_x, selection_start_y, history_size.
+        // selection_present, selection_start_x, selection_start_y, history_size,
+        // group_id (`@tmuxy-group-id`, `g<digits>` or empty).
         let (
             alternate_on,
             mouse_any_flag,
@@ -1916,18 +2026,21 @@ impl StateAggregator {
             selection_start_x,
             selection_start_y,
             history_size,
-        ) = if parts.len() >= 17 {
+            group_id,
+        ) = if parts.len() >= 18 {
             let last = parts.len() - 1;
+            let gid = parts[last].trim();
             (
+                parts[last - 6] == "1",
                 parts[last - 5] == "1",
                 parts[last - 4] == "1",
-                parts[last - 3] == "1",
-                parts[last - 2].parse::<u32>().unwrap_or(0),
+                parts[last - 3].parse::<u32>().unwrap_or(0),
+                parts[last - 2].parse::<u64>().unwrap_or(0),
                 parts[last - 1].parse::<u64>().unwrap_or(0),
-                parts[last].parse::<u64>().unwrap_or(0),
+                (!gid.is_empty()).then(|| gid.to_string()),
             )
         } else {
-            (false, false, false, 0u32, 0u64, 0u64)
+            (false, false, false, 0u32, 0u64, 0u64, None)
         };
 
         let mut title = String::new();
@@ -2023,6 +2136,7 @@ impl StateAggregator {
         pane.selection_start_x = selection_start_x;
         pane.selection_start_y = selection_start_y;
         pane.history_size = history_size;
+        pane.group_id = group_id;
 
         // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = cursor_x;
@@ -2038,14 +2152,14 @@ impl StateAggregator {
 
     /// Parse a line from list-windows output. Expected format (comma-separated,
     /// see constants::LIST_WINDOWS_CMD):
-    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,group_panes,zoomed,name`
+    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,zoomed,name`
     /// `window_name` is LAST and free text — we `splitn` so its own commas stay
     /// in the trailing field and can't shift any parsed column. Every column
     /// after `active` is a `@tmuxy-*` user option that may be empty.
     fn parse_list_windows_line(&mut self, line: &str) {
-        // 13 fields; splitn keeps window_name (the 13th) intact even with commas.
-        let parts: Vec<&str> = line.splitn(13, ',').collect();
-        if parts.len() < 12 {
+        // 12 fields; splitn keeps window_name (the 12th) intact even with commas.
+        let parts: Vec<&str> = line.splitn(12, ',').collect();
+        if parts.len() < 11 {
             return;
         }
 
@@ -2056,7 +2170,7 @@ impl StateAggregator {
 
         let index: u32 = parts[1].parse().unwrap_or(0);
         let active = parts[2] == "1";
-        let name = parts.get(12).map(|s| s.to_string()).unwrap_or_default();
+        let name = parts.get(11).map(|s| s.to_string()).unwrap_or_default();
 
         let opt = |idx: usize| -> Option<String> {
             parts
@@ -2073,18 +2187,11 @@ impl StateAggregator {
         let float_drawer = opt(7);
         let float_bg = opt(8);
         let float_noheader = opt(9).is_some_and(|s| s == "1");
-        // Group pane membership stored as space-separated (e.g. "%4 %6 %7")
-        // to avoid colliding with the comma-separated list-windows format.
-        let group_panes = opt(10).map(|s| {
-            s.split_whitespace()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-        });
         // Authoritative zoom state. Deriving it only from `%layout-change`
         // flags loses it whenever window state is rebuilt from list-windows —
         // e.g. every fresh client connect, which is exactly when a client
         // attaching to an already-zoomed window needs it.
-        let zoomed = opt(11).is_some_and(|s| s == "1");
+        let zoomed = opt(10).is_some_and(|s| s == "1");
 
         let window = self
             .windows
@@ -2095,7 +2202,6 @@ impl StateAggregator {
         window.name = name;
         window.active = active;
         window.window_type = window_type;
-        window.group_panes = group_panes;
         window.zoomed = zoomed;
         window.float_parent = float_parent;
         window.float_width = float_width;
@@ -2340,6 +2446,12 @@ impl StateAggregator {
         if prev.border_title != curr.border_title {
             delta.border_title = Some(curr.border_title.clone());
         }
+        if prev.group_id != curr.group_id {
+            // `Some(None)` clears the group id (pane left a group); `Some(Some)`
+            // sets it. `skip_serializing_if` on the outer Option keeps unchanged
+            // panes off the wire.
+            delta.group_id = Some(curr.group_id.clone());
+        }
         if prev.in_mode != curr.in_mode {
             delta.in_mode = Some(curr.in_mode);
         }
@@ -2399,9 +2511,6 @@ impl StateAggregator {
         if prev.window_type != curr.window_type {
             delta.window_type = Some(curr.window_type);
         }
-        if prev.group_panes != curr.group_panes {
-            delta.group_panes = Some(curr.group_panes.clone());
-        }
         if prev.float_parent != curr.float_parent {
             delta.float_parent = Some(curr.float_parent.clone());
         }
@@ -2452,7 +2561,7 @@ impl StateAggregator {
         // keyboard routing, optimistic-prediction lookups, focus indicators).
         // Without this collapse, multiple panes report active=true and any
         // downstream code that assumes "at most one active pane" misbehaves.
-        let panes: Vec<TmuxPane> = matching_pane_ids
+        let mut panes: Vec<TmuxPane> = matching_pane_ids
             .iter()
             .filter_map(|id| {
                 self.panes.get_mut(id).map(|p| {
@@ -2463,6 +2572,24 @@ impl StateAggregator {
                 })
             })
             .collect();
+
+        // Append the hidden pane-group members parked in the stash session as
+        // lightweight stubs, so a group's tab strip can render every member even
+        // though only the visible one is a real pane in this session. Prune
+        // members whose group no longer has a visible pane here (the group was
+        // dissolved, or its tab was closed wholesale) — those are orphans, not
+        // tabs. The stub's stash `window_id` is never the active window, so
+        // `selectVisiblePanes` keeps it out of the layout automatically.
+        let active_group_ids: std::collections::HashSet<&str> = self
+            .panes
+            .values()
+            .filter_map(|p| p.group_id.as_deref())
+            .collect();
+        self.stash_members
+            .retain(|_, m| active_group_ids.contains(m.group_id.as_str()));
+        for (pane_id, member) in &self.stash_members {
+            panes.push(stash_member_stub(pane_id, member));
+        }
 
         let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
 
@@ -2720,9 +2847,11 @@ mod tests {
     /// Build a LIST_PANES_CMD line with the given title and border_title, in the
     /// exact field order of `constants::tmux_formats::LIST_PANES_CMD`.
     fn list_panes_line(title: &str, window_id: &str, border_title: &str) -> String {
+        // group_id (final tail field) is left empty here; group parsing has its
+        // own test below.
         format!(
-            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist
-            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,100"
+            // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,gid
+            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,100,"
         )
     }
 
@@ -2769,8 +2898,8 @@ mod tests {
         // LIST_WINDOWS_CMD) means a name like "build, test" stays in the
         // trailing field and can't shift window_active/@tmuxy-window-type/floats.
         let name = "build, test";
-        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,group,zoomed,name
-        let line = format!("@7,3,1,tab,,,,,,,,0,{name}");
+        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,zoomed,name
+        let line = format!("@7,3,1,tab,,,,,,,0,{name}");
         let mut agg = StateAggregator::new();
         agg.parse_list_windows_line(&line);
         let w = agg.windows.get("@7").expect("window parsed");
@@ -2789,12 +2918,80 @@ mod tests {
     #[test]
     fn list_windows_carries_the_zoom_flag() {
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,1,editor");
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,1,editor");
         assert!(agg.windows.get("@9").expect("window parsed").zoomed);
 
         // ...and clears it again when the window is no longer zoomed.
-        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,0,editor");
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,0,editor");
         assert!(!agg.windows.get("@9").expect("window parsed").zoomed);
+    }
+
+    /// The group id rides in the final `list-panes` tail field.
+    #[test]
+    fn list_panes_parses_group_id() {
+        let mut agg = StateAggregator::new();
+        // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,GID
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,100,g5");
+        assert_eq!(
+            agg.panes
+                .get("%3")
+                .expect("pane parsed")
+                .group_id
+                .as_deref(),
+            Some("g5")
+        );
+
+        // Empty tail → no group.
+        agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,100,");
+        assert_eq!(agg.panes.get("%4").expect("pane parsed").group_id, None);
+    }
+
+    /// A `stashmember,` block rebuilds hidden members without conjuring real
+    /// panes or windows into the active-session plane.
+    #[test]
+    fn stash_block_does_not_create_real_panes() {
+        let mut agg = StateAggregator::new();
+        agg.handle_command_response("stashmember,%7,@9,g5,vim,editing");
+        assert!(
+            agg.panes.is_empty(),
+            "stash rows must not become real panes"
+        );
+        assert!(agg.windows.is_empty(), "stash rows must not become windows");
+        assert_eq!(agg.stash_members.len(), 1);
+    }
+
+    /// Hidden members are emitted as stubs only for groups that still have a
+    /// visible member; orphans (no visible pane) are pruned.
+    #[test]
+    fn stash_members_emit_stubs_only_for_active_groups() {
+        let mut agg = StateAggregator::new();
+        // Visible member of g5 in window @4.
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,100,g5");
+        // Hidden member of g5, plus an orphan in g6 (no visible member).
+        agg.handle_command_response(
+            "stashmember,%7,@9,g5,vim,hidden-title\nstashmember,%8,@9,g6,top,orphan",
+        );
+
+        let state = agg.to_tmux_state();
+        let ids: Vec<&str> = state.panes.iter().map(|p| p.tmux_id.as_str()).collect();
+        assert!(ids.contains(&"%3"), "visible member emitted");
+        assert!(
+            ids.contains(&"%7"),
+            "hidden member of an active group emitted"
+        );
+        assert!(!ids.contains(&"%8"), "orphan pruned");
+
+        let stub = state
+            .panes
+            .iter()
+            .find(|p| p.tmux_id == "%7")
+            .expect("stub");
+        assert_eq!(stub.group_id.as_deref(), Some("g5"));
+        assert_eq!(
+            stub.window_id, "@9",
+            "stub keeps its stash window id (never the active one)"
+        );
+        assert_eq!(stub.title, "hidden-title");
     }
 
     #[test]

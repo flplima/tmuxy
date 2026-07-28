@@ -74,10 +74,11 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       send({ type: 'SEND_COMMAND', command: 'send-keys -R \\; clear-history' });
       break;
     case 'pane-close':
-      // Group members and floats need the group-aware close script; a raw
-      // kill-pane leaves the group window and its @tmuxy-group-panes option
-      // stale. Route through CLOSE_PANE when we know which pane to close;
-      // otherwise fall back to tmux's server-active pane.
+      // Group members and floats need the group-aware close script: closing a
+      // group member has to swap a sibling into view (or tidy the stash window)
+      // and degroup the survivor, which a raw kill-pane skips. Route through
+      // CLOSE_PANE when we know which pane to close; otherwise fall back to
+      // tmux's server-active pane.
       if (closeTargetPaneId) {
         send({ type: 'CLOSE_PANE', paneId: closeTargetPaneId });
       } else {

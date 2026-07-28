@@ -169,6 +169,15 @@ export class DemoTmux {
         : [];
     const posMap = new Map(panePositions.map((p) => [p.paneId, p]));
 
+    // Map each group member to its group id (the group window's id stands in
+    // for @tmuxy-group-id). Members carry this on the wire; the group windows
+    // themselves are not emitted (they model the hidden stash).
+    const groupIdByPane = new Map<string, string>();
+    for (const w of this.windows) {
+      if (w.windowType !== 'group' || !w.groupPanes) continue;
+      for (const pid of w.groupPanes) groupIdByPane.set(pid, w.id);
+    }
+
     const panes: ServerPane[] = [];
     for (const [, pane] of this.panes) {
       const pos = posMap.get(pane.id);
@@ -206,6 +215,7 @@ export class DemoTmux {
         command: pane.command,
         title: pane.title,
         border_title: '',
+        group_id: groupIdByPane.get(pane.id) ?? null,
         in_mode: this.copyModePanes.has(pane.id),
         copy_cursor_x: 0,
         copy_cursor_y: 0,
@@ -216,20 +226,23 @@ export class DemoTmux {
       });
     }
 
-    const windows: ServerWindow[] = this.windows.map((w) => ({
-      id: w.id,
-      index: w.index,
-      name: w.name,
-      active: w.id === this.activeWindowId,
-      window_type: w.windowType,
-      group_panes: w.groupPanes,
-      float_parent: null,
-      float_width: w.floatWidth ?? null,
-      float_height: w.floatHeight ?? null,
-      float_drawer: w.floatDrawer ?? null,
-      float_bg: w.floatBg ?? null,
-      float_noheader: w.floatNoheader ?? false,
-    }));
+    const windows: ServerWindow[] = this.windows
+      // Group windows model the hidden stash: their member panes are emitted
+      // (carrying group_id) but the windows themselves are never tabs.
+      .filter((w) => w.windowType !== 'group')
+      .map((w) => ({
+        id: w.id,
+        index: w.index,
+        name: w.name,
+        active: w.id === this.activeWindowId,
+        window_type: w.windowType === 'group' ? null : w.windowType,
+        float_parent: null,
+        float_width: w.floatWidth ?? null,
+        float_height: w.floatHeight ?? null,
+        float_drawer: w.floatDrawer ?? null,
+        float_bg: w.floatBg ?? null,
+        float_noheader: w.floatNoheader ?? false,
+      }));
 
     return {
       session_name: this.sessionName,

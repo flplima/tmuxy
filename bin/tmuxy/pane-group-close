@@ -2,124 +2,55 @@
 # Close a pane from a group
 # Args: $1=pane_id_to_close
 #
-# If the pane is visible and others exist, swaps next pane in before killing.
-# If the pane is in a hidden group window, kills that window.
-# Updates @tmuxy-group-panes on the remaining group windows.
+# If the pane is the visible member and others exist, swaps a sibling into view
+# before killing it. A hidden member is killed by removing its stash window.
+# When only one member remains, its @tmuxy-group-id is cleared (degrouped).
 
 set -euo pipefail
 source "$(dirname "$0")/_lib"
 
 CLOSE_PANE="$1"
-ACTIVE_WIN=$(active_window)
 
-# Find the group window containing this pane
-GROUP_WIN=$(find_group_for_pane "$CLOSE_PANE")
+GID=$(group_id_of_pane "$CLOSE_PANE")
 
-# Not in a group - just kill the pane
-if [ -z "$GROUP_WIN" ]; then
+# Not in a group — just kill the pane.
+if [ -z "$GID" ]; then
   _tmux kill-pane -t "$CLOSE_PANE"
   refresh_panes
   exit 0
 fi
 
-# Parse pane list from the group's @tmuxy-group-panes option
-PANE_IDS=$(parse_group_panes "$GROUP_WIN")
-# shellcheck disable=SC2086
-set -- $PANE_IDS
-PANE_COUNT=$#
+MEMBERS=$(group_members "$GID")
+COUNT=$(printf '%s\n' "$MEMBERS" | grep -c . || true)
+VISIBLE_PANE=$(visible_member "$GID")
 
-# Find visible pane
-# shellcheck disable=SC2086
-VISIBLE_PANE=$(find_visible_pane_from_list $PANE_IDS)
-IS_VISIBLE=false
-if [ "$VISIBLE_PANE" = "$CLOSE_PANE" ]; then
-  IS_VISIBLE=true
-fi
-
-# Get the window of the pane being closed
-CLOSE_WIN=$(pane_window "$CLOSE_PANE")
-
-if [ "$IS_VISIBLE" = true ] && [ "$PANE_COUNT" -gt 1 ]; then
-  # Closing the visible pane - swap another in first
-  # Find index of closing pane in the list
-  IDX=0
-  CLOSE_IDX=0
-  for pid in $PANE_IDS; do
-    if [ "$pid" = "$CLOSE_PANE" ]; then
-      CLOSE_IDX=$IDX
-    fi
-    IDX=$((IDX + 1))
-  done
-
-  # Pick next (or previous if at end)
-  LAST_IDX=$((PANE_COUNT - 1))
-  if [ "$CLOSE_IDX" -lt "$LAST_IDX" ]; then
-    NEXT_IDX=$((CLOSE_IDX + 1))
-  else
-    NEXT_IDX=$((CLOSE_IDX - 1))
-  fi
-
-  # Get next pane ID from the list
-  IDX=0
-  NEXT_PANE=""
-  for pid in $PANE_IDS; do
-    if [ "$IDX" -eq "$NEXT_IDX" ]; then
-      NEXT_PANE="$pid"
-      break
-    fi
-    IDX=$((IDX + 1))
-  done
-
+if [ "$CLOSE_PANE" = "$VISIBLE_PANE" ] && [ "$COUNT" -gt 1 ]; then
+  # Closing the visible pane: swap a sibling into view, then kill the window
+  # that now holds the closing pane (the sibling's former stash window).
+  NEXT_PANE=$(printf '%s\n' "$MEMBERS" | grep -v "^${CLOSE_PANE}\$" | head -1)
   NEXT_WIN=$(pane_window "$NEXT_PANE")
-
-  # Swap the next pane into view, then kill the window that now holds the closing pane
   _tmux swap-pane -s "$CLOSE_PANE" -t "$NEXT_PANE" \; kill-window -t "$NEXT_WIN"
-elif [ "$CLOSE_WIN" != "$ACTIVE_WIN" ]; then
-  # Pane is in a hidden group window - kill the window
-  _tmux kill-window -t "$CLOSE_WIN"
 else
-  # Pane is in the active window (last in group) - kill pane
-  _tmux kill-pane -t "$CLOSE_PANE"
-fi
-
-# Build remaining pane list (excluding closed pane)
-REMAINING=""
-for pid in $PANE_IDS; do
-  if [ "$pid" != "$CLOSE_PANE" ]; then
-    if [ -n "$REMAINING" ]; then
-      REMAINING="$REMAINING $pid"
-    else
-      REMAINING="$pid"
-    fi
+  CLOSE_WIN=$(pane_window "$CLOSE_PANE")
+  ACTIVE_WIN=$(active_window)
+  if [ "$CLOSE_WIN" != "$ACTIVE_WIN" ]; then
+    # Hidden member — kill its stash window.
+    _tmux kill-window -t "$CLOSE_WIN"
+  else
+    # Visible and last in the group — kill the pane in place.
+    _tmux kill-pane -t "$CLOSE_PANE"
   fi
-done
-
-# shellcheck disable=SC2086
-set -- $REMAINING
-REMAINING_COUNT=$#
-
-if [ "$REMAINING_COUNT" -ge 2 ]; then
-  # Update @tmuxy-group-panes on every surviving group window so each one
-  # has the same membership list.
-  _tmux list-windows -F '#{window_id}|#{@tmuxy-window-type}|#{@tmuxy-group-panes}' \
-    | while IFS='|' read -r wid wtype wpanes; do
-        if [ "$wtype" != "group" ]; then
-          continue
-        fi
-        # Membership matches if every surviving pane is in this window's group list.
-        matched=true
-        for pid in $REMAINING; do
-          if ! echo "$wpanes" | tr ' ' '\n' | grep -qx "$pid"; then
-            matched=false
-            break
-          fi
-        done
-        if [ "$matched" = true ]; then
-          # shellcheck disable=SC2086
-          set_group_panes "$wid" $REMAINING
-        fi
-      done
 fi
-# If <2 panes remain, the group window was already killed above — no update needed
+
+# If one member remains, it is no longer a group — clear its id.
+REMAINING=$(group_members "$GID" | grep -v "^${CLOSE_PANE}\$" || true)
+RCOUNT=$(printf '%s\n' "$REMAINING" | grep -c . || true)
+if [ "$RCOUNT" -le 1 ]; then
+  SURVIVOR=$(printf '%s\n' "$REMAINING" | head -1)
+  [ -n "$SURVIVOR" ] && clear_group_id "$SURVIVOR"
+fi
+
+# Sweep any groups orphaned entirely into the stash.
+gc_groups
 
 refresh_panes

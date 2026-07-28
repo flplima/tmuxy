@@ -50,6 +50,7 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     prev.command === next.command &&
     prev.title === next.title &&
     prev.borderTitle === next.borderTitle &&
+    prev.groupId === next.groupId &&
     prev.inMode === next.inMode &&
     prev.copyCursorX === next.copyCursorX &&
     prev.copyCursorY === next.copyCursorY &&
@@ -85,9 +86,7 @@ function preserveWindow(prev: TmuxWindow, next: TmuxWindow): TmuxWindow {
     // Zoom toggles change nothing else about the window, so omitting it here
     // pins the old object identity and the UI stays stuck in (or out of) zoom
     // until some unrelated field happens to change.
-    Boolean(prev.zoomed) === Boolean(next.zoomed) &&
-    (prev.groupPanes === next.groupPanes ||
-      (prev.groupPanes?.join(',') ?? null) === (next.groupPanes?.join(',') ?? null));
+    Boolean(prev.zoomed) === Boolean(next.zoomed);
   return same ? prev : next;
 }
 

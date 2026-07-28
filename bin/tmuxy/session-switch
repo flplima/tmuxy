@@ -23,8 +23,8 @@ done
 # Get current session
 current=$(_tmux display-message -p '#{session_name}')
 
-# List all sessions
-mapfile -t sessions < <(_tmux list-sessions -F '#{session_name}')
+# List all sessions (never the hidden stash session that parks group members)
+mapfile -t sessions < <(_tmux list-sessions -F '#{session_name}' | grep -vFx "$STASH_SESSION")
 
 if [ ${#sessions[@]} -eq 0 ]; then
   echo "No tmux sessions found."

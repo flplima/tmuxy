@@ -37,7 +37,7 @@ import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import type { TmuxClientModel, TmuxSnapshot } from '../../tmux/store';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
 import {
-  buildGroupsFromWindows,
+  buildGroupsFromPanes,
   buildFloatPanesFromWindows,
   parseCommandPrompt,
   parseDisplayMessage,
@@ -665,11 +665,9 @@ export const appMachine = setup({
                 const prev = context.windows[i];
                 if (!prev) return true;
                 if (w.name !== prev.name) return true;
-                // Window-type and group membership flips need to rebuild
-                // paneGroups too — without this, a window that arrives
-                // initially untagged and later flips to windowType=group
-                // (auto-adopt or set-option round-trip) never produces
-                // a tab strip.
+                // Window-type flips need to rebuild floats too — a window that
+                // arrives initially untagged and later flips to windowType=float
+                // (set-option round-trip) must rebuild floatPanes.
                 if (w.windowType !== prev.windowType) return true;
                 // Float option metadata (@tmuxy-float-*) can arrive on a
                 // LATER list-windows sync than the window-type tag; without
@@ -685,24 +683,19 @@ export const appMachine = setup({
                 ) {
                   return true;
                 }
-                const a = w.groupPanes ?? [];
-                const b = prev.groupPanes ?? [];
-                if (a.length !== b.length) return true;
-                for (let j = 0; j < a.length; j++) {
-                  if (a[j] !== b[j]) return true;
-                }
                 return false;
               }) ||
-              transformed.panes.some(
-                (p) => p.windowId !== context.panes.find((cp) => cp.tmuxId === p.tmuxId)?.windowId,
-              );
+              // A pane changing window (group swap) OR its group id (join/leave/
+              // degroup) must rebuild paneGroups.
+              transformed.panes.some((p) => {
+                const prev = context.panes.find((cp) => cp.tmuxId === p.tmuxId);
+                return (
+                  p.windowId !== prev?.windowId || (p.groupId ?? null) !== (prev?.groupId ?? null)
+                );
+              });
 
             let paneGroups = structurallyChanged
-              ? buildGroupsFromWindows(
-                  transformed.windows,
-                  transformed.panes,
-                  transformed.activeWindowId,
-                )
+              ? buildGroupsFromPanes(transformed.panes)
               : context.paneGroups;
 
             // Prune stale groups: if a group references pane IDs that no longer

@@ -20,6 +20,13 @@ export interface TmuxPane {
   title: string;
   /** Evaluated pane-border-format from tmux config */
   borderTitle: string;
+  /**
+   * Pane-group identity (`@tmuxy-group-id`, e.g. `g5`); absent/null when the
+   * pane is not in a group (the backend omits it from the wire). Panes sharing
+   * a value form a group; the member whose `windowId` is the active window is
+   * the visible one, the rest are hidden stubs parked in the stash session.
+   */
+  groupId?: string | null;
   inMode: boolean;
   copyCursorX: number;
   copyCursorY: number;
@@ -60,7 +67,7 @@ export interface ImagePlacement {
  * `null` means foreign — tmuxy never created or adopted this window and
  * filters it out everywhere.
  */
-export type WindowType = 'tab' | 'float' | 'float-backdrop' | 'group' | 'sidebar';
+export type WindowType = 'tab' | 'float' | 'float-backdrop' | 'sidebar';
 
 export interface TmuxWindow {
   /** Window ID (e.g., "@0") */
@@ -70,8 +77,6 @@ export interface TmuxWindow {
   active: boolean;
   /** Window type. `null` = foreign (ignored by the UI). */
   windowType: WindowType | null;
-  /** Group pane membership (@tmuxy-group-panes), e.g. ["%4","%6","%7"]. */
-  groupPanes: string[] | null;
   /** Parent window id for floats (launcher) and backdrops (the float). */
   floatParent: string | null;
   /** Float width in cells (@tmuxy-float-width). */
@@ -169,6 +174,7 @@ export interface ServerPane {
   command: string;
   title: string;
   border_title: string;
+  group_id?: string | null;
   in_mode: boolean;
   copy_cursor_x: number;
   copy_cursor_y: number;
@@ -200,7 +206,6 @@ export interface ServerWindow {
   name: string;
   active: boolean;
   window_type?: WindowType | null;
-  group_panes?: string[] | null;
   float_parent?: string | null;
   float_width?: number | null;
   float_height?: number | null;
@@ -239,6 +244,7 @@ export interface PaneDelta {
   command?: string;
   title?: string;
   border_title?: string;
+  group_id?: string | null;
   in_mode?: boolean;
   copy_cursor_x?: number;
   copy_cursor_y?: number;
@@ -258,7 +264,6 @@ export interface WindowDelta {
   name?: string;
   active?: boolean;
   window_type?: WindowType | null;
-  group_panes?: string[] | null;
   float_parent?: string | null;
   float_width?: number | null;
   float_height?: number | null;

@@ -76,6 +76,9 @@ export const ServerPane = Schema.Struct({
   command: Schema.String,
   title: Schema.String,
   border_title: Schema.String,
+  // Kept in the schema so decoding preserves it (Schema.Struct strips excess
+  // properties by default). Group membership is reconstructed from this.
+  group_id: Schema.optional(Schema.NullOr(Schema.String)),
   in_mode: Schema.Boolean,
   copy_cursor_x: Schema.Number,
   copy_cursor_y: Schema.Number,
@@ -92,7 +95,7 @@ export const ServerPane = Schema.Struct({
 });
 
 /** Window type set on @tmuxy-window-type. Null = foreign window. */
-export const WindowType = Schema.Literal('tab', 'float', 'float-backdrop', 'group', 'sidebar');
+export const WindowType = Schema.Literal('tab', 'float', 'float-backdrop', 'sidebar');
 
 /** Window metadata. */
 export const ServerWindow = Schema.Struct({
@@ -101,7 +104,6 @@ export const ServerWindow = Schema.Struct({
   name: Schema.String,
   active: Schema.Boolean,
   window_type: Schema.optional(Schema.NullOr(WindowType)),
-  group_panes: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
   float_parent: Schema.optional(Schema.NullOr(Schema.String)),
   float_width: Schema.optional(Schema.NullOr(Schema.Number)),
   float_height: Schema.optional(Schema.NullOr(Schema.Number)),

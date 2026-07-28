@@ -74,11 +74,16 @@ impl Session {
                     out.commands.push(tmux_formats::LIST_PANES_CMD.to_string());
                     out.commands
                         .push(tmux_formats::LIST_WINDOWS_CMD.to_string());
+                    // Stash query last — independent of panes-before-windows.
+                    out.commands
+                        .push(tmux_formats::LIST_STASH_PANES_CMD.to_string());
                 }
                 SideEffect::RefreshPanes { pane_ids } => {
                     let queued = self.agg.queue_captures(&pane_ids);
                     if !queued.is_empty() {
                         out.commands.push(tmux_formats::LIST_PANES_CMD.to_string());
+                        out.commands
+                            .push(tmux_formats::LIST_STASH_PANES_CMD.to_string());
                         for id in &queued {
                             out.commands.push(capture_command(id));
                         }
@@ -178,6 +183,7 @@ impl WasmTmux {
         vec![
             tmux_formats::LIST_PANES_CMD.to_string(),
             tmux_formats::LIST_WINDOWS_CMD.to_string(),
+            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
         ]
     }
 

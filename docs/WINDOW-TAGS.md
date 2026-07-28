@@ -10,18 +10,43 @@ A tmux window is **tmuxy-managed** if and only if `@tmuxy-window-type` is set on
 
 ## Schema
 
-All options are scoped per window (`set-option -w -t <window-id>`).
+Window options are scoped per window (`set-option -w -t <window-id>`). The one
+pane option (`@tmuxy-group-id`) is scoped per pane (`set-option -p -t <pane-id>`).
 
-| Option | Values | Set on |
-|---|---|---|
-| `@tmuxy-window-type` | `tab` \| `float` \| `float-backdrop` \| `group` | every tmuxy-managed window |
-| `@tmuxy-float-parent` | `@<window-id>` | floats and float-backdrops |
-| `@tmuxy-float-width` | integer or percentage | floats |
-| `@tmuxy-float-height` | integer or percentage | floats |
-| `@tmuxy-float-drawer` | `top` \| `bottom` \| `left` \| `right` \| unset | drawer-style floats |
-| `@tmuxy-float-bg` | `blur` \| `dim` \| unset | floats with a backdrop |
-| `@tmuxy-float-noheader` | `1` \| unset | floats that hide the header chrome |
-| `@tmuxy-group-panes` | space-separated pane ids, e.g. `%4 %6 %7` | pane-group windows |
+| Option | Scope | Values | Set on |
+|---|---|---|---|
+| `@tmuxy-window-type` | window | `tab` \| `float` \| `float-backdrop` | every tmuxy-managed window |
+| `@tmuxy-float-parent` | window | `@<window-id>` | floats and float-backdrops |
+| `@tmuxy-float-width` | window | integer or percentage | floats |
+| `@tmuxy-float-height` | window | integer or percentage | floats |
+| `@tmuxy-float-drawer` | window | `top` \| `bottom` \| `left` \| `right` \| unset | drawer-style floats |
+| `@tmuxy-float-bg` | window | `blur` \| `dim` \| unset | floats with a backdrop |
+| `@tmuxy-float-noheader` | window | `1` \| unset | floats that hide the header chrome |
+| `@tmuxy-group-id` | pane | `g<n>`, e.g. `g5` | every member of a pane group |
+
+### Pane groups and the stash session
+
+Pane groups are **not** a window type. A group is a set of panes that share a
+`@tmuxy-group-id` pane option (minted from the anchor pane id, e.g. `%5` → `g5`;
+unique for the group's life because tmux never reuses pane ids). The **visible**
+member is an ordinary pane in the attached session; the **hidden** members are
+parked one-per-window in a dedicated session, `__tmuxy_stash`, which is never
+attached and never appears in any session picker or tree. Switching tabs is a
+cross-session `swap-pane` — the pane options follow the panes, so membership is
+maintained without any per-window bookkeeping.
+
+The backend enumerates hidden members with a separate `list-panes` targeting the
+stash session (rows prefixed with a `stashmember,` sentinel) and emits them as
+lightweight pane stubs carrying `group_id`; the frontend rebuilds each group by
+grouping panes on `group_id`. A stub whose group has no visible member left is an
+orphan — always pruned from the emitted state (so it never renders as a phantom
+tab) and reaped from the stash by `gc_groups` on the next group operation.
+
+This replaces the earlier model where a group was a hidden `@tmuxy-window-type=group`
+window holding the members plus a `@tmuxy-group-panes` membership list. Keeping
+hidden members out of the attached session means a native `tmux attach` sees only
+the user's real tabs, and the attached session's window list maps 1:1 to the tab
+strip.
 
 ### `@tmuxy-float-parent` semantics
 
@@ -38,7 +63,7 @@ Drawer direction, backdrop style, and the no-header flag move out of the window 
 
 ### Pane-group naming
 
-Group membership lives in `@tmuxy-group-panes`. The window name no longer encodes pane ids — it becomes a user-facing label (default `group`).
+Group membership lives in the per-pane `@tmuxy-group-id` option (see "Pane groups and the stash session" above). There is no group window and no encoded name.
 
 ## Optimistic client-side updates
 
@@ -70,8 +95,7 @@ Added to `tmux/effect/compoundOps.ts`:
 
 - **`createFloat({ parentWindowId, parentPaneId, width, height, drawer?, bg?, noheader?, cmd? })`** — creates float window via `splitw + breakp`, sets `@tmuxy-window-type=float` and all metadata, optionally creates a `float-backdrop` sibling window with its own tag. Rollback on any step kills any windows already created.
 - **`closeFloat(windowId)`** — kills the float and, if present, its backdrop (located by scanning windows for `@tmuxy-window-type=float-backdrop` with `@tmuxy-float-parent=<windowId>`). Tagging is read from `derived`, not by re-querying tmux.
-- **`createGroup({ paneIds })`** — moves the panes into a fresh window, sets `@tmuxy-window-type=group` and `@tmuxy-group-panes`. Rollback returns panes to their original windows.
-- **`closeGroup(windowId)`** — moves group panes back to their origins (recorded in op meta), kills the now-empty group window. Rollback restores group state.
+- **`createGroup`/`closeGroup`** — pane groups are driven by the `pane-group-add` / `pane-group-close` shell helpers (which manage the stash session and `@tmuxy-group-id`), not by an Effect compound op. See [TMUX.md](TMUX.md) "Group State".
 - **`adoptWindow(windowId)`** — single-step but exposed as a compound for symmetry with the CLI command `tmuxy tab adopt`. Wraps `SetWindowType { windowId, type: 'tab' }`.
 
 Compound ops dispatch their constituent single-step ops through `TmuxStore.dispatch()` so each sub-op gets its own pending entry and rollback. The outer `Effect` only orchestrates ordering and final-state cleanup.

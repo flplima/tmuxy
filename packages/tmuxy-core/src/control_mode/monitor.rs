@@ -390,6 +390,14 @@ impl TmuxMonitor {
             .send_command(tmux_formats::LIST_WINDOWS_CMD)
             .await?;
 
+        // Hidden pane-group members live in the stash session; enumerate them so
+        // a group tab strip has every member. Sent AFTER windows — it's
+        // independent of the load-bearing panes-before-windows ordering — and
+        // returns empty (not an error) when no stash session exists.
+        self.connection
+            .send_command(tmux_formats::LIST_STASH_PANES_CMD)
+            .await?;
+
         // Capture current content of each pane
         // We'll do this after we receive the list-panes response
         // to know which panes exist
@@ -687,9 +695,12 @@ impl TmuxMonitor {
     /// window leaves the new pane absent from `self.panes` until list-panes restores
     /// it; list-windows would otherwise emit state with the pane missing.
     async fn refresh_after_window_add<E: StateEmitter>(&mut self, emitter: &E) {
+        // Stash query LAST — it's independent of the load-bearing
+        // panes-before-windows ordering this method documents.
         let cmds = vec![
             tmux_formats::LIST_PANES_CMD.to_string(),
             tmux_formats::LIST_WINDOWS_CMD.to_string(),
+            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
         ];
         if let Err(e) = self.connection.send_commands_batch(&cmds).await {
             emitter.emit_error(format!("Failed to refresh state after window add: {}", e));
@@ -703,7 +714,10 @@ impl TmuxMonitor {
     async fn refresh_panes<E: StateEmitter>(&mut self, emitter: &E, pane_ids: &[String]) {
         let queued_panes = self.aggregator.queue_captures(pane_ids);
 
-        let mut commands: Vec<String> = vec![tmux_formats::LIST_PANES_CMD.to_string()];
+        let mut commands: Vec<String> = vec![
+            tmux_formats::LIST_PANES_CMD.to_string(),
+            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
+        ];
         commands.extend(queued_panes.iter().map(|pane_id| capture_command(pane_id)));
 
         if let Err(e) = self.connection.send_commands_batch(&commands).await {
@@ -797,11 +811,11 @@ impl TmuxMonitor {
     /// `pane_current_command` reflects the post-exit shell prompt.
     async fn on_metadata_sync<E: StateEmitter>(&mut self, emitter: &E, rs: &mut RunState) {
         rs.metadata_sync_at = None;
-        if let Err(e) = self
-            .connection
-            .send_command(tmux_formats::LIST_PANES_CMD)
-            .await
-        {
+        let cmds = vec![
+            tmux_formats::LIST_PANES_CMD.to_string(),
+            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
+        ];
+        if let Err(e) = self.connection.send_commands_batch(&cmds).await {
             emitter.emit_error(format!("Failed to sync metadata: {}", e));
         }
     }
@@ -843,6 +857,7 @@ impl TmuxMonitor {
             let cmds = vec![
                 tmux_formats::LIST_WINDOWS_CMD.to_string(),
                 tmux_formats::LIST_PANES_CMD.to_string(),
+                tmux_formats::LIST_STASH_PANES_CMD.to_string(),
             ];
             if let Err(e) = self.connection.send_commands_batch(&cmds).await {
                 emitter.emit_error(format!("Failed to heartbeat sync: {}", e));

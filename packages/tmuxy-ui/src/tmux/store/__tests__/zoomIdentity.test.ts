@@ -17,7 +17,6 @@ const win = (over: Partial<TmuxWindow> = {}): TmuxWindow => ({
   name: 'shell',
   active: true,
   windowType: 'tab',
-  groupPanes: null,
   floatParent: null,
   floatWidth: null,
   floatHeight: null,

@@ -2,38 +2,31 @@
 # Switch to a target pane within a group
 # Args: $1=target_pane_id
 #
-# Finds the visible pane in the group, resizes the target's window to match,
-# then swaps the target into the visible position.
+# Finds the group's visible member, resizes the target's stash window to match,
+# then swaps the target into the visible position. The per-pane @tmuxy-group-id
+# options follow the panes across the cross-session swap, so membership is
+# preserved automatically.
 
 set -euo pipefail
 source "$(dirname "$0")/_lib"
 
 TARGET_PANE="$1"
 
-# Find the group window containing the target pane
-GROUP_WIN=$(find_group_for_pane "$TARGET_PANE")
-
-if [ -z "$GROUP_WIN" ]; then
+GID=$(group_id_of_pane "$TARGET_PANE")
+if [ -z "$GID" ]; then
   exit 0
 fi
 
-# Parse pane list from the group window's @tmuxy-group-panes option
-PANE_IDS=$(parse_group_panes "$GROUP_WIN")
-# shellcheck disable=SC2086
-VISIBLE_PANE=$(find_visible_pane_from_list $PANE_IDS)
-
+VISIBLE_PANE=$(visible_member "$GID")
 if [ -z "$VISIBLE_PANE" ] || [ "$VISIBLE_PANE" = "$TARGET_PANE" ]; then
   exit 0
 fi
 
-# Get visible pane dimensions
+# Match the visible pane's dimensions, then swap (target may live in the stash).
 VISIBLE_WIDTH=$(_tmux display-message -t "$VISIBLE_PANE" -p '#{pane_width}')
 VISIBLE_HEIGHT=$(_tmux display-message -t "$VISIBLE_PANE" -p '#{pane_height}')
-
-# Get target pane's window
 TARGET_WIN=$(pane_window "$TARGET_PANE")
 
-# Resize target's window to match visible pane, then swap
 _tmux resize-window -t "$TARGET_WIN" -x "$VISIBLE_WIDTH" -y "$VISIBLE_HEIGHT" \; \
      swap-pane -s "$TARGET_PANE" -t "$VISIBLE_PANE"
 
