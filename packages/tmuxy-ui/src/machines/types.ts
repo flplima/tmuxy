@@ -135,17 +135,6 @@ export interface SessionTreeNode {
   panes: SessionTreePane[];
 }
 
-/**
- * A saved tmux *server* for the sidebar server picker (footer), read from
- * `~/.config/tmuxy/servers.json` by the desktop `list_servers` command.
- * Desktop-only; the web build always uses its launch socket.
- */
-export interface ServerInfo {
-  id: string;
-  label: string;
-  kind: 'local' | 'ssh';
-}
-
 /** Pending state update stored during pane exit animation */
 export interface AppMachineContext {
   connected: boolean;
@@ -263,14 +252,6 @@ export interface AppMachineContext {
    * classic single-session flat tree.
    */
   sessions: SessionTreeNode[];
-  /**
-   * Saved tmux servers for the sidebar server picker. Desktop-only: populated
-   * by the `serversActor` poll (`list_servers`); stays `[]` on the web build,
-   * where the picker is not rendered.
-   */
-  serverList: ServerInfo[];
-  /** Id of the server the desktop app is currently attached to (picker highlight). */
-  currentServerId: string;
 }
 
 // ============================================
@@ -565,8 +546,6 @@ export type AppBlurEvent = { type: 'APP_BLUR' };
 export type SwitchSessionEvent = { type: 'SWITCH_SESSION'; sessionName: string };
 export type OpenSessionFloatEvent = { type: 'OPEN_SESSION_FLOAT' };
 export type OpenConnectFloatEvent = { type: 'OPEN_CONNECT_FLOAT' };
-/** Open the `tmuxy connect` "add a server" form in a float (desktop only). */
-export type OpenAddServerFloatEvent = { type: 'OPEN_ADD_SERVER_FLOAT' };
 export type SessionSwitchRequestedEvent = {
   type: 'SESSION_SWITCH_REQUESTED';
   sessionName: string;
@@ -575,12 +554,6 @@ export type SessionSwitchRequestedEvent = {
 export type SessionsUpdatedEvent = {
   type: 'SESSIONS_UPDATED';
   sessions: SessionTreeNode[];
-};
-/** Sidebar server picker refreshed by the desktop poll (`serversActor`). */
-export type ServersUpdatedEvent = {
-  type: 'SERVERS_UPDATED';
-  serverList: ServerInfo[];
-  currentServerId: string;
 };
 
 // Display settings events
@@ -674,10 +647,8 @@ export type AppMachineEvent =
   | SwitchSessionEvent
   | OpenSessionFloatEvent
   | OpenConnectFloatEvent
-  | OpenAddServerFloatEvent
   | SessionSwitchRequestedEvent
   | SessionsUpdatedEvent
-  | ServersUpdatedEvent
   | IncreaseFontSizeEvent
   | DecreaseFontSizeEvent
   | ResetFontSizeEvent

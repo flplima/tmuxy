@@ -24,8 +24,7 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { Effect, Fiber, Schedule } from 'effect';
 import type { TmuxAdapter } from '../../tmux/types';
-import type { SessionTreeNode, ServerInfo } from '../types';
-import { isTauri } from '../../tmux/adapters';
+import type { SessionTreeNode } from '../types';
 
 export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
 
@@ -112,23 +111,6 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
   return nodes;
 }
 
-/** Shape returned by the `list_servers` Tauri command. */
-interface ListServersResult {
-  servers?: Array<{ id?: string; label?: string; kind?: string }>;
-  currentId?: string;
-}
-
-/** Normalize a `list_servers` payload into the picker's {@link ServerInfo} list. */
-export function toServerInfos(result: ListServersResult | null | undefined): ServerInfo[] {
-  return (result?.servers ?? [])
-    .filter((s): s is { id: string; label?: string; kind?: string } => Boolean(s?.id))
-    .map((s) => ({
-      id: s.id,
-      label: s.label || s.id,
-      kind: s.kind === 'ssh' ? 'ssh' : 'local',
-    }));
-}
-
 /**
  * Create the sessions-poll actor bound to `adapter`. While the sidebar tree is
  * open it refreshes every {@link POLL_INTERVAL_MS}; it also polls immediately on
@@ -143,8 +125,7 @@ export function toServerInfos(result: ListServersResult | null | undefined): Ser
  * `list-panes -a` enumerate all sessions on that socket, so the web build lists
  * its socket's other sessions too (activating one reconnects the SSE stream via
  * `HttpAdapter.switchSession`). Reads go through `adapter.queryReadonly` so they
- * bypass the mutation serial queue. The saved-server list is Tauri-only — it
- * reads the desktop config and drives the ServerPicker, which web never renders.
+ * bypass the mutation serial queue.
  */
 export function createServersActor(adapter: TmuxAdapter) {
   return fromCallback<ServersActorEvent, ServersActorInput>(({ input, receive }) => {
@@ -175,10 +156,9 @@ export function createServersActor(adapter: TmuxAdapter) {
           if (snap?.context?.sidebarOpen !== true) return Effect.void;
         }
 
-        // Sessions tree (tmux) and the saved-server list (config file) are
-        // independent; each is ignore()d so one failing doesn't blank the other,
-        // and they run in sequence exactly as before.
-        const sessions = Effect.tryPromise(() =>
+        // Sessions tree (tmux). ignore()d so a failing tick doesn't tear down
+        // the poll fiber.
+        return Effect.tryPromise(() =>
           Promise.all([query(LIST_WINDOWS_COMMAND), query(LIST_PANES_COMMAND)]),
         ).pipe(
           Effect.flatMap(([windowsOut, panesOut]) =>
@@ -191,25 +171,6 @@ export function createServersActor(adapter: TmuxAdapter) {
           ),
           Effect.ignore,
         );
-
-        // Saved-server list is desktop-only (backed by the Tauri config); web
-        // has no ServerPicker, so skip the invoke rather than fail every tick.
-        const servers = isTauri()
-          ? Effect.tryPromise(() => adapter.invoke<ListServersResult>('list_servers')).pipe(
-              Effect.flatMap((result) =>
-                Effect.sync(() =>
-                  parent.send({
-                    type: 'SERVERS_UPDATED',
-                    serverList: toServerInfos(result),
-                    currentServerId: result?.currentId ?? 'localhost',
-                  }),
-                ),
-              ),
-              Effect.ignore,
-            )
-          : Effect.void;
-
-        return Effect.zipRight(sessions, servers);
       });
 
     // Initial tick (respects the sidebar gate) then repeat while attached. The

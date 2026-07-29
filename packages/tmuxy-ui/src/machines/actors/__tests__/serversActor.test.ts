@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSessions, toServerInfos } from '../serversActor';
+import { parseSessions } from '../serversActor';
 
 // Rows are tab-joined, matching the `-F` format the actor sends.
 const row = (...fields: string[]) => fields.join('\t');
@@ -59,30 +59,5 @@ describe('parseSessions', () => {
     );
     expect(session.panes.find((p) => p.id === '%1')?.active).toBe(true);
     expect(session.panes.find((p) => p.id === '%0')?.active).toBe(false);
-  });
-});
-
-describe('toServerInfos', () => {
-  it('normalizes the list_servers payload and defaults the label + kind', () => {
-    const infos = toServerInfos({
-      currentId: 'localhost',
-      servers: [
-        { id: 'localhost', label: 'localhost', kind: 'local' },
-        { id: 'ssh-box', label: 'felipe@box', kind: 'ssh' },
-        { id: 'bare' }, // no label/kind → label falls back to id, kind to local
-      ],
-    });
-    expect(infos).toEqual([
-      { id: 'localhost', label: 'localhost', kind: 'local' },
-      { id: 'ssh-box', label: 'felipe@box', kind: 'ssh' },
-      { id: 'bare', label: 'bare', kind: 'local' },
-    ]);
-  });
-
-  it('drops entries without an id and tolerates missing payloads', () => {
-    expect(toServerInfos({ servers: [{ label: 'x' }] })).toEqual([]);
-    expect(toServerInfos(null)).toEqual([]);
-    expect(toServerInfos(undefined)).toEqual([]);
-    expect(toServerInfos({})).toEqual([]);
   });
 });

@@ -60,8 +60,6 @@ export {
   selectPreviewPanes,
   selectPanes,
   selectSessions,
-  selectServerList,
-  selectCurrentServerId,
   selectDraggedPaneId,
   selectDragOffsetX,
   selectDragOffsetY,
