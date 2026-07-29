@@ -17,10 +17,12 @@
 /// or with user-installed plugins.
 ///
 /// Use these constants instead of string literals when constructing tmux
-/// commands like `set -w @tmuxy-window-type tab` or format strings like
+/// commands like `set -w @tmuxy-window-type float` or format strings like
 /// `#{@tmuxy-window-type}`.
 pub mod tmux_options {
-    /// Type discriminator on every adopted window. See [`crate::WindowType`].
+    /// Type discriminator, set only on non-tab windows (`float`,
+    /// `float-backdrop`, `sidebar`). Tabs carry no marker — an untagged window
+    /// in the attached session IS a tab. See [`crate::WindowType`].
     pub const WINDOW_TYPE: &str = "@tmuxy-window-type";
 
     /// Window ID this float/backdrop is anchored to.

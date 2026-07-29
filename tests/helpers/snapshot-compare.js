@@ -173,19 +173,20 @@ function extractTmuxState(sessionName) {
         };
       });
 
-    // Separate windows by their @tmuxy-window-type
+    // Separate windows by their @tmuxy-window-type. Tabs carry no marker, so an
+    // untagged window is a tab; only float/float-backdrop/sidebar chrome is
+    // excluded from the tab list.
     const windows = [];
     const groupWindows = [];
     const floatWindows = [];
     for (const w of allWindows) {
-      if (w.windowType === 'group') {
-        groupWindows.push(w);
-      } else if (w.windowType === 'float') {
+      if (w.windowType === 'float') {
         floatWindows.push(w);
-      } else if (w.windowType === 'tab') {
+      } else if (w.windowType === 'float-backdrop' || w.windowType === 'sidebar') {
+        // chrome windows — not tabs, not floats-with-panes
+      } else {
         windows.push(w);
       }
-      // foreign (no windowType) windows are ignored
     }
 
     // Find active window

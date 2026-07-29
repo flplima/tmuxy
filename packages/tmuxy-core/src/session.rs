@@ -882,22 +882,8 @@ pub fn create_session(session_name: &str) -> Result<()> {
         )));
     }
 
-    // Tag the freshly-created window so the frontend sees a 'tab' window
-    // from the first state emission. The control-mode auto-adopt path is
-    // a fallback for sessions tmuxy didn't create; here we know there's
-    // exactly one window and it should be a tab.
-    let target = format!("{}:0", session_name);
-    let _ = tmux_command()
-        .args([
-            "set-option",
-            "-w",
-            "-t",
-            &target,
-            tmux_options::WINDOW_TYPE,
-            crate::WindowType::Tab.as_str(),
-        ])
-        .output();
-
+    // The freshly-created window needs no marker — tabs carry none, and an
+    // untagged window in the session surfaces as a tab.
     Ok(())
 }
 

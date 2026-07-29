@@ -534,13 +534,12 @@ cmd_tab() {
       # new-window crashes tmux 3.5a — use splitw+breakp as a single tmux command
       # list (separated by \;) so it runs atomically through run-shell. Direct
       # external tmux invocations crash CC; this routes through run-shell safely.
-      # splitw+breakp creates the new window and selects it. Tagging the
-      # current window (`-w` without `-t`) right after lets the frontend
-      # see it as a managed tab as soon as the next list-windows fires.
+      # splitw+breakp creates the new window and selects it. Tabs carry no
+      # marker — an untagged window in the session is a tab, so no tagging.
       if [ -n "$name" ]; then
-        run_safe "splitw \\; breakp -n $(shquote "$name") \\; set-option -w @tmuxy-window-type tab"
+        run_safe "splitw \\; breakp -n $(shquote "$name")"
       else
-        run_safe "splitw \\; breakp \\; set-option -w @tmuxy-window-type tab"
+        run_safe "splitw \\; breakp"
       fi
       ;;
 
@@ -789,9 +788,9 @@ cmd_run() {
         esac
       done
       if [ -n "$name_arg" ]; then
-        run_safe "splitw \\; breakp -n $(shquote "$name_arg") \\; set-option -w @tmuxy-window-type tab"
+        run_safe "splitw \\; breakp -n $(shquote "$name_arg")"
       else
-        run_safe "splitw \\; breakp \\; set-option -w @tmuxy-window-type tab"
+        run_safe "splitw \\; breakp"
       fi
       ;;
 

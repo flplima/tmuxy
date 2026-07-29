@@ -59,15 +59,8 @@ async function createSession(options = {}) {
   } catch {
     // Session may already exist
   }
-  // Pre-tag the initial window so the frontend sees it as a 'tab' on
-  // first state emission. Without this, the test races the control-mode
-  // auto-adopt path; we've seen that be flaky on slower CI runners even
-  // with the in-process tag emission.
-  try {
-    execSync(`${tmuxCmd()} set-option -w -t ${sessionName}:0 @tmuxy-window-type tab`, { stdio: 'ignore' });
-  } catch {
-    // Older tmux without user-options support — fall back to auto-adopt.
-  }
+  // The initial window needs no marker — tabs carry none, so an untagged
+  // window in the session already surfaces as a 'tab' on first state emission.
 
   const driver = await remote({
     hostname: 'localhost',

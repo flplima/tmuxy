@@ -1,9 +1,7 @@
 use std::process::Command;
 use tracing::{debug, trace};
 
-use crate::constants::tmux_options;
 use crate::error::TmuxError;
-use crate::WindowType;
 
 type Result<T> = std::result::Result<T, TmuxError>;
 
@@ -107,9 +105,8 @@ pub fn split_pane_horizontal(session_name: &str) -> Result<()> {
 pub fn new_window(session_name: &str) -> Result<()> {
     // `new-window` (neww) crashes tmux 3.5a when control mode is attached.
     // Use `split-window` + `break-pane -d -P` instead, which achieves the
-    // same result without crashing. `-P -F '#{window_id}'` prints the new
-    // window's id so we can tag it with @tmuxy-window-type=tab without
-    // racing the control-mode auto-adopt.
+    // same result without crashing. Tabs carry no marker — an untagged window
+    // in the session is a tab — so there is nothing to tag here.
     //
     // The new window inherits the size of the broken-out pane (half the
     // source window after splitw), so we explicitly resize it to match the
@@ -131,27 +128,17 @@ pub fn new_window(session_name: &str) -> Result<()> {
     execute_tmux_command(&["split-window", "-t", session_name])?;
     let new_window_id = execute_tmux_command(&["break-pane", "-d", "-P", "-F", "#{window_id}"])?;
     let new_window_id = new_window_id.trim();
-    if !new_window_id.is_empty() {
-        if cols > 0 && rows > 0 {
-            let cols_s = cols.to_string();
-            let rows_s = rows.to_string();
-            let _ = execute_tmux_command(&[
-                "resize-window",
-                "-t",
-                new_window_id,
-                "-x",
-                &cols_s,
-                "-y",
-                &rows_s,
-            ]);
-        }
+    if !new_window_id.is_empty() && cols > 0 && rows > 0 {
+        let cols_s = cols.to_string();
+        let rows_s = rows.to_string();
         let _ = execute_tmux_command(&[
-            "set-option",
-            "-w",
+            "resize-window",
             "-t",
             new_window_id,
-            tmux_options::WINDOW_TYPE,
-            WindowType::Tab.as_str(),
+            "-x",
+            &cols_s,
+            "-y",
+            &rows_s,
         ]);
     }
     Ok(())
@@ -764,20 +751,16 @@ pub fn tmux_quote(value: &str) -> String {
 /// so the new window matches the viewport at creation rather than inheriting
 /// the half-width post-split size or the control-mode PTY default.
 ///
-/// Shared by the SSE server and the Tauri app so the rewrite shape and the
-/// window tag can't drift apart between transports.
+/// Shared by the SSE server and the Tauri app so the rewrite shape can't drift
+/// between transports. Tabs carry no marker (an untagged window is a tab), so
+/// there is nothing to tag.
 pub fn new_window_rewrite(session: &str, size: Option<(u32, u32)>) -> String {
     let session = tmux_quote(session);
-    let tag = format!(
-        "set-option -w {} {}",
-        tmux_options::WINDOW_TYPE,
-        WindowType::Tab.as_str()
-    );
     match size {
         Some((cols, rows)) => {
-            format!("splitw -t {session} ; breakp ; resizew -x {cols} -y {rows} ; {tag}")
+            format!("splitw -t {session} ; breakp ; resizew -x {cols} -y {rows}")
         }
-        None => format!("splitw -t {session} ; breakp ; {tag}"),
+        None => format!("splitw -t {session} ; breakp"),
     }
 }
 
@@ -1176,11 +1159,12 @@ bind-key    -T prefix \\% send-keys %";
     fn new_window_rewrite_includes_resize_only_with_a_size() {
         let sized = new_window_rewrite("tmuxy", Some((120, 40)));
         assert!(sized.contains("resizew -x 120 -y 40"), "{sized}");
-        assert!(sized.contains("@tmuxy-window-type tab"), "{sized}");
+        // Tabs carry no marker — the rewrite must not tag the window.
+        assert!(!sized.contains("@tmuxy-window-type"), "{sized}");
 
         let plain = new_window_rewrite("tmuxy", None);
         assert!(!plain.contains("resizew"), "{plain}");
-        assert!(plain.contains("@tmuxy-window-type tab"), "{plain}");
+        assert!(!plain.contains("@tmuxy-window-type"), "{plain}");
     }
 
     #[test]

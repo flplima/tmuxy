@@ -990,9 +990,7 @@ mod tests {
         ));
         // Non-run-shell commands never arm.
         assert!(!is_multi_step_run_shell("splitw -h"));
-        assert!(!is_multi_step_run_shell(
-            "splitw ; breakp ; set-option -w @tmuxy-window-type tab"
-        ));
+        assert!(!is_multi_step_run_shell("splitw ; breakp"));
     }
 
     // =========================================================================

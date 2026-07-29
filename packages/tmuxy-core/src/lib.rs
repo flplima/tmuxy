@@ -722,7 +722,9 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
             index: w.index,
             name: w.name,
             active: w.active,
-            window_type: WindowType::parse(&w.window_type),
+            // Untagged windows are tabs (tabs carry no marker); float/sidebar
+            // keep their explicit type.
+            window_type: Some(WindowType::parse(&w.window_type).unwrap_or(WindowType::Tab)),
             float_parent: (!w.float_parent.is_empty()).then(|| w.float_parent.clone()),
             float_width: None,
             float_height: None,

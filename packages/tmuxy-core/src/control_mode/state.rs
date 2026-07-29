@@ -572,7 +572,11 @@ impl WindowState {
             index: self.index,
             name: self.name.clone(),
             active: self.active,
-            window_type: self.window_type,
+            // Untagged windows in the attached session ARE tabs — tabs carry no
+            // `@tmuxy-window-type` marker. Only float/float-backdrop/sidebar are
+            // tagged; everything else (including foreign `tmux neww` windows)
+            // surfaces as a tab.
+            window_type: Some(self.window_type.unwrap_or(WindowType::Tab)),
             float_parent: self.float_parent.clone(),
             float_width: self.float_width,
             float_height: self.float_height,
@@ -771,6 +775,13 @@ pub struct StateAggregator {
     /// visible member by its window id (a stash window is never the active one).
     stash_members: HashMap<String, StashMember>,
 
+    /// Window ids that have had `pane-border-status top` enforced. Tabs no
+    /// longer carry a `@tmuxy-window-type` marker (untagged ⇒ tab, derived at
+    /// emit), so there's no per-window tmux flag to make the enforcement
+    /// idempotent — this in-memory set does, applying the border settings once
+    /// per window per connection.
+    border_enforced: std::collections::HashSet<String>,
+
     /// Compound-command settling state. When armed (`settling_until.is_some()`),
     /// window/layout emissions are suppressed and the aggregator's `tick(now)`
     /// is responsible for firing the consolidated state emit when the deadline
@@ -937,6 +948,7 @@ impl StateAggregator {
             panes_moved_window: std::collections::HashSet::new(),
             early_output: HashMap::new(),
             stash_members: HashMap::new(),
+            border_enforced: std::collections::HashSet::new(),
             settling_until: None,
             settling_started: None,
             settling_awaiting_first_event: false,
@@ -1080,55 +1092,52 @@ impl StateAggregator {
             .map_or(0, |m| m + 1)
     }
 
-    /// Auto-adopt every untagged window: returns set-option commands to tag
-    /// each one, AND mutates the local `WindowState` so the very next state
-    /// emission already reflects the inferred type (no foreign-window flicker
-    /// while the set-option round-trip is in flight). Idempotent — windows
-    /// with `@tmuxy-window-type` already set are skipped.
+    /// Set up every untagged window in the attached session. Tabs no longer
+    /// carry a marker — an untagged window IS a tab (derived at emit), so a
+    /// native `tmux neww` window shows up as a tab with no adoption step. This
+    /// returns the per-window `pane-border-status top` enforcement each new tab
+    /// needs, plus a defensive re-tag for a float/sidebar window whose
+    /// `@tmuxy-window-type` option somehow went missing (they're tagged
+    /// atomically on creation, so this normally never fires).
     ///
-    /// Name-based inference (defensive, in case set-option from a tmuxy script
-    /// hasn't propagated yet):
+    /// Name-based inference (defensive):
     /// - `float` or `__float_*` → Float
     /// - `__sidebar` → Sidebar
-    /// - anything else → Tab (auto-adopt: existing user windows become tabs)
+    /// - anything else → Tab (untagged, no marker written)
+    ///
+    /// Every Tab window must carry `pane-border-status top` so its topmost pane
+    /// sits at y=1, reserving the border row that PaneLayout draws the pane
+    /// header into. `enforce_settings`' session-level `set` is NOT inherited by
+    /// windows (verified: a fresh window reports `pane-border-status off`), and
+    /// `set -g` risks a tmux 3.5a control-mode crash — so it must be applied
+    /// per-window. `border_enforced` makes that idempotent now that tabs have no
+    /// marker to gate on.
     pub fn collect_window_tag_commands(&mut self) -> Vec<String> {
+        // Snapshot the untagged windows first so we don't hold a `self.windows`
+        // borrow while touching `self.border_enforced`.
+        let untagged: Vec<(String, String)> = self
+            .windows
+            .values()
+            .filter(|w| w.window_type.is_none())
+            .map(|w| (w.id.clone(), w.name.clone()))
+            .collect();
+
+        let window_type_opt = crate::constants::tmux_options::WINDOW_TYPE;
         let mut cmds = Vec::new();
-        for window in self.windows.values_mut() {
-            if window.window_type.is_some() {
-                continue;
-            }
-            let inferred = if window.name == "float" || window.name.starts_with("__float_") {
-                WindowType::Float
-            } else if window.name == "__sidebar" {
-                WindowType::Sidebar
-            } else {
-                WindowType::Tab
-            };
-            window.window_type = Some(inferred);
-            cmds.push(format!(
-                "set-option -w -t {} {} {}",
-                window.id,
-                crate::constants::tmux_options::WINDOW_TYPE,
-                inferred.as_str()
-            ));
-            // Every Tab window must carry `pane-border-status top` so its
-            // topmost pane sits at y=1, reserving the border row that PaneLayout
-            // draws the pane header into. `enforce_settings` only sets this on
-            // the window active at attach (it's a per-window option, NOT global
-            // — `set -g` risks a tmux 3.5a control-mode crash), so a window born
-            // later (a new tab from `new-window` → splitw+breakp) would default
-            // to `off`, leaving its pane at y=0 and the header stealing the
-            // first content row. Tagging is the one place every new window
-            // funnels through, so enforce it here, per-window (targeted, safe).
-            if inferred == WindowType::Tab {
-                cmds.push(format!(
-                    "set-option -w -t {} pane-border-status top",
-                    window.id
-                ));
-                cmds.push(format!(
-                    "set-option -w -t {} pane-border-format ' '",
-                    window.id
-                ));
+        for (id, name) in untagged {
+            if name == "float" || name.starts_with("__float_") {
+                if let Some(w) = self.windows.get_mut(&id) {
+                    w.window_type = Some(WindowType::Float);
+                }
+                cmds.push(format!("set-option -w -t {id} {window_type_opt} float"));
+            } else if name == "__sidebar" {
+                if let Some(w) = self.windows.get_mut(&id) {
+                    w.window_type = Some(WindowType::Sidebar);
+                }
+                cmds.push(format!("set-option -w -t {id} {window_type_opt} sidebar"));
+            } else if self.border_enforced.insert(id.clone()) {
+                cmds.push(format!("set-option -w -t {id} pane-border-status top"));
+                cmds.push(format!("set-option -w -t {id} pane-border-format ' '"));
             }
         }
         cmds
@@ -1398,6 +1407,7 @@ impl StateAggregator {
 
             ControlModeEvent::WindowClose { window_id } => {
                 self.windows.remove(&window_id);
+                self.border_enforced.remove(&window_id);
                 self.panes.retain(|_, p| p.window_id != window_id);
                 self.pending_captures
                     .retain(|id| self.panes.contains_key(id));
@@ -2992,6 +3002,33 @@ mod tests {
             "stub keeps its stash window id (never the active one)"
         );
         assert_eq!(stub.title, "hidden-title");
+    }
+
+    /// An untagged window (a native `tmux neww` / foreign window) carries no
+    /// `@tmuxy-window-type` marker but still surfaces as a tab, and the setup
+    /// pass enforces its pane border without tagging it.
+    #[test]
+    fn untagged_window_is_a_tab_and_gets_only_border_enforcement() {
+        let mut agg = StateAggregator::new();
+        // @id,index,active,type(empty),float*,zoomed,name
+        agg.parse_list_windows_line("@5,0,1,,,,,,,,0,shell");
+
+        let cmds = agg.collect_window_tag_commands();
+        assert!(
+            cmds.iter().any(|c| c.contains("pane-border-status top")),
+            "tab needs pane-border enforcement: {cmds:?}"
+        );
+        assert!(
+            !cmds.iter().any(|c| c.contains("@tmuxy-window-type")),
+            "a tab must never be tagged: {cmds:?}"
+        );
+        // Idempotent — already enforced, so nothing new.
+        assert!(agg.collect_window_tag_commands().is_empty());
+
+        // Emitted as a tab despite carrying no marker.
+        let state = agg.to_tmux_state();
+        let w = state.windows.iter().find(|w| w.id == "@5").expect("window");
+        assert_eq!(w.window_type, Some(WindowType::Tab));
     }
 
     #[test]

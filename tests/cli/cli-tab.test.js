@@ -61,7 +61,7 @@ describe('CLI tab subcommands', () => {
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        'tmux -L tmuxy splitw \\; breakp \\; set-option -w @tmuxy-window-type tab',
+        'tmux -L tmuxy splitw \\; breakp',
       ]);
     });
 
@@ -71,7 +71,7 @@ describe('CLI tab subcommands', () => {
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args).toEqual([
         'run-shell',
-        "tmux -L tmuxy splitw \\; breakp -n 'my-tab' \\; set-option -w @tmuxy-window-type tab",
+        "tmux -L tmuxy splitw \\; breakp -n 'my-tab'",
       ]);
     });
   });
