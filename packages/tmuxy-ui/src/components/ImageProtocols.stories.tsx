@@ -152,9 +152,10 @@ export const ITerm2: Story = {
   play: async ({ canvasElement }) => {
     const img = await waitForImage('iterm2');
     expect(img.getAttribute('data-image-id')).toBe('1');
-    // Positioned relative to the pane grid: row=2, col=4.
-    expect(img.style.top).toContain('2 *');
-    expect(img.style.left).toContain('4 *');
+    // Positioned on the pane's cell grid: row=2, col=4. Columns are `ch` (the
+    // monospace advance the rows are pinned to), rows are the line height.
+    expect(img.style.top).toBe('calc(2 * var(--line-height-terminal))');
+    expect(img.style.left).toBe('4ch');
     // The Terminal exists in the DOM tree too — confirm we're actually
     // rendering inside the harness, not in a stray detached subtree.
     const canvas = within(canvasElement);
@@ -228,9 +229,9 @@ export const Sixel: Story = {
     const img = await waitForImage('sixel');
     expect(img.getAttribute('data-image-id')).toBe('3');
     // Confirms snake_case width_cells → camelCase widthCells made it through
-    // the camelize() transform — Terminal.tsx renders `calc(${img.widthCells}...)`.
-    expect(img.style.width).toContain('35 *');
-    expect(img.style.height).toContain('14 *');
+    // the camelize() transform — Terminal.tsx sizes the img in cell units.
+    expect(img.style.width).toBe('35ch');
+    expect(img.style.height).toBe('calc(14 * var(--line-height-terminal))');
   },
 };
 
