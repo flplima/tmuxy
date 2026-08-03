@@ -76,9 +76,19 @@ Each `ImagePlacement` carries:
 - `width_cells`, `height_cells` — bounding box in terminal cells
 - `protocol` — one of `iterm2`, `kitty`, `sixel`
 
-The frontend positions the `<img>` absolutely inside `.terminal-images` using `calc(<n> * var(--cell-width|height))`, so the image stays anchored to the same cell range as the surrounding text reflows. When `width=auto` / `height=auto` is requested, the parser converts pixels to cells using the pane's current cell size estimate.
+The frontend positions the `<img>` absolutely inside `.terminal-images` in cell units — `ch` horizontally, `--line-height-terminal` vertically — so the image stays anchored to the same cell range as the surrounding text reflows. This is the same grid the rows and the cursor use; see [The cell grid invariant](#the-cell-grid-invariant). When `width=auto` / `height=auto` is requested, the parser converts pixels to cells using the pane's current cell size estimate.
 
 **Known limitation — placements are viewport-cell anchored, not content-tracked.** The `row`/`col` anchor is the cursor position at decode time and never moves afterwards: the core's vt100 emulator runs with zero scrollback, so there is no scroll signal to shift placements when later output scrolls the screen. An image therefore stays pinned to its original viewport cell while text scrolls underneath it (iTerm2, by contrast, scrolls images with content). Content-tracked placements would require a scrolled-lines counter in the vt100 layer plus row adjustment and off-screen culling in `control_mode/images.rs`. The `ImageAnchoredDuringScroll` story guards the current anchored behavior.
+
+## The cell grid invariant
+
+A terminal is a grid of cells, but a browser lays out text by glyph advance. Everything tmuxy paints into a pane must therefore be addressed in **cell coordinates**, never allowed to inherit a position from the surrounding text flow. Two rules follow, and both have already been violated once:
+
+**1. Position by cell, not by flow.** Style-group spans are pinned to an exact cell count (`width: <n>ch`), so a glyph whose advance differs from a cell paints within or over its own box instead of displacing the rest of the line. The cursor obeys the same rule: it is an absolutely positioned overlay at the cursor's cell, in both renderers — `Terminal.tsx` places it in grid units (`ch` and `--line-height-terminal`), `ScrollbackTerminal.tsx` in measured pixels. It was previously spliced inline into the line's text, which made its position depend on the advance of every glyph before it; a webfont that had not finished loading, an RTL script, or a dingbat then pushed it off the grid.
+
+**2. Index by cell, not by UTF-16 offset.** One cell may hold several code units — a variation selector (`U+FE0F`), a combining mark, a ZWJ or skin-tone sequence. Any code that joins a line's cells into a string and then indexes that string with a column number is wrong: the two diverge at the first multi-unit cell and stay diverged for the rest of the line. This is why the cursor character comes from the cell array and why auto-detected URL ranges are translated through a per-cell offset map before being compared against cell indices.
+
+`isWideChar` (in `terminalShared.ts`, shared by both renderers) decides which cells get their own box. It inspects the whole cell string, not just the first code point, because emoji presentation is requested by a trailing `U+FE0F` that the base code point knows nothing about. It deliberately over-detects — a one-cell glyph in its own one-cell box renders identically, so the only cost of a false positive is an extra span.
 
 ## Testing
 
