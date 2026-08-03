@@ -15,6 +15,26 @@ function tmuxSocket() {
   return process.env.TMUX_SOCKET || 'tmuxy';
 }
 
+/**
+ * Environment for any tmux or tmuxy-CLI child process.
+ *
+ * `bin/tmuxy-cli` derives its socket from `$TMUX` whenever `TMUX_SOCKET` is
+ * unset, so an inherited `$TMUX` aims every mutating command at whatever server
+ * the developer's shell is attached to — while the direct `tmux -L` calls above
+ * still read from the test socket. Reads and writes then address two different
+ * servers and commands fail against panes that only exist in the other.
+ *
+ * Pinning has to happen here rather than by mutating `process.env` in
+ * jest.setup.js: Jest gives each test context a copy of the environment, so
+ * those mutations do not reliably reach `child_process`.
+ */
+function tmuxEnv() {
+  const env = { ...process.env, TMUX_SOCKET: tmuxSocket() };
+  delete env.TMUX;
+  delete env.TMUX_PANE;
+  return env;
+}
+
 /** `tmux -L <name>` / `tmux -S <path>` prefix for building shell commands. */
 function tmuxCmd() {
   const socket = tmuxSocket();
@@ -32,7 +52,7 @@ function tmuxCmd() {
  */
 function tmuxExec(args, { timeout = 10000 } = {}) {
   const { execSync } = require('child_process');
-  return execSync(`${tmuxCmd()} ${args}`, { encoding: 'utf-8', timeout }).trim();
+  return execSync(`${tmuxCmd()} ${args}`, { encoding: 'utf-8', timeout, env: tmuxEnv() }).trim();
 }
 
-module.exports = { tmuxSocket, tmuxCmd, tmuxExec };
+module.exports = { tmuxSocket, tmuxCmd, tmuxEnv, tmuxExec };

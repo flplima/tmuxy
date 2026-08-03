@@ -38,7 +38,11 @@ async function assertContentMatch(page, label) {
 
   let lastErrors = [];
 
-  for (let attempt = 0; attempt < 5; attempt++) {
+  // The UI is eventually consistent with tmux: a pane that changed size is only
+  // refilled once its capture-pane round trip lands. This loop is that
+  // convergence window, not a plain retry.
+  const ATTEMPTS = 5;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     if (attempt > 0) await delay(600);
 
     try {
@@ -102,6 +106,12 @@ async function assertContentMatch(page, label) {
             active: pane.active,
             lines,
             domTitle,
+            // Diagnostics: "every ui line is empty" has several very different
+            // causes — the pane element missing, the pane rendering zero rows,
+            // or the rows rendering blank because XState holds no content.
+            // Without these the failure message can't tell them apart.
+            domFound: !!el,
+            ctxLines: (pane.content || []).length,
           };
         }
         return result;
@@ -220,6 +230,10 @@ async function assertContentMatch(page, label) {
               `${prefix}Pane ${paneId}: ${bestDiffCount - 3} more differing lines (${bestDiffCount}/${bestCompareLines})`,
             );
           }
+          lastErrors.push(
+            `${prefix}Pane ${paneId}: domFound=${ui.domFound} domRows=${ui.lines.length} ` +
+              `ctxLines=${ui.ctxLines} uiSize=${ui.width}x${ui.height} tmuxSize=${tmux.width}x${tmux.height}`,
+          );
         }
       }
 
@@ -237,7 +251,8 @@ async function assertContentMatch(page, label) {
   }
 
   throw new Error(
-    `Content match failed after 5 attempts:\n` + lastErrors.map((e) => `  - ${e}`).join('\n'),
+    `Content match failed after ${ATTEMPTS} attempts:\n` +
+      lastErrors.map((e) => `  - ${e}`).join('\n'),
   );
 }
 

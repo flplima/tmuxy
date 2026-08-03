@@ -21,6 +21,7 @@ const {
   navigatePaneKeyboard,
   sendPrefixCommand,
   createWindowKeyboard,
+  pressUntilWindowChanged,
   nextWindowKeyboard,
   prevWindowKeyboard,
   selectWindowKeyboard,
@@ -125,65 +126,10 @@ describe('Scenario 4: Window Lifecycle', () => {
     expect(windowInfo.length).toBe(2);
 
     // Step 3: Next window (keyboard only — no adapter fallback)
-    //
-    // Headless Playwright Chromium on slow CI runners occasionally drops
-    // a keydown event between `keyboard.up(modifier)` and the next
-    // `keyboard.press(key)` — the prefix mode is entered (verified via
-    // ctx.prefixActive in sendTmuxPrefix), the bindings are loaded
-    // (verified via waitForKeybindings), the binding for `n` exists, but
-    // the `n` keypress sometimes simply doesn't fire in the page. The
-    // prefix timeout then auto-exits 8s later with no command sent.
-    //
-    // Retry the keypress up to 3 times. Each attempt re-enters prefix
-    // mode and presses the binding key fresh — still the real user
-    // path, just resilient to Playwright's headless-keyboard flake.
-    const currentIndex = await ctx.session.getCurrentWindowIndex();
-    let nextChanged = false;
-    for (let attempt = 0; attempt < 3 && !nextChanged; attempt++) {
-      await nextWindowKeyboard(ctx.page);
-      try {
-        await waitForCondition(
-          ctx.page,
-          async () => {
-            const idx = await ctx.session.getCurrentWindowIndex();
-            return idx !== currentIndex;
-          },
-          3000,
-          'next-window keyboard to change active window',
-        );
-        nextChanged = true;
-      } catch {
-        // fall through to next attempt
-      }
-    }
-    if (!nextChanged) {
-      throw new Error('next-window keyboard did not change active window after 3 attempts');
-    }
+    await pressUntilWindowChanged(ctx, nextWindowKeyboard, 'next-window keyboard');
 
-    // Step 4: Previous window (keyboard only) — same retry as step 3
-    // for the same Playwright headless-keyboard flake.
-    const idx = await ctx.session.getCurrentWindowIndex();
-    let prevChanged = false;
-    for (let attempt = 0; attempt < 3 && !prevChanged; attempt++) {
-      await prevWindowKeyboard(ctx.page);
-      try {
-        await waitForCondition(
-          ctx.page,
-          async () => {
-            const curIdx = await ctx.session.getCurrentWindowIndex();
-            return curIdx !== idx;
-          },
-          3000,
-          'prev-window keyboard to change active window',
-        );
-        prevChanged = true;
-      } catch {
-        // retry
-      }
-    }
-    if (!prevChanged) {
-      throw new Error('prev-window keyboard did not change active window after 3 attempts');
-    }
+    // Step 4: Previous window (keyboard only)
+    await pressUntilWindowChanged(ctx, prevWindowKeyboard, 'prev-window keyboard');
 
     // Step 5: Create 3rd window and select by number
     await createWindowKeyboard(ctx.page);
@@ -200,28 +146,8 @@ describe('Scenario 4: Window Lifecycle', () => {
       'select-window -t :1 to activate window 1',
     );
 
-    // Step 6: Last window toggle (keyboard only) — same retry pattern
-    let lastChanged = false;
-    for (let attempt = 0; attempt < 3 && !lastChanged; attempt++) {
-      await lastWindowKeyboard(ctx.page);
-      try {
-        await waitForCondition(
-          ctx.page,
-          async () => {
-            const curIdx = await ctx.session.getCurrentWindowIndex();
-            return curIdx !== '1';
-          },
-          3000,
-          'last-window keyboard to change active window',
-        );
-        lastChanged = true;
-      } catch {
-        // retry
-      }
-    }
-    if (!lastChanged) {
-      throw new Error('last-window keyboard did not change active window after 3 attempts');
-    }
+    // Step 6: Last window toggle (keyboard only)
+    await pressUntilWindowChanged(ctx, lastWindowKeyboard, 'last-window keyboard');
 
     // Step 7: Rename window
     await renameWindowKeyboard(ctx.page, 'MyRenamedWindow');
@@ -1263,7 +1189,14 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     );
 
     // Step 4: Focus the sidebar (click) so keys route to the tree.
-    await ctx.page.click('[data-testid="sidebar-content"]');
+    //
+    // Click the header, not the sidebar container: Playwright clicks an
+    // element's CENTRE, and the centre of the container is a tree row. Every
+    // row activates on click, so focusing that way could land on a session row
+    // and fire SWITCH_SESSION — silently moving the whole client to another
+    // session mid-test. The header carries no handler of its own, so the click
+    // bubbles to the container and only focuses it.
+    await ctx.page.click('.sidebar-header');
     await waitForCondition(
       ctx.page,
       async () =>
@@ -1277,23 +1210,73 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     await delay(DELAYS.SYNC);
     await ctx.page.bringToFront();
 
-    // Step 5: The tree's initial selection is the ACTIVE pane's row (under the
-    // second tab). Navigate up to row 0 — the first tab — (`k` clamps at the
-    // top, so extra presses are safe), then Enter activates it → the active
-    // window switches back to the first window.
-    for (let i = 0; i < 8; i++) {
-      await ctx.page.keyboard.press('k');
-    }
+    // Step 5: Move the selection onto the FIRST window's tab row, then Enter
+    // activates it → the active window switches back to the first window.
+    //
+    // Target the row by window id rather than by index: the tree inserts a
+    // session header row whenever the socket hosts more than one session (which
+    // it does under test — the server keeps its own session alongside the one
+    // the test creates), so row 0 is not necessarily the first tab.
+    //
+    // Navigate top-down rather than walking up from wherever the cursor starts.
+    // The tree's default selection is the active pane's row, but it falls back
+    // to row 0 when that row isn't found — and row 0 sits ABOVE the target, so
+    // pressing only `k` could never reach it.
+    // Wait for the attached session's LIVE subtree first. The tree renders a
+    // session's real tab/pane rows only while `sessionName` matches an entry in
+    // the sessions list; until the ~1.5s sessions poll catches up with a
+    // freshly-created session, every row is rendered as `foreign-*` — including
+    // the client's own session — and no live tab row exists to select at all.
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(() => {
-          const rows = document.querySelectorAll('.sidebar-tree [role="treeitem"]');
-          return rows.length > 0 && rows[0].classList.contains('is-selected');
-        }),
-      5000,
-      'selection to reach the first tree row',
+        ctx.page.evaluate(
+          (id) => !!document.querySelector(`[data-testid="tree-tab-${id}"]`),
+          firstWindowId,
+        ),
+      15000,
+      async () => {
+        const s = await ctx.page.evaluate(() => {
+          const c = window.app?.getSnapshot()?.context;
+          return {
+            url: location.href,
+            sessionName: c?.sessionName,
+            sessions: (c?.sessions || []).map((x) => x.sessionName),
+            windows: (c?.windows || []).map((w) => w.id),
+            rows: Array.from(document.querySelectorAll('.sidebar-tree [role="treeitem"]')).map((r) =>
+              r.getAttribute('data-testid'),
+            ),
+          };
+        });
+        return `live tab row for ${firstWindowId}; ctxSession=${ctx.session.name}; state=${JSON.stringify(s)}`;
+      },
     );
+
+    const firstTabSelected = () =>
+      ctx.page.evaluate((id) => {
+        const row = document.querySelector(`.sidebar-tree [data-testid="tree-tab-${id}"]`);
+        return !!row && row.classList.contains('is-selected');
+      }, firstWindowId);
+
+    const rowCount = await ctx.page.evaluate(
+      () => document.querySelectorAll('.sidebar-tree [role="treeitem"]').length,
+    );
+    // `k` clamps at row 0, so this parks the cursor at the top whatever it was.
+    for (let i = 0; i < rowCount; i++) {
+      await ctx.page.keyboard.press('k');
+    }
+    for (let i = 0; i < rowCount && !(await firstTabSelected()); i++) {
+      await ctx.page.keyboard.press('j');
+    }
+    await waitForCondition(ctx.page, firstTabSelected, 5000, async () => {
+      const tree = await ctx.page.evaluate(() =>
+        Array.from(document.querySelectorAll('.sidebar-tree [role="treeitem"]')).map(
+          (r) =>
+            `${r.className.includes('is-selected') ? '>' : ' '} ${r.getAttribute('data-testid')}`,
+        ),
+      );
+      return `selection to reach the first window's tab row (${firstWindowId})\n  tree:\n    ${tree.join('\n    ')}`;
+    });
     await ctx.page.keyboard.press('Enter');
     await waitForCondition(
       ctx.page,
@@ -1324,8 +1307,8 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     expect(stillOpen).toBe(true);
 
     // The header toggle reflects the open state.
-    const pressedWhileOpen = await ctx.page.evaluate(
-      () => document.querySelector('.sidebar-toggle')?.getAttribute('aria-pressed'),
+    const pressedWhileOpen = await ctx.page.evaluate(() =>
+      document.querySelector('.sidebar-toggle')?.getAttribute('aria-pressed'),
     );
     expect(pressedWhileOpen).toBe('true');
 
@@ -1336,8 +1319,8 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       timeout: 10000,
       polling: 100,
     });
-    const pressedAfterClose = await ctx.page.evaluate(
-      () => document.querySelector('.sidebar-toggle')?.getAttribute('aria-pressed'),
+    const pressedAfterClose = await ctx.page.evaluate(() =>
+      document.querySelector('.sidebar-toggle')?.getAttribute('aria-pressed'),
     );
     expect(pressedAfterClose).toBe('false');
   }, 180000);

@@ -2,6 +2,18 @@
 
 const { execSync } = require('child_process');
 
+// Pin the tmux socket before anything can shell out.
+//
+// The suite mutates tmux through `bin/tmuxy-cli`, which derives its socket from
+// $TMUX when TMUX_SOCKET is unset. Running the suite from inside a tmux pane —
+// the normal case for a tmux tool — would therefore aim every split, kill and
+// send-keys at whatever server the developer's shell is attached to, wrecking a
+// real working session. Read-only queries already default to `tmuxy`, so
+// inheriting $TMUX also splits reads and writes across two different servers.
+process.env.TMUX_SOCKET = process.env.TMUX_SOCKET || 'tmuxy';
+delete process.env.TMUX;
+delete process.env.TMUX_PANE;
+
 // Increase timeout for all tests
 // Hook and test timeout is set by testTimeout in jest.config.js (240000ms)
 

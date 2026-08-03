@@ -4,9 +4,51 @@
  * Create, navigate, rename, and kill tmux windows via keyboard/commands.
  */
 
-const { delay } = require('./browser');
+const { delay, waitForCondition } = require('./browser');
 const { DELAYS, TMUXY_URL } = require('./config');
-const { sendPrefixCommand, tmuxCommandKeyboard } = require('./keyboard');
+const {
+  sendPrefixCommand,
+  tmuxCommandKeyboard,
+  focusTerminal,
+  waitForKeybindings,
+} = require('./keyboard');
+
+/**
+ * Press a window-switching binding until the active window actually changes.
+ *
+ * Headless Playwright Chromium occasionally drops the keydown between
+ * `keyboard.up(modifier)` and the following `keyboard.press(key)`: prefix mode
+ * is entered and the binding exists, but the key never fires in the page. So
+ * the press needs retrying.
+ *
+ * The retry must re-check the window index FIRST. next/prev toggle, so with
+ * exactly two windows a press that landed just after its wait expired would be
+ * undone by the retry — the condition reads false again and the attempts can be
+ * spent oscillating between the two windows, reporting "did not change" when
+ * the binding worked every time.
+ *
+ * @param {Object} ctx - Test context (needs .page and .session)
+ * @param {Function} press - Sends the binding, e.g. nextWindowKeyboard
+ * @param {string} label - Name used in the failure message
+ */
+async function pressUntilWindowChanged(ctx, press, label, attempts = 3) {
+  const startIndex = await ctx.session.getCurrentWindowIndex();
+  const changed = async () => (await ctx.session.getCurrentWindowIndex()) !== startIndex;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0 && (await changed())) return;
+    await press(ctx.page);
+    try {
+      await waitForCondition(ctx.page, changed, 3000, `${label} to change active window`);
+      return;
+    } catch {
+      // Key was dropped before reaching the page — press again.
+    }
+  }
+  // One last look: the final press may have landed as the wait expired.
+  if (await changed()) return;
+  throw new Error(`${label} did not change active window after ${attempts} attempts`);
+}
 
 /**
  * Create new window via the server's HTTP command endpoint.
@@ -33,10 +75,21 @@ async function nextWindowKeyboard(page) {
 }
 
 /**
- * Switch to previous window via keyboard
+ * Switch to previous window via keyboard.
+ *
+ * NOT `prefix p`: tmuxy rebinds `p` to enter its PANE key table, so tmux's
+ * default previous-window binding is gone. `prefix M-p` is `previous-window -a`,
+ * which only steps between windows carrying an alert. The real binding is the
+ * root chord C-S-Tab / C-BTab, which needs no prefix.
  */
 async function prevWindowKeyboard(page) {
-  await sendPrefixCommand(page, 'p');
+  await focusTerminal(page);
+  // Root bindings are matched against the same keybinding table as prefix ones,
+  // so it must be loaded before the chord is delivered.
+  await waitForKeybindings(page);
+  await delay(DELAYS.MEDIUM);
+  await page.keyboard.press('Control+Shift+Tab');
+  await delay(DELAYS.LONG);
 }
 
 /**
@@ -50,10 +103,15 @@ async function selectWindowKeyboard(page, number) {
 }
 
 /**
- * Switch to last visited window via keyboard (prefix+l)
+ * Switch to the last visited window.
+ *
+ * tmuxy binds no last-window key at all — `prefix l` is `select-pane -R`, which
+ * moves between panes and never changes the window. Drive it through the tmux
+ * command prompt instead, the same real user path selectWindowKeyboard and
+ * renameWindowKeyboard use.
  */
 async function lastWindowKeyboard(page) {
-  await sendPrefixCommand(page, 'l');
+  await tmuxCommandKeyboard(page, 'last-window');
 }
 
 /**
@@ -79,6 +137,7 @@ async function killWindowKeyboard(page) {
 
 module.exports = {
   createWindowKeyboard,
+  pressUntilWindowChanged,
   nextWindowKeyboard,
   prevWindowKeyboard,
   selectWindowKeyboard,

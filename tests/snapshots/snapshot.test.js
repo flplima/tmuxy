@@ -33,6 +33,12 @@ beforeAll(async () => {
   if (existingPage) {
     page = existingPage;
     ownedPage = false;
+    // Reload before comparing. A reused page is usually one an earlier suite
+    // left open, and that suite's session has since been killed — the page then
+    // still reports the panes it saw at the time, so every structural check
+    // fails against ids tmux no longer has. Reloading rebuilds the state from
+    // the server's current view while still not opening an extra tab.
+    await page.goto(TMUXY_URL, { waitUntil: 'load' });
   } else {
     // No existing page — open a new one (CI environment)
     page = await browser.newPage();
@@ -52,7 +58,9 @@ beforeAll(async () => {
   // In CI, the first SSE connection can silently die (server detects client
   // disconnect before content arrives). If that happens, reload the page to
   // establish a fresh SSE connection and retry.
-  const maxPageAttempts = ownedPage ? 3 : 1;
+  // A reused page gets the same retry budget: it was just reloaded, so its SSE
+  // connection is as new as an owned page's and can die the same way.
+  const maxPageAttempts = 3;
   for (let pageAttempt = 0; pageAttempt < maxPageAttempts; pageAttempt++) {
     try {
       await page.waitForFunction(

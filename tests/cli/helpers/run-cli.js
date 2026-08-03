@@ -32,6 +32,34 @@ function stripSocketArgs(tmuxCalls, extraEnv = {}) {
 }
 
 /**
+ * Build the environment the CLI runs under: the mock tmux on PATH, a log file
+ * for the recorded calls, and any per-test overrides.
+ *
+ * The CLI derives its socket from $TMUX when TMUX_SOCKET is unset. Inheriting
+ * it would point every assertion at whatever tmux server the developer's shell
+ * is attached to — and this being a tmux tool, running the suite from inside a
+ * pane is the normal case, not the exception. Drop it unless a test pinned a
+ * socket of its own.
+ *
+ * @param {string} logFile - Path the mock tmux appends its calls to
+ * @param {object} opts - Same opts object runCLI/runCLIFull received
+ * @returns {Record<string, string>} Environment for the child process
+ */
+function buildEnv(logFile, opts = {}) {
+  const env = {
+    ...process.env,
+    PATH: `${MOCKS_DIR}:${process.env.PATH}`,
+    MOCK_TMUX_LOG: logFile,
+    ...opts.env,
+  };
+  if (!opts.env?.TMUX_SOCKET) {
+    delete env.TMUX;
+    delete env.TMUX_PANE;
+  }
+  return env;
+}
+
+/**
  * Run the tmuxy CLI with the given arguments and return results.
  *
  * @param {string[]} args - CLI arguments
@@ -45,12 +73,7 @@ function runCLI(args, opts = {}) {
     `mock-tmux-log-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
 
-  const env = {
-    ...process.env,
-    PATH: `${MOCKS_DIR}:${process.env.PATH}`,
-    MOCK_TMUX_LOG: logFile,
-    ...opts.env,
-  };
+  const env = buildEnv(logFile, opts);
 
   let stdout = '';
   let stderr = '';
@@ -113,12 +136,7 @@ function runCLIFull(args, opts = {}) {
     `mock-tmux-log-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
 
-  const env = {
-    ...process.env,
-    PATH: `${MOCKS_DIR}:${process.env.PATH}`,
-    MOCK_TMUX_LOG: logFile,
-    ...opts.env,
-  };
+  const env = buildEnv(logFile, opts);
 
   const result = spawnSync(CLI_PATH, args, {
     env,

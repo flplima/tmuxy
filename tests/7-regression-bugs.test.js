@@ -289,7 +289,15 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     });
     await ctx.page.mouse.move(paneCenter.x, paneCenter.y);
-    for (let i = 0; i < 6; i++) {
+    // Scroll until the render window has fully cleared the bottom row, rather
+    // than a fixed number of ticks. ScrollbackTerminal renders
+    // `scrollTop - height … scrollTop + 2*height`, so the overscan below the
+    // viewport grows with the pane height: on a tall pane a fixed 6 ticks still
+    // leaves BUGMARK_200 inside the window, and the assertion below reads that
+    // as "the DOM never followed the scroll".
+    for (let i = 0; i < 40; i++) {
+      const state = await getCopyModeState(ctx.page);
+      if (state && state.scrollTop + 2 * state.height < state.totalLines - 1) break;
       await ctx.page.mouse.wheel(0, -200);
       await delay(150);
     }

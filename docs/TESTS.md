@@ -86,6 +86,18 @@ For every assertion, ask: **"What bug would make this assertion fail?"** If you 
 - All E2E tests run sequentially (`maxWorkers: 1`) — they share one tmux server
 - Dev server must be running (`npm start`)
 
+Start the Chrome the tests attach to with any system Chrome/Chromium:
+
+```bash
+google-chrome --headless=new --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/tmuxy-e2e-chrome --no-first-run --no-default-browser-check &
+curl -s http://127.0.0.1:9222/json/version   # confirm it answers before running the suite
+```
+
+**Confirm that Chrome is up first.** Without it the suite does not fail — every test calls `skipIfNotReady()` and reports green in a couple of milliseconds, which looks identical to a real pass. A suite finishing suspiciously fast is the tell. (`CI=1` turns the skip into a hard failure, which is why CI can't be fooled this way.)
+
+The suite pins `TMUX_SOCKET` to `tmuxy` and clears `$TMUX` in `tests/jest.setup.js`, so it is safe to run from inside a tmux pane: mutations go to the dedicated socket rather than the session you are sitting in.
+
 ### Session Lifecycle
 
 - Each **test** gets a fresh tmux session: `createTestContext()`'s `beforeEach` creates a `TmuxTestSession`, and `afterEach` destroys it

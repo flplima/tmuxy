@@ -11,6 +11,8 @@ const path = require('path');
 const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
 const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'bin/tmuxy-cli');
 
+const { tmuxCmd, tmuxEnv } = require('./tmux-socket');
+
 /**
  * Run a tmux command safely through the tmuxy CLI (`tmuxy run <command>`).
  * Routes through `tmux run-shell` to avoid crashing tmux 3.5a control mode.
@@ -20,11 +22,25 @@ const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'bin/tmuxy-cli');
  * @returns {string} Trimmed stdout
  */
 function tmuxRun(command) {
-  return execSync(`${TMUXY_CLI} run ${command}`, {
-    cwd: WORKSPACE_ROOT,
-    encoding: 'utf-8',
-    timeout: 30000,
-  }).trim();
+  try {
+    return execSync(`${TMUXY_CLI} run ${command}`, {
+      cwd: WORKSPACE_ROOT,
+      encoding: 'utf-8',
+      timeout: 30000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: tmuxEnv(),
+    }).trim();
+  } catch (error) {
+    // execSync's message is just "Command failed: <cmd>" — the reason tmux gave
+    // is in stderr, which is the only part that says what actually went wrong.
+    const stderr = (error.stderr || '').toString().trim();
+    const stdout = (error.stdout || '').toString().trim();
+    throw new Error(
+      `tmuxy run ${command} failed (exit ${error.status})` +
+        (stderr ? `\n  stderr: ${stderr}` : '') +
+        (stdout ? `\n  stdout: ${stdout}` : ''),
+    );
+  }
 }
 
 /**
@@ -36,14 +52,12 @@ function tmuxRun(command) {
  * @returns {string} Trimmed stdout
  */
 function tmuxQuery(command) {
-  // Same socket resolution as the app: TMUX_SOCKET override (a value with a
-  // slash is a socket path → -S, else a socket name → -L), else the
-  // dedicated `tmuxy` socket.
-  const socket = process.env.TMUX_SOCKET || 'tmuxy';
-  const socketFlag = `${socket.includes('/') ? '-S' : '-L'} ${socket} `;
-  return execSync(`tmux ${socketFlag}${command}`, {
+  // Same socket as tmuxRun, so reads and writes can never address different
+  // tmux servers.
+  return execSync(`${tmuxCmd()} ${command}`, {
     encoding: 'utf-8',
     timeout: 30000,
+    env: tmuxEnv(),
   }).trim();
 }
 

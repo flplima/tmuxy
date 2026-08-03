@@ -48,6 +48,7 @@ function createTestContext({ snapshot = false } = {}) {
     session: null, // TmuxTestSession instance
     testSession: null, // Session name (for backwards compatibility)
     browserAvailable: true,
+    browserError: null, // Why getBrowser() failed, surfaced by skipIfNotReady
     serverAvailable: true,
     glitchDetector: null, // GlitchDetector instance (set by startGlitchDetection)
   };
@@ -63,8 +64,14 @@ function createTestContext({ snapshot = false } = {}) {
 
     try {
       ctx.browser = await getBrowser();
-    } catch {
+    } catch (err) {
       ctx.browserAvailable = false;
+      // Keep the reason: without it every test skips with a generic message and
+      // the suite reports green in milliseconds, which is indistinguishable
+      // from a real pass. The actual cause (no CDP on 9222, a Playwright
+      // browser revision mismatch, a missing system library) is only visible
+      // here.
+      ctx.browserError = err.message.split('\n')[0];
     }
   };
 
@@ -240,7 +247,8 @@ function createTestContext({ snapshot = false } = {}) {
     if (ctx.isReady()) return false;
     const reason = !ctx.serverAvailable
       ? `server not reachable at ${TMUXY_URL}`
-      : 'browser/CDP not available (is Chrome running with --remote-debugging-port=9222?)';
+      : `browser/CDP not available (is Chrome running with --remote-debugging-port=9222?)` +
+        (ctx.browserError ? `\n   cause: ${ctx.browserError}` : '');
     if (process.env.CI) {
       throw new Error(`E2E prerequisites not met (${reason}); refusing to skip in CI`);
     }

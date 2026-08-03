@@ -10,9 +10,25 @@ const path = require('path');
 const { delay, focusPage } = require('./browser');
 const { DELAYS } = require('./config');
 const { typeInTerminal, pressEnter } = require('./ui');
+const { getTerminalText } = require('./pane-ops');
 
 const MOUSE_CAPTURE_SCRIPT = path.join(__dirname, 'mouse-capture.py');
 const MOUSE_LOG = '/tmp/mouse-events.log';
+
+/**
+ * What each pane in the test session is currently running, for failure
+ * messages. Read-only, so it is safe while control mode is attached.
+ */
+function describePaneCommands(ctx) {
+  try {
+    return ctx.session
+      .runCommandSync(`list-panes -t ${ctx.session.name} -F "#{pane_id}=#{pane_current_command}"`)
+      .split('\n')
+      .join(' ');
+  } catch (err) {
+    return `<unavailable: ${err.message}>`;
+  }
+}
 
 /**
  * Start the mouse capture Python script in the terminal.
@@ -37,7 +53,16 @@ async function startMouseCapture(ctx) {
     } catch {}
     if (!ready) await delay(DELAYS.MEDIUM);
   }
-  expect(ready).toBe(true);
+  if (!ready) {
+    // "ready is false" says nothing about why. The command is typed through the
+    // browser, so the interesting question is whether it reached the pane at
+    // all — dump what the pane is running and what the terminal shows.
+    throw new Error(
+      `mouse-capture never signalled READY within 15000ms.\n` +
+        `  pane command: ${describePaneCommands(ctx)}\n` +
+        `  terminal: ${JSON.stringify((await getTerminalText(ctx.page)).slice(-300))}`,
+    );
+  }
   const flagStart = Date.now();
   let flagSet = false;
   while (!flagSet && Date.now() - flagStart < 15000) {
