@@ -7,6 +7,7 @@
 
 import { useMemo } from 'react';
 import { TerminalLine } from './TerminalLine';
+import { Cursor } from './Cursor';
 import { cursorShapeToMode } from '../utils/cursorShape';
 import type { CursorMode } from './Cursor';
 import type { PaneContent, CellLine, ImagePlacement } from '../tmux/types';
@@ -160,38 +161,68 @@ export const Terminal: React.FC<TerminalProps> = ({
 
   // Pad content to fill height. When stale content is TALLER than the pane —
   // an optimistic shrink (split/kill/resize) applied before the re-captured
-  // viewport arrived — keep the BOTTOM rows: tmux anchors a shrinking pane to
-  // the prompt/cursor, so the tail is what the server keeps visible. Clipping
-  // the top instead of the bottom hides the pane's most recent lines for the
-  // whole round-trip.
-  const staleClipOffset = Math.max(0, content.length - height);
+  // viewport arrived — keep the rows ending at the last row that actually has
+  // content: tmux anchors a shrinking pane to the prompt/cursor, so the tail is
+  // what the server keeps visible, and clipping from the top would hide the
+  // pane's most recent lines for the whole round-trip.
+  //
+  // Anchoring on the last non-blank row rather than on the buffer's end matters
+  // because a stale buffer is usually mostly blank: a shell with a few lines of
+  // output in a formerly taller pane leaves the tail empty, so keeping the
+  // literal bottom rows renders the pane completely BLANK until the re-capture
+  // lands. That is the common case right after a split.
+  const staleClipOffset = useMemo(() => {
+    const overflow = content.length - height;
+    if (overflow <= 0) return 0;
+    let lastNonBlank = -1;
+    for (let i = content.length - 1; i >= 0; i--) {
+      if (content[i]?.some((cell) => cell.c && cell.c !== ' ')) {
+        lastNonBlank = i;
+        break;
+      }
+    }
+    if (lastNonBlank < 0) return overflow;
+    return Math.min(overflow, Math.max(0, lastNonBlank - height + 1));
+  }, [content, height]);
   const lines = useMemo(() => {
-    if (staleClipOffset > 0) return content.slice(staleClipOffset);
-    const result: CellLine[] = [...content];
+    const result: CellLine[] = content.slice(staleClipOffset, staleClipOffset + height);
     while (result.length < height) {
       result.push(EMPTY_LINE);
     }
     return result;
   }, [content, height, staleClipOffset]);
 
+  // Cursor row within the rendered viewport, after stale-content clipping.
+  const cursorRow = effectiveCursorY - staleClipOffset;
+  const cursorVisible = showCursor && cursorRow >= 0 && cursorRow < lines.length;
+
+  // The character the block cursor paints over. Indexed by CELL, which is what
+  // effectiveCursorX is — never by position in the line's joined text, whose
+  // UTF-16 offsets diverge from cell offsets on any cell holding more than one
+  // code unit (variation selectors, combining marks).
+  const cursorChar = useMemo(() => {
+    if (!cursorVisible) return ' ';
+    return lines[cursorRow]?.[effectiveCursorX]?.c || ' ';
+  }, [cursorVisible, lines, cursorRow, effectiveCursorX]);
+
   return (
     <div className="terminal-container" data-testid="terminal" role="log" aria-live="off">
       <pre className="terminal-content" aria-hidden="true">
         {lines.map((line, lineIndex) => (
-          <TerminalLine
-            key={lineIndex}
-            line={line}
-            lineIndex={lineIndex}
-            cursorX={effectiveCursorX}
-            cursorY={effectiveCursorY - staleClipOffset}
-            showCursor={showCursor}
-            inMode={inMode}
-            isActive={isActive}
-            cursorMode={cursorMode}
-            selectionRange={getSelectionRange(lineIndex)}
-          />
+          <TerminalLine key={lineIndex} line={line} selectionRange={getSelectionRange(lineIndex)} />
         ))}
       </pre>
+      {cursorVisible && (
+        <Cursor
+          x={effectiveCursorX}
+          y={cursorRow}
+          char={cursorChar}
+          mode={cursorMode}
+          active={isActive}
+          copyMode={inMode}
+          gridUnits
+        />
+      )}
       {images && images.length > 0 && paneId && (
         <div className="terminal-images">
           {images.map((img) => (
@@ -202,12 +233,18 @@ export const Terminal: React.FC<TerminalProps> = ({
               alt=""
               data-protocol={img.protocol}
               data-image-id={img.id}
+              // Same grid units the rows and the cursor use: `1ch` is the
+              // monospace cell advance the style-group spans are pinned to, and
+              // --line-height-terminal is the row height. (These were
+              // --cell-width / --cell-height, which are defined nowhere, so
+              // every calc() collapsed to 0 and images rendered 0x0 at the
+              // pane's top-left corner.)
               style={{
                 position: 'absolute',
-                top: `calc(${img.row} * var(--cell-height))`,
-                left: `calc(${img.col} * var(--cell-width))`,
-                width: `calc(${img.widthCells} * var(--cell-width))`,
-                height: `calc(${img.heightCells} * var(--cell-height))`,
+                top: `calc(${img.row} * var(--line-height-terminal))`,
+                left: `${img.col}ch`,
+                width: `${img.widthCells}ch`,
+                height: `calc(${img.heightCells} * var(--line-height-terminal))`,
               }}
             />
           ))}

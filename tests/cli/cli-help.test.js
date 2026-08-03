@@ -29,8 +29,9 @@ describe('CLI help output', () => {
     test.each([
       [['pane', 'list', '--help'], 'Usage: tmuxy pane list'],
       [['pane', 'list', '-h'], 'Usage: tmuxy pane list'],
+      // `pane split` is the one subcommand with no `-h` help alias: -h is its
+      // own flag (horizontal split). Covered in cli-pane.test.js.
       [['pane', 'split', '--help'], 'Usage: tmuxy pane split'],
-      [['pane', 'split', '-h'], 'Usage: tmuxy pane split'],
       [['pane', 'kill', '--help'], 'Usage: tmuxy pane kill'],
       [['pane', 'kill', '-h'], 'Usage: tmuxy pane kill'],
       [['pane', 'select', '--help'], 'Usage: tmuxy pane select'],

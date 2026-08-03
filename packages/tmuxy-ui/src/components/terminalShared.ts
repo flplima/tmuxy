@@ -85,8 +85,20 @@ export function getAnsi256Color(index: number): string {
  */
 export function isWideChar(s: string): boolean {
   if (!s) return false;
+  // U+FE0F (variation selector-16) requests emoji presentation, which renders
+  // ~2 cells wide even when the base code point is a narrow text symbol
+  // (e.g. U+2764 "❤" is 1 cell, "❤️" is 2). The base alone doesn't say which,
+  // so check the whole cell string, not just its first code point.
+  if (s.includes('\uFE0F')) return true;
   const cp = s.codePointAt(0);
   if (cp === undefined) return false;
+  // Misc Symbols and Dingbats (U+2600–U+27BF) are deliberately NOT listed. Their
+  // text-presentation glyphs sit within a cell (measured: ❤ and ✔ advance 0.978),
+  // so isolating them buys almost nothing — while the block also contains ❯, the
+  // default zsh prompt character, which measures exactly 1.0 and would then get
+  // its own span on every prompt line. That is pure DOM fragmentation and extra
+  // mutation churn. The wide cases in that block carry U+FE0F and are caught
+  // above.
   return (
     (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
     cp === 0x2329 ||

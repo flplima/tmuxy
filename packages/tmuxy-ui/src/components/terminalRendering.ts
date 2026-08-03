@@ -143,12 +143,23 @@ export function renderLineToDOM(
   const lineBg = detectLineBg(line);
   if (lineBg) el.style.backgroundColor = lineBg;
 
-  // Auto-detect URLs in line text
-  const lineText = lineSliceText(line, 0, line.length);
+  // Auto-detect URLs in line text.
+  //
+  // detectUrls reports UTF-16 offsets into the joined text, but callers ask
+  // about CELL indices. A cell can hold more than one code unit (variation
+  // selectors, combining marks), so translate through a per-cell offset map
+  // rather than comparing a cell index against a string offset.
+  const cellOffsets = new Array<number>(line.length);
+  let lineText = '';
+  for (let i = 0; i < line.length; i++) {
+    cellOffsets[i] = lineText.length;
+    lineText += line[i].c;
+  }
   const autoUrls = detectUrls(lineText);
   const urlIdxOf = (i: number): number => {
+    const off = cellOffsets[i];
     for (let u = 0; u < autoUrls.length; u++) {
-      if (i >= autoUrls[u].start && i < autoUrls[u].end) return u;
+      if (off >= autoUrls[u].start && off < autoUrls[u].end) return u;
     }
     return -1;
   };

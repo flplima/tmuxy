@@ -42,34 +42,12 @@ function styled(str: string, style: Record<string, unknown>): CellLine {
 export const Plain: Story = {
   args: {
     line: text('$ ls -la /home/user'),
-    lineIndex: 0,
-    cursorX: 0,
-    cursorY: 99,
-    showCursor: false,
-    inMode: false,
-    isActive: true,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(canvas.getByText(/ls -la \/home\/user/)).toBeInTheDocument();
+    // The cursor is a Terminal-level overlay — a line never renders one.
     expect(canvasElement.querySelector('.terminal-cursor')).toBeNull();
-  },
-};
-
-export const WithCursor: Story = {
-  args: {
-    line: text('$ vim notes.md'),
-    lineIndex: 0,
-    cursorX: 14,
-    cursorY: 0,
-    showCursor: true,
-    inMode: false,
-    isActive: true,
-  },
-  play: async ({ canvasElement }) => {
-    const cursor = canvasElement.querySelector('.terminal-cursor');
-    expect(cursor).not.toBeNull();
-    expect(cursor).not.toHaveClass('terminal-cursor-inactive');
   },
 };
 
@@ -80,12 +58,6 @@ export const Styled: Story = {
       ...text('something went wrong on '),
       ...styled('main.rs:42', { underline: true, fg: 4 }),
     ],
-    lineIndex: 0,
-    cursorX: 0,
-    cursorY: 99,
-    showCursor: false,
-    inMode: false,
-    isActive: true,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -97,12 +69,6 @@ export const Styled: Story = {
 export const Selection: Story = {
   args: {
     line: text('the quick brown fox jumps over the lazy dog'),
-    lineIndex: 0,
-    cursorX: 0,
-    cursorY: 99,
-    showCursor: false,
-    inMode: false,
-    isActive: true,
     selectionRange: { startCol: 4, endCol: 14 },
   },
   play: async ({ canvasElement }) => {

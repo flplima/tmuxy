@@ -47,10 +47,17 @@ describe('CLI pane subcommands', () => {
       expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw']);
     });
 
-    test('-h is interpreted as help (ambiguous with horizontal)', () => {
-      // In the CLI, -h is the help flag — to split horizontally, use: pane split -h
-      // But the for-loop over args catches -h as help before it reaches tmux
-      const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'split', '-h']);
+    test('splits pane -h (horizontal), not help', () => {
+      // -h is this command's own flag. It used to be swallowed by the shared
+      // `--help|-h` case, so the documented horizontal split printed usage and
+      // did nothing.
+      const { exitCode, tmuxCalls } = runCLI(['pane', 'split', '-h']);
+      expect(exitCode).toBe(0);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy splitw -h']);
+    });
+
+    test('--help still prints usage without splitting', () => {
+      const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'split', '--help']);
       expect(exitCode).toBe(0);
       expect(stdout).toContain('Usage: tmuxy pane split');
       expect(tmuxCalls).toHaveLength(0);

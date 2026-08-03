@@ -284,10 +284,13 @@ cmd_pane() {
       ;;
 
     split)
+      # `-h` is this command's own flag (horizontal split), so only the long
+      # form asks for help — otherwise `tmuxy pane split -h` prints usage
+      # instead of splitting.
       local args=""
       for arg in "$@"; do
         case "$arg" in
-          --help|-h) echo "Usage: tmuxy pane split [-h|-v]"; return ;;
+          --help) echo "Usage: tmuxy pane split [-h|-v]"; return ;;
           *) args="$args $arg" ;;
         esac
       done

@@ -2,16 +2,17 @@
  * TerminalLine - Memoized terminal line component
  *
  * Renders pre-parsed cell data from Rust backend.
- * Only re-renders when:
- * - Line content changes
- * - Cursor moves to/from this line
- * - Cursor X position changes (when cursor is on this line)
+ * Only re-renders when line content or the selection range changes.
+ *
+ * The cursor is NOT rendered here: Terminal draws it as a grid-positioned
+ * overlay. Splicing it into this line's text tied its position to the natural
+ * advance of the preceding glyphs and to UTF-16 offsets within the cell run,
+ * which drifted off the cell grid. Keeping it out also means a moving cursor
+ * no longer re-renders lines.
  */
 
 import { memo, useMemo, useCallback, CSSProperties } from 'react';
-import { Cursor } from './Cursor';
 import { LogProfiler } from '../utils/renderLog';
-import type { CursorMode } from './Cursor';
 import type { CellLine, TerminalCell, CellStyle } from '../tmux/types';
 import { cellColorToCss, isWideChar } from './terminalShared';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
@@ -94,52 +95,11 @@ function buildCellStyle(style: CellStyle): CSSProperties {
 
 export interface TerminalLineProps {
   line: CellLine;
-  lineIndex: number;
-  cursorX: number;
-  cursorY: number;
-  showCursor: boolean;
-  inMode: boolean;
-  isActive: boolean;
-  cursorMode?: CursorMode;
   selectionRange?: { startCol: number; endCol: number } | null;
 }
 
 export const TerminalLine = memo(
-  function TerminalLine({
-    line,
-    lineIndex,
-    cursorX,
-    cursorY,
-    showCursor,
-    inMode,
-    isActive,
-    cursorMode = 'block',
-    selectionRange,
-  }: TerminalLineProps) {
-    const isCursorLine = showCursor && lineIndex === cursorY;
-    const lineLength = line.length;
-
-    // Render end-of-line cursor if cursor position exceeds line length
-    const renderEndOfLineCursor = (): React.ReactNode => {
-      if (isCursorLine && cursorX >= lineLength) {
-        const padCount = cursorX - lineLength;
-        return (
-          <>
-            {padCount > 0 && <span>{' '.repeat(padCount)}</span>}
-            <Cursor
-              x={cursorX}
-              y={cursorY}
-              char=" "
-              copyMode={inMode}
-              active={isActive}
-              mode={cursorMode}
-            />
-          </>
-        );
-      }
-      return null;
-    };
-
+  function TerminalLine({ line, selectionRange }: TerminalLineProps) {
     // Check if a cell index falls within the selection range
     const isCellSelected = (idx: number): boolean => {
       if (!selectionRange) return false;
@@ -148,19 +108,30 @@ export const TerminalLine = memo(
 
     // Memoize URL detection: only re-runs when line reference changes
     // mergeContent() preserves line identity for unchanged lines → cache hits
-    const autoUrls = useMemo(() => {
-      const text = line.map((c) => c.c).join('');
-      return detectUrls(text);
+    //
+    // detectUrls reports UTF-16 offsets into the joined text, but callers ask
+    // about CELL indices. A cell can hold more than one code unit (variation
+    // selectors, combining marks), so keep the per-cell offset map to translate
+    // rather than comparing a cell index against a string offset.
+    const { autoUrls, cellOffsets } = useMemo(() => {
+      const offsets = new Array<number>(line.length);
+      let text = '';
+      for (let i = 0; i < line.length; i++) {
+        offsets[i] = text.length;
+        text += line[i].c;
+      }
+      return { autoUrls: detectUrls(text), cellOffsets: offsets };
     }, [line]);
 
     const urlIdx = useCallback(
       (i: number): number => {
+        const off = cellOffsets[i];
         for (let u = 0; u < autoUrls.length; u++) {
-          if (i >= autoUrls[u].start && i < autoUrls[u].end) return u;
+          if (off >= autoUrls[u].start && off < autoUrls[u].end) return u;
         }
         return -1;
       },
-      [autoUrls],
+      [autoUrls, cellOffsets],
     );
 
     // Group consecutive cells with same style for efficiency
@@ -170,7 +141,6 @@ export const TerminalLine = memo(
       let currentGroup: {
         cells: TerminalCell[];
         style: CellStyle | undefined;
-        startIdx: number;
         selected: boolean;
         sk: number;
         autoUrlIdx: number;
@@ -191,7 +161,6 @@ export const TerminalLine = memo(
         let style: CSSProperties = currentGroup.style ? buildCellStyle(currentGroup.style) : {};
         style.width = `${currentGroup.cells.length}ch`;
         const blockCh = currentGroup.blockCh;
-        const startIdx = currentGroup.startIdx;
         // OSC 8 explicit URL takes priority over auto-detected
         const oscUrl = currentGroup.style?.url;
         const autoUrl =
@@ -217,56 +186,6 @@ export const TerminalLine = memo(
           );
           if (painted) {
             style = { ...style, ...painted, color: 'transparent' };
-          }
-        }
-
-        // Check if cursor is in this group
-        if (isCursorLine) {
-          const endIdx = startIdx + currentGroup.cells.length;
-          if (cursorX >= startIdx && cursorX < endIdx) {
-            const localPos = cursorX - startIdx;
-            const before = text.slice(0, localPos);
-            const cursorChar = text[localPos] || ' ';
-            const after = text.slice(localPos + 1);
-
-            const content = (
-              <>
-                {before}
-                <Cursor
-                  x={cursorX}
-                  y={cursorY}
-                  char={cursorChar}
-                  copyMode={inMode}
-                  active={isActive}
-                  mode={cursorMode}
-                />
-                {after}
-              </>
-            );
-
-            if (linkUrl) {
-              const cls = [linkClass, selectedClass].filter(Boolean).join(' ');
-              spans.push(
-                <a
-                  key={spans.length}
-                  href={linkUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={style}
-                  className={cls}
-                >
-                  {content}
-                </a>,
-              );
-            } else {
-              spans.push(
-                <span key={spans.length} style={style} className={selectedClass}>
-                  {content}
-                </span>,
-              );
-            }
-            currentGroup = null;
-            return;
           }
         }
 
@@ -322,7 +241,6 @@ export const TerminalLine = memo(
           currentGroup = {
             cells: [cell],
             style: cell.s,
-            startIdx: i,
             selected,
             sk: cellSK,
             autoUrlIdx: cellUrlIdx,
@@ -352,10 +270,7 @@ export const TerminalLine = memo(
 
     return (
       <LogProfiler id="TerminalLine">
-        <div className="terminal-line">
-          {renderCells()}
-          {renderEndOfLineCursor()}
-        </div>
+        <div className="terminal-line">{renderCells()}</div>
       </LogProfiler>
     );
   },
@@ -370,23 +285,6 @@ export const TerminalLine = memo(
     if (prevSel !== nextSel) {
       if (!prevSel || !nextSel) return false;
       if (prevSel.startCol !== nextSel.startCol || prevSel.endCol !== nextSel.endCol) return false;
-    }
-
-    // Check if cursor was or is on this line
-    const prevHasCursor = prevProps.showCursor && prevProps.lineIndex === prevProps.cursorY;
-    const nextHasCursor = nextProps.showCursor && nextProps.lineIndex === nextProps.cursorY;
-
-    // If cursor status on this line changed, re-render
-    if (prevHasCursor !== nextHasCursor) return false;
-
-    // If cursor is on this line, check if X position changed
-    if (nextHasCursor && prevProps.cursorX !== nextProps.cursorX) return false;
-
-    // If cursor is on this line, check if cursor style props changed
-    if (nextHasCursor) {
-      if (prevProps.inMode !== nextProps.inMode) return false;
-      if (prevProps.isActive !== nextProps.isActive) return false;
-      if (prevProps.cursorMode !== nextProps.cursorMode) return false;
     }
 
     // No relevant changes, skip re-render
