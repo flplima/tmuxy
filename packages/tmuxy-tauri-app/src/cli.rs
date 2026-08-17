@@ -156,6 +156,36 @@ pub fn run_server(args: Vec<String>) {
         .block_on(server::run(cli.server));
 }
 
+/// Run `tmuxy trace ...` (inspect/export a local action-trace file). Reuses the
+/// server's `Trace` subcommand parser; unlike `run_server`, it keeps the noun
+/// token so clap sees `trace` as the subcommand.
+pub fn run_trace(args: Vec<String>) {
+    use clap::Parser;
+    use tmuxy_server::server;
+
+    #[derive(Parser)]
+    #[command(name = "tmuxy", about = "Tmuxy trace inspector")]
+    struct TraceCli {
+        #[command(flatten)]
+        server: server::ServerArgs,
+    }
+
+    // "tmuxy-server" + ["trace", ...] — keep "trace" so it parses as the subcommand.
+    let mut argv = vec!["tmuxy-server".to_string()];
+    argv.extend(args);
+
+    let cli = match TraceCli::try_parse_from(&argv) {
+        Ok(a) => a,
+        Err(e) => e.exit(),
+    };
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(server::run(cli.server));
+}
+
 pub fn print_help() {
     println!(
         "tmuxy {VERSION} — AI-first terminal multiplexer
@@ -165,7 +195,8 @@ Usage: tmuxy [command] [args...]
 Commands:
   (no args)     Open the desktop GUI application
   gui           Open the desktop GUI application
-  server        Start the web server (--port, --host, --dev)
+  server        Start the web server (--port, --host, --dev, --trace)
+  trace         Inspect/export a local action-trace file (--export)
   connect       Add a tmux server (form), or reconnect to one: connect [socket]
   pane          Pane operations (split, kill, select, resize, ...)
   tab           Tab operations (create, kill, select, rename, ...)

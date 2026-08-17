@@ -113,6 +113,19 @@ impl LogSink for TauriEmitter {
 
 impl StateEmitter for TauriEmitter {
     fn emit_state(&self, update: StateUpdate) {
+        // Trace the emit by delta seq + kind (parity with the web SseEmitter) so
+        // the return leg joins to the client's applied `seq`. Content-free.
+        let kind = if matches!(update, StateUpdate::Full { .. }) {
+            "full"
+        } else {
+            "delta"
+        };
+        match &update {
+            StateUpdate::Delta { delta } => {
+                tracing::debug!(target: "tmuxy_tauri_app::emit", seq = delta.seq, kind, "emit state")
+            }
+            _ => tracing::debug!(target: "tmuxy_tauri_app::emit", kind, "emit state"),
+        }
         if let Err(e) = self.app.emit("tmux-state-update", &update) {
             eprintln!("Failed to emit state: {}", e);
         }

@@ -16,6 +16,7 @@ import {
 import { handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
+import { tracer } from './tracer';
 import { Effect, Fiber, Queue, Schedule } from 'effect';
 
 /**
@@ -69,6 +70,8 @@ export class HttpAdapter implements TmuxAdapter {
   private readonly reconnectSchedule: Schedule.Schedule<unknown>;
   private connectionId: number = 0;
   private connected = false;
+  /** Per-connection counter for minting trace action ids (docs/TELEMETRY.md). */
+  private traceActionSeq = 0;
   private reconnecting = false;
   // Session-name override set by switchSession. Instance-scoped (not a module
   // global) so multiple adapters — or a re-created one — don't share/leak it.
@@ -91,6 +94,9 @@ export class HttpAdapter implements TmuxAdapter {
   // Last applied delta seq (null right after a full snapshot). Used to detect a
   // dropped/misordered delta and refetch a full state before it diverges.
   private lastDeltaSeq: number | null = null;
+  /** Delta seq of the most recent applied update, for the trace `apply` event
+   * (joins to the server's `emit state` seq). Null for full snapshots. */
+  private lastAppliedSeq: number | null = null;
   // Last client size seen via set_client_size/get_initial_state — needed to
   // refetch a full snapshot on a seq gap (get_initial_state takes cols/rows).
   private lastCols = 0;
@@ -274,6 +280,15 @@ export class HttpAdapter implements TmuxAdapter {
 
           const defaultShell = data.data?.default_shell ?? data.default_shell ?? 'bash';
           this.notifyConnectionInfo(this.connectionId, defaultShell);
+
+          // Action tracing (docs/TELEMETRY.md): the server tells us whether it
+          // is recording; only then do we ship our own events, and only through
+          // the same-origin /trace sink. The server independently rejects when
+          // off, so this is a hint, not the gate.
+          const traceEnabled = data.data?.trace_enabled ?? data.trace_enabled ?? false;
+          tracer.setServerEnabled(!!traceEnabled);
+          tracer.setSink((events) => this.shipTrace(events));
+
           this.resolveConnectWaiters();
         } catch (e) {
           console.error('Failed to parse connection-info:', e);
@@ -296,9 +311,11 @@ export class HttpAdapter implements TmuxAdapter {
               return;
             }
             this.lastDeltaSeq = update.delta.seq;
+            this.lastAppliedSeq = update.delta.seq;
           } else {
             // A full snapshot is a fresh sync point.
             this.lastDeltaSeq = null;
+            this.lastAppliedSeq = null;
           }
 
           const newState = handleStateUpdate(update, this.currentState);
@@ -447,7 +464,9 @@ export class HttpAdapter implements TmuxAdapter {
     // through `sendQueue` so HTTP POSTs leave the browser one at a time.
     if (cmd === 'run_tmux_command') {
       latencyTracker.markInput();
-      return this.enqueueSerialInvoke<T>(cmd, args);
+      const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
+      tracer.event({ layer: 'adapter', name: 'send', kind: 'command', action_id: actionId });
+      return this.enqueueSerialInvoke<T>(cmd, args, actionId);
     }
 
     return this.invokeInternal(cmd, args);
@@ -469,7 +488,11 @@ export class HttpAdapter implements TmuxAdapter {
    * but they're re-thrown on the returned promise so the caller still sees
    * them.
    */
-  private enqueueSerialInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  private enqueueSerialInvoke<T>(
+    cmd: string,
+    args?: Record<string, unknown>,
+    actionId?: string,
+  ): Promise<T> {
     let resolveOuter!: (value: T | PromiseLike<T>) => void;
     let rejectOuter!: (reason: unknown) => void;
     const outer = new Promise<T>((res, rej) => {
@@ -479,7 +502,7 @@ export class HttpAdapter implements TmuxAdapter {
     // The task settles the outer promise itself, so its Effect never fails —
     // one task's error can't stall the queue for the next command.
     const task = Effect.promise(() =>
-      this.invokeInternal<T>(cmd, args).then(resolveOuter, rejectOuter),
+      this.invokeInternal<T>(cmd, args, actionId).then(resolveOuter, rejectOuter),
     );
     Effect.runSync(Queue.offer(this.commandQueue, task));
     return outer;
@@ -497,6 +520,8 @@ export class HttpAdapter implements TmuxAdapter {
     // Keystrokes are the latency-critical input path — mark the round-trip so
     // the next applied state update closes it (Axis-B, see latencyTracker).
     latencyTracker.markInput();
+    const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
+    tracer.event({ layer: 'adapter', name: 'send', kind: 'keys', action_id: actionId });
 
     const session = this.getEffectiveSession();
     const protocol = window.location.protocol;
@@ -511,6 +536,7 @@ export class HttpAdapter implements TmuxAdapter {
         headers: {
           'Content-Type': 'application/json',
           'X-Connection-Id': connId,
+          ...(actionId ? { 'X-Action-Id': actionId } : {}),
         },
         body: JSON.stringify({ cmd, args }),
       })
@@ -523,7 +549,11 @@ export class HttpAdapter implements TmuxAdapter {
   /**
    * Internal invoke implementation
    */
-  private async invokeInternal<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  private async invokeInternal<T>(
+    cmd: string,
+    args?: Record<string, unknown>,
+    actionId?: string,
+  ): Promise<T> {
     if (!this.connected) {
       await this.connect();
     }
@@ -538,6 +568,8 @@ export class HttpAdapter implements TmuxAdapter {
       headers: {
         'Content-Type': 'application/json',
         'X-Connection-Id': String(this.connectionId),
+        // Correlate the request leg in the trace (docs/TELEMETRY.md).
+        ...(actionId ? { 'X-Action-Id': actionId } : {}),
       },
       body: JSON.stringify({ cmd, args: args || {} }),
     });
@@ -700,7 +732,35 @@ export class HttpAdapter implements TmuxAdapter {
     // Paint-bound apply (rAF-batched): closes the oldest outstanding input's
     // round trip and feeds the update-rate / stall metrics (Axis-B).
     latencyTracker.recordUpdate();
+    tracer.event({ layer: 'adapter', name: 'apply', seq: this.lastAppliedSeq ?? undefined });
     this.stateListeners.forEach((listener) => listener(state));
+  }
+
+  /** Mint a per-connection action id (e.g. `a-3-17`) so the trace can correlate
+   * a command's request leg from client send to server receive. */
+  private nextActionId(): string {
+    this.traceActionSeq += 1;
+    return `a-${this.connectionId}-${this.traceActionSeq}`;
+  }
+
+  /** Ship a batch of trace events to the same-origin /trace ingest endpoint.
+   * Fire-and-forget: a failed ship drops the batch, never affecting the app. */
+  private shipTrace(events: Record<string, unknown>[]): void {
+    try {
+      const protocol = window.location.protocol;
+      const host = window.location.host || 'localhost:3853';
+      fetch(`${protocol}//${host}/trace`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Connection-Id': String(this.connectionId),
+        },
+        body: JSON.stringify(events),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {
+      // window/fetch unavailable (SSR/test) — drop silently.
+    }
   }
 
   private notifyError(error: string): void {

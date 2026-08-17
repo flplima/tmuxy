@@ -94,6 +94,7 @@ Commands:
   run         Run any tmux command safely
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
+  trace       Inspect/export a local action-trace file (docs/TELEMETRY.md)
 
 Run 'tmuxy <command> --help' for details.
 EOF
@@ -913,6 +914,11 @@ case "${1:-}" in
   server)
     shift
     exec "$(find_server_binary)" "$@"
+    ;;
+  trace)
+    shift
+    # Inspect/export a local action-trace file (docs/TELEMETRY.md).
+    exec "$(find_server_binary)" trace "$@"
     ;;
   --help|-h)
     usage

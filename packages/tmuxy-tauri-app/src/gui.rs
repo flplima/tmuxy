@@ -922,6 +922,21 @@ fn show_status_message(app: &tauri::AppHandle, message: &str) {
 
 /// Start the Tauri GUI application.
 pub fn run() {
+    // The desktop GUI previously installed no tracing subscriber, so every
+    // `tracing` event (spans, warns, errors) was silently dropped here — only
+    // the `debug_log` file logger survived. Install it now so the whole Rust
+    // pipeline is observable in the app, and so the NDJSON trace layer is wired.
+    tmuxy_server::init_logging();
+    if let Some(path) = tmuxy_core::trace::init(None, cfg!(debug_assertions)) {
+        let level = tmuxy_core::trace::level_name();
+        tmuxy_core::debug_log::log(&format!("action tracing ON [{level}] → {}", path.display()));
+        eprintln!(
+            "[tmuxy] action tracing ON [level={level}] → {} (local only, never uploaded; \
+             TMUXY_TRACE_LEVEL=shape|labeled|full; DO_NOT_TRACK=1 or TMUXY_NO_TRACE=1 to disable)",
+            path.display()
+        );
+    }
+
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
 
@@ -1140,6 +1155,10 @@ pub fn run() {
             // live-reconnect to one (localhost socket switch or remote SSH).
             commands::list_servers,
             commands::connect_server,
+            // Local action tracing (docs/TELEMETRY.md): the frontend tracer
+            // queries `trace_enabled` and ships batches to `record_trace`.
+            commands::trace_enabled,
+            commands::record_trace,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

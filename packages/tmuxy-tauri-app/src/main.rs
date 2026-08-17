@@ -23,6 +23,9 @@ fn main() {
         // "server" → web server mode (delegates to tmuxy-server)
         Some("server") => cli::run_server(args),
 
+        // "trace" → inspect/export a local action-trace file (docs/TELEMETRY.md)
+        Some("trace") => cli::run_trace(args),
+
         // "connect" with no socket → run the add-a-server form TUI in-process
         // (this binary links it via tmuxy-server); with a socket it's the shell
         // dispatcher's live-reconnect request. Handling the form here means the

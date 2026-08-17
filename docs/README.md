@@ -41,6 +41,7 @@ This directory contains architectural and design documentation for the tmuxy pro
 |----------|---------------|-----------------|
 | [TESTS.md](TESTS.md) | Testing guidelines and principles for all test types | Writing or debugging tests |
 | [PERFORMANCE.md](PERFORMANCE.md) | Speed measurement along two independent axes: core + client processing (Axis A) vs transport (Axis B), and the harness for each | Benchmarking, profiling, or investigating latency |
+| [TELEMETRY.md](TELEMETRY.md) | Unified cross-layer action tracing (XState/Effect/Rust/Tauri) into one local NDJSON file: schema, instrumentation seams, redaction boundary, and phased plan | Debugging complex cross-layer issues; adding instrumentation |
 
 ### Protocols & Rendering
 

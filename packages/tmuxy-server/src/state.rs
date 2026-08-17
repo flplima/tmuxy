@@ -302,6 +302,13 @@ pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/events", get(crate::sse::sse_handler))
         .route("/commands", post(crate::sse::commands_handler))
+        // Client trace ingest (docs/TELEMETRY.md). Capped at 256 KiB/request so a
+        // hostile client can't exhaust the disk in one call; the handler also
+        // fails closed when tracing is off.
+        .route(
+            "/trace",
+            post(crate::sse::trace_handler).layer(axum::extract::DefaultBodyLimit::max(256 * 1024)),
+        )
         .route("/api/file", get(file_handler))
         .route("/api/images/{pane_id}/{image_id}", get(image_handler))
         .layer(

@@ -31,6 +31,7 @@ import { LeavingPanesContext } from './LeavingPanesContext';
 import { activeCloseTarget, executeMenuAction } from '../components/menus/menuActions';
 import type { TmuxAdapter } from '../tmux/types';
 import { createAdapter } from '../tmux/adapters';
+import { tracer } from '../tmux/tracer';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createSizeActor } from './actors/sizeActor';
@@ -161,6 +162,13 @@ export function AppProvider({
     const originalSend = actorRef.send.bind(actorRef);
     (actorRef as { send: (event: unknown) => void }).send = (event: unknown) => {
       window.__tmuxyRecordEvent?.(event);
+      // Action tracing: record only the event *type* (a variant name like
+      // SEND_TMUX_COMMAND), never its payload — the payload can carry keystrokes.
+      // The derived model-update firehose is coalesced to a periodic count so it
+      // doesn't drown the trace.
+      const type = (event as { type?: string })?.type;
+      if (type === 'TMUX_MODEL_UPDATE') tracer.count('xstate', type);
+      else if (type) tracer.event({ layer: 'xstate', name: type });
       return originalSend(event as Parameters<typeof originalSend>[0]);
     };
     (window as unknown as { app: typeof actorRef }).app = actorRef;

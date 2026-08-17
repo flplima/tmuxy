@@ -958,7 +958,6 @@ fn is_multi_step_run_shell(command: &str) -> bool {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_config_default() {

@@ -2,6 +2,7 @@ import { fromCallback, type AnyActorRef } from 'xstate';
 import { Cause, Effect, Exit, Fiber } from 'effect';
 import type { TmuxAdapter, ServerState, KeyBindings } from '../../tmux/types';
 import { toEffectAdapter, type AdapterError, Schemas } from '../../tmux/effect';
+import { tracer } from '../../tmux/tracer';
 
 export type TmuxActorEvent =
   | { type: 'SEND_COMMAND'; command: string }
@@ -81,6 +82,9 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         const failure = Cause.failureOption(exit.cause);
         if (failure._tag !== 'Some') return;
         const tagged = failure.value;
+        // Trace the failure by its typed tag (TransportError/ProtocolError/…),
+        // never the message text.
+        tracer.event({ layer: 'effect', name: 'fail', code: tagged._tag });
         const display = adapterErrorToString(tagged);
         if (opts.silentFail) {
           console.error(`[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`, tagged._tag, display);

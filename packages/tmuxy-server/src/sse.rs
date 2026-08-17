@@ -96,11 +96,9 @@ impl SseEmitter {
     }
 
     /// Encode + broadcast in one shot — drops the message on serialize failure
-    /// (already logged by `encode_event`).
-    fn send_event(&self, event: &SseEvent) {
-        if let Some(s) = encode_event(event) {
-            self.broadcast.broadcast(s);
-        }
+    /// (already logged by `encode_event`). Returns the assigned SSE seq id.
+    fn send_event(&self, event: &SseEvent) -> Option<u64> {
+        encode_event(event).map(|s| self.broadcast.broadcast(s))
     }
 }
 
@@ -120,7 +118,24 @@ impl StateEmitter for SseEmitter {
                 guard.retain(|(pane_id, _), _| active_pane_ids.contains(pane_id.as_str()));
             }
         }
+        // Trace the emit with the *delta* seq + kind so the return leg can be
+        // correlated to the client's applied delta seq (docs/TELEMETRY.md). The
+        // SSE transport id is a different counter; the delta seq is the one the
+        // client tags its `apply` with. Content-free.
+        let kind = if matches!(update, StateUpdate::Full { .. }) {
+            "full"
+        } else {
+            "delta"
+        };
+        let delta_seq = match &update {
+            StateUpdate::Delta { delta } => Some(delta.seq),
+            _ => None,
+        };
         self.send_event(&SseEvent::StateUpdate(Box::new(update)));
+        match delta_seq {
+            Some(seq) => tracing::debug!(target: "tmuxy_server::emit", seq, kind, "emit state"),
+            None => tracing::debug!(target: "tmuxy_server::emit", kind, "emit state"),
+        }
     }
 
     fn emit_error(&self, error: String) {
@@ -186,6 +201,11 @@ enum SseEvent {
     ConnectionInfo {
         connection_id: u64,
         default_shell: String,
+        /// Whether action tracing is on for this server. The client ships its
+        /// own trace events to `POST /trace` only when this is true — the ingest
+        /// endpoint independently rejects when off, so this is a hint, not the
+        /// enforcement point (docs/TELEMETRY.md § Gating).
+        trace_enabled: bool,
     },
     #[serde(rename = "state-update")]
     StateUpdate(Box<StateUpdate>),
@@ -350,6 +370,7 @@ pub async fn sse_handler(
         let conn_info = SseEvent::ConnectionInfo {
             connection_id: conn_id,
             default_shell,
+            trace_enabled: tmuxy_core::trace::is_enabled(),
         };
         if let Some(s) = encode_event(&conn_info) {
             yield Ok(Event::default().event("connection-info").data(s));
@@ -471,6 +492,13 @@ pub async fn commands_handler(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok());
 
+    // Action tracing (docs/TELEMETRY.md): if the client tagged this command with
+    // an action id, record it so the trace can correlate the request leg
+    // (client send → server receive) exactly. Content-free — just the id.
+    if let Some(action_id) = headers.get("x-action-id").and_then(|v| v.to_str().ok()) {
+        tracing::info!(target: "tmuxy_server::sse", action_id = %action_id, "client command");
+    }
+
     // Decode into the typed enum. A parse failure still returns 400 with the
     // serde error in the body — the existing wire contract (`{ "error": ... }`)
     // is preserved so the TS adapter keeps working.
@@ -507,6 +535,34 @@ pub async fn commands_handler(
         )
             .into_response(),
     }
+}
+
+// ============================================
+// Trace Ingest Handler (POST /trace)
+// ============================================
+
+/// Max client events accepted per request (a second cap behind the route's
+/// body-size limit) — a hostile client can't fill the disk in one call.
+const TRACE_MAX_EVENTS: usize = 1000;
+
+/// Ingest client-originated trace events (browser/Tauri tracer) into the shared
+/// NDJSON file. **Fails closed**: if tracing is not enabled on this server the
+/// body is dropped regardless of what the client believes, so a stale client
+/// flag can never reopen the sink. Every event is re-sanitized server-side
+/// (`trace::record_client_event`) before it touches the file.
+pub async fn trace_handler(body: axum::body::Bytes) -> StatusCode {
+    if !tmuxy_core::trace::is_enabled() {
+        return StatusCode::NO_CONTENT;
+    }
+    let events: Vec<serde_json::Map<String, serde_json::Value>> =
+        match serde_json::from_slice(&body) {
+            Ok(v) => v,
+            Err(_) => return StatusCode::BAD_REQUEST,
+        };
+    for obj in events.into_iter().take(TRACE_MAX_EVENTS) {
+        tmuxy_core::trace::record_client_event(obj);
+    }
+    StatusCode::NO_CONTENT
 }
 
 // ============================================
@@ -733,6 +789,16 @@ async fn send_via_control_mode(
     session: &str,
     command: &str,
 ) -> Result<(), String> {
+    // Record the WHAT of each mutating command as its tmux verb (first token) —
+    // content-free (a fixed subcommand name, never the args). The full command
+    // string is admitted only at trace level `full` (docs/TELEMETRY.md).
+    tracing::debug!(
+        target: "tmuxy_server::sse",
+        verb = command.split_whitespace().next().unwrap_or(""),
+        command,
+        "run command"
+    );
+
     let command_tx = {
         let sessions = state.sessions.read().await;
         sessions

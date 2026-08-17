@@ -37,6 +37,13 @@ pub struct ServerArgs {
     /// Run in development mode (proxy to Vite dev server)
     #[arg(long)]
     pub dev: bool,
+
+    /// Enable local action tracing to an NDJSON file (see docs/TELEMETRY.md).
+    /// Pass a path to choose the file, or bare `--trace` for the default under
+    /// the state dir. Off by default on release builds; the trace never leaves
+    /// this machine. `DO_NOT_TRACK=1` or `TMUXY_NO_TRACE=1` force it off.
+    #[arg(long, value_name = "PATH", num_args = 0..=1)]
+    pub trace: Option<Option<String>>,
 }
 
 /// Resolve the auth password: `--password` wins, else the `TMUXY_PASSWORD` env
@@ -90,14 +97,37 @@ pub enum ServerAction {
     /// Hidden: meant to run inside a tmux float, not invoked directly.
     #[command(hide = true)]
     Connect,
+    /// Inspect a local action-trace file: print a summary, or export a
+    /// Chrome-trace/Perfetto timeline with `--export` (docs/TELEMETRY.md).
+    Trace(crate::trace_view::TraceViewArgs),
+}
+
+/// Activate action tracing per the gating rules and announce it loudly, so it
+/// is never a surprise (docs/TELEMETRY.md). Only called on the actual
+/// server-start paths — never for stop/status/tree/connect.
+fn announce_trace(trace: Option<Option<String>>, dev_mode: bool) {
+    if let Some(path) = tmuxy_core::trace::init(trace, dev_mode) {
+        println!(
+            "tmuxy: action tracing ON [level={}] → {} (local only, never uploaded; \
+             TMUXY_TRACE_LEVEL=shape|labeled|full; DO_NOT_TRACK=1 or TMUXY_NO_TRACE=1 to disable)",
+            tmuxy_core::trace::level_name(),
+            path.display()
+        );
+    }
 }
 
 pub async fn run(args: ServerArgs) {
     let dev_mode = args.dev || std::env::var("TMUXY_DEV").is_ok();
     let password = resolve_password(args.password.clone());
     match args.action {
-        None if dev_mode => start_dev_server(args.port, password).await,
-        None => start_server(args.port, args.host, password).await,
+        None if dev_mode => {
+            announce_trace(args.trace.clone(), true);
+            start_dev_server(args.port, password).await
+        }
+        None => {
+            announce_trace(args.trace.clone(), dev_mode);
+            start_server(args.port, args.host, password).await
+        }
         Some(ServerAction::Stop) => stop_server(),
         Some(ServerAction::Status) => server_status(),
         Some(ServerAction::Tree) => {
@@ -114,6 +144,7 @@ pub async fn run(args: ServerArgs) {
                 std::process::exit(1);
             }
         },
+        Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
     }
 }
 

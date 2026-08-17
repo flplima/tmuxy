@@ -26,6 +26,24 @@ import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxStore } from '../../tmux/store';
 import type { TmuxOp } from '../../tmux/store/types';
 import type { ServerState } from '../../tmux/types';
+import { parseCommandToOp } from '../../tmux/store/parseCommand';
+import { tracer } from '../../tmux/tracer';
+
+/** Extract only content-free id/direction fields from a typed op for the trace.
+ * Deliberately excludes `RenameWindow.name` and any free text. */
+function traceOp(op: TmuxOp): void {
+  const o = op as Record<string, unknown>;
+  const pane = (o.paneId ?? o.sourcePaneId ?? o.clickedPaneId) as string | null | undefined;
+  const window = o.windowId as string | null | undefined;
+  const kind = typeof o.direction === 'string' ? o.direction : undefined;
+  tracer.event({
+    layer: 'store',
+    name: op._tag,
+    pane: pane ?? undefined,
+    window: window ?? undefined,
+    kind,
+  });
+}
 
 export type TmuxStoreActorEvent =
   /**
@@ -94,6 +112,8 @@ export function createTmuxStoreActor(store: TmuxStore) {
           const failure = Cause.failureOption(exit.cause);
           if (failure._tag === 'Some') {
             const e = failure.value;
+            // Trace the failure by its typed code — never the stderr text.
+            tracer.event({ layer: 'effect', name: 'fail', code: e._tag });
             const reason =
               e._tag === 'OpRejectedByTmux'
                 ? e.stderr
@@ -107,6 +127,7 @@ export function createTmuxStoreActor(store: TmuxStore) {
     receive((event) => {
       if (event.type === 'DISPATCH_OP') {
         parent.send({ type: 'LOG_APPEND', kind: 'command', message: event.command });
+        traceOp(event.op);
         dispatchWithErrorSurface(
           store.dispatch(event.op, { command: event.command }),
           event.command,
@@ -116,6 +137,14 @@ export function createTmuxStoreActor(store: TmuxStore) {
 
       if (event.type === 'DISPATCH_COMMAND') {
         parent.send({ type: 'LOG_APPEND', kind: 'command', message: event.command });
+        // Derive the typed op for the trace (id/direction only; args discarded).
+        if (tracer.isEnabled()) {
+          try {
+            traceOp(parseCommandToOp(event.command));
+          } catch {
+            /* unparseable command — skip the op trace */
+          }
+        }
         // Fire-and-forget — the store handles rollback on its own. We swallow
         // OpError because the store has already updated the model; the next
         // TMUX_MODEL_UPDATE will reflect the rolled-back state. Logged here

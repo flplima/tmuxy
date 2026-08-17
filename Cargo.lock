@@ -5894,6 +5894,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "tracing-subscriber",
  "vt100",
  "web-time",
 ]
@@ -5941,6 +5942,7 @@ dependencies = [
  "tmuxy-core",
  "tmuxy-server",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

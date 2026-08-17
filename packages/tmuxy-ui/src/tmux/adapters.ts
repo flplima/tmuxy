@@ -18,6 +18,7 @@ import { DemoAdapter } from './demo/DemoAdapter';
 import { handleStateUpdate, isDeltaSeqGap } from './deltaProtocol';
 import { KeyBatcher } from './keyBatching';
 import { latencyTracker } from './latencyTracker';
+import { tracer } from './tracer';
 
 // ============================================
 // Tauri Adapter
@@ -46,12 +47,19 @@ export class TauriAdapter implements TmuxAdapter {
   // instead of diverging. The Tauri event channel has no ring-buffer replay,
   // so this is the only recovery path on that transport.
   private lastDeltaSeq: number | null = null;
+  /** Delta seq of the most recent applied update, for the trace `apply` event. */
+  private lastAppliedSeq: number | null = null;
   private lastCols = 0;
   private lastRows = 0;
   private resyncing = false;
 
   // Keyboard batching
   private keyBatcher: KeyBatcher | null = null;
+  /** Per-instance counter for minting trace action ids (docs/TELEMETRY.md).
+   * Client-only on Tauri: IPC has no header to carry it to the backend the way
+   * the web `X-Action-Id` does, so this correlates the client-side legs and
+   * keeps the two adapters symmetric. */
+  private traceActionSeq = 0;
 
   async connect(): Promise<void> {
     try {
@@ -66,6 +74,8 @@ export class TauriAdapter implements TmuxAdapter {
       // routes its batches through sendQueue for the same reason).
       this.keyBatcher = new KeyBatcher((cmd, args) => {
         latencyTracker.markInput();
+        const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
+        tracer.event({ layer: 'adapter', name: 'send', kind: 'keys', action_id: actionId });
         this.sendQueue = this.sendQueue.then(async () => {
           try {
             await invoke(cmd, args);
@@ -88,8 +98,10 @@ export class TauriAdapter implements TmuxAdapter {
             return;
           }
           this.lastDeltaSeq = update.delta.seq;
+          this.lastAppliedSeq = update.delta.seq;
         } else {
           this.lastDeltaSeq = null;
+          this.lastAppliedSeq = null;
         }
 
         const newState = handleStateUpdate(update, this.currentState);
@@ -172,6 +184,21 @@ export class TauriAdapter implements TmuxAdapter {
 
       // Tauri is always primary
       this.notifyConnectionInfo(0, 'bash');
+
+      // Action tracing (docs/TELEMETRY.md): ask the local backend whether it is
+      // recording; only then ship our events to it over IPC. A backend without
+      // the trace commands (older build) leaves tracing off.
+      try {
+        const traceEnabled = await invoke<boolean>('trace_enabled');
+        tracer.setServerEnabled(!!traceEnabled);
+        tracer.setSink((events) => {
+          void import('@tauri-apps/api/core').then(({ invoke: inv }) =>
+            inv('record_trace', { events }).catch(() => {}),
+          );
+        });
+      } catch {
+        // no trace commands on this backend — leave tracing disabled
+      }
 
       // Backfill keybindings: the backend's first `tmux-keybindings` event
       // can fire before this listener is attached (especially on a fresh
@@ -256,6 +283,8 @@ export class TauriAdapter implements TmuxAdapter {
 
     if (cmd === 'run_tmux_command') {
       latencyTracker.markInput();
+      const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
+      tracer.event({ layer: 'adapter', name: 'send', kind: 'command', action_id: actionId });
       let resolveOuter!: (value: T | PromiseLike<T>) => void;
       let rejectOuter!: (reason: unknown) => void;
       const outer = new Promise<T>((res, rej) => {
@@ -326,10 +355,18 @@ export class TauriAdapter implements TmuxAdapter {
     return invoke<string>('run_tmux_command', { command });
   }
 
+  /** Mint a per-instance action id (e.g. `a-t-17`); the `t` marks the Tauri
+   * transport so ids don't collide with the web adapter's `a-<conn>-n`. */
+  private nextActionId(): string {
+    this.traceActionSeq += 1;
+    return `a-t-${this.traceActionSeq}`;
+  }
+
   private notifyStateChange(state: ServerState) {
     // Closes the oldest outstanding input's round trip and feeds update-rate /
     // stall metrics (Axis-B, see latencyTracker).
     latencyTracker.recordUpdate();
+    tracer.event({ layer: 'adapter', name: 'apply', seq: this.lastAppliedSeq ?? undefined });
     this.stateListeners.forEach((listener) => listener(state));
   }
 

@@ -68,6 +68,14 @@ pub async fn run_tmux_command(
     state: State<'_, MonitorState>,
     command: String,
 ) -> Result<String, String> {
+    // Record the WHAT as the tmux verb (content-free; args only at trace level
+    // `full`) — parity with the web server's send_via_control_mode.
+    tracing::debug!(
+        target: "tmuxy_tauri_app::commands",
+        verb = command.split_whitespace().next().unwrap_or(""),
+        command,
+        "run command"
+    );
     // `new-window` (neww) crashes tmux 3.5a control mode when run as an external
     // subprocess while a control-mode client is attached. Tmuxy's monitor is one
     // such client. Rewrite to `split-window` + `break-pane -d`, which produces
@@ -260,4 +268,25 @@ pub async fn connect_server(state: State<'_, MonitorState>, id: String) -> Resul
     )
     .await;
     Ok(())
+}
+
+/// Whether local action tracing is active on this desktop backend
+/// (docs/TELEMETRY.md). The frontend tracer ships events only when this is true.
+#[tauri::command]
+pub fn trace_enabled() -> bool {
+    tmuxy_core::trace::is_enabled()
+}
+
+/// Ingest a batch of client trace events into the shared NDJSON file. **Fails
+/// closed**: dropped entirely when tracing is off, regardless of what the
+/// frontend believes. Every event is re-sanitized by `record_client_event`
+/// before it reaches the file, so no terminal content can slip through.
+#[tauri::command]
+pub fn record_trace(events: Vec<serde_json::Map<String, Value>>) {
+    if !tmuxy_core::trace::is_enabled() {
+        return;
+    }
+    for obj in events.into_iter().take(1000) {
+        tmuxy_core::trace::record_client_event(obj);
+    }
 }

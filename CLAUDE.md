@@ -14,6 +14,7 @@ See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
+See [docs/TELEMETRY.md](docs/TELEMETRY.md) for unified cross-layer action tracing into a single local NDJSON file (design: schema, seams, redaction boundary, phased plan).
 See [docs/WINDOW-TAGS.md](docs/WINDOW-TAGS.md) for the `@tmuxy-*` window-option schema that marks tmuxy-managed windows (tabs, floats, groups).
 
 ## Project Structure

@@ -16,6 +16,9 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 thiserror = "2"
+# NDJSON trace Layer (docs/TELEMETRY.md). Native-only — the wasm build does not
+# write trace files and compiles with --no-default-features.
+tracing-subscriber = { workspace = true, optional = true }
 vt100 = "0.16"
 # Pure-Rust SIXEL decoder so the backend can convert palette-based DCS sequences
 # into PNG bytes the frontend can render via the standard /api/images endpoint.
@@ -47,7 +50,7 @@ criterion = "0.5"
 default = ["native"]
 # Enables the async/pty/nix transport (monitor, connection, executor, session,
 # tmux_service, ctx). Off for the wasm build.
-native = ["dep:tokio", "dep:backon", "dep:async-trait", "dep:tower", "dep:dirs", "dep:nix", "dep:libc", "dep:pty-process"]
+native = ["dep:tokio", "dep:backon", "dep:async-trait", "dep:tower", "dep:dirs", "dep:nix", "dep:libc", "dep:pty-process", "dep:tracing-subscriber"]
 test-support = []
 
 [lints]
