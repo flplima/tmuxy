@@ -114,7 +114,22 @@ export function isWideChar(s: string): boolean {
     (cp >= 0xfe30 && cp <= 0xfe6f) || // CJK Compatibility Forms
     (cp >= 0xff00 && cp <= 0xff60) || // Fullwidth Forms
     (cp >= 0xffe0 && cp <= 0xffe6) || // Fullwidth signs
+    (cp >= 0x1f1e6 && cp <= 0x1f1ff) || // regional indicators (flags: a pair is one 2-cell cell)
     (cp >= 0x1f300 && cp <= 0x1faff) || // emoji & pictographs
     (cp >= 0x20000 && cp <= 0x3fffd) // CJK Ext B and beyond
   );
+}
+
+/**
+ * CSS length for `n` cells on the terminal grid.
+ *
+ * `--cell-w` is the snapped cell width the app root publishes from the single
+ * font measurement (see `utils/cellMetrics.ts`), so every cell-addressed box —
+ * style-group spans, the cursor overlay, image placements — is a whole multiple
+ * of the same width the pane rectangles use. Outside the app (component
+ * stories) the variable is absent and `1ch`, the font's natural advance, is
+ * the grid instead.
+ */
+export function cellsToCss(n: number): string {
+  return `calc(${n} * var(--cell-w, 1ch))`;
 }

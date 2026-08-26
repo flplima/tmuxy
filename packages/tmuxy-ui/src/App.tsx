@@ -23,9 +23,11 @@ import {
   selectFatalError,
   selectLog,
   selectContainerSize,
+  selectCellMetrics,
 } from './machines/AppContext';
 import type { LogEntry } from './machines/types';
 import { initDebugHelpers } from './utils/debug';
+import { cellMetricsStyle } from './utils/cellMetrics';
 import { latencyTracker } from './tmux/latencyTracker';
 import { PerfHud } from './components/PerfHud';
 
@@ -117,6 +119,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const fatalError = useAppSelector(selectFatalError);
   const log = useAppSelector(selectLog);
   const containerSize = useAppSelector(selectContainerSize);
+  const cellMetrics = useAppSelector(selectCellMetrics);
   const isConnecting = useAppState('connecting');
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
@@ -170,7 +173,13 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // Always render .app-container so containerRef is attached and ResizeObserver
   // starts measuring immediately, preventing a layout flash on first pane render.
   return (
-    <div ref={appContainerRef} className="app-container">
+    <div
+      ref={appContainerRef}
+      className="app-container"
+      // Publish the measured cell grid (--cell-w / --cell-gap) to every
+      // terminal text run and cell-addressed box below — see utils/cellMetrics.ts.
+      style={cellMetricsStyle(cellMetrics) as React.CSSProperties}
+    >
       <StatusBar renderTabline={renderTabline} />
       <div className="app-body">
         {/* Left sidebar: a fixed-width, full-height column when open. As a real

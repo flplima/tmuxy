@@ -133,7 +133,7 @@ The context holds all frontend state. Key fields:
 - `commandMode` — Client-side command prompt (`:` mode)
 - `paneActivationOrder` — Most-recently-used pane order
 - `paneKeyOverrides` — Real-pane-id → placeholder-id mapping (mirrored from TmuxStore so React keys stay stable across optimistic-placeholder → real-pane id swaps)
-- `charWidth`, `charHeight` — Monospace font dimensions (measured once)
+- `charWidth`, `charHeight`, `cellGap` — the cell grid: `charWidth` is the font advance measured once and snapped to a whole device pixel, `cellGap` the letter-spacing that makes text advance by exactly that width; both are published to CSS as `--cell-w` / `--cell-gap` on the app root (see `utils/cellMetrics.ts`, [RICH-RENDERING.md](RICH-RENDERING.md#the-cell-grid-invariant))
 - `targetCols`, `targetRows` — Browser viewport in character units
 - `containerWidth`, `containerHeight` — Browser container pixel dimensions
 - `themeName`, `themeMode`, `availableThemes` — Theme settings

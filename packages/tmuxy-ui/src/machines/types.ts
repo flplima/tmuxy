@@ -169,6 +169,8 @@ export interface AppMachineContext {
   resizeActive: boolean;
   charWidth: number;
   charHeight: number;
+  /** letter-spacing (px) that pads the font's natural advance up to charWidth. */
+  cellGap: number;
   /** Default shell name (e.g., "bash", "zsh") from server */
   defaultShell: string;
   /** Tmux status line with ANSI escape codes */
@@ -423,7 +425,12 @@ export type KeyPressEvent = {
 export type PrefixModeChangeEvent = { type: 'PREFIX_MODE_CHANGE'; active: boolean };
 
 // UI config events
-export type SetCharSizeEvent = { type: 'SET_CHAR_SIZE'; charWidth: number; charHeight: number };
+export type SetCharSizeEvent = {
+  type: 'SET_CHAR_SIZE';
+  charWidth: number;
+  charHeight: number;
+  cellGap: number;
+};
 export type SetTargetSizeEvent = { type: 'SET_TARGET_SIZE'; cols: number; rows: number };
 export type SetContainerSizeEvent = { type: 'SET_CONTAINER_SIZE'; width: number; height: number };
 export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLElement };

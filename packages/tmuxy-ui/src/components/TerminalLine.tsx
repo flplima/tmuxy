@@ -14,7 +14,7 @@
 import { memo, useMemo, useCallback, CSSProperties } from 'react';
 import { LogProfiler } from '../utils/renderLog';
 import type { CellLine, TerminalCell, CellStyle } from '../tmux/types';
-import { cellColorToCss, isWideChar } from './terminalShared';
+import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls } from '../utils/urlDetect';
 
@@ -152,14 +152,14 @@ export const TerminalLine = memo(
         if (!currentGroup || currentGroup.cells.length === 0) return;
 
         const text = currentGroup.cells.map((c) => c.c).join('');
-        // Pin the span to an exact number of character cells. `1ch` is the
-        // monospace cell advance (width of "0"), so `${n}ch` is independent of
-        // the actual glyphs in the run. A glyph whose advance differs from the
-        // cell (emoji, spinner symbols, CJK) then paints within / over its fixed
-        // box instead of pushing the rest of the line — which is what caused the
+        // Pin the span to an exact number of cells (`--cell-w`, the snapped
+        // grid width — see utils/cellMetrics.ts), independent of the actual
+        // glyphs in the run. A glyph whose advance differs from the cell
+        // (emoji, spinner symbols, CJK) then paints within / over its fixed box
+        // instead of pushing the rest of the line — which is what caused the
         // horizontal jitter when only a few characters changed (e.g. spinners).
         let style: CSSProperties = currentGroup.style ? buildCellStyle(currentGroup.style) : {};
-        style.width = `${currentGroup.cells.length}ch`;
+        style.width = cellsToCss(currentGroup.cells.length);
         const blockCh = currentGroup.blockCh;
         // OSC 8 explicit URL takes priority over auto-detected
         const oscUrl = currentGroup.style?.url;

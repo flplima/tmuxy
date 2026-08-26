@@ -14,6 +14,9 @@ const {
   typeInTerminal,
   pressEnter,
   DELAYS,
+  getCellWidth,
+  getCursorGeometry,
+  getRunGeometry,
 } = require('./helpers');
 
 // ==================== Scenario 14: OSC Protocols ====================
@@ -141,6 +144,113 @@ describe('Scenario 16: Unicode Rendering', () => {
     const treeText = await getTerminalText(ctx.page);
     expect(treeText).toContain('main.rs');
     expect(treeText).toContain('Cargo.toml');
+  }, 180000);
+
+  test('Wide glyphs stay on the tmux cell grid: CJK → emoji → ZWJ → skin tone → flag', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // The browser grid is a whole number of device pixels per cell, published
+    // as --cell-w (tmuxy-ui/src/utils/cellMetrics.ts).
+    const cellW = await getCellWidth(ctx.page);
+    expect(cellW * (await ctx.page.evaluate(() => devicePixelRatio))).toBeCloseTo(
+      Math.round(cellW * (await ctx.page.evaluate(() => devicePixelRatio))),
+      3,
+    );
+
+    // Each case prints a wide run followed by an ASCII marker and then parks
+    // the shell in `read`, so the cursor sits right after the marker. tmux's
+    // #{cursor_x} is then the oracle: the marker's rendered right edge and the
+    // cursor overlay must both land on that cell, in pixels the user sees.
+    // printf's \xNN escapes keep the typed command ASCII-safe.
+    const cases = [
+      {
+        name: 'CJK',
+        bytes: '\\xe4\\xbd\\xa0\\xe5\\xa5\\xbd', // 你好 — 2 wide chars = 4 cells
+        wideGlyph: '\u4f60',
+        marker: 'END_CJK_GRID',
+      },
+      {
+        name: 'emoji',
+        bytes: '\\xf0\\x9f\\x98\\x80\\xf0\\x9f\\x9f\\xa5', // 😀🟥 — 4 cells
+        wideGlyph: '\u{1f600}',
+        marker: 'END_EMO_GRID',
+      },
+      {
+        name: 'ZWJ sequence',
+        // 👩‍💻 = woman + ZWJ + laptop: one 2-cell glyph in tmux ≥ 3.3
+        bytes: '\\xf0\\x9f\\x91\\xa9\\xe2\\x80\\x8d\\xf0\\x9f\\x92\\xbb',
+        wideGlyph: '\u{1f469}\u200d\u{1f4bb}',
+        marker: 'END_ZWJ_GRID',
+      },
+      {
+        name: 'skin tone',
+        // 👍🏽 = thumbs up + medium skin-tone modifier: one 2-cell glyph
+        bytes: '\\xf0\\x9f\\x91\\x8d\\xf0\\x9f\\x8f\\xbd',
+        wideGlyph: '\u{1f44d}\u{1f3fd}',
+        marker: 'END_TONE_GRID',
+      },
+      {
+        name: 'flag',
+        // 🇺🇸 = two regional indicators: one 2-cell glyph
+        bytes: '\\xf0\\x9f\\x87\\xba\\xf0\\x9f\\x87\\xb8',
+        wideGlyph: '\u{1f1fa}\u{1f1f8}',
+        marker: 'END_FLAG_GRID',
+      },
+    ];
+
+    for (const c of cases) {
+      await typeInTerminal(
+        ctx.page,
+        `printf "${c.name.slice(0, 3)} ${c.bytes} ${c.marker}"; read -r _`,
+      );
+      await pressEnter(ctx.page);
+      await waitForTerminalText(ctx.page, c.marker);
+      // Let the cursor settle on the output line (the typed command line also
+      // contains the marker; the output line is the one the cursor is on).
+      await delay(DELAYS.SYNC);
+
+      const tmuxCursorX = Number(
+        ctx.session.runCommand(`display-message -p -t ${ctx.session.name} '#{cursor_x}'`),
+      );
+      expect(tmuxCursorX).toBeGreaterThan(c.marker.length);
+
+      // 1. The cursor overlay is painted on tmux's cell, not just addressed to it.
+      const cursor = await getCursorGeometry(ctx.page);
+      expect(cursor.visible).toBe(true);
+      expect({ case: c.name, cursorX: cursor.x }).toEqual({ case: c.name, cursorX: tmuxCursorX });
+      expect(Math.abs(cursor.col - tmuxCursorX)).toBeLessThan(0.1);
+      expect(Math.abs(cursor.cols - 1)).toBeLessThan(0.1);
+
+      // 2. The marker's rendered right edge ends exactly where tmux's cursor is:
+      //    the wide glyphs before it advanced the line by their tmux width, not
+      //    by their font advance.
+      const marker = await getRunGeometry(ctx.page, c.marker);
+      expect(marker.visible).toBe(true);
+      expect(Math.abs(marker.end - tmuxCursorX)).toBeLessThan(0.1);
+      // The wide glyph must NOT have been grouped into the ASCII run (that is
+      // how a glyph the renderer doesn't classify as wide shifts the line)…
+      expect({ case: c.name, run: marker.text }).toEqual({
+        case: c.name,
+        run: expect.stringMatching(/^[ -~]+$/),
+      });
+      // …and the run's own text advances exactly one cell per character.
+      expect(Math.abs(marker.ink - marker.text.length)).toBeLessThan(0.1);
+
+      // 3. The wide glyph owns a 1-cell box on the grid but paints ~2 cells of
+      //    ink, spilling into its continuation cell rather than shifting the line.
+      const wide = await getRunGeometry(ctx.page, c.wideGlyph);
+      expect(wide.visible).toBe(true);
+      expect(Math.abs(wide.box - 1)).toBeLessThan(0.1);
+      expect(wide.ink).toBeGreaterThan(1.2);
+      expect(wide.ink).toBeLessThan(3);
+      expect(Number.isInteger(Math.round(wide.start))).toBe(true);
+      expect(Math.abs(wide.start - Math.round(wide.start))).toBeLessThan(0.1);
+
+      // Release `read` and confirm the shell is back at a prompt on the grid.
+      await pressEnter(ctx.page);
+      await runCommand(ctx.page, `echo AFTER_${c.marker}`, `AFTER_${c.marker}`);
+    }
   }, 180000);
 });
 

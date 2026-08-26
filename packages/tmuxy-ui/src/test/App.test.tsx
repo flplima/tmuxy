@@ -13,6 +13,7 @@ vi.mock('../machines/AppContext', () => ({
   selectLog: vi.fn(),
   selectContainerSize: vi.fn(),
   selectCharSize: vi.fn(),
+  selectCellMetrics: vi.fn(),
 }));
 
 // Mock child components that depend on machine context
@@ -62,6 +63,7 @@ describe('App', () => {
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
       if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectCellMetrics) return { cellWidth: 8, cellGap: 0 };
       return undefined;
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
@@ -80,6 +82,7 @@ describe('App', () => {
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 800, height: 600 };
       if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectCellMetrics) return { cellWidth: 8, cellGap: 0 };
       return undefined;
     });
     mockUseAppState.mockReturnValue(false); // isConnecting = false
@@ -98,6 +101,7 @@ describe('App', () => {
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
       if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectCellMetrics) return { cellWidth: 8, cellGap: 0 };
       return undefined;
     });
     mockUseAppState.mockReturnValue(false); // isConnecting = false
@@ -116,6 +120,7 @@ describe('App', () => {
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
       if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectCellMetrics) return { cellWidth: 8, cellGap: 0 };
       return undefined;
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true
@@ -134,6 +139,7 @@ describe('App', () => {
       if (selector === AppContext.selectLog) return [];
       if (selector === AppContext.selectContainerSize) return { width: 0, height: 0 };
       if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
+      if (selector === AppContext.selectCellMetrics) return { cellWidth: 8, cellGap: 0 };
       return undefined;
     });
     mockUseAppState.mockReturnValue(true); // isConnecting = true

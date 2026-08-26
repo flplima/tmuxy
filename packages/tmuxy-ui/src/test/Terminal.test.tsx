@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Terminal } from '../components/Terminal';
+import { cellsToCss } from '../components/terminalShared';
 import type { PaneContent, CellLine, TerminalCell } from '../tmux/types';
 
 // Helper to create a simple cell line from a string
@@ -140,10 +141,9 @@ describe('Terminal', () => {
     expect(cursor).toBeInTheDocument();
     // Never a descendant of a rendered line.
     expect(cursor.closest('.terminal-line')).toBeNull();
-    expect(cursor).toHaveClass('terminal-cursor-overlay');
-    // Positioned in grid units, so glyph advance can't shift it.
-    expect(cursor.style.left).toBe('6ch');
-    expect(cursor.style.width).toBe('1ch');
+    // Positioned in grid units (--cell-w), so glyph advance can't shift it.
+    expect(cursor.style.left).toBe(cellsToCss(6));
+    expect(cursor.style.width).toBe(cellsToCss(1));
     expect(cursor.textContent).toBe('w');
   });
 
@@ -159,7 +159,7 @@ describe('Terminal', () => {
     const cursor = screen.getByTestId('terminal').querySelector('.terminal-cursor') as HTMLElement;
     // Cell 1 is 'B' — not U+FE0F, and not 'C'.
     expect(cursor.textContent).toBe('B');
-    expect(cursor.style.left).toBe('1ch');
+    expect(cursor.style.left).toBe(cellsToCss(1));
   });
 
   it('keeps the cursor on the grid past a multi-code-unit cell', () => {
@@ -172,7 +172,7 @@ describe('Terminal', () => {
 
     const cursor = screen.getByTestId('terminal').querySelector('.terminal-cursor') as HTMLElement;
     expect(cursor.textContent).toBe('F');
-    expect(cursor.style.left).toBe('5ch');
+    expect(cursor.style.left).toBe(cellsToCss(5));
   });
 
   it('renders a cursor past the end of the line without padding spans', () => {
@@ -183,7 +183,7 @@ describe('Terminal', () => {
 
     const terminal = screen.getByTestId('terminal');
     const cursor = terminal.querySelector('.terminal-cursor') as HTMLElement;
-    expect(cursor.style.left).toBe('5ch');
+    expect(cursor.style.left).toBe(cellsToCss(5));
     expect(cursor.textContent).toBe(' ');
     expect(terminal.querySelector('.terminal-line')?.textContent).toBe('ab');
   });
@@ -203,7 +203,7 @@ describe('Terminal', () => {
   });
 
   it('sizes each span to an exact cell count so glyph width never shifts the line', () => {
-    // Anti-jitter: spans are pinned to `${n}ch` (the monospace cell advance) so
+    // Anti-jitter: spans are pinned to `n * --cell-w` (the snapped cell width) so
     // a symbol whose glyph is wider/narrower than a cell can't push the rest of
     // the line when it changes (e.g. a spinner animation).
     const content = createContent(['hello world']);
@@ -212,8 +212,8 @@ describe('Terminal', () => {
     const spans = screen.getByTestId('terminal').querySelectorAll('.terminal-line > span');
     const widthSpan = Array.from(spans).find((s) => s.textContent === 'hello world');
     expect(widthSpan).toBeDefined();
-    // 'hello world' is 11 characters → width: 11ch.
-    expect((widthSpan as HTMLElement).style.width).toBe('11ch');
+    // 'hello world' is 11 characters → 11 cells wide.
+    expect((widthSpan as HTMLElement).style.width).toBe(cellsToCss(11));
   });
 
   it('isolates a wide (CJK) character into its own cell-width span so it stays on the grid', () => {
@@ -231,7 +231,7 @@ describe('Terminal', () => {
     const wideSpan = spans.find((s) => s.textContent === '中');
     expect(wideSpan).toBeDefined();
     // Own 1-cell box; the glyph (≈2 cells) overflows into the next, blank cell.
-    expect(wideSpan!.style.width).toBe('1ch');
+    expect(wideSpan!.style.width).toBe(cellsToCss(1));
     // It must not have been merged with the neighbouring 'a' or trailing text.
     expect(spans.some((s) => s.textContent === 'a中')).toBe(false);
     expect(spans.some((s) => s.textContent?.includes('中 '))).toBe(false);
@@ -252,12 +252,10 @@ describe('Terminal', () => {
 
     const img = screen.getByTestId('terminal').querySelector('img.terminal-image') as HTMLElement;
     expect(img).toBeInTheDocument();
-    expect(img.style.left).toBe('5ch');
-    expect(img.style.width).toBe('10ch');
+    expect(img.style.left).toBe(cellsToCss(5));
+    expect(img.style.width).toBe(cellsToCss(10));
     expect(img.style.top).toBe('calc(3 * var(--line-height-terminal))');
     expect(img.style.height).toBe('calc(4 * var(--line-height-terminal))');
-    // No dangling custom properties.
-    expect(img.getAttribute('style')).not.toContain('--cell-');
   });
 
   it('sets aria-live to off to avoid flooding screen readers', () => {

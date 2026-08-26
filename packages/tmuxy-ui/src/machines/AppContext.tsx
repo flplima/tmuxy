@@ -40,6 +40,7 @@ import { createTmuxStoreActor } from './actors/tmuxStoreActor';
 import { makeTmuxStore } from '../tmux/store';
 import { toEffectAdapter } from '../tmux/effect';
 import { Effect } from 'effect';
+import { measureCellMetrics } from '../utils/cellMetrics';
 
 // ============================================
 // App Config (static flags passed via provider)
@@ -72,6 +73,7 @@ export {
   selectLog,
   selectGridDimensions,
   selectCharSize,
+  selectCellMetrics,
   selectPaneGroupForPane,
   selectPaneGroupPanes,
   getActivePaneInGroup,
@@ -102,22 +104,6 @@ export {
 
 const AppContext = createContext<AppMachineActor | null>(null);
 
-/**
- * Measure char width from rendered monospace font.
- */
-function measureCharWidth(): number {
-  const testEl = document.createElement('pre');
-  testEl.className = 'terminal-content';
-  testEl.style.position = 'absolute';
-  testEl.style.visibility = 'hidden';
-  testEl.style.top = '-9999px';
-  testEl.textContent = 'MMMMMMMMMM';
-  document.body.appendChild(testEl);
-  const width = testEl.getBoundingClientRect().width / 10;
-  document.body.removeChild(testEl);
-  return width;
-}
-
 // ============================================
 // Provider
 // ============================================
@@ -142,7 +128,7 @@ export function AppProvider({
       tmuxActor: createTmuxActor(adapter),
       tmuxStoreActor: createTmuxStoreActor(store),
       keyboardActor: createKeyboardActor(),
-      sizeActor: createSizeActor(measureCharWidth),
+      sizeActor: createSizeActor(measureCellMetrics),
       serversActor: createServersActor(adapter),
     };
   }, []);

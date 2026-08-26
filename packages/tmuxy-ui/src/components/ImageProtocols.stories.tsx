@@ -22,6 +22,7 @@ import { useEffect } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, within } from 'storybook/test';
 import { AppHarness } from '../stories/StoryHarness';
+import { cellsToCss } from './terminalShared';
 
 // ---------------------------------------------------------------------------
 // Image source registry — story play functions register (paneId, imageId)
@@ -152,10 +153,10 @@ export const ITerm2: Story = {
   play: async ({ canvasElement }) => {
     const img = await waitForImage('iterm2');
     expect(img.getAttribute('data-image-id')).toBe('1');
-    // Positioned on the pane's cell grid: row=2, col=4. Columns are `ch` (the
-    // monospace advance the rows are pinned to), rows are the line height.
+    // Positioned on the pane's cell grid: row=2, col=4. Columns are --cell-w
+    // (the snapped cell width the rows are pinned to), rows are the line height.
     expect(img.style.top).toBe('calc(2 * var(--line-height-terminal))');
-    expect(img.style.left).toBe('4ch');
+    expect(img.style.left).toBe(cellsToCss(4));
     // The Terminal exists in the DOM tree too — confirm we're actually
     // rendering inside the harness, not in a stray detached subtree.
     const canvas = within(canvasElement);
@@ -230,7 +231,7 @@ export const Sixel: Story = {
     expect(img.getAttribute('data-image-id')).toBe('3');
     // Confirms snake_case width_cells → camelCase widthCells made it through
     // the camelize() transform — Terminal.tsx sizes the img in cell units.
-    expect(img.style.width).toBe('35ch');
+    expect(img.style.width).toBe(cellsToCss(35));
     expect(img.style.height).toBe('calc(14 * var(--line-height-terminal))');
   },
 };

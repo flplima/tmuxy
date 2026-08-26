@@ -8,6 +8,7 @@
 import { useMemo } from 'react';
 import { TerminalLine } from './TerminalLine';
 import { Cursor } from './Cursor';
+import { cellsToCss } from './terminalShared';
 import { cursorShapeToMode } from '../utils/cursorShape';
 import type { CursorMode } from './Cursor';
 import type { PaneContent, CellLine, ImagePlacement } from '../tmux/types';
@@ -220,7 +221,6 @@ export const Terminal: React.FC<TerminalProps> = ({
           mode={cursorMode}
           active={isActive}
           copyMode={inMode}
-          gridUnits
         />
       )}
       {images && images.length > 0 && paneId && (
@@ -233,17 +233,14 @@ export const Terminal: React.FC<TerminalProps> = ({
               alt=""
               data-protocol={img.protocol}
               data-image-id={img.id}
-              // Same grid units the rows and the cursor use: `1ch` is the
-              // monospace cell advance the style-group spans are pinned to, and
-              // --line-height-terminal is the row height. (These were
-              // --cell-width / --cell-height, which are defined nowhere, so
-              // every calc() collapsed to 0 and images rendered 0x0 at the
-              // pane's top-left corner.)
+              // Same grid units the rows and the cursor use: `--cell-w` (the
+              // snapped cell width the style-group spans are pinned to) and
+              // --line-height-terminal (the row height).
               style={{
                 position: 'absolute',
                 top: `calc(${img.row} * var(--line-height-terminal))`,
-                left: `${img.col}ch`,
-                width: `${img.widthCells}ch`,
+                left: cellsToCss(img.col),
+                width: cellsToCss(img.widthCells),
                 height: `calc(${img.heightCells} * var(--line-height-terminal))`,
               }}
             />

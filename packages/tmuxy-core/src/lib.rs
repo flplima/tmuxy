@@ -873,4 +873,102 @@ mod vt100_capture_test {
         let (_, col) = screen.cursor_position();
         assert_eq!(col, 2, "vt100 should treat 🟥 as 2 columns wide");
     }
+
+    /// Feed `text` to a fresh 1×20 emulator and return the cursor column plus
+    /// the non-empty cell contents in order — the shape tmux's grid would have
+    /// (`screen_write_combine`), which is the oracle for these cases: tmux
+    /// reports `#{cursor_x}` from ITS grid, so any width disagreement here
+    /// shows up as text drifting off the grid in the browser.
+    fn combined_cells(text: &str) -> (u16, Vec<String>) {
+        let mut terminal = vt100::Parser::new(1, 20, 0);
+        terminal.process(text.as_bytes());
+        let screen = terminal.screen();
+        let (_, col) = screen.cursor_position();
+        let cells = (0..20)
+            .filter_map(|c| screen.cell(0, c))
+            .filter(|cell| cell.has_contents())
+            .map(|cell| cell.contents().to_string())
+            .collect();
+        (col, cells)
+    }
+
+    #[test]
+    fn zwj_sequence_is_one_wide_cell() {
+        // 👩 + ZWJ + 💻: tmux joins the character after a ZWJ into the same
+        // cell, so the sequence is one 2-column glyph — not 👩 + 💻 (4 columns).
+        let (col, cells) = combined_cells("👩\u{200D}💻X");
+        assert_eq!(col, 3);
+        assert_eq!(cells, vec!["👩\u{200D}💻", "X"]);
+    }
+
+    #[test]
+    fn zwj_sequence_that_outgrows_the_cell_starts_a_new_character() {
+        // 👨‍👩‍👧‍👦 is 25 bytes; the cell holds 22, so the last member is
+        // written as its own wide character (tmux: same rule, 21-byte cells).
+        let (col, cells) = combined_cells("👨\u{200D}👩\u{200D}👧\u{200D}👦X");
+        assert_eq!(col, 5);
+        assert_eq!(cells, vec!["👨\u{200D}👩\u{200D}👧\u{200D}", "👦", "X"]);
+    }
+
+    #[test]
+    fn skin_tone_modifier_joins_its_emoji() {
+        // U+1F3FD is itself East Asian Wide; without the tmux rule it would
+        // take two more columns after 👍.
+        let (col, cells) = combined_cells("👍\u{1F3FD}X");
+        assert_eq!(col, 3);
+        assert_eq!(cells, vec!["👍\u{1F3FD}", "X"]);
+    }
+
+    #[test]
+    fn skin_tone_modifier_after_a_non_emoji_is_its_own_character() {
+        let (col, cells) = combined_cells("a\u{1F3FD}X");
+        assert_eq!(col, 4);
+        assert_eq!(cells, vec!["a", "\u{1F3FD}", "X"]);
+    }
+
+    #[test]
+    fn variation_selector_keeps_the_base_width() {
+        // ❤ + VS16 stays a 1-column cell (tmux default:
+        // variation-selector-always-wide off).
+        let (col, cells) = combined_cells("\u{2764}\u{FE0F}X");
+        assert_eq!(col, 2);
+        assert_eq!(cells, vec!["\u{2764}\u{FE0F}", "X"]);
+    }
+
+    #[test]
+    fn regional_indicator_pair_is_one_wide_cell() {
+        // 🇺🇸: two 1-column indicators become one 2-column flag; a third
+        // indicator starts a new (unpaired) flag cell.
+        let (col, cells) = combined_cells("\u{1F1FA}\u{1F1F8}\u{1F1E9}X");
+        assert_eq!(col, 4);
+        assert_eq!(cells, vec!["\u{1F1FA}\u{1F1F8}", "\u{1F1E9}", "X"]);
+        let screen_cells = {
+            let mut terminal = vt100::Parser::new(1, 20, 0);
+            terminal.process("\u{1F1FA}\u{1F1F8}".as_bytes());
+            let screen = terminal.screen();
+            (
+                screen.cell(0, 0).unwrap().is_wide(),
+                screen.cell(0, 1).unwrap().is_wide_continuation(),
+            )
+        };
+        assert_eq!(screen_cells, (true, true));
+    }
+
+    #[test]
+    fn hangul_filler_and_dangling_joiners_are_dropped() {
+        // U+3164 is ignored outright; a ZWJ / VS16 at column 0 has nothing to
+        // attach to and is discarded rather than drawn.
+        let (col, cells) = combined_cells("\u{3164}\u{200D}\u{FE0F}X");
+        assert_eq!(col, 1);
+        assert_eq!(cells, vec!["X"]);
+    }
+
+    #[test]
+    fn combining_mark_joins_a_wide_character_through_its_continuation() {
+        // The cell before the cursor is 中's continuation half; the accent
+        // must land on 中 itself.
+        let (col, cells) = combined_cells("中\u{0301}X");
+        assert_eq!(col, 3);
+        assert_eq!(cells, vec!["中\u{0301}", "X"]);
+    }
 }

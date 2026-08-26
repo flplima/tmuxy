@@ -1,4 +1,5 @@
 import './Cursor.css';
+import { cellsToCss } from './terminalShared';
 
 export type CursorMode = 'block' | 'underline' | 'bar';
 
@@ -9,16 +10,6 @@ interface CursorProps {
   mode?: CursorMode;
   active?: boolean;
   copyMode?: boolean;
-  charWidth?: number;
-  charHeight?: number;
-  /**
-   * Position on the cell grid with CSS units instead of measured pixels.
-   * `1ch` is the monospace advance the terminal rows are already pinned to
-   * (`width: Nch` per style-group span), so the cursor lands on exactly the
-   * same grid the content uses — independent of glyph advance, font fallback
-   * and webfont load timing. Used by Terminal (live mode).
-   */
-  gridUnits?: boolean;
 }
 
 /**
@@ -31,9 +22,11 @@ interface CursorProps {
  * selectors, combining marks) or a glyph whose advance differs from the cell
  * pushed the cursor off the grid.
  *
- * Two ways to place the overlay:
- * - Grid units (`gridUnits`): `ch` / `--line-height-terminal` (Terminal)
- * - Measured pixels (charWidth/charHeight): (ScrollbackTerminal, copy mode)
+ * It is placed in grid units — `--cell-w` horizontally (the snapped cell width
+ * the style-group spans are pinned to; see utils/cellMetrics.ts) and
+ * `--line-height-terminal` vertically — so it lands on exactly the same grid
+ * the content uses in both renderers (Terminal and ScrollbackTerminal),
+ * independent of glyph advance, font fallback and webfont load timing.
  */
 export function Cursor({
   x,
@@ -42,34 +35,22 @@ export function Cursor({
   mode = 'block',
   active = true,
   copyMode = false,
-  charWidth,
-  charHeight,
-  gridUnits = false,
 }: CursorProps) {
-  const isPixelOverlay = charWidth !== undefined && charHeight !== undefined;
-  const isOverlay = isPixelOverlay || gridUnits;
-
   const className = [
     'terminal-cursor',
     `terminal-cursor-${mode}`,
-    isOverlay ? 'terminal-cursor-overlay' : '',
     copyMode ? 'terminal-cursor-copy' : '',
     !active ? 'terminal-cursor-inactive' : '',
   ]
     .filter(Boolean)
     .join(' ');
 
-  let style: React.CSSProperties | undefined;
-  if (gridUnits) {
-    style = {
-      left: `${x}ch`,
-      top: `calc(${y} * var(--line-height-terminal))`,
-      width: '1ch',
-      height: 'var(--line-height-terminal)',
-    };
-  } else if (isPixelOverlay) {
-    style = { left: x * charWidth, top: y * charHeight };
-  }
+  const style: React.CSSProperties = {
+    left: cellsToCss(x),
+    top: `calc(${y} * var(--line-height-terminal))`,
+    width: cellsToCss(1),
+    height: 'var(--line-height-terminal)',
+  };
 
   // Only a filled block repaints the character. Its background is opaque, so it
   // hides the glyph the line already drew and has to draw it back in the cursor

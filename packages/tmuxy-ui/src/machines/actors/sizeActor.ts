@@ -8,6 +8,7 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { calculateTargetSize } from '../../utils/layout';
 import { CHAR_HEIGHT } from '../../constants';
+import type { CellMetrics } from '../../utils/cellMetrics';
 
 export type SizeActorEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
@@ -19,8 +20,12 @@ export interface SizeActorInput {
   parent: AnyActorRef;
 }
 
+/**
+ * Measures the terminal font inside `host` (the observed pane container once
+ * it exists, `document.body` before that) — see utils/cellMetrics.ts.
+ */
 export interface MeasureFn {
-  (): number; // returns charWidth
+  (host?: HTMLElement): CellMetrics;
 }
 
 const RESIZE_DEBOUNCE_MS = 100;
@@ -35,26 +40,44 @@ export function createSizeActor(measureFn: MeasureFn) {
     // Track container dimensions from ResizeObserver
     let containerWidth: number | undefined;
     let containerHeight: number | undefined;
+    // The element the grid renders in; measurements happen inside it so any
+    // inherited property that changes the advance is part of the measurement.
+    let measureHost: HTMLElement | undefined;
 
-    // Measure char size and send immediately
-    let charWidth = measureFn();
-    input.parent.send({ type: 'SET_CHAR_SIZE', charWidth, charHeight: CHAR_HEIGHT });
+    // Measure the cell and send immediately. The snapped width is the grid's
+    // charWidth; the gap is the letter-spacing that makes text advance by it.
+    let metrics = measureFn();
+    const sendCharSize = () => {
+      input.parent.send({
+        type: 'SET_CHAR_SIZE',
+        charWidth: metrics.cellWidth,
+        charHeight: CHAR_HEIGHT,
+        cellGap: metrics.cellGap,
+      });
+    };
+    sendCharSize();
+
+    // Re-measure; only propagate (and re-derive cols/rows) when the cell changed.
+    const remeasure = () => {
+      const next = measureFn(measureHost);
+      if (next.cellWidth === metrics.cellWidth && next.cellGap === metrics.cellGap) return;
+      metrics = next;
+      sendCharSize();
+      lastCols = 0;
+      lastRows = 0;
+      updateTargetSize();
+    };
 
     // Re-measure after fonts finish loading (initial measurement may use fallback font)
-    document.fonts.ready.then(() => {
-      const newWidth = measureFn();
-      if (newWidth !== charWidth) {
-        charWidth = newWidth;
-        input.parent.send({ type: 'SET_CHAR_SIZE', charWidth, charHeight: CHAR_HEIGHT });
-        lastCols = 0;
-        lastRows = 0;
-        updateTargetSize();
-      }
-    });
+    document.fonts.ready.then(remeasure);
 
     // Calculate and send target size using container dimensions if available
     const updateTargetSize = () => {
-      const { cols, rows } = calculateTargetSize(charWidth, containerWidth, containerHeight);
+      const { cols, rows } = calculateTargetSize(
+        metrics.cellWidth,
+        containerWidth,
+        containerHeight,
+      );
       if (cols !== lastCols || rows !== lastRows) {
         lastCols = cols;
         lastRows = rows;
@@ -73,6 +96,8 @@ export function createSizeActor(measureFn: MeasureFn) {
 
     receive((event) => {
       if (event.type === 'OBSERVE_CONTAINER') {
+        measureHost = event.element;
+        remeasure();
         containerObserver?.disconnect();
         containerObserver = new ResizeObserver((entries) => {
           const entry = entries[0];
@@ -93,6 +118,7 @@ export function createSizeActor(measureFn: MeasureFn) {
       if (event.type === 'STOP_OBSERVE') {
         containerObserver?.disconnect();
         containerObserver = null;
+        measureHost = undefined;
         containerWidth = undefined;
         containerHeight = undefined;
       }
@@ -103,11 +129,7 @@ export function createSizeActor(measureFn: MeasureFn) {
         updateTargetSize();
       }
       if (event.type === 'REMEASURE') {
-        charWidth = measureFn();
-        input.parent.send({ type: 'SET_CHAR_SIZE', charWidth, charHeight: CHAR_HEIGHT });
-        lastCols = 0;
-        lastRows = 0;
-        updateTargetSize();
+        remeasure();
       }
     });
 

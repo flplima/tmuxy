@@ -145,6 +145,8 @@ expect(logRect.w).toBeGreaterThan(50);
 expect(logRect.h).toBeGreaterThan(50);
 ```
 
+For terminal text, verify positions **in cells** and against tmux, not just that the text exists: `tests/helpers/cell-grid.js` converts bounding rects into cells using the published `--cell-w` (`getCellWidth`, `getCursorGeometry`, `getRunGeometry`), and tmux's `#{cursor_x}` (via `session.runCommand('display-message -p -t <session> ...')`) is the oracle for where a run must end. A wide glyph is expected to own a 1-cell box with ~2 cells of ink; the ASCII run after it must start on the cell tmux says.
+
 ### Keyboard Input Tests
 
 When testing keyboard input to a specific pane (float, tiled, etc.):

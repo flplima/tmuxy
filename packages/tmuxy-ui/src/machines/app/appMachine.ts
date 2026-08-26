@@ -396,6 +396,7 @@ export const appMachine = setup({
       actions: assign(({ event }) => ({
         charWidth: event.charWidth,
         charHeight: event.charHeight,
+        cellGap: event.cellGap,
       })),
     },
     SET_TARGET_SIZE: {

@@ -8,7 +8,7 @@
  */
 
 import type { CellLine, CellStyle, CellColor } from '../tmux/types';
-import { cellColorToCss, isWideChar } from './terminalShared';
+import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
 import { detectUrls } from '../utils/urlDetect';
 
 // ============================================
@@ -195,7 +195,7 @@ export function renderLineToDOM(
     // (see the group-break below) and overflow into the blank continuation
     // cell — previously the scrollback renderer had neither, so wide glyphs
     // misaligned copy-mode lines against the live-terminal grid.
-    target.style.width = `${end - groupStart}ch`;
+    target.style.width = cellsToCss(end - groupStart);
     target.textContent = text;
     el.appendChild(target);
   };

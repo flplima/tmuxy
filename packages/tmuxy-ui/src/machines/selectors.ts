@@ -283,6 +283,21 @@ export const selectCharSize = createMemoizedSelector(
   }),
 );
 
+/**
+ * The cell grid published to CSS: `--cell-w` / `--cell-gap` on the app root.
+ * See utils/cellMetrics.ts.
+ */
+export const selectCellMetrics = createMemoizedSelector(
+  (context: AppMachineContext) => ({
+    cellWidth: context.charWidth,
+    cellGap: context.cellGap,
+  }),
+  (context: AppMachineContext) => ({
+    cellWidth: context.charWidth,
+    cellGap: context.cellGap,
+  }),
+);
+
 // ============================================
 // Pane Pixel Dimension Selectors
 // ============================================

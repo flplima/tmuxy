@@ -17,6 +17,7 @@ const { assertContentMatch, assertAltScreenMatch } = require('./content-match');
 const { assertLayoutInvariants } = require('./layout');
 const copyMode = require('./copy-mode');
 const mouseCapture = require('./mouse-capture');
+const cellGrid = require('./cell-grid');
 
 // Re-export everything
 module.exports = {
@@ -57,6 +58,9 @@ module.exports = {
 
   // Copy mode helpers
   ...copyMode,
+
+  // Cell-grid geometry (rendered cells vs tmux cells)
+  ...cellGrid,
 
   // Mouse capture helpers
   ...mouseCapture,

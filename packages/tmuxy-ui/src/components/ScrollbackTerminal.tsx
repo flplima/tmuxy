@@ -97,7 +97,7 @@ function computeScrollbackSelection(
 }
 
 export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
-  const { charWidth, charHeight } = useAppSelector(selectCharSize);
+  const { charHeight } = useAppSelector(selectCharSize);
   const preRef = useRef<HTMLPreElement>(null);
   // Indexed by div position (not by absolute row): each entry records what
   // was last rendered into children[i]. Position-keyed tracking is required
@@ -219,8 +219,6 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
           copyMode={true}
           active={true}
           mode="block"
-          charWidth={charWidth}
-          charHeight={charHeight}
         />
       )}
     </div>

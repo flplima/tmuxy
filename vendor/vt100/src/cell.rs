@@ -52,11 +52,16 @@ impl Cell {
         self.attrs = a;
     }
 
+    /// Whether `c` still fits in the cell's fixed content buffer.
+    pub(crate) fn can_append(&self, c: char) -> bool {
+        self.len() + c.len_utf8() <= CONTENT_BYTES
+    }
+
     pub(crate) fn append(&mut self, c: char) {
-        let len = self.len();
-        if len >= CONTENT_BYTES - 4 {
+        if !self.can_append(c) {
             return;
         }
+        let len = self.len();
         if len == 0 {
             self.contents[0] = b' ';
             self.len += 1;
@@ -110,7 +115,7 @@ impl Cell {
         self.len & IS_WIDE_CONTINUATION != 0
     }
 
-    fn set_wide(&mut self, wide: bool) {
+    pub(crate) fn set_wide(&mut self, wide: bool) {
         if wide {
             self.len |= IS_WIDE;
         } else {

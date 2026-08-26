@@ -307,10 +307,10 @@
   height: 100%;
   overflow: hidden;
   /* Establish the cell metrics for everything positioned on the grid inside
-     this pane. `1ch` resolves against the element's own font, so the cursor
-     overlay and image placements — which are siblings of .terminal-content,
-     not descendants — need the terminal font here to land on the same grid the
-     rows are pinned to. */
+     this pane. The cursor overlay and image placements are siblings of
+     .terminal-content, not descendants, so they need the terminal font here
+     for the `1ch` fallback (outside the app, where --cell-w is unset) to land
+     on the same grid the rows are pinned to. */
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
   /* Transparent — pane-layout-item supplies the bg so opacity stacks
@@ -342,6 +342,10 @@
   white-space: pre;
   overflow: hidden;
   user-select: none;
+  /* Snap the advance to the cell grid: --cell-gap is the letter-spacing that
+     pads the font's natural advance up to --cell-w, the whole-device-pixel cell
+     width every cell-addressed box is a multiple of (utils/cellMetrics.ts). */
+  letter-spacing: var(--cell-gap, 0px);
   /* Keep each glyph's advance fixed across re-renders: no kerning or contextual
      ligatures whose width could shift when neighbouring characters change. */
   font-kerning: none;
