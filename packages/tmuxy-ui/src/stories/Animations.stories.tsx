@@ -18,6 +18,8 @@
  *  - OpenDrawer           drawer overlay runs the `slide-in-left` keyframe
  *  - CloseFloat           overlay node is removed (float close is instant)
  *  - AnimationsDisabled   new-window still flips `.pane-layout-no-animations`
+ *  - FocusCueNeverHardFlips  switching panes fades surface + text on one clock,
+ *                         under every layout-suppression gate
  *
  * What "animation exercised" means here: a CSS transition can't be observed
  * by a MutationObserver directly, but its `transitionstart` events and the
@@ -33,7 +35,7 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, within, waitFor } from 'storybook/test';
+import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { AppHarness } from './StoryHarness';
 import {
   LayoutMutationRecorder,
@@ -563,6 +565,151 @@ export const CloseFloat: Story = {
     } finally {
       overlays.disconnect();
     }
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Focus cue — surface alpha and text dim must move on one clock
+// ---------------------------------------------------------------------------
+
+/**
+ * Alpha channel of a computed color, 1 when fully opaque. Chrome serializes
+ * the pane surface as `color(srgb r g b / a)` once `color-mix` resolves, but
+ * as `rgba(r, g, b, a)` when it does not — both forms have to parse, or an
+ * unresolved surface reads as fully opaque and hides the very mismatch this
+ * story exists to catch.
+ */
+function alphaOf(color: string): number {
+  const slash = color.match(/\/\s*([0-9.]+)\s*\)/);
+  if (slash) return parseFloat(slash[1]);
+  const rgba = color.match(/^rgba?\(([^)]*)\)/);
+  if (rgba) {
+    const parts = rgba[1].split(',').map((v) => v.trim());
+    return parts.length > 3 ? parseFloat(parts[3]) : 1;
+  }
+  return 1;
+}
+
+export const FocusCueNeverHardFlips: Story = {
+  args: { height: 600 },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 600 },
+      description: {
+        story:
+          'Switching the active pane must fade the pane SURFACE (background-color alpha) and its TEXT (the wrapper opacity) on the same clock. The regression: the text dim lives on `.pane-layout-item > *`, which no gate covers, while the surface lives on `.pane-layout-item`, which three gates reset — so a gate that dropped `background-color` left the surface hard-flipping in one frame while the text faded over 80ms. That mismatch reads as a blink on every pane navigation, and is loudest on a translucent surface over a blurred desktop. Samples both values per frame across a real click-to-focus and asserts they never diverge, then asserts each gate still declares the cue.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForPaneCount(canvas, 1);
+
+    const layout = getPaneLayout(canvasElement);
+    await waitForAnimationsEnabled(layout);
+
+    getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+    await waitForPaneCount(canvas, 2);
+    await waitFor(() => {
+      expect(layout.querySelector('.pane-entering, .pane-shifting')).toBeNull();
+    });
+
+    // The appearance opacities are published from tmux options by the running
+    // app; Storybook mounts no such actor, so they are unset here and both the
+    // dim and the surface alpha collapse to their fallbacks. Set the shipped
+    // defaults so there is a cue to observe at all.
+    const root = document.documentElement;
+    const appearance: [string, string][] = [
+      ['--active-pane-opacity', '1'],
+      ['--inactive-pane-opacity', '0.7'],
+      ['--active-text-opacity', '1'],
+      ['--inactive-text-opacity', '0.7'],
+    ];
+    appearance.forEach(([k, v]) => root.style.setProperty(k, v));
+
+    const active = () => layout.querySelector<HTMLElement>('.pane-layout-item.pane-active');
+
+    // Don't start sampling until the cue is actually live: the vars have to
+    // have resolved into a translucent surface on the inactive pane, or every
+    // sample compares a faded text opacity against an unresolved surface.
+    await waitFor(() => {
+      const inactive = layout.querySelector<HTMLElement>('.pane-layout-item:not(.pane-active)');
+      expect(inactive).not.toBeNull();
+      expect(alphaOf(getComputedStyle(inactive!).backgroundColor)).toBeCloseTo(0.7, 1);
+      expect(parseFloat(getComputedStyle(inactive!.firstElementChild!).opacity)).toBeCloseTo(
+        0.7,
+        1,
+      );
+    });
+
+    const before = active();
+    expect(before).not.toBeNull();
+    const target = paneNodes(canvasElement).find((p) => p !== before);
+    expect(target).toBeDefined();
+
+    // Sample the newly-focused pane every frame: its text opacity and its
+    // surface alpha. Both are mid-transition together or neither is.
+    const samples: { text: number; surface: number }[] = [];
+    let sampling = true;
+    const sampleFrame = () => {
+      const a = active();
+      const wrapper = a?.firstElementChild;
+      if (a && wrapper) {
+        samples.push({
+          text: parseFloat(getComputedStyle(wrapper).opacity),
+          surface: alphaOf(getComputedStyle(a).backgroundColor),
+        });
+      }
+      if (sampling) requestAnimationFrame(sampleFrame);
+    };
+    requestAnimationFrame(sampleFrame);
+
+    try {
+      // Click inside the pane, not the layout box: the pane's mouse handler is
+      // on the terminal element, and events bubble up — a click on the outer
+      // `.pane-layout-item` never reaches it (which is also what a real user's
+      // click hits, since the terminal fills the pane).
+      const hit =
+        target!.querySelector<HTMLElement>('.terminal-line') ??
+        target!.querySelector<HTMLElement>('.terminal-content') ??
+        target!;
+      await userEvent.click(hit);
+      await waitFor(() => expect(target!.classList.contains('pane-active')).toBe(true));
+      await wait(150);
+    } finally {
+      sampling = false;
+    }
+    expect(samples.length).toBeGreaterThan(6);
+
+    const worst = samples.reduce((m, s) => Math.max(m, Math.abs(s.text - s.surface)), 0);
+    expect(
+      worst,
+      `surface alpha and text opacity diverged: ${JSON.stringify(samples.slice(0, 8))}`,
+    ).toBeLessThanOrEqual(0.02);
+
+    // ...and the cue really animated rather than both snapping in one frame:
+    // at least one sampled frame sits strictly between the dim and full values.
+    const dim = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--inactive-text-opacity'),
+    );
+    expect(samples.some((s) => s.text > dim + 0.01 && s.text < 0.99)).toBe(true);
+
+    // Every layout-suppression gate must still declare the cue. These fire on
+    // commits the user cannot reach on demand here (float creation, new-window,
+    // disconnect, drag), so assert the CSS contract each one owns.
+    for (const gate of [
+      'pane-layout-no-animations',
+      'pane-layout-resizing',
+      'pane-layout-dragging',
+    ]) {
+      layout.classList.add(gate);
+      const declared = getComputedStyle(paneNodes(canvasElement)[0]).transitionProperty;
+      layout.classList.remove(gate);
+      expect(declared, `${gate} dropped the focus cue`).toContain('opacity');
+      expect(declared, `${gate} dropped the focus cue`).toContain('background-color');
+    }
+
+    appearance.forEach(([k]) => root.style.removeProperty(k));
   },
 };
 

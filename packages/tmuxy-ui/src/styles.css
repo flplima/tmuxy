@@ -738,19 +738,34 @@
   will-change: transform, left, top, width, height;
 }
 
+/* The three gates below suppress a pane's LAYOUT transition — geometry only.
+   Each still carries the active/inactive focus cue, and must: the text dim
+   lives on `.pane-layout-item > *`, a selector no gate covers, so a gate that
+   drops `background-color` leaves the surface alpha hard-flipping in one frame
+   while the text fades over --transition-active. That mismatch is the
+   focus-change blink (the pane pops opaque, then its text catches up), and it
+   is most obvious on a translucent surface over a blurred desktop. */
+
 /* During drag, non-dragged panes swap positions instantly */
 .pane-layout-dragging .pane-layout-item:not(.pane-dragging) {
-  transition: none;
+  transition:
+    opacity var(--transition-active),
+    background-color var(--transition-active);
 }
 
-/* Disable ALL transitions when enableAnimations is false */
+/* Disable layout transitions when enableAnimations is false */
 .pane-layout-no-animations .pane-layout-item {
-  transition: none;
+  transition:
+    opacity var(--transition-active),
+    background-color var(--transition-active);
 }
 
 /* Disable position transitions during resize for instant feedback */
 .pane-layout-resizing .pane-layout-item {
-  transition: box-shadow var(--transition-layout);
+  transition:
+    box-shadow var(--transition-layout),
+    opacity var(--transition-active),
+    background-color var(--transition-active);
 }
 
 /* ...except the pane being zoomed. Toggling zoom changes surviving pane
