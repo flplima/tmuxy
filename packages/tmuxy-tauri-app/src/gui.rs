@@ -103,38 +103,43 @@ fn strip_quotes(s: &str) -> &str {
 /// takes effect live. The surface opacities the blur shows through are the
 /// frontend's business (`theme::Appearance`, applied as CSS variables).
 pub(crate) fn apply_blur(window: &tauri::WebviewWindow) {
-    #[cfg(target_os = "macos")]
-    {
-        let blur = read_tmuxy_option(tmux_options::BLUR)
-            .map(|value| tmuxy_core::theme::parse_flag(&value, true))
-            .unwrap_or(true);
-        let target = window.clone();
-        let _ = window.run_on_main_thread(move || {
-            // Every apply adds a fresh NSVisualEffectView under the webview
-            // and tauri's `set_effects(None)` clears nothing on macOS, so drop
-            // the previous view first — that is also what turns blur off.
-            if let Err(e) = window_vibrancy::clear_vibrancy(&target) {
-                eprintln!("Failed to clear window blur: {}", e);
-            }
-            if !blur {
-                return;
-            }
-            // Pin the effect state to Active so the blur stays applied when the
-            // window loses key focus. NSVisualEffectView defaults to
-            // FollowsWindowActiveState — switching away from the tmuxy window
-            // would drop the blur and leave the inactive window flat.
-            let effects = tauri::window::EffectsBuilder::new()
-                .effect(tauri::window::Effect::UnderWindowBackground)
-                .state(tauri::window::EffectState::Active)
-                .build();
-            if let Err(e) = target.set_effects(effects) {
-                eprintln!("Failed to apply window blur: {}", e);
-            }
-        });
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    let blur = read_tmuxy_option(tmux_options::BLUR)
+        .map(|value| tmuxy_core::theme::parse_flag(&value, true))
+        .unwrap_or(true);
+    set_native_blur(window, blur);
 }
+
+#[cfg(target_os = "macos")]
+fn set_native_blur(window: &tauri::WebviewWindow, blur: bool) {
+    let target = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        // Every apply adds a fresh NSVisualEffectView under the webview and
+        // tauri's `set_effects(None)` clears nothing on macOS, so drop the
+        // previous view first — that is also what turns blur off.
+        if let Err(e) = window_vibrancy::clear_vibrancy(&target) {
+            eprintln!("Failed to clear window blur: {}", e);
+        }
+        if !blur {
+            return;
+        }
+        // Pin the effect state to Active so the blur stays applied when the
+        // window loses key focus. NSVisualEffectView defaults to
+        // FollowsWindowActiveState — switching away from the tmuxy window
+        // would drop the blur and leave the inactive window flat.
+        let effects = tauri::window::EffectsBuilder::new()
+            .effect(tauri::window::Effect::UnderWindowBackground)
+            .state(tauri::window::EffectState::Active)
+            .build();
+        if let Err(e) = target.set_effects(effects) {
+            eprintln!("Failed to apply window blur: {}", e);
+        }
+    });
+}
+
+/// No native window material on this platform; the option is read for parity
+/// and has nothing to drive.
+#[cfg(not(target_os = "macos"))]
+fn set_native_blur(_window: &tauri::WebviewWindow, _blur: bool) {}
 
 /// Build the native macOS application menu bar.
 ///

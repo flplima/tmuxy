@@ -68,10 +68,12 @@ interface EnterAnim {
   flipped: boolean;
   startedAt: number;
   timer?: number;
+  unlisten?: () => void;
 }
 
 interface ShiftAnim {
   timer?: number;
+  unlisten?: () => void;
 }
 
 interface LeaveAnim {
@@ -83,6 +85,27 @@ interface LeaveAnim {
 // How the JS timers outlive the CSS transition, so the lifecycle class is
 // never removed while the transition is still running.
 const ANIM_TIMER_SLACK_MS = 40;
+
+// Geometry properties whose `transitionend` on the pane itself marks its
+// enter/shift morph as finished — the lifecycle class comes off on that
+// event, not on a clock: under load the transition can start late, and a
+// class dropped mid-flight leaves the panes overlapping for the next paint.
+const MORPH_PROPERTIES = new Set(['left', 'top', 'width', 'height']);
+// Fallback for a morph that never transitions (from- and to-box coincide, or
+// animations are disabled): long enough that a running transition always
+// ends first, short enough to be invisible — the class only sets timings.
+const MORPH_FALLBACK_MS = PANE_ENTER_MS * 4;
+
+/** Call `done` once when `node`'s own geometry transition ends; returns the unsubscribe. */
+function onMorphEnd(node: HTMLElement, done: () => void): () => void {
+  const handler = (e: TransitionEvent) => {
+    if (e.target !== node || !MORPH_PROPERTIES.has(e.propertyName)) return;
+    node.removeEventListener('transitionend', handler);
+    done();
+  };
+  node.addEventListener('transitionend', handler);
+  return () => node.removeEventListener('transitionend', handler);
+}
 
 // A pane that disappears this soon after entering is a transient (e.g. the
 // intermediate split of a CLI float-create) — drop it instantly instead of
@@ -579,12 +602,14 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     for (const [key, anim] of enterAnimsRef.current) {
       if (!currView.has(key)) {
         if (anim.timer !== undefined) clearTimeout(anim.timer);
+        anim.unlisten?.();
         enterAnimsRef.current.delete(key);
       }
     }
     for (const [key, shift] of shiftAnimsRef.current) {
       if (!currView.has(key)) {
         if (shift.timer !== undefined) clearTimeout(shift.timer);
+        shift.unlisten?.();
         shiftAnimsRef.current.delete(key);
       }
     }
@@ -620,18 +645,27 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         node.style.height = saved.height;
         node.style.opacity = '';
       }
-      anim.timer = window.setTimeout(() => {
+      const finish = () => {
+        anim.unlisten?.();
+        if (anim.timer !== undefined) clearTimeout(anim.timer);
         enterAnimsRef.current.delete(key);
         bumpAnimTick();
-      }, PANE_ENTER_MS + ANIM_TIMER_SLACK_MS);
+      };
+      if (node) anim.unlisten = onMorphEnd(node, finish);
+      anim.timer = window.setTimeout(finish, MORPH_FALLBACK_MS);
     }
 
     for (const [key, shift] of shiftAnimsRef.current) {
       if (shift.timer !== undefined) continue;
-      shift.timer = window.setTimeout(() => {
+      const finish = () => {
+        shift.unlisten?.();
+        if (shift.timer !== undefined) clearTimeout(shift.timer);
         shiftAnimsRef.current.delete(key);
         bumpAnimTick();
-      }, PANE_ENTER_MS + ANIM_TIMER_SLACK_MS);
+      };
+      const node = container?.querySelector<HTMLElement>(`[data-pane-key="${key}"]`);
+      if (node) shift.unlisten = onMorphEnd(node, finish);
+      shift.timer = window.setTimeout(finish, MORPH_FALLBACK_MS);
     }
 
     // Zoom FLIP: rewind the zooming pane to its pre-transition box (transitions
@@ -693,8 +727,14 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     const shifts = shiftAnimsRef.current;
     const leaves = leavingRef.current;
     return () => {
-      for (const a of enters.values()) if (a.timer !== undefined) clearTimeout(a.timer);
-      for (const s of shifts.values()) if (s.timer !== undefined) clearTimeout(s.timer);
+      for (const a of enters.values()) {
+        if (a.timer !== undefined) clearTimeout(a.timer);
+        a.unlisten?.();
+      }
+      for (const s of shifts.values()) {
+        if (s.timer !== undefined) clearTimeout(s.timer);
+        s.unlisten?.();
+      }
       for (const l of leaves.values()) if (l.timer !== undefined) clearTimeout(l.timer);
     };
   }, []);
