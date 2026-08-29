@@ -33,16 +33,25 @@ body {
   --active-pane-opacity: 0.8;
 }
 
-/* Vibrancy mode: fully transparent backgrounds so native glass effect shows through.
-   Activated by Tauri setting data-vibrancy on <html> when @tmuxy-vibrancy is set.
-   When both vibrancy and opacity are set, vibrancy wins for backgrounds. */
+/* Vibrancy mode: transparent backgrounds so the native glass effect shows
+   through the chrome (title bar, sidebar, pane container) and the inactive
+   panes. Activated by Tauri setting data-vibrancy on <html> when
+   @tmuxy-vibrancy is set. When both vibrancy and opacity are set, vibrancy
+   wins for these backgrounds. */
 html[data-vibrancy] body,
 html[data-vibrancy] .pane-container,
 html[data-vibrancy] .pane-layout-item,
-html[data-vibrancy] .pane-layout-item.pane-active,
 html[data-vibrancy] .terminal-container,
 html[data-vibrancy] .loading,
 html[data-vibrancy] .error,
 html[data-vibrancy] .pane-scroll-container {
   background-color: transparent;
+}
+
+/* The active pane is the one surface that stays solid under vibrancy: it
+   paints the theme's terminal background so its text sits on the colour the
+   theme was designed for, while the dimmed, blurred glass remains everywhere
+   else. Also covers the zoomed pane (same element, higher specificity). */
+html[data-vibrancy] .pane-layout-item.pane-active {
+  background-color: var(--term-background);
 }
