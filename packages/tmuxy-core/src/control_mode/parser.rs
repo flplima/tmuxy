@@ -96,6 +96,11 @@ pub struct Parser {
     /// State for multi-line command responses
     in_response: bool,
     response_buffer: String,
+    /// Whether any body line has been accumulated for the current response.
+    /// Tracked separately from `response_buffer.is_empty()` because the first
+    /// body line may itself be empty — a capture-pane whose top row is blank —
+    /// and must still count, or every leading blank row is lost.
+    response_has_lines: bool,
     response_timestamp: u64,
     response_command_num: u32,
 }
@@ -105,6 +110,7 @@ impl Parser {
         Self {
             in_response: false,
             response_buffer: String::new(),
+            response_has_lines: false,
             response_timestamp: 0,
             response_command_num: 0,
         }
@@ -130,10 +136,11 @@ impl Parser {
 
         // If we're in a response block, accumulate the line
         if self.in_response {
-            if !self.response_buffer.is_empty() {
+            if self.response_has_lines {
                 self.response_buffer.push('\n');
             }
             self.response_buffer.push_str(line);
+            self.response_has_lines = true;
             return None;
         }
 
@@ -153,6 +160,7 @@ impl Parser {
             self.response_timestamp = parts[1].parse().unwrap_or(0);
             self.response_command_num = parts[2].parse().unwrap_or(0);
             self.response_buffer.clear();
+            self.response_has_lines = false;
         }
         None
     }
@@ -604,6 +612,24 @@ mod tests {
                 assert_eq!(buffer_name, "buffer0");
             }
             _ => panic!("Expected PasteBufferChanged event"),
+        }
+    }
+
+    #[test]
+    fn response_keeps_leading_blank_lines() {
+        // A capture-pane whose top rows are blank: the blank lines are real
+        // rows and must survive, or the content shifts up under the cursor.
+        let mut parser = Parser::new();
+        assert!(parser.parse_line("%begin 1234567890 2 0").is_none());
+        assert!(parser.parse_line("").is_none());
+        assert!(parser.parse_line("").is_none());
+        assert!(parser.parse_line("~").is_none());
+        assert!(parser.parse_line("❯").is_none());
+        match parser.parse_line("%end 1234567890 2 0") {
+            Some(ControlModeEvent::CommandResponse { output, .. }) => {
+                assert_eq!(output, "\n\n~\n❯");
+            }
+            other => panic!("expected a CommandResponse, got {other:?}"),
         }
     }
 }
