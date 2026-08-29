@@ -19,6 +19,18 @@ use web_time::Instant;
 
 /// Safe wrapper around vt100::Parser::process that catches panics from
 /// internal vt100 bugs (e.g., subtract overflow in grid.rs col_wrap).
+/// Split bytes into whole UTF-8 characters, so a hyperlinked run can be fed to
+/// vt100 one character at a time without tearing a multi-byte sequence. Any
+/// byte that is not a continuation byte (`10xxxxxx`) starts a new chunk, which
+/// also keeps a stray escape inside a link on its own chunk.
+fn utf8_chunks(data: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let mut starts: Vec<usize> = (0..data.len())
+        .filter(|&i| data[i] & 0xC0 != 0x80)
+        .collect();
+    starts.push(data.len());
+    (0..starts.len().saturating_sub(1)).map(move |i| &data[starts[i]..starts[i + 1]])
+}
+
 fn safe_process(terminal: &mut vt100::Parser, data: &[u8]) {
     let terminal_ptr = terminal as *mut vt100::Parser;
     // SAFETY: We have exclusive access to the parser (&mut self in callers).
@@ -181,6 +193,21 @@ pub struct PaneState {
     /// OSC sequence parser for hyperlinks and clipboard
     pub osc_parser: super::osc::OscParser,
 
+    /// Last `vt100::Screen::scroll_delta` this pane observed. The difference
+    /// against the current value is how far the visible grid moved, which is
+    /// what keeps the OSC 8 cell->URL marks on the lines they were written on.
+    ///
+    /// The counter belongs to one grid, so it MUST be re-based whenever the
+    /// grid underneath it is replaced — a capture refresh builds a fresh
+    /// parser, and the alternate screen is a different grid with its own
+    /// counter. Comparing across either yields a nonsense delta that shifts
+    /// every mark off the screen.
+    last_scroll_delta: i64,
+
+    /// Which grid `last_scroll_delta` was read from: the alternate screen has
+    /// its own counter and its own text.
+    scroll_baseline_alt: bool,
+
     /// Image protocol parser (iTerm2, Sixel)
     pub image_parser: super::images::ImageParser,
 
@@ -277,6 +304,8 @@ impl PaneState {
             window_id: String::new(),
             terminal: vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS),
             osc_parser,
+            last_scroll_delta: 0,
+            scroll_baseline_alt: false,
             image_parser: super::images::ImageParser::new(),
             image_store: HashMap::new(),
             x: 0,
@@ -309,6 +338,105 @@ impl PaneState {
         }
     }
 
+    /// Feed vt100 the OSC-stripped bytes, recording which cells a hyperlink
+    /// covers as they are written.
+    ///
+    /// Output with no hyperlink in it takes one bulk `process()` call, exactly
+    /// as before. Only the bytes *inside* an OSC 8 pair take the slow path:
+    /// they go in one character at a time and vt100 is asked where the cursor
+    /// sat before and after each one, so the mark lands on the cell the
+    /// character actually occupies. That is the whole point — the parser used
+    /// to derive those coordinates from its own newline counting, which is
+    /// blind to CSI cursor movement and drifted the map onto unrelated text.
+    fn feed_terminal(&mut self, osc: super::osc::OscOutput) {
+        if osc.links.is_empty() {
+            safe_process(&mut self.terminal, &osc.bytes);
+            self.sync_url_scroll();
+            return;
+        }
+
+        let mut at = 0usize;
+        for (start, end, url) in &osc.links {
+            if *start > at {
+                safe_process(&mut self.terminal, &osc.bytes[at..*start]);
+                self.sync_url_scroll();
+            }
+            self.feed_linked(&osc.bytes[*start..*end], url);
+            at = *end;
+        }
+        if at < osc.bytes.len() {
+            safe_process(&mut self.terminal, &osc.bytes[at..]);
+            self.sync_url_scroll();
+        }
+    }
+
+    /// Write one hyperlinked run, marking every cell it paints.
+    fn feed_linked(&mut self, bytes: &[u8], url: &str) {
+        for chunk in utf8_chunks(bytes) {
+            let (row, col) = self.terminal.screen().cursor_position();
+            safe_process(&mut self.terminal, chunk);
+            // Shift the marks already on screen BEFORE adding this one, so the
+            // cell we are about to record isn't shifted by its own scroll.
+            let scrolled = self.sync_url_scroll();
+            let (row2, col2) = self.terminal.screen().cursor_position();
+
+            // Where the pre-write line sits now, after any scroll this write
+            // caused. Equal to `row2` when the character stayed on its line.
+            let row_before = i64::from(row) - scrolled;
+            let (mark_row, from, to) = if i64::from(row2) == row_before {
+                (row2, col, col2)
+            } else {
+                // Wrapped onto a new line: the character is at its start.
+                (row2, 0, col2)
+            };
+            for c in from..to {
+                self.osc_parser
+                    .mark_cell(u32::from(mark_row), u32::from(c), url);
+            }
+        }
+    }
+
+    /// Take the current grid's scroll counter as the new zero point, without
+    /// shifting anything. Called after the grid is replaced or reflowed, when
+    /// the marks have just been cleared and no delta is meaningful.
+    fn rebaseline_scroll(&mut self) {
+        let screen = self.terminal.screen();
+        self.scroll_baseline_alt = screen.alternate_screen();
+        self.last_scroll_delta = screen.scroll_delta();
+    }
+
+    /// Shift recorded URL marks by however far vt100 actually scrolled since
+    /// the last check, and return that delta so a caller can re-base a cursor
+    /// position it read before the write.
+    fn sync_url_scroll(&mut self) -> i64 {
+        let screen = self.terminal.screen();
+        let alt = screen.alternate_screen();
+        let now = screen.scroll_delta();
+
+        if alt != self.scroll_baseline_alt {
+            // A different grid entirely: its counter is unrelated to the one
+            // the marks were taken against, and the text under them is not on
+            // screen. Re-base and drop the marks rather than shift by a
+            // meaningless delta — a stale URL landing on the alternate screen's
+            // content is the exact failure this whole path exists to prevent.
+            self.scroll_baseline_alt = alt;
+            self.last_scroll_delta = now;
+            self.osc_parser.clear_cells();
+            return 0;
+        }
+
+        let delta = now - self.last_scroll_delta;
+        self.last_scroll_delta = now;
+        match delta.cmp(&0) {
+            std::cmp::Ordering::Greater => self.osc_parser.shift_rows_up(delta as u32),
+            std::cmp::Ordering::Less => {
+                self.osc_parser.shift_rows_down(delta.unsigned_abs() as u32)
+            }
+            std::cmp::Ordering::Equal => {}
+        }
+        delta
+    }
+
     /// Process new output for this pane (appends to existing buffer)
     pub fn process_output(&mut self, content: &[u8]) {
         self.content_dirty = true;
@@ -325,11 +453,12 @@ impl PaneState {
         }
 
         // Process remaining bytes through OSC parser to extract hyperlinks/clipboard
-        // Returns content with OSC sequences stripped for vt100
-        let processed = self.osc_parser.process(&image_result.clean_bytes);
+        // Returns content with OSC sequences stripped for vt100, plus the byte
+        // ranges an OSC 8 link was open over.
+        let osc = self.osc_parser.process(&image_result.clean_bytes);
 
-        // Process through terminal emulator
-        safe_process(&mut self.terminal, &processed);
+        // Process through terminal emulator, recording hyperlink cells as we go
+        self.feed_terminal(osc);
 
         // Derive alternate_on and mouse_any_flag from the vt100 parser state.
         // This is more reliable than polling list-panes, as it updates immediately
@@ -368,6 +497,7 @@ impl PaneState {
 
         let normalized = normalize_capture_bytes(content);
         safe_process(&mut self.terminal, &normalized);
+        self.rebaseline_scroll();
     }
 
     /// Resize the terminal.
@@ -399,6 +529,7 @@ impl PaneState {
             // match) and realign the scroll compensation to the new height.
             self.osc_parser.reset();
             self.osc_parser.set_viewport_height(height);
+            self.rebaseline_scroll();
             true
         } else {
             false
@@ -3153,6 +3284,163 @@ mod tests {
             5,
             "authoritative list-windows index must overwrite the provisional"
         );
+    }
+
+    /// Read back the text a pane's OSC 8 marks actually cover, as
+    /// `(url, text)` — the same join `extract_cells_with_urls` does, which is
+    /// what the frontend turns into `<a href>`.
+    fn linked_text(pane: &PaneState) -> Vec<(String, String)> {
+        let screen = pane.terminal.screen();
+        let (rows, cols) = screen.size();
+        let mut out: Vec<(String, String)> = Vec::new();
+        for row in 0..rows {
+            let mut run: Option<(String, String)> = None;
+            for col in 0..cols {
+                let url = pane.osc_parser.get_url(u32::from(row), u32::from(col));
+                let ch = screen
+                    .cell(row, col)
+                    .map(|c| c.contents())
+                    .unwrap_or_default();
+                match (url, &mut run) {
+                    (Some(u), Some((cur, text))) if cur == u => text.push_str(&ch),
+                    (Some(u), _) => {
+                        if let Some(done) = run.take() {
+                            out.push(done);
+                        }
+                        run = Some((u.clone(), ch.to_string()));
+                    }
+                    (None, _) => {
+                        if let Some(done) = run.take() {
+                            out.push(done);
+                        }
+                    }
+                }
+            }
+            if let Some(done) = run.take() {
+                out.push(done);
+            }
+        }
+        out
+    }
+
+    fn osc8(url: &str, label: &str) -> Vec<u8> {
+        format!("\x1b]8;;{url}\x07{label}\x1b]8;;\x07").into_bytes()
+    }
+
+    #[test]
+    fn hyperlink_lands_on_its_own_text_after_a_cursor_move() {
+        // Regression: the OSC parser used to advance a private cursor on \n,
+        // \r and printable ASCII only. A CSI cursor move — which is most of
+        // what a shell prompt emits — was invisible to it, so its rows drifted
+        // and the URL attached to whatever text later occupied those cells.
+        // Here CUP jumps to row 4 before the link is written.
+        let mut pane = PaneState::new("%1", 40, 10);
+        let mut out = b"\x1b[5;1H".to_vec();
+        out.extend_from_slice(&osc8("https://example.com/osc", "OSC-LINK"));
+        out.extend_from_slice(b"\r\ntail-after-link");
+        pane.process_output(&out);
+
+        assert_eq!(
+            linked_text(&pane),
+            vec![(
+                "https://example.com/osc".to_string(),
+                "OSC-LINK".to_string()
+            )],
+            "the link must cover its own label, not the line after it"
+        );
+    }
+
+    #[test]
+    fn hyperlink_follows_its_line_as_output_scrolls_it_up() {
+        let mut pane = PaneState::new("%1", 40, 4);
+        pane.process_output(&osc8("https://example.com/s", "LINK"));
+        // Push the link's line up with more output than the pane is tall.
+        pane.process_output(b"\r\na\r\nb\r\nc");
+
+        assert_eq!(
+            linked_text(&pane),
+            vec![("https://example.com/s".to_string(), "LINK".to_string())],
+            "the mark must travel with the line it was written on"
+        );
+    }
+
+    #[test]
+    fn hyperlink_scrolled_off_the_top_is_dropped() {
+        let mut pane = PaneState::new("%1", 40, 3);
+        pane.process_output(&osc8("https://example.com/gone", "LINK"));
+        pane.process_output(b"\r\na\r\nb\r\nc\r\nd\r\ne");
+
+        assert!(
+            linked_text(&pane).is_empty(),
+            "a link scrolled off screen must not re-attach to a surviving row"
+        );
+    }
+
+    #[test]
+    fn hyperlink_wrapping_the_right_edge_covers_both_rows() {
+        let mut pane = PaneState::new("%1", 10, 6);
+        pane.process_output(b"\x1b[1;9H");
+        pane.process_output(&osc8("https://example.com/w", "ABCD"));
+
+        let linked = linked_text(&pane);
+        let joined: String = linked.iter().map(|(_, t)| t.as_str()).collect();
+        assert_eq!(joined, "ABCD", "wrapped link lost cells: {linked:?}");
+        assert!(linked.iter().all(|(u, _)| u == "https://example.com/w"));
+    }
+
+    #[test]
+    fn hyperlink_terminated_with_st_is_recorded() {
+        // Real shells emit ST (ESC \\), not BEL, to close OSC 8.
+        let mut pane = PaneState::new("%1", 40, 6);
+        pane.process_output(b"\x1b]8;;https://example.com/st\x1b\\OSC-LINK\x1b]8;;\x1b\\\r\ntail");
+        assert_eq!(
+            linked_text(&pane),
+            vec![("https://example.com/st".to_string(), "OSC-LINK".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_link_after_a_capture_refresh_is_still_recorded() {
+        // Regression: the scroll counter belongs to one vt100 grid, and a
+        // capture refresh builds a fresh parser whose counter restarts at 0.
+        // Comparing the new counter against the old baseline produced a large
+        // negative delta, which shifted every subsequent mark off the screen —
+        // links silently stopped appearing after the first capture refresh.
+        let mut pane = PaneState::new("%1", 40, 4);
+        // Scroll the grid so the counter is well past zero.
+        pane.process_output(b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng");
+        pane.reset_and_process_capture(b"fresh\n");
+
+        pane.process_output(&osc8("https://example.com/after", "LINK"));
+
+        assert_eq!(
+            linked_text(&pane),
+            vec![("https://example.com/after".to_string(), "LINK".to_string())]
+        );
+    }
+
+    #[test]
+    fn links_do_not_leak_onto_the_alternate_screen() {
+        // The alternate grid has its own scroll counter AND its own text, so a
+        // mark taken on the normal screen must not survive the switch.
+        let mut pane = PaneState::new("%1", 40, 4);
+        pane.process_output(&osc8("https://example.com/main", "LINK"));
+        assert!(!linked_text(&pane).is_empty());
+
+        // Enter the alternate screen and paint over the same cells.
+        pane.process_output(b"\x1b[?1049h\x1b[HVIMTEXT");
+
+        assert!(
+            linked_text(&pane).is_empty(),
+            "a normal-screen URL must not attach to alternate-screen content"
+        );
+    }
+
+    #[test]
+    fn plain_output_records_no_links() {
+        let mut pane = PaneState::new("%1", 40, 6);
+        pane.process_output(b"https://example.com/not-osc8\r\nplain text");
+        assert!(pane.osc_parser.cell_urls.is_empty());
     }
 
     #[test]

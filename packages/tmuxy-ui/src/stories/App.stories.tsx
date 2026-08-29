@@ -8,6 +8,7 @@ import { ResizeGlitchRecorder } from './resizeGlitch';
 import { LayoutMutationRecorder } from './animationObservers';
 import { ContentMutationRecorder } from './contentMutation';
 import { withTmuxView } from './tmuxView';
+import { isApplePlatform } from '../machines/actors/linkModifierActor';
 
 /**
  * Full-application stories driven by REAL tmux.
@@ -2537,8 +2538,13 @@ export const SixelImage: Story = {
 };
 
 /**
- * OSC 8 hyperlinks: wrapped text renders as a real anchor with the target href —
- * asserting the href (not the text) proves the escape was parsed, not echoed.
+ * OSC 8 hyperlinks: wrapped text renders as a real anchor with the target href.
+ *
+ * Asserts the anchor's TEXT as well as its href. Checking only the href let a
+ * real bug through — the URL was recorded against cells derived from a private
+ * cursor that ignored CSI movement, so the anchor carried the right href on the
+ * wrong text (the line *after* the link). An href-only assertion passes for
+ * that; the label check is what pins the link to its own cells.
  */
 export const Osc8Hyperlink: Story = {
   args: { height: 600 },
@@ -2553,9 +2559,64 @@ export const Osc8Hyperlink: Story = {
         ) as HTMLAnchorElement | null;
         expect(link).not.toBeNull();
         expect(link!.href).toContain('example.com/x8');
+        expect(link!.textContent).toBe('LINK_TEXT_8');
       },
       { timeout: 40000, interval: 500 },
     );
+  },
+};
+
+/**
+ * Auto-detected URLs are just text that looks like a link, so they stay inert
+ * until the user asks for them: no underline, and a click at their centre lands
+ * on the terminal line (so dragging a selection across one behaves like plain
+ * text). Holding the platform link modifier — Cmd on Apple, Ctrl elsewhere —
+ * reveals the underline and makes the anchor the hit target.
+ *
+ * Hit-testing with elementFromPoint rather than checking the DOM: an anchor with
+ * `pointer-events: none` is still in the tree, so only what the click actually
+ * reaches proves the behavior.
+ */
+export const AutolinkNeedsLinkModifier: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    pasteLine(`printf 'AUTO https://example.com/auto-detected\\n'`);
+
+    const doc = canvasElement.ownerDocument;
+    let link!: HTMLAnchorElement;
+    await waitFor(
+      () => {
+        link = doc.querySelector('a.terminal-autolink') as HTMLAnchorElement;
+        expect(link).not.toBeNull();
+        expect(link.href).toContain('example.com/auto-detected');
+      },
+      { timeout: 40000, interval: 500 },
+    );
+
+    const hitTarget = () => {
+      const r = link.getBoundingClientRect();
+      return doc.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    };
+    const underlined = () => getComputedStyle(link).textDecorationLine.includes('underline');
+
+    expect(underlined()).toBe(false);
+    expect(hitTarget()).not.toBe(link);
+
+    const modifier = isApplePlatform() ? 'Meta' : 'Control';
+    await user.keyboard(`{${modifier}>}`);
+    await waitFor(() => {
+      expect(underlined()).toBe(true);
+      expect(hitTarget()).toBe(link);
+    });
+
+    await user.keyboard(`{/${modifier}}`);
+    await waitFor(() => {
+      expect(underlined()).toBe(false);
+      expect(hitTarget()).not.toBe(link);
+    });
   },
 };
 

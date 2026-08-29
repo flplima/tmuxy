@@ -14,6 +14,17 @@ This document covers what's supported, how the pipeline works, and how to test e
 | **DCS Pq — Sixel** | `ESC P q … ESC \` | `control_mode/images.rs::try_parse_sixel` | same | Decoded by `icy_sixel`, re-encoded as PNG before serving |
 | **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `control_mode/osc.rs` parser → `StateEmitter::write_clipboard` → SSE `clipboard` event (web) / `tmux-clipboard` (Tauri) | `TmuxAdapter.onClipboard` → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. Storybook coverage: `App/Resilience > ClipboardOSC52`. |
 
+**Where the cell -> URL mapping comes from.** The link is recorded against the
+cells vt100 reports as it writes them: `OscParser::process` strips the escapes
+and hands back the byte ranges a link was open over, and `PaneState` feeds those
+ranges to vt100 one character at a time, marking whatever cell the cursor
+actually landed on. The marks then travel with their line, driven by the vt100
+screen's own scroll counter. (The parser used to derive coordinates from a
+private cursor it advanced on newlines and printable ASCII only — blind to every
+CSI cursor move, so the URL drifted onto unrelated text.) Because tmux strips
+OSC 8 from `capture-pane` history, the map is cleared on a capture refresh and
+repopulates from live output — a link is not restored by reloading the page.
+
 OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser — all parsing lives in `tmuxy-core/src/control_mode/images.rs` and `tmuxy-core/src/control_mode/osc.rs` — but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. On the frontend, `Terminal.tsx` renders image placements and `TerminalLine.tsx` renders hyperlink cells.
 
 ## How tmux preserves the sequences

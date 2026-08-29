@@ -392,10 +392,13 @@
 }
 
 /* Terminal hyperlinks (OSC 8) */
+/* OSC 8 hyperlinks — the application declared these, so they are always live:
+   underlined at rest and opened by a plain click, no modifier. */
 .terminal-hyperlink {
   text-decoration: underline;
   text-decoration-color: var(--link-color);
   color: inherit;
+  cursor: pointer;
 }
 
 .terminal-hyperlink:hover {
@@ -407,21 +410,31 @@
   color: var(--link-active);
 }
 
-/* Auto-detected URLs (not OSC 8) */
+/* Auto-detected URLs (not OSC 8) — text that merely looks like a link. Inert
+   until the platform link modifier is held (Cmd on macOS, Ctrl elsewhere;
+   `link-modifier-held` is set on <body> by linkModifierActor): no underline,
+   and `pointer-events: none` so dragging a selection across one behaves
+   exactly like dragging across plain text. */
 .terminal-autolink {
-  text-decoration: underline dotted;
-  text-decoration-color: var(--link-color);
+  text-decoration: none;
   color: inherit;
-  cursor: pointer;
+  cursor: inherit;
+  pointer-events: none;
 }
 
-.terminal-autolink:hover {
+.link-modifier-held .terminal-autolink {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.link-modifier-held .terminal-autolink:hover {
   color: var(--link-hover);
   text-decoration-color: var(--link-hover);
-  text-decoration-style: solid;
 }
 
-.terminal-autolink:active {
+.link-modifier-held .terminal-autolink:active {
   color: var(--link-active);
 }
 

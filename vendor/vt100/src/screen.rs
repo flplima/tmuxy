@@ -632,6 +632,14 @@ impl Screen {
         self.attrs.inverse()
     }
 
+    /// Net rows the visible grid has scrolled since it was created — see
+    /// `Grid::scroll_delta`. Used to keep externally-held `(row, col)`
+    /// annotations aligned with the text as output scrolls.
+    #[must_use]
+    pub fn scroll_delta(&self) -> i64 {
+        self.grid().scroll_delta()
+    }
+
     pub(crate) fn grid(&self) -> &crate::grid::Grid {
         if self.mode(MODE_ALTERNATE_SCREEN) {
             &self.alternate_grid

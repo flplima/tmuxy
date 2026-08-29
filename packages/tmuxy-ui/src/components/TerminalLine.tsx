@@ -197,6 +197,7 @@ export const TerminalLine = memo(
               href={linkUrl}
               target="_blank"
               rel="noopener noreferrer"
+              draggable={false}
               style={style}
               className={cls}
             >

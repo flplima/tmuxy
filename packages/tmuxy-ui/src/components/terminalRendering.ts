@@ -182,6 +182,7 @@ export function renderLineToDOM(
       a.href = linkUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
+      a.draggable = false;
       a.className = oscUrl ? 'terminal-hyperlink' : 'terminal-autolink';
       target = a;
     } else {

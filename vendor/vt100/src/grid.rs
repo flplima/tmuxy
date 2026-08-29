@@ -13,6 +13,7 @@ pub struct Grid {
     scrollback: std::collections::VecDeque<crate::row::Row>,
     scrollback_len: usize,
     scrollback_offset: usize,
+    scroll_delta: i64,
 }
 
 impl Grid {
@@ -29,7 +30,20 @@ impl Grid {
             scrollback: std::collections::VecDeque::new(),
             scrollback_len,
             scrollback_offset: 0,
+            scroll_delta: 0,
         }
+    }
+
+    /// Net rows this grid has scrolled: +1 per row that scrolls off the top,
+    /// -1 per row a reverse scroll pushes back down. Monotonic across the
+    /// grid's life, so a consumer that pins metadata to a `(row, col)` — the
+    /// OSC 8 cell -> URL map in tmuxy-core — shifts its marks by the delta
+    /// between two reads and keeps them on the text they were written on.
+    ///
+    /// Only whole-screen scrolls count: while a scroll region is active the
+    /// rows outside it do not move, so shifting every mark would be wrong.
+    pub fn scroll_delta(&self) -> i64 {
+        self.scroll_delta
     }
 
     pub fn allocate_rows(&mut self) {
@@ -610,6 +624,9 @@ impl Grid {
             self.rows
                 .insert(usize::from(self.scroll_bottom) + 1, self.new_row());
             let removed = self.rows.remove(usize::from(self.scroll_top));
+            if !self.scroll_region_active() {
+                self.scroll_delta += 1;
+            }
             if self.scrollback_len > 0 && !self.scroll_region_active() {
                 self.scrollback.push_back(removed);
                 while self.scrollback.len() > self.scrollback_len {
@@ -628,6 +645,9 @@ impl Grid {
             self.rows.remove(usize::from(self.scroll_bottom));
             self.rows
                 .insert(usize::from(self.scroll_top), self.new_row());
+            if !self.scroll_region_active() {
+                self.scroll_delta -= 1;
+            }
             // self.scroll_bottom is maintained to always be a valid row
             self.rows[usize::from(self.scroll_bottom)].wrap(false);
         }

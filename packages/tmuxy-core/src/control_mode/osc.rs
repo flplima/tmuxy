@@ -13,23 +13,39 @@ use std::collections::HashMap;
 /// without bound.
 const MAX_PENDING_OSC: usize = 64 * 1024;
 
+/// Bytes destined for vt100, plus the hyperlink spans inside them.
+#[derive(Debug, Default)]
+pub struct OscOutput {
+    /// The input with OSC sequences stripped out.
+    pub bytes: Vec<u8>,
+    /// `(start, end, url)` half-open ranges into `bytes`, in order and
+    /// non-overlapping, that were emitted while an OSC 8 link was open.
+    pub links: Vec<(usize, usize, String)>,
+}
+
+fn push_link(links: &mut Vec<(usize, usize, String)>, start: usize, end: usize, url: String) {
+    if end > start {
+        links.push((start, end, url));
+    }
+}
+
 /// OSC parser state for a single pane
 #[derive(Debug, Default)]
 pub struct OscParser {
     /// Active hyperlink (URL currently being applied to output)
     active_hyperlink: Option<(String, Option<String>)>, // (url, id)
-    /// Current cursor position (tracked for hyperlink cell mapping). `cursor_row`
-    /// is screen-relative: it scrolls with the viewport so it stays aligned with
-    /// the vt100 rows `extract_cells_with_urls` queries.
-    cursor_row: u32,
-    cursor_col: u32,
-    /// Visible height of the pane, in rows. Used to scroll `cell_urls` when
-    /// output pushes the cursor past the bottom row, keeping the map aligned
-    /// with the vt100 screen and bounded to the viewport.
+    /// Visible height of the pane, in rows. Bounds `cell_urls` to the screen:
+    /// a mark shifted above row 0 by scrolling is dropped.
     viewport_height: u32,
     /// Pending clipboard content (from OSC 52)
     pub pending_clipboard: Option<String>,
-    /// Hyperlink URL per cell coordinate: (row, col) -> url
+    /// Hyperlink URL per cell coordinate: (row, col) -> url.
+    ///
+    /// Written by the caller via [`OscParser::mark_cell`] once vt100 has told
+    /// it where a byte actually landed — this parser deliberately keeps no
+    /// cursor of its own. It used to, advancing on `\n` / `\r` / printable
+    /// ASCII only, which made it blind to every CSI cursor movement (most of
+    /// what a shell prompt emits) and drifted the whole map off the text.
     pub cell_urls: HashMap<(u32, u32), String>,
     /// An incomplete OSC sequence split across `%output` chunks, carried into
     /// the next `process()` call so the sequence isn't torn (header rendered as
@@ -48,8 +64,6 @@ impl OscParser {
     /// which is a property of the pane, not the content.
     pub fn reset(&mut self) {
         self.active_hyperlink = None;
-        self.cursor_row = 0;
-        self.cursor_col = 0;
         self.pending_clipboard = None;
         self.cell_urls.clear();
         self.pending.clear();
@@ -61,20 +75,66 @@ impl OscParser {
         self.viewport_height = height;
     }
 
-    /// Scroll the cell→URL map up by one row: row 0 falls off, every other row
-    /// shifts up one. Mirrors what the vt100 screen does when output overflows
-    /// the bottom, keeping `cell_urls` aligned with visible rows and bounded.
-    fn scroll_up(&mut self) {
+    /// Shift every mark up by `rows`, dropping what falls off the top.
+    ///
+    /// Driven by the vt100 screen's own `scroll_delta`, not by counting
+    /// newlines: a mark has to travel with the line it was written on however
+    /// that line moved — a bare `\n` at the bottom, an `ESC M`, a `CSI S`, or
+    /// an application repainting itself.
+    pub fn shift_rows_up(&mut self, rows: u32) {
+        if rows == 0 || self.cell_urls.is_empty() {
+            return;
+        }
         self.cell_urls = self
             .cell_urls
             .drain()
-            .filter_map(|((row, col), url)| (row > 0).then(|| ((row - 1, col), url)))
+            .filter_map(|((row, col), url)| row.checked_sub(rows).map(|r| ((r, col), url)))
             .collect();
     }
 
-    /// Process raw output bytes, extracting OSC sequences
-    /// Returns bytes with OSC sequences removed for vt100 processing
-    pub fn process(&mut self, content: &[u8]) -> Vec<u8> {
+    /// Shift every mark down by `rows`, dropping what falls off the bottom.
+    /// The reverse-scroll counterpart of [`shift_rows_up`].
+    pub fn shift_rows_down(&mut self, rows: u32) {
+        if rows == 0 || self.cell_urls.is_empty() {
+            return;
+        }
+        let height = self.viewport_height;
+        self.cell_urls = self
+            .cell_urls
+            .drain()
+            .map(|((row, col), url)| ((row + rows, col), url))
+            .filter(|((row, _), _)| height == 0 || *row < height)
+            .collect();
+    }
+
+    /// Record that the cell at `(row, col)` carries `url`. Called once vt100
+    /// has been asked where the byte landed, so wrapping, scrolling, and every
+    /// cursor-moving escape are already accounted for.
+    pub fn mark_cell(&mut self, row: u32, col: u32, url: &str) {
+        if self.viewport_height > 0 && row >= self.viewport_height {
+            return;
+        }
+        self.cell_urls.insert((row, col), url.to_string());
+    }
+
+    /// Drop every cell mark, keeping the open-hyperlink state. Used when the
+    /// grid the marks referred to is replaced wholesale (alternate screen).
+    pub fn clear_cells(&mut self) {
+        self.cell_urls.clear();
+    }
+
+    /// The URL currently open, if the stream is inside an OSC 8 pair.
+    pub fn active_url(&self) -> Option<&str> {
+        self.active_hyperlink.as_ref().map(|(url, _)| url.as_str())
+    }
+
+    /// Process raw output bytes, extracting OSC sequences.
+    ///
+    /// Returns the bytes with OSC sequences removed (for vt100) plus the ranges
+    /// within them that were written while a hyperlink was open. The caller
+    /// feeds those ranges to vt100 a character at a time and marks the cells
+    /// vt100 reports — see `PaneState::process_output`.
+    pub fn process(&mut self, content: &[u8]) -> OscOutput {
         // Prepend any incomplete OSC sequence carried over from the last chunk.
         let buffered;
         let content: &[u8] = if self.pending.is_empty() {
@@ -85,7 +145,14 @@ impl OscParser {
             &buffered
         };
 
-        let mut output = Vec::with_capacity(content.len());
+        let mut out = OscOutput {
+            bytes: Vec::with_capacity(content.len()),
+            links: Vec::new(),
+        };
+        // Offset in `out.bytes` where the open hyperlink started. A link still
+        // open at the end of a chunk closes at that end and reopens at 0 in the
+        // next call, so a hyperlink split across `%output` chunks survives.
+        let mut open_at: Option<usize> = self.active_hyperlink.as_ref().map(|_| 0);
         let mut i = 0;
 
         while i < content.len() {
@@ -94,7 +161,16 @@ impl OscParser {
                 // OSC sequence: ESC ] ... ST or ESC ] ... BEL
                 match self.find_osc_end(&content[i..]) {
                     Some((osc_end, osc_content)) => {
+                        let before = self.active_url().map(str::to_string);
                         self.parse_osc(osc_content);
+                        let after = self.active_url().map(str::to_string);
+                        if before != after {
+                            let here = out.bytes.len();
+                            if let (Some(start), Some(url)) = (open_at.take(), before) {
+                                push_link(&mut out.links, start, here, url);
+                            }
+                            open_at = after.map(|_| here);
+                        }
                         i += osc_end;
                         continue;
                     }
@@ -113,34 +189,16 @@ impl OscParser {
                 }
             }
 
-            // Track cursor movement for hyperlink cell mapping
-            // Note: vt100 handles actual cursor positioning, we just track for URL mapping
-            if content[i] == b'\n' {
-                // Newline advances the row; scroll the map when it would pass the
-                // bottom visible row so mappings stay aligned with vt100 rows.
-                self.cursor_row += 1;
-                if self.viewport_height > 0 && self.cursor_row >= self.viewport_height {
-                    self.scroll_up();
-                    self.cursor_row = self.viewport_height - 1;
-                }
-                self.cursor_col = 0;
-            } else if content[i] == b'\r' {
-                // Carriage return resets column
-                self.cursor_col = 0;
-            } else if content[i] >= 0x20 && content[i] < 0x7F {
-                // Printable character - map URL if active hyperlink
-                if let Some((ref url, _)) = self.active_hyperlink {
-                    self.cell_urls
-                        .insert((self.cursor_row, self.cursor_col), url.clone());
-                }
-                self.cursor_col += 1;
-            }
-
-            output.push(content[i]);
+            out.bytes.push(content[i]);
             i += 1;
         }
 
-        output
+        let here = out.bytes.len();
+        if let (Some(start), Some(url)) = (open_at, self.active_url().map(str::to_string)) {
+            push_link(&mut out.links, start, here, url);
+        }
+
+        out
     }
 
     /// Find the end of an OSC sequence starting at the given position
@@ -267,50 +325,76 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_osc8_hyperlink() {
+    fn osc8_strips_the_escapes_and_reports_the_linked_span() {
         let mut parser = OscParser::new();
 
-        // OSC 8 start with URL
         let input = b"\x1b]8;;https://example.com\x07hello\x1b]8;;\x07";
-        let output = parser.process(input);
+        let out = parser.process(input);
 
-        // Output should have OSC sequences stripped
-        assert_eq!(output, b"hello");
-
-        // Should have URL mapped for "hello" characters (cols 0-4)
-        assert_eq!(
-            parser.get_url(0, 0),
-            Some(&"https://example.com".to_string())
-        );
-        assert_eq!(
-            parser.get_url(0, 4),
-            Some(&"https://example.com".to_string())
-        );
-        assert_eq!(parser.get_url(0, 5), None);
+        // Output has the OSC sequences stripped...
+        assert_eq!(out.bytes, b"hello");
+        // ...and the caller is told exactly which of those bytes were linked,
+        // so it can ask vt100 where they landed. This parser maps no cells
+        // itself — it has no cursor to map them with.
+        assert_eq!(out.links, vec![(0, 5, "https://example.com".to_string())]);
     }
 
     #[test]
-    fn hyperlink_still_maps_after_scrolling_past_a_screenful() {
-        // Regression: cursor_row used to grow unbounded while the vt100 screen
-        // scrolled, so URLs recorded past `height` never matched a screen row.
+    fn text_outside_the_link_is_not_in_the_span() {
+        let mut parser = OscParser::new();
+        let out = parser.process(b"before\x1b]8;;http://x\x07IN\x1b]8;;\x07after");
+        assert_eq!(out.bytes, b"beforeINafter");
+        assert_eq!(out.links, vec![(6, 8, "http://x".to_string())]);
+    }
+
+    #[test]
+    fn two_links_in_one_chunk_get_one_span_each() {
+        let mut parser = OscParser::new();
+        let out =
+            parser.process(b"\x1b]8;;http://a\x07A\x1b]8;;\x07 \x1b]8;;http://b\x07B\x1b]8;;\x07");
+        assert_eq!(out.bytes, b"A B");
+        assert_eq!(
+            out.links,
+            vec![
+                (0, 1, "http://a".to_string()),
+                (2, 3, "http://b".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_link_left_open_spans_to_the_end_of_the_chunk_and_resumes() {
+        let mut parser = OscParser::new();
+        // Link opened but not closed before the chunk ends.
+        let first = parser.process(b"\x1b]8;;http://x\x07AB");
+        assert_eq!(first.bytes, b"AB");
+        assert_eq!(first.links, vec![(0, 2, "http://x".to_string())]);
+
+        // Still open: the next chunk's bytes are linked from offset 0.
+        let second = parser.process(b"CD\x1b]8;;\x07EF");
+        assert_eq!(second.bytes, b"CDEF");
+        assert_eq!(second.links, vec![(0, 2, "http://x".to_string())]);
+    }
+
+    #[test]
+    fn shift_rows_up_moves_marks_and_drops_what_scrolls_off() {
         let mut parser = OscParser::new();
         parser.set_viewport_height(3);
+        parser.mark_cell(0, 0, "http://gone");
+        parser.mark_cell(2, 1, "http://kept");
 
-        // Fill more than the viewport with plain lines, then a hyperlink.
-        let mut input = Vec::new();
-        for _ in 0..10 {
-            input.extend_from_slice(b"x\n");
-        }
-        input.extend_from_slice(b"\x1b]8;;https://example.com\x07link\x1b]8;;\x07");
-        parser.process(&input);
+        parser.shift_rows_up(1);
 
-        // The link lands on the bottom visible row (2), not row 10.
-        assert_eq!(
-            parser.get_url(2, 0),
-            Some(&"https://example.com".to_string())
-        );
-        // cell_urls is bounded to the viewport, not the total output.
-        assert!(parser.cell_urls.keys().all(|(r, _)| *r < 3));
+        assert_eq!(parser.get_url(0, 0), None);
+        assert_eq!(parser.get_url(1, 1), Some(&"http://kept".to_string()));
+    }
+
+    #[test]
+    fn marks_past_the_bottom_row_are_refused() {
+        let mut parser = OscParser::new();
+        parser.set_viewport_height(3);
+        parser.mark_cell(3, 0, "http://offscreen");
+        assert!(parser.cell_urls.is_empty());
     }
 
     #[test]
@@ -319,13 +403,10 @@ mod tests {
         // The hyperlink start sequence is cut mid-URL between two process() calls.
         let out1 = parser.process(b"\x1b]8;;https://exa");
         // Nothing emitted yet — the incomplete escape is buffered, not leaked.
-        assert!(out1.is_empty());
+        assert!(out1.bytes.is_empty());
         let out2 = parser.process(b"mple.com\x07hi\x1b]8;;\x07");
-        assert_eq!(out2, b"hi");
-        assert_eq!(
-            parser.get_url(0, 0),
-            Some(&"https://example.com".to_string())
-        );
+        assert_eq!(out2.bytes, b"hi");
+        assert_eq!(out2.links, vec![(0, 2, "https://example.com".to_string())]);
     }
 
     #[test]

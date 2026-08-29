@@ -52,6 +52,7 @@ import { resizeMachine } from '../resize/resizeMachine';
 import type { KeyboardActorEvent } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
+import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
 import type { ServersActorEvent } from '../actors/serversActor';
 
 /**
@@ -331,6 +332,7 @@ export const appMachine = setup({
     tmuxStoreActor: fromCallback<TmuxStoreActorEvent, { parent: AnyActorRef }>(() => () => {}),
     keyboardActor: fromCallback<KeyboardActorEvent, { parent: AnyActorRef }>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
+    linkModifierActor: fromCallback<LinkModifierActorEvent>(() => () => {}),
     serversActor: fromCallback<ServersActorEvent, { parent: AnyActorRef }>(() => () => {}),
     dragMachine,
     resizeMachine,
@@ -372,6 +374,12 @@ export const appMachine = setup({
       id: 'size',
       src: 'sizeActor',
       input: ({ self }) => ({ parent: self }),
+    },
+    {
+      // Cmd/Ctrl-held tracking for auto-detected URL affordance; owns no
+      // machine state, only a <body> class (see linkModifierActor).
+      id: 'linkModifier',
+      src: 'linkModifierActor',
     },
     {
       // Sessions-tree poll (runs on web + desktop; see serversActor).
