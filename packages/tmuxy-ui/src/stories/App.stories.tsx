@@ -4,8 +4,10 @@ import { V86AppHarness } from './StoryHarness';
 import { armPaintProbe, addsElement } from './immediacy';
 import { enableRenderLog, renderLogMark, renderCountSince } from '../utils/renderLog';
 import { GlitchRecorder } from './glitchRecorder';
+import { ResizeGlitchRecorder } from './resizeGlitch';
 import { LayoutMutationRecorder } from './animationObservers';
 import { ContentMutationRecorder } from './contentMutation';
+import { withTmuxView } from './tmuxView';
 
 /**
  * Full-application stories driven by REAL tmux.
@@ -181,6 +183,9 @@ const meta: Meta<typeof V86AppHarness> = {
   // boots (~5s), the rest restore the pinned snapshot (~1s) for an isolated clean
   // start. Switching stories in the Storybook UI is near-instant as a result.
   args: { shared: true },
+  // Toolbar "tmux view": the guest's VGA console (tmux drawing itself) beside
+  // or over the tmuxy rendering — see stories/tmuxView.tsx.
+  decorators: [withTmuxView],
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -1079,6 +1084,52 @@ export const ResizePaneKeyboard: Story = {
   },
 };
 
+/** Pick the horizontal (wide) or vertical (tall) `.resize-divider`. */
+function pickDivider(canvasElement: HTMLElement, kind: 'horizontal' | 'vertical'): HTMLElement {
+  const dividers = Array.from(canvasElement.querySelectorAll<HTMLElement>('.resize-divider'));
+  const found = dividers.find((d) => {
+    const r = d.getBoundingClientRect();
+    return kind === 'horizontal' ? r.width > r.height : r.height > r.width;
+  });
+  if (!found) throw new Error(`no ${kind} resize divider (have ${dividers.length})`);
+  return found;
+}
+
+/**
+ * Drive a MONOTONIC divider drag with raw mouse events (the machine's
+ * pointerTracker listens on window). Monotonic so the resulting geometry must
+ * also be monotonic — any reversal the recorder catches is a real glitch.
+ * Marks 'mouseup' on the recorder just before releasing.
+ */
+async function dragDivider(
+  divider: HTMLElement,
+  recorder: ResizeGlitchRecorder,
+  opts: { dx?: number; dy?: number; steps?: number },
+): Promise<void> {
+  const { dx = 0, dy = 0, steps = 8 } = opts;
+  const doc = divider.ownerDocument;
+  const r = divider.getBoundingClientRect();
+  const startX = r.left + r.width / 2;
+  const startY = r.top + r.height / 2;
+  divider.dispatchEvent(
+    new MouseEvent('mousedown', { bubbles: true, clientX: startX, clientY: startY, button: 0 }),
+  );
+  for (let i = 1; i <= steps; i++) {
+    doc.dispatchEvent(
+      new MouseEvent('mousemove', {
+        bubbles: true,
+        clientX: startX + (dx * i) / steps,
+        clientY: startY + (dy * i) / steps,
+      }),
+    );
+    await new Promise((res) => setTimeout(res, 8));
+  }
+  recorder.mark('mouseup');
+  doc.dispatchEvent(
+    new MouseEvent('mouseup', { bubbles: true, clientX: startX + dx, clientY: startY + dy }),
+  );
+}
+
 /**
  * Drag resize: mouse-drag the invisible `.resize-divider` between the two panes.
  * Pane widths must change and STICK after mouseup — i.e. tmux accepted the
@@ -1093,38 +1144,190 @@ export const ResizePaneDrag: Story = {
     await settleGeometry(canvas);
     const [a] = paneIds(canvas);
     const before = paneRect(canvas, a).width;
-    const divider = canvasElement.querySelector('.resize-divider') as HTMLElement | null;
-    expect(divider).not.toBeNull();
-    const r = divider!.getBoundingClientRect();
-    const startX = r.left + r.width / 2;
-    const startY = r.top + r.height / 2;
-    const doc = canvasElement.ownerDocument;
-    divider!.dispatchEvent(
-      new MouseEvent('mousedown', { bubbles: true, clientX: startX, clientY: startY, button: 0 }),
-    );
-    for (let dx = 10; dx <= 80; dx += 10) {
-      doc.dispatchEvent(
-        new MouseEvent('mousemove', { bubbles: true, clientX: startX + dx, clientY: startY }),
-      );
-      await new Promise((res) => setTimeout(res, 30));
-    }
-    doc.dispatchEvent(
-      new MouseEvent('mouseup', { bubbles: true, clientX: startX + 80, clientY: startY }),
-    );
+
+    // Record the ENTIRE interaction — through the drag AND the post-mouseup
+    // reconcile — so a mid-drag grid shift or a flash-back to the old size on
+    // release is caught (a recorder started after settle would miss both).
+    const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    await dragDivider(pickDivider(canvasElement, 'vertical'), rec, { dx: 80 });
+
     // Width changed AND persists after the tmux round-trip settles.
     await waitFor(() => expect(Math.abs(paneRect(canvas, a).width - before)).toBeGreaterThan(30), {
       timeout: 30000,
       interval: 500,
     });
-    // Let the trailing per-command layout confirms land, THEN record: once
-    // the geometry has settled, the layout must not move again (a late
-    // confirm re-wiggling panes is the user-visible resize glitch).
     await settleGeometry(canvas);
-    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    // Let the trailing per-command layout confirms and the preview-clear land.
+    await new Promise((res) => setTimeout(res, 800));
     const after = paneRect(canvas, a).width;
-    await new Promise((res) => setTimeout(res, 2000));
     expect(Math.abs(paneRect(canvas, a).width - after)).toBeLessThan(10);
-    glitches.assertNoGlitches('resize');
+    // No geometry reversal at any point — not the post-release flash-back to
+    // the old width, nor a mid-drag horizontal wobble.
+    rec.assertNoBounces();
+  },
+};
+
+/**
+ * Vertical drag resize: mouse-drag the HORIZONTAL divider between two stacked
+ * panes down by ~4 rows. The top pane grows and the bottom shrinks
+ * monotonically — so no pane's `top`/`height` may reverse direction. Catches
+ * the two resize glitches on the vertical axis: (1) the whole grid jumping up
+ * and then back down a row mid-drag (the centering offset re-rounding because
+ * it isn't frozen during resize), and (2) the pane snapping back to its old
+ * height for a blip after mouse-up (a stale server snapshot clearing the
+ * optimistic preview before the final resize lands).
+ */
+export const ResizePaneDragVertical: Story = {
+  args: { height: 600, initCommands: ['split-window -v'] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await focusFirstPane(canvas, userEvent.setup());
+    await settleGeometry(canvas);
+
+    // The horizontal divider resizes the two stacked panes; find the one
+    // directly above it (its height grows as we drag down).
+    const hDiv = pickDivider(canvasElement, 'horizontal');
+    const dTop = hDiv.getBoundingClientRect().top;
+    const grower = paneIds(canvas).find((id) => {
+      const r = paneRect(canvas, id);
+      return Math.abs(r.top + r.height - dTop) < 14; // its bottom edge is the divider
+    });
+    if (!grower) throw new Error('no pane above the horizontal divider');
+    const before = paneRect(canvas, grower).height;
+
+    const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    await dragDivider(hDiv, rec, { dy: 144, steps: 12 });
+
+    await waitFor(
+      () => expect(Math.abs(paneRect(canvas, grower).height - before)).toBeGreaterThan(30),
+      { timeout: 30000, interval: 500 },
+    );
+    await settleGeometry(canvas);
+    await new Promise((res) => setTimeout(res, 800));
+    const after = paneRect(canvas, grower).height;
+    expect(Math.abs(paneRect(canvas, grower).height - after)).toBeLessThan(10);
+    // No pane's top/height may reverse: not the resized panes flashing back to
+    // their old height on release, nor an uninvolved pane's row jumping and
+    // returning as the grid re-centers mid-resize.
+    rec.assertNoBounces();
+  },
+};
+/**
+ * Complex-layout resize: a tiled 4-pane grid. Dragging ONE divider must leave
+ * every OTHER pane's row perfectly still. tmux emits intermediate
+ * %layout-change events during a resize in which panes it isn't resizing
+ * transiently report y=0 (the top border row momentarily gone), which
+ * computePaneBox renders as that pane's content jumping up a row for a frame.
+ * The recorder watches all four panes; any top/height reversal — on the
+ * resized panes OR an uninvolved one — fails.
+ */
+export const ResizePaneDragGrid: Story = {
+  args: {
+    height: 600,
+    initCommands: ['split-window -v', 'split-window -h', 'select-layout tiled'],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await focusFirstPane(canvas, userEvent.setup());
+    // A tiled 2x2 needs all four panes; wait for them before measuring.
+    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(4), {
+      timeout: 30000,
+      interval: 500,
+    });
+    await settleGeometry(canvas);
+
+    const sigBefore = paneIds(canvas)
+      .map((id) => Math.round(paneRect(canvas, id).width + paneRect(canvas, id).height))
+      .join();
+
+    // Drag the horizontal divider (vertical resize between the rows): tmux
+    // then transiently drops the top row to y=0 — every top pane, not just the
+    // resized one, must hold its header row.
+    const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    await dragDivider(pickDivider(canvasElement, 'horizontal'), rec, { dy: 108, steps: 12 });
+
+    // The resize took effect somewhere.
+    await waitFor(
+      () =>
+        expect(
+          paneIds(canvas)
+            .map((id) => Math.round(paneRect(canvas, id).width + paneRect(canvas, id).height))
+            .join(),
+        ).not.toBe(sigBefore),
+      { timeout: 30000, interval: 500 },
+    );
+    await settleGeometry(canvas);
+    await new Promise((res) => setTimeout(res, 800));
+    rec.assertNoBounces();
+  },
+};
+
+/** Send a raw tmux command through the live app machine (structural ops). */
+function sendTmux(command: string): void {
+  (window as unknown as { app: { send: (e: unknown) => void } }).app.send({
+    type: 'SEND_TMUX_COMMAND',
+    command,
+  });
+}
+
+/**
+ * Splitting a pane must not jump any EXISTING pane's rows. During a split tmux
+ * emits transient intermediate %layout-change events in which an existing pane
+ * briefly reports y=0 (its top border row momentarily gone); computePaneBox
+ * would drop that pane's header and shift its terminal content up a row for a
+ * frame — the same root cause as the resize row-jump, on a different operation.
+ * The reconcile masks the dip (appMachine TMUX_MODEL_UPDATE). The recorder
+ * watches every pane's box AND content top ([role=log]) through the split.
+ */
+export const SplitPaneNoRowJump: Story = {
+  args: { height: 600 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await focusFirstPane(canvas, userEvent.setup());
+    await settleGeometry(canvas);
+    const before = paneGroups(canvas).length;
+
+    const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    sendTmux('split-window -v');
+    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThan(before), {
+      timeout: 30000,
+      interval: 500,
+    });
+    await settleGeometry(canvas);
+    await new Promise((res) => setTimeout(res, 800));
+    // No existing pane's content jumped a row while the new pane appeared.
+    rec.assertNoBounces();
+  },
+};
+
+/**
+ * Same guard on a busier layout: split inside a 2x2 grid, a larger re-layout
+ * burst (more panes momentarily dropping to y=0).
+ */
+export const SplitPaneInGridNoRowJump: Story = {
+  args: {
+    height: 600,
+    initCommands: ['split-window -v', 'split-window -h', 'select-layout tiled'],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await focusFirstPane(canvas, userEvent.setup());
+    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(4), {
+      timeout: 30000,
+      interval: 500,
+    });
+    await settleGeometry(canvas);
+    const before = paneGroups(canvas).length;
+
+    const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
+    sendTmux('split-window -h');
+    await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThan(before), {
+      timeout: 30000,
+      interval: 500,
+    });
+    await settleGeometry(canvas);
+    await new Promise((res) => setTimeout(res, 800));
+    rec.assertNoBounces();
   },
 };
 

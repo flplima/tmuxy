@@ -182,16 +182,29 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     };
   }, [totalWidth, totalHeight, charWidth, charHeight, containerWidth, containerHeight]);
 
-  // Freeze the centering offset for the duration of a drag. Mid-drag the
-  // dragged pane is pinned to its original slot while the optimistic swap
-  // patch moves the hovered pane into that same slot — the derived grid
-  // extent transiently shrinks and re-centering would shift EVERY pane
-  // sideways under the user's cursor.
+  // Freeze the centering offset for the duration of a drag OR resize. Mid-drag
+  // the dragged pane is pinned to its original slot while the optimistic swap
+  // patch moves the hovered pane into that same slot; mid-resize the preview /
+  // intermediate server layouts can transiently change the derived grid extent
+  // (e.g. a pane clamped at its min size). In both cases re-centering would
+  // shift EVERY pane by a cell under the user's cursor — the "row jumps up and
+  // then back down while resizing" glitch. Freeze so uninvolved panes hold
+  // still and only the resized panes move.
   const frozenOffsetRef = useRef(liveCenteringOffset);
-  if (!isDragging) {
+  if (!isDragging && !isResizing) {
     frozenOffsetRef.current = liveCenteringOffset;
   }
-  const centeringOffset = isDragging ? frozenOffsetRef.current : liveCenteringOffset;
+  const centeringOffset = isDragging || isResizing ? frozenOffsetRef.current : liveCenteringOffset;
+
+  // The point all non-zoomed panes collapse toward (and expand out of) during
+  // a zoom: the centre of the pane grid, where the zoomed pane fills to.
+  const zoomCenter = useMemo(
+    () => ({
+      x: centeringOffset.x + (totalWidth * charWidth) / 2,
+      y: centeringOffset.y + (totalHeight * charHeight) / 2,
+    }),
+    [centeringOffset, totalWidth, totalHeight, charWidth, charHeight],
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -200,6 +213,27 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const [, bumpAnimTick] = useReducer((x: number) => x + 1, 0);
   const enterAnimsRef = useRef(new Map<string, EnterAnim>());
   const shiftAnimsRef = useRef(new Map<string, ShiftAnim>());
+  // Zoom grow/shrink FLIP: the zoomed pane's box jumps to full (or back) in a
+  // frame where the transition is suppressed, so it needs an explicit rewind →
+  // transition like an entering pane. prevZoomedRef tracks the id across
+  // commits; zoomFlipRef holds the pending flip.
+  const prevZoomedRef = useRef<string | null>(null);
+  const zoomFlipRef = useRef<{
+    key: string;
+    fromBox: PaneBox;
+    flipped: boolean;
+    timer?: number;
+  } | null>(null);
+  // Each pane's most recent NON-full-extent box, so a zoom-in FLIP can rewind
+  // the pane to its pre-zoom slot even though the box already jumped to full a
+  // render before `zoomedPaneId` caught up (isZoomed lags the geometry).
+  const lastNonZoomBoxRef = useRef(new Map<string, PaneBox>());
+  // On zoom-OUT the collapsed siblings drop their `pane-zoom-collapsing` class in
+  // the same commit that suppresses layout transitions, so without a carve-out
+  // they snap from centre-scaled back to their slots. This holds the sibling
+  // keys for the expand duration so a `pane-zoom-expanding` class (with a gated
+  // transition) animates them back out of the centre.
+  const zoomExpandRef = useRef<{ keys: Set<string>; timer?: number } | null>(null);
   const leavingRef = useRef(new Map<string, LeaveAnim>());
   const prevViewRef = useRef<Map<string, RenderedPaneView> | null>(null);
   const prevActiveWindowIdRef = useRef<string | null | undefined>(undefined);
@@ -285,6 +319,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       if (pane.tmuxId === zoomedPaneId) {
         classes.push('pane-zoomed');
       }
+      if (zoomFlipRef.current?.key === key) {
+        classes.push('pane-zoom-growing');
+      }
+      if (zoomExpandRef.current?.keys.has(key)) {
+        classes.push('pane-zoom-expanding');
+      }
       if (pane.tmuxId === draggedPaneId) {
         classes.push('pane-dragging');
       } else if (enterAnimsRef.current.has(key)) {
@@ -303,14 +343,16 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // class swap, not an unmount/remount. Sort by the effective React key
   // (paneKeyOverrides honored so placeholder→real transitions stay stable).
   const renderedPanes = useMemo(() => {
-    const items: { pane: TmuxPane; hidden: boolean }[] = [];
+    const items: { pane: TmuxPane; hidden: boolean; zoomCollapsed: boolean }[] = [];
     for (const pane of visiblePanes) {
-      // Hidden rather than dropped: the pane keeps its DOM and terminal state,
-      // so unzooming restores it instantly and it stays interactive.
+      // Zoom-collapsed rather than dropped: the pane keeps its DOM and terminal
+      // state (so unzoom restores it instantly and it stays interactive) and,
+      // unlike a window-hidden pane, is RENDERED — scaled toward the centre and
+      // faded out — so zoom in/out animates instead of hard-cutting.
       const hiddenByZoom = zoomedPaneId !== null && pane.tmuxId !== zoomedPaneId;
-      items.push({ pane, hidden: hiddenByZoom });
+      items.push({ pane, hidden: hiddenByZoom, zoomCollapsed: hiddenByZoom });
     }
-    for (const pane of hiddenWindowPanes) items.push({ pane, hidden: true });
+    for (const pane of hiddenWindowPanes) items.push({ pane, hidden: true, zoomCollapsed: false });
     items.sort((a, b) => {
       const ka = paneKeyOverrides[a.pane.tmuxId] ?? a.pane.tmuxId;
       const kb = paneKeyOverrides[b.pane.tmuxId] ?? b.pane.tmuxId;
@@ -349,6 +391,23 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     return view;
   }, [renderedPanes, paneKeyOverrides, charWidth, charHeight, centeringOffset]);
 
+  // Record every pane's box while it is NOT the full-extent (zoomed) pane, for
+  // the zoom-in FLIP's pre-zoom source. A pane spanning the whole grid is the
+  // zoomed one; anything smaller keeps its slot box remembered here.
+  const gridPxWidth = totalWidth * charWidth;
+  const gridPxHeight = totalHeight * charHeight;
+  for (const { pane, hidden } of renderedPanes) {
+    if (hidden) continue;
+    const box = computePaneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y);
+    // Skip the full-extent (zoomed) pane. Its cell height is one row short of the
+    // grid (the pane-border-status header row), so a cell-dimension test misses
+    // it — but its *pixel* box spans the whole grid (computePaneBox adds the
+    // header row back into the height), which is the reliable signal.
+    if (box.width >= gridPxWidth - charWidth && box.height >= gridPxHeight - charHeight) continue;
+    const key = paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId;
+    lastNonZoomBoxRef.current.set(key, box);
+  }
+
   const prevView = prevViewRef.current;
   const lifecycleEnabled =
     prevView !== null &&
@@ -371,6 +430,44 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     for (const [key, v] of prevView) if (!v.hidden && v.box) prevBoxes.set(key, v.box);
     const currBoxes = new Map<string, PaneBox>();
     for (const [key, v] of currView) if (!v.hidden && v.box) currBoxes.set(key, v.box);
+
+    // Zoom transition: the pane entering OR leaving the zoomed state gets a box
+    // FLIP so its grow-to-full / shrink-back animates instead of snapping (the
+    // %layout-change that zooms also sets suppressLayoutTransition). fromBox is
+    // the pane's box in the previous render (small before zoom-in, full before
+    // zoom-out); React's committed box is the target.
+    if (zoomedPaneId !== prevZoomedRef.current) {
+      const zoomingIn = zoomedPaneId !== null;
+      const changedId = zoomedPaneId ?? prevZoomedRef.current;
+      const changedKey = changedId ? (paneKeyOverrides[changedId] ?? changedId) : undefined;
+      // Zoom-in grows from the pane's remembered pre-zoom slot; zoom-out shrinks
+      // from the full box it held in the previous render.
+      const fromBox = changedKey
+        ? zoomingIn
+          ? lastNonZoomBoxRef.current.get(changedKey)
+          : prevBoxes.get(changedKey)
+        : undefined;
+      const toBox = changedKey ? currBoxes.get(changedKey) : undefined;
+      if (
+        changedKey &&
+        fromBox &&
+        toBox &&
+        (fromBox.left !== toBox.left ||
+          fromBox.top !== toBox.top ||
+          fromBox.width !== toBox.width ||
+          fromBox.height !== toBox.height)
+      ) {
+        zoomFlipRef.current = { key: changedKey, fromBox, flipped: false };
+      }
+      // Zoom-out: the siblings (everything but the shrinking pane) expand back
+      // out of the centre. Tag them so a gated transition survives the
+      // suppression class the unzoom sets.
+      if (!zoomingIn) {
+        const keys = new Set<string>();
+        for (const key of currBoxes.keys()) if (key !== changedKey) keys.add(key);
+        zoomExpandRef.current = keys.size > 0 ? { keys } : null;
+      }
+    }
 
     // A key appearing in / vanishing from the render list is NOT enough:
     // group siblings and float panes are excluded from renderedPanes while
@@ -455,15 +552,21 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // Merge leaving panes into the render list at their sorted-key position:
   // relative DOM order of kept keys must not change, or React would move
   // nodes (insertBefore) and cancel their running CSS transitions.
-  const renderItems: { key: string; pane: TmuxPane; hidden: boolean; leave?: LeaveAnim }[] =
-    renderedPanes.map(({ pane, hidden }) => ({
-      key: paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId,
-      pane,
-      hidden,
-    }));
+  const renderItems: {
+    key: string;
+    pane: TmuxPane;
+    hidden: boolean;
+    zoomCollapsed: boolean;
+    leave?: LeaveAnim;
+  }[] = renderedPanes.map(({ pane, hidden, zoomCollapsed }) => ({
+    key: paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId,
+    pane,
+    hidden,
+    zoomCollapsed,
+  }));
   if (leavingRef.current.size > 0) {
     for (const [key, leave] of leavingRef.current) {
-      renderItems.push({ key, pane: leave.pane, hidden: false, leave });
+      renderItems.push({ key, pane: leave.pane, hidden: false, zoomCollapsed: false, leave });
     }
     renderItems.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   }
@@ -530,6 +633,46 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         bumpAnimTick();
       }, PANE_ENTER_MS + ANIM_TIMER_SLACK_MS);
     }
+
+    // Zoom FLIP: rewind the zooming pane to its pre-transition box (transitions
+    // off), force a recalc, then restore React's committed box — the
+    // .pane-zoom-growing transition morphs it grow→full / full→shrink.
+    const zf = zoomFlipRef.current;
+    if (zf && !zf.flipped) {
+      zf.flipped = true;
+      const node = container?.querySelector<HTMLElement>(`[data-pane-key="${zf.key}"]`);
+      if (node) {
+        const saved = {
+          left: node.style.left,
+          top: node.style.top,
+          width: node.style.width,
+          height: node.style.height,
+        };
+        node.style.transition = 'none';
+        node.style.left = `${zf.fromBox.left}px`;
+        node.style.top = `${zf.fromBox.top}px`;
+        node.style.width = `${zf.fromBox.width}px`;
+        node.style.height = `${zf.fromBox.height}px`;
+        node.getBoundingClientRect();
+        node.style.transition = '';
+        node.style.left = saved.left;
+        node.style.top = saved.top;
+        node.style.width = saved.width;
+        node.style.height = saved.height;
+      }
+      zf.timer = window.setTimeout(() => {
+        zoomFlipRef.current = null;
+        bumpAnimTick();
+      }, PANE_ENTER_MS + ANIM_TIMER_SLACK_MS);
+    }
+    const ze = zoomExpandRef.current;
+    if (ze && ze.timer === undefined) {
+      ze.timer = window.setTimeout(() => {
+        zoomExpandRef.current = null;
+        bumpAnimTick();
+      }, PANE_ENTER_MS + ANIM_TIMER_SLACK_MS);
+    }
+    prevZoomedRef.current = zoomedPaneId;
     for (const [key, leave] of leavingRef.current) {
       if (leave.timer !== undefined) continue;
       leave.timer = window.setTimeout(() => {
@@ -562,7 +705,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing || suppressLayoutTransition ? 'pane-layout-resizing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
     >
       <LeavingPanesContext.Provider value={leavingPanesMap}>
-        {renderItems.map(({ key, pane, hidden, leave }) => {
+        {renderItems.map(({ key, pane, hidden, zoomCollapsed, leave }) => {
           if (leave) {
             // The model already dropped this pane; keep its DOM node alive
             // (same key → no remount) and retarget it at the absorber's box
@@ -593,10 +736,37 @@ export function PaneLayout({ children }: PaneLayoutProps) {
             );
           }
 
+          if (zoomCollapsed) {
+            // A zoomed sibling: keep it at its real box but transform it toward
+            // the grid centre, scaled down and faded out, so zoom IN reads as
+            // the panes collapsing into the middle while the zoomed pane grows
+            // — and zoom OUT reverses it (the DOM node persists by key, so the
+            // base transform/opacity transition runs both ways). computePaneBox
+            // via getPaneStyle; translate the pane's centre onto zoomCenter.
+            const box = getPaneStyle(pane);
+            const cx = (box.left as number) + (box.width as number) / 2;
+            const cy = (box.top as number) + (box.height as number) / 2;
+            return (
+              <AnimatedPaneWrapper
+                key={key}
+                paneKey={key}
+                pane={pane}
+                className="pane-layout-item pane-inactive pane-zoom-collapsing"
+                style={box}
+                targetX={0}
+                targetY={0}
+                elevated={false}
+                collapseTransform={`translate(${zoomCenter.x - cx}px, ${zoomCenter.y - cy}px) scale(var(--zoom-collapse-scale, 0.4))`}
+              >
+                {children(pane)}
+              </AnimatedPaneWrapper>
+            );
+          }
+
           if (hidden) {
-            // Keep mounted but visually absent — no positioning math, no
-            // animation, no event handlers. Preserves <TerminalPane> + content
-            // so a future tab switch shows the pane instantly.
+            // Window-hidden (another tab's pane): mounted but display:none — no
+            // positioning math, no animation, no event handlers. Preserves
+            // <TerminalPane> + content so a tab switch shows it instantly.
             return (
               <AnimatedPaneWrapper
                 key={key}
@@ -678,6 +848,9 @@ interface AnimatedPaneWrapperProps {
   targetX: number;
   targetY: number;
   elevated: boolean;
+  /** When set, overrides the translate3d transform — the zoom-collapse
+   *  translate-to-centre + scale (see the zoom-collapse render branch). */
+  collapseTransform?: string;
   children: ReactNode;
 }
 
@@ -689,11 +862,12 @@ function AnimatedPaneWrapper({
   targetX,
   targetY,
   elevated,
+  collapseTransform,
   children,
 }: AnimatedPaneWrapperProps) {
   const transformStyle: React.CSSProperties = {
     ...style,
-    transform: `translate3d(${targetX}px, ${targetY}px, 0)`,
+    transform: collapseTransform ?? `translate3d(${targetX}px, ${targetY}px, 0)`,
     zIndex: elevated ? 'var(--z-dragging)' : undefined,
   };
 

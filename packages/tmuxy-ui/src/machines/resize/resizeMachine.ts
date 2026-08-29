@@ -91,6 +91,12 @@ export const resizeMachine = setup({
                 startY: event.startY,
                 originalPane: pane,
                 originalNeighbors: neighbors,
+                originalGeometry: Object.fromEntries(
+                  event.panes.map((p) => [
+                    p.tmuxId,
+                    { x: p.x, y: p.y, width: p.width, height: p.height },
+                  ]),
+                ),
                 pixelDelta: { x: 0, y: 0 },
                 delta: { cols: 0, rows: 0 },
                 lastSentDelta: { cols: 0, rows: 0 },

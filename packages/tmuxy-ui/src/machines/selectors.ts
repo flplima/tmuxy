@@ -56,59 +56,71 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
     return activePanes;
   }
 
-  // During resize: apply local preview based on pixelDelta
-  const { paneId, handle, pixelDelta, originalPane, originalNeighbors } = resize;
+  // During resize: reconstruct the affected BAND from the FROZEN start geometry
+  // (resize.originalGeometry), never the live server panes. Dragging one divider
+  // resizes every pane that shares the target's dragged edge (they grow/shrink
+  // together) plus every pane directly across the line (they move and shrink);
+  // all other panes hold exactly still. tmux's intermediate %layout-change
+  // events during a resize are internally inconsistent — a pane it isn't
+  // resizing briefly reports y=0, which computePaneBox turns into a dropped
+  // header row and a 1-row content jump — so rendering them is what caused the
+  // wobble. Rebuilding from the snapshot keeps everything stable and monotonic.
+  const { paneId, handle, pixelDelta, originalPane, originalGeometry } = resize;
 
-  // Find the target pane in active window
-  const targetPane = activePanes.find((p) => p.tmuxId === paneId);
-  if (!targetPane) {
+  if (!activePanes.some((p) => p.tmuxId === paneId)) {
     return activePanes;
   }
 
-  // Build a set of neighbor IDs for quick lookup
-  const neighborIds = new Set(originalNeighbors.map((n) => n.tmuxId));
-  // Map from neighbor ID to its original state
-  const originalNeighborMap = new Map(originalNeighbors.map((n) => [n.tmuxId, n]));
-
-  // Calculate delta in character units from pixel offset
   const deltaCols = Math.round(pixelDelta.x / charWidth);
   const deltaRows = Math.round(pixelDelta.y / charHeight);
+  const og = originalGeometry;
+  const t = og[paneId] ?? {
+    x: originalPane.x,
+    y: originalPane.y,
+    width: originalPane.width,
+    height: originalPane.height,
+  };
+  // The coordinate of the dragged edge at the start of the resize.
+  const edge =
+    handle === 'e' ? t.x + t.width : handle === 'w' ? t.x : handle === 's' ? t.y + t.height : t.y; // 'n'
 
-  // Apply preview transformations to active window panes only
   return activePanes.map((pane) => {
-    if (pane.tmuxId === paneId) {
-      // Target pane: adjust size based on handle
-      const newPane = { ...pane };
-      if (handle === 'e') {
-        newPane.width = Math.max(1, originalPane.width + deltaCols);
-      } else if (handle === 'w') {
-        newPane.x = originalPane.x + deltaCols;
-        newPane.width = Math.max(1, originalPane.width - deltaCols);
-      } else if (handle === 's') {
-        newPane.height = Math.max(1, originalPane.height + deltaRows);
-      } else if (handle === 'n') {
-        newPane.y = originalPane.y + deltaRows;
-        newPane.height = Math.max(1, originalPane.height - deltaRows);
+    const o = og[pane.tmuxId];
+    if (!o) return pane; // pane appeared mid-resize; leave as-is
+    const p = { ...pane, x: o.x, y: o.y, width: o.width, height: o.height };
+    const right = o.x + o.width;
+    const bottom = o.y + o.height;
+
+    if (handle === 'e') {
+      if (right === edge)
+        p.width = Math.max(1, o.width + deltaCols); // grower
+      else if (o.x === edge + 1) {
+        p.x = o.x + deltaCols; // shrinker to the right
+        p.width = Math.max(1, o.width - deltaCols);
       }
-      return newPane;
-    } else if (neighborIds.has(pane.tmuxId)) {
-      // Neighbor pane: adjust position and size inversely
-      const originalNeighbor = originalNeighborMap.get(pane.tmuxId)!;
-      const newPane = { ...pane };
-      if (handle === 'e') {
-        newPane.x = originalNeighbor.x + deltaCols;
-        newPane.width = Math.max(1, originalNeighbor.width - deltaCols);
-      } else if (handle === 'w') {
-        newPane.width = Math.max(1, originalNeighbor.width + deltaCols);
-      } else if (handle === 's') {
-        newPane.y = originalNeighbor.y + deltaRows;
-        newPane.height = Math.max(1, originalNeighbor.height - deltaRows);
-      } else if (handle === 'n') {
-        newPane.height = Math.max(1, originalNeighbor.height + deltaRows);
+    } else if (handle === 'w') {
+      if (o.x === edge) {
+        p.x = o.x + deltaCols; // grower (moves right edge = left, shrinks)
+        p.width = Math.max(1, o.width - deltaCols);
+      } else if (right === edge - 1) {
+        p.width = Math.max(1, o.width + deltaCols); // shrinker to the left
       }
-      return newPane;
+    } else if (handle === 's') {
+      if (bottom === edge)
+        p.height = Math.max(1, o.height + deltaRows); // grower row
+      else if (o.y === edge + 1 || o.y === edge + 2) {
+        p.y = o.y + deltaRows; // shrinker row below
+        p.height = Math.max(1, o.height - deltaRows);
+      }
+    } else if (handle === 'n') {
+      if (o.y === edge) {
+        p.y = o.y + deltaRows; // grower (top edge moves, shrinks)
+        p.height = Math.max(1, o.height - deltaRows);
+      } else if (bottom === edge - 1 || bottom === edge - 2) {
+        p.height = Math.max(1, o.height + deltaRows); // shrinker row above
+      }
     }
-    return pane;
+    return p;
   });
 }
 

@@ -80,6 +80,75 @@ function resolveWindowTarget(command: string, activeWindowId: string | null): st
  * tick. This function only widens the store's readonly TmuxSnapshot types
  * to the mutable shapes the machine context declares.
  */
+type ResizeGeom = { tmuxId: string; x: number; y: number; width: number; height: number };
+
+/**
+ * Whether the server geometry has caught up to the optimistic resize preview's
+ * predicted final size (target + neighbors). After a drag ends the preview is
+ * held; clearing it the instant ANY server update lands — even a stale
+ * intermediate `%layout-change` still in flight from the drag — makes the pane
+ * flash back to that intermediate size before the final resize confirms. So we
+ * hold the preview until the server matches the prediction, at which point
+ * clearing it is invisible. (A never-matching resize, e.g. driven into a min-
+ * size clamp, is cleared by the fallback timer in layout_resizeCompleted.)
+ */
+function resizePreviewSettled(
+  resize: NonNullable<AppMachineContext['resize']>,
+  panes: ResizeGeom[],
+  charWidth: number,
+  charHeight: number,
+): boolean {
+  const dCols = Math.round(resize.pixelDelta.x / charWidth);
+  const dRows = Math.round(resize.pixelDelta.y / charHeight);
+  const matches = (want: ResizeGeom): boolean => {
+    const got = panes.find((p) => p.tmuxId === want.tmuxId);
+    return (
+      got !== undefined &&
+      got.x === want.x &&
+      got.y === want.y &&
+      got.width === want.width &&
+      got.height === want.height
+    );
+  };
+  const op = resize.originalPane;
+  const target: ResizeGeom = {
+    tmuxId: op.tmuxId,
+    x: op.x,
+    y: op.y,
+    width: op.width,
+    height: op.height,
+  };
+  if (resize.handle === 'e') target.width = Math.max(1, op.width + dCols);
+  else if (resize.handle === 'w') {
+    target.x = op.x + dCols;
+    target.width = Math.max(1, op.width - dCols);
+  } else if (resize.handle === 's') target.height = Math.max(1, op.height + dRows);
+  else if (resize.handle === 'n') {
+    target.y = op.y + dRows;
+    target.height = Math.max(1, op.height - dRows);
+  }
+  if (!matches(target)) return false;
+  for (const on of resize.originalNeighbors) {
+    const n: ResizeGeom = {
+      tmuxId: on.tmuxId,
+      x: on.x,
+      y: on.y,
+      width: on.width,
+      height: on.height,
+    };
+    if (resize.handle === 'e') {
+      n.x = on.x + dCols;
+      n.width = Math.max(1, on.width - dCols);
+    } else if (resize.handle === 'w') n.width = Math.max(1, on.width + dCols);
+    else if (resize.handle === 's') {
+      n.y = on.y + dRows;
+      n.height = Math.max(1, on.height - dRows);
+    } else if (resize.handle === 'n') n.height = Math.max(1, on.height + dRows);
+    if (!matches(n)) return false;
+  }
+  return true;
+}
+
 function snapshotFromModel(model: TmuxClientModel): {
   panes: TmuxSnapshot['panes'][number][];
   windows: TmuxSnapshot['windows'][number][];
@@ -613,6 +682,37 @@ export const appMachine = setup({
             // Skip spurious empty-pane states from the server
             if (transformed.panes.length === 0) return;
 
+            // ROOT FIX for the "row jumps up a cell" glitch on split / kill /
+            // keyboard-resize / layout change / client resize: tmux emits
+            // transient intermediate %layout-change events in which an existing
+            // pane briefly reports y=0 — the pane-border-status top row
+            // momentarily gone — bundled with a compensating +1 height. The
+            // outer box is unchanged, but computePaneBox's `headerRows = y > 0`
+            // term drops that pane's header and shifts its terminal content up a
+            // row for a frame. With pane-border-status top (always on in tmuxy —
+            // enforced by the native monitor and the v86 guest setup) EVERY
+            // settled pane, even a lone full-window one, sits at y>=1: a pane can
+            // only reach y=0 transiently while a layout is in flux. So an
+            // existing pane reporting y=0 is always that spurious dip — hold its
+            // previous geometry; the real y>=1 layout that follows is applied
+            // normally. Skip drag-resize, which has its own frozen-band preview.
+            if (!context.resizeActive) {
+              transformed.panes = transformed.panes.map((np) => {
+                if (np.y !== 0) return np;
+                const prev = context.panes.find((o) => o.tmuxId === np.tmuxId);
+                if (!prev) return np;
+                // Only a y=1 (top-row) pane can be shoved to y=0 by the vanishing
+                // border row, so the settled y is always 1 (a constant, not the
+                // possibly-transient previous value). The server reports the dip
+                // as a self-consistent (y=0, h) pair whose computePaneBox box is
+                // IDENTICAL to the settled (y=1, h-1) form — the header row is
+                // just folded into the height. Restore y=1 and un-fold the height
+                // (bringing the header back), keeping the server's x/width so a
+                // legitimate resize in the same update survives.
+                return { ...np, y: 1, height: Math.max(1, np.height - 1) };
+              });
+            }
+
             // Anti-flash: a freshly-created window can be reported active
             // BEFORE its pane's window mapping settles — break-pane emits
             // %window-add (and the session's active-window flip) a beat
@@ -902,10 +1002,34 @@ export const appMachine = setup({
                 paneGroups,
                 floatPanes,
                 copyModeStates: updatedCopyModeStates,
-                // Clear held resize preview only after resize drag ends.
-                // During active resize, keep the preview to avoid size jumps
-                // from intermediate %layout-change events.
-                resize: ctx.resizeActive ? ctx.resize : null,
+                // Hold the optimistic resize preview during the drag AND after
+                // release until the server geometry has STABLY caught up to the
+                // preview's prediction — i.e. this update matches the
+                // prediction AND is the SECOND consecutive quiet update (the
+                // oscillating burst has truly stopped, not a momentary repeat).
+                // A fast drag makes tmux emit a burst of oscillating
+                // %layout-change events after mouse-up; clearing on the first
+                // match lets a later stale one flash through (the pane wobbles a
+                // row), and clearing on the first update flashes back to an
+                // intermediate size. Masking until the burst settles avoids
+                // both. A never-settling resize (e.g. driven into a min-size
+                // clamp) is cleared by the fallback timer in
+                // layout_resizeCompleted.
+                resize:
+                  ctx.resizeActive ||
+                  (ctx.resize !== null &&
+                    !(
+                      !hasDimensionChange &&
+                      ctx.lastUpdateQuiet &&
+                      resizePreviewSettled(
+                        ctx.resize,
+                        transformed.panes,
+                        ctx.charWidth,
+                        ctx.charHeight,
+                      )
+                    ))
+                    ? ctx.resize
+                    : null,
                 // Derived, no debounce timer: the flag rides the same React
                 // commit as the new geometry. It relaxes only after TWO
                 // consecutive quiet updates because a dirty optimistic

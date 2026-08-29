@@ -19,7 +19,6 @@ const WASM_BG = '/wasm/tmuxy_wasm_bg.wasm';
 const V86_WASM = '/v86/v86.wasm';
 const STATE_URL = '/v86-img/tmux-state.bin';
 const STATE_GZ_URL = '/v86-img/tmux-state.bin.gz';
-const STATE_ZST_URL = '/v86-img/tmux-state.bin.zst';
 const SEABIOS_URL = '/v86-img/seabios.bin';
 const VGABIOS_URL = '/v86-img/vgabios.bin';
 const BZIMAGE_URL = '/v86-img/buildroot-bzimage.bin';
@@ -56,7 +55,12 @@ interface V86Emulator {
   add_listener(event: string, cb: (arg: number) => void): void;
   serial0_send(data: string): void;
   restore_state(state: ArrayBuffer): Promise<void>;
+  /** Start the CPU. Used to boot from an explicitly-restored snapshot (the
+   *  constructor runs with `autostart: false`; see doBoot). */
+  run(): Promise<void>;
   destroy?: () => Promise<void>;
+  /** v86's ScreenAdapter — present once a `screen_container` was supplied. */
+  screen_adapter?: { pause(): void; continue(): void };
 }
 interface FeedOutput {
   updates: StateUpdate[];
@@ -93,8 +97,8 @@ const EMPTY_STATE: ServerState = {
   active_pane_id: null,
   panes: [],
   windows: [],
-  total_width: 80,
-  total_height: 24,
+  total_width: 64,
+  total_height: 20,
   status_line: '',
 };
 
@@ -148,6 +152,23 @@ export class V86Engine {
   /** The sink for the CURRENTLY-attached adapter (null between stories). */
   private sink: EngineSink | null = null;
 
+  /**
+   * The guest's VGA text console, rendered by v86's own ScreenAdapter: a
+   * detached element the emulator paints into (DOM rows of coloured spans in
+   * text mode). Nothing in the app uses it — it exists so story tooling can
+   * show the RAW tmux TUI (a second, read-only tmux client on /dev/tty1) next
+   * to the tmuxy rendering. See stories/vgaMirror.ts. Painting is paused until
+   * a viewer asks for it, so an unused screen costs nothing per frame.
+   */
+  private readonly screen: HTMLElement = (() => {
+    const el = document.createElement('div');
+    el.appendChild(document.createElement('div'));
+    el.appendChild(document.createElement('canvas'));
+    return el;
+  })();
+  /** Fired after every successful attach (cold boot or snapshot reset). */
+  private readyListeners = new Set<() => void>();
+
   isBooted(): boolean {
     return this.booted;
   }
@@ -165,6 +186,25 @@ export class V86Engine {
    */
   clearSink(sink: EngineSink): void {
     if (this.sink === sink) this.sink = null;
+  }
+
+  /** The VGA console element (see `screen`); reparent it to display it. */
+  getScreen(): HTMLElement {
+    return this.screen;
+  }
+
+  /** Start / stop painting the VGA console. */
+  setScreenPainting(on: boolean): void {
+    const adapter = this.emu?.screen_adapter;
+    if (!adapter) return;
+    if (on) adapter.continue();
+    else adapter.pause();
+  }
+
+  /** Subscribe to "attached and synced" — fires after each boot/reset. */
+  onReady(cb: () => void): () => void {
+    this.readyListeners.add(cb);
+    return () => this.readyListeners.delete(cb);
   }
 
   getLastState(): ServerState {
@@ -282,6 +322,17 @@ export class V86Engine {
     const { V86 } = (await import('v86')) as unknown as {
       V86: new (opts: Record<string, unknown>) => V86Emulator;
     };
+    // Construct WITHOUT `initial_state` and WITHOUT autostart: v86 does NOT
+    // zstd-decompress an `initial_state` URL (it skips decompression for that
+    // resource specifically — build/libv86 `f.url.endsWith(".zst") && "initial_state"
+    // !== f.name`), so handing it the .zst fed raw compressed bytes to
+    // restore_state, which failed and silently fell back to a full kernel cold
+    // boot (~30s, and flaky). Instead we replicate v86's own initial_state
+    // sequence — init → restore_state → run — but restore the snapshot OURSELVES
+    // from correctly-inflated bytes (fetchSnapshot: .gz via DecompressionStream,
+    // or the raw .bin), the same path the warm reset() already uses. Start the
+    // snapshot fetch now so it overlaps machine init.
+    const snapshotBytes = this.fetchSnapshot();
     const emu: V86Emulator = new V86({
       wasm_path: V86_WASM,
       bios: { url: SEABIOS_URL },
@@ -293,13 +344,17 @@ export class V86Engine {
       vga_memory_size: 2 * 1024 * 1024,
       disable_keyboard: true,
       disable_mouse: true,
-      // The snapshot dominates the payload: ship zstd (v86 decompresses .zst
-      // initial_state natively, in-wasm). The reset path lazily fetches the
-      // .gz variant instead (DecompressionStream has no zstd).
-      initial_state: { url: STATE_ZST_URL },
-      autostart: true,
+      screen_container: this.screen,
+      autostart: false,
     });
+    // Machine-initialized signal (fired after v86's own init, before any run):
+    // register before any await so a fast init can't beat us to it.
+    const loaded = new Promise<void>((resolve) =>
+      emu.add_listener('emulator-loaded', () => resolve()),
+    );
     this.emu = emu;
+    // Nobody is looking at the VGA console yet — see `screen`.
+    emu.screen_adapter?.pause();
 
     // Serve inline terminal-image bytes from the CURRENT wasm store (no backend).
     (
@@ -351,6 +406,16 @@ export class V86Engine {
     }, 3000);
 
     this.booted = true;
+
+    // Wait for the machine to finish initializing, then restore the snapshot and
+    // start the CPU from it (restore_state consumes the buffer, so hand it a
+    // fresh copy and keep the cache for reset()). The restore itself is quick
+    // (~2s), but the guest resumes a few seconds shy of ready — the snapshot is
+    // captured mid-init, so on resume it finishes bringing tmux up — so this
+    // still uses the patient (cold) start() budget, not the warm one.
+    await loaded;
+    await emu.restore_state((await snapshotBytes).slice(0));
+    await emu.run();
     await this.start(initCommands, false);
   }
 
@@ -428,30 +493,38 @@ export class V86Engine {
   private async start(initCommands: string[], warm: boolean): Promise<void> {
     if (!this.emu || !this.core) return;
     await wait(warm ? 400 : 1500);
-    // The attach is RETRIED when no state arrives: the emulated UART can drop
-    // bytes right after a snapshot restore, and a mangled attach line would
-    // otherwise leave the story dead forever (an idle guest emits nothing, so
-    // there is no later event to recover on). A retry's stray text lands either
-    // on the shell prompt (errors harmlessly) or in control-mode stdin (an
-    // unknown-command %error) — both tolerated by the parser.
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // Poll to a DEADLINE rather than a fixed attempt count: a cold boot brings
+    // tmux up on its own schedule (the guest cold-boots the kernel, then init
+    // starts the server — tens of seconds, and variable), so any fixed budget
+    // either flakes on a slow boot or wastes time on a fast one. Loop until real
+    // panes arrive or the deadline elapses; the app's connect() awaits this, so
+    // it resolves only once the session is genuinely synced.
+    //
+    // Two phases share the loop: while NO state has arrived the control client
+    // isn't up, so (re)send the attach line — a stray copy lands on the shell
+    // prompt (errors harmlessly) or in control-mode stdin (an unknown-command
+    // %error), both tolerated by the parser, and recovers a UART byte-drop right
+    // after restore. Once any state has arrived the connection is live, so stop
+    // re-attaching and just re-request the pane list until it's populated.
+    const deadlineMs = warm ? 20000 : 75000;
+    const t0 = Date.now();
+    while (this.lastState.panes.length === 0 && Date.now() - t0 < deadlineMs) {
       const firstState = new Promise<void>((r) => (this.resolveFirstState = r));
-      this.attached = true;
-      this.send(ATTACH);
-      await wait(warm ? 500 : 1000);
-      this.send('refresh-client -C 80x24');
-      // Bootstrap the guest so app-issued helper-script paths + command-aliases
-      // resolve (see GUEST_SETUP).
+      const connectionUp = this.lastState.panes.length > 0 || this.lastState.windows.length > 0;
+      if (!connectionUp) {
+        this.attached = true;
+        this.send(ATTACH);
+        await wait(warm ? 500 : 1000);
+      }
+      this.send('refresh-client -C 64x20');
       for (const cmd of GUEST_SETUP) this.send(cmd);
-      // tmux doesn't replay list-panes/list-windows on attach; request them so
-      // the active window/pane populate (drives active-pane style + cursor).
       for (const cmd of this.core.initial_sync()) this.send(cmd);
-      await Promise.race([firstState, wait(attempt === 0 ? 8000 : 6000)]);
-      if (this.lastState.panes.length > 0) break;
+      await Promise.race([firstState, wait(warm ? 2000 : 4000)]);
     }
     // Init commands only once, after the attach demonstrably works — a resend
     // would duplicate their effects (an extra split-window, say).
     for (const cmd of initCommands) this.send(cmd);
+    for (const cb of this.readyListeners) cb();
   }
 
   /** Re-request the full window/pane list (used after switch-session). */

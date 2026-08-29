@@ -251,16 +251,15 @@ async function buildSnapshot() {
   const size = (await stat(STATE_BIN)).size;
   console.log(`✓ tmux-state.bin written (${(size / 1e6).toFixed(1)} MB)`);
   // Wire-size matters: the raw snapshot dominates the client payload. Serve a
-  // gzip alongside; the engine fetches .gz and inflates via DecompressionStream.
+  // gzip alongside; both the cold boot and the shared-engine reset fetch .gz and
+  // inflate via DecompressionStream (see V86Engine.fetchSnapshot), falling back
+  // to the raw .bin. v86's constructor `initial_state` is NOT used — it skips
+  // zstd decompression for that resource, so the engine restores the snapshot
+  // itself; there is no .zst variant to build.
   const { gzipSync } = await import('node:zlib');
   const gz = gzipSync(Buffer.from(state), { level: 9 });
   await writeFile(`${STATE_BIN}.gz`, gz);
   console.log(`✓ tmux-state.bin.gz written (${(gz.length / 1e6).toFixed(1)} MB wire)`);
-  // v86 decompresses .zst initial_state natively (in-wasm) — the boot payload.
-  // The .gz above serves the shared-engine reset cache (DecompressionStream).
-  execFileSync('zstd', ['-19', '-f', STATE_BIN, '-o', `${STATE_BIN}.zst`]);
-  const zst = (await stat(`${STATE_BIN}.zst`)).size;
-  console.log(`✓ tmux-state.bin.zst written (${(zst / 1e6).toFixed(1)} MB wire)`);
   await emulator.destroy?.();
   process.exit(0);
 }

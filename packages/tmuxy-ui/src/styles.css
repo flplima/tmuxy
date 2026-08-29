@@ -148,6 +148,9 @@
   /* Zoom toggle: the pane grows to fill the window. Same easing as the enter
      morph so a zoom reads as the same kind of motion as a split. */
   --transition-pane-zoom: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* How small a non-zoomed pane shrinks to as it collapses toward the centre
+     on zoom-in (0 = to a point). */
+  --zoom-collapse-scale: 0.4;
 
   /* Shadows */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -502,14 +505,21 @@
     top var(--transition-layout),
     width var(--transition-layout),
     height var(--transition-layout),
-    transform var(--transition-layout),
+    /* transform only ever animates on the zoom collapse/expand (drag/shift
+       override this transition), so it carries the zoom easing — this is what
+       makes zoom-OUT (class removed → transform back to identity) expand out of
+       the centre on the same clock the collapse used. */
+    transform var(--transition-pane-zoom),
     box-shadow var(--transition-layout),
     opacity var(--transition-active),
     background-color var(--transition-active);
 }
 
-/* Inactive pane: slightly dimmed content */
-.pane-layout-item:not(.pane-active):not(.pane-dragging):not(.pane-leaving) {
+/* Inactive pane: slightly dimmed content. Excludes zoom-collapsing panes so
+   their opacity:0 fade wins (this rule is more specific than a single class). */
+.pane-layout-item:not(.pane-active):not(.pane-dragging):not(.pane-leaving):not(
+    .pane-zoom-collapsing
+  ) {
   opacity: 0.7;
 }
 
@@ -536,6 +546,60 @@
 .pane-layout-item.pane-zoomed {
   background-color: var(--bg-dark);
   z-index: var(--z-zoomed);
+  /* Grow into full-screen on the same clock as the siblings collapsing away. */
+  transition:
+    left var(--transition-pane-zoom),
+    top var(--transition-pane-zoom),
+    width var(--transition-pane-zoom),
+    height var(--transition-pane-zoom),
+    background-color var(--transition-active);
+}
+
+/* Non-zoomed siblings during a zoom: scaled toward the grid centre and faded
+   out (the inline transform carries the translate-to-centre + scale; here we
+   add the fade, hide interaction, drop below the zoomed pane, and pin the zoom
+   easing so collapse and the sibling-side grow read as one motion). Removing
+   the class on unzoom transitions the same node back — the panes expand out of
+   the centre and fade in. Kept RENDERED (not display:none) purely for the
+   animation; opacity 0 stops any bleed through the zoomed pane. */
+.pane-layout-item.pane-zoom-collapsing,
+.pane-layout-resizing .pane-layout-item.pane-zoom-collapsing {
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  transition:
+    transform var(--transition-pane-zoom),
+    opacity var(--transition-pane-zoom);
+}
+
+/* Zoom-OUT: the siblings expanding back out of the centre. The
+   `pane-zoom-collapsing` class is already gone (they're rendered at their slots
+   again), so this transient class carries the transform+opacity transition back
+   to identity — repeated under the suppression gate the unzoom sets, so it wins
+   the same commit (mirrors the collapse and grow carve-outs). */
+.pane-layout-item.pane-zoom-expanding,
+.pane-layout-resizing .pane-layout-item.pane-zoom-expanding {
+  transition:
+    transform var(--transition-pane-zoom),
+    opacity var(--transition-pane-zoom);
+}
+
+/* The pane growing to full-screen (zoom in) or shrinking back to its slot (zoom
+   out). A FLIP (PaneLayout) rewinds it to its pre-transition box, then this
+   transition morphs it — repeated under the suppression gates so it wins the
+   same commit that sets suppressLayoutTransition (mirrors the enter/leave
+   carve-outs). */
+.pane-layout-item.pane-zoom-growing,
+.pane-layout-no-animations .pane-layout-item.pane-zoom-growing,
+.pane-layout-resizing .pane-layout-item.pane-zoom-growing {
+  z-index: var(--z-pane-anim);
+  transition:
+    left var(--transition-pane-zoom),
+    top var(--transition-pane-zoom),
+    width var(--transition-pane-zoom),
+    height var(--transition-pane-zoom),
+    background-color var(--transition-active);
+  will-change: left, top, width, height;
 }
 
 /* Copy mode: distinct bright-green outline so the mode is unmistakable. The
@@ -618,6 +682,7 @@
   :root {
     --transition-pane-enter: 0ms linear;
     --transition-pane-leave: 0ms linear;
+    --transition-pane-zoom: 0ms linear;
   }
 }
 

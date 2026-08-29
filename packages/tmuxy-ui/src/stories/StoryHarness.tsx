@@ -111,7 +111,10 @@ export function V86AppHarness({
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
-        background: 'var(--bg-base, #0f0f12)',
+        // Theme window background — black by default (matches the terminal's
+        // --window-bg-rgb 0,0,0), so the app box reads as one dark surface and
+        // no chrome gap shows a lighter frame colour behind it.
+        background: 'var(--bg-base, #000)',
       }}
     >
       <TmuxyProvider adapter={adapter}>

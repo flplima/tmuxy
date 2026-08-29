@@ -1,0 +1,147 @@
+/* "tmux view" decorator (stories/tmuxView.tsx): the tmuxy rendering next to (or
+   over) the guest's VGA console, painted by v86.
+
+   side (default): tmuxy on the left, sized so its terminal grid measures the
+   same 64x20 the tmux session is driven to; the raw 64x20 VGA console on the
+   right in a compact font. The frame fills the viewport and scrolls when the
+   two panels don't both fit.
+
+   overlay: the VGA console translucently over the story, aligned onto tmuxy's
+   snapped cell grid (--cell-w) so any drift shows as a doubled glyph.
+
+   The reference grid — the tmux window both panels render — is 64 cols x 20
+   rows. tmuxy's snapped cell is 9px wide x 24px tall (CHAR_HEIGHT), so its
+   terminal needs 64*9 = 576px x 20*24 = 480px of pane-container CONTENT; the
+   sizeActor's ResizeObserver derives cols/rows = floor(content / cell) from
+   exactly that box, so the tmux window (and with it the VGA mirror) becomes
+   64x20. The app box adds the pane-container's 8px padding on each side plus the
+   36px tab bar and 27px status bar of chrome, with a few px of slack so
+   sub-pixel rounding can't drop a column or row. */
+.tmux-view {
+  position: relative;
+}
+
+/* ---- side by side ---- */
+.tmux-view[data-mode='side'] {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100vw;
+  height: 100vh;
+  overflow: auto; /* scroll when tmuxy + tmux can't both fit */
+  padding: 8px;
+  box-sizing: border-box;
+  background: #0f0f12;
+}
+
+/* tmuxy box: 596x567 → 580px x 488px pane-container content → floor(580/9)=64
+   cols, floor(488/24)=20 rows. (The box paints its own theme background — black
+   by default — in V86AppHarness.) */
+.tmux-view[data-mode='side'] > .tmux-view-story {
+  flex: 0 0 auto;
+}
+.tmux-view[data-mode='side'] > .tmux-view-story > div {
+  width: 596px !important;
+  height: 567px !important;
+}
+
+/* Guard the column count against a wider app-body: cap the terminal CONTENT at
+   64 cols worth of snapped cells (64 * 9px = 576, +4 slack). */
+.tmux-view[data-mode='side'] .pane-container {
+  max-width: 580px;
+}
+
+.tmux-view[data-mode='side'] > .tmux-view-panel {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+/* ---- overlay ---- */
+.tmux-view[data-mode='overlay'] {
+  display: block;
+}
+.tmux-view[data-mode='overlay'] > .tmux-view-panel {
+  position: absolute;
+  z-index: 10;
+  opacity: 0.55;
+  pointer-events: none;
+  outline: 1px dashed rgba(255, 128, 0, 0.6);
+}
+.tmux-view[data-mode='overlay'] .tmux-view-label {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  white-space: nowrap;
+}
+
+/* ---- VGA panel chrome ---- */
+.tmux-view-panel {
+  background: #000;
+  color: #aaa;
+  padding: 0;
+}
+.tmux-view-label {
+  font: 11px/16px var(--font-mono);
+  color: #888;
+  padding: 2px 6px;
+  background: #1a1a1f;
+  border-bottom: 1px solid #333;
+}
+
+/* ---- the VGA console DOM (v86 ScreenAdapter: one <div> per row of <span>s
+   plus a .cursor span) ----
+
+   Default / overlay: pinned to tmuxy's snapped cell grid so cells line up.
+   Side: its own compact 80x25 grid in a smaller font, independent of tmuxy. */
+.vga-screen > div {
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
+  letter-spacing: var(--cell-gap, 0px);
+  white-space: pre;
+  width: calc(80 * var(--cell-w, 1ch));
+  font-kerning: none;
+  font-variant-ligatures: none;
+}
+.vga-screen > div > div {
+  height: var(--line-height-terminal);
+  overflow: hidden;
+}
+.vga-screen .cursor {
+  width: var(--cell-w, 1ch) !important;
+  height: var(--line-height-terminal);
+  vertical-align: top;
+}
+.vga-screen > canvas {
+  width: calc(80 * var(--cell-w, 1ch));
+  height: calc(25 * var(--line-height-terminal));
+  image-rendering: pixelated;
+}
+
+/* Side mode: compact fixed font. The v86 text console is 80x25 hardware, but
+   the tmux window it's mirroring is only 64x20 (drawn top-left, the rest of the
+   console left blank), so crop the screen to that 64x20 window — same font and
+   `ch` as the rows, overflow hidden — and the panel reads as a 64x20 console. */
+.tmux-view[data-mode='side'] .vga-screen {
+  overflow: hidden;
+  width: 64ch;
+  height: calc(20 * var(--vga-line-height, 13px));
+  font: var(--vga-font-size, 11px) / var(--vga-line-height, 13px) var(--font-mono);
+}
+.tmux-view[data-mode='side'] .vga-screen > div {
+  font-size: var(--vga-font-size, 11px);
+  line-height: var(--vga-line-height, 13px);
+  letter-spacing: 0;
+  width: 80ch;
+}
+.tmux-view[data-mode='side'] .vga-screen > div > div {
+  height: var(--vga-line-height, 13px);
+}
+.tmux-view[data-mode='side'] .vga-screen .cursor {
+  width: 1ch !important;
+  height: var(--vga-line-height, 13px);
+}
+.tmux-view[data-mode='side'] .vga-screen > canvas {
+  width: 80ch;
+  height: calc(25 * var(--vga-line-height, 13px));
+}

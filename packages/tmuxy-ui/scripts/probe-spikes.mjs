@@ -100,7 +100,7 @@ await page.addInitScript(() => {
   }, 50);
 });
 
-await page.goto(`${STORYBOOK_URL}/iframe.html?id=${ids[0]}&viewMode=story`, {
+await page.goto(`${STORYBOOK_URL}/iframe.html?id=${ids[0]}&viewMode=story&globals=tmuxView:off`, {
   waitUntil: 'domcontentloaded',
   timeout: 60000,
 });
@@ -112,9 +112,7 @@ async function awaitOutcome(id) {
   try {
     await page.waitForFunction(
       (storyId) =>
-        (window.__probeEvents ?? []).some(
-          (e) => e.ev !== 'storyRendered' || e.storyId === storyId,
-        ),
+        (window.__probeEvents ?? []).some((e) => e.ev !== 'storyRendered' || e.storyId === storyId),
       id,
       { timeout: PER_STORY_TIMEOUT_MS },
     );
@@ -139,7 +137,7 @@ const selectStory = (storyId) =>
 // (JS context is discarded) and cold-boots a new one. The addInitScript
 // channel listeners re-install on every load, so probeEvents keep working.
 const loadStory = (storyId) =>
-  page.goto(`${STORYBOOK_URL}/iframe.html?id=${storyId}&viewMode=story`, {
+  page.goto(`${STORYBOOK_URL}/iframe.html?id=${storyId}&viewMode=story&globals=tmuxView:off`, {
     waitUntil: 'domcontentloaded',
     timeout: 60000,
   });
@@ -179,7 +177,9 @@ for (let i = 0; i < ids.length; i++) {
   const secs = Number(((Date.now() - started) / 1000).toFixed(1));
   console.log(
     `${result.ok ? 'PASS' : 'FAIL'}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
-      result.ok ? '' : ` — ${result.reason}${result.message ? `: ${result.message.slice(0, 200)}` : ''}`
+      result.ok
+        ? ''
+        : ` — ${result.reason}${result.message ? `: ${result.message.slice(0, 200)}` : ''}`
     }`,
   );
   results.push({ ...result, retried, secs });
