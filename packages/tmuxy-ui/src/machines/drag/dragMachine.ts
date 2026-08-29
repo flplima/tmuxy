@@ -136,7 +136,7 @@ export const dragMachine = setup({
             if (!context.drag) return;
 
             // Compute centering offset (must match PaneLayout's centering).
-            // .pane-layout is inset by CONTAINER_PADDING (CSS), so positions are
+            // .pane-layout is inset by CONTAINER_PADDING_X/BOTTOM (CSS), so positions are
             // relative to the content-box. No padding-box arithmetic needed.
             const totalW = Math.max(...context.panes.map((p) => p.x + p.width));
             const totalH = Math.max(...context.panes.map((p) => p.y + p.height));

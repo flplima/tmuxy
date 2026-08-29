@@ -184,6 +184,10 @@
   -webkit-user-select: none;
 }
 
+/* The margins around the pane grid are this padding and nothing else: the
+   size actor observes the container's content box, so the grid is sized
+   for — and .pane-layout fills — exactly the area inside it. Mirrored as
+   CONTAINER_PADDING_X / _Y in constants/layout.ts. */
 .app-container .pane-container {
   flex: 1;
   position: relative;
@@ -191,7 +195,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px;
+  padding: 0 12px 4px;
 }
 
 /* Loading / Error States */
@@ -461,10 +465,10 @@
 
 .pane-layout {
   position: absolute;
-  top: 8px; /* CONTAINER_PADDING */
-  left: 8px;
-  right: 8px;
-  bottom: 8px;
+  /* Absolute children span the padding box, so inset by the container's
+     padding to cover exactly its content box — the box the grid was sized
+     for (CONTAINER_PADDING_X / _BOTTOM in constants/layout.ts). */
+  inset: 0 12px 4px;
 }
 
 .pane-layout-item {
@@ -529,9 +533,9 @@
 
 /* Active pane surface: the theme's terminal background at
    --active-pane-opacity (1 by default — the colour the theme was designed
-   for). No outline — surface and text opacity carry the distinction. */
+   for). It keeps the same outline as its siblings so the mosaic frame stays
+   continuous; surface and text opacity carry the distinction. */
 .pane-layout-item.pane-active {
-  outline: none;
   background-color: color-mix(
     in srgb,
     var(--term-background) calc(var(--active-pane-opacity) * 100%),
@@ -599,8 +603,7 @@
   will-change: left, top, width, height;
 }
 
-/* Copy mode: distinct bright-green outline so the mode is unmistakable. The
-   base active rule drops the outline, so re-establish the full outline here. */
+/* Copy mode: distinct bright-green outline so the mode is unmistakable. */
 .pane-layout-item.pane-active.pane-copy-mode {
   outline: 1px solid var(--term-bright-green);
 }

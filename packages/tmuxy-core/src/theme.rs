@@ -33,9 +33,9 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            opacity: 0.9,
+            opacity: 0.7,
             active_pane_opacity: 1.0,
-            inactive_pane_opacity: 0.9,
+            inactive_pane_opacity: 0.7,
             active_text_opacity: 1.0,
             inactive_text_opacity: 0.7,
             blur: true,

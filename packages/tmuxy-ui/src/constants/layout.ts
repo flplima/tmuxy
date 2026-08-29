@@ -11,8 +11,12 @@
 
 export const CHAR_HEIGHT = 24;
 
-// Minimum padding around the pane container
-export const CONTAINER_PADDING = 8;
+// Padding of .pane-container (mirrored in styles.css). Only the fallback
+// sizing path needs these — the size actor measures the content box, which
+// already excludes them. The grid is centred in that box, so the visible
+// margin is the padding plus half the leftover of a cell.
+export const CONTAINER_PADDING_X = 12;
+export const CONTAINER_PADDING_BOTTOM = 4;
 
 // Pane header height = exactly 1 char height so header consumes exactly 1 terminal row
 export const PANE_HEADER_HEIGHT = CHAR_HEIGHT;

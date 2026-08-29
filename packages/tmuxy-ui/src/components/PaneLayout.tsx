@@ -163,7 +163,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const hPadding = charWidth / 2;
 
   // Center the pane grid in the container.
-  // .pane-layout is inset by CONTAINER_PADDING (CSS), so its dimensions match
+  // .pane-layout is inset by CONTAINER_PADDING_X/BOTTOM (CSS), so its dimensions match
   // containerWidth/Height (content-box from ResizeObserver). No padding-box
   // arithmetic needed — pane positions are relative to the content area directly.
   const liveCenteringOffset = useMemo(() => {

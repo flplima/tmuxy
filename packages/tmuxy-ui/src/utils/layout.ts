@@ -8,16 +8,19 @@ import {
   CHAR_HEIGHT,
   STATUS_BAR_HEIGHT,
   TMUX_STATUS_BAR_HEIGHT,
-  CONTAINER_PADDING,
+  CONTAINER_PADDING_X,
+  CONTAINER_PADDING_BOTTOM,
 } from '../constants';
 
 /**
  * Calculate target dimensions (cols/rows) based on available space.
  *
- * When containerWidth/containerHeight are provided (from ResizeObserver on .pane-container),
- * uses those directly — the container already accounts for status bars and padding.
+ * When containerWidth/containerHeight are provided (the content box of
+ * .pane-container from its ResizeObserver) they are used directly — the
+ * container's padding is the grid's margin and .pane-layout fills the rest.
  *
- * Otherwise falls back to window dimensions with manual bar-height subtraction.
+ * Otherwise falls back to window dimensions with manual bar-height and
+ * padding subtraction.
  *
  * When multiple clients are connected, the server uses the minimum cols/rows
  * across all clients (like native tmux behavior).
@@ -28,11 +31,11 @@ export function calculateTargetSize(
   containerHeight?: number,
 ): { cols: number; rows: number } {
   const availableWidth =
-    containerWidth != null ? containerWidth : window.innerWidth - CONTAINER_PADDING * 2;
+    containerWidth != null ? containerWidth : window.innerWidth - CONTAINER_PADDING_X * 2;
   const availableHeight =
     containerHeight != null
       ? containerHeight
-      : window.innerHeight - STATUS_BAR_HEIGHT - TMUX_STATUS_BAR_HEIGHT - CONTAINER_PADDING * 2;
+      : window.innerHeight - STATUS_BAR_HEIGHT - TMUX_STATUS_BAR_HEIGHT - CONTAINER_PADDING_BOTTOM;
 
   const cols = Math.floor(availableWidth / charWidth);
   const rows = Math.floor(availableHeight / CHAR_HEIGHT);
