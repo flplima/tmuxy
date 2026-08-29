@@ -106,20 +106,22 @@ describe('handleStateUpdate - content preservation', () => {
 });
 
 describe('applyDelta - content preservation', () => {
-  test('delta with all-empty content preserves existing non-empty content', () => {
+  test('a delta that empties every row clears the pane (what `clear` sends)', () => {
+    // The erase arrives as its own %output before the prompt is redrawn, so
+    // the delta legitimately blanks the whole pane; holding on to the old rows
+    // here left them under the new prompt.
     const state = makeState({
       panes: [makePane({ content: nonEmptyContent })],
     });
+    const blanked = Object.fromEntries(nonEmptyContent.map((_, i) => [i, [{ c: ' ' }]]));
     const result = applyDelta(state, {
       seq: 1,
       panes: {
-        '%0': { content: { 0: [{ c: ' ' }] } },
+        '%0': { content: blanked },
       },
     });
 
-    // The merged content would be all-empty (single space), but existing was non-empty
-    // so existing content is preserved
-    expect(result.panes[0].content).toEqual(nonEmptyContent);
+    expect(result.panes[0].content).toEqual(nonEmptyContent.map(() => [{ c: ' ' }]));
   });
 
   test('delta with non-empty content updates normally', () => {

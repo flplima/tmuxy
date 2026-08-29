@@ -3154,4 +3154,20 @@ mod tests {
             "authoritative list-windows index must overwrite the provisional"
         );
     }
+
+    #[test]
+    fn clear_from_home_erases_the_screen() {
+        // The exact bytes zsh emits for `clear` (captured with pipe-pane):
+        // an OSC title, then CUP home + ED with no parameter.
+        let mut pane = PaneState::new("%1", 43, 10);
+        pane.process_output(b"one\r\ntwo\r\nthree\r\n");
+        pane.process_output(
+            b"c\x08clear\x1b[?2004l\r\r\n\x1b]0;clear\x07\x1b[H\x1b[J\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m       \r \r\x1b]0;zsh\x07\r\x1b[0m\x1b[27m\x1b[24m\x1b[J\r\n\x1b[34m~\x1b[39m\r\n\x1b[35m\xe2\x9d\xaf\x1b[39m \x1b[K\x1b[?2004h",
+        );
+        let text = pane.terminal.screen().contents();
+        assert!(
+            !text.contains("one") && !text.contains("three"),
+            "screen not cleared: {text:?}"
+        );
+    }
 }

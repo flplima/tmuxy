@@ -256,18 +256,14 @@ function mergeSparseContent(
 }
 
 function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
-  // When content delta would result in all-empty content but existing content
-  // is non-empty, preserve existing content. This happens when a pane is resized
-  // (vt100 parser reset) but capture-pane refill hasn't arrived yet.
-  let mergedContent: PaneContent | undefined;
-  if (delta.content !== undefined) {
-    const candidate = mergeSparseContent(pane.content, delta.content);
-    if (isPaneContentEmpty(candidate) && !isPaneContentEmpty(pane.content)) {
-      mergedContent = pane.content;
-    } else {
-      mergedContent = candidate;
-    }
-  }
+  // A delta is applied verbatim, even when it empties every row: that is what
+  // a `clear` looks like (the erase arrives as its own %output, the prompt as
+  // the next one). The resize transient this used to guard against — a reset
+  // vt100 grid emitted before its capture-pane refill — is held back on the
+  // server (the aggregator keeps the previous content while a capture is in
+  // flight), so nothing legitimate reaches here as a spurious blank.
+  const mergedContent =
+    delta.content !== undefined ? mergeSparseContent(pane.content, delta.content) : undefined;
 
   return {
     ...pane,
