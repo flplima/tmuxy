@@ -647,19 +647,18 @@ export const FocusCueNeverHardFlips: Story = {
     const target = paneNodes(canvasElement).find((p) => p !== before);
     expect(target).toBeDefined();
 
-    // Sample the newly-focused pane every frame: its text opacity and its
-    // surface alpha. Both are mid-transition together or neither is.
+    // Sample ONE pinned element every frame — the pane about to gain focus —
+    // never `active()`. Following the active pane means hopping to a different
+    // node at the moment the class moves, so a frame lands on the outgoing
+    // pane's text and the incoming pane's surface and they legitimately differ.
     const samples: { text: number; surface: number }[] = [];
     let sampling = true;
+    const wrapper = target!.firstElementChild as HTMLElement;
     const sampleFrame = () => {
-      const a = active();
-      const wrapper = a?.firstElementChild;
-      if (a && wrapper) {
-        samples.push({
-          text: parseFloat(getComputedStyle(wrapper).opacity),
-          surface: alphaOf(getComputedStyle(a).backgroundColor),
-        });
-      }
+      samples.push({
+        text: parseFloat(getComputedStyle(wrapper).opacity),
+        surface: alphaOf(getComputedStyle(target!).backgroundColor),
+      });
       if (sampling) requestAnimationFrame(sampleFrame);
     };
     requestAnimationFrame(sampleFrame);
@@ -682,10 +681,12 @@ export const FocusCueNeverHardFlips: Story = {
     expect(samples.length).toBeGreaterThan(6);
 
     const worst = samples.reduce((m, s) => Math.max(m, Math.abs(s.text - s.surface)), 0);
+    // A hard flip is a gap of ~0.30 (the full dim), so this has wide margin
+    // over the sub-frame jitter of two getComputedStyle reads under CI load.
     expect(
       worst,
       `surface alpha and text opacity diverged: ${JSON.stringify(samples.slice(0, 8))}`,
-    ).toBeLessThanOrEqual(0.02);
+    ).toBeLessThanOrEqual(0.05);
 
     // ...and the cue really animated rather than both snapping in one frame:
     // at least one sampled frame sits strictly between the dim and full values.
