@@ -1,6 +1,47 @@
 #!/bin/sh
 set -e
 
+# Snapshot what is staged BEFORE any formatter runs.
+#
+# `restage` below puts a formatter's rewrites back into the index, but only for
+# files the author actually staged. It used to be `git add -u <dir>`, which
+# stages every tracked modification under <dir> — so an unrelated work in
+# progress elsewhere in that tree got swept into the commit, and a file staged
+# in part lost the hunks the author deliberately held back.
+#
+# Both lists have to be captured up front: formatting a staged file creates
+# unstaged changes, after which every file would look partially staged.
+HOOK_TMP=$(mktemp -d)
+trap 'rm -rf "$HOOK_TMP"' EXIT
+git diff --cached --name-only --diff-filter=ACM | sort > "$HOOK_TMP/staged"
+git diff --name-only | sort > "$HOOK_TMP/unstaged"
+comm -12 "$HOOK_TMP/staged" "$HOOK_TMP/unstaged" > "$HOOK_TMP/partial"
+
+# restage <path-prefix>...
+# Re-add the staged files under those prefixes. A partially staged file is
+# never re-added — that would commit the very hunks the author kept back — so
+# say so instead and let them decide.
+restage() {
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    for p in "$@"; do
+      case "$f" in
+        "$p"*)
+          if grep -Fxq "$f" "$HOOK_TMP/partial"; then
+            if ! git diff --quiet -- "$f"; then
+              echo "  ! $f is partially staged and was reformatted — left alone."
+              echo "    Re-stage the formatting yourself if you want it in this commit."
+            fi
+          else
+            git add -- "$f"
+          fi
+          break
+          ;;
+      esac
+    done
+  done < "$HOOK_TMP/staged"
+}
+
 # --- JS/TS ---
 echo "Formatting (Prettier)..."
 npm run format -w tmuxy-ui
@@ -8,8 +49,8 @@ npm run format -w tmuxy-ui
 echo "Linting (ESLint --fix)..."
 npm run lint:fix -w tmuxy-ui
 
-# Re-stage any files auto-fixed by lint/format
-git add -u packages/tmuxy-ui/src
+# Re-stage any staged files auto-fixed by lint/format
+restage packages/tmuxy-ui/src
 
 echo "Linting tests (no skipped tests)..."
 npx eslint tests/
@@ -43,8 +84,8 @@ fi
 echo "Formatting Rust (cargo fmt)..."
 cargo fmt -p tmuxy-core -p tmuxy-server
 
-# Re-stage any files formatted by cargo fmt
-git add -u packages/tmuxy-core packages/tmuxy-server
+# Re-stage any staged files formatted by cargo fmt
+restage packages/tmuxy-core packages/tmuxy-server
 
 echo "Checking Rust (cargo clippy)..."
 mkdir -p packages/tmuxy-ui/dist
