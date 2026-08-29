@@ -26,6 +26,7 @@ import {
   DEFAULT_FONT_SIZE,
 } from '../../../utils/fontSizeManager';
 import { isTauri } from '../../../tmux/adapters';
+import { applyAppearance } from '../../../utils/appearanceManager';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -97,6 +98,9 @@ export const uiPrefsActions = {
     never
   >(({ event, enqueue }) => {
     if (event.type !== 'THEME_SETTINGS_RECEIVED') return;
+    // The appearance has no client-side setting: the config is its only
+    // source, so it always applies (and re-applies after a source-file).
+    if (event.appearance) applyAppearance(event.appearance);
     // localStorage takes precedence — server defaults only apply when
     // the user hasn't chosen a theme yet (e.g. first visit).
     const saved = loadThemeFromStorage();

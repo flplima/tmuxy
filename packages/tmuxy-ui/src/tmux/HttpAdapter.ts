@@ -5,6 +5,8 @@ import {
   ConnectionInfoListener,
   ReconnectionListener,
   KeyBindingsListener,
+  ThemeSettings,
+  ThemeSettingsListener,
   LogListener,
   LogEntryKind,
   FatalListener,
@@ -84,6 +86,7 @@ export class HttpAdapter implements TmuxAdapter {
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
+  private themeSettingsListeners = new Set<ThemeSettingsListener>();
   private logListeners = new Set<LogListener>();
   private fatalListeners = new Set<FatalListener>();
   private clipboardListeners = new Set<ClipboardListener>();
@@ -335,6 +338,16 @@ export class HttpAdapter implements TmuxAdapter {
           this.notifyKeyBindings(keybindings);
         } catch (e) {
           console.error('Failed to parse keybindings:', e);
+        }
+      });
+
+      es.addEventListener('theme-settings', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          const settings: ThemeSettings = data.data || data;
+          this.notifyThemeSettings(settings);
+        } catch (e) {
+          console.error('Failed to parse theme settings:', e);
         }
       });
 
@@ -617,6 +630,11 @@ export class HttpAdapter implements TmuxAdapter {
     return () => this.keyBindingsListeners.delete(listener);
   }
 
+  onThemeSettings(listener: ThemeSettingsListener): () => void {
+    this.themeSettingsListeners.add(listener);
+    return () => this.themeSettingsListeners.delete(listener);
+  }
+
   onLog(listener: LogListener): () => void {
     this.logListeners.add(listener);
     return () => this.logListeners.delete(listener);
@@ -777,6 +795,10 @@ export class HttpAdapter implements TmuxAdapter {
 
   private notifyKeyBindings(keybindings: KeyBindings): void {
     this.keyBindingsListeners.forEach((listener) => listener(keybindings));
+  }
+
+  private notifyThemeSettings(settings: ThemeSettings): void {
+    this.themeSettingsListeners.forEach((listener) => listener(settings));
   }
 
   private notifyLog(kind: LogEntryKind, message: string): void {

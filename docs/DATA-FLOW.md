@@ -9,6 +9,7 @@ The web version uses two HTTP endpoints on the Axum server:
 **`GET /events?session=<name>`** — Server-Sent Events stream (server-to-client):
 - `connection-info` — Connection ID and default shell (sent on connect)
 - `keybindings` — Prefix key and all key bindings from tmux config
+- `theme-settings` — Theme name/mode and appearance (surface opacities, blur flag) from tmux config; re-sent after a `source-file`
 - `state-update` — Full state snapshots and incremental deltas (serialized JSON)
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
 - `log`, `error`, `fatal` — Diagnostic and error notifications
@@ -61,7 +62,7 @@ The `tmuxActor` XState actor uses whichever adapter is injected, making the fron
 2. `monitor::start_monitoring()` spawns a background task that connects to tmux control mode
 3. On connection failure: exponential backoff (100ms to 10s max); after 5 consecutive failures the monitor **parks** — the loop stays alive but stops retrying until a user-requested reconnect (`tmuxy connect` or the sidebar server picker) revives it (see `packages/tmuxy-tauri-app/src/monitor.rs`)
 4. Once connected: emits keybindings, then enters the monitor event loop
-5. Frontend's `TauriAdapter.connect()` sets up event listeners for `tmux-state-update`, `tmux-keybindings`, and `tmux-error`
+5. Frontend's `TauriAdapter.connect()` sets up event listeners for `tmux-state-update`, `tmux-keybindings`, `tmux-theme-settings`, and `tmux-error`
 6. No explicit disconnect — the monitor runs for the app's lifetime
 
 ## State Update Flow

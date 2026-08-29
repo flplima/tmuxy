@@ -159,6 +159,8 @@ impl StateEmitter for TauriEmitter {
     /// SseEmitter does the same thing in tmuxy-server/src/sse.rs.
     fn on_initial_sync_complete(&self) {
         emit_keybindings(&self.app);
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move { emit_theme_settings(&app).await });
     }
 }
 
@@ -478,6 +480,16 @@ fn emit_fatal(app: &AppHandle, message: &str) {
 ///
 /// Also stores the payload in `KeyBindingsState` so a frontend that connects
 /// after the emit can still retrieve them via `get_keybindings_snapshot`.
+/// Push the theme + appearance settings (`tmux-theme-settings`) so the
+/// frontend re-applies them — after the config is sourced, the tmux options
+/// may carry new opacities or a new theme. Mirrors the SSE `theme-settings`
+/// broadcast in tmuxy-server/src/sse.rs.
+pub async fn emit_theme_settings(app: &AppHandle) {
+    let ctx = app.state::<Arc<tmuxy_core::Ctx>>();
+    let settings = tmuxy_core::theme::get_theme_settings(&ctx).await;
+    let _ = app.emit("tmux-theme-settings", settings);
+}
+
 fn emit_keybindings(app: &AppHandle) {
     let prefix_key = tmuxy_core::get_prefix_key().unwrap_or_else(|_| "C-b".into());
     let prefix_bindings = tmuxy_core::get_prefix_bindings().unwrap_or_default();

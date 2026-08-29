@@ -1,6 +1,6 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { Cause, Effect, Exit, Fiber } from 'effect';
-import type { TmuxAdapter, ServerState, KeyBindings } from '../../tmux/types';
+import type { TmuxAdapter, ServerState, KeyBindings, ThemeSettings } from '../../tmux/types';
 import { toEffectAdapter, type AdapterError, Schemas } from '../../tmux/effect';
 import { tracer } from '../../tmux/tracer';
 
@@ -146,6 +146,15 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       parent.send({ type: 'KEYBINDINGS_RECEIVED', keybindings });
     });
 
+    const themeSettingsReceived = (settings: ThemeSettings) =>
+      parent.send({
+        type: 'THEME_SETTINGS_RECEIVED',
+        theme: settings.theme || 'default',
+        mode: (settings.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light',
+        appearance: settings.appearance,
+      });
+    const unsubscribeThemeSettings = adapter.onThemeSettings(themeSettingsReceived);
+
     const unsubscribeConnectionInfo = adapter.onConnectionInfo(
       (connectionId: number, defaultShell: string) => {
         parent.send({ type: 'CONNECTION_INFO', connectionId, defaultShell });
@@ -253,14 +262,8 @@ export function createTmuxActor(adapter: TmuxAdapter) {
         const fiber: Fiber.RuntimeFiber<unknown, AdapterError> = Effect.runFork(program);
         scrollbackFibers.set(event.paneId, fiber);
       } else if (event.type === 'FETCH_THEME_SETTINGS') {
-        run(eff.invoke<{ theme: string; mode: string }>('get_theme_settings', {}), {
-          onSuccess: (result) => {
-            parent.send({
-              type: 'THEME_SETTINGS_RECEIVED',
-              theme: result.theme || 'default',
-              mode: (result.mode === 'light' ? 'light' : 'dark') as 'dark' | 'light',
-            });
-          },
+        run(eff.invoke<ThemeSettings>('get_theme_settings', {}), {
+          onSuccess: themeSettingsReceived,
           logPrefix: 'get_theme_settings',
           silentFail: true,
         });
@@ -309,6 +312,7 @@ export function createTmuxActor(adapter: TmuxAdapter) {
       unsubscribeFatal();
       unsubscribeReconnection();
       unsubscribeKeyBindings();
+      unsubscribeThemeSettings();
       unsubscribeConnectionInfo();
       unsubscribeClipboard();
       // Interrupt any pending scrollback fetches so they don't try to

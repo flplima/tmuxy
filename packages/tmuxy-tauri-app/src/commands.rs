@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Manager, State};
 use tmuxy_core::control_mode::MonitorCommand;
 use tmuxy_core::{executor, Ctx};
 
@@ -59,14 +59,40 @@ pub async fn new_window(state: State<'_, MonitorState>) -> Result<(), String> {
     // Reuse the same CC-routed rewrite as `run_tmux_command("new-window")`
     // so callers that hit this dedicated command don't slip back into the
     // external-subprocess path that races with control mode.
-    run_tmux_command(state, "new-window".to_string())
+    dispatch_tmux_command(&state, "new-window".to_string())
         .await
         .map(|_| ())
 }
 
 #[tauri::command]
 pub async fn run_tmux_command(
+    app: tauri::AppHandle,
     state: State<'_, MonitorState>,
+    command: String,
+) -> Result<String, String> {
+    // `source-file` may change the prefix, the theme or the appearance options:
+    // push the fresh settings once tmux has applied it (same settle delay as
+    // the SSE server's re-broadcast).
+    let is_source_file = {
+        let trimmed = command.trim_start();
+        trimmed.starts_with("source-file") || trimmed.starts_with("source ")
+    };
+    let result = dispatch_tmux_command(&state, command).await;
+    if is_source_file {
+        tokio::time::sleep(SOURCE_FILE_SETTLE).await;
+        crate::monitor::emit_theme_settings(&app).await;
+        if let Some(window) = app.get_webview_window("main") {
+            crate::gui::apply_blur(&window);
+        }
+    }
+    result
+}
+
+/// How long to wait after a `source-file` before re-reading tmux options.
+const SOURCE_FILE_SETTLE: std::time::Duration = std::time::Duration::from_millis(300);
+
+async fn dispatch_tmux_command(
+    state: &State<'_, MonitorState>,
     command: String,
 ) -> Result<String, String> {
     // Record the WHAT as the tmux verb (content-free; args only at trace level

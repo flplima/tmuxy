@@ -1,5 +1,6 @@
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::Manager;
+use tmuxy_core::constants::tmux_options;
 use tmuxy_core::{executor, session};
 
 use crate::commands;
@@ -8,10 +9,10 @@ use crate::titlebar;
 
 /// Read a tmuxy user-option, preferring the live tmux server but falling back
 /// to parsing `~/.config/tmuxy/tmuxy.conf` directly when the server isn't up
-/// yet. The initial `apply_window_effects` call runs during Tauri setup —
-/// before `monitor::start_monitoring` connects and sources the config — so
+/// yet. The initial `apply_blur` call runs during Tauri setup — before
+/// `monitor::start_monitoring` connects and sources the config — so
 /// `show-options` would otherwise return empty and the macOS window would
-/// open with no opacity/vibrancy on first launch.
+/// open without its blur on first launch.
 fn read_tmuxy_option(name: &str) -> Option<String> {
     if let Ok(s) = executor::execute_tmux_command(&["show-options", "-gqv", name]) {
         let trimmed = s.trim();
@@ -96,102 +97,43 @@ fn strip_quotes(s: &str) -> &str {
     s
 }
 
-/// Parse the @tmuxy-vibrancy value into a Tauri window effect.
-fn parse_vibrancy(value: &str) -> Option<tauri::window::Effect> {
-    use tauri::window::Effect;
-    match value {
-        // macOS effects (10.14+)
-        "under-window" => Some(Effect::UnderWindowBackground),
-        "sidebar" => Some(Effect::Sidebar),
-        "content" => Some(Effect::ContentBackground),
-        "header" => Some(Effect::HeaderView),
-        "sheet" => Some(Effect::Sheet),
-        "window" => Some(Effect::WindowBackground),
-        "hud" => Some(Effect::HudWindow),
-        "fullscreen-ui" => Some(Effect::FullScreenUI),
-        "tooltip" => Some(Effect::Tooltip),
-        "popover" => Some(Effect::Popover),
-        "menu" => Some(Effect::Menu),
-        "selection" => Some(Effect::Selection),
-        // Windows effects
-        "mica" => Some(Effect::Mica),
-        "acrylic" => Some(Effect::Acrylic),
-        "blur" => Some(Effect::Blur),
-        "tabbed" => Some(Effect::Tabbed),
-        _ => {
-            eprintln!("Unknown vibrancy type: {}", value);
-            None
-        }
+/// Apply the native blur behind the window from `@tmuxy-blur` (default on).
+/// macOS only — the option is accepted and ignored elsewhere. Called at setup
+/// and again whenever the user's config is (re)sourced, so flipping the flag
+/// takes effect live. The surface opacities the blur shows through are the
+/// frontend's business (`theme::Appearance`, applied as CSS variables).
+pub(crate) fn apply_blur(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    {
+        let blur = read_tmuxy_option(tmux_options::BLUR)
+            .map(|value| tmuxy_core::theme::parse_flag(&value, true))
+            .unwrap_or(true);
+        let target = window.clone();
+        let _ = window.run_on_main_thread(move || {
+            // Every apply adds a fresh NSVisualEffectView under the webview
+            // and tauri's `set_effects(None)` clears nothing on macOS, so drop
+            // the previous view first — that is also what turns blur off.
+            if let Err(e) = window_vibrancy::clear_vibrancy(&target) {
+                eprintln!("Failed to clear window blur: {}", e);
+            }
+            if !blur {
+                return;
+            }
+            // Pin the effect state to Active so the blur stays applied when the
+            // window loses key focus. NSVisualEffectView defaults to
+            // FollowsWindowActiveState — switching away from the tmuxy window
+            // would drop the blur and leave the inactive window flat.
+            let effects = tauri::window::EffectsBuilder::new()
+                .effect(tauri::window::Effect::UnderWindowBackground)
+                .state(tauri::window::EffectState::Active)
+                .build();
+            if let Err(e) = target.set_effects(effects) {
+                eprintln!("Failed to apply window blur: {}", e);
+            }
+        });
     }
-}
-
-/// Apply window effects from @tmuxy-opacity and @tmuxy-vibrancy.
-///
-/// Opacity controls terminal background transparency (0.0-1.0).
-/// Vibrancy enables macOS native glass effects behind the transparent background.
-/// Both can be used independently or together.
-fn apply_window_effects(window: &tauri::WebviewWindow) {
-    let opacity = read_tmuxy_option("@tmuxy-opacity")
-        .and_then(|s| s.parse::<f64>().ok())
-        .map(|v| v.clamp(0.0, 1.0));
-
-    let active_pane_opacity = read_tmuxy_option("@tmuxy-active-pane-opacity")
-        .and_then(|s| s.parse::<f64>().ok())
-        .map(|v| v.clamp(0.0, 1.0));
-
-    let vibrancy = read_tmuxy_option("@tmuxy-vibrancy")
-        .and_then(|s| parse_vibrancy(&s).map(|effect| (s, effect)));
-
-    // Apply vibrancy effect (macOS / Windows). Pin the effect state to Active
-    // so the macOS blur stays applied when the window loses key focus. Without
-    // this, NSVisualEffectView defaults to FollowsWindowActiveState — switching
-    // away from the tmuxy window drops the blur and the configured @tmuxy-opacity
-    // backing, leaving the inactive window opaque.
-    if let Some((ref name, effect)) = vibrancy {
-        let effects = tauri::window::EffectsBuilder::new()
-            .effect(effect)
-            .state(tauri::window::EffectState::Active)
-            .build();
-        if let Err(e) = window.set_effects(Some(effects)) {
-            eprintln!("Failed to set vibrancy effect: {}", e);
-        } else {
-            println!("Applied vibrancy: {}", name);
-        }
-    }
-
-    // Inject CSS custom properties for opacity and vibrancy into the frontend.
-    // The frontend uses these to make backgrounds transparent so native effects show through.
-    let mut js_parts = Vec::new();
-
-    if let Some(opacity) = opacity {
-        js_parts.push(format!(
-            "document.documentElement.setAttribute('data-opacity', '{}')",
-            opacity
-        ));
-        js_parts.push(format!(
-            "document.documentElement.style.setProperty('--window-opacity', '{}')",
-            opacity
-        ));
-    }
-
-    if let Some(o) = active_pane_opacity {
-        js_parts.push(format!(
-            "document.documentElement.style.setProperty('--active-pane-opacity', '{}')",
-            o
-        ));
-    }
-
-    if let Some((ref name, _)) = vibrancy {
-        js_parts.push(format!(
-            "document.documentElement.setAttribute('data-vibrancy', '{}')",
-            name
-        ));
-    }
-
-    if !js_parts.is_empty() {
-        let js = js_parts.join(";");
-        let _ = window.eval(&js);
-    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
 }
 
 /// Build the native macOS application menu bar.
@@ -1098,9 +1040,9 @@ pub fn run() {
                 app.on_menu_event(handle_menu_event);
             }
 
-            // Apply window effects from tmuxy config
+            // Native blur behind the window, from tmuxy config
             if let Some(window) = app.get_webview_window("main") {
-                apply_window_effects(&window);
+                apply_blur(&window);
 
                 // Tell the frontend which platform we're on so it can adjust layout
                 // (e.g., hide hamburger menu on macOS, add traffic light spacing)
@@ -1186,10 +1128,10 @@ mod tests {
 
     #[test]
     fn parse_option_reads_set_g_quoted_value() {
-        let cfg = "set -g @tmuxy-vibrancy \"under-window\"\n";
+        let cfg = "set -g @tmuxy-blur \"off\"\n";
         assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-vibrancy"),
-            Some("under-window".to_string())
+            parse_option_from_config(cfg, "@tmuxy-blur"),
+            Some("off".to_string())
         );
     }
 
@@ -1219,10 +1161,10 @@ mod tests {
 
     #[test]
     fn parse_option_handles_multi_flag_forms() {
-        let cfg = "set -ga @tmuxy-vibrancy sidebar\n";
+        let cfg = "set -ga @tmuxy-blur off\n";
         assert_eq!(
-            parse_option_from_config(cfg, "@tmuxy-vibrancy"),
-            Some("sidebar".to_string())
+            parse_option_from_config(cfg, "@tmuxy-blur"),
+            Some("off".to_string())
         );
     }
 }

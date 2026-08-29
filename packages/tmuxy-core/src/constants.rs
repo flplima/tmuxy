@@ -49,6 +49,16 @@ pub mod tmux_options {
     pub const THEME: &str = "@tmuxy-theme";
     /// Theme mode: `dark` / `light`.
     pub const THEME_MODE: &str = "@tmuxy-theme-mode";
+
+    /// Appearance: background alpha (0.0–1.0) of each surface, on every
+    /// platform — see [`crate::theme::Appearance`].
+    pub const OPACITY: &str = "@tmuxy-opacity";
+    pub const ACTIVE_PANE_OPACITY: &str = "@tmuxy-active-pane-opacity";
+    pub const INACTIVE_PANE_OPACITY: &str = "@tmuxy-inactive-pane-opacity";
+    pub const ACTIVE_TEXT_OPACITY: &str = "@tmuxy-active-text-opacity";
+    pub const INACTIVE_TEXT_OPACITY: &str = "@tmuxy-inactive-text-opacity";
+    /// `on`/`off`: native blur behind the window (macOS only; ignored elsewhere).
+    pub const BLUR: &str = "@tmuxy-blur";
 }
 
 /// The dedicated tmux session tmuxy parks HIDDEN panes in (non-active pane-group

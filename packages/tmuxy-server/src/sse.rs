@@ -146,6 +146,15 @@ impl StateEmitter for SseEmitter {
         // Broadcast keybindings now that config has been sourced and settings enforced.
         let keybindings = KeyBindings::current();
         self.send_event(&SseEvent::KeyBindings(keybindings));
+        // Same for the theme + appearance options the config may have set.
+        let broadcast = self.broadcast.clone();
+        let ctx = self.app_state.ctx.clone();
+        tokio::spawn(async move {
+            let settings = tmuxy_core::theme::get_theme_settings(&ctx).await;
+            if let Some(msg) = encode_event(&SseEvent::ThemeSettings(settings)) {
+                broadcast.broadcast(msg);
+            }
+        });
     }
 
     fn store_images(
@@ -213,6 +222,10 @@ enum SseEvent {
     Error { message: String },
     #[serde(rename = "keybindings")]
     KeyBindings(KeyBindings),
+    /// Theme name/mode + appearance (`tmuxy_core::theme::get_theme_settings`),
+    /// pushed after the config is sourced so option changes apply live.
+    #[serde(rename = "theme-settings")]
+    ThemeSettings(serde_json::Value),
     #[serde(rename = "log")]
     Log { kind: LogKind, message: String },
     #[serde(rename = "fatal")]
@@ -648,10 +661,12 @@ async fn handle_command(
                 .map_err(|e| format!("Monitor channel error: {}", e))?;
                 trace!(?conn_id, %command, "client sent command via control mode");
 
-                // After source-file, re-broadcast keybindings (prefix key may have changed)
+                // After source-file, re-broadcast keybindings (prefix key may have
+                // changed) and theme settings (theme/appearance options may have).
                 if is_source_file {
                     tokio::time::sleep(SOURCE_FILE_SETTLE).await;
                     broadcast_keybindings(state, session).await;
+                    broadcast_theme_settings(state, session).await;
                 }
 
                 Ok(serde_json::json!(null))
@@ -780,6 +795,18 @@ async fn broadcast_keybindings(state: &Arc<AppState>, session: &str) {
     if let Some(session_conn) = sessions.get(session) {
         session_conn.broadcast.broadcast(msg);
         debug!(%session, "broadcast refreshed keybindings");
+    }
+}
+
+async fn broadcast_theme_settings(state: &Arc<AppState>, session: &str) {
+    let settings = tmuxy_core::theme::get_theme_settings(&state.ctx).await;
+    let Some(msg) = encode_event(&SseEvent::ThemeSettings(settings)) else {
+        return;
+    };
+    let sessions = state.sessions.read().await;
+    if let Some(session_conn) = sessions.get(session) {
+        session_conn.broadcast.broadcast(msg);
+        debug!(%session, "broadcast refreshed theme settings");
     }
 }
 

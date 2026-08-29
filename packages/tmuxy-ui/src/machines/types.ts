@@ -11,6 +11,7 @@ import type {
   KeyBindings,
   KeyBinding,
   CopyModeState,
+  Appearance,
 } from '../tmux/types';
 
 // Re-export domain types
@@ -591,6 +592,8 @@ export type ThemeSettingsReceivedEvent = {
   type: 'THEME_SETTINGS_RECEIVED';
   theme: string;
   mode: 'dark' | 'light';
+  /** Surface opacities from tmuxy.conf; absent from adapters without a config. */
+  appearance?: Appearance;
 };
 export type ThemesListReceivedEvent = {
   type: 'THEMES_LIST_RECEIVED';

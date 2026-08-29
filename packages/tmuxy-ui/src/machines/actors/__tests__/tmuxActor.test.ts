@@ -19,6 +19,7 @@ function makeStubAdapter(overrides: Partial<TmuxAdapter>): TmuxAdapter {
     onConnectionInfo: () => noop,
     onReconnection: () => noop,
     onKeyBindings: () => noop,
+    onThemeSettings: () => noop,
     onLog: () => noop,
     onFatal: () => noop,
     ...overrides,

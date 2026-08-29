@@ -32,6 +32,29 @@ describe('uiPrefs state', () => {
     expect(ctx.themeMode).toBe('dark');
   });
 
+  it('THEME_SETTINGS_RECEIVED applies the appearance as CSS variables', () => {
+    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+    sendAndGetContext(actor, {
+      type: 'THEME_SETTINGS_RECEIVED',
+      theme: 'default',
+      mode: 'dark',
+      appearance: {
+        opacity: 0.5,
+        activePaneOpacity: 0.8,
+        inactivePaneOpacity: 0.4,
+        activeTextOpacity: 0.9,
+        inactiveTextOpacity: 0.3,
+        blur: false,
+      },
+    });
+    const root = document.documentElement.style;
+    expect(root.getPropertyValue('--app-opacity')).toBe('0.5');
+    expect(root.getPropertyValue('--active-pane-opacity')).toBe('0.8');
+    expect(root.getPropertyValue('--inactive-pane-opacity')).toBe('0.4');
+    expect(root.getPropertyValue('--active-text-opacity')).toBe('0.9');
+    expect(root.getPropertyValue('--inactive-text-opacity')).toBe('0.3');
+  });
+
   it('THEMES_LIST_RECEIVED populates availableThemes', () => {
     const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
     const themes = [

@@ -33,9 +33,9 @@
 
   /* Colors - Backgrounds */
   --bg-black: var(--term-black);
-  /* RGB triplet for the app/active-pane background. Composed with
-     --window-opacity (default 1) via rgba(). Themes override per palette;
-     default theme keeps full black. */
+  /* RGB triplet for the app (window chrome) background, composed with
+     --app-opacity via rgba() in standalone.css. Themes override per palette;
+     default theme keeps full black. Panes use --term-background instead. */
   --window-bg-rgb: 0, 0, 0;
   --bg-dark: #1e1e1e;
   --bg-dark-alt: #252526;
@@ -194,10 +194,6 @@
   padding: 8px;
 }
 
-.pane-container {
-  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
-}
-
 /* Loading / Error States */
 .loading,
 .error {
@@ -208,7 +204,6 @@
   height: 100%;
   padding: 2rem;
   box-sizing: border-box;
-  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
   color: var(--text-primary);
   font-family: var(--font-mono);
 }
@@ -474,11 +469,15 @@
 
 .pane-layout-item {
   overflow: hidden;
-  /* Inactive panes carry no bg of their own — they show through to the
-     pane-container bg. Only .pane-active gets a bg, so the active pane
-     stacks an extra opacity layer on top of the container for emphasis
-     when --window-opacity < 1. */
-  background: transparent;
+  /* Every pane paints the theme's terminal background at its own alpha
+     (--inactive-pane-opacity here, --active-pane-opacity below) over the app
+     background; what the remainder reveals is the platform's — the blurred
+     desktop on macOS, the desktop on Linux, the theme bg in a browser. */
+  background-color: color-mix(
+    in srgb,
+    var(--term-background) calc(var(--inactive-pane-opacity) * 100%),
+    transparent
+  );
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -515,36 +514,34 @@
     background-color var(--transition-active);
 }
 
-/* Inactive pane: slightly dimmed content. Excludes zoom-collapsing panes so
-   their opacity:0 fade wins (this rule is more specific than a single class). */
-.pane-layout-item:not(.pane-active):not(.pane-dragging):not(.pane-leaving):not(
-    .pane-zoom-collapsing
-  ) {
-  opacity: 0.7;
+/* Pane content (header + terminal) carries the focus cue as text opacity,
+   separate from the surface alpha: inactive panes dim to
+   --inactive-text-opacity, the active one sits at --active-text-opacity. A
+   pane being dragged keeps full content so its ghost reads clearly. */
+.pane-layout-item:not(.pane-dragging) > * {
+  opacity: var(--inactive-text-opacity);
+  transition: opacity var(--transition-active);
 }
 
-/* Active pane background: the theme's default dark bg at 80% opacity (default),
-   so the active pane reads as a distinct, slightly-translucent surface over the
-   rest of the layout. No outline — the bg alone carries the active/inactive
-   distinction (inactive panes are dimmed to 0.7 opacity and carry no bg). The
-   opacity is configurable via @tmuxy-active-pane-opacity (Tauri injects
-   --active-pane-opacity); it defaults to 0.8 here so the look holds even when
-   that variable is unset (e.g. in Storybook/demo). */
+.pane-layout-item.pane-active > * {
+  opacity: var(--active-text-opacity);
+}
+
+/* Active pane surface: the theme's terminal background at
+   --active-pane-opacity (1 by default — the colour the theme was designed
+   for). No outline — surface and text opacity carry the distinction. */
 .pane-layout-item.pane-active {
   outline: none;
   background-color: color-mix(
     in srgb,
-    var(--bg-dark) calc(var(--active-pane-opacity, 0.8) * 100%),
+    var(--term-background) calc(var(--active-pane-opacity) * 100%),
     transparent
   );
 }
 
-/* Zoomed pane: fully opaque. The active-pane surface is deliberately
-   translucent so the layout behind it reads through, but a zoomed pane IS the
-   layout — tmux shows nothing else. Leaving it translucent let the hidden
-   siblings' text bleed through the "full screen" pane. */
+/* Zoomed pane: the active-pane surface applies; it only needs to sit above
+   the collapsing siblings and grow on the zoom clock. */
 .pane-layout-item.pane-zoomed {
-  background-color: var(--bg-dark);
   z-index: var(--z-zoomed);
   /* Grow into full-screen on the same clock as the siblings collapsing away. */
   transition:
@@ -1525,7 +1522,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
   border-right: 1px solid var(--term-bright-black, #313244);
 }
 

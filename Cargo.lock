@@ -5945,6 +5945,7 @@ dependencies = [
  "tmuxy-server",
  "tokio",
  "tracing",
+ "window-vibrancy",
 ]
 
 [[package]]

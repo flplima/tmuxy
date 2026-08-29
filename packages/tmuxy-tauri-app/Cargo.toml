@@ -34,3 +34,5 @@ nix = { version = "0.29", features = ["process"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString", "NSUserDefaults"] }
+# Same crate tauri applies window effects with; used directly to clear the blur (tauri only clears on Windows)
+window-vibrancy = "0.6"

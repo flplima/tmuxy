@@ -342,6 +342,11 @@ export class DemoAdapter implements TmuxAdapter {
     return () => this.keyBindingsListeners.delete(listener);
   }
 
+  /** Nothing sources a config behind the browser's back here, so no pushes. */
+  onThemeSettings(): () => void {
+    return () => {};
+  }
+
   onLog(_listener: LogListener): () => void {
     return () => {};
   }

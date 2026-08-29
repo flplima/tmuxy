@@ -340,6 +340,18 @@ pub fn get_config_path() -> Option<PathBuf> {
 ///
 /// Also migrates configs written by older tmuxy releases (≤0.0.4) that
 /// referenced helper scripts via the relative path `bin/tmuxy/…`.
+/// The shipped user conf sources its siblings by the default
+/// `~/.config/tmuxy` path; when `XDG_CONFIG_HOME` relocates the config dir,
+/// point those lines at the real location instead.
+fn user_conf_template(dir: &std::path::Path) -> String {
+    let default_dir = dirs::home_dir().map(|home| home.join(".config").join("tmuxy"));
+    if default_dir.as_deref() == Some(dir) {
+        DEFAULT_USER_CONF.to_string()
+    } else {
+        DEFAULT_USER_CONF.replace("~/.config/tmuxy", &dir.to_string_lossy())
+    }
+}
+
 pub fn ensure_config() -> PathBuf {
     let dir = config_dir();
     let user_path = dir.join("tmuxy.conf");
@@ -376,7 +388,7 @@ pub fn ensure_config() -> PathBuf {
 
     // Create the user-editable conf only if it doesn't exist.
     if !user_path.exists() {
-        if let Err(e) = std::fs::write(&user_path, DEFAULT_USER_CONF) {
+        if let Err(e) = std::fs::write(&user_path, user_conf_template(&dir)) {
             warn!(path = ?user_path, error = %e, "could not write default user config");
         } else {
             info!(path = ?user_path, "created tmuxy.conf");
@@ -976,7 +988,7 @@ mod tests {
 
     #[test]
     fn parse_option_from_config_reads_set_g_lines() {
-        let cfg = "# comment\nset -g @tmuxy-opacity 0.8\nset -g @tmuxy-vibrancy under-window\n";
+        let cfg = "# comment\nset -g @tmuxy-opacity 0.8\nset -g @tmuxy-blur on\n";
         // Re-implementing here so we don't reach into the gui crate; the parser
         // logic in tauri-app/src/gui.rs is exercised independently in its own
         // build, but having the regression here lives next to migrate_bin_paths.
@@ -1018,5 +1030,16 @@ mod tests {
         let json = serde_json::to_string(&state).unwrap();
         // Empty struct must not write nulls — older readers might choke on them.
         assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn user_conf_template_points_at_a_relocated_config_dir() {
+        let relocated = std::path::Path::new("/tmp/xdg/tmuxy");
+        let conf = user_conf_template(relocated);
+        assert!(conf.contains("source-file /tmp/xdg/tmuxy/tmuxy.defaults.conf"));
+        assert!(!conf.contains("~/.config/tmuxy"));
+
+        let default_dir = dirs::home_dir().unwrap().join(".config").join("tmuxy");
+        assert_eq!(user_conf_template(&default_dir), DEFAULT_USER_CONF);
     }
 }

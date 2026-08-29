@@ -313,6 +313,11 @@ export class V86TmuxAdapter implements TmuxAdapter {
     this.keyBindingsListeners.add(listener);
     return () => this.keyBindingsListeners.delete(listener);
   }
+
+  /** Nothing sources a config behind the browser's back here, so no pushes. */
+  onThemeSettings(): () => void {
+    return () => {};
+  }
   onError(listener: ErrorListener): () => void {
     this.errorListeners.add(listener);
     return () => this.errorListeners.delete(listener);

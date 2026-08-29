@@ -1,11 +1,26 @@
 /* Standalone-only styles — imported by main.tsx, NOT by library consumers.
    These set body/root for when tmuxy-ui is the full-page app. */
 
+/* The page root is opaque so nothing behind the browser shows; the desktop
+   app (html[data-desktop], set in main.tsx) makes it transparent so the OS
+   window — blurred on macOS when @tmuxy-blur is on — shows through whatever
+   alpha the surfaces below leave. */
+html {
+  background-color: rgb(var(--window-bg-rgb));
+}
+
+html[data-desktop] {
+  background-color: transparent;
+}
+
+/* The app background: the theme's window bg at --app-opacity. Every chrome
+   surface (title bar, sidebar, pane gaps) is transparent over it, and the
+   panes paint their own surface on top (styles.css). */
 body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: rgba(var(--window-bg-rgb), var(--window-opacity, 1));
+  background-color: rgba(var(--window-bg-rgb), var(--app-opacity));
 }
 
 #root {
@@ -15,43 +30,16 @@ body {
   box-sizing: border-box;
 }
 
-/* Window opacity is composed into background colors via
-   rgba(var(--window-bg-rgb), var(--window-opacity)) throughout styles.css.
-   --window-opacity defaults to 1 (fully opaque); Tauri overrides it from
-   @tmuxy-opacity in tmuxy.conf to produce a translucent window. The active
-   pane gets its own bg with the same opacity, so it stacks an extra layer
-   on top of pane-container — visually emphasized when opacity < 1.
+/* Appearance defaults — the same values as tmuxy.defaults.conf, so the look
+   holds before the backend answers and in adapters that have no config. The
+   backend's values override these via applyAppearance().
 
-   Per-cell terminal colors set inline by SGR codes (e.g. \033[44m) render
-   at full alpha, so explicit cell bg stays opaque on top of the
-   semi-transparent pane bg. */
+   Per-cell terminal colors set inline by SGR codes (e.g. \033[44m) render at
+   full alpha, so explicit cell bg stays opaque on top of the pane surface. */
 :root {
-  --window-opacity: 1;
-  /* Active-pane background opacity (of --bg-dark). Tauri overrides from
-     @tmuxy-active-pane-opacity in tmuxy.conf; defaults to 0.8 so the active
-     pane reads as a slightly-translucent dark surface. */
-  --active-pane-opacity: 0.8;
-}
-
-/* Vibrancy mode: transparent backgrounds so the native glass effect shows
-   through the chrome (title bar, sidebar, pane container) and the inactive
-   panes. Activated by Tauri setting data-vibrancy on <html> when
-   @tmuxy-vibrancy is set. When both vibrancy and opacity are set, vibrancy
-   wins for these backgrounds. */
-html[data-vibrancy] body,
-html[data-vibrancy] .pane-container,
-html[data-vibrancy] .pane-layout-item,
-html[data-vibrancy] .terminal-container,
-html[data-vibrancy] .loading,
-html[data-vibrancy] .error,
-html[data-vibrancy] .pane-scroll-container {
-  background-color: transparent;
-}
-
-/* The active pane is the one surface that stays solid under vibrancy: it
-   paints the theme's terminal background so its text sits on the colour the
-   theme was designed for, while the dimmed, blurred glass remains everywhere
-   else. Also covers the zoomed pane (same element, higher specificity). */
-html[data-vibrancy] .pane-layout-item.pane-active {
-  background-color: var(--term-background);
+  --app-opacity: 0.9;
+  --active-pane-opacity: 1;
+  --inactive-pane-opacity: 0.9;
+  --active-text-opacity: 1;
+  --inactive-text-opacity: 0.7;
 }

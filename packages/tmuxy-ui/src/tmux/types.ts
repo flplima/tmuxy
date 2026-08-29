@@ -323,6 +323,8 @@ export interface TmuxAdapter {
   onConnectionInfo(listener: ConnectionInfoListener): () => void;
   onReconnection(listener: ReconnectionListener): () => void;
   onKeyBindings(listener: KeyBindingsListener): () => void;
+  /** Theme + appearance pushed by the backend after the config is (re)sourced. */
+  onThemeSettings(listener: ThemeSettingsListener): () => void;
   /** Streaming connection-time log (each tmux command + its output). */
   onLog(listener: LogListener): () => void;
   /** Terminal failure — backend gave up reconnecting. No further events expected. */
@@ -371,3 +373,27 @@ export interface KeyBindings {
 }
 
 export type KeyBindingsListener = (keybindings: KeyBindings) => void;
+
+/**
+ * Surface opacities + native blur flag from tmuxy.conf (`@tmuxy-*`), the same
+ * on every transport — mirrors `tmuxy_core::theme::Appearance`.
+ */
+export interface Appearance {
+  /** Window chrome: title bar, sidebar, the gaps between panes. */
+  opacity: number;
+  activePaneOpacity: number;
+  inactivePaneOpacity: number;
+  activeTextOpacity: number;
+  inactiveTextOpacity: number;
+  /** macOS blur behind the window; ignored elsewhere. */
+  blur: boolean;
+}
+
+/** `get_theme_settings` result / `theme-settings` push payload. */
+export interface ThemeSettings {
+  theme: string;
+  mode: string;
+  appearance?: Appearance;
+}
+
+export type ThemeSettingsListener = (settings: ThemeSettings) => void;

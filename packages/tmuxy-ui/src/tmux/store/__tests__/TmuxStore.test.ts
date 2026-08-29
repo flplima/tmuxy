@@ -96,6 +96,7 @@ function makeFakeAdapter(): {
     onConnectionInfo: () => () => {},
     onReconnection: () => () => {},
     onKeyBindings: () => () => {},
+    onThemeSettings: () => () => {},
   };
   return {
     adapter,

@@ -5,6 +5,8 @@ import {
   ConnectionInfoListener,
   ReconnectionListener,
   KeyBindingsListener,
+  ThemeSettings,
+  ThemeSettingsListener,
   LogListener,
   LogEntryKind,
   FatalListener,
@@ -36,6 +38,7 @@ export class TauriAdapter implements TmuxAdapter {
   private connectionInfoListeners = new Set<ConnectionInfoListener>();
   private reconnectionListeners = new Set<ReconnectionListener>();
   private keyBindingsListeners = new Set<KeyBindingsListener>();
+  private themeSettingsListeners = new Set<ThemeSettingsListener>();
   private logListeners = new Set<LogListener>();
   private fatalListeners = new Set<FatalListener>();
   private clipboardListeners = new Set<ClipboardListener>();
@@ -127,6 +130,12 @@ export class TauriAdapter implements TmuxAdapter {
         this.notifyKeyBindings(event.payload);
       });
       this.unlistenFns.push(unlistenKeybindings);
+
+      // Theme + appearance, re-pushed after the config is sourced
+      const unlistenThemeSettings = await listen<ThemeSettings>('tmux-theme-settings', (event) => {
+        this.notifyThemeSettings(event.payload);
+      });
+      this.unlistenFns.push(unlistenThemeSettings);
 
       // Listen for streaming connection-time progress (each command + output)
       const unlistenLog = await listen<{ kind: LogEntryKind; message: string }>(
@@ -330,6 +339,11 @@ export class TauriAdapter implements TmuxAdapter {
     return () => this.keyBindingsListeners.delete(listener);
   }
 
+  onThemeSettings(listener: ThemeSettingsListener): () => void {
+    this.themeSettingsListeners.add(listener);
+    return () => this.themeSettingsListeners.delete(listener);
+  }
+
   onLog(listener: LogListener): () => void {
     this.logListeners.add(listener);
     return () => this.logListeners.delete(listener);
@@ -397,6 +411,10 @@ export class TauriAdapter implements TmuxAdapter {
 
   private notifyKeyBindings(keybindings: KeyBindings) {
     this.keyBindingsListeners.forEach((listener) => listener(keybindings));
+  }
+
+  private notifyThemeSettings(settings: ThemeSettings) {
+    this.themeSettingsListeners.forEach((listener) => listener(settings));
   }
 
   private notifyClipboard(paneId: string, text: string) {
