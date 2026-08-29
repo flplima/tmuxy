@@ -29,3 +29,8 @@ webdriver = ["tauri-plugin-webdriver"]
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["process"] }
+
+# Native title-bar chrome (traffic-light placement, double-click preference) — see src/titlebar.rs
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString", "NSUserDefaults"] }

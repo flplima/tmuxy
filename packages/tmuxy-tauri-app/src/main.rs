@@ -6,6 +6,7 @@ mod commands;
 mod desktop;
 mod gui;
 mod monitor;
+mod titlebar;
 
 fn main() {
     // Register with the applications menu before dispatching, so a user who

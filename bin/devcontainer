@@ -185,9 +185,10 @@ prepare() {
         git -C /tmuxy remote set-url origin "$(git -C /tmuxy remote get-url origin | sed "s|git@github.com:|https://github.com/|")" 2>/dev/null
     '
 
+    # The dev server owns 9000 (the port mapped to the host); 9001 is vite's
+    # hard-coded port, which tmuxy-server refuses to bind.
     SERVER_SCRIPT='
-        pm2 start /tmuxy/bin/prod --name tmuxy-prod --interpreter bash --cwd /tmuxy 2>/dev/null
-        TMUX_SOCKET=tmuxy-dev DEV_PORT=9001 pm2 start /tmuxy/bin/dev --name tmuxy-dev --interpreter bash --cwd /tmuxy 2>/dev/null
+        TMUX_SOCKET=tmuxy-dev pm2 start /tmuxy/bin/dev --name tmuxy-dev --interpreter bash --cwd /tmuxy 2>/dev/null
     '
 }
 

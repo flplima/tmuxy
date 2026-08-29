@@ -4,6 +4,7 @@ use tmuxy_core::{executor, session};
 
 use crate::commands;
 use crate::monitor;
+use crate::titlebar;
 
 /// Read a tmuxy user-option, preferring the live tmux server but falling back
 /// to parsing `~/.config/tmuxy/tmuxy.conf` directly when the server isn't up
@@ -754,9 +755,9 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
 /// can react to runtime env (TMUXY_OPAQUE_WINDOW=1 → opaque + decorated).
 ///
 /// Defaults match the previous tauri.conf.json values exactly so production
-/// behavior is unchanged: transparent webview, hidden macOS title with
-/// traffic-light dot positioning. The opaque branch removes both — needed
-/// when running under Xvfb-style displays that lack a compositor.
+/// behavior is unchanged: transparent webview, hidden macOS title with the
+/// traffic lights centred on the status bar. The opaque branch removes both —
+/// needed when running under Xvfb-style displays that lack a compositor.
 fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
@@ -779,23 +780,20 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
 
         #[cfg(target_os = "macos")]
         {
-            use tauri::{LogicalPosition, TitleBarStyle};
-            // Vertically center the traffic-light cluster on the visible
-            // status-bar midline (y = 18 for a 36px statusbar). Tauri's
-            // traffic_light_position is interpreted by Cocoa as an
-            // offset from the implicit title-bar origin under Overlay
-            // style, NOT the top of our webview content — math based on
-            // statusbar pixels alone undershoots. Empirically y=18 lands
-            // the cluster center on the tab-button midline; lower values
-            // (e.g. 11) push the buttons to the very top of the bar.
+            use tauri::TitleBarStyle;
+            // The web status bar is the visible title bar; titlebar.rs keeps
+            // the traffic-light buttons centred on it as its height changes.
             builder = builder
                 .title_bar_style(TitleBarStyle::Overlay)
-                .hidden_title(true)
-                .traffic_light_position(LogicalPosition::new(16.0, 18.0));
+                .hidden_title(true);
         }
     }
 
-    builder.build()?;
+    let window = builder.build()?;
+
+    if !opaque {
+        titlebar::install(&window);
+    }
 
     if opaque {
         tmuxy_core::debug_log::log(
@@ -946,6 +944,12 @@ pub fn run() {
     #[cfg(feature = "webdriver")]
     {
         builder = builder.plugin(tauri_plugin_webdriver::init());
+    }
+
+    // Status-bar height reported by the frontend — see titlebar.rs.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.manage(titlebar::TitlebarState::default());
     }
 
     builder
@@ -1151,6 +1155,9 @@ pub fn run() {
             commands::set_theme,
             commands::set_theme_mode,
             commands::get_themes_list,
+            // Window chrome: the status bar doubles as the title bar
+            commands::set_titlebar_height,
+            commands::titlebar_double_click,
             // Server picker (desktop-only): list saved tmux servers and
             // live-reconnect to one (localhost socket switch or remote SSH).
             commands::list_servers,

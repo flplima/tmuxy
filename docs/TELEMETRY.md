@@ -214,6 +214,8 @@ Each seam already exists in the code; the tracer emits at it.
 | server | `send_via_control_mode`, `sse.rs` | the mutating ingress by command **verb** (first token; args only at `full`) |
 | emitter | `emit_state`, `sse.rs` | each state emit by delta `seq` + kind, joinable to the client `apply` |
 | tmux | `tmux_call` Tower span, `tmux_service.rs` | async dispatch op_name + argc (**already a span**) |
+| tauri | title-bar chrome, `tmux/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
+| tauri | title-bar chrome, `tmux/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to the native outcome: traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
 | marker | `tmuxy trace --mark`, `trace_view.rs` | a user-stamped "bug happened here" label |
 
 The durable contract from [DATA-FLOW.md](DATA-FLOW.md) maps cleanly to spans:

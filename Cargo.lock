@@ -5933,6 +5933,8 @@ version = "0.0.10-alpha.49"
 dependencies = [
  "clap",
  "nix",
+ "objc2-app-kit",
+ "objc2-foundation",
  "serde_json",
  "tauri",
  "tauri-build",

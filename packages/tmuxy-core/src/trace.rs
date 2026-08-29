@@ -64,6 +64,9 @@ const VERBATIM: &[&str] = &[
     "port",
     "role",
     "verb",
+    // window-chrome geometry (docs/TELEMETRY.md: tauri layer) — logical px
+    "height",
+    "y",
 ];
 
 /// Field keys hashed to a stable opaque id — user-chosen names/paths that could

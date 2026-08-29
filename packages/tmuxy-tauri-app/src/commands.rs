@@ -5,6 +5,7 @@ use tmuxy_core::control_mode::MonitorCommand;
 use tmuxy_core::{executor, Ctx};
 
 use crate::monitor::{KeyBindingsState, MonitorState};
+use crate::titlebar;
 
 use tmuxy_core::session::session_name as get_session;
 
@@ -211,6 +212,24 @@ pub async fn set_theme_mode(ctx: State<'_, Arc<Ctx>>, mode: String) -> Result<()
 #[tauri::command]
 pub async fn get_themes_list() -> Result<Value, String> {
     Ok(tmuxy_core::theme::get_themes_list())
+}
+
+/// The status bar is the window's title bar; it reports its rendered height
+/// (logical px) so the native window buttons stay centred on it.
+///
+/// `action_id` is the client's trace correlation id (docs/TELEMETRY.md).
+#[tauri::command]
+pub fn set_titlebar_height(window: tauri::WebviewWindow, height: f64, action_id: Option<String>) {
+    titlebar::set_height(&window, height, action_id.as_deref());
+}
+
+/// Double-click on the status bar's empty space — the native title-bar gesture.
+#[tauri::command]
+pub fn titlebar_double_click(
+    window: tauri::WebviewWindow,
+    action_id: Option<String>,
+) -> Result<(), String> {
+    titlebar::double_click(&window, action_id.as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

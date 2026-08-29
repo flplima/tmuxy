@@ -3,11 +3,11 @@
  *
  * Content is centered to match pane/status-bar width (totalWidth * charWidth).
  *
- * On macOS Tauri: hides the hamburger menu (native menu bar is used instead),
- * adds spacing for the traffic light window buttons, and makes the bar draggable
- * via Tauri's startDragging() JS API on mousedown. The second mousedown of a
- * double-click toggles window zoom instead, since startDragging() swallows the
- * native dblclick event before it can reach onDoubleClick.
+ * In the desktop app the bar is also the window's title bar (see
+ * tmux/desktopWindow.ts): empty space drags the window and double-clicking it
+ * performs the native title-bar gesture. On macOS the hamburger menu is hidden
+ * (the native menu bar is used instead), room is reserved for the traffic-light
+ * buttons, and the bar reports its height so those buttons stay centred on it.
  */
 
 import { memo, useCallback } from 'react';
@@ -15,6 +15,12 @@ import type { RenderTabline } from '../App';
 import { useAppSelector, useAppState, selectGridDimensions } from '../machines/AppContext';
 import { selectReconnectAttempt } from '../machines/selectors';
 import { isTauri } from '../tmux/adapters';
+import {
+  isMacTauri,
+  reportTitlebarHeight,
+  startWindowDrag,
+  titlebarDoubleClick,
+} from '../tmux/desktopWindow';
 import { LogProfiler } from '../utils/renderLog';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
@@ -22,7 +28,11 @@ import { SidebarToggle } from './SidebarToggle';
 import { ConnectionStatus } from './ConnectionStatus';
 import './StatusBar.css';
 
-const isMacTauri = isTauri() && typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+/** Interactive chrome inside the bar — clicks on these never drag or zoom the window. */
+const CONTROLS = 'button, [role="tab"], .tab-add, .app-menu-button, .sidebar-toggle';
+
+const isControl = (target: EventTarget | null) =>
+  target instanceof Element && target.closest(CONTROLS) !== null;
 
 export const StatusBar = memo(function StatusBar({
   renderTabline,
@@ -35,39 +45,21 @@ export const StatusBar = memo(function StatusBar({
 
   const contentWidth = totalWidth > 0 ? totalWidth * charWidth : undefined;
 
-  // On macOS Tauri, mousedown on the statusbar starts window dragging
-  // via the Tauri JS API (data-tauri-drag-region doesn't work reliably).
-  // The second mousedown of a double-click toggles zoom instead — calling
-  // startDragging() swallows the native dblclick event, so we check the
-  // click count here rather than relying on onDoubleClick.
+  // On macOS, mousedown on empty bar space hands the click to the OS as a
+  // window drag via startDragging(), which swallows the native dblclick
+  // before it reaches onDoubleClick — so the second mousedown of a
+  // double-click (e.detail === 2) performs the title-bar gesture instead.
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!isMacTauri || e.buttons !== 1) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('button, [role="tab"], .tab-add, .app-menu-button, .sidebar-toggle')) return;
-
-    if (e.detail === 2) {
-      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-        getCurrentWindow().toggleMaximize();
-      });
-      return;
-    }
-
-    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-      getCurrentWindow().startDragging();
-    });
+    if (!isMacTauri || e.buttons !== 1 || isControl(e.target)) return;
+    if (e.detail === 2) titlebarDoubleClick();
+    else startWindowDrag();
   }, []);
 
-  // On non-macOS Tauri, startDragging isn't called so the native dblclick
-  // event still fires — handle it here to toggle maximize, matching the
-  // native Windows / Linux titlebar gesture.
+  // Other desktop platforms never call startDragging, so the native dblclick
+  // still fires — the same gesture toggles maximize there.
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-    if (!isTauri() || isMacTauri) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('button, [role="tab"], .tab-add, .app-menu-button, .sidebar-toggle')) return;
-
-    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-      getCurrentWindow().toggleMaximize();
-    });
+    if (!isTauri() || isMacTauri || isControl(e.target)) return;
+    titlebarDoubleClick();
   }, []);
 
   const defaultContent = (
@@ -80,7 +72,12 @@ export const StatusBar = memo(function StatusBar({
 
   return (
     <LogProfiler id="StatusBar">
-      <div className="statusbar" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick}>
+      <div
+        ref={reportTitlebarHeight}
+        className="statusbar"
+        onMouseDown={handleMouseDown}
+        onDoubleClick={handleDoubleClick}
+      >
         <div
           className="statusbar-inner"
           style={contentWidth ? { width: contentWidth, margin: '0 auto' } : undefined}
