@@ -122,7 +122,7 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 **Where it's applied:**
 
-- `packages/tmuxy-server/src/sse.rs` — The `new_window` command handler, `execute_prefix_binding` for `c` key, and `run_tmux_command` all intercept `neww`/`new-window` and rewrite to `splitw ; breakp`.
+- `packages/tmuxy-core/src/executor.rs` — `new_window_rewrite` builds the `splitw ; breakp` string (with the optional resize) and is the single place the rewrite is spelled out. Both transports call it: the server via `build_new_window_command` in `packages/tmuxy-server/src/sse.rs`, which intercepts any `neww`/`new-window` arriving on `RunTmuxCommand`, and the Tauri app from `packages/tmuxy-tauri-app/src/commands.rs`.
 - `bin/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
 - `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
 
@@ -205,11 +205,58 @@ Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{p
 
 `GROUPS` is a bash built-in variable (array of user group IDs). Never use it as a custom variable name in shell scripts executed via `run-shell` — it silently contains the wrong value. Use `GRP_JSON` or similar instead.
 
-## Group State and the Stash Session
+## Window Tags (`@tmuxy-*`)
 
-Pane-group membership is stored per pane in the `@tmuxy-group-id` option (e.g. `g5`), set on every member. The **visible** member is an ordinary pane in the attached session; the **hidden** members are parked one-per-window in a dedicated session, `__tmuxy_stash`, which is never attached and is filtered out of every session enumeration (the sidebar tree, `session switch`, the server picker). Because a pane's options travel with it across a **cross-session `swap-pane`**, switching tabs moves the target member into the visible slot and the previous one into the stash with no membership bookkeeping — verified behavior on tmux 3.7.
+tmuxy marks the windows and panes it manages with tmux user-options under the `@tmuxy-*` namespace. This is the canonical reference for that schema and how the backend, frontend, and shell scripts consume it.
 
-The stash session is created lazily (`new-session -d -s __tmuxy_stash`, control-mode safe) by the `bin/tmuxy/pane-group-*` helpers, which read/write `@tmuxy-group-id` via `show-options -pqv` / `set-option -p` and locate members with `list-panes -a`. Closing a group member runs `gc_groups`, and each `pane-group-add` sweeps first, so hidden members orphaned by a wholesale tab-kill are reaped on the next group operation. Even before that sweep they are invisible: the backend prunes any stash member whose group has no visible pane from the emitted state, so an orphan never renders as a phantom tab. The backend enumerates hidden members with a `stashmember,`-prefixed `list-panes` and emits them as pane stubs carrying `group_id`; see [WINDOW-TAGS.md](WINDOW-TAGS.md). Windows are still typed via `@tmuxy-window-type` (`tab`/`float`/`float-backdrop`/`sidebar`) — there is no longer a `group` window type.
+### Filtering rule
+
+**Tabs carry no marker.** Any window in the attached session that is *not* tagged `float`, `float-backdrop`, or `sidebar` is a tab — including foreign windows a user creates with a raw `tmux neww`, which simply appear as tabs. Only the non-tab chrome windows are tagged, and only those are filtered out of the tab strip. Window names are purely cosmetic and never used to infer type.
+
+So the attached session's window list maps 1:1 to the tab strip (minus any open floats), and a native `tmux attach` and tmuxy agree on what the tabs are. Hidden pane-group members live in a separate stash session, so they are not windows in the attached session at all.
+
+### Schema
+
+Window options are scoped per window (`set-option -w -t <window-id>`). The one pane option (`@tmuxy-group-id`) is scoped per pane (`set-option -p -t <pane-id>`).
+
+| Option | Scope | Values | Set on |
+|---|---|---|---|
+| `@tmuxy-window-type` | window | `float` \| `float-backdrop` \| `sidebar` | non-tab chrome windows only (tabs are untagged) |
+| `@tmuxy-float-parent` | window | `@<window-id>` | floats and float-backdrops |
+| `@tmuxy-float-width` | window | integer (columns) | floats |
+| `@tmuxy-float-height` | window | integer (rows) | floats |
+| `@tmuxy-float-drawer` | window | `top` \| `bottom` \| `left` \| `right` \| unset | drawer-style floats |
+| `@tmuxy-float-bg` | window | `blur` \| `dim` \| unset | floats with a backdrop |
+| `@tmuxy-float-noheader` | window | `1` \| unset | floats that hide the header chrome |
+| `@tmuxy-group-id` | pane | `g<n>`, e.g. `g5` | every member of a pane group |
+
+`@tmuxy-float-parent` is always a **window id**, interpreted by the window's type: on a `float` it is the window the float was launched from (focus returns there on close); on a `float-backdrop` it is the float window the backdrop sits behind. The window-type disambiguates, so there is no separate backdrop-of option.
+
+Drawer direction, backdrop style, and the no-header flag live in their own options rather than being encoded in the window name — float names are user-facing labels (the running command, or a user-set title).
+
+### Pane groups and the stash session
+
+Pane groups are **not** a window type. A group is a set of panes sharing a `@tmuxy-group-id` pane option, minted from the anchor pane id (`%5` → `g5`) and unique for the group's life because tmux never reuses pane ids. The **visible** member is an ordinary pane in the attached session; the **hidden** members are parked one-per-window in a dedicated session, `__tmuxy_stash`, which is never attached and is filtered out of every session enumeration (the sidebar tree, `session switch`, the server picker).
+
+Because a pane's options travel with it across a **cross-session `swap-pane`**, switching group tabs moves the target member into the visible slot and the previous one into the stash with no membership bookkeeping — verified behavior on tmux 3.7.
+
+The stash session is created lazily (`new-session -d -s __tmuxy_stash`, control-mode safe) by the `bin/tmuxy/pane-group-*` helpers, which read/write `@tmuxy-group-id` via `show-options -pqv` / `set-option -p` and locate members with `list-panes -a`. Closing a group member runs `gc_groups`, and each `pane-group-add` sweeps first, so hidden members orphaned by a wholesale tab-kill are reaped on the next group operation. Even before that sweep they are invisible: the backend prunes any stash member whose group has no visible pane from the emitted state, so an orphan never renders as a phantom tab.
+
+### How the tags are consumed
+
+The backend (`tmuxy-core`) reads the options off `list-windows` and emits each window's `windowType` on the wire, defaulting an untagged window to `tab` (see `WindowState::to_tmux_window`). The setup pass (`collect_window_tag_commands` in `control_mode/state.rs`) re-tags a float/sidebar window whose option went missing and enforces `pane-border-status top` per tab window (a session-level `set` is not inherited by windows), but it never writes a `tab` marker. Hidden group members are enumerated with a separate `list-panes` against the stash session (rows carry a `stashmember,` sentinel) and emitted as lightweight pane stubs carrying `group_id`.
+
+The frontend filters on `windowType`:
+
+- `selectVisibleWindows` (`packages/tmuxy-ui/src/machines/selectors.ts`) keeps only `windowType === 'tab'` windows for the tab strip.
+- the sidebar tree (`machines/actors/serversActor.ts`) hides `float` / `float-backdrop` / `sidebar` windows and the `__tmuxy_stash` session; everything else (including untagged foreign windows) shows as a tab.
+- floats are rebuilt from `windowType === 'float'` windows and their `@tmuxy-float-*` metadata, and each group from the panes sharing a `group_id` (`machines/app/helpers.ts`).
+
+Window/pane mutations go through the optimistic pipeline in `packages/tmuxy-ui/src/tmux/store/` — each op predicts a local patch, dispatches the tmux command, and reconciles against the next server snapshot (`ops.ts`, `TmuxStore.ts`).
+
+### History
+
+`@tmuxy-window-type` replaced the legacy `__float_*` / `__group_*` name-prefix conventions. Two later changes reshaped the scheme: pane groups moved from a `group` window type (plus a `@tmuxy-group-panes` membership list) to the per-pane `@tmuxy-group-id` and the stash session, and the `tab` marker was dropped so an untagged window is a tab. Only `float`, `float-backdrop`, and `sidebar` windows carry a type today.
 
 ## Related
 

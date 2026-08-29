@@ -24,16 +24,15 @@ This directory contains architectural and design documentation for the tmuxy pro
 
 | Document | What it covers | When to read it |
 |----------|---------------|-----------------|
-| [TMUX.md](TMUX.md) | Control mode architecture, command routing rules (which commands must use control mode vs. safe as subprocesses), `new-window` crash workaround, version-specific bugs, tmux configuration, flow control | Any work involving tmux commands, pane/window operations, or shell scripts |
+| [TMUX.md](TMUX.md) | Control mode architecture, command routing rules (which commands must use control mode vs. safe as subprocesses), `new-window` crash workaround, version-specific bugs, tmux configuration, flow control, and the `@tmuxy-*` window/pane tag schema (floats, pane groups, the stash session, window filtering) | Any work involving tmux commands, pane/window operations, floats, pane groups, or shell scripts |
 | [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation: vi keybindings, scrollback loading, selection/clipboard, entry/exit triggers, key files | Working on copy mode, scrollback, or keyboard handling during copy mode |
-| [WINDOW-TAGS.md](WINDOW-TAGS.md) | The `@tmuxy-*` per-window user-option schema that marks tmuxy-managed windows (tabs, floats, groups) and how it is consumed | Working on floats, pane groups, tabs, or window filtering |
 
 ### Security & Constraints
 
 | Document | What it covers | When to read it |
 |----------|---------------|-----------------|
 | [SECURITY.md](SECURITY.md) | Threat model, known risks (no auth, no TLS, arbitrary file access, run-shell), LLM-assisted development risks, deployment recommendations | Deploying tmuxy, adding network-facing features, or assessing risk |
-| [NON-GOALS.md](NON-GOALS.md) | What tmuxy intentionally does NOT do (no local scrollback, no terminal emulation, no image protocols, no canvas rendering, etc.) | Before proposing a new feature; understanding design boundaries |
+| [NON-GOALS.md](NON-GOALS.md) | What tmuxy intentionally does NOT do (no terminal emulation, no live local scrollback buffer, no local echo, no canvas rendering, etc.) | Before proposing a new feature; understanding design boundaries |
 
 ### Testing
 

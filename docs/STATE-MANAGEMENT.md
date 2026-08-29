@@ -36,7 +36,7 @@ The bridge between the sans-IO state machine and a live `tmux -CC` subprocess. R
 
 Takes an `Arc<Ctx>` so the clock, tmux dispatch, and filesystem are substitutable — tests can drive the loop without spinning a real tmux. The reconnect loop in the server/Tauri paths re-creates the monitor on disconnect with the same ctx.
 
-See `tmuxy-core/src/control_mode/monitor.rs`. The split into per-event handler methods (`on_control_event`, `on_throttle_tick`, `on_settling_timeout`, etc.) is purely organisational — the docblocks on each method spell out the load-bearing ordering invariants.
+See `tmuxy-core/src/control_mode/monitor.rs`. The split into one handler method per `select!` arm is purely organisational — the docblocks on each method spell out the load-bearing ordering invariants.
 
 ### MonitorCommand
 
@@ -262,16 +262,9 @@ errors, structured concurrency, and schema-validated decoding. Files under
   `decodingInvoke(cmd, schema, args)` composes invoke + Schema.decodeUnknown
   so decode failures surface as `ProtocolError`, distinct from network
   (`TransportError`) and tmux command failures (`TmuxError`).
-- **`schemas.ts`** — Effect Schema mirrors of the wire shapes
-  (`ServerState`, `ServerDelta`, `StateUpdate`, `KeyBindings`, and substructures).
-- **`decoders.ts`** — `decodeStateUpdate / decodeServerState / decodeServerDelta /
-  decodeKeyBindings` — each `(raw: unknown) => Effect<T, ProtocolError>`.
-- **`sseStream.ts`** — `eventSourceStream(url, {events})` returns
-  `Stream<SseEvent, AdapterError>` over browser EventSource, with deterministic
-  cleanup via `Effect.acquireRelease` and composable retry via `Stream.retry`.
-- **`compoundOps.ts`** — Reference compound operations like
-  `createAndRenameWindow` and `withTemporaryWindow` that demonstrate
-  multi-step transactions with explicit rollback.
+- **`schemas.ts`** — Effect Schema mirrors of the inbound wire shapes
+  (`ServerState` and its substructures: panes, windows, cells, image
+  placements). Re-exported as the `Schemas` namespace from the barrel.
 
 **tmuxActor** consumes the Effect facade: every adapter call runs through
 `Effect.runPromiseExit`, and errors tunnel to the parent machine as
@@ -316,4 +309,11 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 
 5. **Copy mode is client-side** — the `copyMode` parallel state owns per-pane `CopyModeState` (loaded scrollback `lines`, cursor, selection, scrollTop). Scrollback is fetched on demand from tmux (`FETCH_SCROLLBACK_CELLS` → `get_scrollback_cells` → `COPY_MODE_CHUNK_LOADED`) and rendered in a natively-scrolling container; vi keybindings (via `COPY_MODE_KEY` → `handleCopyModeKey`), cursor movement, mouse selection, and scroll position are all client-owned. The only backend interaction is entering/exiting tmux's copy mode for the `in_mode` flag and capturing history. See [COPY-MODE.md](COPY-MODE.md).
 
-6. **Group state** — Pane-group membership is stored in the `@tmuxy-group-panes` window option (a space-separated list of pane ids on the group's window; see [TMUX.md](TMUX.md) and [WINDOW-TAGS.md](WINDOW-TAGS.md)). The backend reads it on state sync and includes it in state updates. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `bin/tmuxy/`.
+6. **Group state** — Pane-group membership is intrinsic to the pane: every member carries the same `@tmuxy-group-id` pane option, the visible member lives in the attached session and the hidden ones are parked in the `__tmuxy_stash` session (see [TMUX.md](TMUX.md) "Window Tags"). The backend enumerates both on state sync and emits hidden members as pane stubs carrying `group_id`. The frontend sends group mutations via `run-shell` commands that execute shell scripts in `bin/tmuxy/`.
+
+## Related
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — where each state layer sits in the system
+- [DATA-FLOW.md](DATA-FLOW.md) — the delta protocol and transports these updates travel over
+- [TMUX.md](TMUX.md) — control-mode routing and the `@tmuxy-*` tags the window state is built from
+- [COPY-MODE.md](COPY-MODE.md) — the client-owned `copyMode` parallel state

@@ -196,7 +196,7 @@ The honest read: tmuxy's ~25 ms local keydown→paint floor is competitive with
 the upper end of a local GPU terminal, and its snapshot model makes it
 structurally immune to output-volume blowups. But it has **no input
 prediction / local echo** (an explicit Non-Goal, see
-[NON-GOALS.md](NON-GOALS.md) §5), so unlike mosh it pays the full RTT on every
+[NON-GOALS.md](NON-GOALS.md), "Local Echo / Input Prediction"), so unlike mosh it pays the full RTT on every
 keystroke — which is fine on LAN (C1) and acceptable on a typical remote VM
 (C2, ~180 ms p50) but degrades on high-RTT links (C3+).
 
@@ -220,7 +220,7 @@ Still open:
 3. **Transport — targeted, not blanket.** The curve shows SSE+POST is a clean
    additive-RTT transport with no HoL cost until loss. The measurable QUIC/
    WebTransport win is specifically the C4 loss tail (p99 195 → 978 ms), not
-   steady-state RTT. Input prediction (Non-Goal §5) is the only thing that hides
+   steady-state RTT. Input prediction (a Non-Goal) is the only thing that hides
    RTT itself; the data says revisit it only for genuinely high-RTT (C3+) remote
    use, not for LAN/typical-remote.
 4. **Native status-line refresh spawns subprocesses.** On the native server,
@@ -236,5 +236,12 @@ Still open:
 - No live production telemetry / metrics endpoint — the adaptive throttle in the
   Rust monitor keeps its counters internal; latency tracking is dev-gated.
 - No client-side input prediction / local echo — an explicit Non-Goal (see
-  [NON-GOALS.md](NON-GOALS.md) §5). Axis B exists in part to decide, with data,
+  [NON-GOALS.md](NON-GOALS.md), "Local Echo / Input Prediction"). Axis B exists in part to decide, with data,
   whether a high-latency use case ever justifies revisiting that.
+
+## Related
+
+- [TELEMETRY.md](TELEMETRY.md) — the trace file that generalizes `latencyTracker` into a cross-layer timeline
+- [DATA-FLOW.md](DATA-FLOW.md) — the transports Axis B measures
+- [NON-GOALS.md](NON-GOALS.md) — input prediction and the other latency techniques we deliberately skip
+- [TESTS.md](TESTS.md) — the Storybook probes the Axis-A story measurements ride on

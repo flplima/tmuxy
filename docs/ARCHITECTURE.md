@@ -89,14 +89,4 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 
 ## Related Documentation
 
-| Document                                   | Covers                                                        |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) | Frontend XState + backend Rust state in detail                |
-| [DATA-FLOW.md](DATA-FLOW.md)               | SSE/HTTP protocol, Tauri IPC, real-world deployment scenarios |
-| [TMUX.md](TMUX.md)                         | Control mode routing, version-specific bugs, workarounds      |
-| [COPY-MODE.md](COPY-MODE.md)               | Client-side copy mode reimplementation                        |
-| [SECURITY.md](SECURITY.md)                 | Security risks, mitigations, deployment warnings              |
-| [TESTS.md](TESTS.md)                       | Testing guidelines and principles                             |
-| [PERFORMANCE.md](PERFORMANCE.md)           | Speed measurement: core/render (Axis A) vs transport (Axis B) |
-| [NON-GOALS.md](NON-GOALS.md)               | What tmuxy intentionally does NOT do                          |
-| [RICH-RENDERING.md](RICH-RENDERING.md)     | Terminal image/OSC protocol support                           |
+Every doc in this directory, what it covers, and when to read it: [docs/README.md](README.md).

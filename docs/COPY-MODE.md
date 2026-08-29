@@ -41,8 +41,7 @@ extra plumbing.
 
 Copy mode is **per-pane**: `TerminalPane` reads `copyModeStates[paneId]` and renders `ScrollbackTerminal`
 when present, otherwise the live `Terminal`. State for a pane is pruned when the pane leaves copy mode or
-is closed (see the `TMUX_STATE_UPDATE` reconciliation in `appMachine.ts` and `sliceCopyModeStates` in
-`tmuxStateSlices.ts`).
+is closed — the `TMUX_STATE_UPDATE` reconciliation in `appMachine.ts` owns that pruning.
 
 ## Entry and Exit
 

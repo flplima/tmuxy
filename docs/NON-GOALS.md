@@ -20,28 +20,25 @@ We delegate terminal emulation to tmux. We render what tmux gives us. We don't r
 
 We do NOT maintain a local terminal state machine (cursor position, SGR attributes, scroll regions). Tmux already does this.
 
-### 2. Local Scrollback Buffer
+### 2. Live Local Scrollback Buffer
 
-We do NOT maintain our own scrollback history. Tmux has scrollback. Users access it via tmux copy mode (`Prefix + [`).
+We do NOT continuously buffer a pane's output on the client. tmux is the only owner of scrollback history.
 
-**Why not local scrollback?**
+What we *do* render client-side is a **view** of it: mouse wheel in a normal shell enters copy mode and renders scrollback **fetched on demand from tmux** (`get_scrollback_cells` → `capture-pane`), lazily in chunks as the user scrolls, discarded when the pane leaves copy mode — see [COPY-MODE.md](COPY-MODE.md). In alternate screen (vim, less), the wheel sends arrow keys. So scrolling works and scrollback renders client-side, but the history always comes from tmux at scroll time, never from a buffer we keep in sync with live output.
+
+**Why no live buffer?**
 - Duplicates tmux's work
-- Memory overhead on client
-- State divergence risk
+- Unbounded memory growth on the client
+- State divergence risk against the pane tmux actually holds
 - Lost on page refresh anyway
-- Target users already know copy mode
 
-### 3. Live Local Scrollback Buffer
-
-We do NOT continuously buffer a pane's output on the client. Mouse wheel in a normal shell enters copy mode and renders scrollback that is **fetched on demand from tmux** (`get_scrollback_cells` → `capture-pane`), lazily in chunks as the user scrolls — see [COPY-MODE.md](COPY-MODE.md). In alternate screen (vim, less), the wheel sends arrow keys. So scrolling works and scrollback renders client-side, but the history always comes from tmux at scroll time, never from a buffer we keep in sync with live output.
-
-### 4. Local Search (Cmd+F / Ctrl+F)
+### 3. Local Search (Cmd+F / Ctrl+F)
 
 We do NOT implement browser-style find-in-page for terminal content. Users search via tmux copy mode (`Prefix + [` then `/` or `?`).
 
-**Why?** Search requires a buffer to search through. We don't maintain one.
+**Why?** A find-in-page would have to search history we don't hold — the copy-mode `lines` map covers only the chunks fetched around the current viewport, so a client-side search would silently miss matches outside it. Searching in tmux searches the real buffer.
 
-### 5. Local Echo / Input Prediction
+### 4. Local Echo / Input Prediction
 
 We do NOT predict keystrokes locally to reduce perceived latency (like mosh does). Every keystroke round-trips through tmux.
 
@@ -51,7 +48,7 @@ We do NOT predict keystrokes locally to reduce perceived latency (like mosh does
 - Adds significant complexity
 - Risk of prediction errors
 
-### 6. Binary Protocol / Compression
+### 5. Binary Protocol / Compression
 
 We use JSON over SSE/HTTP, not binary encoding (MessagePack, Protobuf) or compression.
 
@@ -60,13 +57,13 @@ We use JSON over SSE/HTTP, not binary encoding (MessagePack, Protobuf) or compre
 - JSON is debuggable and simple
 - Premature optimization
 
-### 7. Unicode Width Calculation
+### 6. Unicode Width Calculation
 
 We do NOT maintain our own `wcwidth` tables for character width calculation. Tmux renders the grid; we display it.
 
 **Exception:** If we implement custom text selection, we may need width info. Until then, tmux handles it.
 
-### 8. Canvas/WebGL Rendering
+### 7. Canvas/WebGL Rendering
 
 We use DOM rendering (spans), not canvas or WebGL.
 
@@ -76,11 +73,13 @@ We use DOM rendering (spans), not canvas or WebGL.
 - Accessibility (screen readers) works with DOM
 - Canvas/WebGL is premature optimization
 
-### 9. Cross-Session Features (Revised)
+### 8. Simultaneous Multi-Session Views
 
-Session switching is supported via `tmuxy session switch` and the sidebar sessions tree (see `SidebarTree.tsx`). One tmuxy instance connects to one session at a time, but can switch between sessions without page reload.
+We do NOT render more than one tmux session at a time. One tmuxy instance is attached to one session; there is no split view across sessions and no cross-session pane layout.
 
-### 10. SSH via Web Server
+Switching between them *is* supported — `tmuxy session switch` and the sidebar sessions tree (`SidebarTree.tsx`) reattach without a page reload.
+
+### 9. SSH via Web Server
 
 SSH connections (remote server attachment) are only available in the Tauri desktop app. The web server accesses the host's local tmux; there is no browser-to-SSH tunnel.
 

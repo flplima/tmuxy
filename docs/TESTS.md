@@ -253,3 +253,10 @@ npm run test:e2e -- --verbose
 # Debug logging
 DEBUG_TESTS=1 npm run test:e2e
 ```
+
+## Related
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — the components each test tier covers
+- [PERFORMANCE.md](PERFORMANCE.md) — the benchmark and probe harnesses that share this infrastructure
+- [COPY-MODE.md](COPY-MODE.md) — how to drive copy mode from a test through real user input
+- [TMUX.md](TMUX.md) — the control-mode constraints test sessions must respect

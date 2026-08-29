@@ -304,3 +304,10 @@ Beyond the core SSE/HTTP protocol, the web server exposes:
 | `/api/images/{pane_id}/{image_id}` | GET | Serve a decoded inline-image blob |
 
 The `/api/file` endpoint exists for widget rendering (markdown viewer, image viewer). Like every route it is gated by the optional `--password` Basic auth, but has no path restrictions beyond that. See [SECURITY.md](SECURITY.md) for the implications.
+
+## Related
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — the components each transport connects
+- [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) — what the state updates flowing over these transports contain
+- [TMUX.md](TMUX.md) — why mutations must ride control mode rather than a subprocess
+- [SECURITY.md](SECURITY.md) — what the unauthenticated `POST /commands` endpoint exposes

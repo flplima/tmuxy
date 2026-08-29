@@ -7,7 +7,7 @@ A web-based tmux interface built with React (Vite) frontend and Rust backend.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for high-level system overview and component interaction.
 See [docs/STATE-MANAGEMENT.md](docs/STATE-MANAGEMENT.md) for frontend XState and backend Rust state details.
 See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for SSE/HTTP protocol, Tauri IPC, and deployment scenarios.
-See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs, and workarounds.
+See [docs/TMUX.md](docs/TMUX.md) for control mode routing, version-specific bugs, workarounds, and the `@tmuxy-*` window/pane tag schema.
 See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side scrollback rendering and native browser scrolling in copy mode.
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
@@ -15,7 +15,6 @@ See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
 See [docs/TELEMETRY.md](docs/TELEMETRY.md) for unified cross-layer action tracing into a single local NDJSON file (design: schema, seams, redaction boundary, phased plan).
-See [docs/WINDOW-TAGS.md](docs/WINDOW-TAGS.md) for the `@tmuxy-*` window-option schema that marks tmuxy-managed windows (tabs, floats, groups).
 
 ## Project Structure
 
