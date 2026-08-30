@@ -26,6 +26,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libevent-dev libncurses-dev bison \
     # Chromium (agent-browser; ARM64 has no playwright-bundled build so we use system)
     chromium \
+    # CJK + fullwidth glyphs, so headless Chromium renders them at their real
+    # width. Without a CJK face the wide-glyph TerminalLine stories measure a
+    # 1-cell fallback box and fail locally while passing on CI runners that
+    # ship fonts. wqy-zenhei is ~16MB, against ~250MB for fonts-noto-cjk.
+    fonts-wqy-zenhei \
     # Tauri build deps (WebKitGTK) and E2E test deps (Xvfb, WebKitWebDriver)
     libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
     libjavascriptcoregtk-4.1-dev librsvg2-dev \
