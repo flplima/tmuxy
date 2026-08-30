@@ -108,6 +108,9 @@ async function parkMarker(
  * The callback receives both so a story can mark a pane's teardown as intended
  * (e.g. the victim of a kill) before it happens.
  */
+/** Frames the sampler must observe before its assertions mean anything. */
+const MIN_SAMPLED_FRAMES = 8;
+
 async function recordStable(
   canvasElement: HTMLElement,
   markers: string[],
@@ -120,6 +123,10 @@ async function recordStable(
   text.start();
   try {
     await operation(text, dom);
+    // Close the window on painted frames, not on the operation's wall-clock
+    // sleeps: under load a whole sleep can pass inside one long task, leaving
+    // the window with a frame or two and the assertions below vacuous.
+    await text.waitForFrames(MIN_SAMPLED_FRAMES);
   } finally {
     text.stop();
     dom.stop();

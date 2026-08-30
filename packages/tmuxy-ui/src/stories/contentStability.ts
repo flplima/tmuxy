@@ -87,6 +87,40 @@ export class ContentStabilityRecorder {
     return this.frames;
   }
 
+  /**
+   * Resolve once at least `min` frames have been sampled.
+   *
+   * Stories gate their observation window on wall-clock sleeps, but the
+   * assertions are about *painted* frames: a loaded machine can spend an entire
+   * sleep inside one long task, ending the window having sampled a frame or
+   * two and making the check vacuous (that is the `sampledFrames` guard firing
+   * intermittently in CI). Waiting for frames instead of milliseconds makes the
+   * window load-independent. Nothing is masked — frames after the operation
+   * only add evidence, and a blink nobody painted is a blink nobody saw.
+   *
+   * Polls on a timer, not rAF, so a page that genuinely never paints still
+   * fails on the deadline instead of hanging.
+   */
+  waitForFrames(min: number, timeoutMs = 4000): Promise<void> {
+    if (this.frames >= min || !this.running) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const deadline = performance.now() + timeoutMs;
+      const timer = setInterval(() => {
+        if (this.frames >= min || !this.running) {
+          clearInterval(timer);
+          resolve();
+        } else if (performance.now() > deadline) {
+          clearInterval(timer);
+          reject(
+            new Error(
+              `content sampler saw only ${this.frames} frame(s) in ${timeoutMs}ms — the page never painted`,
+            ),
+          );
+        }
+      }, 50);
+    });
+  }
+
   blinks(): ContentBlink[] {
     return [...this.missing.entries()].map(([marker, r]) => ({
       marker,
