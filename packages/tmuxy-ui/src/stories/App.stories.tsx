@@ -1193,13 +1193,27 @@ export const ResizePaneDragVertical: Story = {
 
     // The horizontal divider resizes the two stacked panes; find the one
     // directly above it (its height grows as we drag down).
-    const hDiv = await waitForDivider(canvasElement, 'horizontal');
-    const dTop = hDiv.getBoundingClientRect().top;
-    const grower = paneIds(canvas).find((id) => {
-      const r = paneRect(canvas, id);
-      return Math.abs(r.top + r.height - dTop) < 14; // its bottom edge is the divider
-    });
-    if (!grower) throw new Error('no pane above the horizontal divider');
+    //
+    // Both halves are waited for TOGETHER. The divider is positioned from the
+    // new layout the moment the split lands, while the panes animate into
+    // theirs — so there is a window where the divider exists and no pane's
+    // bottom edge lines up with it yet. Waiting for the divider alone lands
+    // squarely in it.
+    let hDiv!: HTMLElement;
+    let grower!: string;
+    await waitFor(
+      () => {
+        hDiv = pickDivider(canvasElement, 'horizontal');
+        const dTop = hDiv.getBoundingClientRect().top;
+        const above = paneIds(canvas).find((id) => {
+          const r = paneRect(canvas, id);
+          return Math.abs(r.top + r.height - dTop) < 14; // its bottom edge is the divider
+        });
+        if (!above) throw new Error('no pane above the horizontal divider');
+        grower = above;
+      },
+      { timeout: 30000, interval: 250 },
+    );
     const before = paneRect(canvas, grower).height;
 
     const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
