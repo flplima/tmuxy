@@ -48,7 +48,7 @@ const APKS = [
   `${ALPINE}/ncurses-terminfo-base-6.5_p20250503-r0.apk`,
   `${ALPINE}/libncursesw-6.5_p20250503-r0.apk`,
   `${ALPINE}/libevent-2.1.13-r0.apk`,
-  `${ALPINE_EDGE}/tmux-3.7b-r0.apk`,
+  `${ALPINE_EDGE}/tmux-3.7c-r0.apk`,
 ];
 
 const exists = (p) =>

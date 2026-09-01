@@ -4,11 +4,26 @@
 
 // list-panes format is TAB-separated (free-text fields may contain commas):
 // #{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}
-const LIST_PANES_OUTPUT = ['%0\t@0\t120\t40\tzsh\t1', '%1\t@0\t80\t30\tvim\t0'].join('\n');
+// list-panes format is TAB-separated (pane_current_command and the app title
+// are free text). Mirrors LIST_PANES_JSON_FMT in bin/tmuxy-cli:
+// #{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t<app title>
+// The last column is the APP-set title, empty unless a program set one — the
+// second pane here has one, so the escaping path is covered too.
+const LIST_PANES_OUTPUT = ['%0\t@0\t120\t40\tzsh\t1\t', '%1\t@0\t80\t30\tvim\t0\tREADME.md'].join(
+  '\n',
+);
 
 const LIST_PANES_JSON = [
-  { id: '%0', tab: '@0', width: 120, height: 40, command: 'zsh', active: true },
-  { id: '%1', tab: '@0', width: 80, height: 30, command: 'vim', active: false },
+  { id: '%0', tab: '@0', width: 120, height: 40, command: 'zsh', active: true, title: '' },
+  {
+    id: '%1',
+    tab: '@0',
+    width: 80,
+    height: 30,
+    command: 'vim',
+    active: false,
+    title: 'README.md',
+  },
 ];
 
 // list-windows format is TAB-separated (window_name is user-controlled):

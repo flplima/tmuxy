@@ -118,8 +118,16 @@ describe('Scenario 14: OSC Protocols', () => {
     expect(titled.width).toBeGreaterThan(0);
     expect(titled.height).toBeGreaterThan(0);
 
-    // Ending the program lets the shell take its title back.
+    // Ending the program does NOT clear the title on its own: tmux keeps the
+    // last title a pane was given, and it is the shell's PROMPT HOOK that
+    // replaces it (docs/TMUX.md). A bare CI shell has no such hook, so drive
+    // one explicitly — what is worth asserting is that the header tracks
+    // whichever title is current, not that a program's title expires by itself.
     await sendKeyCombo(ctx.page, 'Control', 'c');
+    await waitForShellPrompt(ctx.page);
+    await typeInTerminal(ctx.page, `printf "\\033]2;${idle.text}\\007"`);
+    await pressEnter(ctx.page);
+
     const after = await waitForHeaderTitle(idle.text);
     expect(after.width).toBeGreaterThan(0);
   }, 120000);

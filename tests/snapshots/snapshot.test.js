@@ -302,13 +302,24 @@ test('tab bar matches visible windows', async () => {
   expect(result).not.toBeNull();
   expect(result.domTabs.length).toBe(result.visibleWindows.length);
 
+  // A LONE tab carries no active marker: there is nothing for it to be active
+  // against, so the strip renders it as a plain title (WindowTabs.tsx). Only
+  // once there are several does the highlight mean anything.
+  const soleTab = result.visibleWindows.length === 1;
+
   for (let i = 0; i < result.visibleWindows.length; i++) {
     const win = result.visibleWindows[i];
     // DOM tabs show "visualIndex:name" where visualIndex = position + 1
     const visualIndex = i + 1;
     const expectedTabName = `${visualIndex}:${win.name}`;
     expect(result.domTabs[i].name).toBe(expectedTabName);
-    expect(result.domTabs[i].active).toBe(win.active);
+    expect(result.domTabs[i].active).toBe(soleTab ? false : win.active);
+  }
+
+  // ...and with several tabs, exactly one of them is marked — a strip with two
+  // highlights (or none) means the active flag and the class have drifted.
+  if (!soleTab) {
+    expect(result.domTabs.filter((t) => t.active).length).toBe(1);
   }
 });
 
