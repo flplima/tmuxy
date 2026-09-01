@@ -1075,6 +1075,35 @@ function pickDivider(canvasElement: HTMLElement, kind: 'horizontal' | 'vertical'
 }
 
 /**
+ * Wait for a divider of `kind` to exist, then return it.
+ *
+ * `settleGeometry` only proves the GRID has settled — it says nothing about
+ * whether the story's `initCommands` have landed. Those are two different
+ * waits, and a story that splits before it drags needs both: the split's
+ * `%layout-change` can arrive after the geometry is already stable, leaving
+ * `pickDivider` looking at the pre-split layout.
+ *
+ * That race used to be hidden. The harness was sized in pixels, so the app
+ * always measured a grid the guest had not booted at and a resize round-trip
+ * ran first — long enough for the split to land by accident. Now that the
+ * harness asks for exactly the size the guest boots at (80x30), no resize
+ * happens and the gap closes to nothing.
+ */
+async function waitForDivider(
+  canvasElement: HTMLElement,
+  kind: 'horizontal' | 'vertical',
+): Promise<HTMLElement> {
+  let divider: HTMLElement | null = null;
+  await waitFor(
+    () => {
+      divider = pickDivider(canvasElement, kind);
+    },
+    { timeout: 30000, interval: 250 },
+  );
+  return divider!;
+}
+
+/**
  * Drive a MONOTONIC divider drag with raw mouse events (the machine's
  * pointerTracker listens on window). Monotonic so the resulting geometry must
  * also be monotonic — any reversal the recorder catches is a real glitch.
@@ -1164,7 +1193,7 @@ export const ResizePaneDragVertical: Story = {
 
     // The horizontal divider resizes the two stacked panes; find the one
     // directly above it (its height grows as we drag down).
-    const hDiv = pickDivider(canvasElement, 'horizontal');
+    const hDiv = await waitForDivider(canvasElement, 'horizontal');
     const dTop = hDiv.getBoundingClientRect().top;
     const grower = paneIds(canvas).find((id) => {
       const r = paneRect(canvas, id);
@@ -1221,7 +1250,10 @@ export const ResizePaneDragGrid: Story = {
     // then transiently drops the top row to y=0 — every top pane, not just the
     // resized one, must hold its header row.
     const rec = new ResizeGlitchRecorder(canvasElement.querySelector('.pane-layout')!);
-    await dragDivider(pickDivider(canvasElement, 'horizontal'), rec, { dy: 108, steps: 12 });
+    await dragDivider(await waitForDivider(canvasElement, 'horizontal'), rec, {
+      dy: 108,
+      steps: 12,
+    });
 
     // The resize took effect somewhere.
     await waitFor(
