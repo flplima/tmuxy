@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Merged into the generated bundle Info.plist by the Tauri bundler, which picks
+  up any Info.plist sitting beside tauri.conf.json.
+
+  These strings are the sentence macOS puts in the TCC prompt. Without them the
+  prompt is a bare "tmuxy would like to access files in your Documents folder",
+  which reads like the app is rummaging on its own — when in fact it is whatever
+  the USER just ran in their shell. A terminal is an unusual case for TCC: the
+  app is a conduit, so the copy says so.
+
+  They change the prompt's WORDING, not how often it appears. Prompts repeating
+  on every launch is a signing problem, not a plist one: TCC binds a grant to
+  the app's designated requirement, and an ad-hoc signature identifies the app
+  by a hash of its binary, so every build looks like a different app. A
+  Developer ID signature (see the release workflow) is what makes a grant stick.
+-->
+<plist version="1.0">
+<dict>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>tmuxy runs your shell. Allow this so commands you run — ls, vim, git — can read and write files on your Desktop.</string>
+
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>tmuxy runs your shell. Allow this so commands you run — ls, vim, git — can read and write files in your Documents folder.</string>
+
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>tmuxy runs your shell. Allow this so commands you run — ls, vim, git — can read and write files in your Downloads folder.</string>
+
+  <key>NSRemovableVolumesUsageDescription</key>
+  <string>tmuxy runs your shell. Allow this so commands you run can read and write files on connected drives.</string>
+
+  <key>NSNetworkVolumesUsageDescription</key>
+  <string>tmuxy runs your shell. Allow this so commands you run can read and write files on network shares.</string>
+</dict>
+</plist>
