@@ -10,6 +10,15 @@
 import { useMemo, useEffect, type ReactNode } from 'react';
 import { TmuxyProvider, TmuxyApp, DemoAdapter, type AppConfig, type RenderTabline } from '../lib';
 import { V86TmuxAdapter } from '../tmux/v86/V86TmuxAdapter';
+import {
+  CHAR_HEIGHT,
+  CONTAINER_PADDING_BOTTOM,
+  CONTAINER_PADDING_X,
+  STATUS_BAR_HEIGHT,
+  TMUX_STATUS_BAR_HEIGHT,
+} from '../constants';
+import { measureCellMetrics } from '../utils/cellMetrics';
+import { V86_DEFAULT_COLS, V86_DEFAULT_ROWS } from '../tmux/v86/V86Engine';
 
 export interface AppHarnessProps {
   /** Tmux commands run after the initial state loads (splits, new-window, etc) */
@@ -81,20 +90,51 @@ export function AppHarness({
 }
 
 /**
+ * Pixel box that makes the app settle on exactly `cols` x `rows`.
+ *
+ * The app does not take a terminal size — it MEASURES one, from the pane
+ * container's content box (`calculateTargetSize`). So a story asks for a grid
+ * by handing the harness a box that measures back to it:
+ *
+ *   cols = floor(containerContentWidth  / cellWidth)
+ *   rows = floor(containerContentHeight / CHAR_HEIGHT)
+ *
+ * The width has to come from the MEASURED cell, not a constant: the terminal
+ * font's advance is ~9px at one font size and ~9.6px at another, so a fixed
+ * pixel width is 80 columns on one machine and 79 or 81 on the next. The
+ * height is safe in constants — rows are always CHAR_HEIGHT tall.
+ */
+function gridBox(cols: number, rows: number): { width: number; height: number } {
+  const { cellWidth } = measureCellMetrics();
+  return {
+    width: cols * cellWidth + CONTAINER_PADDING_X * 2,
+    height:
+      rows * CHAR_HEIGHT + CONTAINER_PADDING_BOTTOM + STATUS_BAR_HEIGHT + TMUX_STATUS_BAR_HEIGHT,
+  };
+}
+
+/**
  * Renders the full TmuxyApp against REAL tmux — running inside a v86 x86
  * emulator, parsed by the tmuxy-core Rust engine compiled to WASM. No lifo.sh,
  * no simulation. Boots from a pre-restored snapshot (~4s); browser-only, so
  * these stories are `v86`-tagged and excluded from the deterministic CI probe.
+ *
+ * Sized in CELLS rather than pixels, defaulting to a plain 80x30 terminal — the
+ * size the guest's tmux is actually running at is what these stories assert
+ * against (pane geometry, wrapping, captures), so it is the thing worth pinning,
+ * and pinning it keeps every story comparable regardless of the host's font.
  */
 export function V86AppHarness({
   initCommands,
-  height = 600,
-  width = '100%',
+  cols = V86_DEFAULT_COLS,
+  rows = V86_DEFAULT_ROWS,
   shared = false,
 }: {
   initCommands?: string[];
-  height?: number;
-  width?: number | string;
+  /** Terminal width in columns. */
+  cols?: number;
+  /** Terminal height in rows. */
+  rows?: number;
   /** Reuse one process-wide v86 engine across stories (fast snapshot-restore
    *  between stories) instead of cold-booting a private engine per story. */
   shared?: boolean;
@@ -103,11 +143,14 @@ export function V86AppHarness({
     () => new V86TmuxAdapter({ initCommands, shared }),
     [initCommands, shared],
   );
+  // Measured once per mount: the font is loaded by then, and a story never
+  // changes size mid-play.
+  const box = useMemo(() => gridBox(cols, rows), [cols, rows]);
   return (
     <div
       style={{
-        height,
-        width,
+        height: box.height,
+        width: box.width,
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',

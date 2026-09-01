@@ -12,6 +12,18 @@
  * The current adapter wires its state/clipboard callbacks via `setSink()`; the
  * engine calls back into whichever sink is currently attached.
  */
+
+/**
+ * The terminal the guest boots at, and the size every v86 story runs unless it
+ * asks for another — a plain 80x30, what a terminal is when nobody has resized
+ * it. The guest starts at this shape so the first frame after a snapshot
+ * restore is already the size the story expects, rather than resizing under it.
+ *
+ * `V86TmuxAdapter` falls back to the same pair, and `V86AppHarness` sizes its
+ * box so the app measures back exactly these numbers.
+ */
+export const V86_DEFAULT_COLS = 80;
+export const V86_DEFAULT_ROWS = 30;
 import type { ServerState, StateUpdate, PaneContent } from '../types';
 
 const WASM_JS = '/wasm/tmuxy_wasm.js';
@@ -516,7 +528,7 @@ export class V86Engine {
         this.send(ATTACH);
         await wait(warm ? 500 : 1000);
       }
-      this.send('refresh-client -C 64x20');
+      this.send(`refresh-client -C ${V86_DEFAULT_COLS}x${V86_DEFAULT_ROWS}`);
       for (const cmd of GUEST_SETUP) this.send(cmd);
       for (const cmd of this.core.initial_sync()) this.send(cmd);
       await Promise.race([firstState, wait(warm ? 2000 : 4000)]);

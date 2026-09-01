@@ -32,7 +32,13 @@ import type {
 } from '../types';
 import { saveThemeToStorage, loadThemeFromStorage } from '../../utils/themeManager';
 import { escapeLiteralText, unescapeLiteralText } from '../keyBatching';
-import { V86Engine, getSharedEngine, type EngineSink } from './V86Engine';
+import {
+  V86Engine,
+  getSharedEngine,
+  V86_DEFAULT_COLS,
+  V86_DEFAULT_ROWS,
+  type EngineSink,
+} from './V86Engine';
 
 // The default tmuxy keybindings (C-a prefix), intercepted client-side by the
 // keyboardActor and dispatched as run_tmux_command — same as the real app.
@@ -234,8 +240,8 @@ export class V86TmuxAdapter implements TmuxAdapter {
       case 'get_initial_state':
         return this.engine.getLastState() as T;
       case 'set_client_size': {
-        const cols = (args?.cols as number) || 80;
-        const rows = (args?.rows as number) || 24;
+        const cols = (args?.cols as number) || V86_DEFAULT_COLS;
+        const rows = (args?.rows as number) || V86_DEFAULT_ROWS;
         this.engine.send(`refresh-client -C ${cols}x${rows}`);
         return null as T;
       }

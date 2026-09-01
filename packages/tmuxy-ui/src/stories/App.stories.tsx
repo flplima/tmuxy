@@ -183,6 +183,11 @@ const meta: Meta<typeof V86AppHarness> = {
   // Share one v86 engine across every story in this group: the first story cold-
   // boots (~5s), the rest restore the pinned snapshot (~1s) for an isolated clean
   // start. Switching stories in the Storybook UI is near-instant as a result.
+  //
+  // Every story runs a plain 80x30 terminal (V86_DEFAULT_COLS/ROWS) — the
+  // harness is sized in CELLS, not pixels, so the grid is the same on any host
+  // font instead of whatever a fixed pixel box happened to measure out to. A
+  // story that needs a different terminal passes `cols`/`rows`.
   args: { shared: true },
   // Toolbar "tmux view": the guest's VGA console (tmux drawing itself) beside
   // or over the tmuxy rendering — see stories/tmuxView.tsx.
@@ -207,7 +212,6 @@ type Story = StoryObj<typeof V86AppHarness>;
  * reconstructs from the initial list-panes/list-windows sync.
  */
 export const Live: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitFor(
@@ -238,7 +242,6 @@ export const Live: Story = {
  * move to the clicked pane (a `select-pane` round-trip through real tmux).
  */
 export const MouseSelectPane: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const getActive = () =>
@@ -267,7 +270,6 @@ export const MouseSelectPane: Story = {
  * window tab appears.
  */
 export const PrefixKeybinding: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -292,7 +294,7 @@ export const PrefixKeybinding: Story = {
 
 /** Real `split-window` commands issued at startup produce real extra panes. */
 export const Splits: Story = {
-  args: { height: 600, initCommands: ['split-window -v'] },
+  args: { initCommands: ['split-window -v'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitFor(
@@ -316,7 +318,6 @@ export const Splits: Story = {
  * `__placeholder_op_*`).
  */
 export const KeyboardSplit: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -340,7 +341,6 @@ export const KeyboardSplit: Story = {
  * tmuxy UI is genuinely interactive client-side (not a static render).
  */
 export const Interactive: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -366,7 +366,6 @@ export const Interactive: Story = {
  * up in the tmuxy UI (reconstructed by the Rust WASM core).
  */
 export const TmuxyCli: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -389,7 +388,6 @@ export const TmuxyCli: Story = {
  * `.float-container` painted above the active tab.
  */
 export const Float: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -422,7 +420,6 @@ export const Float: Story = {
  * drawer (the same mechanism as the left sidebar).
  */
 export const Drawer: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -454,7 +451,6 @@ export const Drawer: Story = {
  * UI renders grouped panes as header tabs.
  */
 export const PaneGroup: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -475,7 +471,6 @@ export const PaneGroup: Story = {
  * (`.widget-markdown`) — all client-side, driven by the live %output stream.
  */
 export const Widget: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -507,7 +502,6 @@ const INLINE_PNG_B64 =
  * straight from the Rust store — no server, no `/api/images`).
  */
 export const TerminalImage: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -530,7 +524,6 @@ export const TerminalImage: Story = {
  * the round-trip end to end.
  */
 export const ClipboardOsc52: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -564,7 +557,6 @@ export const ClipboardOsc52: Story = {
  * populated, the stylesheet is loaded, and a real theme variable changes value.
  */
 export const Theme: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const doc = canvasElement.ownerDocument;
@@ -631,7 +623,6 @@ export const Theme: Story = {
  * pane moves.
  */
 export const PaneNavKeys: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -673,7 +664,6 @@ const sessionName = (): string =>
  * the reduced column counts — a full client→tmux→client resize round-trip.
  */
 export const Resize: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(2), {
@@ -703,7 +693,6 @@ export const Resize: Story = {
  * `TMUX_RECONNECTED`) on the live client and assert the UI reflects each phase.
  */
 export const Reconnect: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const doc = canvasElement.ownerDocument;
@@ -741,7 +730,6 @@ export const Reconnect: Story = {
  * the app's `sessionName` reflects the switch.
  */
 export const Sessions: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -768,7 +756,6 @@ export const Sessions: Story = {
  * high-rate path the earlier per-byte serial fix addressed.
  */
 export const Throughput: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -788,7 +775,6 @@ export const Throughput: Story = {
  * stay within budget so the demo/story payload can't silently balloon.
  */
 export const AssetWeight: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitFor(() => expect(paneGroups(canvas).length).toBeGreaterThanOrEqual(2), {
@@ -840,7 +826,6 @@ const paneIds = (canvas: Canvas): string[] =>
  * not client-computed values).
  */
 export const KeyboardSplitHorizontal: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -869,7 +854,6 @@ export const KeyboardSplitHorizontal: Story = {
  * unrelated pane appearing) and focus lands on a surviving real pane.
  */
 export const KillPane: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -894,7 +878,6 @@ export const KillPane: Story = {
  * group-aware CLOSE_PANE (not raw kill-pane). The clicked pane's id must vanish.
  */
 export const KillPaneViaHeaderButton: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -920,7 +903,6 @@ export const KillPaneViaHeaderButton: Story = {
  * no-op both fail.
  */
 export const ZoomPane: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -949,7 +931,6 @@ export const ZoomPane: Story = {
  * purely by mouse. Both directions of the toggle asserted via layout rects.
  */
 export const ZoomViaHeaderDoubleClick: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -980,7 +961,6 @@ export const ZoomViaHeaderDoubleClick: Story = {
  * comes from the real re-reported layout.
  */
 export const SwapPanes: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1007,7 +987,6 @@ export const SwapPanes: Story = {
  * keyboard SwapPanes, driven purely by mouse drag-and-drop.
  */
 export const PaneDragSwap: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1061,7 +1040,6 @@ export const PaneDragSwap: Story = {
  * geometry comes from tmux's %layout-change, not a client-side prediction.
  */
 export const ResizePaneKeyboard: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1138,7 +1116,6 @@ async function dragDivider(
  * pass on a pure client-side ghost).
  */
 export const ResizePaneDrag: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -1179,7 +1156,7 @@ export const ResizePaneDrag: Story = {
  * optimistic preview before the final resize lands).
  */
 export const ResizePaneDragVertical: Story = {
-  args: { height: 600, initCommands: ['split-window -v'] },
+  args: { initCommands: ['split-window -v'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -1224,7 +1201,6 @@ export const ResizePaneDragVertical: Story = {
  */
 export const ResizePaneDragGrid: Story = {
   args: {
-    height: 600,
     initCommands: ['split-window -v', 'split-window -h', 'select-layout tiled'],
   },
   play: async ({ canvasElement }) => {
@@ -1281,7 +1257,6 @@ function sendTmux(command: string): void {
  * watches every pane's box AND content top ([role=log]) through the split.
  */
 export const SplitPaneNoRowJump: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -1307,7 +1282,6 @@ export const SplitPaneNoRowJump: Story = {
  */
 export const SplitPaneInGridNoRowJump: Story = {
   args: {
-    height: 600,
     initCommands: ['split-window -v', 'split-window -h', 'select-layout tiled'],
   },
   play: async ({ canvasElement }) => {
@@ -1337,7 +1311,6 @@ export const SplitPaneInGridNoRowJump: Story = {
  * its own window. A second window tab must appear, backed by a real `@N` id.
  */
 export const BreakPane: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -1362,7 +1335,6 @@ export const BreakPane: Story = {
  * not the underlying event, and asserts a real new pane id.
  */
 export const PaneContextMenuSplit: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1407,7 +1379,6 @@ export const PaneContextMenuSplit: Story = {
  * can only render if the interrupt actually killed the sleep.
  */
 export const SendSpecialKeys: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1434,7 +1405,6 @@ export const SendSpecialKeys: Story = {
  * one) — the negative half guards against a stuck toggle.
  */
 export const SyncPanes: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1474,7 +1444,6 @@ const windowTabEls = (canvas: Canvas) => canvas.getAllByRole('tab', { name: /^Ta
  * focused pane.
  */
 export const TabCreateKeyboard: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1502,7 +1471,6 @@ export const TabCreateKeyboard: Story = {
  * handleNewWindow. Same round-trip assertions as the keyboard variant.
  */
 export const TabCreateViaPlusButton: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1527,7 +1495,6 @@ export const TabCreateViaPlusButton: Story = {
  * proves the full re-render, not just a highlight change.
  */
 export const TabSelect: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1562,7 +1529,6 @@ export const TabSelect: Story = {
  * With two windows each press flips the active window, including the wrap.
  */
 export const TabNextPrev: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1583,7 +1549,6 @@ export const TabNextPrev: Story = {
  * name came back from real tmux, not local state.
  */
 export const TabRename: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -1600,7 +1565,6 @@ export const TabRename: Story = {
  * `@N` must be GONE (negative guard) and focus must land on the surviving tab.
  */
 export const TabKill: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1628,7 +1592,7 @@ export const TabKill: Story = {
  * %layout-change, not a client-side shuffle.
  */
 export const LayoutCycle: Story = {
-  args: { height: 600, initCommands: ['split-window -v'] },
+  args: { initCommands: ['split-window -v'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1665,7 +1629,6 @@ export const LayoutCycle: Story = {
  * the tab bar and the LAST one is still clickable (selects its window).
  */
 export const WindowTabsOverflow: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1739,7 +1702,6 @@ const paneCopyState = (
  * the rendered `[COPY MODE]` header indicator.
  */
 export const CopyModeEnter: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1775,7 +1737,6 @@ export const CopyModeEnter: Story = {
  * toward the top, and wheeling back to the bottom exits copy mode.
  */
 export const CopyModeScrollAndYank: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1833,7 +1794,6 @@ export const CopyModeScrollAndYank: Story = {
  * shell again — a typed command's output renders.
  */
 export const CopyModeExit: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1873,7 +1833,6 @@ export const CopyModeExit: Story = {
  * real mouse would.
  */
 export const WheelScrollEntersCopyMode: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1939,7 +1898,6 @@ export const WheelScrollEntersCopyMode: Story = {
  * `extractSelectedText` unit tests).
  */
 export const CopyModeDragSelection: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2010,7 +1968,6 @@ async function waitForFloat(doc: Document): Promise<HTMLElement> {
  * trusted from the CLI arguments.
  */
 export const FloatWithOptions: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -2062,7 +2019,6 @@ export const FloatWithOptions: Story = {
  * window — a tmux semantic, not a tmuxy bug.)
  */
 export const FloatCloseByKey: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2121,7 +2077,6 @@ export const FloatCloseByKey: Story = {
  * an overlay renders. Each drawer is closed (click + C-a x) before the next.
  */
 export const DrawerAllEdges: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2180,7 +2135,6 @@ export const DrawerAllEdges: Story = {
  * swap-pane round-trips, not client-side relabeling.
  */
 export const GroupSwitchNextPrev: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2237,7 +2191,6 @@ export const GroupSwitchNextPrev: Story = {
  * and the closed pane id is gone everywhere.
  */
 export const GroupCloseMember: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -2277,7 +2230,6 @@ export const GroupCloseMember: Story = {
  * (real `select-pane` round-trip), and toggling again hides the drawer.
  */
 export const SidebarToggle: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2330,7 +2282,7 @@ export const SidebarToggle: Story = {
  * window id changing after the drop.
  */
 export const SidebarDragPaneToTab: Story = {
-  args: { height: 600, initCommands: ['split-window -h', 'new-window'] },
+  args: { initCommands: ['split-window -h', 'new-window'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2416,7 +2368,6 @@ export const SidebarDragPaneToTab: Story = {
  * widget and renders a real `<img>` from the URI.
  */
 export const WidgetImage: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -2446,7 +2397,6 @@ export const WidgetImage: Story = {
  * client-side contract for file-mode widgets.
  */
 export const WidgetMarkdownFile: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -2469,7 +2419,6 @@ export const WidgetMarkdownFile: Story = {
  * returns, and the shell is usable again.
  */
 export const WidgetExitRestoresShell: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2503,7 +2452,6 @@ export const WidgetExitRestoresShell: Story = {
  * than the iTerm2 story.
  */
 export const KittyImage: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -2523,7 +2471,6 @@ export const KittyImage: Story = {
  * (icy_sixel) and the Terminal renders it — covering the third image protocol.
  */
 export const SixelImage: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -2548,7 +2495,6 @@ export const SixelImage: Story = {
  * that; the label check is what pins the link to its own cells.
  */
 export const Osc8Hyperlink: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -2579,7 +2525,6 @@ export const Osc8Hyperlink: Story = {
  * reaches proves the behavior.
  */
 export const AutolinkNeedsLinkModifier: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2633,7 +2578,6 @@ export const AutolinkNeedsLinkModifier: Story = {
  * Content-tracked placements would need a scroll counter in the vt100 layer.)
  */
 export const ImageAnchoredDuringScroll: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -2665,7 +2609,6 @@ export const ImageAnchoredDuringScroll: Story = {
  * Enter chunks — bash must run all three commands, in order, exactly once.
  */
 export const PasteMultiline: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2696,7 +2639,6 @@ export const PasteMultiline: Story = {
  * sentinel only prints if no middle chunk was dropped or reordered.
  */
 export const PasteLongLine: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2722,7 +2664,6 @@ export const PasteLongLine: Story = {
  * rewritten as a command separator).
  */
 export const PasteQuotesAndSpecials: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2752,7 +2693,6 @@ export const PasteQuotesAndSpecials: Story = {
  * (tmux reports the new layout). Ctrl+0 resets.
  */
 export const FontSizeShortcuts: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2790,7 +2730,6 @@ export const FontSizeShortcuts: Story = {
  * cursor key, not a literal) and Enter — the same output prints a second time.
  */
 export const ArrowKeysHistory: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2820,7 +2759,6 @@ export const ArrowKeysHistory: Story = {
  * the completion worked.
  */
 export const TabCompletion: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2874,7 +2812,6 @@ async function openAppMenu(canvasElement: HTMLElement, user: ReturnType<typeof u
  * documentElement mode class must flip — the same real path a user takes.
  */
 export const ThemePickerViaMenu: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2929,7 +2866,6 @@ export const ThemePickerViaMenu: Story = {
  * line still reflects the real tmux status — asserted from the rendered bar.
  */
 export const StatusBarContent: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -2954,7 +2890,6 @@ export const StatusBarContent: Story = {
  * pane must render.
  */
 export const MenuPaneOps: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -2979,7 +2914,6 @@ export const MenuPaneOps: Story = {
  * navigate away, so the assertion stops at the rendered affordance.
  */
 export const HelpMenu: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3000,7 +2934,6 @@ export const HelpMenu: Story = {
  * the original restores its panes.
  */
 export const SessionMenuNewAndSwitch: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3039,7 +2972,6 @@ export const SessionMenuNewAndSwitch: Story = {
  * faithfully after every switch.
  */
 export const SessionRoundTrip: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3092,7 +3024,6 @@ export const SessionRoundTrip: Story = {
  * the app stays interactive.
  */
 export const SwitchSessionFailure: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -3141,7 +3072,6 @@ export const SwitchSessionFailure: Story = {
  * server, not by synthesizing the event.
  */
 export const FatalScreen: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -3162,7 +3092,6 @@ export const FatalScreen: Story = {
  * (a defined terminal state), never a blank/frozen UI.
  */
 export const LastPaneExit: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3196,7 +3125,6 @@ export const LastPaneExit: Story = {
  * sentinel text from any other story's commands, default active state.
  */
 export const SharedIsolation: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -3219,7 +3147,6 @@ export const SharedIsolation: Story = {
  * listeners, no leaked serial buffers from the reuse path).
  */
 export const SharedReattachStability: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -3246,7 +3173,6 @@ export const SharedReattachStability: Story = {
  * BEFORE interacting so anything thrown during the cycle is captured.
  */
 export const NoConsoleErrors: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const errors: string[] = [];
@@ -3284,7 +3210,6 @@ export const NoConsoleErrors: Story = {
  * exactly 2000 (a dropped or reordered chunk breaks the trailing sequence).
  */
 export const ThroughputSustained: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -3299,7 +3224,6 @@ export const ThroughputSustained: Story = {
  * send-keys load.
  */
 export const RapidCommandBurst: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -3397,7 +3321,6 @@ function recordClassHistory(el: Element): { history: () => string[]; disconnect:
  * (the paneKeyOverrides anti-flicker contract).
  */
 export const SplitOptimisticTimeline: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3448,7 +3371,6 @@ export const SplitOptimisticTimeline: Story = {
  * tmux error to the app (context.error → status-line message).
  */
 export const SplitRejectedRollback: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3509,7 +3431,6 @@ export const SplitRejectedRollback: Story = {
  * user-reachable failure mode for a plain new-window.
  */
 export const TabCreateOptimisticTimeline: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3547,7 +3468,6 @@ export const TabCreateOptimisticTimeline: Story = {
  * flap; the mutation log cannot).
  */
 export const SelectPaneImmediate: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3591,7 +3511,6 @@ export const SelectPaneImmediate: Story = {
  * SELECT_TAB grace-window pinning).
  */
 export const SelectTabImmediate: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3639,7 +3558,7 @@ export const SelectTabImmediate: Story = {
  * server reply means the client predicted a different pane than tmux chose).
  */
 export const NavigateKeysImmediate: Story = {
-  args: { height: 600, initCommands: ['select-layout even-horizontal', 'split-window -v'] },
+  args: { initCommands: ['select-layout even-horizontal', 'split-window -v'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3719,7 +3638,6 @@ export const NavigateKeysImmediate: Story = {
  * sees exactly one continuous motion.
  */
 export const SwapDragReconcile: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3817,7 +3735,6 @@ export const SwapDragReconcile: Story = {
  * not be sent to tmux as a target.
  */
 export const ConcurrentSplitsClaimIds: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3849,7 +3766,6 @@ export const ConcurrentSplitsClaimIds: Story = {
  * emulator + CI variance; a 10x pacing regression still fails loudly.
  */
 export const TypingRoundTripLatencyBudget: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -3881,7 +3797,6 @@ export const TypingRoundTripLatencyBudget: Story = {
  * pane, and the reconcile never resurrects it.
  */
 export const KillPaneOptimisticTimeline: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -3930,7 +3845,6 @@ export const KillPaneOptimisticTimeline: Story = {
  * must restore both panes' rects.
  */
 export const ZoomOptimisticTimeline: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4010,7 +3924,6 @@ export const ZoomOptimisticTimeline: Story = {
  * an adjacent tab activates, and the server confirm never flaps it back.
  */
 export const TabKillOptimistic: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4052,7 +3965,6 @@ export const TabKillOptimistic: Story = {
  * Enter, then the real `%window-renamed` confirms it (no flap back).
  */
 export const RenameTabOptimistic: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4127,7 +4039,6 @@ const activePaneState = () =>
  * activation, which synthetic story input cannot grant.
  */
 export const DoubleTripleClickSelect: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4218,7 +4129,6 @@ export const DoubleTripleClickSelect: Story = {
  * kill-window).
  */
 export const TabContextMenuOps: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4261,7 +4171,6 @@ export const TabContextMenuOps: Story = {
  * start of a pre-typed line).
  */
 export const PrefixTimeoutAndDoublePrefix: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4311,7 +4220,6 @@ export const PrefixTimeoutAndDoublePrefix: Story = {
  * literal "HH" into the shell.
  */
 export const RepeatResizeBindings: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4349,7 +4257,6 @@ export const RepeatResizeBindings: Story = {
  * `%output` stream (send-keys -l → tmux → bash echo → renderer).
  */
 export const IMEComposition: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -4375,7 +4282,6 @@ export const IMEComposition: Story = {
  * byte 27). The same key, two meanings, resolved by focus context.
  */
 export const EscapeSemanticsMatrix: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4421,7 +4327,6 @@ export const EscapeSemanticsMatrix: Story = {
  * commands, or disturb the layout. Pins the guard contract.
  */
 export const StatusBarNoOpGestures: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -4446,7 +4351,6 @@ export const StatusBarNoOpGestures: Story = {
  * pager never uses it).
  */
 export const WheelInAlternateScreen: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4556,7 +4460,6 @@ export const WheelInAlternateScreen: Story = {
  * selector drift would blind every budget in this file).
  */
 export const SteadyStreamNoBlinkV86: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -4593,7 +4496,6 @@ export const SteadyStreamNoBlinkV86: Story = {
  * most a bounded class churn, and zero geometry movement.
  */
 export const ThemeSwitchChurn: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4642,7 +4544,6 @@ export const ThemeSwitchChurn: Story = {
  * world" regression still fails loudly.
  */
 export const RenderBudgetCanary: Story = {
-  args: { height: 600 },
   render: (args) => {
     enableRenderLog();
     return <V86AppHarness {...args} />;
@@ -4689,7 +4590,6 @@ export const RenderBudgetCanary: Story = {
  * landed at the right rows, top-aligned in the pane) — driven by real tmux.
  */
 export const SwapKeepsContentInCorrectLines: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4801,7 +4701,6 @@ export const SwapKeepsContentInCorrectLines: Story = {
  * the wrong absolute rows). Driven by real tmux via drag-and-drop.
  */
 export const DragSwapKeepsContentInCorrectLines: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -4939,7 +4838,6 @@ export const DragSwapKeepsContentInCorrectLines: Story = {
  * full-screen pane would hide this, so the panes are deliberately short.
  */
 export const DragSwapShortContentStaysTopAnchored: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -5053,7 +4951,6 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
  * deterministic engine and gate CI; this proves it survives real tmux re-tiling.
  */
 export const ContentBlinkFreeOnPaneOps: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -5118,7 +5015,6 @@ export const ContentBlinkFreeOnPaneOps: Story = {
  *     render fully below the header.
  */
 export const NewTabNoBlinkFirstRowVisible: Story = {
-  args: { height: 600 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
