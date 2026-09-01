@@ -6,6 +6,7 @@ import type {
   ServerImagePlacement,
 } from '../types';
 import { LifoShell } from './LifoShell';
+import { LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../../machines/constants';
 
 // ============================================
 // Layout Tree
@@ -35,6 +36,11 @@ interface FakePane {
   windowId: string;
   shell: LifoShell;
   command: string;
+  /**
+   * App-set pane title (OSC 0/2). Empty until something sets one, mirroring
+   * what real tmux reports through `APP_PANE_TITLE` — the pane header then
+   * falls back to `command`.
+   */
   title: string;
   /** Image placements injected into this pane (storybook / test-only path). */
   images?: ServerImagePlacement[];
@@ -47,10 +53,12 @@ interface FakeWindow {
   manualName: boolean; // true if renamed manually, prevents auto-update from cwd
   layout: LayoutNode;
   layoutCycle: number; // tracks position in layout cycle
-  windowType: 'tab' | 'float' | 'float-backdrop' | 'group' | 'sidebar';
+  windowType: 'tab' | 'float' | 'float-backdrop' | 'group' | 'sidebar-left' | 'sidebar-right';
   groupPanes: string[] | null;
   // Float options (only meaningful when windowType === 'float'). Mirror the
   // @tmuxy-float-* tmux window options the real CLI sets via bin/tmuxy/float-create.
+  /** Dragged width of a sidebar column, in cells (@tmuxy-sidebar-cols). */
+  sidebarCols?: number | null;
   floatDrawer?: 'left' | 'right' | 'top' | 'bottom' | null;
   floatBg?: 'dim' | 'blur' | 'none' | null;
   floatNoheader?: boolean;
@@ -123,7 +131,7 @@ export class DemoTmux {
       windowId,
       shell,
       command: 'bash',
-      title: 'bash',
+      title: '',
     };
     this.panes.set(paneId, pane);
 
@@ -181,12 +189,13 @@ export class DemoTmux {
     const panes: ServerPane[] = [];
     for (const [, pane] of this.panes) {
       const pos = posMap.get(pane.id);
-      // Include panes from active window, float windows, group windows, and the
-      // hidden sidebar window (rendered in the left drawer).
+      // Include panes from the active window, float windows, group windows, and
+      // both sidebar windows (each rendered in its own docked column).
       const paneWindow = this.windows.find((w) => w.id === pane.windowId);
       const isFloat = paneWindow?.windowType === 'float';
       const isGroup = paneWindow?.windowType === 'group';
-      const isSidebar = paneWindow?.windowType === 'sidebar';
+      const isSidebar =
+        paneWindow?.windowType === 'sidebar-left' || paneWindow?.windowType === 'sidebar-right';
       if (pane.windowId !== this.activeWindowId && !isFloat && !isGroup && !isSidebar) continue;
       // In zoom mode, only show the zoomed pane from the active window
       if (
@@ -242,6 +251,7 @@ export class DemoTmux {
         float_drawer: w.floatDrawer ?? null,
         float_bg: w.floatBg ?? null,
         float_noheader: w.floatNoheader ?? false,
+        sidebar_cols: w.sidebarCols ?? null,
       }));
 
     return {
@@ -308,7 +318,7 @@ export class DemoTmux {
       windowId: window.id,
       shell,
       command: 'bash',
-      title: 'bash',
+      title: '',
     };
     this.panes.set(paneId, pane);
 
@@ -381,7 +391,7 @@ export class DemoTmux {
       windowId,
       shell,
       command: 'bash',
-      title: 'bash',
+      title: '',
     };
     this.panes.set(paneId, pane);
 
@@ -865,6 +875,74 @@ export class DemoTmux {
     return true;
   }
 
+  /**
+   * Create one of the two sidebar columns: a single-pane window tagged
+   * `sidebar-left` / `sidebar-right`, mirroring the `split-window ; break-pane ;
+   * set-option` list `breakOutTaggedWindow` sends to a real tmux server.
+   *
+   * The pane is sized to that column's width — the demo's stand-in for the
+   * backend's `sidebar_dock::size` pass — so the tree/terminal inside it wraps
+   * where the UI draws it, as on a real server.
+   */
+  createSidebar(side: 'left' | 'right', widget?: string): string | null {
+    const existing = this.windows.find((w) => w.windowType === `sidebar-${side}`);
+    if (existing) return null;
+
+    const paneId = this.allocPaneId();
+    const windowId = this.allocWindowId();
+    const cols = side === 'left' ? LEFT_SIDEBAR_COLS : RIGHT_SIDEBAR_COLS;
+
+    const shell = this.makeShell(paneId, cols, this.totalHeight);
+    shell.writePrompt();
+
+    this.panes.set(paneId, {
+      id: paneId,
+      numericId: parseInt(paneId.slice(1)),
+      windowId,
+      shell,
+      command: 'bash',
+      title: '',
+    });
+
+    const usedIndices = new Set(this.windows.map((w) => w.index));
+    let index = GROUP_WINDOW_INDEX_BASE;
+    while (usedIndices.has(index)) index++;
+
+    this.windows.push({
+      id: windowId,
+      index,
+      name: side === 'left' ? 'tree' : 'terminal',
+      manualName: true,
+      layout: { type: 'leaf', paneId },
+      layoutCycle: 0,
+      windowType: `sidebar-${side}`,
+      groupPanes: null,
+      floatDrawer: null,
+      floatBg: null,
+      floatNoheader: false,
+      floatWidth: null,
+      floatHeight: null,
+    });
+
+    if (widget) this.writeWidget(paneId, widget, []);
+    // Don't switch active window — a sidebar docks beside the tab, it isn't one.
+    return paneId;
+  }
+
+  /**
+   * Set a sidebar column's dragged width, and resize its pane to match — the
+   * demo's stand-in for the backend's client-size pass, which is what makes the
+   * content inside rewrap as the column moves.
+   */
+  setSidebarCols(windowId: string, cols: number): void {
+    const window = this.windows.find((w) => w.id === windowId);
+    if (!window) return;
+    window.sidebarCols = cols;
+    for (const pane of this.panes.values()) {
+      if (pane.windowId === windowId) pane.shell.resize(cols, this.totalHeight);
+    }
+  }
+
   createFloat(options: CreateFloatOptions = {}): string | null {
     const paneId = this.allocPaneId();
     const windowId = this.allocWindowId();
@@ -884,7 +962,7 @@ export class DemoTmux {
       windowId,
       shell,
       command: 'bash',
-      title: 'bash',
+      title: '',
     };
     this.panes.set(paneId, pane);
 
@@ -977,7 +1055,7 @@ export class DemoTmux {
       windowId: groupWindow.id,
       shell,
       command: 'bash',
-      title: 'bash',
+      title: '',
     };
     this.panes.set(newPaneId, newPane);
 

@@ -10,6 +10,7 @@ import type {
   ClipboardListener,
   KeyBindings,
 } from '../types';
+import type { TraceSettings } from '../../machines/types';
 import { DemoTmux } from './DemoTmux';
 import { saveThemeToStorage, loadThemeFromStorage } from '../../utils/themeManager';
 
@@ -127,6 +128,18 @@ export class DemoAdapter implements TmuxAdapter {
   private initRows = 0;
   /** True after the first set_client_size has been handled (no further reinit) */
   private firstSizeHandled = false;
+  /**
+   * In-memory stand-in for the backend's trace switch. The demo writes no
+   * file — it exists so the Debug menu renders and reacts like the real one.
+   */
+  private traceSettings: TraceSettings = {
+    enabled: false,
+    level: 'shape',
+    // A path inside the demo's own simulated home, so "copy path" hands back
+    // something consistent with the rest of the demo filesystem.
+    path: '/home/demo/.local/state/tmuxy/trace.ndjson',
+    locked: false,
+  };
 
   private stateListeners = new Set<StateListener>();
   private errorListeners = new Set<ErrorListener>();
@@ -312,6 +325,22 @@ export class DemoAdapter implements TmuxAdapter {
           { name: 'tokyonight', displayName: 'Tokyo Night' },
         ] as T;
 
+      // Local action tracing (docs/TELEMETRY.md). The demo has no backend to
+      // write an NDJSON file, so it models the switch in memory: the Debug
+      // menu is fully explorable, and nothing is ever recorded.
+      case 'get_trace_settings':
+        return { ...this.traceSettings } as T;
+
+      case 'set_trace_enabled':
+        this.traceSettings.enabled = Boolean(args?.enabled);
+        return this.traceSettings.enabled as T;
+
+      case 'set_trace_level': {
+        const level = args?.level;
+        this.traceSettings.level = level === 'labeled' || level === 'full' ? level : 'shape';
+        return this.traceSettings.level as T;
+      }
+
       default:
         return null as T;
     }
@@ -400,6 +429,27 @@ export class DemoAdapter implements TmuxAdapter {
       return;
     }
 
+    // The sidebar columns arrive as ONE compound command list
+    // (`split-window ; break-pane ; set-option @tmuxy-window-type sidebar-*`),
+    // which this engine doesn't split on `\;` — and the tag is the whole point,
+    // since it is what makes the window a column rather than a tab. Recognise
+    // the list by its tag and build the column directly.
+    const sidebarTag = command.match(/@tmuxy-window-type\s+sidebar-(left|right)/);
+    if (sidebarTag) {
+      const widget = command.match(/tmuxy\s+widget\s+(\w+)/);
+      this.tmux.createSidebar(sidebarTag[1] as 'left' | 'right', widget?.[1]);
+      return;
+    }
+
+    // A sidebar column being dragged to a new width.
+    const sidebarWidth = command.match(
+      /set-option\s+-w\s+-t\s+(@\d+)\s+@tmuxy-sidebar-cols\s+(\d+)/,
+    );
+    if (sidebarWidth) {
+      this.tmux.setSidebarCols(sidebarWidth[1], Number(sidebarWidth[2]));
+      return;
+    }
+
     // Parse tmux command
     const parts = this.parseTmuxCommand(command);
     if (parts.length === 0) return;
@@ -415,7 +465,13 @@ export class DemoAdapter implements TmuxAdapter {
       case 'split-window':
       case 'splitw': {
         const isVertical = parts.includes('-h');
-        this.tmux.splitPane(isVertical ? 'vertical' : 'horizontal');
+        const newPaneId = this.tmux.splitPane(isVertical ? 'vertical' : 'horizontal');
+        // A split can carry a command to run in the new pane. The one the app
+        // itself issues is `tmuxy widget <name>` (the tree column), so honour
+        // that form: without it the left sidebar's pane would come up as a bare
+        // shell here and never render its widget.
+        const widget = command.match(/tmuxy\s+widget\s+(\w+)/);
+        if (newPaneId && widget) this.tmux.writeWidget(newPaneId, widget[1], []);
         break;
       }
 

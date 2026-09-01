@@ -127,6 +127,8 @@ export interface SessionTreePane {
   id: string;
   windowId: string;
   command: string;
+  /** App-set pane title (OSC 0/2); empty when the app never set one. */
+  title: string;
   active: boolean;
 }
 
@@ -192,13 +194,29 @@ export interface AppMachineContext {
   floatPanes: Record<string, FloatPaneState>;
   /** Pane ID of the currently focused float (keyboard routes here instead of session) */
   focusedFloatPaneId: string | null;
-  /** Whether the left sidebar drawer (the React tab/pane tree) is open */
-  sidebarOpen: boolean;
   /**
-   * Whether the sidebar tree holds keyboard focus. While true, keys drive the
-   * SidebarTree (j/k/Enter/Escape) instead of reaching a pane.
+   * Whether the left sidebar column (the tab/pane tree) is open. Its pane lives
+   * in a `sidebar-left`-typed window running `tmuxy widget tree`; closing hides
+   * the column and kills that pane.
    */
-  sidebarFocused: boolean;
+  leftSidebarOpen: boolean;
+  /**
+   * Whether the tree column holds keyboard focus. While true, keys drive the
+   * tree widget (j/k/Enter/Escape) instead of reaching a tab's pane.
+   */
+  leftSidebarFocused: boolean;
+  /**
+   * Whether the right sidebar column (the pinned terminal) is open. The pane
+   * behind it lives in a `sidebar-right`-typed window and survives closing —
+   * closing hides the column, it never kills the shell.
+   */
+  rightSidebarOpen: boolean;
+  /**
+   * Whether the pinned terminal dock holds keyboard focus. While true, keys are
+   * routed to its pane instead of the active tab's pane (same mechanism a
+   * focused float uses).
+   */
+  rightSidebarFocused: boolean;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /** Keybindings received from the server */
@@ -240,6 +258,12 @@ export interface AppMachineContext {
   themeMode: 'dark' | 'light';
   /** Available themes from server */
   availableThemes: Array<{ name: string; displayName: string }>;
+  /**
+   * Local action tracing as the backend last reported it, or null before the
+   * Debug menu has asked. Never assumed from the client side: an enable can be
+   * refused by a kill switch, so the UI renders the backend's answer.
+   */
+  traceSettings: TraceSettings | null;
   /** Whether the app container is focused (for keyboard capture gating) */
   appFocused: boolean;
   /** Whether the tmux prefix key has been pressed and we're awaiting a binding key */
@@ -476,10 +500,15 @@ export type ZoomPaneEvent = { type: 'ZOOM_PANE'; paneId: string };
 export type CloseFloatEvent = { type: 'CLOSE_FLOAT'; paneId: string };
 export type CloseTopFloatEvent = { type: 'CLOSE_TOP_FLOAT' };
 
-// Sidebar (left drawer running the `tmuxy tree` TUI)
-export type ToggleSidebarEvent = { type: 'TOGGLE_SIDEBAR' };
-export type FocusSidebarEvent = { type: 'FOCUS_SIDEBAR' };
-export type BlurSidebarEvent = { type: 'BLUR_SIDEBAR' };
+// Left sidebar (the tree column — a `sidebar-left`-typed tmux window)
+export type ToggleLeftSidebarEvent = { type: 'TOGGLE_LEFT_SIDEBAR' };
+export type FocusLeftSidebarEvent = { type: 'FOCUS_LEFT_SIDEBAR' };
+export type BlurLeftSidebarEvent = { type: 'BLUR_LEFT_SIDEBAR' };
+
+// Right sidebar (the pinned terminal — a `sidebar-right`-typed tmux window)
+export type ToggleRightSidebarEvent = { type: 'TOGGLE_RIGHT_SIDEBAR' };
+export type FocusRightSidebarEvent = { type: 'FOCUS_RIGHT_SIDEBAR' };
+export type BlurRightSidebarEvent = { type: 'BLUR_RIGHT_SIDEBAR' };
 export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: string };
 
 /**
@@ -600,6 +629,28 @@ export type ThemesListReceivedEvent = {
   themes: Array<{ name: string; displayName: string }>;
 };
 
+/** Usefulness↔sensitivity dial for the local action trace (docs/TELEMETRY.md). */
+export type TraceLevel = 'shape' | 'labeled' | 'full';
+
+/** The Debug menu's view of local action tracing, as the backend reports it. */
+export interface TraceSettings {
+  enabled: boolean;
+  level: TraceLevel;
+  /** File the backend writes to; null when no state dir could be resolved. */
+  path: string | null;
+  /** A DO_NOT_TRACK / TMUXY_NO_TRACE kill switch forbids turning it on. */
+  locked: boolean;
+}
+
+export type FetchTraceSettingsEvent = { type: 'FETCH_TRACE_SETTINGS' };
+export type TraceSettingsReceivedEvent = {
+  type: 'TRACE_SETTINGS_RECEIVED';
+  settings: TraceSettings;
+};
+export type SetTraceEnabledEvent = { type: 'SET_TRACE_ENABLED'; enabled: boolean };
+export type SetTraceLevelEvent = { type: 'SET_TRACE_LEVEL'; level: TraceLevel };
+export type OpenTraceFileEvent = { type: 'OPEN_TRACE_FILE' };
+
 /** All events the app machine can receive from external sources */
 export type AppMachineEvent =
   | TmuxConnectedEvent
@@ -648,9 +699,12 @@ export type AppMachineEvent =
   | ZoomPaneEvent
   | CloseFloatEvent
   | CloseTopFloatEvent
-  | ToggleSidebarEvent
-  | FocusSidebarEvent
-  | BlurSidebarEvent
+  | ToggleLeftSidebarEvent
+  | FocusLeftSidebarEvent
+  | BlurLeftSidebarEvent
+  | ToggleRightSidebarEvent
+  | FocusRightSidebarEvent
+  | BlurRightSidebarEvent
   | WriteToPaneEvent
   | CommandModeSubmitEvent
   | CommandModeCancelEvent
@@ -660,6 +714,11 @@ export type AppMachineEvent =
   | SetThemeModeEvent
   | ThemeSettingsReceivedEvent
   | ThemesListReceivedEvent
+  | FetchTraceSettingsEvent
+  | TraceSettingsReceivedEvent
+  | SetTraceEnabledEvent
+  | SetTraceLevelEvent
+  | OpenTraceFileEvent
   | AppFocusEvent
   | AppBlurEvent
   | PrefixModeChangeEvent

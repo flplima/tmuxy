@@ -39,11 +39,11 @@ async function getTmuxState(page) {
   try {
     // Get windows: id, index, name, active, type. Keep tabs only — tabs carry
     // no `@tmuxy-window-type` marker, so a tab is any window NOT tagged as
-    // float/float-backdrop/sidebar chrome.
+    // float/float-backdrop/sidebar-left/sidebar-right chrome.
     const winRaw = tmuxQuery(
       `list-windows -t ${sessionName} -F "#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{@tmuxy-window-type}"`,
     );
-    const CHROME_TYPES = ['float', 'float-backdrop', 'sidebar'];
+    const CHROME_TYPES = ['float', 'float-backdrop', 'sidebar-left', 'sidebar-right'];
     const windows = winRaw
       .split('\n')
       .filter(Boolean)

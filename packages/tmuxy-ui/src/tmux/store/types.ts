@@ -34,6 +34,16 @@ export interface TmuxSnapshot {
   readonly totalHeight: number;
   readonly statusLine: string;
   readonly sessionName: string;
+  /**
+   * A one-shot focus request queued by a shell helper (`tmuxy nav` at the edge
+   * of the grid): `left` / `right` / `panes`, or `''` when nothing is pending.
+   *
+   * Unlike everything else here this is a SIGNAL, not state — the client that
+   * acts on it unsets the tmux option behind it. It rides the snapshot because
+   * that is the wire message it arrives on, and no optimistic op ever predicts
+   * it.
+   */
+  readonly focusRequest: string;
 }
 
 export const EMPTY_SNAPSHOT: TmuxSnapshot = {
@@ -45,6 +55,7 @@ export const EMPTY_SNAPSHOT: TmuxSnapshot = {
   totalHeight: 0,
   statusLine: '',
   sessionName: '',
+  focusRequest: '',
 };
 
 /** Branded string so a raw string can't be passed where an OpId is expected. */

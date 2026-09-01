@@ -1,0 +1,19 @@
+#!/bin/bash
+# Render the tabs+panes tree in a tmuxy widget pane
+#
+# Usage: tmuxy-widget-tree
+#
+# The tree has no content to stream. Unlike the image/markdown widgets — which
+# pipe a payload the React component renders — the tree is derived entirely from
+# the tmux state the app already holds, so this only has to declare the widget
+# and keep the pane alive so the pane (and therefore the column) stays open.
+#
+# The pane still matters: it is what gives the left sidebar a real pane id, so
+# it can be focused, navigated into with ctrl+hjkl, and sized by the backend
+# exactly like the right sidebar's shell.
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+{ while true; do sleep 3600; done; } | "${SCRIPTS_DIR}/tmuxy-widget" tree

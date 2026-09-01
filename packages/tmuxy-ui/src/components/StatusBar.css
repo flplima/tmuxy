@@ -20,15 +20,96 @@
   flex-shrink: 0;
 }
 
+/* Spans the window; the three clusters below carve it into the same columns
+   the body has, so the bar's dividers line up with the sidebars'. The 12px
+   inset matches .pane-container's, which is what keeps the tab strip aligned
+   with the pane grid. */
 .statusbar-inner {
   display: flex;
   align-items: center;
   height: 100%;
   gap: var(--spacing-xl);
   width: 100%;
+  padding: 0 var(--spacing-3xl);
+  box-sizing: border-box;
 }
 
-/* Sidebar toggle - icon button between the app menu and the tab list */
+/* One header cluster per sidebar. While its column is docked the cluster is
+   pinned to that column's exact width (set inline) and ends on the column's
+   divider — so it carries the same 1px line the column draws, and the title and
+   toggle inside it sit over the panel they belong to. Closed, it shrinks to just
+   its buttons and the line disappears with the column. */
+.statusbar-cluster {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  min-width: 0;
+  flex-shrink: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.statusbar-cluster-left.is-docked {
+  border-right: 1px solid var(--border-medium);
+  padding-right: var(--spacing-lg);
+}
+
+.statusbar-cluster-right.is-docked {
+  border-left: 1px solid var(--border-medium);
+  padding-left: var(--spacing-lg);
+}
+
+/* Sidebar title — the column's label, since a docked column has no header of
+   its own. Brightness is the focus cue (see SidebarTitle.tsx). */
+.sidebar-title {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.9);
+  color: var(--term-white);
+  opacity: 0.5;
+  transition: opacity var(--transition-fast);
+}
+
+.sidebar-title.is-focused {
+  opacity: 1;
+}
+
+.sidebar-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-title-switcher {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-subtle);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.sidebar-title-switcher:hover {
+  color: var(--term-white);
+  background-color: var(--bg-medium);
+}
+
+/* Sidebar toggle - icon button at its cluster's inner edge */
 .sidebar-toggle {
   display: flex;
   align-items: center;
@@ -48,39 +129,47 @@
     color var(--transition-fast);
 }
 
+.sidebar-toggle-left {
+  margin-left: auto;
+}
+
 .sidebar-toggle:hover {
   color: var(--text-muted);
   background-color: var(--bg-medium);
 }
 
+/* Open: the icon brightens. No filled background — an open sidebar is already
+   visible on screen, so a persistent pill next to it is noise. */
 .sidebar-toggle-active {
   color: var(--term-white);
-  background-color: var(--bg-medium);
 }
 
-/* Tab list */
+/* Tab list — sits over the pane grid, between the two sidebar clusters. */
 .tab-list {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3xl);
+  gap: var(--spacing-md);
   flex: 1;
-  overflow-x: auto;
-  scrollbar-width: none;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.tab-list::-webkit-scrollbar {
-  display: none;
-}
-
-/* Tab name - plain text, clickable */
+/* Tab name - plain text, clickable. Every tab gets an equal share of the strip
+   and centres its label, so renaming one never shifts the others sideways. */
 .tab-name {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
   color: var(--term-white);
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: var(--spacing-md) var(--spacing-2xl);
   border-radius: var(--radius-md);
   opacity: 0.5;
+  cursor: pointer;
   transition:
     color var(--transition-fast),
     background-color var(--transition-fast),
@@ -92,16 +181,26 @@
   opacity: 0.8;
 }
 
-/* Active tab */
+/* Active tab: brightness only. A filled pill would compete with the active
+   pane's own border for "where am I", and the tab strip is the coarser of the
+   two — so it states it more quietly. */
 .tab-name-active {
-  color: var(--term-white);
-  background-color: var(--bg-medium);
   opacity: 1;
 }
 
 .tab-name-active:hover {
-  background-color: var(--bg-medium);
   opacity: 1;
+}
+
+/* A lone tab has nothing to be active against — it reads as a plain title. */
+.tab-list-single .tab-name {
+  opacity: 0.75;
+  cursor: default;
+}
+
+.tab-list-single .tab-name:hover {
+  background-color: transparent;
+  opacity: 0.75;
 }
 
 /* Add tab button */

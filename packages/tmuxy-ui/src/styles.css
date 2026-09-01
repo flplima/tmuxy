@@ -1534,87 +1534,289 @@
 }
 
 /* ============================================
-   Sidebar tree (left drawer tab/pane tree)
+   Sidebars (left tab/pane tree, right pinned terminal)
    ============================================ */
-/* App body: horizontal flex row holding the fixed sidebar column + the pane
-   area, so an open sidebar genuinely shrinks the pane container (its
-   ResizeObserver then drives the tmux re-tile). */
+/* App body: horizontal flex row holding the sidebar columns + the pane area,
+   so an open sidebar genuinely shrinks the pane container (its ResizeObserver
+   then drives the tmux re-tile). */
 .app-body {
   display: flex;
   flex: 1;
   min-height: 0;
   min-width: 0;
+  /* Containing block for an OVERLAYING sidebar column and its backdrop, which
+     are absolutely positioned to cover the tab strip above them too. */
+  position: relative;
 }
 
-/* Fixed left sidebar column (full height, fixed width). */
-.sidebar-fixed {
-  height: 100%;
+/* ---- The frame both columns share (see SidebarColumn.tsx) ---- */
+.sidebar-column {
+  /* No `height: 100%` — the percentage does not resolve against a flex parent
+     whose own height comes from `flex: 1`, and setting it at all opts the
+     column OUT of `align-items: stretch`, leaving it as tall as its content
+     (a short tree left a 180px column in a 597px body). Cross-size `auto` lets
+     stretch fill the app body, which is what both columns want. */
   box-sizing: border-box;
+  /* Containing block for the resize handle, which straddles the divider. */
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid var(--term-bright-black, #313244);
+  /* Opaque: the column sits beside the pane grid, so it must not let the
+     app-chrome background bleed through and read as part of a pane. */
+  background: var(--term-background);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.sidebar-fixed.is-focused {
-  border-right-color: var(--term-green);
+/* The divider faces the pane grid. It stays a flat gray in EVERY state: focus
+   is shown by the title's brightness and where the cursor sits (see
+   SidebarTitle.tsx), so a column that lights up its own edge would be saying
+   the same thing twice — and saying it in the accent an active PANE border
+   uses, which means something else. The matching half of this line is drawn by
+   the header cluster above (.statusbar-cluster-*.is-docked). */
+.sidebar-column-left {
+  border-right: 1px solid var(--border-medium);
 }
 
+.sidebar-column-right {
+  border-left: 1px solid var(--border-medium);
+}
+
+/* Narrow windows: the column floats over the panes and the tab strip above
+   them rather than taking width out of a grid that has none to give. It starts
+   at the top of the app chrome, so its own header lands where the tab strip
+   was. */
+.sidebar-column.is-overlay {
+  position: absolute;
+  top: calc(-1 * var(--statusbar-height));
+  bottom: 0;
+  /* Beats the `height: 100%` above, which would otherwise win over the
+     top/bottom pair and leave the column a header-row short at the bottom. */
+  height: auto;
+  z-index: 30;
+}
+
+.sidebar-column-left.is-overlay {
+  left: 0;
+}
+
+.sidebar-column-right.is-overlay {
+  right: 0;
+}
+
+/* The drag strip on a column's inner edge. Invisible until grabbed — it sits on
+   the divider, and a permanently drawn grip would read as a second border. Wider
+   than the 1px divider so it is actually catchable with a mouse. Kept just
+   inside the column rather than straddling the divider, because the column
+   clips its overflow. */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.sidebar-column-left .sidebar-resize-handle {
+  right: 0;
+}
+
+.sidebar-column-right .sidebar-resize-handle {
+  left: 0;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.is-dragging {
+  background: var(--accent-blue-light);
+  opacity: 0.35;
+}
+
+.sidebar-backdrop {
+  position: absolute;
+  inset: calc(-1 * var(--statusbar-height)) 0 0;
+  background: rgb(0 0 0 / 55%);
+  z-index: 29;
+}
+
+/* Only an OVERLAYING column has a header — a docked one puts its title in the
+   app header instead. Exactly one terminal row tall, like a pane header. */
 .sidebar-header {
-  flex: 0 0 auto;
-  padding: 4px 8px;
+  flex: 0 0 var(--statusbar-height);
+  height: var(--statusbar-height);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xl);
+  padding: 0 var(--spacing-2xl);
   font-family: var(--font-mono);
-  font-size: 0.85em;
-  color: var(--term-bright-black);
-  border-bottom: 1px solid var(--term-bright-black, #313244);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.9);
+  color: var(--term-white);
+  border-bottom: 1px solid var(--border-medium);
 }
 
-.sidebar-fixed .sidebar-tree {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0;
+/* min-width:0 is what actually enables the ellipsis: a flex item defaults to
+   min-width:auto and refuses to shrink below its text, so without it a long
+   title overflows the column instead of truncating. */
+.sidebar-header-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  opacity: 0.75;
 }
 
-.sidebar-tree {
+.sidebar-column.is-focused .sidebar-header-title {
+  opacity: 1;
+}
+
+.sidebar-header-close {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.sidebar-header-close:hover {
+  background: var(--bg-highlight);
+}
+
+.sidebar-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---- Either column's pane, when it renders as a terminal ---- */
+/* Height is set inline to rows × charHeight so the rendered grid matches the
+   size the backend gave the tmux pane exactly. */
+.sidebar-terminal {
+  overflow: hidden;
+  background: var(--term-background);
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
-  color: var(--term-foreground);
-  user-select: none;
 }
 
+.sidebar-placeholder {
+  padding: var(--spacing-xl);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--text-subtle);
+}
+
+/* ---- Left column: the tab/pane tree widget ---- */
+.sidebar-tree {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-lg) 0;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.9);
+  color: var(--term-foreground);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+.sidebar-tree::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-tree::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+.sidebar-tree::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Every row keeps the same padding — a pane's depth is drawn by its connector
+   glyph, not by indentation, which would cost a third of a 30-column column. */
+.sidebar-tree-session,
 .sidebar-tree-tab,
 .sidebar-tree-pane {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  height: var(--line-height-terminal);
+  padding: 0 var(--spacing-2xl);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
 }
 
-.sidebar-tree-pane {
-  padding-left: 26px;
-  color: var(--term-bright-black);
+.sidebar-tree-session {
+  gap: var(--spacing-lg);
+  font-weight: 600;
 }
 
+/* Tabs are the tree's headings: full-strength text. */
+.sidebar-tree-tab {
+  color: var(--term-white);
+  opacity: 0.75;
+}
+
+/* Panes recede under their tab, so scanning the tree reads tab names first. */
+.sidebar-tree-pane {
+  color: var(--text-dimmed);
+}
+
+/* The box-drawing connector — quieter than the label it points at. */
+.sidebar-tree-branch {
+  flex: 0 0 auto;
+  color: var(--text-dimmed);
+  opacity: 0.55;
+  white-space: pre;
+}
+
+.sidebar-tree-session:hover,
 .sidebar-tree-tab:hover,
 .sidebar-tree-pane:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--accent-blue-bg);
 }
 
-.sidebar-tree-tab.is-active .sidebar-tree-label,
+/* Where the session actually is. The active tab and the active pane inside it
+   both go green, so the eye lands on the pair. */
+.sidebar-tree-session.is-active,
+.sidebar-tree-tab.is-active,
 .sidebar-tree-pane.is-active {
-  color: var(--term-green);
+  color: var(--accent-green);
+  opacity: 1;
 }
 
-.sidebar-tree-tab.is-selected,
-.sidebar-tree-pane.is-selected {
-  background: rgba(137, 180, 250, 0.18);
+/* ...and the pane keeps a dot, because "green" alone reads the same on the tab
+   above it — the dot is what says the keyboard is HERE. */
+.sidebar-tree-active-dot {
+  margin-left: auto;
+  padding-left: var(--spacing-md);
+  color: var(--accent-green);
+  opacity: 0.7;
+}
+
+/* The keyboard cursor. Only meaningful while the column has focus — an idle
+   sidebar showing a live cursor reads as if it were driving the app — so it is
+   drawn only then. */
+.sidebar-column.is-focused .sidebar-tree-session.is-selected,
+.sidebar-column.is-focused .sidebar-tree-tab.is-selected,
+.sidebar-column.is-focused .sidebar-tree-pane.is-selected {
+  background: var(--accent-blue-bg-hover);
 }
 
 .sidebar-tree-tab.is-drop-target {
-  outline: 1px dashed var(--term-green);
+  outline: 1px dashed var(--accent-green);
   outline-offset: -1px;
 }
 
@@ -1622,45 +1824,20 @@
   opacity: 0.5;
 }
 
-.sidebar-tree-twisty {
-  color: var(--term-bright-black);
-  font-size: 0.7em;
-}
-
 .sidebar-tree-icon {
   flex: 0 0 auto;
+  padding-right: var(--spacing-md);
   font-family: var(--font-mono);
   opacity: 0.85;
 }
 
+/* See .sidebar-header-title: min-width:0 is required for the ellipsis. */
 .sidebar-tree-label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* Session header row (desktop sessions→tabs→panes tree). */
-.sidebar-tree-session {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  font-weight: 600;
-  text-transform: none;
-}
-
-.sidebar-tree-session:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.sidebar-tree-session.is-active .sidebar-tree-label {
-  color: var(--term-green);
-}
-
-.sidebar-tree-session.is-selected {
-  background: rgba(137, 180, 250, 0.18);
 }
 
 /* Rows for sessions the app is not attached to — dimmed, read-only. */

@@ -83,6 +83,11 @@ function preserveWindow(prev: TmuxWindow, next: TmuxWindow): TmuxWindow {
     prev.floatDrawer === next.floatDrawer &&
     prev.floatBg === next.floatBg &&
     prev.floatNoheader === next.floatNoheader &&
+    // A sidebar column's dragged width is the ONLY thing a resize changes about
+    // its window, so omitting it here would pin the old object and leave the
+    // column drawn at its previous width while its pane has already rewrapped
+    // to the new one.
+    (prev.sidebarCols ?? null) === (next.sidebarCols ?? null) &&
     // Zoom toggles change nothing else about the window, so omitting it here
     // pins the old object identity and the UI stays stuck in (or out of) zoom
     // until some unrelated field happens to change.
@@ -116,7 +121,8 @@ export function preserveSnapshotIdentity(prev: TmuxSnapshot, next: TmuxSnapshot)
     prev.totalWidth === next.totalWidth &&
     prev.totalHeight === next.totalHeight &&
     prev.statusLine === next.statusLine &&
-    prev.sessionName === next.sessionName;
+    prev.sessionName === next.sessionName &&
+    prev.focusRequest === next.focusRequest;
 
   if (panesSame && windowsSame && scalarsSame) return prev;
   return {

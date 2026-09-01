@@ -2,8 +2,8 @@
 # Shared helpers for tmuxy shell scripts.
 #
 # Window typing is sourced from the @tmuxy-window-type window option, with
-# values: tab | float | float-backdrop. Windows without @tmuxy-window-type are
-# foreign — tmuxy ignores them.
+# values: float | float-backdrop | sidebar-left | sidebar-right. A window
+# without @tmuxy-window-type is a tab.
 #
 # Pane groups are identified by a per-pane @tmuxy-group-id option (e.g. g5) set
 # on every member. The visible member lives in the attached session; the hidden
@@ -53,9 +53,32 @@ _run_safe() {
 
 # Get the window type set on a window via @tmuxy-window-type.
 # Args: $1=window_id (e.g., @5)
-# Output: tab|float|float-backdrop  (empty if not set / foreign)
+# Output: float|float-backdrop|sidebar-left|sidebar-right  (empty for a tab)
 window_type() {
   _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
+}
+
+# The window id of a sidebar column, if that column currently exists.
+# Args: $1=left|right
+# Output: window id (e.g. @7), or empty.
+sidebar_window() {
+  _tmux list-windows -F '#{window_id} #{@tmuxy-window-type}' 2>/dev/null \
+    | awk -v t="sidebar-$1" '$2 == t { print $1; exit }'
+}
+
+# Ask the connected clients to move keyboard focus somewhere no tmux command
+# can: into a sidebar column, or back out to the panes. Focusing a sidebar is a
+# client-side concept — its pane lives in another window, so `select-pane` would
+# switch the visible tab — which leaves the shell no way to do it directly.
+#
+# The request is a session option; it rides the client's existing list-windows
+# poll (it is read as a per-window column, but set at session scope so every row
+# carries it) and the client that acts on it unsets it. See
+# `tmux_options::FOCUS_REQUEST` in tmuxy-core.
+# Args: $1=left|right|panes
+request_focus() {
+  _tmux set-option -t "$(_tmux display-message -p '#{session_name}')" \
+    @tmuxy-focus-request "$1" 2>/dev/null || true
 }
 
 # Ensure the stash session exists, creating it detached if needed.

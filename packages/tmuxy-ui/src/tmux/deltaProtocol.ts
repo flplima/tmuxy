@@ -110,6 +110,9 @@ export function applyDelta(state: ServerState, delta: ServerDelta): ServerState 
   if (delta.status_line !== undefined) {
     newState.status_line = delta.status_line;
   }
+  if (delta.focus_request !== undefined) {
+    newState.focus_request = delta.focus_request;
+  }
   if (delta.total_width !== undefined) {
     newState.total_width = delta.total_width;
   }
@@ -308,6 +311,7 @@ function applyWindowDelta(window: ServerWindow, delta: WindowDelta): ServerWindo
     ...(delta.float_drawer !== undefined && { float_drawer: delta.float_drawer }),
     ...(delta.float_bg !== undefined && { float_bg: delta.float_bg }),
     ...(delta.float_noheader !== undefined && { float_noheader: delta.float_noheader }),
+    ...(delta.sidebar_cols !== undefined && { sidebar_cols: delta.sidebar_cols }),
     ...(delta.zoomed !== undefined && { zoomed: delta.zoomed }),
   };
 }

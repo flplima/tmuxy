@@ -59,7 +59,11 @@ shquote() {
 #
 # Free-text tmux fields (window names, pane commands) can contain commas and
 # quotes, so the --json serializers use a tab separator and escape the values.
-LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}'
+# `pane_title` is filtered against the host name because tmux seeds every
+# pane's title with it — same expression as tmux_formats::APP_PANE_TITLE in
+# packages/tmuxy-core/src/constants.rs; keep the two in step.
+APP_PANE_TITLE_FMT='#{?#{==:#{pane_title},#{host}},,#{pane_title}}'
+LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"
 LIST_WINDOWS_JSON_FMT=$'#{window_id}\t#{window_index}\t#{window_name}\t#{window_panes}\t#{window_active}\t#{@tmuxy-window-type}'
 JSON_ESCAPE_AWK='function jstr(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); gsub(/\n/, "\\n", s); gsub(/\r/, "\\r", s); gsub(/\t/, "\\t", s); return s } '
 
@@ -88,7 +92,7 @@ Commands:
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect)
   nav         Navigate across groups, splits, and tabs
-  widget      Display widgets (image, markdown)
+  widget      Display widgets (image, markdown, tree)
   event       Event queue for inter-agent coordination (emit, wait, list)
   tree        Open the sidebar tree view (tabs + panes)
   run         Run any tmux command safely
@@ -106,7 +110,8 @@ Usage: tmuxy tree
 
 Open an interactive tree view of all tabs and their panes. Navigate with
 j/k or the arrow keys, Enter (or a mouse click) to activate a tab/pane.
-A standalone browser of tabs/panes; the left sidebar is now a native React tree.
+A standalone browser of tabs/panes, for a plain terminal. The left sidebar
+renders the same tree as a React widget — see `tmuxy widget tree`.
 EOF
 }
 
@@ -169,6 +174,7 @@ Usage: tmuxy widget <command> [args...]
 Commands:
   image         Display an image (file path or URL)
   markdown      Display markdown (file or stdin via -)
+  tree          Display the tabs+panes tree (the left sidebar's content)
 EOF
 }
 
@@ -278,7 +284,7 @@ cmd_pane() {
         # Tab-separated: pane_current_command is free text, so a comma in it
         # would shift every following field and break the JSON.
         tmux list-panes ${scope[@]+"${scope[@]}"} -F "$LIST_PANES_JSON_FMT" | \
-          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["} NR>1{printf ","} {printf "{\"id\":\"%s\",\"tab\":\"%s\",\"width\":%s,\"height\":%s,\"command\":\"%s\",\"active\":%s}", jstr($1), jstr($2), $3, $4, jstr($5), ($6=="1"?"true":"false")} END{printf "]\n"}'
+          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["} NR>1{printf ","} {printf "{\"id\":\"%s\",\"tab\":\"%s\",\"width\":%s,\"height\":%s,\"command\":\"%s\",\"active\":%s,\"title\":\"%s\"}", jstr($1), jstr($2), $3, $4, jstr($5), ($6=="1"?"true":"false"), jstr($7)} END{printf "]\n"}'
       else
         tmux list-panes ${scope[@]+"${scope[@]}"}
       fi
@@ -524,7 +530,7 @@ cmd_tab() {
         # Tab-separated: window_name is user-controlled free text (tmuxy tab
         # rename), so a comma in it would shift every following field.
         tmux list-windows -F "$LIST_WINDOWS_JSON_FMT" | \
-          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["; n=0} $6!="float" && $6!="float-backdrop" && $6!="group" && $6!="sidebar"{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
+          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["; n=0} $6!="float" && $6!="float-backdrop" && $6!="group" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
       else
         tmux list-windows
       fi
@@ -638,6 +644,13 @@ cmd_widget() {
         "") echo "Error: file or - required" >&2; return 1 ;;
       esac
       exec "$SCRIPTS_DIR/tmuxy-widget-markdown" "$@"
+      ;;
+
+    tree)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy widget tree"; return ;;
+      esac
+      exec "$SCRIPTS_DIR/tmuxy-widget-tree"
       ;;
 
     --help|-h)

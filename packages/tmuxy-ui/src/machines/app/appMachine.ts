@@ -34,6 +34,7 @@ import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
 import { layoutActions } from './actions/layout';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
+import { selectLeftSidebarPane, selectRightSidebarPane } from '../selectors';
 import type { TmuxClientModel, TmuxSnapshot } from '../../tmux/store';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
 import {
@@ -159,6 +160,7 @@ function snapshotFromModel(model: TmuxClientModel): {
   totalHeight: number;
   statusLine: string;
   sessionName: string;
+  focusRequest: string;
 } {
   const d = model.derived;
   // Pass the derived arrays through by REFERENCE — the store already
@@ -173,6 +175,7 @@ function snapshotFromModel(model: TmuxClientModel): {
     totalHeight: d.totalHeight,
     statusLine: d.statusLine,
     sessionName: d.sessionName,
+    focusRequest: d.focusRequest,
   };
 }
 
@@ -697,16 +700,29 @@ export const appMachine = setup({
             // momentarily gone — bundled with a compensating +1 height. The
             // outer box is unchanged, but computePaneBox's `headerRows = y > 0`
             // term drops that pane's header and shifts its terminal content up a
-            // row for a frame. With pane-border-status top (always on in tmuxy —
-            // enforced by the native monitor and the v86 guest setup) EVERY
-            // settled pane, even a lone full-window one, sits at y>=1: a pane can
-            // only reach y=0 transiently while a layout is in flux. So an
-            // existing pane reporting y=0 is always that spurious dip — hold its
-            // previous geometry; the real y>=1 layout that follows is applied
-            // normally. Skip drag-resize, which has its own frozen-band preview.
+            // row for a frame. With pane-border-status top (on for every TAB —
+            // enforced by the native monitor and the v86 guest setup) every
+            // settled pane in one sits at y>=1: it can only reach y=0
+            // transiently while a layout is in flux. So an existing pane
+            // reporting y=0 is always that spurious dip — hold its previous
+            // geometry; the real y>=1 layout that follows is applied normally.
+            // Skip drag-resize, which has its own frozen-band preview.
+            //
+            // The two sidebars are the windows tmuxy turns that border OFF for
+            // (they are drawn headerless and sized without the row), so THEIR
+            // panes sit at y=0 for real and must be left alone — folding a
+            // header back in would cost them a row of content forever.
             if (!context.resizeActive) {
+              const borderlessWindowIds = new Set(
+                transformed.windows
+                  .filter(
+                    (w) => w.windowType === 'sidebar-left' || w.windowType === 'sidebar-right',
+                  )
+                  .map((w) => w.id),
+              );
               transformed.panes = transformed.panes.map((np) => {
                 if (np.y !== 0) return np;
+                if (borderlessWindowIds.has(np.windowId)) return np;
                 const prev = context.panes.find((o) => o.tmuxId === np.tmuxId);
                 if (!prev) return np;
                 // Only a y=1 (top-row) pane can be shoved to y=0 by the vanishing
@@ -879,6 +895,88 @@ export const appMachine = setup({
                 sendTo('keyboard', {
                   type: 'UPDATE_FOCUSED_FLOAT' as const,
                   paneId: newFocusedFloat,
+                }),
+              );
+            }
+
+            // Sidebar lifecycle. Each column's pane lives outside the active
+            // window, so nothing else in this handler notices it coming or
+            // going.
+            //  - it appeared: show the column. Both columns are session-wide, so
+            //    a reload or a second client is supposed to find one already
+            //    there — its window existing IS the open state. Only take the
+            //    keyboard when this client asked for it (the toggle is already
+            //    open), never on a plain page load;
+            //  - it vanished (the user ran `exit`, or killed it elsewhere):
+            //    retract the column instead of leaving an empty one docked.
+            const nextSidebarCtx = {
+              ...context,
+              windows: transformed.windows,
+              panes: transformed.panes,
+            };
+
+            const prevTreePane = selectLeftSidebarPane(context);
+            const nextTreePane = selectLeftSidebarPane(nextSidebarCtx);
+            if (!prevTreePane && nextTreePane) {
+              const requestedByThisClient = context.leftSidebarOpen;
+              enqueue(assign({ leftSidebarOpen: true }));
+              if (requestedByThisClient) {
+                // Through the focus action, which owns "only one surface holds
+                // the keyboard" — assigning the flag here would leave the other
+                // column focused too.
+                enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
+                // Same blink as a float: split-window → break-pane parks a pane
+                // in the active window for a beat before it moves out.
+                enqueue(assign({ enableAnimations: false }));
+              }
+            } else if (prevTreePane && !nextTreePane) {
+              enqueue(assign({ leftSidebarOpen: false, leftSidebarFocused: false }));
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
+                  focused: false,
+                }),
+              );
+            }
+
+            const prevDockPane = selectRightSidebarPane(context);
+            const nextDockPane = selectRightSidebarPane(nextSidebarCtx);
+            if (!prevDockPane && nextDockPane) {
+              const requestedByThisClient = context.rightSidebarOpen;
+              enqueue(assign({ rightSidebarOpen: true }));
+              if (requestedByThisClient) {
+                enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+                enqueue(assign({ enableAnimations: false }));
+              }
+            } else if (prevDockPane && !nextDockPane) {
+              enqueue(assign({ rightSidebarOpen: false, rightSidebarFocused: false }));
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
+                  paneId: null,
+                }),
+              );
+            }
+
+            // A focus request queued by a shell helper (`tmuxy nav left/right`
+            // at the edge of the grid). Focusing a column is client-side — its
+            // pane is in another window, so `select-pane` would switch the
+            // visible tab — so the script publishes the intent as a session
+            // option and we act on it here, then clear it so the next poll
+            // doesn't replay it. Acting is idempotent, which is what makes the
+            // window between the two harmless.
+            if (transformed.focusRequest) {
+              const request = transformed.focusRequest;
+              if (request === 'left') enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
+              else if (request === 'right') enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+              else if (request === 'panes') {
+                enqueue.raise({ type: 'BLUR_LEFT_SIDEBAR' });
+                enqueue.raise({ type: 'BLUR_RIGHT_SIDEBAR' });
+              }
+              enqueue(
+                sendTo('tmux', {
+                  type: 'SEND_COMMAND' as const,
+                  command: `set-option -u -t ${context.sessionName} @tmuxy-focus-request`,
                 }),
               );
             }
@@ -1239,13 +1337,18 @@ export const appMachine = setup({
               return;
             }
 
-            // Sidebar boundary (while focused): Ctrl+l returns focus to the
-            // panes; Ctrl+h is a no-op (nothing further left). Checked before
-            // group nav so leaving the sidebar always works, even when the
-            // underlying active pane happens to be in a group.
+            // Sidebar boundary (while focused): nav OUT of a focused column
+            // returns to the panes; nav further outward is a no-op (there is
+            // nothing past either edge). Checked before group nav so leaving a
+            // sidebar always works, even when the underlying active pane
+            // happens to be in a group.
             const navDir = navDirection(tail);
-            if (context.sidebarFocused && navDir) {
-              if (navDir === 'right') enqueue.raise({ type: 'BLUR_SIDEBAR' });
+            if (context.leftSidebarFocused && navDir) {
+              if (navDir === 'right') enqueue.raise({ type: 'BLUR_LEFT_SIDEBAR' });
+              return;
+            }
+            if (context.rightSidebarFocused && navDir) {
+              if (navDir === 'left') enqueue.raise({ type: 'BLUR_RIGHT_SIDEBAR' });
               return;
             }
 
@@ -1261,14 +1364,23 @@ export const appMachine = setup({
               return;
             }
 
-            // Sidebar boundary (entering): Ctrl+h from the leftmost pane focuses
-            // the open sidebar instead of doing a tmux `select-pane -L` no-op.
-            // After group nav so group cycling still wins for grouped panes.
-            if (navDir === 'left' && context.sidebarOpen) {
+            // Sidebar boundary (entering): Ctrl+h from the leftmost pane, or
+            // Ctrl+l from the rightmost one, focuses that side's open column
+            // instead of doing a tmux `select-pane -L/-R` no-op. After group
+            // nav so group cycling still wins for grouped panes.
+            if (navDir === 'left' || navDir === 'right') {
               const activePane = context.panes.find((p) => p.tmuxId === context.activePaneId);
-              if (activePane && activePane.x === 0) {
-                enqueue.raise({ type: 'FOCUS_SIDEBAR' });
-                return;
+              if (activePane) {
+                const atLeftEdge = activePane.x === 0;
+                const atRightEdge = activePane.x + activePane.width >= context.totalWidth;
+                if (navDir === 'left' && context.leftSidebarOpen && atLeftEdge) {
+                  enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
+                  return;
+                }
+                if (navDir === 'right' && context.rightSidebarOpen && atRightEdge) {
+                  enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+                  return;
+                }
               }
             }
 
@@ -1402,12 +1514,23 @@ export const appMachine = setup({
                 }),
               );
             } else {
-              // Regular pane: clear float focus and select the pane normally
+              // Regular pane: clear any overlay focus and select the pane
+              // normally. Both overlays hold the keyboard away from the grid,
+              // so clicking a tiled pane has to release whichever one had it.
               if (context.focusedFloatPaneId) {
                 enqueue(assign({ focusedFloatPaneId: null }));
                 enqueue(
                   sendTo('keyboard', {
                     type: 'UPDATE_FOCUSED_FLOAT' as const,
+                    paneId: null,
+                  }),
+                );
+              }
+              if (context.rightSidebarFocused) {
+                enqueue(assign({ rightSidebarFocused: false }));
+                enqueue(
+                  sendTo('keyboard', {
+                    type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
                     paneId: null,
                   }),
                 );
@@ -1628,15 +1751,19 @@ export const appMachine = setup({
 
             // Not in client-side copy mode: send SIGINT (C-c). Target the
             // focused pane the same way every keyboardActor path does —
-            // `focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName`.
-            // Targeting the session (server-side active pane) delivered C-c to
-            // the hidden session-active pane when a float was focused, or to the
-            // previous pane right after an optimistic switch.
+            // focused overlay (float, else the pinned dock) ?? active pane ??
+            // session. Targeting the session (server-side active pane)
+            // delivered C-c to the hidden session-active pane when an overlay
+            // was focused, or to the previous pane right after an optimistic
+            // switch.
             const activePane = context.activePaneId;
             const realActivePane =
               activePane && !activePane.startsWith('__placeholder_') ? activePane : null;
+            const dockPane = context.rightSidebarFocused
+              ? (selectRightSidebarPane(context)?.tmuxId ?? null)
+              : null;
             const sigintTarget =
-              context.focusedFloatPaneId ?? realActivePane ?? context.sessionName;
+              context.focusedFloatPaneId ?? dockPane ?? realActivePane ?? context.sessionName;
             enqueue(
               sendTo('tmux', {
                 type: 'SEND_COMMAND' as const,

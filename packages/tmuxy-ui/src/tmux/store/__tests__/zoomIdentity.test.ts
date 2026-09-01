@@ -35,6 +35,7 @@ const snap = (windows: TmuxWindow[]): TmuxSnapshot =>
     totalWidth: 80,
     totalHeight: 24,
     statusLine: '',
+    focusRequest: '',
     sessionName: 'tmuxy',
   }) as unknown as TmuxSnapshot;
 

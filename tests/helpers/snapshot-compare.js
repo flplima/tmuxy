@@ -174,7 +174,7 @@ function extractTmuxState(sessionName) {
       });
 
     // Separate windows by their @tmuxy-window-type. Tabs carry no marker, so an
-    // untagged window is a tab; only float/float-backdrop/sidebar chrome is
+    // untagged window is a tab; only float/float-backdrop/sidebar-* chrome is
     // excluded from the tab list.
     const windows = [];
     const groupWindows = [];
@@ -182,7 +182,11 @@ function extractTmuxState(sessionName) {
     for (const w of allWindows) {
       if (w.windowType === 'float') {
         floatWindows.push(w);
-      } else if (w.windowType === 'float-backdrop' || w.windowType === 'sidebar') {
+      } else if (
+        w.windowType === 'float-backdrop' ||
+        w.windowType === 'sidebar-left' ||
+        w.windowType === 'sidebar-right'
+      ) {
         // chrome windows — not tabs, not floats-with-panes
       } else {
         windows.push(w);

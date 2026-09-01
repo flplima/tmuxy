@@ -249,6 +249,7 @@ describe('TmuxStore — verbatim command preservation', () => {
       totalWidth: 80,
       totalHeight: 24,
       statusLine: '',
+      focusRequest: '',
       sessionName: 'tmuxy',
     });
     const op: TmuxOp = { _tag: 'Split', direction: 'vertical' };
@@ -358,6 +359,7 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
       totalWidth: 80,
       totalHeight: 24,
       statusLine: '',
+      focusRequest: '',
       sessionName: 'tmuxy',
     };
     const m0 = modelFromSnapshot(baseSnap);
@@ -690,6 +692,7 @@ describe('Op predictions — tmux-output shape', () => {
       totalWidth: 80,
       totalHeight: 24,
       statusLine: '',
+      focusRequest: '',
       sessionName: 'tmuxy',
     });
     const r = predict(
@@ -747,6 +750,7 @@ describe('Op predictions — tmux-output shape', () => {
       totalWidth: 80,
       totalHeight: 24,
       statusLine: '',
+      focusRequest: '',
       sessionName: 'tmuxy',
     });
     const r = predict(
@@ -784,6 +788,7 @@ describe('Op predictions — tmux-output shape', () => {
       totalWidth: 160,
       totalHeight: 48,
       statusLine: '',
+      focusRequest: '',
       sessionName: 'tmuxy',
     });
     const r = predict(

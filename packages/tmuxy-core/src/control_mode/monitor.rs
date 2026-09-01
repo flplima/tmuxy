@@ -14,6 +14,7 @@ use crate::constants::tmux_formats;
 use crate::ctx::Ctx;
 use crate::error::TmuxError;
 use crate::StateUpdate;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -284,10 +285,16 @@ pub struct TmuxMonitor {
     /// the previous client left it at, for the life of the session.
     client_size: Option<(u32, u32)>,
 
-    /// Number of windows `client_size` has been applied to. Compared against
-    /// the aggregator's window count after every step so a window set that
-    /// grows (initial list-windows landing, a new tab) gets sized.
-    sized_window_count: usize,
+    /// The size each window was last resized to. Diffed against the size it
+    /// *should* have after every step, so a window is re-sized whenever
+    /// anything feeding that number changes.
+    ///
+    /// A count of sized windows is not enough: `%window-add` announces a window
+    /// before its `@tmuxy-window-type` is readable, so a freshly broken-out
+    /// sidebar is first sized as an ordinary window — and with a count, "all
+    /// windows sized" then hides the type arriving a moment later on
+    /// `list-windows`, leaving the dock stuck at the viewport width.
+    applied_window_sizes: HashMap<String, (u32, u32)>,
 
     /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
     /// inside the loop so tests can advance time with `FakeClock`.
@@ -333,7 +340,7 @@ impl TmuxMonitor {
                 command_rx,
                 window_tags_migrated: false,
                 client_size: None,
-                sized_window_count: 0,
+                applied_window_sizes: HashMap::new(),
                 ctx,
             },
             command_tx,
@@ -655,7 +662,7 @@ impl TmuxMonitor {
         // queue ahead of this step's EmitState, and the window payload that
         // carries @tmuxy-window-type gets dropped — leaving the frontend with
         // untagged windows and an empty tab strip.
-        if self.client_size.is_some() && self.aggregator.window_count() > self.sized_window_count {
+        if self.client_size.is_some() {
             self.apply_client_size(emitter).await;
         }
 
@@ -668,17 +675,48 @@ impl TmuxMonitor {
     /// tmuxy sets `window-size manual`, so tmux will not size windows on its
     /// own — every window has to be resized explicitly, and an untargeted
     /// `resizew` only reaches the session's *current* window.
+    ///
+    /// The pinned sidebar window is the one exception: it is docked beside the
+    /// pane grid, not behind it, so it gets [`sidebar_dock::size`] instead of
+    /// the viewport. Giving it the full width would make its shell wrap at the
+    /// viewport's columns while the UI draws it 40 cells wide.
     async fn apply_client_size<E: StateEmitter>(&mut self, emitter: &E) {
         let Some((cols, rows)) = self.client_size else {
             return;
         };
-        let window_ids = self.aggregator.window_ids();
-        if window_ids.is_empty() {
+        let (viewport_windows, sidebar_windows) = self.aggregator.window_ids_by_sizing();
+        if viewport_windows.is_empty() && sidebar_windows.is_empty() {
             return;
         }
-        let cmds: Vec<String> = window_ids
+        // A sidebar keeps the viewport's rows — both columns run the full height
+        // of the app body — and only narrows to its own column width.
+        let desired: Vec<(String, (u32, u32))> = viewport_windows
+            .into_iter()
+            .map(|wid| (wid, (cols, rows)))
+            .chain(
+                sidebar_windows
+                    .into_iter()
+                    .map(|(wid, sidebar_cols)| (wid, (sidebar_cols, rows.max(1)))),
+            )
+            .collect();
+
+        // Drop windows that are gone, so nothing inherits a stale "already
+        // sized at" entry.
+        let live: HashSet<&str> = desired.iter().map(|(wid, _)| wid.as_str()).collect();
+        self.applied_window_sizes
+            .retain(|wid, _| live.contains(wid.as_str()));
+
+        let pending: Vec<(String, (u32, u32))> = desired
+            .into_iter()
+            .filter(|(wid, size)| self.applied_window_sizes.get(wid) != Some(size))
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+
+        let cmds: Vec<String> = pending
             .iter()
-            .map(|wid| format!("resizew -t {} -x {} -y {}", wid, cols, rows))
+            .map(|(wid, (w, h))| format!("resizew -t {} -x {} -y {}", wid, w, h))
             .collect();
         debug!(
             count = cmds.len(),
@@ -687,7 +725,7 @@ impl TmuxMonitor {
         if let Err(e) = self.connection.send_commands_batch(&cmds).await {
             emitter.emit_error(format!("Failed to resize windows: {}", e));
         } else {
-            self.sized_window_count = window_ids.len();
+            self.applied_window_sizes.extend(pending);
         }
     }
 
@@ -883,7 +921,6 @@ impl TmuxMonitor {
                 // is the only record of what the client asked for, and
                 // `apply_client_size` replays it once the windows are known.
                 self.client_size = Some((cols, rows));
-                self.sized_window_count = 0;
                 let window_ids = self.aggregator.window_ids();
                 if window_ids.is_empty() {
                     // Nothing to target yet — size the current window so the

@@ -2286,11 +2286,12 @@ export const SidebarToggle: Story = {
     const first = activePaneId();
     const second = paneIds(canvas).find((p) => p !== first)!;
 
-    const toggle = canvasElement.querySelector('.sidebar-toggle') as HTMLElement;
+    const toggle = canvasElement.querySelector('.sidebar-toggle-left') as HTMLElement;
     expect(toggle).not.toBeNull();
     await user.click(toggle);
 
-    // The drawer opens with the React tree — NOT a tmux window (no sidebar pane).
+    // The column opens onto a real tmux pane running the tree widget, so the
+    // tree is what that pane renders — not a headless React panel.
     const tree = await waitFor(
       () => {
         const el = doc.querySelector('.sidebar-tree') as HTMLElement | null;
@@ -2299,7 +2300,7 @@ export const SidebarToggle: Story = {
       },
       { timeout: 30000, interval: 500 },
     );
-    expect(windows().some((w) => w.windowType === 'sidebar')).toBe(false);
+    expect(windows().some((w) => w.windowType === 'sidebar-left')).toBe(true);
     // Both panes of the current tab appear as tree nodes.
     await waitFor(
       () => {
@@ -2350,7 +2351,7 @@ export const SidebarDragPaneToTab: Story = {
         }
       ).app.getSnapshot().context;
 
-    const toggle = canvasElement.querySelector('.sidebar-toggle') as HTMLElement;
+    const toggle = canvasElement.querySelector('.sidebar-toggle-left') as HTMLElement;
     await user.click(toggle);
     const tree = await waitFor(
       () => {

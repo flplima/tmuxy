@@ -5,7 +5,7 @@
  * in a fixed-width, full-height column that flexes the pane area — no tmux
  * window/pane, no `tmuxy tree` TUI. The tree is derived from the demo's
  * `context.windows`/`context.panes`, so these stories exercise the real user
- * chain: TOGGLE_SIDEBAR (button or `prefix t`) → column opens → tree lists every
+ * chain: TOGGLE_LEFT_SIDEBAR (button or `prefix t`) → column opens → tree lists every
  * tab and its panes → clicking / keyboard-navigating a node activates it through
  * the same events the rest of the UI uses.
  *
@@ -29,11 +29,34 @@ interface AppSnap {
   context: {
     activePaneId: string | null;
     activeWindowId: string | null;
-    windows: Array<{ id: string; index: number; name: string; windowType: string | null }>;
-    panes: Array<{ tmuxId: string; windowId: string }>;
+    charWidth: number;
+    windows: Array<{
+      id: string;
+      index: number;
+      name: string;
+      windowType: string | null;
+      sidebarCols?: number | null;
+    }>;
+    panes: Array<{ tmuxId: string; windowId: string; width: number }>;
   };
 }
 const app = () => (window as unknown as { app: { getSnapshot(): AppSnap } }).app.getSnapshot();
+
+/**
+ * The panes that belong to TABS — the only ones the tree lists.
+ *
+ * `context.panes` also holds each sidebar column's own pane (the left column
+ * runs the tree widget in a `sidebar-left` window), and the tree filters those
+ * out along with floats — it would otherwise list itself.
+ */
+function tabPanes() {
+  const tabWindowIds = new Set(
+    app()
+      .context.windows.filter((w) => w.windowType === 'tab')
+      .map((w) => w.id),
+  );
+  return app().context.panes.filter((p) => tabWindowIds.has(p.windowId));
+}
 
 /** Wait until the sidebar drawer + tree portal into document.body. */
 async function waitForTree(): Promise<HTMLElement> {
@@ -60,7 +83,7 @@ export const OpenShowsTree: Story = {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole(
       'button',
-      { name: /toggle sidebar/i },
+      { name: /toggle tree sidebar/i },
       { timeout: 8000 },
     );
     await userEvent.click(toggle);
@@ -73,7 +96,7 @@ export const OpenShowsTree: Story = {
     for (const w of tabs) {
       expect(tree.querySelector(`[data-testid="tree-tab-${w.id}"]`)).not.toBeNull();
     }
-    for (const p of app().context.panes) {
+    for (const p of tabPanes()) {
       expect(tree.querySelector(`[data-testid="tree-pane-${p.tmuxId}"]`)).not.toBeNull();
     }
     // Renamed tab labels show up.
@@ -134,7 +157,7 @@ export const ClickTabAndPaneActivate: Story = {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole(
       'button',
-      { name: /toggle sidebar/i },
+      { name: /toggle tree sidebar/i },
       { timeout: 8000 },
     );
     await userEvent.click(toggle);
@@ -151,13 +174,12 @@ export const ClickTabAndPaneActivate: Story = {
     // (like tmux list-panes routing) emits panes for the active window, so
     // until its response lands, context.panes still holds the old window's
     // panes. The old removingPane 300ms hold used to mask this transient.
-    await waitFor(
-      () => expect(app().context.panes.every((p) => p.windowId === otherTab.id)).toBe(true),
-      { timeout: 5000 },
-    );
+    await waitFor(() => expect(tabPanes().every((p) => p.windowId === otherTab.id)).toBe(true), {
+      timeout: 5000,
+    });
 
     // Click a pane that isn't active → it becomes the active pane.
-    const target = app().context.panes.find((p) => p.tmuxId !== app().context.activePaneId)!;
+    const target = tabPanes().find((p) => p.tmuxId !== app().context.activePaneId)!;
     await userEvent.click(
       tree.querySelector(`[data-testid="tree-pane-${target.tmuxId}"]`) as HTMLElement,
     );
@@ -178,13 +200,13 @@ export const KeyboardNavigate: Story = {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole(
       'button',
-      { name: /toggle sidebar/i },
+      { name: /toggle tree sidebar/i },
       { timeout: 8000 },
     );
     await userEvent.click(toggle);
     const tree = await waitForTree();
 
-    // Focus the tree (a click dispatches FOCUS_SIDEBAR), then drive it by keyboard.
+    // Focus the tree (a click dispatches FOCUS_LEFT_SIDEBAR), then drive it by keyboard.
     await userEvent.click(document.querySelector('[data-testid="sidebar-content"]') as HTMLElement);
     await waitFor(() => expect(tree.getAttribute('data-focused')).toBe('true'), { timeout: 5000 });
 
@@ -227,7 +249,7 @@ export const DragPaneToAnotherTab: Story = {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole(
       'button',
-      { name: /toggle sidebar/i },
+      { name: /toggle tree sidebar/i },
       { timeout: 8000 },
     );
     await userEvent.click(toggle);
@@ -288,13 +310,13 @@ export const FixedSidebarReflowsPanes: Story = {
 
     const toggle = await canvas.findByRole(
       'button',
-      { name: /toggle sidebar/i },
+      { name: /toggle tree sidebar/i },
       { timeout: 8000 },
     );
     await userEvent.click(toggle);
     const sidebar = await waitFor(
       () => {
-        const el = document.querySelector('.sidebar-fixed') as HTMLElement | null;
+        const el = document.querySelector('.sidebar-column-left') as HTMLElement | null;
         if (!el) throw new Error('no sidebar column');
         return el;
       },
@@ -339,22 +361,32 @@ export const PaneNodesShowHeaderTitle: Story = {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole(
       'button',
-      { name: /toggle sidebar/i },
+      { name: /toggle tree sidebar/i },
       { timeout: 8000 },
     );
     await userEvent.click(toggle);
     const tree = await waitForTree();
 
-    for (const p of app().context.panes) {
+    const panes = tabPanes();
+    expect(panes.length).toBeGreaterThanOrEqual(2);
+
+    for (const p of panes) {
       const row = tree.querySelector(`[data-testid="tree-pane-${p.tmuxId}"]`) as HTMLElement;
+      expect(row).not.toBeNull();
       const label = row.querySelector('.sidebar-tree-label') as HTMLElement;
-      // Same title the pane header shows (command → 'bash' for the demo shell),
-      // NOT the old "%id command" form.
-      expect(label.textContent).toBe('bash');
-      expect(label.textContent).not.toContain(p.tmuxId);
-      // Process icon rendered alongside it.
+      // `%id title` — the pane id disambiguates two panes running the same
+      // program, which is the common case ('bash' twice in the demo shell).
+      expect(label.textContent).toBe(`${p.tmuxId} bash`);
+      // Process icon rendered alongside it, after the tree connector.
       expect(row.querySelector('.sidebar-tree-icon')).not.toBeNull();
+      expect(row.querySelector('.sidebar-tree-branch')).not.toBeNull();
     }
+
+    // The tree column itself is never a row in its own tree.
+    const treeWindow = app().context.windows.find((w) => w.windowType === 'sidebar-left')!;
+    const treePane = app().context.panes.find((p) => p.windowId === treeWindow.id)!;
+    expect(treePane).not.toBeUndefined();
+    expect(tree.querySelector(`[data-testid="tree-pane-${treePane.tmuxId}"]`)).toBeNull();
   },
 };
 
@@ -380,14 +412,14 @@ export const RightClickContextMenus: Story = {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole(
       'button',
-      { name: /toggle sidebar/i },
+      { name: /toggle tree sidebar/i },
       { timeout: 8000 },
     );
     await userEvent.click(toggle);
     const tree = await waitForTree();
 
     // Right-click a pane node → the pane context menu (same items as the header).
-    const paneId = app().context.panes[0].tmuxId;
+    const paneId = tabPanes()[0].tmuxId;
     rightClick(tree.querySelector(`[data-testid="tree-pane-${paneId}"]`) as HTMLElement);
     await waitFor(() => expect(menuLabels().some((t) => t.includes('Clear Screen'))).toBe(true), {
       timeout: 5000,
@@ -438,7 +470,7 @@ export const GroupedSessionsTree: Story = {
     const canvas = within(canvasElement);
     const toggle = await canvas.findByRole(
       'button',
-      { name: /toggle sidebar/i },
+      { name: /toggle tree sidebar/i },
       { timeout: 8000 },
     );
     await userEvent.click(toggle);
@@ -476,5 +508,76 @@ export const GroupedSessionsTree: Story = {
     // The active session still shows its LIVE tabs (from real state, not the summary).
     const liveWindowId = app().context.activeWindowId!;
     expect(tree.querySelector(`[data-testid="tree-tab-${liveWindowId}"]`)).not.toBeNull();
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Dragging a column's inner edge resizes both the column and its tmux pane
+// ---------------------------------------------------------------------------
+
+export const DragResizesTheColumn: Story = {
+  args: { height: 500 },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const toggle = await canvas.findByRole(
+      'button',
+      { name: /toggle tree sidebar/i },
+      { timeout: 8000 },
+    );
+    await userEvent.click(toggle);
+
+    const column = await waitFor(
+      () => {
+        const el = document.querySelector('.sidebar-column-left') as HTMLElement | null;
+        if (!el) throw new Error('no sidebar column');
+        return el;
+      },
+      { timeout: 8000 },
+    );
+    const handle = column.querySelector('.sidebar-resize-handle') as HTMLElement;
+    expect(handle).not.toBeNull();
+
+    const startWidth = column.getBoundingClientRect().width;
+    // The width the grid has left. A column that grew without the grid giving
+    // up the same space would be overlapping the panes, not docked beside them.
+    const gridCols = () => Math.max(...tabPanes().map((p) => p.width));
+    const startGridCols = gridCols();
+    expect(startGridCols).toBeGreaterThan(0);
+
+    // Drag the inner edge 90px to the right. Driven as real mouse events on the
+    // handle, because the drag is what a user actually does — the column has no
+    // width control to call.
+    const box = handle.getBoundingClientRect();
+    const startX = Math.round(box.x + box.width / 2);
+    const y = Math.round(box.y + box.height / 2);
+    handle.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, clientX: startX, clientY: y }),
+    );
+    // The move listeners are installed by an effect, so they are not in place
+    // until the mousedown's render commits. A real drag has human-scale delay
+    // here; dispatching the move synchronously would miss them entirely.
+    await waitFor(() => expect(handle.className).toContain('is-dragging'), { timeout: 3000 });
+    window.dispatchEvent(
+      new MouseEvent('mousemove', { bubbles: true, clientX: startX + 90, clientY: y }),
+    );
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+
+    // The column is drawn wider, and the pane grid gave space up for it — the
+    // resize re-tiles the panes rather than covering them. (How MUCH the grid
+    // loses is the container's business, not the drag's.)
+    await waitFor(
+      () => {
+        expect(column.getBoundingClientRect().width).toBeGreaterThan(startWidth + 40);
+        expect(gridCols()).toBeLessThan(startGridCols);
+      },
+      { timeout: 6000, interval: 200 },
+    );
+
+    // The width is committed on the column's own tmux window, which is what
+    // makes it outlive this client rather than being a local style.
+    const treeWindow = app().context.windows.find((w) => w.windowType === 'sidebar-left')!;
+    expect(treeWindow.sidebarCols).toBe(
+      Math.round(column.getBoundingClientRect().width / app().context.charWidth),
+    );
   },
 };

@@ -1,11 +1,15 @@
 #!/bin/bash
-# Unified navigation across groups and pane splits (no tab wrap)
+# Unified navigation across groups, pane splits and the sidebar columns
 # Args: $1=direction (left|right|up|down|next|prev), $2=current pane_id
 #
-# left/right: group panes (circular) → pane splits (horizontal)
+# left/right: group panes (circular) → pane splits (horizontal) → sidebar column
 # up/down:    pane splits only (vertical neighbors, no fallback)
 # next:       same as right
 # prev:       last-pane in window, fall back to last-window
+#
+# Leaving the grid sideways lands in a sidebar. Its pane lives in its own window,
+# so `select-pane` can't reach it without switching the visible tab — the move is
+# published as a focus request the client acts on instead (see `request_focus`).
 
 set -euo pipefail
 source "$(dirname "$0")/_lib"
@@ -37,6 +41,15 @@ nav_vertical() {
 nav_horizontal() {
   local tmux_dir="$1"   # -R or -L
   local edge_dir="$2"   # "right" or "left"
+
+  # Step 0: already inside a sidebar column — the only way out is back to the
+  # panes, and only when heading away from that column's edge.
+  local current_type
+  current_type=$(window_type "$(active_window)")
+  case "$current_type" in
+    sidebar-left)  [ "$edge_dir" = "right" ] && request_focus panes; return ;;
+    sidebar-right) [ "$edge_dir" = "left" ]  && request_focus panes; return ;;
+  esac
 
   # Step 1: if the pane is in a group, cycle within the group (circular).
   local gid
@@ -70,8 +83,17 @@ nav_horizontal() {
   fi
 
   # Step 2: Try tmux directional select (no tab fallback)
+  local before after
+  before=$(_tmux display-message -p '#{pane_id}')
   _tmux selectp "$tmux_dir" 2>/dev/null || true
+  after=$(_tmux display-message -p '#{pane_id}')
   refresh_panes
+
+  # Step 3: the select was a no-op, so the pane is at that edge of the grid. If
+  # a sidebar is docked there, that is the next thing along.
+  if [ "$before" = "$after" ] && [ -n "$(sidebar_window "$edge_dir")" ]; then
+    request_focus "$edge_dir"
+  fi
 }
 
 case "$DIR" in

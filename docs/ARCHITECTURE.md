@@ -85,7 +85,7 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 | `tmuxy-wasm`      | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script.           |
 | `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` + `Ctx` plumbing as the server; transport is native IPC instead of SSE/HTTP.                                                                                            |
 | `tmuxy-connect`   | Standalone TUI for the "add a server" form (`tmuxy connect`), which the desktop app opens in a float. `bin/tmuxy-cli` prefers this binary when present.                                                                    |
-| `tmuxy-tree`      | Standalone TUI for the sidebar sessions→tabs→panes tree (`tmuxy tree`), packaged separately so the v86 guest can run it. `bin/tmuxy-cli` prefers this binary when present.                                                 |
+| `tmuxy-tree`      | Standalone TUI browser of the sessions→tabs→panes tree (`tmuxy tree`), for a plain terminal — packaged separately so the v86 guest can run it. `bin/tmuxy-cli` prefers this binary when present. The left sidebar renders the same tree as a React widget instead (`tmuxy widget tree`).                                                 |
 
 ## Related Documentation
 

@@ -158,6 +158,21 @@ No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it 
 
 OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/control_mode/osc.rs`), so no `terminal-features` setting is required either.
 
+## Pane Titles
+
+A pane header shows what the running application called itself, falling back to its process name. The two sources disagree often enough that the order matters:
+
+| Source | tmux format | Notes |
+|--------|-------------|-------|
+| App title | `pane_title` | Set by the application over OSC 0/2 — `nvim README.md`, an ssh host, a Claude Code session summary. |
+| Process name | `pane_current_command` | Only the executable's **file name**. A version-pinned launcher symlink (`~/.local/bin/claude` → `…/versions/2.1.251`) reports the version number, which is useless as a label. |
+
+The catch is that tmux **seeds every pane's `pane_title` with the host name**, so a non-empty value does not by itself mean an application set one. Rather than shipping the host name to every client to compare there, the pane enumerations ask tmux to do the comparison and return an empty field when the title is still the seed — `tmux_formats::APP_PANE_TITLE` in `tmuxy-core/src/constants.rs`, mirrored by the `list-panes` formats in `bin/tmuxy-cli` and the sessions-tree poll in `tmuxy-ui/src/machines/actors/serversActor.ts`. All four must stay in step; the `constants.rs` tests guard the Rust pair. The expression must also stay free of shell metacharacters — the sessions poll reaches tmux through `run_tmux_command`, whose `is_readonly_query` guard (`tmuxy-server/src/sse.rs`) rejects any command carrying one, and the rejected poll returns no rows rather than an error.
+
+Downstream, an empty title unambiguously means "no app title", so every consumer resolves `title → command → 'shell'` (`getTabText` in `tmuxy-ui/src/components/paneTabDisplay.ts`). One consequence is inherent to the rule: tmux keeps the last title a pane was given, so a title can outlive the program that set it until the shell's own prompt hook replaces it.
+
+Titles change without any control-mode event, so they ride the regular `list-panes` refresh and the pane delta must carry the `title` field for a change to reach a connected client.
+
 ## Flow Control
 
 tmux 3.2+ supports `pause-after` flow control. The monitor configures `pause-after=5` (pause if a client falls 5 seconds behind). When a pane is paused, the monitor responds with `refresh-client -A '%pane:continue'` to resume. This prevents unbounded memory growth during heavy output.
@@ -221,7 +236,7 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The one p
 
 | Option | Scope | Values | Set on |
 |---|---|---|---|
-| `@tmuxy-window-type` | window | `float` \| `float-backdrop` \| `sidebar` | non-tab chrome windows only (tabs are untagged) |
+| `@tmuxy-window-type` | window | `float` \| `float-backdrop` \| `sidebar-left` \| `sidebar-right` | non-tab chrome windows only (tabs are untagged) |
 | `@tmuxy-float-parent` | window | `@<window-id>` | floats and float-backdrops |
 | `@tmuxy-float-width` | window | integer (columns) | floats |
 | `@tmuxy-float-height` | window | integer (rows) | floats |
@@ -229,10 +244,39 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The one p
 | `@tmuxy-float-bg` | window | `blur` \| `dim` \| unset | floats with a backdrop |
 | `@tmuxy-float-noheader` | window | `1` \| unset | floats that hide the header chrome |
 | `@tmuxy-group-id` | pane | `g<n>`, e.g. `g5` | every member of a pane group |
+| `@tmuxy-focus-request` | session | `left` \| `right` \| `panes` \| unset | a shell helper asking a client to move keyboard focus |
+| `@tmuxy-sidebar-cols` | window | integer (columns) \| unset | a sidebar column the user has dragged off its default width |
 
 `@tmuxy-float-parent` is always a **window id**, interpreted by the window's type: on a `float` it is the window the float was launched from (focus returns there on close); on a `float-backdrop` it is the float window the backdrop sits behind. The window-type disambiguates, so there is no separate backdrop-of option.
 
 Drawer direction, backdrop style, and the no-header flag live in their own options rather than being encoded in the window name — float names are user-facing labels (the running command, or a user-set title).
+
+### The two sidebars
+
+Both sidebars are **chrome windows of exactly the same shape as a float**: a single-pane window, broken out and tagged in one atomic command list, excluded from the tab strip, sized to its own column instead of the viewport. They differ only in the tag, the width, and what the pane runs.
+
+| | left (`sidebar-left`) | right (`sidebar-right`) |
+|---|---|---|
+| Pane runs | `tmuxy widget tree` | the default shell |
+| Started in | — | the current pane's directory (a bare `split-window`, like any fresh pane) |
+| Width | `sidebar_dock::LEFT_COLS` | `sidebar_dock::RIGHT_COLS` |
+| Dragged width | `@tmuxy-sidebar-cols` on its window | same |
+| Closing the column | kills the pane (nothing worth keeping) | hides it; the shell survives |
+
+The left column's pane carries **no content**: `bin/tmuxy/tmuxy-widget-tree` prints the widget marker and blocks, and the UI renders the registered `tree` widget in place of the pane's terminal, deriving the tree from state it already holds. The pane exists so the column has a real pane identity — something `ctrl+hjkl` and `tmuxy nav` can move into, and the backend can size — rather than being invisible to tmux entirely.
+
+Both columns are normally real flex siblings of the pane area, so an open sidebar shrinks the pane container and tmux re-tiles the panes into what is left. Below `SIDEBAR_OVERLAY_MIN_COLS` of terminal content left for the tab, a column stops docking and overlays the panes with a backdrop instead, and only one column may be open (`selectSidebarLayout`).
+
+Neither column draws a header while docked — its title lives in the app header, in a cluster sized to exactly that column's width so the two dividers line up. An overlaying column grows its own header, because there is no app-header room left beside it.
+
+Three consequences for the backend:
+
+- **Sizing.** Every other window is resized to the client viewport (`window-size manual` means tmux sizes nothing on its own). A sidebar window instead gets `sidebar_dock::size(window_type, user_cols, rows)` from `tmuxy-core/src/constants.rs` — its own column width, and the viewport's rows unchanged (a headerless column runs the full height of the app body). Both `control_mode::monitor::apply_client_size` and `executor::resize_window` implement this split, and the widths are mirrored in `tmuxy-ui/src/machines/constants.ts` (`LEFT_SIDEBAR_COLS` / `RIGHT_SIDEBAR_COLS`). If the two sides disagree, the pane wraps at a width the UI does not draw.
+- **Resizing.** Dragging a column's inner edge writes `@tmuxy-sidebar-cols` on its window, and the sizing pass above reads it back — so a drag moves the drawn column and the tmux pane together, in whole terminal columns, clamped to `sidebar_dock::MIN_COLS`/`MAX_COLS` (mirrored as `SIDEBAR_MIN_COLS`/`MAX_COLS` in the frontend). Because the width lives on the window rather than in a client, it survives a reload and every client attached to the session draws the column the same. The value must reach the client on BOTH state paths — the control-mode aggregator and the `get_initial_state` snapshot (`executor::get_windows`) — or a client whose baseline is the snapshot draws a resized column at its default width.
+- **Keyboard.** A column is focused without `select-pane` — that would switch the active window and blank the tab behind it. Keys reach the right column through the same overlay target a focused float uses (`overlayPaneId` in `machines/actors/keyboardActor.ts`); the left column's tree handles its own keys while focused.
+- **Focus requests.** Because focusing a column is client-side, a shell helper has no tmux command for it. `bin/tmuxy/nav` instead sets the session-scoped `@tmuxy-focus-request` when a directional `select-pane` is a no-op at the grid's edge and that edge has a column. It rides the existing `list-windows` poll (read as a per-window column, set at session scope so every row carries it) and the client that acts on it unsets it. This is what makes `tmuxy nav left` from a shell behave like `Ctrl+h`, which the frontend intercepts before it ever reaches tmux.
+
+Creating a chrome window is one atomic tmux command list: `split-window ; break-pane -d -n <name> -t :<index> ; set-option -w -t :<index> @tmuxy-window-type <type>`. The index is named up front because `break-pane -d` deliberately leaves the session's *current* window alone, so an untargeted `set-option -w` would tag the window the user is looking at instead of the new one. Tagging inside the same list also means the marker exists before the monitor reacts to `%window-add`, so a chrome window is never briefly rendered as a tab.
 
 ### Pane groups and the stash session
 
@@ -244,19 +288,19 @@ The stash session is created lazily (`new-session -d -s __tmuxy_stash`, control-
 
 ### How the tags are consumed
 
-The backend (`tmuxy-core`) reads the options off `list-windows` and emits each window's `windowType` on the wire, defaulting an untagged window to `tab` (see `WindowState::to_tmux_window`). The setup pass (`collect_window_tag_commands` in `control_mode/state.rs`) re-tags a float/sidebar window whose option went missing and enforces `pane-border-status top` per tab window (a session-level `set` is not inherited by windows), but it never writes a `tab` marker. Hidden group members are enumerated with a separate `list-panes` against the stash session (rows carry a `stashmember,` sentinel) and emitted as lightweight pane stubs carrying `group_id`.
+The backend (`tmuxy-core`) reads the options off `list-windows` and emits each window's `windowType` on the wire, defaulting an untagged window to `tab` (see `WindowState::to_tmux_window`). The setup pass (`collect_window_tag_commands` in `control_mode/state.rs`) re-tags a float/sidebar window whose option went missing, takes the `pane-border-status` row back off a window that turns out to be a sidebar, and enforces `pane-border-status top` per tab window (a session-level `set` is not inherited by windows), but it never writes a `tab` marker. Hidden group members are enumerated with a separate `list-panes` against the stash session (rows carry a `stashmember,` sentinel) and emitted as lightweight pane stubs carrying `group_id`.
 
 The frontend filters on `windowType`:
 
 - `selectVisibleWindows` (`packages/tmuxy-ui/src/machines/selectors.ts`) keeps only `windowType === 'tab'` windows for the tab strip.
-- the sidebar tree (`machines/actors/serversActor.ts`) hides `float` / `float-backdrop` / `sidebar` windows and the `__tmuxy_stash` session; everything else (including untagged foreign windows) shows as a tab.
+- the sidebar tree (`machines/actors/serversActor.ts`) hides `float` / `float-backdrop` / `sidebar-left` / `sidebar-right` windows and the `__tmuxy_stash` session; everything else (including untagged foreign windows) shows as a tab.
 - floats are rebuilt from `windowType === 'float'` windows and their `@tmuxy-float-*` metadata, and each group from the panes sharing a `group_id` (`machines/app/helpers.ts`).
 
 Window/pane mutations go through the optimistic pipeline in `packages/tmuxy-ui/src/tmux/store/` — each op predicts a local patch, dispatches the tmux command, and reconciles against the next server snapshot (`ops.ts`, `TmuxStore.ts`).
 
 ### History
 
-`@tmuxy-window-type` replaced the legacy `__float_*` / `__group_*` name-prefix conventions. Two later changes reshaped the scheme: pane groups moved from a `group` window type (plus a `@tmuxy-group-panes` membership list) to the per-pane `@tmuxy-group-id` and the stash session, and the `tab` marker was dropped so an untagged window is a tab. Only `float`, `float-backdrop`, and `sidebar` windows carry a type today.
+`@tmuxy-window-type` replaced the legacy `__float_*` / `__group_*` name-prefix conventions. Two later changes reshaped the scheme: pane groups moved from a `group` window type (plus a `@tmuxy-group-panes` membership list) to the per-pane `@tmuxy-group-id` and the stash session, and the `tab` marker was dropped so an untagged window is a tab. Only `float`, `float-backdrop`, `sidebar-left`, and `sidebar-right` windows carry a type today. The sidebar tag has been through three shapes: a single `sidebar` type first marked the hidden window running the `tmuxy tree` ratatui TUI behind the left drawer; that became a native React tree with no tmux window at all, and `sidebar` was reused for the pinned terminal; today it is split in two, and BOTH columns are panes again — the tree as a `tmuxy widget`, rendered by React but owning a real pane, which is what lets pane navigation reach it.
 
 ## Related
 

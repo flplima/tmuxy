@@ -1122,6 +1122,217 @@ describe('Scenario 22: Float fzf Workflow', () => {
   }, 180000);
 });
 
+// ==================== Scenario 6e: Pinned Terminal Dock ====================
+
+describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('prefix T docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc blurs → prefix T hides, reopen keeps the shell', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    const firstWindowId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activeWindowId,
+    );
+    expect(firstWindowId).toMatch(/^@\d+$/);
+
+    // Step 1: Open the dock via the real keybinding. First open also CREATES
+    // its tmux window, so this covers the create path.
+    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+
+    // Step 2: The column docks against the right edge of the viewport, full
+    // height — a flex sibling of the pane area, not an overlay.
+    await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 20000 });
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const el = document.querySelector('[data-testid="right-sidebar-content"]');
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return Math.abs(r.right - window.innerWidth) <= 2 && r.width > 50 && r.height > 100;
+        }),
+      10000,
+      'dock to sit against the right edge',
+    );
+
+    // Step 3: It is backed by a real `sidebar-right`-typed window with one pane,
+    // and that window is NOT in the tab strip.
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const ctxState = window.app?.getSnapshot()?.context;
+          const win = ctxState?.windows?.find((w) => w.windowType === 'sidebar-right');
+          return !!win && ctxState.panes.some((p) => p.windowId === win.id);
+        }),
+      20000,
+      'a sidebar-right-typed window with a pane',
+    );
+    const tabStrip = await ctx.page.evaluate(() => {
+      const win = window.app
+        ?.getSnapshot()
+        ?.context?.windows?.find((w) => w.windowType === 'sidebar-right');
+      const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+      return {
+        // The column's window is named `terminal` and tabs render `index:name`,
+        // so a tab carrying that label is the column leaking into the strip.
+        labels: tabs.map((t) => (t.textContent || '').trim()),
+        dockWindowName: win?.name,
+      };
+    });
+    expect(tabStrip.dockWindowName).toBe('terminal');
+    expect(tabStrip.labels.some((label) => label.includes('terminal'))).toBe(false);
+
+    // Step 4: THE geometry contract. tmux sizes a `sidebar-right` window to that
+    // column (sidebar_dock::size in tmuxy-core), not the viewport — otherwise
+    // the shell wraps at a width the UI never draws. 35 cols wide, and the full
+    // viewport height: the column is headerless, so it loses no row.
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const ctxState = window.app?.getSnapshot()?.context;
+          const win = ctxState?.windows?.find((w) => w.windowType === 'sidebar-right');
+          const pane = ctxState?.panes?.find((p) => p.windowId === win?.id);
+          return pane?.width === 35 && pane?.height === ctxState.targetRows;
+        }),
+      20000,
+      async () =>
+        ctx.page.evaluate(() => {
+          const ctxState = window.app?.getSnapshot()?.context;
+          const win = ctxState?.windows?.find((w) => w.windowType === 'sidebar-right');
+          const pane = ctxState?.panes?.find((p) => p.windowId === win?.id);
+          return `column pane sized to its own column (got ${pane?.width}x${pane?.height}, want 35x${ctxState?.targetRows})`;
+        }),
+    );
+
+    // Step 5: Opening it took the keyboard, so typing lands in the dock — not
+    // in the tab's active pane.
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === true),
+      10000,
+      'dock to hold keyboard focus after opening',
+    );
+    // Click the dock's own terminal for focus, then re-establish CDP keyboard
+    // focus (headless Chrome drops it across the DOM re-render the new column
+    // causes) before typing character by character, the same cadence
+    // typeInTerminal uses so the adapter's send-keys batching can't transpose.
+    await ctx.page.click('[data-testid="right-sidebar-content"] [role="log"]');
+    await ctx.page.bringToFront();
+    await delay(200);
+    for (const char of 'echo dock-typing-works') {
+      await ctx.page.keyboard.type(char);
+      await delay(30);
+    }
+    await pressEnter(ctx.page);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const el = document.querySelector('[data-testid="right-sidebar-content"]');
+          return !!el && (el.textContent || '').includes('dock-typing-works');
+        }),
+      20000,
+      'the typed command to echo inside the dock',
+    );
+
+    // Step 6: The point of the feature — it stays put when the user changes
+    // tabs, because its pane lives in its own window.
+    await createWindowKeyboard(ctx.page);
+    await waitForWindowCount(ctx.page, 2);
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const active = await ctx.page.evaluate(
+          () => window.app?.getSnapshot()?.context?.activeWindowId,
+        );
+        return active && active !== firstWindowId;
+      },
+      8000,
+      'second window to become active',
+    );
+    const stillDockedOnNewTab = await ctx.page.evaluate(() => {
+      const el = document.querySelector('[data-testid="right-sidebar-content"]');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return {
+        visible: r.width > 50 && r.height > 100,
+        keptOutput: (el.textContent || '').includes('dock-typing-works'),
+      };
+    });
+    expect(stillDockedOnNewTab).toEqual({ visible: true, keptOutput: true });
+
+    // Step 7: Escape hands the keyboard back to the panes without closing the
+    // dock (unlike a float, whose Escape kills it).
+    await focusPage(ctx.page);
+    await ctx.page.click('[data-testid="sidebar-title-right"] .sidebar-title-text');
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === true),
+      5000,
+      'dock focused after a click',
+    );
+    await ctx.page.keyboard.press('Escape');
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === false),
+      5000,
+      'rightSidebarFocused cleared after Escape',
+    );
+    const openAfterBlur = await ctx.page.evaluate(
+      () => !!document.querySelector('[data-testid="right-sidebar-content"]'),
+    );
+    expect(openAfterBlur).toBe(true);
+
+    // Step 8: prefix T HIDES the column but keeps the shell alive — reopening
+    // shows the same terminal, scrollback and all.
+    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+    await ctx.page.waitForFunction(
+      () => !document.querySelector('[data-testid="right-sidebar-content"]'),
+      { timeout: 10000, polling: 100 },
+    );
+    const windowSurvivedHide = await ctx.page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.windows?.some((w) => w.windowType === 'sidebar-right'),
+    );
+    expect(windowSurvivedHide).toBe(true);
+
+    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+    await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 10000 });
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => {
+          const el = document.querySelector('[data-testid="right-sidebar-content"]');
+          return !!el && (el.textContent || '').includes('dock-typing-works');
+        }),
+      10000,
+      'the same shell (with its scrollback) to come back on reopen',
+    );
+
+    // Cleanup: kill the pinned shell the way a user would — `exit` inside it —
+    // so the shared tmux server is left clean for the next test in the file.
+    // The column has no kill button: its toggle only hides it, and the shell
+    // going away is what retracts the column (see appMachine's sidebar
+    // lifecycle).
+    await ctx.page.click('[data-testid="sidebar-title-right"] .sidebar-title-text');
+    await ctx.page.keyboard.type('exit');
+    await ctx.page.keyboard.press('Enter');
+    await ctx.page.waitForFunction(
+      () => !document.querySelector('[data-testid="right-sidebar-content"]'),
+      { timeout: 15000, polling: 100 },
+    );
+  }, 180000);
+});
+
 // ==================== Scenario 6d: Sidebar Tree View ====================
 
 describe('Scenario 6d: Sidebar Tree View', () => {
@@ -1163,12 +1374,12 @@ describe('Scenario 6d: Sidebar Tree View', () => {
 
     // Step 2: The FIXED sidebar column appears docked at the left edge (it is
     // a flex sibling of the pane area, not an overlay — panes reflow beside it).
-    await ctx.page.waitForSelector('.sidebar-fixed', { timeout: 20000 });
+    await ctx.page.waitForSelector('.sidebar-column-left', { timeout: 20000 });
     await waitForCondition(
       ctx.page,
       async () =>
         ctx.page.evaluate(() => {
-          const el = document.querySelector('.sidebar-fixed');
+          const el = document.querySelector('.sidebar-column-left');
           if (!el) return false;
           const r = el.getBoundingClientRect();
           return Math.abs(r.left) <= 2 && r.width > 50 && r.height > 100;
@@ -1190,22 +1401,22 @@ describe('Scenario 6d: Sidebar Tree View', () => {
 
     // Step 4: Focus the sidebar (click) so keys route to the tree.
     //
-    // Click the header, not the sidebar container: Playwright clicks an
-    // element's CENTRE, and the centre of the container is a tree row. Every
-    // row activates on click, so focusing that way could land on a session row
-    // and fire SWITCH_SESSION — silently moving the whole client to another
-    // session mid-test. The header carries no handler of its own, so the click
-    // bubbles to the container and only focuses it.
-    await ctx.page.click('.sidebar-header');
+    // Click the column's TITLE in the app header, not the column itself:
+    // Playwright clicks an element's CENTRE, and the centre of the column is a
+    // tree row. Every row activates on click, so focusing that way could land
+    // on a session row and fire SWITCH_SESSION — silently moving the whole
+    // client to another session mid-test. The title focuses the column and
+    // does nothing else.
+    await ctx.page.click('[data-testid="sidebar-title-left"] .sidebar-title-text');
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.sidebarFocused === true),
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.leftSidebarFocused === true),
       5000,
-      'sidebarFocused set after click',
+      'leftSidebarFocused set after click',
     );
 
-    // Give the keyboard actor time to process UPDATE_SIDEBAR_FOCUSED (async
+    // Give the keyboard actor time to process UPDATE_LEFT_SIDEBAR_FOCUSED (async
     // message from XState, may lag the context update).
     await delay(DELAYS.SYNC);
     await ctx.page.bringToFront();
@@ -1243,8 +1454,8 @@ describe('Scenario 6d: Sidebar Tree View', () => {
             sessionName: c?.sessionName,
             sessions: (c?.sessions || []).map((x) => x.sessionName),
             windows: (c?.windows || []).map((w) => w.id),
-            rows: Array.from(document.querySelectorAll('.sidebar-tree [role="treeitem"]')).map((r) =>
-              r.getAttribute('data-testid'),
+            rows: Array.from(document.querySelectorAll('.sidebar-tree [role="treeitem"]')).map(
+              (r) => r.getAttribute('data-testid'),
             ),
           };
         });
@@ -1296,31 +1507,31 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.sidebarFocused === false),
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.leftSidebarFocused === false),
       5000,
-      'sidebarFocused cleared after Escape',
+      'leftSidebarFocused cleared after Escape',
     );
     const stillOpen = await ctx.page.evaluate(() => {
-      const el = document.querySelector('.sidebar-fixed');
+      const el = document.querySelector('.sidebar-column-left');
       return !!el && el.getBoundingClientRect().width > 50;
     });
     expect(stillOpen).toBe(true);
 
     // The header toggle reflects the open state.
     const pressedWhileOpen = await ctx.page.evaluate(() =>
-      document.querySelector('.sidebar-toggle')?.getAttribute('aria-pressed'),
+      document.querySelector('.sidebar-toggle-left')?.getAttribute('aria-pressed'),
     );
     expect(pressedWhileOpen).toBe('true');
 
     // Step 7: prefix t again closes the sidebar — the column is removed and
     // the toggle returns to its unpressed state.
     await sendPrefixCommand(ctx.page, 't');
-    await ctx.page.waitForFunction(() => !document.querySelector('.sidebar-fixed'), {
+    await ctx.page.waitForFunction(() => !document.querySelector('.sidebar-column-left'), {
       timeout: 10000,
       polling: 100,
     });
     const pressedAfterClose = await ctx.page.evaluate(() =>
-      document.querySelector('.sidebar-toggle')?.getAttribute('aria-pressed'),
+      document.querySelector('.sidebar-toggle-left')?.getAttribute('aria-pressed'),
     );
     expect(pressedAfterClose).toBe('false');
   }, 180000);

@@ -2,6 +2,7 @@ use std::process::Command;
 use tracing::{debug, trace};
 
 use crate::error::TmuxError;
+use crate::WindowType;
 
 type Result<T> = std::result::Result<T, TmuxError>;
 
@@ -46,6 +47,8 @@ pub struct WindowInfo {
     pub window_type: String,
     /// Raw `@tmuxy-float-parent`.
     pub float_parent: String,
+    /// `@tmuxy-sidebar-cols` — a sidebar column's dragged width, if set.
+    pub sidebar_cols: Option<u32>,
 }
 
 pub fn execute_tmux_command(args: &[&str]) -> Result<String> {
@@ -146,23 +149,56 @@ pub fn new_window(session_name: &str) -> Result<()> {
 
 /// Resize all tmux windows in the session to specific dimensions (columns x rows).
 /// This ensures hidden windows (e.g., pane group containers) stay in sync with the viewport.
+///
+/// The two sidebar windows are the exception: they are docked *beside* the pane
+/// grid rather than behind it, so each takes its own [`sidebar_dock`] column
+/// width (keeping the viewport's rows). See the mirror of this rule in
+/// `control_mode::monitor::apply_client_size`.
 pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<()> {
     debug!(%session_name, cols, rows, "resize_window");
     let cols_str = cols.to_string();
     let rows_str = rows.to_string();
 
-    // List all window IDs in the session
-    let output = execute_tmux_command(&["list-windows", "-t", session_name, "-F", "#{window_id}"])?;
+    // List every window with its tmuxy type and any dragged column width, so the
+    // sidebars can be told apart and sized to what the user actually set.
+    let format = format!(
+        "#{{window_id}},#{{{}}},#{{{}}}",
+        crate::constants::tmux_options::WINDOW_TYPE,
+        crate::constants::tmux_options::SIDEBAR_COLS
+    );
+    let output =
+        execute_tmux_command(&["list-windows", "-t", session_name, "-F", format.as_str()])?;
 
-    let window_ids: Vec<&str> = output.trim().lines().filter(|l| !l.is_empty()).collect();
-    trace!(?window_ids, "resize_window window ids");
-    if window_ids.is_empty() {
+    // (window_id, column width for a sidebar — None means viewport-sized)
+    let windows: Vec<(&str, Option<u32>)> = output
+        .trim()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|line| {
+            let mut fields = line.split(',');
+            let id = fields.next().unwrap_or(line);
+            let kind = fields.next().unwrap_or("");
+            let user_cols = fields.next().and_then(|c| c.parse::<u32>().ok());
+            let cols = WindowType::parse(kind)
+                .and_then(|t| crate::constants::sidebar_dock::cols(t, user_cols));
+            (id, cols)
+        })
+        .collect();
+    trace!(?windows, "resize_window window ids");
+    if windows.is_empty() {
         return Ok(());
     }
 
     // Build a single compound command: resize-window -t @1 -x C -y R \; resize-window -t @2 ...
     let mut args: Vec<&str> = Vec::new();
-    for (i, window_id) in window_ids.iter().enumerate() {
+    // Owns the per-sidebar width strings for the lifetime of `args`.
+    let sidebar_cols_strs: Vec<Option<String>> = windows
+        .iter()
+        .map(|(_, cols)| cols.map(|c| c.to_string()))
+        .collect();
+    for (i, ((window_id, _), sidebar_cols_str)) in
+        windows.iter().zip(sidebar_cols_strs.iter()).enumerate()
+    {
         if i > 0 {
             args.push(";");
         }
@@ -170,7 +206,7 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<()> {
         args.push("-t");
         args.push(window_id);
         args.push("-x");
-        args.push(&cols_str);
+        args.push(sidebar_cols_str.as_deref().unwrap_or(&cols_str));
         args.push("-y");
         args.push(&rows_str);
     }
@@ -186,7 +222,8 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<()> {
 pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>> {
     // Use comma delimiter (matching control mode state.rs parser).
     // Fields: pane_id, pane_index, pane_left, pane_top, pane_width, pane_height,
-    //         cursor_x, cursor_y, pane_active, pane_current_command, pane_title,
+    //         cursor_x, cursor_y, pane_active, pane_current_command, title
+    //         (`APP_PANE_TITLE` — empty unless an app set one),
     //         pane_in_mode, copy_cursor_x, copy_cursor_y, window_id, history_size,
     //         border_title
     //
@@ -195,13 +232,20 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>> {
     // anchor everything else by position and let the title soak up any remaining
     // commas at the end. Putting `history_size` after the title would mean
     // titles-with-commas could push it out of its expected slot.
+    let format = format!(
+        "#{{pane_id}},#{{pane_index}},#{{pane_left}},#{{pane_top}},#{{pane_width}},#{{pane_height}},\
+         #{{cursor_x}},#{{cursor_y}},#{{pane_active}},#{{pane_current_command}},{title},\
+         #{{pane_in_mode}},#{{copy_cursor_x}},#{{copy_cursor_y}},#{{window_id}},#{{history_size}},\
+         #{{T:pane-border-format}}",
+        title = crate::constants::tmux_formats::APP_PANE_TITLE,
+    );
     let output = execute_tmux_command(&[
         "list-panes",
-        "-s",  // List all panes in all windows of the session (not just active window)
+        "-s", // List all panes in all windows of the session (not just active window)
         "-t",
         session_name,
         "-F",
-        "#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id},#{history_size},#{T:pane-border-format}",
+        &format,
     ])?;
 
     let mut panes = Vec::new();
@@ -303,14 +347,14 @@ pub fn get_windows(session_name: &str) -> Result<Vec<WindowInfo>> {
         "-t",
         session_name,
         "-F",
-        "#{window_id},#{window_index},#{window_active},#{window_zoomed_flag},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{window_name}",
+        "#{window_id},#{window_index},#{window_active},#{window_zoomed_flag},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-sidebar-cols},#{window_name}",
     ])?;
 
     let mut windows = Vec::new();
 
     for line in output.lines() {
-        let parts: Vec<&str> = line.splitn(7, ',').collect();
-        if parts.len() < 7 {
+        let parts: Vec<&str> = line.splitn(8, ',').collect();
+        if parts.len() < 8 {
             continue;
         }
 
@@ -321,7 +365,8 @@ pub fn get_windows(session_name: &str) -> Result<Vec<WindowInfo>> {
             zoomed: parts[3] == "1",
             window_type: parts[4].trim().to_string(),
             float_parent: parts[5].trim().to_string(),
-            name: parts[6].to_string(),
+            sidebar_cols: parts[6].trim().parse::<u32>().ok(),
+            name: parts[7].to_string(),
         });
     }
 

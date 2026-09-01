@@ -651,6 +651,8 @@ pub struct WindowState {
     /// Window type (Tab/Float/FloatBackdrop/Group) sourced from @tmuxy-window-type.
     /// None = foreign window, ignored by the frontend.
     pub window_type: Option<WindowType>,
+    /// `@tmuxy-sidebar-cols` — a user-dragged width for a sidebar column.
+    pub sidebar_cols: Option<u32>,
 
     /// Parent window ID for float / backdrop (@tmuxy-float-parent).
     pub float_parent: Option<String>,
@@ -686,6 +688,7 @@ impl WindowState {
             active: false,
             layout: String::new(),
             window_type: None,
+            sidebar_cols: None,
             float_parent: None,
             float_width: None,
             float_height: None,
@@ -714,6 +717,7 @@ impl WindowState {
             float_drawer: self.float_drawer.clone(),
             float_bg: self.float_bg.clone(),
             float_noheader: self.float_noheader,
+            sidebar_cols: self.sidebar_cols,
             zoomed: self.zoomed,
         }
     }
@@ -866,6 +870,13 @@ pub struct StateAggregator {
     /// response that immediately follows it (each command in a control-mode
     /// command list gets its own %begin/%end block).
     buffer_read_armed: bool,
+
+    /// Latest value of the session-scoped `@tmuxy-focus-request` option, read
+    /// as a column of the `list-windows` poll. A one-shot request from a shell
+    /// helper (`bin/tmuxy/nav`) for the client to move keyboard focus somewhere
+    /// no tmux command could — see `tmux_options::FOCUS_REQUEST`. The client
+    /// that acts on it unsets the option, which clears this on the next poll.
+    focus_request: Option<String>,
 
     /// Cached status line (optimization: only refresh on window events or periodic sync)
     cached_status_line: String,
@@ -1071,6 +1082,7 @@ impl StateAggregator {
             pending_buffer_reads: std::collections::VecDeque::new(),
             buffer_read_armed: false,
 
+            focus_request: None,
             cached_status_line: String::new(),
             status_line_dirty: true, // Fetch on first state request
             prev_state: None,
@@ -1206,6 +1218,31 @@ impl StateAggregator {
         self.windows.keys().cloned().collect()
     }
 
+    /// Window IDs split by how the client-size pass must size them. Tabs and
+    /// floats take the whole viewport; each sidebar takes its own narrow column
+    /// (the two differ in width), so those come back paired with that width.
+    /// Returns `(viewport_sized, sidebar_sized_with_cols)`.
+    pub fn window_ids_by_sizing(&self) -> (Vec<String>, Vec<(String, u32)>) {
+        let mut viewport = Vec::new();
+        let mut sidebars = Vec::new();
+        for w in self.windows.values() {
+            let cols = w
+                .window_type
+                .and_then(|t| crate::constants::sidebar_dock::cols(t, w.sidebar_cols));
+            match cols {
+                Some(cols) => sidebars.push((w.id.clone(), cols)),
+                None => viewport.push(w.id.clone()),
+            }
+        }
+        (viewport, sidebars)
+    }
+
+    /// The session-scoped focus request read off the last `list-windows` poll,
+    /// if a shell helper has set one. See `tmux_options::FOCUS_REQUEST`.
+    pub fn focus_request(&self) -> Option<&str> {
+        self.focus_request.as_deref()
+    }
+
     /// Provisional positional index for a brand-new window: one past the
     /// current highest. tmux window IDs (`@N`, monotonic allocation) and
     /// window indices (positional) are independent, so `WindowState::new`'s
@@ -1233,7 +1270,7 @@ impl StateAggregator {
     ///
     /// Name-based inference (defensive):
     /// - `float` or `__float_*` → Float
-    /// - `__sidebar` → Sidebar
+    /// - `__sidebar-left` / `__sidebar-right` → SidebarLeft / SidebarRight
     /// - anything else → Tab (untagged, no marker written)
     ///
     /// Every Tab window must carry `pane-border-status top` so its topmost pane
@@ -1261,16 +1298,44 @@ impl StateAggregator {
                     w.window_type = Some(WindowType::Float);
                 }
                 cmds.push(format!("set-option -w -t {id} {window_type_opt} float"));
-            } else if name == "__sidebar" {
+            } else if let Some(side) = name.strip_prefix("__sidebar-") {
+                let kind = match side {
+                    "left" => WindowType::SidebarLeft,
+                    _ => WindowType::SidebarRight,
+                };
                 if let Some(w) = self.windows.get_mut(&id) {
-                    w.window_type = Some(WindowType::Sidebar);
+                    w.window_type = Some(kind);
                 }
-                cmds.push(format!("set-option -w -t {id} {window_type_opt} sidebar"));
+                cmds.push(format!(
+                    "set-option -w -t {id} {window_type_opt} {}",
+                    kind.as_str()
+                ));
             } else if self.border_enforced.insert(id.clone()) {
                 cmds.push(format!("set-option -w -t {id} pane-border-status top"));
                 cmds.push(format!("set-option -w -t {id} pane-border-format ' '"));
             }
         }
+
+        // Undo that border on a window that has since turned out to be a
+        // sidebar. `%window-add` announces a window before its
+        // `@tmuxy-window-type` is readable, so the loop above always treats a
+        // brand-new window as a tab and gives it the border row a tab needs.
+        // A sidebar is drawn headerless and sized without that row, so leaving
+        // it on costs the pane a line of content.
+        let mis_bordered: Vec<String> = self
+            .windows
+            .values()
+            .filter(|w| {
+                w.window_type.is_some_and(WindowType::is_sidebar)
+                    && self.border_enforced.contains(&w.id)
+            })
+            .map(|w| w.id.clone())
+            .collect();
+        for id in mis_bordered {
+            self.border_enforced.remove(&id);
+            cmds.push(format!("set-option -w -t {id} pane-border-status off"));
+        }
+
         cmds
     }
 
@@ -2293,14 +2358,14 @@ impl StateAggregator {
 
     /// Parse a line from list-windows output. Expected format (comma-separated,
     /// see constants::LIST_WINDOWS_CMD):
-    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,zoomed,name`
+    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,focus_request,sidebar_cols,zoomed,name`
     /// `window_name` is LAST and free text — we `splitn` so its own commas stay
     /// in the trailing field and can't shift any parsed column. Every column
     /// after `active` is a `@tmuxy-*` user option that may be empty.
     fn parse_list_windows_line(&mut self, line: &str) {
-        // 12 fields; splitn keeps window_name (the 12th) intact even with commas.
-        let parts: Vec<&str> = line.splitn(12, ',').collect();
-        if parts.len() < 11 {
+        // 14 fields; splitn keeps window_name (the 14th) intact even with commas.
+        let parts: Vec<&str> = line.splitn(14, ',').collect();
+        if parts.len() < 13 {
             return;
         }
 
@@ -2311,7 +2376,7 @@ impl StateAggregator {
 
         let index: u32 = parts[1].parse().unwrap_or(0);
         let active = parts[2] == "1";
-        let name = parts.get(11).map(|s| s.to_string()).unwrap_or_default();
+        let name = parts.get(13).map(|s| s.to_string()).unwrap_or_default();
 
         let opt = |idx: usize| -> Option<String> {
             parts
@@ -2328,11 +2393,17 @@ impl StateAggregator {
         let float_drawer = opt(7);
         let float_bg = opt(8);
         let float_noheader = opt(9).is_some_and(|s| s == "1");
+        // Session-scoped, so every row carries the same value and the last one
+        // parsed wins. Read from this poll rather than its own `show-options`
+        // because the poll already runs; see `tmux_options::FOCUS_REQUEST`.
+        self.focus_request = opt(10);
+        // A sidebar column the user has dragged off its default width.
+        let sidebar_cols = opt(11).and_then(|s| s.parse::<u32>().ok());
         // Authoritative zoom state. Deriving it only from `%layout-change`
         // flags loses it whenever window state is rebuilt from list-windows —
         // e.g. every fresh client connect, which is exactly when a client
         // attaching to an already-zoomed window needs it.
-        let zoomed = opt(10).is_some_and(|s| s == "1");
+        let zoomed = opt(12).is_some_and(|s| s == "1");
 
         let window = self
             .windows
@@ -2350,6 +2421,7 @@ impl StateAggregator {
         window.float_drawer = float_drawer;
         window.float_bg = float_bg;
         window.float_noheader = float_noheader;
+        window.sidebar_cols = sidebar_cols;
 
         if active {
             self.active_window_id = Some(window_id.to_string());
@@ -2422,6 +2494,13 @@ impl StateAggregator {
         // Check for status line changes
         if current.status_line != prev.status_line {
             delta.status_line = Some(current.status_line.clone());
+        }
+
+        // A queued focus request, or its clearing. The empty string is the
+        // "cleared" signal — `None` on the delta means "unchanged", so the
+        // absence of the option cannot be expressed by `None`.
+        if current.focus_request != prev.focus_request {
+            delta.focus_request = Some(current.focus_request.clone().unwrap_or_default());
         }
 
         // Build maps for efficient lookup
@@ -2584,6 +2663,9 @@ impl StateAggregator {
         if prev.command != curr.command {
             delta.command = Some(curr.command.clone());
         }
+        if prev.title != curr.title {
+            delta.title = Some(curr.title.clone());
+        }
         if prev.border_title != curr.border_title {
             delta.border_title = Some(curr.border_title.clone());
         }
@@ -2669,6 +2751,9 @@ impl StateAggregator {
         }
         if prev.float_noheader != curr.float_noheader {
             delta.float_noheader = Some(curr.float_noheader);
+        }
+        if prev.sidebar_cols != curr.sidebar_cols {
+            delta.sidebar_cols = Some(curr.sidebar_cols);
         }
         if prev.zoomed != curr.zoomed {
             delta.zoomed = Some(curr.zoomed);
@@ -2758,6 +2843,7 @@ impl StateAggregator {
             total_width,
             total_height,
             status_line,
+            focus_request: self.focus_request.clone(),
         }
     }
 }
@@ -3007,6 +3093,65 @@ mod tests {
     }
 
     #[test]
+    fn list_panes_parses_rows_captured_from_a_real_tmux() {
+        // Verbatim `list-panes -s -F LIST_PANES_CMD` output from tmux 3.7c: one
+        // pane whose app set no title (empty title field) and one that set a
+        // comma-laden one over OSC 2. Unlike `list_panes_line`, this carries
+        // tmux's real habit of leaving the copy-mode/selection numerics EMPTY
+        // rather than zero — the anchor scan has to tolerate both around a
+        // blank title.
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,,,,0,");
+        agg.parse_list_panes_line(
+            "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,,,,0,",
+        );
+
+        let untitled = agg.panes.get("%0").expect("untitled pane parsed");
+        assert_eq!(untitled.title, "", "no app title means an empty field");
+        assert_eq!(untitled.window_id, "@0");
+        assert_eq!(untitled.command, "sleep");
+
+        let titled = agg.panes.get("%1").expect("titled pane parsed");
+        assert_eq!(titled.title, "✳ Add tests, docs, and CI");
+        assert_eq!(titled.window_id, "@0");
+    }
+
+    #[test]
+    fn list_panes_empty_title_keeps_fields_aligned() {
+        // LIST_PANES_CMD asks tmux for the APP-SET title only, so a pane whose
+        // app never set one arrives with an EMPTY title field. The anchor scan
+        // must still find window_id rather than treating the blank as a shift.
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line(&list_panes_line("", "@4", ""));
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert_eq!(pane.window_id, "@4");
+        assert_eq!(pane.title, "");
+        assert_eq!(pane.command, "zsh");
+        assert_eq!(pane.history_size, 100);
+    }
+
+    #[test]
+    fn pane_delta_carries_a_changed_title() {
+        // A pane header shows the app's own title, so a title change has to
+        // survive the delta pass — it used to be dropped, leaving the client
+        // stuck on whatever title the initial snapshot carried.
+        let agg = StateAggregator::new();
+        let mut prev = PaneState::new("%3", 80, 24).build_tmux_pane();
+        prev.title = "old".to_string();
+        let mut curr = prev.clone();
+        curr.title = "✳ new title".to_string();
+
+        let delta = agg.compute_pane_delta(&prev, &curr);
+        assert_eq!(delta.title.as_deref(), Some("✳ new title"));
+
+        let unchanged = agg.compute_pane_delta(&curr, &curr);
+        assert_eq!(
+            unchanged.title, None,
+            "an unchanged title stays off the wire"
+        );
+    }
+
+    #[test]
     fn list_panes_title_with_commas_keeps_window_id() {
         // Regression: a pane title containing commas used to shift the
         // comma-split fields, parsing window_id as "" and blanking the tab.
@@ -3039,8 +3184,8 @@ mod tests {
         // LIST_WINDOWS_CMD) means a name like "build, test" stays in the
         // trailing field and can't shift window_active/@tmuxy-window-type/floats.
         let name = "build, test";
-        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,zoomed,name
-        let line = format!("@7,3,1,tab,,,,,,,0,{name}");
+        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,focus,cols,zoomed,name
+        let line = format!("@7,3,1,tab,,,,,,,,,0,{name}");
         let mut agg = StateAggregator::new();
         agg.parse_list_windows_line(&line);
         let w = agg.windows.get("@7").expect("window parsed");
@@ -3059,11 +3204,11 @@ mod tests {
     #[test]
     fn list_windows_carries_the_zoom_flag() {
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,1,editor");
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,1,editor");
         assert!(agg.windows.get("@9").expect("window parsed").zoomed);
 
         // ...and clears it again when the window is no longer zoomed.
-        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,0,editor");
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,0,editor");
         assert!(!agg.windows.get("@9").expect("window parsed").zoomed);
     }
 
@@ -3142,7 +3287,7 @@ mod tests {
     fn untagged_window_is_a_tab_and_gets_only_border_enforcement() {
         let mut agg = StateAggregator::new();
         // @id,index,active,type(empty),float*,zoomed,name
-        agg.parse_list_windows_line("@5,0,1,,,,,,,,0,shell");
+        agg.parse_list_windows_line("@5,0,1,,,,,,,,,,0,shell");
 
         let cmds = agg.collect_window_tag_commands();
         assert!(
@@ -3160,6 +3305,106 @@ mod tests {
         let state = agg.to_tmux_state();
         let w = state.windows.iter().find(|w| w.id == "@5").expect("window");
         assert_eq!(w.window_type, Some(WindowType::Tab));
+    }
+
+    /// Each sidebar is docked beside the pane grid, so the client-size pass must
+    /// size it to its own narrow column — sizing it to the viewport makes its
+    /// shell wrap at a width the UI never draws. The two columns differ in
+    /// width, so they cannot share one size.
+    #[test]
+    fn window_ids_by_sizing_splits_both_sidebars_off() {
+        use crate::constants::sidebar_dock;
+
+        let mut agg = StateAggregator::new();
+        agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,0,shell");
+        agg.parse_list_windows_line("@2,1,0,float,,,,,,,,,0,float");
+        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,,0,tree");
+        agg.parse_list_windows_line("@4,3,0,sidebar-right,,,,,,,,,0,term");
+
+        let (mut viewport, mut sidebars) = agg.window_ids_by_sizing();
+        viewport.sort();
+        sidebars.sort();
+        assert_eq!(viewport, vec!["@1".to_string(), "@2".to_string()]);
+        assert_eq!(
+            sidebars,
+            vec![
+                ("@3".to_string(), sidebar_dock::LEFT_COLS),
+                ("@4".to_string(), sidebar_dock::RIGHT_COLS),
+            ],
+            "each column carries its own width, not a shared one"
+        );
+
+        // A sidebar keeps the viewport's rows — it runs the full height of the
+        // app body and draws no header of its own.
+        assert_eq!(
+            sidebar_dock::size(WindowType::SidebarLeft, None, 50),
+            Some((sidebar_dock::LEFT_COLS, 50))
+        );
+        // ...and never collapses to zero rows on a degenerate viewport.
+        assert_eq!(
+            sidebar_dock::size(WindowType::SidebarRight, None, 0),
+            Some((sidebar_dock::RIGHT_COLS, 1))
+        );
+        // Everything else is viewport-sized, so it has no column width.
+        assert_eq!(sidebar_dock::size(WindowType::Tab, None, 50), None);
+        assert_eq!(sidebar_dock::size(WindowType::Float, None, 50), None);
+    }
+
+    /// A dragged column width replaces the default, and is clamped so a drag
+    /// can neither squeeze the column below legibility nor swallow the grid.
+    #[test]
+    fn sidebar_width_honours_the_user_drag_within_limits() {
+        use crate::constants::sidebar_dock;
+
+        let mut agg = StateAggregator::new();
+        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,48,0,tree");
+        let (_, sidebars) = agg.window_ids_by_sizing();
+        assert_eq!(sidebars, vec![("@3".to_string(), 48)]);
+
+        assert_eq!(
+            sidebar_dock::cols(WindowType::SidebarLeft, Some(2)),
+            Some(sidebar_dock::MIN_COLS),
+            "a drag past the floor stops at it"
+        );
+        assert_eq!(
+            sidebar_dock::cols(WindowType::SidebarRight, Some(9999)),
+            Some(sidebar_dock::MAX_COLS),
+            "...and past the ceiling likewise"
+        );
+        // A width set on a non-sidebar window is meaningless, not a size.
+        assert_eq!(sidebar_dock::cols(WindowType::Tab, Some(48)), None);
+    }
+
+    /// `%window-add` lands before the `@tmuxy-window-type` marker is readable,
+    /// so a sidebar's window is first adopted as a tab and given the tab-only
+    /// pane-border row. The next pass, once the type is known, has to take it
+    /// back — a sidebar is sized without that row.
+    #[test]
+    fn sidebar_loses_the_pane_border_a_tab_gets() {
+        let mut agg = StateAggregator::new();
+        // The window as `%window-add` / the first list-windows sees it: no
+        // marker yet, because the create command's `set-option` has not been
+        // read back.
+        agg.parse_list_windows_line("@4,2,0,,,,,,,,,,0,side");
+        let adopted = agg.collect_window_tag_commands();
+        assert!(
+            adopted
+                .iter()
+                .any(|c| c == "set-option -w -t @4 pane-border-status top"),
+            "an untyped new window is adopted as a tab: {adopted:?}"
+        );
+
+        // The list-windows response carries the marker the create command set.
+        agg.parse_list_windows_line("@4,2,0,sidebar-right,,,,,,,,,0,side");
+        let corrected = agg.collect_window_tag_commands();
+        assert!(
+            corrected
+                .iter()
+                .any(|c| c == "set-option -w -t @4 pane-border-status off"),
+            "the border must be taken back once the type lands: {corrected:?}"
+        );
+        // ...exactly once, and never re-enforced afterwards.
+        assert!(agg.collect_window_tag_commands().is_empty());
     }
 
     #[test]
@@ -3276,7 +3521,7 @@ mod tests {
         agg.process_event(ControlModeEvent::CommandResponse {
             timestamp: 0,
             command_num: 0,
-            output: "@1,5,1,tab,,,,,,,,shell".to_string(),
+            output: "@1,5,1,tab,,,,,,,,,,shell".to_string(),
             success: true,
         });
         assert_eq!(

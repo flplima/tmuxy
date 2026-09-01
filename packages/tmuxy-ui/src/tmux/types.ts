@@ -67,7 +67,7 @@ export interface ImagePlacement {
  * `null` means foreign — tmuxy never created or adopted this window and
  * filters it out everywhere.
  */
-export type WindowType = 'tab' | 'float' | 'float-backdrop' | 'sidebar';
+export type WindowType = 'tab' | 'float' | 'float-backdrop' | 'sidebar-left' | 'sidebar-right';
 
 export interface TmuxWindow {
   /** Window ID (e.g., "@0") */
@@ -89,6 +89,14 @@ export interface TmuxWindow {
   floatBg: string | null;
   /** True when the float hides its header chrome. */
   floatNoheader: boolean;
+  /**
+   * A sidebar column's width in cells when the user has dragged it off its
+   * default (@tmuxy-sidebar-cols). The column is drawn at this many cells, and
+   * the backend sized its pane to the same number — so a drag moves both, and
+   * every client attached to the session agrees on the width. Absent is
+   * equivalent to null — the side's default.
+   */
+  sidebarCols?: number | null;
   /** True while a pane in this window is zoomed (tmux hides the others).
    *  Absent is equivalent to false. */
   zoomed?: boolean;
@@ -212,6 +220,7 @@ export interface ServerWindow {
   float_drawer?: string | null;
   float_bg?: string | null;
   float_noheader?: boolean;
+  sidebar_cols?: number | null;
   zoomed?: boolean;
 }
 
@@ -224,6 +233,14 @@ export interface ServerState {
   total_width: number;
   total_height: number;
   status_line: string;
+  /**
+   * A one-shot request from a shell helper for this client to move keyboard
+   * focus somewhere no tmux command could reach: `left`/`right` for a sidebar
+   * column, `panes` to leave one. Set by `bin/tmuxy/nav` when a directional
+   * `select-pane` is a no-op at the grid's edge. The client that acts on it
+   * unsets the tmux option, which clears the field on the next poll.
+   */
+  focus_request?: string;
 }
 
 // ============================================
@@ -270,6 +287,7 @@ export interface WindowDelta {
   float_drawer?: string | null;
   float_bg?: string | null;
   float_noheader?: boolean;
+  sidebar_cols?: number | null;
   zoomed?: boolean;
 }
 
@@ -282,6 +300,8 @@ export interface ServerDelta {
   active_window_id?: string;
   active_pane_id?: string;
   status_line?: string;
+  /** See `ServerState.focus_request`. An empty string means "cleared". */
+  focus_request?: string;
   total_width?: number;
   total_height?: number;
 }

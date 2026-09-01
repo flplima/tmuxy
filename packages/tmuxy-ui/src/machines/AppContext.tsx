@@ -69,6 +69,9 @@ export {
   selectDropTarget,
   selectWindows,
   selectVisibleWindows,
+  selectLeftSidebarPane,
+  selectSidebarLayout,
+  selectRightSidebarPane,
   selectError,
   selectFatalError,
   selectLog,
@@ -97,6 +100,7 @@ export {
   selectThemeName,
   selectThemeMode,
   selectAvailableThemes,
+  selectTraceSettings,
 } from './selectors';
 
 // ============================================
@@ -141,15 +145,12 @@ export function AppProvider({
     }),
   );
 
-  // Expose XState actor for debugging and E2E tests. Also tap `send` so the
-  // Debug menu's "Copy Recent Events" can show what was dispatched. The tap
-  // checks the recorder at call time (it's installed by initDebugHelpers in
-  // App.tsx, which runs first), so an unset recorder is a no-op.
+  // Expose the XState actor for E2E tests, and tap `send` so the action
+  // tracer sees every dispatched event.
   useMemo(() => {
     if (typeof window === 'undefined') return;
     const originalSend = actorRef.send.bind(actorRef);
     (actorRef as { send: (event: unknown) => void }).send = (event: unknown) => {
-      window.__tmuxyRecordEvent?.(event);
       // Action tracing: record only the event *type* (a variant name like
       // SEND_TMUX_COMMAND), never its payload — the payload can carry keystrokes.
       // The derived model-update firehose is coalesced to a periodic count so it

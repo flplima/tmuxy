@@ -1,7 +1,15 @@
 /**
- * WindowTabs - Displays tmux window tabs in the status bar
+ * WindowTabs - the tmux window tabs in the status bar.
  *
- * Plain text tab names: light gray for inactive, green for active.
+ * The tabs share the strip equally (`flex: 1 1 0` each) and centre their label,
+ * so the strip reads as one row of even slots rather than a ragged left-aligned
+ * list, and a tab doesn't jump sideways when a neighbour is renamed.
+ *
+ * The active tab is marked by BRIGHTNESS alone — full opacity and pure white
+ * against the others' dimmed grey — with no pill or background behind it. A
+ * single tab is not "active" in any useful sense, so it renders as a plain title
+ * with no highlight at all.
+ *
  * Right-click opens a context menu with tab operations.
  */
 
@@ -62,15 +70,17 @@ export const WindowTabs = memo(function WindowTabs() {
     setContextMenu((prev) => ({ ...prev, visible: false }));
   }, []);
 
+  const isSingleTab = visibleWindows.length === 1;
+
   return (
     <LogProfiler id="WindowTabs">
-      <div className="tab-list">
+      <div className={`tab-list${isSingleTab ? ' tab-list-single' : ''}`}>
         {visibleWindows.map((window, idx) => {
           const visualIndex = idx + 1;
           return (
             <span
               key={window.id}
-              className={`tab-name ${window.active ? 'tab-name-active' : ''}`}
+              className={`tab-name ${window.active && !isSingleTab ? 'tab-name-active' : ''}`}
               onClick={() => handleWindowClick(window)}
               onContextMenu={(e) => handleContextMenu(e, window.index)}
               role="tab"

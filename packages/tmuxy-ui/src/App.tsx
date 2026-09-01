@@ -13,6 +13,8 @@ import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
 import { FloatContainer } from './components/FloatPane';
 import { Sidebar } from './components/Sidebar';
+import { SidebarBackdrop } from './components/SidebarBackdrop';
+import { RightSidebar } from './components/RightSidebar';
 import {
   useAppSelector,
   useAppSend,
@@ -26,15 +28,11 @@ import {
   selectCellMetrics,
 } from './machines/AppContext';
 import type { LogEntry } from './machines/types';
-import { initDebugHelpers } from './utils/debug';
 import { cellMetricsStyle } from './utils/cellMetrics';
 import { latencyTracker } from './tmux/latencyTracker';
 import { PerfHud } from './components/PerfHud';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
-
-// Initialize debug helpers
-initDebugHelpers();
 
 function formatLog(log: LogEntry[]): string {
   if (log.length === 0) return 'No activity yet.';
@@ -182,10 +180,14 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     >
       <StatusBar renderTabline={renderTabline} />
       <div className="app-body">
-        {/* Left sidebar: a fixed-width, full-height column when open. As a real
-            flex sibling it shrinks the pane container, whose ResizeObserver then
-            reports the reduced width so tmux re-tiles the panes into the space
-            that's left — never under the sidebar. */}
+        {/* Sidebars: fixed-width, full-height columns when open, each holding
+            one real tmux pane. As flex siblings they shrink the pane container,
+            whose ResizeObserver then reports the reduced width so tmux re-tiles
+            the panes into the space that's left — never under a sidebar. Left is
+            the tree widget, right the pinned terminal. In a window too narrow to
+            share, `selectSidebarLayout` switches them to overlaying the panes
+            over this backdrop instead. */}
+        {showLayout && <SidebarBackdrop />}
         {showLayout && <Sidebar />}
         <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
           {!showLayout ? (
@@ -203,6 +205,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
             </>
           )}
         </div>
+        {showLayout && <RightSidebar />}
       </div>
       <TmuxStatusBar />
       {/* Dev-only latency overlay; mounted only when enabled via ?perf /

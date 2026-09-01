@@ -298,9 +298,19 @@ pub enum WindowType {
     Tab,
     Float,
     FloatBackdrop,
-    /// The left sidebar's hidden window (runs the `tmuxy tree` TUI). Excluded
-    /// from the tab bar like floats; rendered in the UI as a left drawer.
-    Sidebar,
+    /// The left sidebar's window — a single pane running `tmuxy widget tree`,
+    /// which the UI renders as the tab/pane tree. See [`SidebarRight`] for the
+    /// properties both sidebars share.
+    ///
+    /// [`SidebarRight`]: WindowType::SidebarRight
+    SidebarLeft,
+    /// The right sidebar's window — a single pane holding a shell (or whatever
+    /// the user runs there) that the UI docks to the right edge on every tab.
+    ///
+    /// Both sidebar kinds are chrome windows exactly like floats: excluded from
+    /// the tab bar, and sized to their own narrow column rather than the client
+    /// viewport (see [`constants::sidebar_dock`]).
+    SidebarRight,
 }
 
 impl WindowType {
@@ -309,7 +319,8 @@ impl WindowType {
             "tab" => Some(WindowType::Tab),
             "float" => Some(WindowType::Float),
             "float-backdrop" => Some(WindowType::FloatBackdrop),
-            "sidebar" => Some(WindowType::Sidebar),
+            "sidebar-left" => Some(WindowType::SidebarLeft),
+            "sidebar-right" => Some(WindowType::SidebarRight),
             _ => None,
         }
     }
@@ -319,8 +330,17 @@ impl WindowType {
             WindowType::Tab => "tab",
             WindowType::Float => "float",
             WindowType::FloatBackdrop => "float-backdrop",
-            WindowType::Sidebar => "sidebar",
+            WindowType::SidebarLeft => "sidebar-left",
+            WindowType::SidebarRight => "sidebar-right",
         }
+    }
+
+    /// Whether this is one of the two docked sidebar columns. They share every
+    /// behaviour that separates chrome from tabs — hidden from the tab strip,
+    /// no pane border, sized to a fixed column — and differ only in width and
+    /// which edge they dock to.
+    pub fn is_sidebar(self) -> bool {
+        matches!(self, WindowType::SidebarLeft | WindowType::SidebarRight)
     }
 }
 
@@ -354,6 +374,11 @@ pub struct TmuxWindow {
     /// True if the float hides its header chrome (from @tmuxy-float-noheader).
     #[serde(default, skip_serializing_if = "is_false")]
     pub float_noheader: bool,
+    /// A sidebar column's width in terminal columns when the user has dragged it
+    /// off its default (from @tmuxy-sidebar-cols). The client draws the column
+    /// at this many cells, so it must match what the backend sized the pane to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidebar_cols: Option<u32>,
     /// True while a pane in this window is zoomed. tmux hides every other pane
     /// when zoomed; the frontend must not keep painting them underneath.
     #[serde(default)]
@@ -375,6 +400,11 @@ pub struct TmuxState {
     pub total_height: u32,
     /// Rendered tmux status line with ANSI escape sequences
     pub status_line: String,
+    /// Pending one-shot focus request from a shell helper (`left` / `right` /
+    /// `panes`), or `None` when nothing is queued. See
+    /// [`constants::tmux_options::FOCUS_REQUEST`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_request: Option<String>,
 }
 
 /// Serialize a line-number-keyed map with STRING keys. serde_json does this
@@ -534,6 +564,8 @@ pub struct WindowDelta {
     pub float_bg: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub float_noheader: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidebar_cols: Option<Option<u32>>,
     /// True while this window has a zoomed pane. tmux hides the other panes
     /// entirely when zoomed, so the frontend needs this to do the same.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -551,6 +583,7 @@ impl WindowDelta {
             && self.float_drawer.is_none()
             && self.float_bg.is_none()
             && self.float_noheader.is_none()
+            && self.sidebar_cols.is_none()
             && self.zoomed.is_none()
     }
 }
@@ -581,6 +614,11 @@ pub struct TmuxDelta {
     /// Status line changed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status_line: Option<String>,
+    /// A shell helper queued (or cleared) a focus request. `Some("")` means it
+    /// was cleared — the option is gone — so the field distinguishes "no change"
+    /// (absent) from "no longer pending" (empty string).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focus_request: Option<String>,
     /// Total dimensions changed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_width: Option<u32>,
@@ -599,6 +637,7 @@ impl TmuxDelta {
             active_window_id: None,
             active_pane_id: None,
             status_line: None,
+            focus_request: None,
             total_width: None,
             total_height: None,
         }
@@ -612,6 +651,7 @@ impl TmuxDelta {
             && self.active_window_id.is_none()
             && self.active_pane_id.is_none()
             && self.status_line.is_none()
+            && self.focus_request.is_none()
             && self.total_width.is_none()
             && self.total_height.is_none()
     }
@@ -728,11 +768,15 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
             // keep their explicit type.
             window_type: Some(WindowType::parse(&w.window_type).unwrap_or(WindowType::Tab)),
             float_parent: (!w.float_parent.is_empty()).then(|| w.float_parent.clone()),
+            // A dragged sidebar width has to be here too: the column is drawn at
+            // this many cells, so a client whose baseline is this snapshot would
+            // otherwise draw a resized column at its default width.
             float_width: None,
             float_height: None,
             float_drawer: None,
             float_bg: None,
             float_noheader: false,
+            sidebar_cols: w.sidebar_cols,
             zoomed: w.zoomed,
         })
         .collect();
@@ -753,6 +797,8 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
         total_width,
         total_height,
         status_line,
+        // Snapshot path: focus requests only ride the live control-mode poll.
+        focus_request: None,
     })
 }
 
@@ -767,7 +813,8 @@ mod tests {
             WindowType::Tab,
             WindowType::Float,
             WindowType::FloatBackdrop,
-            WindowType::Sidebar,
+            WindowType::SidebarLeft,
+            WindowType::SidebarRight,
         ] {
             let s = ty.as_str();
             assert_eq!(WindowType::parse(s), Some(ty));

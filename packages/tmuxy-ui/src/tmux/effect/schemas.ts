@@ -95,7 +95,13 @@ export const ServerPane = Schema.Struct({
 });
 
 /** Window type set on @tmuxy-window-type. Null = foreign window. */
-export const WindowType = Schema.Literal('tab', 'float', 'float-backdrop', 'sidebar');
+export const WindowType = Schema.Literal(
+  'tab',
+  'float',
+  'float-backdrop',
+  'sidebar-left',
+  'sidebar-right',
+);
 
 /** Window metadata. */
 export const ServerWindow = Schema.Struct({
@@ -110,6 +116,7 @@ export const ServerWindow = Schema.Struct({
   float_drawer: Schema.optional(Schema.NullOr(Schema.String)),
   float_bg: Schema.optional(Schema.NullOr(Schema.String)),
   float_noheader: Schema.optional(Schema.Boolean),
+  sidebar_cols: Schema.optional(Schema.NullOr(Schema.Number)),
 });
 
 /** Full server state snapshot. */
@@ -122,6 +129,7 @@ export const ServerState = Schema.Struct({
   total_width: Schema.Number,
   total_height: Schema.Number,
   status_line: Schema.String,
+  focus_request: Schema.optional(Schema.String),
 });
 
 // Schema-derived TS types. The existing hand-written interfaces in

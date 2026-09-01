@@ -1,29 +1,46 @@
 /**
- * SidebarToggle - header icon-button that opens/closes the left sidebar drawer.
+ * SidebarToggle - header icon-button that opens/closes one of the two sidebars.
  *
- * Sits between the app menu (or macOS traffic-light spacer) and the window tabs.
- * Reflects `sidebarOpen` as a pressed state; clicking dispatches TOGGLE_SIDEBAR,
- * the same event `prefix t` sends from the keyboard actor.
+ * Each toggle rides its own sidebar's cluster: the left one sits at the end of
+ * the left cluster (so an open column puts it just inside that column's
+ * divider), the right one at the start of the right cluster. The button
+ * therefore always reads as belonging to the panel it controls.
+ *
+ * Each reflects its sidebar's open flag as a pressed state, and dispatches the
+ * same event its `prefix` keybinding sends (`t` for the tree, `T` for the
+ * terminal).
  */
 
 import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { SidebarGlyph } from './SidebarColumn';
 
-export function SidebarToggle() {
+interface SidebarToggleProps {
+  side: 'left' | 'right';
+}
+
+const LABELS = {
+  left: { aria: 'Toggle tree sidebar', title: 'Toggle tree sidebar (prefix t)' },
+  right: { aria: 'Toggle terminal sidebar', title: 'Toggle terminal sidebar (prefix T)' },
+} as const;
+
+export function SidebarToggle({ side }: SidebarToggleProps) {
   const send = useAppSend();
-  const sidebarOpen = useAppSelector((ctx) => ctx.sidebarOpen);
+  const open = useAppSelector((ctx) =>
+    side === 'left' ? ctx.leftSidebarOpen : ctx.rightSidebarOpen,
+  );
+  const labels = LABELS[side];
 
   return (
     <button
-      className={`sidebar-toggle${sidebarOpen ? ' sidebar-toggle-active' : ''}`}
-      aria-label="Toggle sidebar"
-      aria-pressed={sidebarOpen}
-      title="Toggle sidebar (prefix t)"
-      onClick={() => send({ type: 'TOGGLE_SIDEBAR' })}
+      className={`sidebar-toggle sidebar-toggle-${side}${open ? ' sidebar-toggle-active' : ''}`}
+      aria-label={labels.aria}
+      aria-pressed={open}
+      title={labels.title}
+      onClick={() =>
+        send({ type: side === 'left' ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR' })
+      }
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
-        <rect x="2" y="2.75" width="12" height="10.5" rx="1.5" strokeWidth="1.3" />
-        <rect x="2" y="2.75" width="4.5" height="10.5" rx="1.5" fill="currentColor" stroke="none" />
-      </svg>
+      <SidebarGlyph side={side} />
     </button>
   );
 }

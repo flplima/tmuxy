@@ -135,6 +135,7 @@ export function transformServerState(payload: ServerState): {
   totalWidth: number;
   totalHeight: number;
   statusLine: string;
+  focusRequest: string;
 } {
   return {
     sessionName: payload.session_name,
@@ -147,6 +148,7 @@ export function transformServerState(payload: ServerState): {
     totalWidth: payload.total_width,
     totalHeight: payload.total_height,
     statusLine: payload.status_line,
+    focusRequest: payload.focus_request ?? '',
   };
 }
 
@@ -199,6 +201,7 @@ function normalizeWindow(w: TmuxWindow): TmuxWindow {
     floatDrawer: w.floatDrawer ?? null,
     floatBg: w.floatBg ?? null,
     floatNoheader: Boolean(w.floatNoheader),
+    sidebarCols: w.sidebarCols ?? null,
     zoomed: Boolean(w.zoomed),
   };
 }

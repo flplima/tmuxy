@@ -20,14 +20,16 @@ const LIST_WINDOWS_JSON = [
   { id: '@1', index: 1, name: 'editor', panes: 1, active: false },
 ];
 
-// A session that also contains tmuxy's hidden windows — float, group, and the
-// sidebar. `tmuxy tab list --json` must drop those, keeping only the two tabs.
+// A session that also contains tmuxy's hidden windows — a float, a group, and
+// both sidebar columns. `tmuxy tab list --json` must drop those, keeping only
+// the two tabs.
 const LIST_WINDOWS_WITH_HIDDEN_OUTPUT = [
   '@0\t0\tmain\t2\t1\ttab',
   '@1\t1\teditor\t1\t0\ttab',
   '@2\t2\tfloat\t1\t0\tfloat',
   '@3\t3\t__group_x\t1\t0\tgroup',
-  '@4\t4\t__sidebar\t1\t0\tsidebar',
+  '@4\t4\ttree\t1\t0\tsidebar-left',
+  '@5\t5\tterminal\t1\t0\tsidebar-right',
 ].join('\n');
 
 // A window name carrying the characters that broke the old comma-joined,

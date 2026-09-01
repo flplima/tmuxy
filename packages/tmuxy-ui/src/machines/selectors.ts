@@ -5,8 +5,15 @@ import type {
   PaneGroup,
   KeyBindings,
   SessionTreeNode,
+  TraceSettings,
 } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
+import {
+  DEFAULT_CHAR_WIDTH,
+  LEFT_SIDEBAR_COLS,
+  RIGHT_SIDEBAR_COLS,
+  SIDEBAR_OVERLAY_MIN_COLS,
+} from './constants';
 
 // ============================================
 // Pane Selectors
@@ -230,6 +237,95 @@ export const selectVisibleWindows = createMemoizedSelector(
     selectWindows(context).filter((w) => w.windowType === 'tab' && w.name !== ''),
 );
 
+/**
+ * The pane behind a sidebar column, or null when that column's window does not
+ * exist yet.
+ *
+ * Each sidebar is a `sidebar-left` / `sidebar-right`-typed window holding
+ * exactly one pane — the same shape a float window has, created by the same
+ * `break-pane` + tag command list. It lives outside the active window, so it is
+ * invisible to `selectPreviewPanes` (which filters to the active window) and to
+ * the tab strip (`selectVisibleWindows` keeps only tabs); these selectors are
+ * the only way the UI reaches it.
+ */
+function sidebarPane(context: AppMachineContext, side: 'left' | 'right'): TmuxPane | null {
+  const window = context.windows.find((w) => w.windowType === `sidebar-${side}`);
+  if (!window) return null;
+  return context.panes.find((p) => p.windowId === window.id) ?? null;
+}
+
+/** The pane running the tree widget behind the left column. */
+export const selectLeftSidebarPane = createMemoizedSelector(
+  (ctx: AppMachineContext) => [ctx.windows, ctx.panes] as const,
+  (context: AppMachineContext): TmuxPane | null => sidebarPane(context, 'left'),
+);
+
+/**
+ * How the two sidebar columns should be laid out right now.
+ *
+ * A column normally DOCKS: it is a flex sibling of the pane container, so the
+ * container's ResizeObserver reports the reduced width and tmux re-tiles the
+ * panes into what is left. Below `SIDEBAR_OVERLAY_MIN_COLS` of terminal content
+ * left for the tab, shrinking the grid further leaves nothing usable behind the
+ * column, so it OVERLAYS the panes (and the tab strip) with a backdrop instead
+ * — and only one column may do that at a time, the left one winning since it is
+ * the navigational surface.
+ *
+ * The available width is reconstructed from the pane container plus whatever is
+ * currently docked beside it, so the decision is made against the window's full
+ * body width rather than the already-shrunken grid.
+ */
+export const selectSidebarLayout = createMemoizedSelector(
+  (ctx: AppMachineContext) =>
+    [
+      ctx.leftSidebarOpen,
+      ctx.rightSidebarOpen,
+      ctx.containerWidth,
+      ctx.charWidth,
+      ctx.windows,
+    ] as const,
+  (
+    context: AppMachineContext,
+  ): {
+    leftOpen: boolean;
+    rightOpen: boolean;
+    /** True when the open column overlays the panes instead of docking. */
+    overlay: boolean;
+    leftWidth: number;
+    rightWidth: number;
+  } => {
+    const charWidth = context.charWidth || DEFAULT_CHAR_WIDTH;
+    // A column the user has dragged carries its width on its own window, so the
+    // rendered column and the pane the backend sized agree — and so the width
+    // survives a reload and reaches every other client.
+    const draggedCols = (side: 'left' | 'right') =>
+      context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarCols ?? null;
+    const leftWidth = (draggedCols('left') ?? LEFT_SIDEBAR_COLS) * charWidth;
+    const rightWidth = (draggedCols('right') ?? RIGHT_SIDEBAR_COLS) * charWidth;
+    const { leftSidebarOpen: leftOpen } = context;
+    let { rightSidebarOpen: rightOpen } = context;
+
+    // Width of the app body: the pane container plus every column docked beside
+    // it. An overlaying column takes none, so it is already included.
+    const docked = (leftOpen ? leftWidth : 0) + (rightOpen ? rightWidth : 0);
+    const bodyWidth = context.containerWidth + docked;
+    const remaining = bodyWidth - docked;
+    const overlay = docked > 0 && remaining / charWidth <= SIDEBAR_OVERLAY_MIN_COLS;
+
+    // Overlaying columns stack on each other and hide the whole tab, so at most
+    // one is shown; the tree wins because it is how you get anywhere else.
+    if (overlay && leftOpen && rightOpen) rightOpen = false;
+
+    return { leftOpen, rightOpen, overlay, leftWidth, rightWidth };
+  },
+);
+
+/** The pane running the pinned terminal behind the right column. */
+export const selectRightSidebarPane = createMemoizedSelector(
+  (ctx: AppMachineContext) => [ctx.windows, ctx.panes] as const,
+  (context: AppMachineContext): TmuxPane | null => sidebarPane(context, 'right'),
+);
+
 // ============================================
 // Connection Selectors
 // ============================================
@@ -406,7 +502,7 @@ export const selectVisiblePanes = createMemoizedSelector(
  * rendering paths (floats) or are intentionally suppressed (group siblings).
  */
 function selectHiddenWindowPanesUncached(context: AppMachineContext): TmuxPane[] {
-  const { panes, activeWindowId, floatPanes, paneGroups } = context;
+  const { panes, activeWindowId, floatPanes, paneGroups, windows } = context;
   if (!activeWindowId) return [];
 
   const hiddenGroupPaneIds = new Set<string>();
@@ -417,9 +513,18 @@ function selectHiddenWindowPanesUncached(context: AppMachineContext): TmuxPane[]
     }
   }
 
+  // A sidebar's pane is drawn by its own column, so the grid must not keep a
+  // second copy of it mounted the way it does for another TAB's panes. Two
+  // mounts of the tree widget means two capture-phase key listeners, and the
+  // hidden copy still lands in the layout's rect math.
+  const sidebarWindowIds = new Set(
+    windows.filter((w) => w.windowType?.startsWith('sidebar-')).map((w) => w.id),
+  );
+
   const result: TmuxPane[] = [];
   for (const pane of panes) {
     if (pane.windowId === activeWindowId) continue;
+    if (sidebarWindowIds.has(pane.windowId)) continue;
     if (floatPanes[pane.tmuxId]) continue;
     if (hiddenGroupPaneIds.has(pane.tmuxId)) continue;
     result.push(pane);
@@ -632,4 +737,9 @@ export function selectAvailableThemes(
   context: AppMachineContext,
 ): Array<{ name: string; displayName: string }> {
   return context.availableThemes;
+}
+
+/** Local action tracing as the backend reports it, or null before it is read. */
+export function selectTraceSettings(context: AppMachineContext): TraceSettings | null {
+  return context.traceSettings;
 }

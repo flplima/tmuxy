@@ -1,19 +1,24 @@
 /**
- * Sidebar - left FIXED column rendering the tab/pane tree.
+ * Sidebar - the LEFT column: a tmux pane running the tabs/panes tree widget.
  *
- * When open, the sidebar is a full-height, fixed-width column that is part of
- * the app layout (a flex sibling of the pane area) — NOT an overlay. Because the
- * pane container flexes into the REMAINING width, its ResizeObserver reports the
- * reduced size and tmux re-tiles the panes to fit; the panes never render under
- * the sidebar. The tree itself is a native React component derived from state —
- * no tmux window/pane, no `tmuxy tree` TUI. Toggled from the header button or
- * `prefix t`; focused via a click or Ctrl+h from the leftmost pane.
+ * The pane runs `tmuxy widget tree` in its own `sidebar-left`-tagged window, so
+ * the tree renders through the ordinary widget path (`SidebarTree` via the
+ * registered `tree` widget) while the column still has a real pane identity —
+ * something `ctrl+hjkl` and `tmuxy nav` can move into, and the backend can size.
+ *
+ * Toggled from the header button or `prefix t`; focused by a click, Ctrl+h from
+ * the leftmost pane, or a `tmuxy nav left` focus request. See SidebarColumn for
+ * the frame the two columns share, and RightSidebar for the pinned terminal.
  */
 
 import { memo, useCallback } from 'react';
-import { SidebarTree } from './SidebarTree';
-import { useAppSend, useAppSelector, selectCharSize } from '../machines/AppContext';
-import { SIDEBAR_COLS } from '../machines/constants';
+import { SidebarColumn } from './SidebarColumn';
+import {
+  useAppSend,
+  useAppSelector,
+  selectLeftSidebarPane,
+  selectSidebarLayout,
+} from '../machines/AppContext';
 import { LogProfiler } from '../utils/renderLog';
 
 export const Sidebar = memo(function Sidebar() {
@@ -26,32 +31,28 @@ export const Sidebar = memo(function Sidebar() {
 
 function SidebarInner() {
   const send = useAppSend();
-  const sidebarOpen = useAppSelector((ctx) => ctx.sidebarOpen);
-  const sidebarFocused = useAppSelector((ctx) => ctx.sidebarFocused);
-  const { charWidth } = useAppSelector(selectCharSize);
+  const { leftOpen, overlay, leftWidth } = useAppSelector(selectSidebarLayout);
+  const focused = useAppSelector((ctx) => ctx.leftSidebarFocused);
+  const sessionName = useAppSelector((ctx) => ctx.sessionName);
+  const pane = useAppSelector(selectLeftSidebarPane);
 
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      send({ type: 'FOCUS_SIDEBAR' });
-    },
-    [send],
-  );
+  const handleFocus = useCallback(() => send({ type: 'FOCUS_LEFT_SIDEBAR' }), [send]);
+  const handleClose = useCallback(() => send({ type: 'TOGGLE_LEFT_SIDEBAR' }), [send]);
 
-  if (!sidebarOpen) return null;
-
-  // Fixed column width, in lockstep with the tab pane widths (same charWidth).
-  const width = SIDEBAR_COLS * charWidth;
+  if (!leftOpen) return null;
 
   return (
-    <aside
-      className={`sidebar-fixed${sidebarFocused ? ' is-focused' : ''}`}
-      style={{ flex: `0 0 ${width}px`, width, minWidth: width, maxWidth: width }}
-      onClick={handleClick}
-      data-testid="sidebar-content"
-    >
-      <div className="sidebar-header">tree</div>
-      <SidebarTree focused={sidebarFocused} />
-    </aside>
+    <SidebarColumn
+      side="left"
+      width={leftWidth}
+      overlay={overlay}
+      focused={focused}
+      pane={pane}
+      title={sessionName}
+      onFocus={handleFocus}
+      onClose={handleClose}
+      closeLabel="Close the tree sidebar"
+      testId="sidebar-content"
+    />
   );
 }

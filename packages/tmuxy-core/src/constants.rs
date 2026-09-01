@@ -21,8 +21,9 @@
 /// `#{@tmuxy-window-type}`.
 pub mod tmux_options {
     /// Type discriminator, set only on non-tab windows (`float`,
-    /// `float-backdrop`, `sidebar`). Tabs carry no marker — an untagged window
-    /// in the attached session IS a tab. See [`crate::WindowType`].
+    /// `float-backdrop`, `sidebar-left`, `sidebar-right`). Tabs carry no marker
+    /// — an untagged window in the attached session IS a tab. See
+    /// [`crate::WindowType`].
     pub const WINDOW_TYPE: &str = "@tmuxy-window-type";
 
     /// Window ID this float/backdrop is anchored to.
@@ -36,6 +37,28 @@ pub mod tmux_options {
     pub const FLOAT_BG: &str = "@tmuxy-float-bg";
     /// `1` to suppress the float's header chrome.
     pub const FLOAT_NOHEADER: &str = "@tmuxy-float-noheader";
+
+    /// Width of a sidebar column in terminal columns, when the user has dragged
+    /// it off its default. Set on the sidebar window, so the width is a property
+    /// of the column itself — it survives a reload, and every client attached to
+    /// the session draws the column at the width tmux actually sized the pane
+    /// to. Unset means the default for that side (`sidebar_dock::LEFT_COLS` /
+    /// `RIGHT_COLS`).
+    pub const SIDEBAR_COLS: &str = "@tmuxy-sidebar-cols";
+
+    /// Session-scoped one-shot request from a shell helper to move the client's
+    /// keyboard focus somewhere the helper cannot reach itself: `left` or
+    /// `right` for the matching sidebar column, `panes` to leave one.
+    ///
+    /// `bin/tmuxy/nav` sets it when a directional `select-pane` is a no-op at
+    /// the grid's edge and that edge has an open sidebar. Focusing a sidebar is
+    /// a client-side concept — its pane lives in another window, so
+    /// `select-pane` would switch the visible tab — which leaves no tmux
+    /// command the script could run. The option rides the existing
+    /// `list-windows` poll to every client (it is read as a per-window column,
+    /// but set at session scope so every row carries it), and the client that
+    /// acts on it unsets it.
+    pub const FOCUS_REQUEST: &str = "@tmuxy-focus-request";
 
     /// Pane-scoped group identity (e.g. `g5`). Set on every member of a pane
     /// group — the visible member (in the attached session) and each hidden
@@ -59,6 +82,58 @@ pub mod tmux_options {
     pub const INACTIVE_TEXT_OPACITY: &str = "@tmuxy-inactive-text-opacity";
     /// `on`/`off`: native blur behind the window (macOS only; ignored elsewhere).
     pub const BLUR: &str = "@tmuxy-blur";
+}
+
+/// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
+/// `SidebarRight`).
+///
+/// A sidebar window is NOT sized to the client viewport like tabs and floats
+/// are — it is a narrow column docked beside the pane grid, so it gets its own
+/// fixed width. Its rows match the viewport exactly: both columns are flex
+/// siblings of the pane container and run the full height of the app body, and
+/// neither carries a header of its own (the title lives in the app header).
+///
+/// The widths are mirrored in the frontend (`tmuxy-ui/src/machines/constants.ts`,
+/// `LEFT_SIDEBAR_COLS` / `RIGHT_SIDEBAR_COLS`) — each column is drawn at exactly
+/// this many cells, so the two sides must agree or the rendered terminal and the
+/// tmux pane disagree about where lines wrap.
+pub mod sidebar_dock {
+    use crate::WindowType;
+
+    /// Width of the left column (the tree widget), in terminal columns.
+    pub const LEFT_COLS: u32 = 30;
+
+    /// Width of the right column (the pinned terminal), in terminal columns.
+    pub const RIGHT_COLS: u32 = 35;
+
+    /// Narrowest and widest a column may be dragged to. The floor keeps a tree
+    /// row or shell prompt legible; the ceiling stops a drag from squeezing the
+    /// pane grid down to nothing.
+    pub const MIN_COLS: u32 = 16;
+    pub const MAX_COLS: u32 = 120;
+
+    /// Column width for a sidebar window of the given type. Returns `None` for
+    /// any non-sidebar type, which is sized to the viewport instead.
+    ///
+    /// `user_cols` is the window's `@tmuxy-sidebar-cols` override, if the user
+    /// has dragged the column off its default width.
+    pub fn cols(window_type: WindowType, user_cols: Option<u32>) -> Option<u32> {
+        let default = match window_type {
+            WindowType::SidebarLeft => LEFT_COLS,
+            WindowType::SidebarRight => RIGHT_COLS,
+            _ => return None,
+        };
+        Some(user_cols.map_or(default, |c| c.clamp(MIN_COLS, MAX_COLS)))
+    }
+
+    /// The tmux size for a sidebar window, given the client's viewport rows.
+    pub fn size(
+        window_type: WindowType,
+        user_cols: Option<u32>,
+        client_rows: u32,
+    ) -> Option<(u32, u32)> {
+        cols(window_type, user_cols).map(|c| (c, client_rows.max(1)))
+    }
 }
 
 /// The dedicated tmux session tmuxy parks HIDDEN panes in (non-active pane-group
@@ -86,8 +161,36 @@ pub mod tmux_formats {
         "#{window_id},#{window_index},#{window_active},#{@tmuxy-window-type},",
         "#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},",
         "#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},",
+        "#{@tmuxy-focus-request},#{@tmuxy-sidebar-cols},",
         "#{window_zoomed_flag},#{window_name}'",
     );
+
+    /// The application-set pane title, with tmux's own default filtered out.
+    ///
+    /// tmux seeds every pane's title with the host name, so `#{pane_title}` is
+    /// non-empty even when no application ever emitted an OSC 0/2 title.
+    /// Comparing against `#{host}` inside tmux (rather than shipping the host
+    /// name to every client to compare there) makes the field EMPTY for "no app
+    /// title" — which is what lets the UI fall back to the process name. Both
+    /// values come from the same `gethostname()`, so the seed always matches.
+    /// Expands to ONE field: the comparison's own comma is consumed by tmux,
+    /// never emitted.
+    ///
+    /// Deliberately free of shell metacharacters — `||`, `$`, parens and the
+    /// rest. The sidebar's sessions poll sends a format built from this through
+    /// the server's `run_tmux_command`, whose `is_readonly_query` guard
+    /// (`tmuxy-server/src/sse.rs`) rejects any command carrying one, and a
+    /// rejected poll silently returns no rows.
+    ///
+    /// A macro rather than a `const` because `concat!` only accepts literals.
+    macro_rules! app_pane_title {
+        () => {
+            "#{?#{==:#{pane_title},#{host}},,#{pane_title}}"
+        };
+    }
+
+    /// See [`app_pane_title!`].
+    pub const APP_PANE_TITLE: &str = app_pane_title!();
 
     /// `list-panes -s -F '<...>'` format. The session-scope flag (`-s`) is
     /// included so the monitor never accidentally drops to window scope.
@@ -99,7 +202,9 @@ pub mod tmux_formats {
         "#{pane_left},#{pane_top},",
         "#{pane_width},#{pane_height},",
         "#{cursor_x},#{cursor_y},",
-        "#{pane_active},#{pane_current_command},#{pane_title},",
+        "#{pane_active},#{pane_current_command},",
+        app_pane_title!(),
+        ",",
         "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
         "#{scroll_position},",
         "#{window_id},#{T:pane-border-format},",
@@ -121,7 +226,9 @@ pub mod tmux_formats {
     pub const LIST_STASH_PANES_CMD: &str = concat!(
         "list-panes -a -f '#{==:#{session_name},__tmuxy_stash}' -F '",
         "stashmember,#{pane_id},#{window_id},#{@tmuxy-group-id},",
-        "#{pane_current_command},#{pane_title}'",
+        "#{pane_current_command},",
+        app_pane_title!(),
+        "'",
     );
 }
 
@@ -189,6 +296,31 @@ mod tests {
                 tmux_formats::LIST_WINDOWS_CMD.contains(&format!("#{{{option}}}")),
                 "LIST_WINDOWS_CMD is missing #{{{option}}} — the format string \
                  and the tmux_options constant have diverged"
+            );
+        }
+    }
+
+    /// Both pane enumerations must ask for the HOST-FILTERED title, never a
+    /// bare `#{pane_title}`: the raw field is seeded with the host name, so a
+    /// client reading it can't tell "the app set this" from "tmux did", and the
+    /// pane header would show a host name instead of falling back to the
+    /// process name.
+    #[test]
+    fn list_panes_cmds_ask_for_the_app_set_title() {
+        for (name, cmd) in [
+            ("LIST_PANES_CMD", tmux_formats::LIST_PANES_CMD),
+            ("LIST_STASH_PANES_CMD", tmux_formats::LIST_STASH_PANES_CMD),
+        ] {
+            assert!(
+                cmd.contains(tmux_formats::APP_PANE_TITLE),
+                "{name} must request APP_PANE_TITLE, not a bare #{{pane_title}}"
+            );
+            assert_eq!(
+                cmd.matches("#{pane_title}").count(),
+                tmux_formats::APP_PANE_TITLE
+                    .matches("#{pane_title}")
+                    .count(),
+                "{name} has a #{{pane_title}} outside APP_PANE_TITLE"
             );
         }
     }

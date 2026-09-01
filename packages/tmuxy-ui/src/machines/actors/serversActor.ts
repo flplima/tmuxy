@@ -43,7 +43,7 @@ const POLL_INTERVAL_MS = 4000;
 const SEP = '\t';
 
 /** tmux window types that are tmuxy-internal chrome, hidden from the tree. */
-const HIDDEN_WINDOW_TYPES = new Set(['float', 'float-backdrop', 'sidebar']);
+const HIDDEN_WINDOW_TYPES = new Set(['float', 'float-backdrop', 'sidebar-left', 'sidebar-right']);
 
 /** The stash session parks hidden pane-group members; never show it in the tree. */
 const STASH_SESSION = '__tmuxy_stash';
@@ -51,7 +51,16 @@ const STASH_SESSION = '__tmuxy_stash';
 // One `list-windows -a` / `list-panes -a` row, tab-joined. `#{@tmuxy-window-type}`
 // is empty for foreign (e.g. vanilla-tmux) windows — those are kept as tabs.
 const WINDOWS_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{window_index}${SEP}#{window_name}${SEP}#{@tmuxy-window-type}`;
-const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}`;
+/**
+ * The app-set pane title, with tmux's default host-name seed filtered out —
+ * the same expression the Rust monitor uses (`tmux_formats::APP_PANE_TITLE` in
+ * `tmuxy-core/src/constants.rs`); keep the two in step. It must stay free of
+ * shell metacharacters: the server's `is_readonly_query` guard rejects a poll
+ * command carrying one, and the rejected poll returns no rows.
+ */
+const APP_PANE_TITLE = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
+
+const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}${SEP}${APP_PANE_TITLE}`;
 
 export const LIST_WINDOWS_COMMAND = `list-windows -a -F '${WINDOWS_FORMAT}'`;
 export const LIST_PANES_COMMAND = `list-panes -a -F '${PANES_FORMAT}'`;
@@ -92,13 +101,14 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
 
   for (const line of panesOut.split('\n')) {
     if (!line) continue;
-    const [session, windowId, paneId, command, active] = line.split(SEP);
+    const [session, windowId, paneId, command, active, title] = line.split(SEP);
     if (!session || !windowId || !paneId) continue;
     if (!keptWindowIds.has(windowId)) continue;
     ensure(session).panes.push({
       id: paneId,
       windowId,
       command: command ?? '',
+      title: title ?? '',
       active: active === '1',
     });
   }
@@ -152,8 +162,10 @@ export function createServersActor(adapter: TmuxAdapter) {
         // tagging. `force` bypasses the check for the REFRESH_SESSIONS nudge
         // raised as the sidebar opens (whose context commit may not be visible).
         if (!force) {
-          const snap = parent.getSnapshot() as { context?: { sidebarOpen?: boolean } } | undefined;
-          if (snap?.context?.sidebarOpen !== true) return Effect.void;
+          const snap = parent.getSnapshot() as
+            | { context?: { leftSidebarOpen?: boolean } }
+            | undefined;
+          if (snap?.context?.leftSidebarOpen !== true) return Effect.void;
         }
 
         // Sessions tree (tmux). ignore()d so a failing tick doesn't tear down
