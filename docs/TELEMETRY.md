@@ -32,22 +32,33 @@ of the plan are implemented; see [§ Using it](#using-it).
 
 ## Using it
 
-- **Turn it on (release build):** `tmuxy server --trace` (default file under the
-  state dir) or `tmuxy server --trace /path/to/trace.ndjson`. Development builds
-  and the desktop GUI in a dev build enable it automatically and announce the
-  path at startup.
-- **Turn it off:** it is off by default on release builds. `DO_NOT_TRACK=1` or
-  `TMUXY_NO_TRACE=1` force it off everywhere, overriding `--trace` and dev
-  builds.
-- **Pick a level:** `TMUXY_TRACE_LEVEL=shape|labeled|full` chooses how much
-  detail vs. sensitivity (default `shape` — see [§ Trace levels](#trace-levels)).
+- **Turn it on (app):** the **Debug** menu — `Enable Traces`, then a level, and
+  `Open trace.ndjson` / `Copy trace.ndjson Path` to get at the file. The switch
+  gates every item below it, and the choice is remembered for next launch. It is
+  the same menu on macOS (native menu bar) and elsewhere (the in-app hamburger),
+  and a browser client sees it too, minus `Open` — the file is on the machine
+  running the backend, not the one running the browser.
+- **Turn it on (server):** `tmuxy server --trace` (default file under the state
+  dir) or `tmuxy server --trace /path/to/trace.ndjson`.
+- **Turn it off:** off by default on release builds. The Debug menu's switch
+  turns it off as well as on, including on a development build (which starts it
+  automatically). `DO_NOT_TRACK=1` or `TMUXY_NO_TRACE=1` force it off everywhere,
+  overriding `--trace`, the saved choice, and dev builds — the menu then shows
+  its switch disabled rather than one that silently refuses.
+- **Pick a level:** the Debug menu's `Shape` / `Labeled` / `Full`, or
+  `TMUXY_TRACE_LEVEL=shape|labeled|full` for a one-off run (the env var wins for
+  that launch). Default `shape` — see [§ Trace levels](#trace-levels). An
+  unrecognised name resolves to `shape`, so a typo can never raise sensitivity.
 - **Inspect it:** `tmuxy trace` prints a summary correlating actions by
   `action_id`; `tmuxy trace --export out.json` writes a Chrome-trace/Perfetto
   timeline you open at ui.perfetto.dev; `tmuxy trace --mark "<label>"` stamps a
   "the bug happened here" marker into the running trace. All accept an explicit
   file path.
-- **Where it lives:** `~/.local/state/tmuxy/trace.ndjson` (Linux) or the
-  platform state dir, mode `0600`, rotated at 64 MiB with one `.1` backup.
+- **Where it lives:** `~/.local/state/tmuxy/trace.ndjson` on Linux;
+  **`~/Library/Application Support/tmuxy/trace.ndjson` on macOS**, which has no
+  XDG state dir. Mode `0600`, rotated at 64 MiB with one `.1` backup. The
+  remembered switch/level sit next to the other config, in
+  `~/.config/tmuxy/trace.json`.
 
 ## Goals
 
@@ -330,25 +341,32 @@ Where the one file can exist depends on who owns a filesystem
 
 ## Gating
 
-Off by default everywhere. It turns on in exactly two ways, and never silently:
+Off by default everywhere. It turns on only on purpose, and never silently.
+Four inputs decide, highest precedence first (`trace::init`,
+`packages/tmuxy-core/src/trace.rs`):
 
-- **Development builds:** enabled to help build tmuxy, and **announced loudly at
-  startup** (a log line naming the trace file path) so it is never a surprise.
-- **Release builds:** off unless you pass `tmuxy server --trace [path]` yourself
-  (there is no verbosity flag today — the server takes
-  `--port`/`--host`/`--password`/`--dev` in
-  `packages/tmuxy-server/src/server.rs`; `--trace` is new). When on, the server
-  advertises tracing in the `connection-info` SSE event so browsers know to ship
-  their events; the Tauri app reads the same flag/env locally.
+| # | Input | Effect |
+|---|-------|--------|
+| 1 | `DO_NOT_TRACK=1` / `TMUXY_NO_TRACE=1` | Always off. Overrides everything below, and disables the app's switch. |
+| 2 | `tmuxy server --trace [path]` | On. An operator naming the flag means it. |
+| 3 | The saved Debug-menu choice | On or **off** — this is how a user turns a development build's automatic tracing off. |
+| 4 | Development build (`debug_assertions`) or `--dev` | On, and **announced loudly at startup** (a log line naming the trace file) so it is never a surprise. |
+
+When on, the server advertises tracing in the `connection-info` SSE event so
+browsers know to ship their events; the Tauri app reads the same state locally
+over IPC. Toggling from the menu takes effect immediately — the writer thread is
+created once and parked when off, so flipping the switch never needs a restart.
 
 Off-switches people already expect, honored explicitly:
 
 - **`DO_NOT_TRACK=1`** (the cross-tool convention) and **`TMUXY_NO_TRACE=1`**
-  force tracing off, overriding everything else — including a development build.
-- The opt-out is documented here and at the flag, never buried in code.
+  force tracing off, overriding everything else — including a development build
+  and the saved choice.
+- The opt-out is documented here, at the flag, and in the menu, never buried in
+  code.
 
 The gate is **enforced server-side and fails closed**: the `POST /trace` ingest
-endpoint rejects unless `--trace` is on, regardless of what any client believes,
+endpoint rejects unless tracing is on, regardless of what any client believes,
 so a stale client-side flag can't reopen it. **Client hot-path cost when off is a
 single boolean early-return**, the same pattern `latencyTracker` uses so
 production pays nothing.

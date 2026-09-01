@@ -13,6 +13,8 @@ const {
   runCommand,
   typeInTerminal,
   pressEnter,
+  sendKeyCombo,
+  waitForShellPrompt,
   DELAYS,
   getCellWidth,
   getCursorGeometry,
@@ -71,6 +73,56 @@ describe('Scenario 14: OSC Protocols', () => {
     await delay(DELAYS.SYNC);
     await runCommand(ctx.page, 'echo "MULTI_OSC52_OK"', 'MULTI_OSC52_OK');
   }, 180000);
+
+  test('OSC 2 pane title shows in the header, falling back to the process name', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await waitForShellPrompt(ctx.page);
+
+    // Reads the rendered header title AND its box, so a title that is present
+    // in the DOM but clipped to nothing can't pass as visible.
+    const readHeaderTitle = () =>
+      ctx.page.evaluate(() => {
+        const el = document.querySelector('.pane-tab-title');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { text: (el.textContent || '').trim(), width: r.width, height: r.height };
+      });
+
+    const waitForHeaderTitle = async (expected, timeout = 15000) => {
+      const deadline = Date.now() + timeout;
+      let seen = null;
+      while (Date.now() < deadline) {
+        seen = await readHeaderTitle();
+        if (seen && seen.text === expected) return seen;
+        await delay(250);
+      }
+      throw new Error(
+        `Header title never became ${JSON.stringify(expected)} (last: ${JSON.stringify(seen)})`,
+      );
+    };
+
+    // No app has set a title yet, so the header falls back to the process name.
+    // The point of the assertion is the negative: it must NOT be the host name
+    // tmux seeds pane_title with.
+    const idle = await readHeaderTitle();
+    expect(idle).not.toBeNull();
+    expect(['zsh', 'bash', 'fish', 'sh', 'shell']).toContain(idle.text);
+
+    // A long-running program announces its own title over OSC 2 — this is the
+    // `claude` case, whose process name is a useless version number.
+    await typeInTerminal(ctx.page, 'printf "\\033]2;CLAUDE_SESSION_TITLE\\007"; sleep 30');
+    await pressEnter(ctx.page);
+
+    const titled = await waitForHeaderTitle('CLAUDE_SESSION_TITLE');
+    expect(titled.width).toBeGreaterThan(0);
+    expect(titled.height).toBeGreaterThan(0);
+
+    // Ending the program lets the shell take its title back.
+    await sendKeyCombo(ctx.page, 'Control', 'c');
+    const after = await waitForHeaderTitle(idle.text);
+    expect(after.width).toBeGreaterThan(0);
+  }, 120000);
 });
 
 // ==================== Scenario 16: Unicode Rendering ====================

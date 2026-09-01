@@ -322,6 +322,63 @@ pub fn trace_enabled() -> bool {
     tmuxy_core::trace::is_enabled()
 }
 
+/// Everything the Debug menu needs to render itself: the switch position, the
+/// level, the file it writes to, and whether a `DO_NOT_TRACK` / `TMUXY_NO_TRACE`
+/// kill switch forbids turning it on at all (in which case the UI shows the
+/// control disabled rather than a switch that silently does nothing).
+#[tauri::command]
+pub fn get_trace_settings() -> Value {
+    serde_json::json!({
+        "enabled": tmuxy_core::trace::is_enabled(),
+        "level": tmuxy_core::trace::level_name(),
+        "path": tmuxy_core::trace::trace_path().map(|p| p.display().to_string()),
+        "locked": tmuxy_core::trace::is_locked_off(),
+    })
+}
+
+/// Turn tracing on or off and remember the choice. Returns the state actually
+/// in force, which is `false` for an `enabled: true` request that the kill
+/// switch refuses — the caller renders the answer, never its own request.
+#[tauri::command]
+pub fn set_trace_enabled(enabled: bool) -> bool {
+    tmuxy_core::trace::set_enabled(enabled)
+}
+
+/// Set the level (`shape` | `labeled` | `full`) and remember it. An unknown
+/// name resolves to `shape`, so a bad argument cannot raise sensitivity.
+#[tauri::command]
+pub fn set_trace_level(level: String) -> String {
+    let level = tmuxy_core::trace::TraceLevel::parse(&level);
+    tmuxy_core::trace::set_level_persisted(level);
+    level.as_str().to_string()
+}
+
+/// Open the trace file in the OS default handler. Desktop-only by nature: the
+/// file lives on the machine running the backend.
+#[tauri::command]
+pub fn open_trace_file() -> Result<(), String> {
+    let path = tmuxy_core::trace::trace_path().ok_or("no trace file path could be resolved")?;
+    if !path.exists() {
+        return Err(format!("{} does not exist yet", path.display()));
+    }
+    open_path(&path)
+}
+
+/// Hand a path to the desktop's default opener.
+fn open_path(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(target_os = "linux")]
+    let program = "xdg-open";
+    #[cfg(target_os = "windows")]
+    let program = "explorer";
+    std::process::Command::new(program)
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not open {}: {e}", path.display()))
+}
+
 /// Ingest a batch of client trace events into the shared NDJSON file. **Fails
 /// closed**: dropped entirely when tracing is off, regardless of what the
 /// frontend believes. Every event is re-sanitized by `record_client_event`

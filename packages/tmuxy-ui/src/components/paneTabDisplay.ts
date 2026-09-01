@@ -57,12 +57,19 @@ export function getTabIcon(pane: TmuxPane, widgetName?: string): string | null {
   return null;
 }
 
-/** Tab/title text for a pane. */
-export function getTabText(pane: TmuxPane, titleOverride?: string, widgetName?: string): string {
+/**
+ * Tab/title text for a pane.
+ *
+ * The app's own title wins: `pane.title` carries what the running program
+ * announced over OSC 0/2 (`claude`, `nvim README.md`, an ssh host), and the
+ * backend already blanks it when tmux's default host-name seed is all that is
+ * there — so a non-empty value always means an app set it. `pane.command` is
+ * only the executable's file name, which can be meaningless on its own (a
+ * version-pinned launcher symlink reports e.g. `2.1.251`), so it is the
+ * fallback rather than the first choice.
+ */
+export function getTabText(pane: TmuxPane, titleOverride?: string): string {
   if (pane.inMode) return '[COPY MODE]';
   if (titleOverride) return titleOverride;
-  if (widgetName) return pane.title || pane.command || pane.borderTitle || 'shell';
-  // Prefer command (pane_current_command), then borderTitle (evaluated pane-border-format),
-  // then title (pane_title set by OSC 0/2), then fallback to 'shell'
-  return pane.command || pane.borderTitle || pane.title || 'shell';
+  return pane.title || pane.command || pane.borderTitle.trim() || 'shell';
 }

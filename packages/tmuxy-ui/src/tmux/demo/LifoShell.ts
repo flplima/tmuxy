@@ -16,7 +16,13 @@ export class LifoShell {
   cwd: string;
   env: Map<string, string>;
   history: string[] = [];
-  inputBuffer = '';
+  /**
+   * The line being edited, one entry per Unicode CHARACTER. A plain string
+   * would index an emoji (or any astral char) as two code units — two cursor
+   * steps and two half-glyph cells for something the user typed as one key.
+   */
+  input: string[] = [];
+  /** Cursor offset into `input`, in characters. */
   cursorPos = 0;
   historyIndex = -1;
 
@@ -41,6 +47,16 @@ export class LifoShell {
   private promptRow = 0;
   /** Saved input when browsing history */
   private savedInput = '';
+
+  /** The edited line as text, for running it and for history. */
+  private get inputText(): string {
+    return this.input.join('');
+  }
+
+  /** Replace the edited line, splitting text into characters. */
+  private setInput(text: string): void {
+    this.input = Array.from(text);
+  }
 
   constructor(width: number, height: number) {
     this.width = width;
@@ -266,7 +282,7 @@ export class LifoShell {
         this.updateCursorPosition();
       }
     } else if (key === 'Right') {
-      if (this.cursorPos < this.inputBuffer.length) {
+      if (this.cursorPos < this.input.length) {
         this.cursorPos++;
         this.updateCursorPosition();
       }
@@ -292,7 +308,9 @@ export class LifoShell {
       // Tab completion not supported in lifo mode
     } else if (key === 'Space') {
       this.insertChar(' ');
-    } else if (key.length === 1 && key >= ' ') {
+    } else if (Array.from(key).length === 1 && key >= ' ') {
+      // One Unicode character, which is not always one code unit: an emoji or
+      // any astral char is a two-unit string the user typed as a single key.
       this.insertChar(key);
     }
   }
@@ -305,8 +323,7 @@ export class LifoShell {
   }
 
   private insertChar(ch: string): void {
-    this.inputBuffer =
-      this.inputBuffer.slice(0, this.cursorPos) + ch + this.inputBuffer.slice(this.cursorPos);
+    this.input.splice(this.cursorPos, 0, ch);
     this.cursorPos++;
     this.historyIndex = -1;
     this.redrawInput();
@@ -314,26 +331,24 @@ export class LifoShell {
 
   private handleBackspace(): void {
     if (this.cursorPos <= 0) return;
-    this.inputBuffer =
-      this.inputBuffer.slice(0, this.cursorPos - 1) + this.inputBuffer.slice(this.cursorPos);
+    this.input.splice(this.cursorPos - 1, 1);
     this.cursorPos--;
     this.redrawInput();
   }
 
   private handleDelete(): void {
-    if (this.cursorPos >= this.inputBuffer.length) return;
-    this.inputBuffer =
-      this.inputBuffer.slice(0, this.cursorPos) + this.inputBuffer.slice(this.cursorPos + 1);
+    if (this.cursorPos >= this.input.length) return;
+    this.input.splice(this.cursorPos, 1);
     this.redrawInput();
   }
 
   private handleEnter(): void {
-    this.cursorPos = this.inputBuffer.length;
+    this.cursorPos = this.input.length;
     this.updateCursorPosition();
     this.newline();
 
-    const line = this.inputBuffer.trim();
-    this.inputBuffer = '';
+    const line = this.inputText.trim();
+    this.input = [];
     this.cursorPos = 0;
     this.historyIndex = -1;
     this.savedInput = '';
@@ -405,7 +420,7 @@ export class LifoShell {
     } else {
       this.writeText('^C');
       this.newline();
-      this.inputBuffer = '';
+      this.input = [];
       this.cursorPos = 0;
       this.historyIndex = -1;
       this.writePrompt();
@@ -424,22 +439,22 @@ export class LifoShell {
   }
 
   private handleCtrlU(): void {
-    this.inputBuffer = this.inputBuffer.slice(this.cursorPos);
+    this.input = this.input.slice(this.cursorPos);
     this.cursorPos = 0;
     this.redrawInput();
   }
 
   private handleCtrlK(): void {
-    this.inputBuffer = this.inputBuffer.slice(0, this.cursorPos);
+    this.input = this.input.slice(0, this.cursorPos);
     this.redrawInput();
   }
 
   private handleCtrlW(): void {
     let i = this.cursorPos - 1;
-    while (i >= 0 && this.inputBuffer[i] === ' ') i--;
-    while (i >= 0 && this.inputBuffer[i] !== ' ') i--;
+    while (i >= 0 && this.input[i] === ' ') i--;
+    while (i >= 0 && this.input[i] !== ' ') i--;
     const newPos = i + 1;
-    this.inputBuffer = this.inputBuffer.slice(0, newPos) + this.inputBuffer.slice(this.cursorPos);
+    this.input = this.input.slice(0, newPos).concat(this.input.slice(this.cursorPos));
     this.cursorPos = newPos;
     this.redrawInput();
   }
@@ -447,15 +462,15 @@ export class LifoShell {
   private historyUp(): void {
     if (this.history.length === 0) return;
     if (this.historyIndex === -1) {
-      this.savedInput = this.inputBuffer;
+      this.savedInput = this.inputText;
       this.historyIndex = this.history.length - 1;
     } else if (this.historyIndex > 0) {
       this.historyIndex--;
     } else {
       return;
     }
-    this.inputBuffer = this.history[this.historyIndex];
-    this.cursorPos = this.inputBuffer.length;
+    this.setInput(this.history[this.historyIndex]);
+    this.cursorPos = this.input.length;
     this.redrawInput();
   }
 
@@ -463,12 +478,12 @@ export class LifoShell {
     if (this.historyIndex === -1) return;
     if (this.historyIndex < this.history.length - 1) {
       this.historyIndex++;
-      this.inputBuffer = this.history[this.historyIndex];
+      this.setInput(this.history[this.historyIndex]);
     } else {
       this.historyIndex = -1;
-      this.inputBuffer = this.savedInput;
+      this.setInput(this.savedInput);
     }
-    this.cursorPos = this.inputBuffer.length;
+    this.cursorPos = this.input.length;
     this.redrawInput();
   }
 
@@ -478,7 +493,7 @@ export class LifoShell {
   }
 
   private moveCursorToEnd(): void {
-    this.cursorPos = this.inputBuffer.length;
+    this.cursorPos = this.input.length;
     this.updateCursorPosition();
   }
 
@@ -506,12 +521,12 @@ export class LifoShell {
     for (let r = this.promptRow + 1; r < this.height; r++) {
       if (this.grid[r]) this.grid[r] = this.emptyLine();
     }
-    for (let i = 0; i < this.inputBuffer.length; i++) {
+    for (let i = 0; i < this.input.length; i++) {
       const flat = promptLen + i;
       const row = this.promptRow + Math.floor(flat / this.width);
       const col = flat % this.width;
       if (row < this.height && this.grid[row]) {
-        this.grid[row][col] = { c: this.inputBuffer[i] };
+        this.grid[row][col] = { c: this.input[i] };
       }
     }
     this.updateCursorPosition();

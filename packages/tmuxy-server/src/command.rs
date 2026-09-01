@@ -62,6 +62,14 @@ pub enum ClientCommand {
     SetThemeMode {
         mode: String,
     },
+    /// Debug menu: read the trace switch/level/path (docs/TELEMETRY.md).
+    GetTraceSettings,
+    SetTraceEnabled {
+        enabled: bool,
+    },
+    SetTraceLevel {
+        level: String,
+    },
 }
 
 impl ClientCommand {

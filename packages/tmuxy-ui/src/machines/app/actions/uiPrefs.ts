@@ -115,6 +115,74 @@ export const uiPrefsActions = {
     return { availableThemes: event.themes };
   }),
 
+  // --- Local action tracing (docs/TELEMETRY.md) -----------------------------
+  // Each mutation asks the backend and then re-reads it, rather than assuming
+  // the request took: a kill switch can refuse an enable, and the level is
+  // normalised server-side, so the menu must render the backend's answer.
+
+  uiPrefs_fetchTraceSettings: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ enqueue }) => {
+    enqueue(sendTo('tmux', { type: 'FETCH_TRACE_SETTINGS' as const }));
+  }),
+
+  uiPrefs_acceptTraceSettings: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {
+    if (event.type !== 'TRACE_SETTINGS_RECEIVED') return {};
+    return { traceSettings: event.settings };
+  }),
+
+  uiPrefs_setTraceEnabled: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ event, enqueue }) => {
+    if (event.type !== 'SET_TRACE_ENABLED') return;
+    enqueue(sendTo('tmux', { type: 'SET_TRACE_ENABLED' as const, enabled: event.enabled }));
+  }),
+
+  uiPrefs_setTraceLevel: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ event, enqueue }) => {
+    if (event.type !== 'SET_TRACE_LEVEL') return;
+    enqueue(sendTo('tmux', { type: 'SET_TRACE_LEVEL' as const, level: event.level }));
+  }),
+
+  uiPrefs_openTraceFile: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ enqueue }) => {
+    enqueue(sendTo('tmux', { type: 'OPEN_TRACE_FILE' as const }));
+  }),
+
   uiPrefs_increaseFontSize: enqueueActions<
     Ctx,
     Evt,

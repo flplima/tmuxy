@@ -39,7 +39,7 @@ const PaneTab = memo(function PaneTab({
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const icon = getTabIcon(pane, widgetName);
-  const text = getTabText(pane, titleOverride, widgetName);
+  const text = getTabText(pane, titleOverride);
 
   return (
     <div

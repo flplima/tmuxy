@@ -209,6 +209,52 @@ async function typeInTerminal(page, text) {
 }
 
 /**
+ * Type a character the way a LAYOUT composes it, rather than as a plain key.
+ *
+ * Headless Chrome always runs the US layout, so a dead key, macOS Option, or
+ * AltGr cannot be produced through page.keyboard at all — the only faithful
+ * reproduction is the event the browser itself fires for them:
+ *   'dead'   the accent key yields `Dead`, then the FINISHED character arrives
+ *            stamped keyCode 229, because the OS composed it via the IME
+ *   'option' macOS Option as a compose key: the character with altKey set
+ *   'altgr'  the layout's third level (`@ { } ~` on ABNT2): legacy ctrl+alt
+ *            flags plus the AltGraph modifier state that identifies it
+ */
+async function typeComposedChar(page, char, via) {
+  await page.evaluate(
+    ({ char, via }) => {
+      const fire = (init) =>
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }),
+        );
+      if (via === 'dead') {
+        fire({ key: 'Dead', keyCode: 229 });
+        fire({ key: char, keyCode: 229 });
+      } else if (via === 'option') {
+        fire({ key: char, altKey: true });
+      } else {
+        fire({ key: char, ctrlKey: true, altKey: true, modifierAltGraph: true });
+      }
+    },
+    { char, via },
+  );
+  await delay(DELAYS.SHORT);
+}
+
+/**
+ * Commit `text` the way an IME does — pinyin, kana, hangul, the emoji picker.
+ * Composition never delivers text through keydown; the committed string arrives
+ * whole on `compositionend`.
+ */
+async function typeComposedText(page, text) {
+  await page.evaluate((text) => {
+    window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    window.dispatchEvent(new CompositionEvent('compositionend', { data: text, bubbles: true }));
+  }, text);
+  await delay(DELAYS.SHORT);
+}
+
+/**
  * Press Enter key
  */
 async function pressEnter(page) {
@@ -243,6 +289,8 @@ module.exports = {
   sendPrefixCommand,
   typeChar,
   typeInTerminal,
+  typeComposedChar,
+  typeComposedText,
   pressEnter,
   tmuxCommandKeyboard,
 };

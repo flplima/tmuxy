@@ -13,6 +13,7 @@ import React, { useCallback } from 'react';
 import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import { PaneHeader } from './PaneHeader';
+import { getTabText } from './paneTabDisplay';
 import {
   useAppSend,
   useAppSelector,
@@ -60,7 +61,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
 
   if (!pane) return null;
 
-  const title = pane.command || pane.borderTitle || pane.title || 'shell';
+  const title = getTabText(pane);
   const { drawer, backdrop, hideHeader } = floatState;
   const headerHeight = hideHeader ? 0 : 28;
 

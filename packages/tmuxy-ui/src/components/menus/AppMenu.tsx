@@ -12,7 +12,14 @@
  * app menu.
  */
 
-import { Menu, MenuItem, SubMenu, MenuDivider } from '@szhsin/react-menu';
+import {
+  Menu,
+  MenuItem,
+  SubMenu,
+  MenuDivider,
+  MenuHeader,
+  MenuRadioGroup,
+} from '@szhsin/react-menu';
 import '@szhsin/react-menu/dist/index.css';
 import {
   useAppSend,
@@ -25,7 +32,10 @@ import {
   selectThemeName,
   selectThemeMode,
   selectAvailableThemes,
+  selectTraceSettings,
 } from '../../machines/AppContext';
+import type { TraceLevel } from '../../machines/types';
+import { isTauri } from '../../tmux/adapters';
 import { activeCloseTarget, executeMenuAction } from './menuActions';
 import { PaneMenuItems } from './PaneMenuItems';
 import { KeyLabel } from './KeyLabel';
@@ -42,6 +52,7 @@ export function AppMenu() {
   const availableThemes = useAppSelector(selectAvailableThemes);
   const activePaneId = useAppSelector((c) => c.activePaneId);
   const focusedFloatPaneId = useAppSelector((c) => c.focusedFloatPaneId);
+  const trace = useAppSelector(selectTraceSettings);
 
   const isSingleWindow = windows.filter((w) => w.windowType === 'tab').length <= 1;
 
@@ -160,27 +171,61 @@ export function AppMenu() {
         <MenuItem onClick={() => send({ type: 'RESET_FONT_SIZE' })}>Make Text Normal Size</MenuItem>
       </SubMenu>
 
-      <SubMenu label="Debug">
+      {/*
+        Debug — the local action trace and nothing else (docs/TELEMETRY.md).
+        Settings are read on open rather than held: the backend is the
+        authority (a DO_NOT_TRACK kill switch can refuse an enable), and the
+        native macOS menu can flip the same switch behind this one's back.
+      */}
+      <SubMenu
+        label="Debug"
+        onMenuChange={(e) => {
+          if (e.open) send({ type: 'FETCH_TRACE_SETTINGS' });
+        }}
+      >
         <MenuItem
-          onClick={() =>
-            copyToClipboard('state', (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }))
-          }
+          type="checkbox"
+          checked={trace?.enabled ?? false}
+          disabled={trace?.locked ?? false}
+          onClick={(e) => send({ type: 'SET_TRACE_ENABLED', enabled: !!e.checked })}
         >
-          Copy XState Snapshot
+          Enable Traces
         </MenuItem>
+
+        <MenuDivider />
+        <MenuHeader>Trace Level</MenuHeader>
+        <MenuRadioGroup
+          value={trace?.level ?? 'shape'}
+          onRadioChange={(e) => send({ type: 'SET_TRACE_LEVEL', level: e.value as TraceLevel })}
+        >
+          <MenuItem type="radio" value="shape" disabled={!trace?.enabled}>
+            Shape
+          </MenuItem>
+          <MenuItem type="radio" value="labeled" disabled={!trace?.enabled}>
+            Labeled
+          </MenuItem>
+          <MenuItem type="radio" value="full" disabled={!trace?.enabled}>
+            Full
+          </MenuItem>
+        </MenuRadioGroup>
+
+        <MenuDivider />
+        {/* The trace file lives on the machine running the backend, so only the
+            desktop app can open it — a browser tab cannot. */}
+        {isTauri() && (
+          <MenuItem disabled={!trace?.enabled} onClick={() => send({ type: 'OPEN_TRACE_FILE' })}>
+            Open trace.ndjson
+          </MenuItem>
+        )}
         <MenuItem
+          disabled={!trace?.enabled || !trace?.path}
           onClick={() =>
-            copyToClipboard('events', (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }))
+            copyTracePath(trace?.path ?? null, (text) =>
+              send({ type: 'SHOW_STATUS_MESSAGE', text }),
+            )
           }
         >
-          Copy Recent Events
-        </MenuItem>
-        <MenuItem
-          onClick={() =>
-            copyToClipboard('dom', (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }))
-          }
-        >
-          Copy DOM Snapshot
+          Copy trace.ndjson Path
         </MenuItem>
       </SubMenu>
 
@@ -194,34 +239,17 @@ export function AppMenu() {
 }
 
 /**
- * Copy a debug payload to the system clipboard via navigator.clipboard.
- * Mirrors the native Tauri Debug menu so the Web build (and Tauri's hamburger
- * menu fallback) can hand users the same state dump for bug reports.
+ * Put the trace file's path on the clipboard. The path itself is the useful
+ * thing to hand around (`tmuxy trace`, `jq`, an editor); the file can be
+ * hundreds of MB, so this never copies its contents.
  */
-function copyToClipboard(
-  kind: 'state' | 'events' | 'dom',
-  showMessage: (text: string) => void,
-): void {
-  let payload: string;
-  let label: string;
-  try {
-    if (kind === 'state') {
-      payload = JSON.stringify(window.app?.getSnapshot?.()?.context ?? null, null, 2);
-      label = 'Copied XState snapshot to clipboard';
-    } else if (kind === 'events') {
-      const events = window.getRecentEvents?.() ?? [];
-      payload = JSON.stringify(events, null, 2);
-      label = `Copied ${events.length} recent events to clipboard`;
-    } else {
-      payload = (window.getSnapshot?.() ?? []).join('\n');
-      label = 'Copied DOM snapshot to clipboard';
-    }
-  } catch (e) {
-    showMessage(`Could not read debug data: ${String(e)}`);
+function copyTracePath(path: string | null, showMessage: (text: string) => void): void {
+  if (!path) {
+    showMessage('No trace file path available');
     return;
   }
-  navigator.clipboard.writeText(payload).then(
-    () => showMessage(label),
+  navigator.clipboard.writeText(path).then(
+    () => showMessage(`Copied ${path}`),
     (e: unknown) => showMessage(`Clipboard write failed: ${String(e)}`),
   );
 }

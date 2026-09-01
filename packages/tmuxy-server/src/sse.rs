@@ -777,6 +777,23 @@ async fn handle_command(
             tmuxy_core::theme::set_theme_mode(&state.ctx, &mode).await?;
             Ok(serde_json::json!(null))
         }
+        // Debug menu (docs/TELEMETRY.md). The trace file lives on THIS host, so
+        // a browser client can read the switch and the path but cannot open the
+        // file — the in-app menu hides that item off the desktop.
+        ClientCommand::GetTraceSettings => Ok(serde_json::json!({
+            "enabled": tmuxy_core::trace::is_enabled(),
+            "level": tmuxy_core::trace::level_name(),
+            "path": tmuxy_core::trace::trace_path().map(|p| p.display().to_string()),
+            "locked": tmuxy_core::trace::is_locked_off(),
+        })),
+        ClientCommand::SetTraceEnabled { enabled } => {
+            Ok(serde_json::json!(tmuxy_core::trace::set_enabled(enabled)))
+        }
+        ClientCommand::SetTraceLevel { level } => {
+            let level = tmuxy_core::trace::TraceLevel::parse(&level);
+            tmuxy_core::trace::set_level_persisted(level);
+            Ok(serde_json::json!(level.as_str()))
+        }
     }
 }
 
@@ -1344,6 +1361,23 @@ mod tests {
         assert!(is_readonly_query(
             "list-windows -a -F '#{session_name}\t#{window_id}\t#{@tmuxy-window-type}'"
         ));
+    }
+
+    /// The sessions poll asks for the app-set pane title through this guard. A
+    /// format built with a shell metacharacter (`#{||:…}` is the tempting way
+    /// to write the host-name comparison) is rejected here and the poll then
+    /// returns NO ROWS rather than an error — the sidebar tree silently loses
+    /// every foreign pane. Pin the constant against the guard so the two can't
+    /// drift apart quietly.
+    #[test]
+    fn readonly_query_allows_the_app_set_pane_title_format() {
+        let title = tmuxy_core::constants::tmux_formats::APP_PANE_TITLE;
+        assert!(
+            is_readonly_query(&format!(
+                "list-panes -a -F '#{{session_name}}\t#{{pane_id}}\t{title}'"
+            )),
+            "APP_PANE_TITLE introduced a shell metacharacter: {title}"
+        );
     }
 
     #[test]

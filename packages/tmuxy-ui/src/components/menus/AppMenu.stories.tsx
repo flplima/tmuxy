@@ -73,3 +73,67 @@ export const ThemeSubmenu: Story = {
     ).toContain('●');
   },
 };
+
+/**
+ * Debug submenu — the local action trace and nothing else (docs/TELEMETRY.md).
+ *
+ * The switch is the gate: with tracing off there is no level to pick and no
+ * file worth opening, so every item below it is disabled. Flipping it on has
+ * to unlock them, which is the interaction this covers — a menu that renders
+ * the right items but never re-enables them looks identical in a static check.
+ */
+export const DebugTraceControls: Story = {
+  render: () => (
+    <ProviderHarness height={400}>
+      <AppMenu />
+    </ProviderHarness>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
+    await userEvent.click(canvas.getByRole('menuitem', { name: 'Debug' }));
+
+    const toggle = await waitFor(() =>
+      canvas.getByRole('menuitemcheckbox', { name: /enable traces/i }),
+    );
+    // Off by default — a normal install records nothing.
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    const levels = ['Shape', 'Labeled', 'Full'] as const;
+    const levelItem = (name: string) => canvas.getByRole('menuitemradio', { name });
+    const copyPath = () => canvas.getByRole('menuitem', { name: /copy trace.ndjson path/i });
+
+    // Everything the switch gates starts disabled.
+    for (const name of levels) {
+      expect(levelItem(name)).toHaveAttribute('aria-disabled', 'true');
+    }
+    expect(copyPath()).toHaveAttribute('aria-disabled', 'true');
+
+    // Turn it on: the menu closes on click, so reopen to read the new state.
+    await userEvent.click(toggle);
+    await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
+    await userEvent.click(canvas.getByRole('menuitem', { name: 'Debug' }));
+
+    await waitFor(() =>
+      expect(canvas.getByRole('menuitemcheckbox', { name: /enable traces/i })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      ),
+    );
+    // react-menu omits aria-disabled entirely when an item is enabled.
+    for (const name of levels) {
+      expect(levelItem(name)).not.toHaveAttribute('aria-disabled', 'true');
+    }
+    expect(copyPath()).not.toHaveAttribute('aria-disabled', 'true');
+    // Shape is the safe default the backend reports back.
+    expect(levelItem('Shape')).toHaveAttribute('aria-checked', 'true');
+    expect(levelItem('Full')).toHaveAttribute('aria-checked', 'false');
+
+    // Picking a level is exclusive — the previous one clears.
+    await userEvent.click(levelItem('Full'));
+    await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
+    await userEvent.click(canvas.getByRole('menuitem', { name: 'Debug' }));
+    await waitFor(() => expect(levelItem('Full')).toHaveAttribute('aria-checked', 'true'));
+    expect(levelItem('Shape')).toHaveAttribute('aria-checked', 'false');
+  },
+};

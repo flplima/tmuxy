@@ -20,7 +20,7 @@ use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -86,9 +86,22 @@ const FULL_ONLY: &[&str] = &["command", "args"];
 /// Truncation bound for free-text fields kept at `Full`.
 const MAX_FULL: usize = 500;
 
+/// The writer thread + its file. Created at most once per process: turning
+/// tracing off parks it rather than tearing it down, so a user flipping the
+/// menu switch back on resumes writing to the same file instantly.
 static WRITER: OnceLock<TraceHandle> = OnceLock::new();
+/// Whether events are currently being recorded. Separate from `WRITER` because
+/// the switch is runtime-controllable (the app's Debug menu) while the writer
+/// is not re-creatable — every hot-path guard reads this.
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+/// The file tracing will use, resolved at init even when tracing is off, so a
+/// later switch-on lands on the `--trace <path>` the operator named rather than
+/// silently reverting to the default.
+static RESOLVED_PATH: OnceLock<PathBuf> = OnceLock::new();
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
-static LEVEL: OnceLock<TraceLevel> = OnceLock::new();
+/// Current level as a `TraceLevel` discriminant. Runtime-settable, so a user
+/// can raise detail for one reproduction and drop back without restarting.
+static LEVEL: AtomicU8 = AtomicU8::new(TraceLevel::Shape as u8);
 static SALT: OnceLock<u64> = OnceLock::new();
 
 /// Usefulness↔sensitivity dial (docs/TELEMETRY.md). `Shape` is the safe,
@@ -97,10 +110,40 @@ static SALT: OnceLock<u64> = OnceLock::new();
 /// `Full` additionally keeps command strings — local-debug only, never share.
 /// Pane output and keystroke payloads are never captured at any level.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
 pub enum TraceLevel {
-    Shape,
-    Labeled,
-    Full,
+    Shape = 0,
+    Labeled = 1,
+    Full = 2,
+}
+
+impl TraceLevel {
+    /// Wire/config name. Paired with [`TraceLevel::parse`].
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TraceLevel::Shape => "shape",
+            TraceLevel::Labeled => "labeled",
+            TraceLevel::Full => "full",
+        }
+    }
+
+    /// Parse a wire/config name. Anything unrecognised is the safe default,
+    /// so a stale config or a typo can never silently raise sensitivity.
+    pub fn parse(s: &str) -> TraceLevel {
+        match s.trim() {
+            "labeled" => TraceLevel::Labeled,
+            "full" => TraceLevel::Full,
+            _ => TraceLevel::Shape,
+        }
+    }
+
+    fn from_u8(v: u8) -> TraceLevel {
+        match v {
+            1 => TraceLevel::Labeled,
+            2 => TraceLevel::Full,
+            _ => TraceLevel::Shape,
+        }
+    }
 }
 
 fn process_start() -> Instant {
@@ -108,28 +151,18 @@ fn process_start() -> Instant {
 }
 
 fn level() -> TraceLevel {
-    *LEVEL.get().unwrap_or(&TraceLevel::Shape)
+    TraceLevel::from_u8(LEVEL.load(Ordering::Relaxed))
 }
 
-/// Human name of the active level, for the startup announce.
+/// Human name of the active level, for the startup announce and the UI.
 pub fn level_name() -> &'static str {
-    match level() {
-        TraceLevel::Shape => "shape",
-        TraceLevel::Labeled => "labeled",
-        TraceLevel::Full => "full",
-    }
+    level().as_str()
 }
 
-fn parse_level() -> TraceLevel {
-    match std::env::var("TMUXY_TRACE_LEVEL")
-        .ok()
-        .as_deref()
-        .map(str::trim)
-    {
-        Some("labeled") => TraceLevel::Labeled,
-        Some("full") => TraceLevel::Full,
-        _ => TraceLevel::Shape,
-    }
+/// Change the level for subsequent events. Takes effect immediately — already
+/// written lines keep the level they were recorded at.
+pub fn set_level(level: TraceLevel) {
+    LEVEL.store(level as u8, Ordering::Relaxed);
 }
 
 /// Per-process random salt so a hashed name can't be confirmed by hashing a
@@ -148,29 +181,70 @@ fn salt() -> u64 {
 // =============================================================================
 
 /// Resolve the gating rules from `docs/TELEMETRY.md` and, if tracing should be
-/// on, spawn the writer and install the global handle. Returns the resolved
-/// file path when enabled, `None` when off.
+/// on, spawn the writer and start recording. Returns the resolved file path
+/// when enabled, `None` when off.
 ///
-/// Precedence: the `DO_NOT_TRACK` / `TMUXY_NO_TRACE` kill switches win over
-/// everything; then an explicit `--trace` (`flag`) turns it on; otherwise a
-/// development build (`debug_assertions`) or `dev_mode` turns it on. Idempotent.
+/// Precedence, highest first:
+/// 1. the `DO_NOT_TRACK` / `TMUXY_NO_TRACE` kill switches — always off;
+/// 2. an explicit `--trace` (`flag`) — the operator asked for it by name;
+/// 3. the saved preference (the app's Debug menu switch), which is also how a
+///    user turns a development build's automatic tracing back OFF;
+/// 4. a development build (`debug_assertions`) or `dev_mode`.
+///
+/// Idempotent: a second call returns the already-resolved path.
 pub fn init(flag: Option<Option<String>>, dev_mode: bool) -> Option<PathBuf> {
     if let Some(existing) = WRITER.get() {
-        return Some(existing.path.clone());
+        return is_enabled().then(|| existing.path.clone());
     }
     if kill_switch() {
         return None;
     }
-    let enabled = flag.is_some() || dev_mode || cfg!(debug_assertions);
+    let saved = load_prefs();
+    // TMUXY_TRACE_LEVEL still wins for a one-off run; otherwise the saved
+    // choice, otherwise the safe default.
+    set_level(match std::env::var("TMUXY_TRACE_LEVEL") {
+        Ok(v) => TraceLevel::parse(&v),
+        Err(_) => saved.as_ref().map(|p| p.level).unwrap_or(TraceLevel::Shape),
+    });
+
+    let enabled = resolve_enabled(
+        flag.is_some(),
+        saved.as_ref().map(|p| p.enabled),
+        dev_mode || cfg!(debug_assertions),
+    );
+    // Remember where tracing WOULD write, without creating anything: the UI can
+    // show and copy the path, and a later switch-on has somewhere to go. Off
+    // means off — a normal install must leave no file behind at all.
+    if let Some(p) = flag.flatten().filter(|s| !s.is_empty()) {
+        let _ = RESOLVED_PATH.set(PathBuf::from(p));
+    }
     if !enabled {
         return None;
     }
-    let _ = LEVEL.set(parse_level());
-    let path = match flag.flatten().filter(|s| !s.is_empty()) {
-        Some(p) => PathBuf::from(p),
-        None => default_path()?,
-    };
-    let handle = TraceHandle::spawn(path)?;
+    let path = start_writer()?;
+    ACTIVE.store(true, Ordering::Relaxed);
+    Some(path)
+}
+
+/// The gating rules of [`init`] as a pure function of their inputs, so the
+/// precedence is testable without touching the global writer or the disk. The
+/// kill switch is handled by the caller (it also suppresses path resolution).
+fn resolve_enabled(flag: bool, saved: Option<bool>, dev: bool) -> bool {
+    if flag {
+        return true;
+    }
+    // A saved choice beats the development-build default in BOTH directions:
+    // it is how a user turns a dev build's automatic tracing off.
+    saved.unwrap_or(dev)
+}
+
+/// Spawn the writer thread once and return the file it owns. Called only when
+/// tracing actually starts recording — creating the file is what "on" means.
+fn start_writer() -> Option<PathBuf> {
+    if let Some(existing) = WRITER.get() {
+        return Some(existing.path.clone());
+    }
+    let handle = TraceHandle::spawn(resolved_path()?)?;
     let path = handle.path.clone();
     let _ = WRITER.set(handle);
     // Anchor the monotonic origin at (or before) the first event.
@@ -178,9 +252,88 @@ pub fn init(flag: Option<Option<String>>, dev_mode: bool) -> Option<PathBuf> {
     Some(path)
 }
 
-/// Whether tracing is currently active. Cheap: a single atomic load.
+/// Whether tracing is currently recording. Cheap: a single atomic load.
 pub fn is_enabled() -> bool {
-    WRITER.get().is_some()
+    ACTIVE.load(Ordering::Relaxed)
+}
+
+/// The file tracing writes to, whether or not it is currently recording, so the
+/// UI can show and copy it. Resolving does NOT create it. `None` only if no
+/// state dir resolves.
+pub fn trace_path() -> Option<PathBuf> {
+    resolved_path()
+}
+
+/// The `--trace <path>` the operator named, else the platform default.
+fn resolved_path() -> Option<PathBuf> {
+    if let Some(p) = RESOLVED_PATH.get() {
+        return Some(p.clone());
+    }
+    let path = default_path()?;
+    let _ = RESOLVED_PATH.set(path.clone());
+    Some(path)
+}
+
+/// Whether the kill switch forbids tracing in this process. The UI disables its
+/// switch when true rather than offering a toggle that cannot take effect.
+pub fn is_locked_off() -> bool {
+    kill_switch()
+}
+
+/// Turn recording on or off at runtime and remember the choice for next launch.
+/// Returns the state actually in force — a `true` request is refused when the
+/// kill switch is set or no writer could be created.
+pub fn set_enabled(on: bool) -> bool {
+    let effective = on && !kill_switch() && start_writer().is_some();
+    ACTIVE.store(effective, Ordering::Relaxed);
+    save_prefs(effective, level());
+    effective
+}
+
+/// Change the level and remember it, for the UI's level picker.
+pub fn set_level_persisted(level: TraceLevel) {
+    set_level(level);
+    save_prefs(is_enabled(), level);
+}
+
+// --- Saved preference -------------------------------------------------------
+
+/// The user's Debug-menu choice, next to the other tmuxy config
+/// (`~/.config/tmuxy/trace.json`). Deliberately tiny and hand-editable.
+struct TracePrefs {
+    enabled: bool,
+    level: TraceLevel,
+}
+
+fn prefs_path() -> PathBuf {
+    crate::session::config_dir().join("trace.json")
+}
+
+fn load_prefs() -> Option<TracePrefs> {
+    let text = std::fs::read_to_string(prefs_path()).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    Some(TracePrefs {
+        enabled: v.get("enabled")?.as_bool()?,
+        level: v
+            .get("level")
+            .and_then(Value::as_str)
+            .map(TraceLevel::parse)
+            .unwrap_or(TraceLevel::Shape),
+    })
+}
+
+/// Best-effort: a read-only config dir must not break the toggle for this run.
+fn save_prefs(enabled: bool, level: TraceLevel) {
+    let path = prefs_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let body = format!(
+        "{{\n  \"enabled\": {},\n  \"level\": {:?}\n}}\n",
+        enabled,
+        level.as_str()
+    );
+    let _ = std::fs::write(&path, body);
 }
 
 fn kill_switch() -> bool {
@@ -194,14 +347,14 @@ fn is_truthy(var: &str) -> bool {
 }
 
 /// Default trace path under the XDG state dir (`~/.local/state/tmuxy` on Linux,
-/// Application Support on macOS) — deliberately outside any directory served by
-/// `/api/file`.
+/// `~/Library/Application Support/tmuxy` on macOS, which has no state dir) —
+/// deliberately outside any directory served by `/api/file`. Resolving the path
+/// creates nothing; the directory is made when the writer actually opens it.
 fn default_path() -> Option<PathBuf> {
     let dir = dirs::state_dir()
         .or_else(dirs::data_local_dir)
         .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("state")))?
         .join("tmuxy");
-    std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("trace.ndjson"))
 }
 
@@ -216,7 +369,7 @@ fn default_path() -> Option<PathBuf> {
 /// when tracing is disabled. Client-supplied `ts_wall`/`ts_mono` are preserved
 /// (they belong to the client's clock); the server fills them only if absent.
 pub fn record_client_event(fields: Map<String, Value>) {
-    if WRITER.get().is_none() {
+    if !is_enabled() {
         return;
     }
     emit(sanitize_client_fields(fields));
@@ -291,7 +444,7 @@ fn bound_string(value: Value) -> Value {
 }
 
 fn emit(mut obj: Map<String, Value>) {
-    let Some(handle) = WRITER.get() else {
+    let Some(handle) = WRITER.get().filter(|_| is_enabled()) else {
         return;
     };
     let wall = SystemTime::now()
@@ -394,6 +547,11 @@ fn rotate(path: &Path) -> Option<(File, u64)> {
 
 fn open_append(path: &Path) -> Option<File> {
     use std::fs::OpenOptions;
+    // The state dir is created here rather than when the path is resolved, so
+    // resolving a path for the UI leaves nothing behind while tracing is off.
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).ok()?;
+    }
     let mut opts = OpenOptions::new();
     opts.create(true).append(true);
     #[cfg(unix)]
@@ -457,7 +615,7 @@ where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        if WRITER.get().is_none() {
+        if !is_enabled() {
             return;
         }
         let meta = event.metadata();
@@ -481,7 +639,7 @@ where
     }
 
     fn on_new_span(&self, attrs: &span::Attributes<'_>, id: &span::Id, ctx: Context<'_, S>) {
-        if WRITER.get().is_none() {
+        if !is_enabled() {
             return;
         }
         let meta = attrs.metadata();
@@ -501,7 +659,7 @@ where
     }
 
     fn on_close(&self, id: span::Id, ctx: Context<'_, S>) {
-        if WRITER.get().is_none() {
+        if !is_enabled() {
             return;
         }
         let Some(span) = ctx.span(&id) else {
@@ -767,5 +925,42 @@ mod tests {
         assert!(kill_switch());
         std::env::remove_var("DO_NOT_TRACK");
         assert!(!kill_switch());
+    }
+
+    #[test]
+    fn level_names_round_trip() {
+        for level in [TraceLevel::Shape, TraceLevel::Labeled, TraceLevel::Full] {
+            assert_eq!(TraceLevel::parse(level.as_str()), level);
+            assert_eq!(TraceLevel::from_u8(level as u8), level);
+        }
+    }
+
+    #[test]
+    fn unknown_level_falls_back_to_the_safe_default() {
+        // A stale config or a typo must never silently raise sensitivity.
+        assert_eq!(TraceLevel::parse("verbose"), TraceLevel::Shape);
+        assert_eq!(TraceLevel::parse(""), TraceLevel::Shape);
+        assert_eq!(TraceLevel::from_u8(9), TraceLevel::Shape);
+    }
+
+    #[test]
+    fn explicit_flag_beats_everything_below_it() {
+        assert!(resolve_enabled(true, Some(false), false));
+        assert!(resolve_enabled(true, None, false));
+    }
+
+    #[test]
+    fn saved_preference_overrides_the_dev_build_default() {
+        // The menu switch must be able to turn a development build's automatic
+        // tracing OFF, not just decorate it.
+        assert!(!resolve_enabled(false, Some(false), true));
+        // ...and to turn a release build ON, which is the whole point.
+        assert!(resolve_enabled(false, Some(true), false));
+    }
+
+    #[test]
+    fn with_no_saved_preference_the_build_kind_decides() {
+        assert!(resolve_enabled(false, None, true));
+        assert!(!resolve_enabled(false, None, false));
     }
 }

@@ -56,8 +56,10 @@ const FIELD_OWNERS = {
   floatPanes: 'groupsAndFloats',
   focusedFloatPaneId: 'groupsAndFloats',
   groupSwitchDimOverrides: 'groupsAndFloats',
-  sidebarOpen: 'groupsAndFloats',
-  sidebarFocused: 'groupsAndFloats',
+  leftSidebarOpen: 'groupsAndFloats',
+  leftSidebarFocused: 'groupsAndFloats',
+  rightSidebarOpen: 'groupsAndFloats',
+  rightSidebarFocused: 'groupsAndFloats',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -69,6 +71,7 @@ const FIELD_OWNERS = {
   themeName: 'uiPrefs',
   themeMode: 'uiPrefs',
   availableThemes: 'uiPrefs',
+  traceSettings: 'uiPrefs',
   baseFontSize: 'uiPrefs',
   enableAnimations: 'uiPrefs',
 };

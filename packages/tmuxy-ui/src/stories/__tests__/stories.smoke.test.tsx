@@ -46,6 +46,7 @@ import * as ImageProtocolsStories from '../../components/ImageProtocols.stories'
 import * as AppMenuStories from '../../components/menus/AppMenu.stories';
 import * as PaneContextMenuStories from '../../components/PaneContextMenu.stories';
 import * as ResizeDividersStories from '../../components/ResizeDividers.stories';
+import * as InternationalInputStories from '../InternationalInput.stories';
 // App/Application is now driven by real tmux (v86 + WASM) and can't boot in
 // jsdom — it's a `v86` story exercised by a dedicated browser e2e instead.
 
@@ -99,6 +100,7 @@ const PROVIDER_STORY_MODULES: Record<string, StoryModule> = {
   AppMenu: AppMenuStories,
   PaneContextMenu: PaneContextMenuStories,
   ResizeDividers: ResizeDividersStories,
+  InternationalInput: InternationalInputStories,
 };
 
 describe('Pure component stories', () => {

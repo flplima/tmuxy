@@ -17,10 +17,7 @@ RUN usermod -l user -d /home/user -m node \
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core tools (openssh-client for git-over-SSH and ssh-keygen credential setup)
-    less git procps sudo fzf man-db unzip gnupg2 openssh-client \
-    nano vim jq bc zstd \
-    # LazyVim runtime deps (telescope file/text search)
-    ripgrep fd-find \
+    less git procps sudo fzf unzip openssh-client jq zstd \
     # Build tools (tmux, native modules)
     build-essential pkg-config libssl-dev ca-certificates \
     libevent-dev libncurses-dev bison \
@@ -50,15 +47,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y gh \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Neovim latest stable (Bookworm ships 0.7 which is too old for LazyVim — requires 0.9+)
-ARG LAZYGIT_VERSION=0.44.1
+# Neovim latest stable (used by tests/6-nvim-performance.test.js via `nvim --clean`)
 RUN NVIM_ARCH=$(uname -m | sed 's/aarch64/arm64/') && \
     curl -sL "https://github.com/neovim/neovim/releases/download/stable/nvim-linux-${NVIM_ARCH}.tar.gz" \
     | tar xz -C /opt && \
-    ln -sf /opt/nvim-linux-${NVIM_ARCH}/bin/nvim /usr/local/bin/nvim && \
-    # lazygit (optional LazyVim integration)
-    curl -sL "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_$(uname -m | sed 's/aarch64/arm64/').tar.gz" \
-    | tar xz -C /usr/local/bin lazygit
+    ln -sf /opt/nvim-linux-${NVIM_ARCH}/bin/nvim /usr/local/bin/nvim
 
 # Build tmux 3.7a from source
 # Debian ships an older tmux; build the version tmuxy targets everywhere.
@@ -94,23 +87,6 @@ RUN mkdir /commandhistory \
 
 WORKDIR /tmuxy
 
-# git-delta for better diffs
-ARG GIT_DELTA_VERSION=0.18.2
-RUN ARCH=$(dpkg --print-architecture) && \
-    wget -q "https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
-    dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
-    rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
-
-# yq (mikefarah) for YAML processing — apt's yq is a jq wrapper, not the real thing
-ARG YQ_VERSION=v4.44.6
-RUN ARCH=$(dpkg --print-architecture) && \
-    wget -q "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -O /usr/local/bin/yq && \
-    chmod +x /usr/local/bin/yq
-
-# Pre-create /home/linuxbrew owned by user so the Homebrew installer (run as
-# non-root below) doesn't need sudo to create it.
-RUN mkdir -p /home/linuxbrew && chown user:user /home/linuxbrew
-
 # Trust the workspace bind mount so git doesn't complain about "dubious ownership"
 # when the container user's uid differs from the bind mount owner.
 RUN git config --system --add safe.directory /tmuxy
@@ -127,7 +103,7 @@ ENV VISUAL=nvim
 # Bash login-shell setup: PATH, UTF-8 locale, and persistent history (backed by
 # the /commandhistory volume created above). bin/devcontainer drops into `bash -l`.
 RUN { \
-      echo 'export PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH'; \
+      echo 'export PATH=$HOME/.local/bin:/usr/local/cargo/bin:/usr/local/share/npm-global/bin:$PATH'; \
       echo 'export LANG=C.UTF-8'; \
       echo 'export HISTFILE=/commandhistory/.bash_history'; \
       echo 'export HISTSIZE=10000'; \
@@ -144,11 +120,6 @@ RUN mkdir -p /home/user/.local/bin \
 
 # Claude Code (native installer)
 RUN curl -fsSL https://claude.ai/install.sh | bash
-
-# LazyVim — bootstrap config then pre-install plugins headlessly
-RUN git clone https://github.com/LazyVim/starter ~/.config/nvim \
-    && rm -rf ~/.config/nvim/.git \
-    && nvim --headless "+Lazy! sync" +qa 2>&1
 
 # Pre-create credential dirs with user ownership so the named volume
 # mounts (see bin/devcontainer and devcontainer.json) are
@@ -169,11 +140,3 @@ RUN mkdir -p /home/user/.config/gh /home/user/.config/git /home/user/.claude \
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 RUN npm install -g pm2 agent-browser \
     && if [ "$(dpkg --print-architecture)" != "arm64" ]; then agent-browser install; fi
-
-# Homebrew (Linuxbrew) — used to install the released tmuxy binary alongside
-# the dev build so we can run a second instance on port 9090 for comparison/testing.
-RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-ENV PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH
-# AppImages need FUSE, which isn't available in Docker — extract-and-run instead.
-ENV APPIMAGE_EXTRACT_AND_RUN=1
-RUN brew install flplima/tap/tmuxy

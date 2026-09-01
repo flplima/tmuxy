@@ -1,8 +1,9 @@
 /**
- * uiPrefs state — parallel state for theme, font size, animations.
+ * uiPrefs state — parallel state for theme, font size, animations, and the
+ * local action-trace switch (docs/TELEMETRY.md).
  *
  * Owns context fields: themeName, themeMode, availableThemes, baseFontSize,
- * enableAnimations.
+ * enableAnimations, traceSettings.
  *
  * Action implementations live in ../actions/uiPrefs.ts.
  *
@@ -21,5 +22,10 @@ export const uiPrefsState = {
     INCREASE_FONT_SIZE: { actions: 'uiPrefs_increaseFontSize' },
     DECREASE_FONT_SIZE: { actions: 'uiPrefs_decreaseFontSize' },
     RESET_FONT_SIZE: { actions: 'uiPrefs_resetFontSize' },
+    FETCH_TRACE_SETTINGS: { actions: 'uiPrefs_fetchTraceSettings' },
+    TRACE_SETTINGS_RECEIVED: { actions: 'uiPrefs_acceptTraceSettings' },
+    SET_TRACE_ENABLED: { actions: 'uiPrefs_setTraceEnabled' },
+    SET_TRACE_LEVEL: { actions: 'uiPrefs_setTraceLevel' },
+    OPEN_TRACE_FILE: { actions: 'uiPrefs_openTraceFile' },
   },
 } as const;

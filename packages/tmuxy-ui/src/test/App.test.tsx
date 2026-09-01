@@ -38,11 +38,6 @@ vi.mock('../hooks/useKeyboardHandler', () => ({
   useKeyboardHandler: () => {},
 }));
 
-// Mock the debug helpers
-vi.mock('../utils/debug', () => ({
-  initDebugHelpers: vi.fn(),
-}));
-
 // Import the mocked module to access mock functions
 import * as AppContext from '../machines/AppContext';
 import App from '../App';

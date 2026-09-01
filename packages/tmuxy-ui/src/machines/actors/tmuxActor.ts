@@ -1,6 +1,7 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { Cause, Effect, Exit, Fiber } from 'effect';
 import type { TmuxAdapter, ServerState, KeyBindings, ThemeSettings } from '../../tmux/types';
+import type { TraceLevel, TraceSettings } from '../types';
 import { toEffectAdapter, type AdapterError, Schemas } from '../../tmux/effect';
 import { tracer } from '../../tmux/tracer';
 
@@ -10,6 +11,10 @@ export type TmuxActorEvent =
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: string; start: number; end: number }
   | { type: 'FETCH_THEME_SETTINGS' }
+  | { type: 'FETCH_TRACE_SETTINGS' }
+  | { type: 'SET_TRACE_ENABLED'; enabled: boolean }
+  | { type: 'SET_TRACE_LEVEL'; level: TraceLevel }
+  | { type: 'OPEN_TRACE_FILE' }
   | { type: 'FETCH_THEMES_LIST' }
   | { type: 'SWITCH_SESSION'; sessionName: string }
   | { type: 'CHECK_SESSION_SWITCH' };
@@ -261,6 +266,34 @@ export function createTmuxActor(adapter: TmuxAdapter) {
 
         const fiber: Fiber.RuntimeFiber<unknown, AdapterError> = Effect.runFork(program);
         scrollbackFibers.set(event.paneId, fiber);
+      } else if (
+        event.type === 'FETCH_TRACE_SETTINGS' ||
+        event.type === 'SET_TRACE_ENABLED' ||
+        event.type === 'SET_TRACE_LEVEL'
+      ) {
+        // Mutations re-read afterwards so the menu shows what is actually in
+        // force — an enable can be refused by a DO_NOT_TRACK kill switch, and
+        // an unknown level normalises to `shape` server-side.
+        const write =
+          event.type === 'SET_TRACE_ENABLED'
+            ? eff.invoke<unknown>('set_trace_enabled', { enabled: event.enabled })
+            : event.type === 'SET_TRACE_LEVEL'
+              ? eff.invoke<unknown>('set_trace_level', { level: event.level })
+              : null;
+        const read = eff.invoke<TraceSettings>('get_trace_settings', {});
+        run(write ? Effect.flatMap(write, () => read) : read, {
+          onSuccess: (settings) => {
+            if (!settings) return;
+            // The backend is the authority for the tracer's own switch too, so
+            // the client stops/starts shipping in step with the menu.
+            tracer.setServerEnabled(!!settings.enabled);
+            parent.send({ type: 'TRACE_SETTINGS_RECEIVED', settings });
+          },
+          logPrefix: 'trace settings',
+          silentFail: true,
+        });
+      } else if (event.type === 'OPEN_TRACE_FILE') {
+        run(eff.invoke<void>('open_trace_file', {}), { logPrefix: 'open_trace_file' });
       } else if (event.type === 'FETCH_THEME_SETTINGS') {
         run(eff.invoke<ThemeSettings>('get_theme_settings', {}), {
           onSuccess: themeSettingsReceived,

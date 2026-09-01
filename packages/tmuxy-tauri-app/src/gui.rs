@@ -1,4 +1,4 @@
-use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
+use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::Manager;
 use tmuxy_core::constants::tmux_options;
 use tmuxy_core::{executor, session};
@@ -145,6 +145,36 @@ fn set_native_blur(_window: &tauri::WebviewWindow, _blur: bool) {}
 ///
 /// Mirrors the web hamburger menu (Pane, Tab, Session, View, Help) plus
 /// standard macOS menus (tmuxy app menu, Edit, Window).
+/// Handles for the Debug menu's trace controls, kept so a click can re-render
+/// the whole group: the switch enables/disables everything below it, and
+/// picking a level has to uncheck its siblings (a native menu has no radio
+/// group that does this for us).
+struct TraceMenu {
+    toggle: CheckMenuItem<tauri::Wry>,
+    levels: [CheckMenuItem<tauri::Wry>; 3],
+    gated: Vec<MenuItem<tauri::Wry>>,
+}
+
+/// Repaint the Debug menu from the live trace state, and tell the frontend so
+/// its own tracer starts/stops shipping and the in-app menu agrees.
+fn sync_trace_menu(app: &tauri::AppHandle) {
+    let on = tmuxy_core::trace::is_enabled();
+    let level = tmuxy_core::trace::level_name();
+    if let Some(menu) = app.try_state::<TraceMenu>() {
+        let _ = menu.toggle.set_checked(on);
+        for (item, name) in menu.levels.iter().zip(["shape", "labeled", "full"]) {
+            let _ = item.set_enabled(on);
+            let _ = item.set_checked(on && level == name);
+        }
+        for item in &menu.gated {
+            let _ = item.set_enabled(on);
+        }
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.eval(format!("window.tmuxyTraceSync?.({on})"));
+    }
+}
+
 fn build_app_menu(
     app: &tauri::App,
 ) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
@@ -461,41 +491,89 @@ fn build_app_menu(
         .build()?;
 
     // --- Debug ---
-    // Exposes the same getSnapshot()/getRecentEvents() helpers we attach to
-    // `window` for the browser console. Surfacing them in the OS menu means
-    // bug reports can include a state dump without the user needing to open
-    // devtools (which the production WebView build doesn't ship).
+    // The local action trace (docs/TELEMETRY.md) and nothing else. The switch
+    // gates every item under it: with tracing off there is no level to choose
+    // and no file worth opening.
+    let tracing_on = tmuxy_core::trace::is_enabled();
+    // A kill switch (DO_NOT_TRACK / TMUXY_NO_TRACE) makes the switch itself
+    // inert — show it disabled rather than one that silently refuses.
+    let switch_usable = !tmuxy_core::trace::is_locked_off();
+    let level = tmuxy_core::trace::level_name();
+
+    let trace_toggle = CheckMenuItem::with_id(
+        app,
+        "trace-enabled",
+        "Enable Traces",
+        switch_usable,
+        tracing_on,
+        None::<&str>,
+    )?;
+    let level_header = MenuItem::with_id(
+        app,
+        "trace-level-header",
+        "Trace Level",
+        false,
+        None::<&str>,
+    )?;
+    let level_shape = CheckMenuItem::with_id(
+        app,
+        "trace-level-shape",
+        "Shape",
+        tracing_on,
+        level == "shape",
+        None::<&str>,
+    )?;
+    let level_labeled = CheckMenuItem::with_id(
+        app,
+        "trace-level-labeled",
+        "Labeled",
+        tracing_on,
+        level == "labeled",
+        None::<&str>,
+    )?;
+    let level_full = CheckMenuItem::with_id(
+        app,
+        "trace-level-full",
+        "Full",
+        tracing_on,
+        level == "full",
+        None::<&str>,
+    )?;
+    let trace_open = MenuItem::with_id(
+        app,
+        "trace-open",
+        "Open trace.ndjson",
+        tracing_on,
+        None::<&str>,
+    )?;
+    let trace_copy_path = MenuItem::with_id(
+        app,
+        "trace-copy-path",
+        "Copy trace.ndjson Path",
+        tracing_on,
+        None::<&str>,
+    )?;
+
     let debug_menu = SubmenuBuilder::new(app, "Debug")
-        .item(&MenuItem::with_id(
-            app,
-            "debug-copy-state",
-            "Copy XState Snapshot",
-            true,
-            None::<&str>,
-        )?)
-        .item(&MenuItem::with_id(
-            app,
-            "debug-copy-events",
-            "Copy Recent Events",
-            true,
-            None::<&str>,
-        )?)
-        .item(&MenuItem::with_id(
-            app,
-            "debug-copy-dom",
-            "Copy DOM Snapshot",
-            true,
-            None::<&str>,
-        )?)
+        .item(&trace_toggle)
         .separator()
-        .item(&MenuItem::with_id(
-            app,
-            "debug-copy-backend-log",
-            "Copy Backend Log",
-            true,
-            None::<&str>,
-        )?)
+        .item(&level_header)
+        .item(&level_shape)
+        .item(&level_labeled)
+        .item(&level_full)
+        .separator()
+        .item(&trace_open)
+        .item(&trace_copy_path)
         .build()?;
+
+    // Keep the handles: clicking any of these has to re-render the others
+    // (the switch enables/disables the rest; picking a level unchecks its
+    // siblings), which needs the items themselves, not just their ids.
+    app.manage(TraceMenu {
+        toggle: trace_toggle,
+        levels: [level_shape, level_labeled, level_full],
+        gated: vec![trace_open, trace_copy_path],
+    });
 
     // --- Help ---
     let help_menu = SubmenuBuilder::new(app, "Help")
@@ -599,7 +677,7 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
     }
 
     // Help: copy / reveal the debug log file
-    if id == "help-copy-logs" || id == "debug-copy-backend-log" {
+    if id == "help-copy-logs" {
         copy_logs_to_clipboard(app_handle);
         return;
     }
@@ -608,59 +686,63 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
         return;
     }
 
-    // Debug: copy frontend-side data (XState, DOM, events) to the clipboard.
-    // The data lives in the WebView so we eval the read + clipboard write
-    // there. The menu click is a fresh user gesture, which is enough for
-    // navigator.clipboard.writeText() to succeed on macOS WKWebView.
-    if let Some(js) = match id {
-        "debug-copy-state" => Some(
-            r#"(() => {
-                try {
-                    const snap = window.app?.getSnapshot?.();
-                    const payload = JSON.stringify(snap?.context ?? null, null, 2);
-                    navigator.clipboard.writeText(payload).then(
-                        () => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Copied XState snapshot to clipboard' }),
-                        (e) => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Clipboard write failed: ' + e })
-                    );
-                } catch (e) {
-                    window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Could not read XState snapshot: ' + e });
-                }
-            })()"#,
-        ),
-        "debug-copy-events" => Some(
-            r#"(() => {
-                try {
-                    const events = window.getRecentEvents?.() ?? [];
-                    const payload = JSON.stringify(events, null, 2);
-                    navigator.clipboard.writeText(payload).then(
-                        () => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Copied ' + events.length + ' recent events to clipboard' }),
-                        (e) => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Clipboard write failed: ' + e })
-                    );
-                } catch (e) {
-                    window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Could not read recent events: ' + e });
-                }
-            })()"#,
-        ),
-        "debug-copy-dom" => Some(
-            r#"(() => {
-                try {
-                    const lines = window.getSnapshot?.() ?? [];
-                    const payload = lines.join('\n');
-                    navigator.clipboard.writeText(payload).then(
-                        () => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Copied DOM snapshot to clipboard' }),
-                        (e) => window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Clipboard write failed: ' + e })
-                    );
-                } catch (e) {
-                    window.app?.send({ type: 'SHOW_STATUS_MESSAGE', text: 'Could not read DOM snapshot: ' + e });
-                }
-            })()"#,
-        ),
-        _ => None,
-    } {
-        if let Some(window) = app_handle.get_webview_window("main") {
-            let _ = window.eval(js);
+    // Debug: the local action trace (docs/TELEMETRY.md). Every branch ends by
+    // re-syncing the menu, because these controls describe each other — the
+    // switch gates the rest, and the levels are mutually exclusive.
+    match id {
+        "trace-enabled" => {
+            let on = !tmuxy_core::trace::is_enabled();
+            let effective = tmuxy_core::trace::set_enabled(on);
+            if on && !effective {
+                show_status_message(
+                    app_handle,
+                    "Tracing is disabled by DO_NOT_TRACK / TMUXY_NO_TRACE",
+                );
+            } else {
+                show_status_message(
+                    app_handle,
+                    if effective {
+                        "Action tracing ON — local file only, never uploaded"
+                    } else {
+                        "Action tracing OFF"
+                    },
+                );
+            }
+            sync_trace_menu(app_handle);
+            return;
         }
-        return;
+        "trace-level-shape" | "trace-level-labeled" | "trace-level-full" => {
+            let name = &id["trace-level-".len()..];
+            let level = tmuxy_core::trace::TraceLevel::parse(name);
+            tmuxy_core::trace::set_level_persisted(level);
+            show_status_message(app_handle, &format!("Trace level: {}", level.as_str()));
+            sync_trace_menu(app_handle);
+            return;
+        }
+        "trace-open" => {
+            if let Err(e) = commands::open_trace_file() {
+                show_status_message(app_handle, &e);
+            }
+            return;
+        }
+        "trace-copy-path" => {
+            use tauri_plugin_clipboard_manager::ClipboardExt;
+            match tmuxy_core::trace::trace_path() {
+                Some(path) => {
+                    let text = path.display().to_string();
+                    match app_handle.clipboard().write_text(text.clone()) {
+                        Ok(()) => show_status_message(app_handle, &format!("Copied {text}")),
+                        Err(e) => show_status_message(
+                            app_handle,
+                            &format!("Failed to write clipboard: {e}"),
+                        ),
+                    }
+                }
+                None => show_status_message(app_handle, "No trace file path could be resolved"),
+            }
+            return;
+        }
+        _ => {}
     }
 
     // Frontend-only actions — dispatch via JS eval. Theme actions reuse the
@@ -1113,6 +1195,11 @@ pub fn run() {
             // queries `trace_enabled` and ships batches to `record_trace`.
             commands::trace_enabled,
             commands::record_trace,
+            // Debug menu: read/flip the trace switch, level, and file.
+            commands::get_trace_settings,
+            commands::set_trace_enabled,
+            commands::set_trace_level,
+            commands::open_trace_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

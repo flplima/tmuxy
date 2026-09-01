@@ -44,6 +44,9 @@ struct PaneJson {
     id: String,
     tab: String,
     command: String,
+    /// App-set pane title (OSC 0/2); empty when the app never set one.
+    #[serde(default)]
+    title: String,
     active: bool,
 }
 
@@ -109,7 +112,18 @@ fn fetch_rows() -> Vec<Row> {
             rows.push(Row::Pane {
                 window_id: tab.id.clone(),
                 pane_id: pane.id.clone(),
-                label: format!("{} {}", pane.id, pane.command),
+                // The app's own title wins over the executable's file name,
+                // which can be meaningless on its own (a version-pinned
+                // launcher symlink reports e.g. `2.1.251`).
+                label: format!(
+                    "{} {}",
+                    pane.id,
+                    if pane.title.is_empty() {
+                        &pane.command
+                    } else {
+                        &pane.title
+                    }
+                ),
                 active: pane.active,
             });
         }

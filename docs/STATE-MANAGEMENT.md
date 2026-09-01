@@ -147,7 +147,7 @@ The machine invokes five persistent actors:
 
 **`tmuxStoreActor`** (`tmuxy-ui/src/machines/actors/tmuxStoreActor.ts`) — Bridges the Tier-3 client model (`TmuxStore`) into XState. Receives `DISPATCH_COMMAND` (optimistic dispatch) and `RECONCILE_SERVER` (server snapshot reconciliation) from the parent; forwards every model change back as `TMUX_MODEL_UPDATE`.
 
-**`keyboardActor`** (`tmuxy-ui/src/machines/actors/keyboardActor.ts`) — DOM keyboard input handling. Manages prefix mode (waits for next key after prefix), IME composition support (suppresses individual keydowns during CJK input), copy mode interception (all keys captured and sent as `COPY_MODE_KEY` when the active pane is in client-side copy mode), root bindings (bypass prefix), and paste chunking (large pastes split into 500-char chunks). Sends `SEND_TMUX_COMMAND`, `KEY_PRESS`, and `COPY_SELECTION` to the parent.
+**`keyboardActor`** (`tmuxy-ui/src/machines/actors/keyboardActor.ts`) — DOM keyboard input handling. Manages prefix mode (waits for next key after prefix), the text-vs-chord classification that decides whether a keydown is sent as literal text or as a tmux key name (dead keys, macOS Option and AltGr all compose characters behind chord-looking flags — see [DATA-FLOW.md](DATA-FLOW.md)), IME composition support (suppresses individual keydowns during CJK input and commits the composed string on `compositionend`), copy mode interception (all keys captured and sent as `COPY_MODE_KEY` when the active pane is in client-side copy mode), root bindings (bypass prefix), and paste chunking (large pastes split into 500-char chunks). Sends `SEND_TMUX_COMMAND`, `KEY_PRESS`, and `COPY_SELECTION` to the parent.
 
 **`sizeActor`** (`tmuxy-ui/src/machines/actors/sizeActor.ts`) — Viewport tracking. Measures monospace font char dimensions on start, listens to window resize (debounced 100ms), observes container with `ResizeObserver`. Sends `SET_CHAR_SIZE`, `SET_TARGET_SIZE`, `SET_CONTAINER_SIZE` to the parent.
 
@@ -226,7 +226,7 @@ machines/app/
 │   ├── uiPrefs.ts         # theme, font size, animations
 │   ├── commandUi.ts       # command mode, status messages, prefix indicator
 │   ├── copyMode.ts        # client-side copy mode (per-pane CopyModeState)
-│   ├── groupsAndFloats.ts # pane groups, float panes, group-switch freeze
+│   ├── groupsAndFloats.ts # pane groups, float panes, both sidebar columns
 │   └── layout.ts          # panes, windows, focus, drag/resize
 │                          # (optimistic state lives in src/tmux/store/, not here)
 ├── actions/               # Named action implementations referenced by

@@ -10,6 +10,16 @@
  * - During IME composition (CJK input, dead keys), we suppress individual keydowns
  * - The composed text is sent as a single unit when composition ends
  * - This prevents garbled text during pinyin/kana input
+ *
+ * Text vs. chord (see isTextKey):
+ * - Keyboards produce characters through more than the plain unmodified path:
+ *   dead keys (´ + a → á), macOS Option as a compose key (Option+c → ç), and
+ *   AltGr third-level symbols (@ { } on ABNT2/German). Each arrives as a
+ *   keydown carrying the FINISHED character, wearing modifier flags that make
+ *   it look like a chord. isTextKey tells those apart from real chords so the
+ *   character is sent as literal text. Sent as a key name instead, tmux happily
+ *   turns `M-ç` into ESC + ç — a meta chord no application types as text, so
+ *   the character silently vanishes.
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
@@ -23,7 +33,8 @@ export type KeyboardActorEvent =
   | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
   | { type: 'UPDATE_ENABLED'; enabled: boolean }
   | { type: 'UPDATE_FOCUSED_FLOAT'; paneId: string | null }
-  | { type: 'UPDATE_SIDEBAR_FOCUSED'; focused: boolean };
+  | { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED'; focused: boolean }
+  | { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED'; paneId: string | null };
 
 export interface KeyboardActorInput {
   parent: AnyActorRef;
@@ -70,6 +81,46 @@ const MACOS_OPTION_KEY_MAP: Record<string, string> = {
   '¬': 'l', // Option+L
   // Add more as needed for other Option+key combinations
 };
+
+/**
+ * Number of Unicode characters (code points) in a string — `'😀'.length` is 2,
+ * but it is one character on screen and one cell in the terminal.
+ */
+function charCount(s: string): number {
+  return Array.from(s).length;
+}
+
+/**
+ * True when the keydown carries literal text the user typed, rather than a
+ * chord to be forwarded as a tmux key name.
+ *
+ * A layout produces characters through four paths, three of which set modifier
+ * flags that read like a chord:
+ *  - plain: `a`, and layout-native accents (`ç` and `ã` on a Portuguese
+ *    keyboard, `ü` on a German one) — no modifiers;
+ *  - dead keys: `´` then `a` → one keydown with key `á`. The OS composes it, so
+ *    the browser marks the event as IME-processed (keyCode 229) even though it
+ *    already holds the finished character;
+ *  - macOS Option-as-compose: Option+c → `ç`, Option+e e → `é`. altKey is set,
+ *    but the OS has already replaced the letter with the composed character —
+ *    which is why a NON-ASCII key under bare Alt means text, while an ASCII one
+ *    (Alt+x, still `x`) is a genuine M- chord;
+ *  - AltGr third level: `@ { } ~` on ABNT2, `@ € µ` on German. Legacy flags
+ *    report it as ctrl+alt; only the AltGraph modifier state distinguishes it
+ *    from a real Ctrl+Alt chord.
+ *
+ * Ctrl and Cmd never produce text, so they always mean a chord.
+ */
+function isTextKey(event: KeyboardEvent): boolean {
+  if (charCount(event.key) !== 1) return false;
+  // Option+h/j/k/l are claimed as M-h/j/k/l for pane navigation below, so the
+  // characters macOS gives them are chords here, not text.
+  if (MACOS_OPTION_KEY_MAP[event.key]) return false;
+  if (event.getModifierState?.('AltGraph')) return true;
+  if (event.ctrlKey || event.metaKey) return false;
+  if (event.altKey) return event.key.codePointAt(0)! > 0x7f;
+  return true;
+}
 
 function formatTmuxKey(event: KeyboardEvent): string {
   const modifiers: string[] = [];
@@ -132,7 +183,17 @@ export function createKeyboardActor() {
     let focusedFloatPaneId: string | null = null;
     // When true, the sidebar tree holds focus; its own capture-phase listener
     // handles nav keys, so we stop forwarding keystrokes to tmux.
-    let sidebarFocused = false;
+    let leftSidebarFocused = false;
+    // Pane id of the pinned terminal dock while it holds focus. Like a focused
+    // float it becomes the key target, so keys reach a pane in another window
+    // without `select-pane` switching the active tab out from under the user.
+    let focusedRightSidebarPaneId: string | null = null;
+    /**
+     * The pane keys belong to when an overlay owns focus: a float wins over the
+     * dock (a float is drawn on top of it), and neither is set when the plain
+     * pane grid has focus.
+     */
+    const overlayPaneId = (): string | null => focusedFloatPaneId ?? focusedRightSidebarPaneId;
     let enabled = true;
     let isComposing = false;
     // Text pending copy via native clipboard event (client-side copy mode yank)
@@ -156,7 +217,7 @@ export function createKeyboardActor() {
       ? setupMobileKeyboard((text) => {
           if (!enabled) return;
           const escaped = escapeLiteralText(text);
-          const mobileTarget = focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
+          const mobileTarget = overlayPaneId() ?? realPaneId(activePaneId) ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${mobileTarget} -l ${escaped}`,
@@ -220,9 +281,20 @@ export function createKeyboardActor() {
         return;
       }
 
-      // Skip during IME composition
-      // keyCode 229 is a special value indicating IME is processing
-      if (isComposing || event.isComposing || event.keyCode === 229) {
+      // Skip while an IME is mid-composition — the composed text arrives whole
+      // on compositionend, so forwarding the individual keydowns would garble
+      // pinyin/kana input.
+      if (isComposing || event.isComposing) {
+        return;
+      }
+
+      // keyCode 229 means "the IME handled this key". It rides on two very
+      // different events: the ones that produced no text yet (pinyin still
+      // composing, key `Process`) AND the one that DELIVERS a finished dead-key
+      // character (Option+e e → key `é`), which fires with no composition around
+      // it when focus is not on an editable element. Suppressing both is what
+      // made diacritics untypable — only drop the ones carrying no character.
+      if (event.keyCode === 229 && !isTextKey(event)) {
         return;
       }
 
@@ -289,10 +361,10 @@ export function createKeyboardActor() {
       // on every keydown — rather than tracking a pushed boolean — means
       // switching to another pane, or closing the copy-mode pane, instantly
       // stops routing keys to copy mode without any event plumbing to keep in
-      // sync. A focused float always takes priority, so its keys are never
-      // hijacked by an underlying pane's copy mode.
+      // sync. A focused overlay (float or dock) always takes priority, so its
+      // keys are never hijacked by an underlying pane's copy mode.
       let activeCopyState: CopyModeState | undefined;
-      if (!focusedFloatPaneId && !sidebarFocused) {
+      if (!overlayPaneId() && !leftSidebarFocused) {
         activeCopyState = liveActivePaneId ? liveCopyStates?.[liveActivePaneId] : undefined;
       }
       const copyModeActive = !!activeCopyState;
@@ -337,13 +409,7 @@ export function createKeyboardActor() {
 
       // On mobile, printable character keydowns from the hidden input are handled
       // by the `input` event in mobileKeyboard.ts to avoid double-sending.
-      if (
-        event.target === getMobileInput() &&
-        event.key.length === 1 &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.metaKey
-      ) {
+      if (event.target === getMobileInput() && isTextKey(event)) {
         return;
       }
 
@@ -351,14 +417,21 @@ export function createKeyboardActor() {
 
       // Escape returns focus from the sidebar to the panes (the drawer stays
       // open; the tree window is hidden, not killed).
-      if (event.key === 'Escape' && sidebarFocused) {
-        input.parent.send({ type: 'BLUR_SIDEBAR' });
+      if (event.key === 'Escape' && leftSidebarFocused) {
+        input.parent.send({ type: 'BLUR_LEFT_SIDEBAR' });
         return;
       }
 
       // Escape closes the focused float instead of being sent to tmux
       if (event.key === 'Escape' && focusedFloatPaneId) {
         input.parent.send({ type: 'CLOSE_FLOAT', paneId: focusedFloatPaneId });
+        return;
+      }
+
+      // Escape hands focus back from the pinned dock to the panes. It only
+      // BLURS — unlike a float, the dock's shell is meant to outlive the visit.
+      if (event.key === 'Escape' && focusedRightSidebarPaneId) {
+        input.parent.send({ type: 'BLUR_RIGHT_SIDEBAR' });
         return;
       }
 
@@ -373,7 +446,7 @@ export function createKeyboardActor() {
         if (prefixMode.active) {
           // Double prefix sends literal prefix key to the shell
           prefixMode.exit();
-          const prefixTarget = focusedFloatPaneId ?? realPaneId(liveActivePaneId) ?? sessionName;
+          const prefixTarget = overlayPaneId() ?? realPaneId(liveActivePaneId) ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command: `send-keys -t ${prefixTarget} ${prefixKey}`,
@@ -420,11 +493,14 @@ export function createKeyboardActor() {
           }
         }
 
-        // `prefix t` toggles the left sidebar. Handled client-side (like the
-        // header button) so it never reaches tmux and works for web clients
-        // regardless of any server-side binding for `t`.
-        if (bindingKey === 't') {
-          input.parent.send({ type: 'TOGGLE_SIDEBAR' });
+        // `prefix t` toggles the left sidebar (the tree) and `prefix T` the
+        // right one (the pinned dock). Handled client-side (like the header
+        // buttons) so they never reach tmux and work for web clients
+        // regardless of any server-side binding for those keys.
+        if (bindingKey === 't' || bindingKey === 'T') {
+          input.parent.send({
+            type: bindingKey === 't' ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR',
+          });
           prefixMode.exit();
           input.parent.send({
             type: 'KEY_PRESS',
@@ -446,7 +522,7 @@ export function createKeyboardActor() {
           // aligns tmux's view with ours before the binding executes; for
           // bindings that carry their own target (e.g., `select-pane -L`), the
           // prepend is a harmless no-op since the binding overrides it.
-          const target = focusedFloatPaneId ?? realPaneId(liveActivePaneId);
+          const target = overlayPaneId() ?? realPaneId(liveActivePaneId);
           const command = target
             ? `select-pane -t ${target} \\; ${bindingCommand}`
             : bindingCommand;
@@ -489,14 +565,12 @@ export function createKeyboardActor() {
       }
 
       // Check for root bindings (bind -n) - these bypass send-keys
-      if (!formattedKey) return;
-
-      const rootCommand = rootBindings.get(formattedKey);
+      const rootCommand = formattedKey ? rootBindings.get(formattedKey) : undefined;
       if (rootCommand) {
         // Same prefix-pin treatment as prefix bindings — root bindings (bind -n)
         // also run against tmux's server-side active pane and need the
         // post-tab-switch / post-group-swap race guarded the same way.
-        const target = focusedFloatPaneId ?? realPaneId(liveActivePaneId);
+        const target = overlayPaneId() ?? realPaneId(liveActivePaneId);
         const command = target ? `select-pane -t ${target} \\; ${rootCommand}` : rootCommand;
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
@@ -518,14 +592,19 @@ export function createKeyboardActor() {
       // Target priority: focused float > active pane ID > session name
       // Using activePaneId ensures input reaches the correct pane immediately
       // after an optimistic tab switch (before tmux processes select-window).
-      const target = focusedFloatPaneId ?? realPaneId(liveActivePaneId) ?? sessionName;
-      // Use literal mode (-l) for single printable chars to avoid tmux syntax interpretation
+      const target = overlayPaneId() ?? realPaneId(liveActivePaneId) ?? sessionName;
+      // Typed characters go as literal mode (-l) so tmux never reads them as key
+      // syntax; everything else goes as a tmux key name. A character the layout
+      // composed (á, ç, @ via AltGr) has no meaningful key name: tmux accepts
+      // `send-keys M-ç` but delivers ESC + ç, which the shell discards as an
+      // unbound meta sequence — the character never reaches the line.
       let command: string;
-      if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
-        const escaped = escapeLiteralText(event.key);
-        command = `send-keys -t ${target} -l ${escaped}`;
-      } else {
+      if (isTextKey(event)) {
+        command = `send-keys -t ${target} -l ${escapeLiteralText(event.key)}`;
+      } else if (formattedKey) {
         command = `send-keys -t ${target} ${formattedKey}`;
+      } else {
+        return;
       }
       input.parent.send({
         type: 'SEND_TMUX_COMMAND',
@@ -548,17 +627,19 @@ export function createKeyboardActor() {
 
     const handleCompositionEnd = (event: CompositionEvent) => {
       isComposing = false;
+      if (!enabled) return;
 
-      // Send the composed text as a literal string
+      // Send the composed text (CJK, an emoji from the picker, a dead-key
+      // accent) as one literal string. Same target priority as a keystroke, so
+      // composed text reaches a focused float or the pinned dock rather than
+      // the pane behind it.
       const composedText = event.data;
-      if (composedText) {
-        // Use -l flag for literal text to avoid key interpretation
-        const escaped = escapeLiteralText(composedText);
-        input.parent.send({
-          type: 'SEND_TMUX_COMMAND',
-          command: `send-keys -t ${realPaneId(activePaneId) ?? sessionName} -l ${escaped}`,
-        });
-      }
+      if (!composedText) return;
+      const target = overlayPaneId() ?? realPaneId(activePaneId) ?? sessionName;
+      input.parent.send({
+        type: 'SEND_TMUX_COMMAND',
+        command: `send-keys -t ${target} -l ${escapeLiteralText(composedText)}`,
+      });
     };
 
     const PASTE_CHUNK_SIZE = 500;
@@ -575,7 +656,7 @@ export function createKeyboardActor() {
       const lines = text.split('\n');
       const commands: string[] = [];
 
-      const pasteTarget = focusedFloatPaneId ?? realPaneId(activePaneId) ?? sessionName;
+      const pasteTarget = overlayPaneId() ?? realPaneId(activePaneId) ?? sessionName;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (line.length > 0) {
@@ -631,8 +712,10 @@ export function createKeyboardActor() {
         enabled = event.enabled;
       } else if (event.type === 'UPDATE_FOCUSED_FLOAT') {
         focusedFloatPaneId = event.paneId;
-      } else if (event.type === 'UPDATE_SIDEBAR_FOCUSED') {
-        sidebarFocused = event.focused;
+      } else if (event.type === 'UPDATE_LEFT_SIDEBAR_FOCUSED') {
+        leftSidebarFocused = event.focused;
+      } else if (event.type === 'UPDATE_RIGHT_SIDEBAR_FOCUSED') {
+        focusedRightSidebarPaneId = event.paneId;
       }
     });
 

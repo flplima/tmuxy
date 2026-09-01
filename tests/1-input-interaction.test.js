@@ -9,12 +9,15 @@ const {
   createTestContext,
   delay,
   focusPage,
+  focusTerminal,
   getTerminalText,
   waitForTerminalText,
   waitForShellPrompt,
   runCommand,
   getUIPaneCount,
   typeInTerminal,
+  typeComposedChar,
+  typeComposedText,
   pressEnter,
   sendKeyCombo,
   waitForPaneCount,
@@ -288,6 +291,53 @@ describe('Scenario 2b: Browser Paste', () => {
     await pressEnter(ctx.page);
     await waitForTerminalText(ctx.page, `${TOKEN} with spaces`);
   }, 60000);
+});
+
+// ==================== Scenario 2c: International Input ====================
+
+describe('Scenario 2c: International Input', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('dead-key, Option, AltGr and IME characters reach the shell as text', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await focusTerminal(ctx.page);
+
+    // Three of the four ways a keyboard produces a character arrive wearing
+    // flags that read like a command chord (keyCode 229, altKey, ctrl+alt).
+    // Forwarded as tmux key names they become ESC-prefixed meta sequences the
+    // shell throws away — which is what made diacritics untypable.
+    const marker = `INTL${Date.now()}`;
+    const payload = 'áéõñçø@€日本語';
+
+    await typeInTerminal(ctx.page, `echo ${marker}`);
+    for (const ch of 'áéõñ') await typeComposedChar(ctx.page, ch, 'dead');
+    for (const ch of 'çø') await typeComposedChar(ctx.page, ch, 'option');
+    for (const ch of '@€') await typeComposedChar(ctx.page, ch, 'altgr');
+    await typeComposedText(ctx.page, '日本語');
+    await pressEnter(ctx.page);
+
+    // Echoed back by bash, so the assertion is on bytes the PROGRAM received
+    // through real tmux — not merely on what was painted while typing. Two
+    // occurrences: the command line, then echo's output.
+    //
+    // Wide CJK glyphs are rendered with the blank continuation cell tmux emits
+    // beside them, so the row reads "日 本 語"; compare with whitespace stripped.
+    const squash = (s) => s.replace(/\s+/g, '');
+    const expected = squash(`${marker}${payload}`);
+    const deadline = Date.now() + 20000;
+    let occurrences = 0;
+    while (Date.now() < deadline) {
+      occurrences = squash(await getTerminalText(ctx.page)).split(expected).length - 1;
+      if (occurrences >= 2) break;
+      await delay(DELAYS.SHORT);
+    }
+    expect(occurrences).toBeGreaterThanOrEqual(2);
+  }, 90000);
 });
 
 // ==================== Scenario 7: Mouse Click & Scroll ====================

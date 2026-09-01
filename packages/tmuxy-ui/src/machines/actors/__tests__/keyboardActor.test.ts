@@ -194,3 +194,96 @@ describe('keyboardActor — prefix mode', () => {
     expect(lastSendCommand(events)).toBe('send-keys -t %3 C-a');
   });
 });
+
+/**
+ * International input: the character a layout composed must be forwarded as
+ * literal text (`send-keys -l`). As a key name it is not an error but worse:
+ * tmux turns `M-ç` into ESC + ç and `C-M-@` into ESC + NUL, meta sequences the
+ * shell discards, so the character silently never arrives. The three composed
+ * paths below all wear flags that read like a chord, so the actor has to tell
+ * them apart from the real chords in the last block.
+ */
+describe('keyboardActor — composed characters are literal text', () => {
+  let handle: ReturnType<typeof spawnKeyboardActor>;
+  beforeEach(() => {
+    handle = spawnKeyboardActor('%3');
+  });
+
+  it('sends a dead-key character even though the IME stamped it keyCode 229', () => {
+    // ´ then a on a Portuguese/US-International layout: the accent key yields
+    // `Dead`, and the next keydown already carries the composed `á`. macOS
+    // routes that through the IME, so it wears the 229 "IME is handling this"
+    // marker that suppresses genuinely mid-composition keys.
+    pressKey({ key: 'Dead', keyCode: 229 });
+    pressKey({ key: 'á', keyCode: 229 });
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l 'á'");
+  });
+
+  it('still suppresses a key the IME is only processing (no character yet)', () => {
+    pressKey({ key: 'x' });
+    pressKey({ key: 'Process', keyCode: 229 });
+    // The last command is still the `x` before it — `Process` sent nothing.
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l 'x'");
+  });
+
+  it('sends a macOS Option-composed character instead of an M- chord', () => {
+    // Option+c on a US Mac layout: altKey is set, but the OS already replaced
+    // the letter with `ç`.
+    pressKey({ key: 'ç', altKey: true });
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l 'ç'");
+  });
+
+  it('sends an AltGr third-level symbol instead of a C-M- chord', () => {
+    // AltGr+Q on ABNT2 → `@`, reported with the legacy ctrl+alt flags plus the
+    // AltGraph modifier state that identifies it.
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '@',
+        ctrlKey: true,
+        altKey: true,
+        modifierAltGraph: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l '@'");
+  });
+
+  it('sends IME-composed text as one literal on compositionend', () => {
+    window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    pressKey({ key: 'n', keyCode: 229, isComposing: true });
+    window.dispatchEvent(new CompositionEvent('compositionend', { data: '日本語', bubbles: true }));
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l '日本語'");
+  });
+
+  it('sends an emoji from the picker as one character', () => {
+    window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    window.dispatchEvent(new CompositionEvent('compositionend', { data: '😀', bubbles: true }));
+    expect(lastSendCommand(handle.events)).toBe("send-keys -t %3 -l '😀'");
+  });
+});
+
+describe('keyboardActor — chords stay chords', () => {
+  let handle: ReturnType<typeof spawnKeyboardActor>;
+  beforeEach(() => {
+    handle = spawnKeyboardActor('%3');
+  });
+
+  it('keeps bare Alt + an ASCII key as M-<key>', () => {
+    // Nothing was composed — the key is still `x` — so this is a real chord.
+    pressKey({ key: 'x', altKey: true });
+    expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 M-x');
+  });
+
+  it('keeps Ctrl + a key as C-<key>', () => {
+    pressKey({ key: 'g', ctrlKey: true });
+    expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 C-g');
+  });
+
+  it('keeps the macOS Option+h character mapped to M-h', () => {
+    // Option+h yields `˙`, which tmuxy claims for pane navigation rather than
+    // typing — the one non-ASCII-under-Alt case that is NOT text.
+    pressKey({ key: '˙', altKey: true });
+    expect(lastSendCommand(handle.events)).toBe('send-keys -t %3 M-h');
+  });
+});

@@ -147,12 +147,26 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 2. `keyboardActor` captures the DOM `keydown` event
 3. If in copy mode: key routed to `COPY_MODE_KEY` handler (handled client-side, see [COPY-MODE.md](COPY-MODE.md))
 4. If prefix key pressed: enters prefix mode, waits for next key to match a binding
-5. Otherwise: `keyboardActor` sends `SEND_TMUX_COMMAND` with `send -t <session> <key>`
+5. Otherwise the keydown is classified as text or chord (see below) and `keyboardActor` sends `SEND_TMUX_COMMAND` — literal text with `send-keys -l`, a chord as a tmux key name
 6. The `KeyBatcher` in the adapter batches rapid keystrokes (e.g., typing "hello") into single `send-keys` commands
 7. Command reaches tmux via control mode stdin
 8. tmux processes the keystroke and sends `%output` event back through control mode stdout
 9. Monitor emits a state delta with the updated pane content
 10. Frontend re-renders the affected pane
+
+### Text vs. chord
+
+Step 5 cannot be decided by "no modifiers held". Keyboards compose characters through three paths that all set flags reading like a chord:
+
+| Path | What the keydown looks like | Example |
+|------|-----------------------------|---------|
+| Dead key | the finished character on one keydown, stamped `keyCode` 229 because the OS composed it through the IME | `´` then `a` → `á` |
+| macOS Option as compose key | `altKey` set, but the letter already replaced by a non-ASCII character | Option+c → `ç` |
+| AltGr third level | legacy ctrl+alt flags; only the `AltGraph` modifier state separates it from a real Ctrl+Alt chord | AltGr+Q on ABNT2 → `@` |
+
+Forwarding one of these as a tmux key name is not rejected — tmux accepts `send-keys M-ç` and delivers ESC + `ç`, an unbound meta sequence the application discards, so the character silently never arrives. The inverse mistake is as bad: treating a real chord as text turns every keyboard shortcut into garbage on screen. The classifier therefore reads a non-ASCII key under bare Alt (and any key with the `AltGraph` state) as text, an ASCII key under Alt as a chord, and anything under Ctrl or Cmd as a chord.
+
+IME composition — pinyin, kana, hangul, the emoji picker — bypasses keydown entirely: the individual keys are suppressed while composing and the committed string arrives whole on `compositionend`, sent as one literal.
 
 ---
 

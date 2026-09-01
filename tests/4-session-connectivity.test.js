@@ -284,10 +284,10 @@ describe('Scenario 24: Multi-Session Sidebar Tree (web)', () => {
       const primaryName = ctx.session.name;
 
       // The sessions poll (~1.5s) enumerates both. Open the sidebar the way a
-      // user does — the header toggle button (dispatches the same TOGGLE_SIDEBAR
+      // user does — the header toggle button (dispatches the same TOGGLE_LEFT_SIDEBAR
       // as `prefix t`) — and wait for the grouped tree to render.
-      await ctx.page.click('button[aria-label="Toggle sidebar"]');
-      await ctx.page.waitForSelector('.sidebar-fixed', { timeout: 20000 });
+      await ctx.page.click('button[aria-label="Toggle tree sidebar"]');
+      await ctx.page.waitForSelector('.sidebar-column-left', { timeout: 20000 });
 
       // Both session headers must render AND be visible. Two sessions on the
       // socket is what promotes the flat tab tree to the grouped session tree.
