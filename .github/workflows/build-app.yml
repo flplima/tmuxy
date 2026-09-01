@@ -34,6 +34,23 @@ jobs:
             binary: target/universal-apple-darwin/release/tmuxy
 
     runs-on: ${{ matrix.os }}
+
+    # macOS signing + notarization credentials. Read by the Tauri CLI itself
+    # during `tauri build` — it imports the cert into a throwaway keychain,
+    # signs the bundle with the hardened runtime, then notarizes and staples.
+    #
+    # Every one is OPTIONAL: with no APPLE_CERTIFICATE the CLI skips signing
+    # entirely, so forks and any build made before the secrets exist still
+    # produce a working (unsigned) DMG rather than failing.
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      # App Store Connect API key — preferred over APPLE_ID/APPLE_PASSWORD
+      # because it carries no 2FA and can be revoked on its own.
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+
     steps:
       - uses: actions/checkout@v6
 
@@ -58,6 +75,20 @@ jobs:
       - run: npm install
 
       # --- Build ---
+
+      # Notarization wants the App Store Connect key as a file, and secrets are
+      # strings — so materialise it and hand the CLI its path. Skipped (with the
+      # build then unsigned) whenever the key secret is absent.
+      - name: Stage the notarization key (macOS)
+        if: matrix.platform == 'macos' && env.APPLE_API_KEY != ''
+        run: |
+          KEY_DIR="$HOME/private_keys"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$KEY_DIR/AuthKey_$APPLE_API_KEY.p8"
+          chmod 600 "$KEY_DIR/AuthKey_$APPLE_API_KEY.p8"
+          echo "APPLE_API_KEY_PATH=$KEY_DIR/AuthKey_$APPLE_API_KEY.p8" >> "$GITHUB_ENV"
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
 
       - name: Build Tauri app
         run: npx tauri build ${{ matrix.tauri-args }}

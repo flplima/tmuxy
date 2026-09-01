@@ -211,6 +211,23 @@ Use [gitmoji](https://gitmoji.dev/) for commit messages:
 
 The full ship sequence — from a green main commit all the way to a Homebrew-installable release. Each step must succeed before the next; never tag ahead of CI.
 
+### 0. macOS signing (one-time setup)
+
+The macOS build signs and notarizes itself when — and only when — these repository secrets exist. The Tauri CLI reads them during `tauri build`: it imports the certificate into a throwaway keychain, signs with the hardened runtime, then notarizes and staples. With `APPLE_CERTIFICATE` absent it skips signing silently, so forks and PRs still produce a working (unsigned) DMG.
+
+| Secret | What it is |
+|---|---|
+| `APPLE_CERTIFICATE` | base64 of the **Developer ID Application** `.p12`. An *Apple Development* cert is NOT enough — it fails Gatekeeper on every machine but the ones registered to it |
+| `APPLE_CERTIFICATE_PASSWORD` | the password set when exporting that `.p12` |
+| `APPLE_SIGNING_IDENTITY` | the identity's full name, e.g. `Developer ID Application: Felipe Lima (NF27TT2TR8)` |
+| `APPLE_API_KEY` | App Store Connect key ID (the `XXXXXXXXXX` in `AuthKey_XXXXXXXXXX.p8`) |
+| `APPLE_API_ISSUER` | the issuer UUID shown above the key list |
+| `APPLE_API_KEY_P8` | base64 of the `.p8` itself — staged to a file at build time, since notarization wants a path |
+
+The API key is used rather than `APPLE_ID` + an app-specific password because it carries no 2FA and can be revoked without touching the Apple ID. Apple issues a `.p8` **once**; losing it means minting a new key.
+
+Signing changes nothing about the cask — Homebrew already strips the quarantine xattr — but it removes the *"couldn't verify tmuxy's signer"* warning and lets the app open on a Mac that downloaded the DMG directly.
+
 ### 1. Land the change on main
 Stage files explicitly (never `git add -A`), commit with a gitmoji prefix, push to `origin/main`. CI runs three workflows: `lint and tests`, `Build App`, `Deploy Demo`. The `Build App` workflow on a non-tag push builds and uploads artifacts but **skips** the `release` and `bump-cask` jobs — those are tag-gated.
 
