@@ -17,6 +17,7 @@ import type { CellLine, TerminalCell, CellStyle } from '../tmux/types';
 import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls } from '../utils/urlDetect';
+import { openExternalUrl } from '../utils/openUrl';
 
 /**
  * Compute a numeric key for grouping cells by style.
@@ -200,6 +201,15 @@ export const TerminalLine = memo(
               draggable={false}
               style={style}
               className={cls}
+              // Opened through openExternalUrl rather than the anchor's own
+              // navigation: the desktop webview denies new windows, so the
+              // default did nothing there. preventDefault keeps the browser
+              // build from opening it twice.
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openExternalUrl(linkUrl);
+              }}
             >
               {text}
             </a>,

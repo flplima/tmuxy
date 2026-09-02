@@ -8,7 +8,7 @@ This document covers what's supported, how the pipeline works, and how to test e
 
 | Protocol | DCS / OSC / APC | Backend | Frontend | Notes |
 |----------|----------------|---------|----------|-------|
-| **OSC 8 — Hyperlinks** | `ESC ] 8 ; … ; <url> ST` | `control_mode/osc.rs` (style on cell) | `TerminalLine.tsx` → `<a href>` | Parsed from the control-mode stream; no `terminal-features` setting needed |
+| **OSC 8 — Hyperlinks** | `ESC ] 8 ; … ; <url> ST` | `control_mode/osc.rs` (style on cell) | `TerminalLine.tsx` → `<a href>` | Parsed from the control-mode stream; no `terminal-features` setting needed. Clicks open through `utils/openUrl.ts`, not the anchor's own navigation: `window.open` on the web, the `open_url` Tauri command (system browser, http(s)/mailto only) on the desktop, whose webview denies new windows. Auto-detected URLs (`utils/urlDetect.ts`) use the same path and are live only while the platform link modifier is held |
 | **OSC 1337 — iTerm2 Inline Images** | `ESC ] 1337 ; File=… : <base64> BEL` | `control_mode/images.rs::try_parse_iterm2` | `Terminal.tsx` → `<img src="/api/images/…">` | Base64 of any browser-renderable format |
 | **APC _G — Kitty Graphics** | `ESC _ G <keys> ; <payload> ESC \` | `control_mode/images.rs::try_parse_kitty` | same | Supports chunked transfer (`m=1`/`m=0`) and formats `f=24`/`f=32`/`f=100` |
 | **DCS Pq — Sixel** | `ESC P q … ESC \` | `control_mode/images.rs::try_parse_sixel` | same | Decoded by `icy_sixel`, re-encoded as PNG before serving |

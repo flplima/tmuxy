@@ -364,6 +364,61 @@ pub fn open_trace_file() -> Result<(), String> {
     open_path(&path)
 }
 
+/// Open a web link in the user's default browser.
+///
+/// The desktop webview never opens `target="_blank"` anchors on its own (a
+/// new-window request is denied), so a click on an OSC 8 or auto-detected link
+/// in a pane used to do nothing on the desktop. The frontend routes link clicks
+/// here instead. Only web schemes are accepted: a pane can print any text, so
+/// `file:` and custom schemes stay out.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let url = url.trim();
+    if !is_openable_url(url) {
+        return Err(format!(
+            "refusing to open {url:?}: only http(s) and mailto links"
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    let mut cmd = std::process::Command::new("open");
+    #[cfg(target_os = "linux")]
+    let mut cmd = std::process::Command::new("xdg-open");
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", ""]);
+        c
+    };
+    cmd.arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not open {url}: {e}"))
+}
+
+/// Whether a link a pane printed may be handed to the browser.
+pub(crate) fn is_openable_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    (lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:"))
+        && !url.chars().any(|c| c.is_control())
+}
+
+#[cfg(test)]
+mod open_url_tests {
+    use super::is_openable_url;
+
+    #[test]
+    fn only_web_links_are_openable() {
+        assert!(is_openable_url("https://example.com/a?b=c"));
+        assert!(is_openable_url("HTTP://EXAMPLE.COM"));
+        assert!(is_openable_url("mailto:someone@example.com"));
+        assert!(!is_openable_url("file:///etc/passwd"));
+        assert!(!is_openable_url("javascript:alert(1)"));
+        assert!(!is_openable_url("ssh://host"));
+        assert!(!is_openable_url("https://example.com/\u{1b}[31m"));
+        assert!(!is_openable_url(""));
+    }
+}
+
 /// Hand a path to the desktop's default opener.
 fn open_path(path: &std::path::Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]

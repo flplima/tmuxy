@@ -16,6 +16,7 @@ const {
   sendKeyCombo,
   waitForShellPrompt,
   DELAYS,
+  waitForCondition,
   getCellWidth,
   getCursorGeometry,
   getRunGeometry,
@@ -416,6 +417,69 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       expect(linkInfo.hrefs.some((h) => h && h.includes('example.com'))).toBe(true);
       // Rendered, not just present: the anchor must occupy space on screen.
       expect(linkInfo.visible.some(Boolean)).toBe(true);
+    });
+
+    test('clicking an OSC 8 link opens it; an auto-detected URL opens only with the modifier', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // Links open through openExternalUrl (window.open on the web, the
+      // desktop's open_url command in Tauri) — never through the anchor's own
+      // navigation, which the desktop webview denies. Stub window.open so the
+      // test observes the call instead of leaving the page.
+      await ctx.page.evaluate(() => {
+        window.__opened = [];
+        window.open = (url, target, features) => {
+          window.__opened.push({ url, target, features });
+          return null;
+        };
+      });
+
+      await runCommand(
+        ctx.page,
+        'echo -e "\\e]8;;https://example.com/osc\\e\\\\OSC-LINK\\e]8;;\\e\\\\ https://example.com/plain"',
+        'OSC-LINK',
+      );
+
+      // Step 1: a plain click on the OSC 8 anchor opens it and the page stays.
+      await ctx.page.click('.terminal-content a.terminal-hyperlink');
+      await waitForCondition(
+        ctx.page,
+        async () => ctx.page.evaluate(() => window.__opened.length === 1),
+        5000,
+        'the OSC 8 link to be opened',
+      );
+      const first = await ctx.page.evaluate(() => window.__opened[0]);
+      expect(first.url).toBe('https://example.com/osc');
+      expect(first.target).toBe('_blank');
+      expect(await ctx.page.evaluate(() => location.pathname)).toBe('/');
+
+      // Step 2: the auto-detected URL is inert text until the platform link
+      // modifier is held (Cmd on macOS, Ctrl elsewhere): pointer-events: none
+      // keeps a plain click from reaching it.
+      // The echoed command line also auto-links, so pick the output's URL by href.
+      const autolink = '.terminal-content a.terminal-autolink[href="https://example.com/plain"]';
+      await ctx.page.click(autolink, { force: true });
+      await delay(DELAYS.MEDIUM);
+      expect(await ctx.page.evaluate(() => window.__opened.length)).toBe(1);
+
+      // Hold the modifier as a real keydown first: the body class that turns
+      // pointer-events back on is set by the link modifier actor on keydown,
+      // and Playwright's click checks hit-testing before it presses modifiers.
+      const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+      await ctx.page.keyboard.down(modifier);
+      await delay(DELAYS.SHORT);
+      await ctx.page.click(autolink);
+      await ctx.page.keyboard.up(modifier);
+      await waitForCondition(
+        ctx.page,
+        async () => ctx.page.evaluate(() => window.__opened.length === 2),
+        5000,
+        'the auto-detected URL to be opened with the modifier held',
+      );
+      const second = await ctx.page.evaluate(() => window.__opened[1]);
+      expect(second.url).toBe('https://example.com/plain');
     });
 
     test('Multiple hyperlinks on same line render correctly', async () => {

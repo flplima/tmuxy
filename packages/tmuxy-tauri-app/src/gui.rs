@@ -1187,6 +1187,7 @@ pub fn run() {
             // Window chrome: the status bar doubles as the title bar
             commands::set_titlebar_height,
             commands::titlebar_double_click,
+            commands::open_url,
             // Server picker (desktop-only): list saved tmux servers and
             // live-reconnect to one (localhost socket switch or remote SSH).
             commands::list_servers,
