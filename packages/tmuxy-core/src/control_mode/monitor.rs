@@ -972,6 +972,18 @@ impl TmuxMonitor {
                             emitter.emit_error(format!("Failed to refresh windows: {}", e));
                         }
                     }
+                    // Likewise the marked pane: `select-pane -m/-M` changes
+                    // `#{pane_marked}` without any notification, so re-list the
+                    // panes right behind it or the flag waits for the heartbeat.
+                    if toggles_pane_mark(&unescaped) {
+                        if let Err(e) = self
+                            .connection
+                            .send_command(tmux_formats::LIST_PANES_CMD)
+                            .await
+                        {
+                            emitter.emit_error(format!("Failed to refresh panes: {}", e));
+                        }
+                    }
                 }
                 true
             }
@@ -991,6 +1003,14 @@ impl TmuxMonitor {
 /// Whether a client command writes a `@tmuxy-*` user option. Those carry
 /// sidebar/focus state the clients read off `list-windows`, and tmux sends no
 /// notification for them — the caller re-lists windows right after.
+/// Whether a client command marks or unmarks a pane (`select-pane -m` / `-M`,
+/// also `selectp`). tmux emits no notification for the mark, so the caller
+/// re-lists panes right after.
+fn toggles_pane_mark(command: &str) -> bool {
+    (command.contains("select-pane") || command.contains("selectp"))
+        && command.split_whitespace().any(|w| w == "-m" || w == "-M")
+}
+
 fn writes_tmuxy_option(command: &str) -> bool {
     (command.contains("set-option") || command.contains("set -")) && command.contains("@tmuxy-")
 }

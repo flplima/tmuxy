@@ -95,6 +95,92 @@ async function waitForFloatModal(page, timeout = 10000) {
   await page.waitForSelector('.modal-overlay', { timeout });
 }
 
+// ==================== Scenario 4d: Marked pane ====================
+
+describe('Scenario 4d: Marked pane', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // tmux's marked pane (`select-pane -m`) used to be invisible in tmuxy. It now
+  // travels on the wire as `#{pane_marked}` and shows as a flag in the pane
+  // header (and an outline on the pane), and the context menu can swap another
+  // pane with it. Clearing the mark (`select-pane -M`) removes the indicator.
+  test('prefix m flags the pane → swap with marked from the menu → prefix M clears', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
+    const paneOrder = () => ctx.session.query("list-panes -F '#{pane_id} #{pane_left}'");
+    const markedInTmux = async () => {
+      const out = await ctx.session.query("list-panes -F '#{pane_id} #{pane_marked}'");
+      return String(out)
+        .split('\n')
+        .filter((l) => l.endsWith(' 1'))
+        .map((l) => l.split(' ')[0]);
+    };
+    const markedInUi = () =>
+      ctx.page.evaluate(() => ({
+        state: (window.app?.getSnapshot()?.context?.panes || [])
+          .filter((p) => p.marked)
+          .map((p) => p.tmuxId),
+        flags: document.querySelectorAll('.pane-header .pane-tab-mark').length,
+        outlined: document.querySelectorAll('.pane-layout-item.pane-marked').length,
+      }));
+
+    // Step 1: mark the active (right) pane.
+    const rightPane = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId,
+    );
+    await sendPrefixCommand(ctx.page, 'm');
+    await waitForCondition(
+      ctx.page,
+      async () => (await markedInUi()).state.join() === rightPane,
+      8000,
+      'the marked flag to reach the UI',
+    );
+    expect(await markedInTmux()).toEqual([rightPane]);
+    const ui = await markedInUi();
+    expect(ui.flags).toBe(1);
+    expect(ui.outlined).toBe(1);
+
+    // Step 2: from the OTHER pane's context menu, swap it with the marked pane.
+    const orderBefore = String(await paneOrder());
+    await navigatePaneKeyboard(ctx.page, 'left');
+    const leftPane = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId,
+    );
+    expect(leftPane).not.toBe(rightPane);
+    // The pane menu lives behind the header's ⋮ button (a right-click on the
+    // content opens the text-selection menu instead).
+    await ctx.page.click(`.pane-container [data-pane-id="${leftPane}"] .pane-header-menu`);
+    await ctx.page.waitForSelector('[role="menuitem"]', { timeout: 5000 });
+    const swapItem = await ctx.page.$('[role="menuitem"]:has-text("Swap with Marked Pane")');
+    expect(swapItem).not.toBeNull();
+    await swapItem.click();
+    await waitForCondition(
+      ctx.page,
+      async () => String(await paneOrder()) !== orderBefore,
+      8000,
+      'swap-pane with the marked pane to reorder the panes',
+    );
+
+    // Step 3: prefix M clears the mark everywhere.
+    await sendPrefixCommand(ctx.page, 'M', { shift: true });
+    await waitForCondition(
+      ctx.page,
+      async () => (await markedInUi()).state.length === 0,
+      8000,
+      'the mark to clear in the UI',
+    );
+    expect(await markedInTmux()).toEqual([]);
+    expect((await markedInUi()).flags).toBe(0);
+  }, 120000);
+});
+
 // ==================== Scenario 4c: Zoom in a 2×2 grid ====================
 
 describe('Scenario 4c: Zoom in a 2×2 grid', () => {

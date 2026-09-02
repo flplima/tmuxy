@@ -28,6 +28,7 @@ import {
   useAppConfig,
   selectKeyBindings,
   selectIsSinglePane,
+  selectMarkedPaneId,
   selectWindows,
   selectThemeName,
   selectThemeMode,
@@ -46,6 +47,7 @@ export function AppMenu() {
   const { isDemo } = useAppConfig();
   const keybindings = useAppSelector(selectKeyBindings);
   const isSinglePane = useAppSelector(selectIsSinglePane);
+  const markedPaneId = useAppSelector(selectMarkedPaneId);
   const windows = useAppSelectorShallow(selectWindows);
   const themeName = useAppSelector(selectThemeName);
   const themeMode = useAppSelector(selectThemeMode);
@@ -76,6 +78,8 @@ export function AppMenu() {
         <PaneMenuItems
           keybindings={keybindings}
           isSinglePane={isSinglePane}
+          isMarked={markedPaneId !== null && markedPaneId === activePaneId}
+          hasMarked={markedPaneId !== null}
           onAction={handleAction}
         />
       </SubMenu>

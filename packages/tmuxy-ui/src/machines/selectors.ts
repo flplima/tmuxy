@@ -491,6 +491,13 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
   return [...result].sort((a, b) => (a.tmuxId < b.tmuxId ? -1 : a.tmuxId > b.tmuxId ? 1 : 0));
 }
 
+/** tmux's marked pane (`select-pane -m`) in the attached session, or null. */
+export const selectMarkedPaneId = createMemoizedSelector(
+  (ctx: AppMachineContext) => [ctx.panes] as const,
+  (context: AppMachineContext): string | null =>
+    context.panes.find((p) => p.marked)?.tmuxId ?? null,
+);
+
 export const selectVisiblePanes = createMemoizedSelector(
   (ctx: AppMachineContext) => ({
     panes: ctx.panes,

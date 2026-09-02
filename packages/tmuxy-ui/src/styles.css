@@ -69,6 +69,8 @@
   --accent-green-bg: #1a3d1a;
   --accent-green-border: #2d5a2d;
   --accent-green-hover: #254d25;
+  /* tmux's marked pane (prefix m). Themes may override. */
+  --pane-marked-border: var(--term-yellow);
 
   /* Colors - Accent (Blue) */
   --accent-blue: #094771;
@@ -273,6 +275,22 @@
 /* Pane States */
 .pane-active {
   z-index: var(--z-active);
+}
+
+/* The marked pane (`select-pane -m`): an inset outline in the theme's mark
+   colour, drawn inside the box so adjacent panes' edges stay untouched. */
+.pane-layout-item.pane-marked {
+  outline: 1px solid var(--pane-marked-border);
+  outline-offset: -1px;
+}
+
+.pane-tab-mark,
+.sidebar-tree-mark {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  color: var(--pane-marked-border);
+  font-size: 0.9em;
+  line-height: 1;
 }
 
 .pane-content {

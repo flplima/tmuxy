@@ -11,6 +11,7 @@ import {
   useAppSelector,
   selectKeyBindings,
   selectVisiblePanes,
+  selectMarkedPaneId,
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
 import { PaneMenuItems } from './menus/PaneMenuItems';
@@ -28,6 +29,7 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
   const keybindings = useAppSelector(selectKeyBindings);
   const visiblePanes = useAppSelector(selectVisiblePanes);
   const isSinglePane = visiblePanes.length <= 1;
+  const markedPaneId = useAppSelector(selectMarkedPaneId);
 
   const handleAction = (actionId: string) => {
     if (actionId === 'pane-close') {
@@ -47,6 +49,8 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
       <PaneMenuItems
         keybindings={keybindings}
         isSinglePane={isSinglePane}
+        isMarked={markedPaneId === paneId}
+        hasMarked={markedPaneId !== null}
         onAction={handleAction}
       />
     </ControlledMenu>

@@ -286,6 +286,10 @@ Creating a chrome window is one atomic tmux command list: `split-window ; break-
 
 **Option writes and latency.** tmux emits no control-mode notification when a user option changes. The monitor therefore re-lists windows right after forwarding any client command that writes a `@tmuxy-*` option, and a shell helper that writes one (`request_focus` in `bin/tmuxy/_lib`) follows it with a harmless `%window-renamed` (renaming a sidebar's chrome window to the name it already has), which the monitor's deferred metadata sync turns into a `list-windows`. Without either, a dragged width or a focus request waited for the idle heartbeat.
 
+### The marked pane
+
+tmux's marked pane (`select-pane -m`, cleared with `select-pane -M`; `prefix m` / `prefix M` by default) is carried on the wire as `#{pane_marked}` in the fixed tail of the monitor's `list-panes` format and in the `get_initial_state` snapshot (`executor::get_all_panes_info`), so a mark set from any client — a plain `tmux` too — shows in every tmuxy client. The UI draws a flag in the pane header and the sidebar tree row and an outline on the pane (`--pane-marked-border`, themed). The pane context menu offers *Mark/Unmark Pane*, *Swap with Marked Pane* and *Join Marked Pane Here*, which run bare `swap-pane` / `join-pane`: without `-s`, tmux takes the marked pane as the source.
+
 ### Pane groups and the stash session
 
 Pane groups are **not** a window type. A group is a set of panes sharing a `@tmuxy-group-id` pane option, minted from the anchor pane id (`%5` → `g5`) and unique for the group's life because tmux never reuses pane ids. The **visible** member is an ordinary pane in the attached session; the **hidden** members are parked one-per-window in a dedicated session, `__tmuxy_stash`, which is never attached and is filtered out of every session enumeration (the sidebar tree, `session switch`, the server picker).

@@ -263,6 +263,10 @@ pub struct TmuxPane {
     /// When true, mouse events should be forwarded as SGR sequences
     #[serde(default)]
     pub mouse_any_flag: bool,
+    /// True if this is tmux's marked pane (`select-pane -m`). The UI shows an
+    /// indicator and offers swap/join with it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub marked: bool,
     /// True if this pane's output is paused due to flow control
     /// When true, UI should show a pause indicator
     #[serde(default)]
@@ -491,6 +495,9 @@ pub struct PaneDelta {
     /// Mouse any flag (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mouse_any_flag: Option<bool>,
+    /// Marked pane flag (only if changed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marked: Option<bool>,
     /// Flow control pause state (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused: Option<bool>,
@@ -537,6 +544,7 @@ impl PaneDelta {
             && self.copy_cursor_y.is_none()
             && self.alternate_on.is_none()
             && self.mouse_any_flag.is_none()
+            && self.marked.is_none()
             && self.paused.is_none()
             && self.history_size.is_none()
             && self.selection_present.is_none()
@@ -745,6 +753,7 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
             // These are populated in control mode, not available in polling mode
             alternate_on: false,
             mouse_any_flag: false,
+            marked: info.marked,
             paused: false,
             // Sourced from `#{history_size}` so a fresh connect's initial state
             // reflects real scrollback even before the first control-mode delta
@@ -1026,5 +1035,23 @@ mod vt100_capture_test {
         let (col, cells) = combined_cells("中\u{0301}X");
         assert_eq!(col, 3);
         assert_eq!(cells, vec!["中\u{0301}", "X"]);
+    }
+}
+
+#[cfg(test)]
+mod pane_delta_marked_tests {
+    use super::PaneDelta;
+
+    /// A mark toggle is often the ONLY thing that changes about a pane; a delta
+    /// carrying just `marked` must not be classified as empty, or it is never
+    /// sent and the flag waits for the next full snapshot.
+    #[test]
+    fn a_delta_with_only_the_marked_flag_is_not_empty() {
+        let delta = PaneDelta {
+            marked: Some(true),
+            ..PaneDelta::default()
+        };
+        assert!(!delta.is_empty());
+        assert!(PaneDelta::default().is_empty());
     }
 }

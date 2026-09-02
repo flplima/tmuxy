@@ -22,6 +22,8 @@ pub struct PaneInfo {
     pub title: String,        // pane title (set by shell/application)
     pub border_title: String, // evaluated pane-border-format
     pub in_mode: bool,        // true if pane is in copy mode
+    /// `#{pane_marked}` — tmux's marked pane.
+    pub marked: bool,
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
     pub window_id: String, // window this pane belongs to (e.g., "@0")
@@ -238,7 +240,7 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>> {
         "#{{pane_id}},#{{pane_index}},#{{pane_left}},#{{pane_top}},#{{pane_width}},#{{pane_height}},\
          #{{cursor_x}},#{{cursor_y}},#{{pane_active}},#{{pane_current_command}},{title},\
          #{{pane_in_mode}},#{{copy_cursor_x}},#{{copy_cursor_y}},#{{window_id}},#{{history_size}},\
-         #{{T:pane-border-format}}",
+         #{{pane_marked}},#{{T:pane-border-format}}",
         title = crate::constants::tmux_formats::APP_PANE_TITLE,
     );
     let output = execute_tmux_command(&[
@@ -270,8 +272,9 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>> {
         let mut copy_cursor_y: u32 = parts.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
         let mut window_id = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
         let mut history_size: u64 = parts.get(15).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let mut border_title = if parts.len() > 16 {
-            parts[16..].join(",")
+        let mut marked = parts.get(16).map(|s| *s == "1").unwrap_or(false);
+        let mut border_title = if parts.len() > 17 {
+            parts[17..].join(",")
         } else {
             String::new()
         };
@@ -294,8 +297,9 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>> {
                 copy_cursor_y = parts[i - 1].parse().unwrap_or(0);
                 window_id = val.to_string();
                 history_size = parts[i + 1].parse().unwrap_or(0);
-                border_title = if parts.len() > i + 2 {
-                    parts[i + 2..].join(",")
+                marked = parts.get(i + 2).map(|s| *s == "1").unwrap_or(false);
+                border_title = if parts.len() > i + 3 {
+                    parts[i + 3..].join(",")
                 } else {
                     String::new()
                 };
@@ -317,6 +321,7 @@ pub fn get_all_panes_info(session_name: &str) -> Result<Vec<PaneInfo>> {
             title,
             border_title,
             in_mode,
+            marked,
             copy_cursor_x,
             copy_cursor_y,
             window_id,

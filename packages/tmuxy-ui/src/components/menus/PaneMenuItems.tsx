@@ -9,10 +9,20 @@ import { KeyLabel } from './KeyLabel';
 interface PaneMenuItemsProps {
   keybindings: KeyBindings | null;
   isSinglePane: boolean;
+  /** The pane these items act on is tmux's marked pane. */
+  isMarked?: boolean;
+  /** Some pane (possibly another one) is marked, so swap/join with it make sense. */
+  hasMarked?: boolean;
   onAction: (actionId: string) => void;
 }
 
-export function PaneMenuItems({ keybindings, isSinglePane, onAction }: PaneMenuItemsProps) {
+export function PaneMenuItems({
+  keybindings,
+  isSinglePane,
+  isMarked = false,
+  hasMarked = false,
+  onAction,
+}: PaneMenuItemsProps) {
   return (
     <>
       <MenuItem onClick={() => onAction('pane-split-below')}>
@@ -41,6 +51,25 @@ export function PaneMenuItems({ keybindings, isSinglePane, onAction }: PaneMenuI
         Swap with Next
         <KeyLabel keybindings={keybindings} command="swap-pane -D" />
       </MenuItem>
+      <MenuDivider />
+      {isMarked ? (
+        <MenuItem onClick={() => onAction('pane-unmark')}>
+          Unmark Pane
+          <KeyLabel keybindings={keybindings} command="select-pane -M" />
+        </MenuItem>
+      ) : (
+        <MenuItem onClick={() => onAction('pane-mark')}>
+          Mark Pane
+          <KeyLabel keybindings={keybindings} command="select-pane -m" />
+        </MenuItem>
+      )}
+      <MenuItem onClick={() => onAction('pane-swap-marked')} disabled={!hasMarked || isMarked}>
+        Swap with Marked Pane
+      </MenuItem>
+      <MenuItem onClick={() => onAction('pane-join-marked')} disabled={!hasMarked || isMarked}>
+        Join Marked Pane Here
+      </MenuItem>
+      <MenuDivider />
       <MenuItem onClick={() => onAction('pane-move-new-tab')}>
         Move to New Tab
         <KeyLabel keybindings={keybindings} command="break-pane" />

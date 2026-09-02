@@ -234,6 +234,7 @@ function makePlaceholderPane(
     copyCursorY: 0,
     alternateOn: false,
     mouseAnyFlag: false,
+    marked: false,
     paused: false,
     historySize: 0,
     selectionPresent: false,

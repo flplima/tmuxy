@@ -50,6 +50,11 @@ const PaneTab = memo(function PaneTab({
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}
     >
+      {pane.marked && (
+        <span className="pane-tab-mark" title="Marked pane (prefix m)" aria-label="Marked pane">
+          ⚑
+        </span>
+      )}
       {icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>}
       <span className="pane-tab-title">{text}</span>
     </div>

@@ -338,6 +338,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       const classes = ['pane-layout-item'];
       const isActive = pane.active && !focusedFloatPaneId;
       classes.push(isActive ? 'pane-active' : 'pane-inactive');
+      // tmux's marked pane: a distinct outline so it reads apart from the
+      // active pane (the two are usually different panes — mark one, then
+      // swap/join it from another).
+      if (pane.marked) classes.push('pane-marked');
       if (pane.tmuxId === zoomedPaneId) {
         classes.push('pane-zoomed');
       }

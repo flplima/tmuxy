@@ -528,6 +528,21 @@ export class DemoAdapter implements TmuxAdapter {
 
       case 'select-pane':
       case 'selectp': {
+        // The marked pane: `-m` marks the target (or the active pane), `-M`
+        // clears the mark. Neither changes which pane is active.
+        if (parts.includes('-M')) {
+          this.tmux.markPane(null);
+          break;
+        }
+        if (parts.includes('-m')) {
+          const mIdx = parts.indexOf('-t');
+          const target =
+            mIdx !== -1 && mIdx + 1 < parts.length
+              ? parts[mIdx + 1]
+              : this.tmux.getState().active_pane_id;
+          if (target) this.tmux.markPane(target);
+          break;
+        }
         const tIdx = parts.indexOf('-t');
         if (tIdx !== -1 && tIdx + 1 < parts.length) {
           const target = parts[tIdx + 1];

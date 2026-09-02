@@ -91,6 +91,8 @@ export class DemoTmux {
   private windows: FakeWindow[] = [];
   private activeWindowId = '@0';
   private activePaneId = '%0';
+  /** tmux's marked pane (`select-pane -m`), or null. */
+  private markedPaneId: string | null = null;
   private nextPaneNum = 0;
   private nextWindowNum = 0;
   private totalWidth = 80;
@@ -228,6 +230,7 @@ export class DemoTmux {
         border_title: '',
         group_id: groupIdByPane.get(pane.id) ?? null,
         in_mode: this.copyModePanes.has(pane.id),
+        marked: pane.id === this.markedPaneId,
         copy_cursor_x: 0,
         copy_cursor_y: 0,
         history_size: pane.shell.getHistorySize(),
@@ -487,6 +490,11 @@ export class DemoTmux {
     }
 
     return true;
+  }
+
+  /** Mark a pane (`select-pane -m`) or clear the mark (`select-pane -M`, null). */
+  markPane(paneId: string | null): void {
+    this.markedPaneId = paneId && this.panes.has(paneId) ? paneId : null;
   }
 
   selectPane(paneId: string): boolean {

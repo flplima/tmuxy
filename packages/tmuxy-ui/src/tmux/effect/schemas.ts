@@ -84,6 +84,7 @@ export const ServerPane = Schema.Struct({
   copy_cursor_y: Schema.Number,
   alternate_on: Schema.optional(Schema.Boolean),
   mouse_any_flag: Schema.optional(Schema.Boolean),
+  marked: Schema.optional(Schema.Boolean),
   paused: Schema.optional(Schema.Boolean),
   history_size: Schema.optional(Schema.Number),
   selection_present: Schema.optional(Schema.Boolean),

@@ -302,6 +302,7 @@ function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
     ...(delta.copy_cursor_x !== undefined && { copy_cursor_x: delta.copy_cursor_x }),
     ...(delta.copy_cursor_y !== undefined && { copy_cursor_y: delta.copy_cursor_y }),
     ...(delta.alternate_on !== undefined && { alternate_on: delta.alternate_on }),
+    ...(delta.marked !== undefined && { marked: delta.marked }),
     ...(delta.mouse_any_flag !== undefined && { mouse_any_flag: delta.mouse_any_flag }),
     ...(delta.paused !== undefined && { paused: delta.paused }),
     ...(delta.history_size !== undefined && { history_size: delta.history_size }),

@@ -257,6 +257,11 @@ pub struct PaneState {
     /// Whether application wants mouse events (mouse tracking enabled)
     pub mouse_any_flag: bool,
 
+    /// tmux's marked pane (`select-pane -m`, `#{pane_marked}`). At most one
+    /// pane per server carries it; `swap-pane`/`join-pane` without a source
+    /// use it.
+    pub marked: bool,
+
     /// Whether this pane's output is paused due to flow control
     pub paused: bool,
 
@@ -325,6 +330,7 @@ impl PaneState {
             tmux_cursor_y: 0,
             alternate_on: false,
             mouse_any_flag: false,
+            marked: false,
             paused: false,
             selection_present: false,
             selection_start_x: 0,
@@ -619,6 +625,7 @@ impl PaneState {
             copy_cursor_y: self.copy_cursor_y,
             alternate_on: self.alternate_on,
             mouse_any_flag: self.mouse_any_flag,
+            marked: self.marked,
             paused: self.paused,
             history_size: self.history_size,
             selection_present: self.selection_present,
@@ -1031,6 +1038,7 @@ fn stash_member_stub(pane_id: &str, member: &StashMember) -> TmuxPane {
         copy_cursor_y: 0,
         alternate_on: false,
         mouse_any_flag: false,
+        marked: false,
         paused: false,
         history_size: 0,
         selection_present: false,
@@ -2233,23 +2241,25 @@ impl StateAggregator {
         // copy_cursor_y, scroll_position. Everything between command and those
         // four fields is pane_title; everything between window_id and the fixed
         // 6-field tail is border_title.
-        let num_tail_fields = 7;
+        let num_tail_fields = 8;
 
         // Tail fields (fixed, never free-text): alternate_on, mouse_any_flag,
-        // selection_present, selection_start_x, selection_start_y, history_size,
-        // group_id (`@tmuxy-group-id`, `g<digits>` or empty).
+        // pane_marked, selection_present, selection_start_x, selection_start_y,
+        // history_size, group_id (`@tmuxy-group-id`, `g<digits>` or empty).
         let (
             alternate_on,
             mouse_any_flag,
+            marked,
             selection_present,
             selection_start_x,
             selection_start_y,
             history_size,
             group_id,
-        ) = if parts.len() >= 18 {
+        ) = if parts.len() >= 19 {
             let last = parts.len() - 1;
             let gid = parts[last].trim();
             (
+                parts[last - 7] == "1",
                 parts[last - 6] == "1",
                 parts[last - 5] == "1",
                 parts[last - 4] == "1",
@@ -2259,7 +2269,7 @@ impl StateAggregator {
                 (!gid.is_empty()).then(|| gid.to_string()),
             )
         } else {
-            (false, false, false, 0u32, 0u64, 0u64, None)
+            (false, false, false, false, 0u32, 0u64, 0u64, None)
         };
 
         let mut title = String::new();
@@ -2351,6 +2361,7 @@ impl StateAggregator {
         pane.window_id = window_id;
         pane.alternate_on = alternate_on;
         pane.mouse_any_flag = mouse_any_flag;
+        pane.marked = marked;
         pane.selection_present = selection_present;
         pane.selection_start_x = selection_start_x;
         pane.selection_start_y = selection_start_y;
@@ -2705,6 +2716,9 @@ impl StateAggregator {
         }
         if prev.mouse_any_flag != curr.mouse_any_flag {
             delta.mouse_any_flag = Some(curr.mouse_any_flag);
+        }
+        if prev.marked != curr.marked {
+            delta.marked = Some(curr.marked);
         }
         if prev.paused != curr.paused {
             delta.paused = Some(curr.paused);
@@ -3097,7 +3111,7 @@ mod tests {
         // own test below.
         format!(
             // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,gid
-            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,100,"
+            "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,"
         )
     }
 
@@ -3120,9 +3134,9 @@ mod tests {
         // rather than zero — the anchor scan has to tolerate both around a
         // blank title.
         let mut agg = StateAggregator::new();
-        agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,,,,0,");
+        agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,");
         agg.parse_list_panes_line(
-            "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,,,,0,",
+            "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests, docs, and CI,0,,,,@0, ,0,0,0,,,,0,",
         );
 
         let untitled = agg.panes.get("%0").expect("untitled pane parsed");
@@ -3253,7 +3267,7 @@ mod tests {
     fn list_panes_parses_group_id() {
         let mut agg = StateAggregator::new();
         // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,sel,sx,sy,hist,GID
-        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,100,g5");
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5");
         assert_eq!(
             agg.panes
                 .get("%3")
@@ -3264,7 +3278,7 @@ mod tests {
         );
 
         // Empty tail → no group.
-        agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,100,");
+        agg.parse_list_panes_line("%4,0,0,0,80,24,0,0,1,zsh,plain,0,0,0,0,@4,,0,0,0,0,0,0,100,");
         assert_eq!(agg.panes.get("%4").expect("pane parsed").group_id, None);
     }
 
@@ -3288,7 +3302,7 @@ mod tests {
     fn stash_members_emit_stubs_only_for_active_groups() {
         let mut agg = StateAggregator::new();
         // Visible member of g5 in window @4.
-        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,100,g5");
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5");
         // Hidden member of g5, plus an orphan in g6 (no visible member).
         agg.handle_command_response(
             "stashmember,%7,@9,g5,vim,hidden-title\nstashmember,%8,@9,g6,top,orphan",
@@ -3755,5 +3769,26 @@ mod tests {
             !text.contains("one") && !text.contains("three"),
             "screen not cleared: {text:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod marked_pane_tests {
+    use super::*;
+
+    /// `#{pane_marked}` rides in the fixed tail of list-panes, between
+    /// mouse_any_flag and selection_present, and must survive the free-text
+    /// title/border fields around it.
+    #[test]
+    fn list_panes_carries_the_marked_flag() {
+        let mut agg = StateAggregator::new();
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,1,0,0,0,100,");
+        let pane = agg.panes.get("%3").expect("pane parsed");
+        assert!(pane.marked);
+        assert_eq!(pane.title, "a, title");
+        assert_eq!(pane.history_size, 100);
+
+        agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,a, title,0,0,0,0,@4,,0,0,0,0,0,0,100,");
+        assert!(!agg.panes.get("%3").expect("pane parsed").marked);
     }
 }

@@ -542,6 +542,11 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             <span className="sidebar-tree-branch" aria-hidden="true">
               {connector(row.last)}
             </span>
+            {row.pane.marked && (
+              <span className="sidebar-tree-mark" title="Marked pane" aria-label="Marked pane">
+                ⚑
+              </span>
+            )}
             {getTabIcon(row.pane) && (
               <span className="sidebar-tree-icon" aria-hidden="true">
                 {getTabIcon(row.pane)}

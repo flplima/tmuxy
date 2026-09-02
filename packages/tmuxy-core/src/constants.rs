@@ -215,7 +215,7 @@ pub mod tmux_formats {
         "#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},",
         "#{scroll_position},",
         "#{window_id},#{T:pane-border-format},",
-        "#{alternate_on},#{mouse_any_flag},",
+        "#{alternate_on},#{mouse_any_flag},#{pane_marked},",
         "#{selection_present},",
         "#{selection_start_x},#{selection_start_y},#{history_size},#{@tmuxy-group-id}'",
     );

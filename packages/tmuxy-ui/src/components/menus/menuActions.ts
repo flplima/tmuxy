@@ -54,6 +54,21 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
     case 'pane-swap-next':
       send({ type: 'SEND_COMMAND', command: 'swap-pane -D' });
       break;
+    // The marked pane (tmux `select-pane -m`). Marking acts on the pane the
+    // menu was opened for (the caller focuses it first); swap/join take tmux's
+    // default source, which is the marked pane whenever one exists.
+    case 'pane-mark':
+      send({ type: 'SEND_COMMAND', command: 'select-pane -m' });
+      break;
+    case 'pane-unmark':
+      send({ type: 'SEND_COMMAND', command: 'select-pane -M' });
+      break;
+    case 'pane-swap-marked':
+      send({ type: 'SEND_COMMAND', command: 'swap-pane' });
+      break;
+    case 'pane-join-marked':
+      send({ type: 'SEND_COMMAND', command: 'join-pane' });
+      break;
     case 'pane-move-new-tab':
       send({ type: 'SEND_COMMAND', command: 'break-pane' });
       break;

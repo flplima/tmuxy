@@ -34,6 +34,11 @@ export interface TmuxPane {
   alternateOn: boolean;
   /** True if application has mouse tracking enabled */
   mouseAnyFlag: boolean;
+  /**
+   * True if this is tmux's marked pane (`select-pane -m`, `#{pane_marked}`).
+   * Absent means false. `swap-pane` / `join-pane` without a source act on it.
+   */
+  marked?: boolean;
   /** True if output is paused due to flow control (backpressure) */
   paused: boolean;
   /** Number of history lines (scrollback above the visible area) */
@@ -195,6 +200,7 @@ export interface ServerPane {
   copy_cursor_y: number;
   alternate_on?: boolean;
   mouse_any_flag?: boolean;
+  marked?: boolean;
   paused?: boolean;
   history_size?: number;
   selection_present?: boolean;
@@ -275,6 +281,7 @@ export interface PaneDelta {
   copy_cursor_y?: number;
   alternate_on?: boolean;
   mouse_any_flag?: boolean;
+  marked?: boolean;
   paused?: boolean;
   history_size?: number;
   selection_present?: boolean;
