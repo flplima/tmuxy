@@ -95,6 +95,99 @@ async function waitForFloatModal(page, timeout = 10000) {
   await page.waitForSelector('.modal-overlay', { timeout });
 }
 
+// ==================== Scenario 4c: Zoom in a 2×2 grid ====================
+
+describe('Scenario 4c: Zoom in a 2×2 grid', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // The zoomed pane used to be identified as "the first pane whose far corner
+  // touches the grid's far corner" — which the bottom-right pane of any grid
+  // does. Zooming the top-left pane therefore hid it and left the bottom-right
+  // pane sitting in its quarter slot. The zoomed pane must be the one that
+  // spans the whole grid, whichever pane it is.
+  test('zooming the top-left pane shows that pane full size and hides the others; unzoom restores all four', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // 2×2: split right, then split each column down.
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await waitForPaneCount(ctx.page, 3);
+    await navigatePaneKeyboard(ctx.page, 'left');
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await waitForPaneCount(ctx.page, 4);
+
+    const visiblePanes = () =>
+      ctx.page.evaluate(() => {
+        const ctxState = window.app?.getSnapshot()?.context;
+        return (ctxState?.panes || [])
+          .filter((p) => p.windowId === ctxState.activeWindowId)
+          .map((p) => {
+            const el = document.querySelector(`.pane-container [data-pane-id="${p.tmuxId}"]`);
+            const r = el?.getBoundingClientRect();
+            return {
+              id: p.tmuxId,
+              w: Math.round(r?.width ?? 0),
+              h: Math.round(r?.height ?? 0),
+              opacity: el ? Number(getComputedStyle(el).opacity) : 0,
+            };
+          });
+      });
+
+    // Zoom the TOP-LEFT pane (x=0, y=top). Navigate there first.
+    await navigatePaneKeyboard(ctx.page, 'up');
+    const zoomTarget = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId,
+    );
+    const targetGeometry = await ctx.page.evaluate(
+      (id) => window.app?.getSnapshot()?.context?.panes?.find((p) => p.tmuxId === id),
+      zoomTarget,
+    );
+    expect(targetGeometry.x).toBe(0);
+
+    const before = await visiblePanes();
+    const quarterW = Math.max(...before.map((p) => p.w));
+    const quarterH = Math.max(...before.map((p) => p.h));
+
+    await sendPrefixCommand(ctx.page, 'z');
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.windows?.some((w) => w.zoomed)),
+      8000,
+      'tmux to report the window zoomed',
+    );
+    await delay(DELAYS.LONG);
+
+    const zoomed = await visiblePanes();
+    const shown = zoomed.filter((p) => p.opacity > 0.99);
+    expect(shown.map((p) => p.id)).toEqual([zoomTarget]);
+    // The zoomed pane grew to the grid: about twice a quarter in each direction.
+    expect(shown[0].w).toBeGreaterThan(quarterW * 1.8);
+    expect(shown[0].h).toBeGreaterThan(quarterH * 1.8);
+
+    await sendPrefixCommand(ctx.page, 'z');
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(
+          () => !window.app?.getSnapshot()?.context?.windows?.some((w) => w.zoomed),
+        ),
+      8000,
+      'tmux to report the window un-zoomed',
+    );
+    await delay(DELAYS.LONG);
+    const restored = await visiblePanes();
+    expect(restored.filter((p) => p.opacity > 0.99).length).toBe(4);
+    await assertLayoutInvariants(ctx.page);
+  }, 120000);
+});
+
 // ==================== Scenario 4b: Split right after a tab switch ====================
 
 describe('Scenario 4b: Split right after a tab switch', () => {

@@ -166,3 +166,33 @@ export function collectDividerSegments(panes: TmuxPane[]): {
 
   return { horizontal: horizontalDividers, vertical: verticalDividers };
 }
+
+/**
+ * The pane tmux has zoomed, identified by geometry: while a window is zoomed
+ * tmux reports the zoomed pane spanning the whole grid — from the grid's
+ * top-left corner to its bottom-right — while every other pane keeps its
+ * pre-zoom box. Only the zoomed pane covers both corners; the bottom-right
+ * pane of any layout also touches the far corner, and checking that corner
+ * alone (as this used to) picked it instead, hiding the pane the user had
+ * just zoomed. Returns null when no pane spans the grid.
+ */
+export function findZoomedPane<P extends Pick<TmuxPane, 'x' | 'y' | 'width' | 'height'>>(
+  panes: readonly P[],
+): P | null {
+  if (panes.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxRight = 0;
+  let maxBottom = 0;
+  for (const p of panes) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxRight = Math.max(maxRight, p.x + p.width);
+    maxBottom = Math.max(maxBottom, p.y + p.height);
+  }
+  return (
+    panes.find(
+      (p) => p.x <= minX && p.y <= minY && p.x + p.width >= maxRight && p.y + p.height >= maxBottom,
+    ) ?? null
+  );
+}

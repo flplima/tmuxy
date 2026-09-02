@@ -47,6 +47,7 @@ import {
   selectPaneKeyOverrides,
 } from '../machines/AppContext';
 import type { TmuxPane } from '../machines/types';
+import { findZoomedPane } from '../utils/layout';
 
 interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;
@@ -167,17 +168,15 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // Which pane tmux has expanded to fill the window, or null when not zoomed.
   //
   // Identified by geometry rather than by `pane.active`: when a window is
-  // zoomed tmux reports exactly one pane at the full window extent, and that is
+  // zoomed tmux reports exactly one pane spanning the whole grid, and that is
   // true regardless of which client holds focus. Keying off `active` would drop
   // the zoom treatment (or, worse, hide every pane) whenever the active flag has
-  // not propagated yet.
-  const zoomedPaneId = useMemo(() => {
-    if (!isZoomed) return null;
-    const full = visiblePanes.find(
-      (p) => p.x + p.width >= totalWidth && p.y + p.height >= totalHeight,
-    );
-    return full?.tmuxId ?? null;
-  }, [isZoomed, visiblePanes, totalWidth, totalHeight]);
+  // not propagated yet. See `findZoomedPane` for why it must be the pane that
+  // covers BOTH corners of the grid.
+  const zoomedPaneId = useMemo(
+    () => (isZoomed ? (findZoomedPane(visiblePanes)?.tmuxId ?? null) : null),
+    [isZoomed, visiblePanes],
+  );
 
   // Half a charWidth — each pane reaches this far into the tmux separator
   // column on both sides so adjacent panes' outlines coincide pixel-for-pixel
