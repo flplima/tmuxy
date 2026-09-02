@@ -524,6 +524,9 @@ export const appMachine = setup({
         containerHeight: event.height,
       })),
     },
+    SET_BODY_SIZE: {
+      actions: assign(({ event }) => ({ bodyWidth: event.width })),
+    },
     OBSERVE_CONTAINER: {
       actions: sendTo('size', ({ event }) => ({
         type: 'OBSERVE_CONTAINER' as const,
@@ -797,6 +800,7 @@ export const appMachine = setup({
                   w.floatHeight !== prev.floatHeight ||
                   w.floatBg !== prev.floatBg ||
                   w.floatNoheader !== prev.floatNoheader ||
+                  Boolean(w.sidebarHidden) !== Boolean(prev.sidebarHidden) ||
                   Boolean(w.zoomed) !== Boolean(prev.zoomed)
                 ) {
                   return true;
@@ -915,12 +919,19 @@ export const appMachine = setup({
               panes: transformed.panes,
             };
 
+            //  - the user closed it (here or in another client): its window
+            //    carries `@tmuxy-sidebar-hidden` and the pane lives on, so the
+            //    open flag follows the flag, not the window's existence.
+            const sidebarHidden = (ctx: typeof context, side: 'left' | 'right') =>
+              Boolean(ctx.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarHidden);
+
             const prevTreePane = selectLeftSidebarPane(context);
             const nextTreePane = selectLeftSidebarPane(nextSidebarCtx);
+            const nextTreeHidden = sidebarHidden(nextSidebarCtx, 'left');
             if (!prevTreePane && nextTreePane) {
               const requestedByThisClient = context.leftSidebarOpen;
-              enqueue(assign({ leftSidebarOpen: true }));
-              if (requestedByThisClient) {
+              enqueue(assign({ leftSidebarOpen: !nextTreeHidden, leftSidebarStartFailed: false }));
+              if (requestedByThisClient && !nextTreeHidden) {
                 // Through the focus action, which owns "only one surface holds
                 // the keyboard" — assigning the flag here would leave the other
                 // column focused too.
@@ -930,32 +941,96 @@ export const appMachine = setup({
                 enqueue(assign({ enableAnimations: false }));
               }
             } else if (prevTreePane && !nextTreePane) {
-              enqueue(assign({ leftSidebarOpen: false, leftSidebarFocused: false }));
+              // A pane that dies while this client is still waiting for it to
+              // start (the command exited at once) is a failed start, not the
+              // user closing the column: keep the column and say what happened.
+              const failedStart = context.leftSidebarStarting;
+              enqueue(
+                assign({
+                  leftSidebarOpen: failedStart,
+                  leftSidebarFocused: false,
+                  leftSidebarStartFailed: failedStart,
+                  leftSidebarStarting: false,
+                }),
+              );
               enqueue(
                 sendTo('keyboard', {
                   type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
                   focused: false,
                 }),
               );
+            } else if (
+              prevTreePane &&
+              nextTreePane &&
+              sidebarHidden(context, 'left') !== nextTreeHidden
+            ) {
+              enqueue(assign({ leftSidebarOpen: !nextTreeHidden }));
+              if (nextTreeHidden && context.leftSidebarFocused) {
+                enqueue(assign({ leftSidebarFocused: false }));
+                enqueue(
+                  sendTo('keyboard', {
+                    type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
+                    focused: false,
+                  }),
+                );
+              }
             }
 
             const prevDockPane = selectRightSidebarPane(context);
             const nextDockPane = selectRightSidebarPane(nextSidebarCtx);
+            const nextDockHidden = sidebarHidden(nextSidebarCtx, 'right');
             if (!prevDockPane && nextDockPane) {
               const requestedByThisClient = context.rightSidebarOpen;
-              enqueue(assign({ rightSidebarOpen: true }));
-              if (requestedByThisClient) {
+              enqueue(
+                assign({ rightSidebarOpen: !nextDockHidden, rightSidebarStartFailed: false }),
+              );
+              if (requestedByThisClient && !nextDockHidden) {
                 enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
                 enqueue(assign({ enableAnimations: false }));
               }
             } else if (prevDockPane && !nextDockPane) {
-              enqueue(assign({ rightSidebarOpen: false, rightSidebarFocused: false }));
+              const failedStart = context.rightSidebarStarting;
+              enqueue(
+                assign({
+                  rightSidebarOpen: failedStart,
+                  rightSidebarFocused: false,
+                  rightSidebarStartFailed: failedStart,
+                  rightSidebarStarting: false,
+                }),
+              );
               enqueue(
                 sendTo('keyboard', {
                   type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
                   paneId: null,
                 }),
               );
+            } else if (
+              prevDockPane &&
+              nextDockPane &&
+              sidebarHidden(context, 'right') !== nextDockHidden
+            ) {
+              enqueue(assign({ rightSidebarOpen: !nextDockHidden }));
+              if (nextDockHidden && context.rightSidebarFocused) {
+                enqueue(assign({ rightSidebarFocused: false }));
+                enqueue(
+                  sendTo('keyboard', {
+                    type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
+                    paneId: null,
+                  }),
+                );
+              }
+            }
+
+            // A dragged width the server has now echoed back: the preview has
+            // done its job, the window's own value takes over.
+            const preview = context.sidebarColsPreview;
+            if (preview) {
+              const win = nextSidebarCtx.windows.find(
+                (w) => w.windowType === `sidebar-${preview.side}`,
+              );
+              if (win && (win.sidebarCols ?? null) === preview.cols) {
+                enqueue(assign({ sidebarColsPreview: null }));
+              }
             }
 
             // A focus request queued by a shell helper (`tmuxy nav left/right`
@@ -1503,6 +1578,25 @@ export const appMachine = setup({
         // Pane Operations
         FOCUS_PANE: {
           actions: enqueueActions(({ event, context, enqueue }) => {
+            // The dock's pane is reached through the column's own focus, never
+            // `select-pane` — that would switch the active window and blank the
+            // tab. Its mouse handlers send FOCUS_PANE like any pane's do.
+            if (selectRightSidebarPane(context)?.tmuxId === event.paneId) {
+              enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+              return;
+            }
+            // Exactly one surface holds the keyboard: taking it for a float or a
+            // tiled pane releases the tree column too (its focus used to survive
+            // a click on a pane, trapping every key the user typed next).
+            if (context.leftSidebarFocused) {
+              enqueue(assign({ leftSidebarFocused: false }));
+              enqueue(
+                sendTo('keyboard', {
+                  type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const,
+                  focused: false,
+                }),
+              );
+            }
             if (context.floatPanes[event.paneId]) {
               // Float pane: update focus tracking only — never call select-pane for float
               // panes as it would switch the active tmux window and hide background panes.
@@ -1513,6 +1607,15 @@ export const appMachine = setup({
                   paneId: event.paneId,
                 }),
               );
+              if (context.rightSidebarFocused) {
+                enqueue(assign({ rightSidebarFocused: false }));
+                enqueue(
+                  sendTo('keyboard', {
+                    type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const,
+                    paneId: null,
+                  }),
+                );
+              }
             } else {
               // Regular pane: clear any overlay focus and select the pane
               // normally. Both overlays hold the keyboard away from the grid,

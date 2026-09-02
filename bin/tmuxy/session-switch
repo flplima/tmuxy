@@ -23,8 +23,13 @@ done
 # Get current session
 current=$(_tmux display-message -p '#{session_name}')
 
-# List all sessions (never the hidden stash session that parks group members)
-mapfile -t sessions < <(_tmux list-sessions -F '#{session_name}' | grep -vFx "$STASH_SESSION")
+# List all sessions (never the hidden stash session that parks group members).
+# A read loop rather than `mapfile`: macOS ships bash 3.2, where mapfile does
+# not exist and `set -e` then killed the switcher before it drew anything.
+sessions=()
+while IFS= read -r session_line; do
+  sessions+=("$session_line")
+done < <(_tmux list-sessions -F '#{session_name}' | grep -vFx "$STASH_SESSION")
 
 if [ ${#sessions[@]} -eq 0 ]; then
   echo "No tmux sessions found."

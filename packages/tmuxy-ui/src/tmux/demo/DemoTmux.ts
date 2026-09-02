@@ -59,6 +59,8 @@ interface FakeWindow {
   // @tmuxy-float-* tmux window options the real CLI sets via bin/tmuxy/float-create.
   /** Dragged width of a sidebar column, in cells (@tmuxy-sidebar-cols). */
   sidebarCols?: number | null;
+  /** The user closed this sidebar column (@tmuxy-sidebar-hidden). */
+  sidebarHidden?: boolean;
   floatDrawer?: 'left' | 'right' | 'top' | 'bottom' | null;
   floatBg?: 'dim' | 'blur' | 'none' | null;
   floatNoheader?: boolean;
@@ -252,6 +254,7 @@ export class DemoTmux {
         float_bg: w.floatBg ?? null,
         float_noheader: w.floatNoheader ?? false,
         sidebar_cols: w.sidebarCols ?? null,
+        sidebar_hidden: w.sidebarHidden ?? false,
       }));
 
     return {
@@ -934,13 +937,22 @@ export class DemoTmux {
    * demo's stand-in for the backend's client-size pass, which is what makes the
    * content inside rewrap as the column moves.
    */
-  setSidebarCols(windowId: string, cols: number): void {
+  setSidebarCols(windowId: string, cols: number | null): void {
     const window = this.windows.find((w) => w.id === windowId);
     if (!window) return;
     window.sidebarCols = cols;
+    const width =
+      cols ?? (window.windowType === 'sidebar-left' ? LEFT_SIDEBAR_COLS : RIGHT_SIDEBAR_COLS);
     for (const pane of this.panes.values()) {
-      if (pane.windowId === windowId) pane.shell.resize(cols, this.totalHeight);
+      if (pane.windowId === windowId) pane.shell.resize(width, this.totalHeight);
     }
+  }
+
+  /** Hide or show a sidebar column (the demo's `@tmuxy-sidebar-hidden`). */
+  setSidebarHidden(windowId: string, hidden: boolean): void {
+    const window = this.windows.find((w) => w.id === windowId);
+    if (!window) return;
+    window.sidebarHidden = hidden;
   }
 
   createFloat(options: CreateFloatOptions = {}): string | null {

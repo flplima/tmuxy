@@ -144,29 +144,42 @@
   color: var(--term-white);
 }
 
-/* Tab list — sits over the pane grid, between the two sidebar clusters. */
+/* Tab list — sits over the pane grid, between the two sidebar clusters. Tabs
+   pack to the left at their natural width; whatever is left of the strip is
+   plain header, which on the desktop drags the OS window. */
 .tab-list {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--spacing-md);
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  /* With more tabs than fit, the strip scrolls sideways (scrollbar hidden)
+     rather than squeezing every label down to a digit. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  height: 100%;
 }
 
-/* Tab name - plain text, clickable. Every tab gets an equal share of the strip
-   and centres its label, so renaming one never shifts the others sideways. */
+.tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tab: label plus its own close button, sized to its content. Long names are
+   capped and ellipsised so one tab cannot push the others out of the strip. */
 .tab-name {
-  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex: 0 0 auto;
+  max-width: 32ch;
   min-width: 0;
-  text-align: center;
   color: var(--term-white);
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: var(--spacing-md) var(--spacing-2xl);
+  padding: var(--spacing-md) var(--spacing-xl);
   border-radius: var(--radius-md);
   opacity: 0.5;
   cursor: pointer;
@@ -174,6 +187,40 @@
     color var(--transition-fast),
     background-color var(--transition-fast),
     opacity var(--transition-fast);
+}
+
+.tab-name-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The tab's close button: quiet until hovered, like the pane header's. */
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.6;
+  cursor: pointer;
+  transition:
+    opacity var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.tab-close:hover {
+  opacity: 1;
+  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
 }
 
 .tab-name:hover {
@@ -192,15 +239,12 @@
   opacity: 1;
 }
 
-/* A lone tab has nothing to be active against — it reads as a plain title. */
-.tab-list-single .tab-name {
-  opacity: 0.75;
-  cursor: default;
-}
-
-.tab-list-single .tab-name:hover {
-  background-color: transparent;
-  opacity: 0.75;
+/* A lone tab keeps the active tab's look but sits at the right edge of the
+   strip, the `+` directly after it. It carries no close button and, on the
+   desktop, drags the window like the empty header around it (StatusBar leaves
+   it out of the control list). */
+.tab-list-single {
+  justify-content: flex-end;
 }
 
 /* Add tab button */

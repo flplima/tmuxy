@@ -25,9 +25,9 @@
  * the UI doesn't render.
  */
 
-import { memo, useCallback, useRef } from 'react';
-import { Terminal } from './Terminal';
-import { detectWidget, getWidget } from './widgets';
+import { memo, useCallback } from 'react';
+import { TerminalPane } from './TerminalPane';
+import { getWidget } from './widgets';
 import { useAppSend, useAppSelector, selectCharSize } from '../machines/AppContext';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
 import type { TmuxPane } from '../machines/types';
@@ -42,11 +42,13 @@ interface SidebarColumnProps {
   focused: boolean;
   /** The column's pane, or null while its window is still being broken out. */
   pane: TmuxPane | null;
+  /** The column was asked to open but its pane never appeared (see SIDEBAR_START_TIMEOUT). */
+  startFailed: boolean;
   /** Header label in overlay layout — the app header has no room for it there. */
   title: string;
   /** Focus request from a click anywhere in the column. */
   onFocus: () => void;
-  /** The overlay header's close button. */
+  /** The overlay header's close button (and the failure state's). */
   onClose: () => void;
   /** Tooltip/aria text for the close button (the two mean different things). */
   closeLabel: string;
@@ -59,6 +61,7 @@ export const SidebarColumn = memo(function SidebarColumn({
   overlay,
   focused,
   pane,
+  startFailed,
   title,
   onFocus,
   onClose,
@@ -110,7 +113,13 @@ export const SidebarColumn = memo(function SidebarColumn({
         </div>
       )}
       <div className="sidebar-body">
-        <SidebarPane pane={pane} focused={focused} />
+        <SidebarPane
+          side={side}
+          pane={pane}
+          focused={focused}
+          startFailed={startFailed}
+          onClose={onClose}
+        />
       </div>
       <SidebarResizeHandle side={side} windowId={pane?.windowId ?? null} width={width} />
     </aside>
@@ -140,40 +149,75 @@ export function SidebarGlyph({ side }: { side: 'left' | 'right' }) {
   );
 }
 
+/** What each column's pane runs — shown when the pane failed to come up. */
+const START_COMMAND = { left: 'tmuxy widget tree', right: 'the default shell' } as const;
+
 /**
- * Render a sidebar's pane — the same widget-or-terminal split `Pane` does for a
- * tiled pane, minus the header (a sidebar's title lives in the app header, and
- * in overlay layout in its own header above).
+ * Render a sidebar's pane.
  *
- * The widget path is what makes the left column work at all: its pane runs
- * `tmuxy widget tree`, so `detectWidget` resolves it to the registered `tree`
- * component instead of rasterising an empty terminal.
+ * The LEFT column is the tree widget by definition: a `sidebar-left` window IS
+ * the tree, so the registered `tree` component is rendered directly instead of
+ * detecting it from the pane's screen text. (Detection depended on the marker
+ * line `__TMUXY_WIDGET__:tree` fitting on one row; below 22 columns it wrapped
+ * and the column fell back to a raw terminal.)
+ *
+ * The RIGHT column is a terminal pane with the same interaction layer a tiled
+ * pane has — wheel and drag enter client-side copy mode, right-click selects a
+ * word, touch scrolls — minus the header (a sidebar's title lives in the app
+ * header, and in overlay layout in its own header above).
  */
-function SidebarPane({ pane, focused }: { pane: TmuxPane | null; focused: boolean }) {
+function SidebarPane({
+  side,
+  pane,
+  focused,
+  startFailed,
+  onClose,
+}: {
+  side: 'left' | 'right';
+  pane: TmuxPane | null;
+  focused: boolean;
+  startFailed: boolean;
+  onClose: () => void;
+}) {
   const send = useAppSend();
   const { charHeight } = useAppSelector(selectCharSize);
-  // Latch the classification across a transient empty capture, exactly as
-  // `Pane` does: flipping widget→terminal on that gap remounts the subtree.
-  const lastWidgetInfoRef = useRef<ReturnType<typeof detectWidget>>(null);
 
   if (!pane) {
+    if (startFailed) {
+      return (
+        <div className="sidebar-start-failed" role="alert" data-testid={`sidebar-${side}-failed`}>
+          <p className="sidebar-start-failed-title">
+            The {side === 'left' ? 'tree' : 'terminal'} pane did not start.
+          </p>
+          <p>
+            tmux was asked to run <code>{START_COMMAND[side]}</code> in a new pane and it exited at
+            once or never appeared. Check that the tmuxy CLI is on this server&apos;s PATH.
+          </p>
+          <button
+            type="button"
+            className="sidebar-start-failed-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+          >
+            Close
+          </button>
+        </div>
+      );
+    }
     // The window is being broken out — one round trip, not a failure state.
     return <div className="sidebar-placeholder">starting…</div>;
   }
 
-  let widgetInfo = detectWidget(pane.content);
-  if (pane.content.length === 0) widgetInfo = lastWidgetInfoRef.current;
-  else lastWidgetInfoRef.current = widgetInfo;
-
-  if (widgetInfo) {
-    const WidgetComponent = getWidget(widgetInfo.widgetName)!;
-    const lines = widgetInfo.contentLines;
+  if (side === 'left') {
+    const Tree = getWidget('tree')!;
     return (
-      <WidgetComponent
+      <Tree
         paneId={pane.tmuxId}
-        widgetName={widgetInfo.widgetName}
-        lines={lines}
-        lastLine={lines.filter((l) => l.trim()).pop() || ''}
+        widgetName="tree"
+        lines={[]}
+        lastLine=""
         rawContent={pane.content}
         writeStdin={(data: string) => send({ type: 'WRITE_TO_PANE', paneId: pane.tmuxId, data })}
         width={pane.width}
@@ -190,22 +234,7 @@ function SidebarPane({ pane, focused }: { pane: TmuxPane | null; focused: boolea
       style={{ height: pane.height * charHeight }}
       data-pane-id={pane.tmuxId}
     >
-      <Terminal
-        content={pane.content}
-        cursorX={pane.cursorX}
-        cursorY={pane.cursorY}
-        isActive={focused}
-        width={pane.width}
-        height={pane.height}
-        inMode={pane.inMode}
-        copyCursorX={pane.copyCursorX}
-        copyCursorY={pane.copyCursorY}
-        selectionPresent={pane.selectionPresent}
-        selectionStartX={pane.selectionStartX}
-        selectionStartY={pane.selectionStartY}
-        cursorShape={pane.cursorShape}
-        paneId={pane.tmuxId}
-      />
+      <TerminalPane paneId={pane.tmuxId} chrome="none" isActive={focused} />
     </div>
   );
 }

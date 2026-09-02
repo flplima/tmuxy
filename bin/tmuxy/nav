@@ -34,7 +34,7 @@ nav_prev() {
 
 nav_vertical() {
   local tmux_dir="$1"
-  _tmux selectp "$tmux_dir"
+  _tmux selectp "$tmux_dir" -t "$PANE_ID"
   refresh_panes
 }
 
@@ -43,9 +43,12 @@ nav_horizontal() {
   local edge_dir="$2"   # "right" or "left"
 
   # Step 0: already inside a sidebar column — the only way out is back to the
-  # panes, and only when heading away from that column's edge.
+  # panes, and only when heading away from that column's edge. The CALLER's
+  # pane decides this, not the session's current pane: run from the dock's
+  # shell, `display-message` with no target names the tab's active pane, and
+  # the branch below would never match.
   local current_type
-  current_type=$(window_type "$(active_window)")
+  current_type=$(window_type "$(pane_window "$PANE_ID")")
   case "$current_type" in
     sidebar-left)  [ "$edge_dir" = "right" ] && request_focus panes; return ;;
     sidebar-right) [ "$edge_dir" = "left" ]  && request_focus panes; return ;;
@@ -82,18 +85,22 @@ nav_horizontal() {
     fi
   fi
 
-  # Step 2: Try tmux directional select (no tab fallback)
-  local before after
-  before=$(_tmux display-message -p '#{pane_id}')
-  _tmux selectp "$tmux_dir" 2>/dev/null || true
-  after=$(_tmux display-message -p '#{pane_id}')
-  refresh_panes
-
-  # Step 3: the select was a no-op, so the pane is at that edge of the grid. If
-  # a sidebar is docked there, that is the next thing along.
-  if [ "$before" = "$after" ] && [ -n "$(sidebar_window "$edge_dir")" ]; then
-    request_focus "$edge_dir"
+  # Step 2: at the grid's edge already? tmux says so directly. (Comparing the
+  # active pane before/after a `select-pane -L/-R` does not work: at the edge
+  # tmux WRAPS to the opposite side rather than doing nothing.) If a sidebar is
+  # docked on that edge, it is the next thing along; otherwise stay put.
+  local at_edge
+  at_edge=$(_tmux display-message -t "$PANE_ID" -p "#{pane_at_$edge_dir}")
+  if [ "$at_edge" = "1" ]; then
+    if [ -n "$(sidebar_window "$edge_dir")" ]; then
+      request_focus "$edge_dir"
+    fi
+    return
   fi
+
+  # Step 3: a neighbour exists in that direction — move to it.
+  _tmux selectp "$tmux_dir" -t "$PANE_ID" 2>/dev/null || true
+  refresh_panes
 }
 
 case "$DIR" in

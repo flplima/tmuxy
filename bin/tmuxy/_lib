@@ -79,6 +79,20 @@ sidebar_window() {
 request_focus() {
   _tmux set-option -t "$(_tmux display-message -p '#{session_name}')" \
     @tmuxy-focus-request "$1" 2>/dev/null || true
+  # tmux emits no control-mode notification for a user option, so left alone
+  # the request would sit until the backend's next window event or idle
+  # heartbeat (15 s). Poke a window event out of tmux instead: renaming a
+  # sidebar's chrome window to the name it already has emits %window-renamed
+  # and nothing else — chrome windows are not tabs, so no label changes and
+  # automatic-rename was never on for them. The backend re-lists windows on
+  # the event and the client sees the request within a round trip.
+  local target_side="$1" poke_win
+  [ "$target_side" = "panes" ] && target_side="left"
+  poke_win=$(sidebar_window "$target_side")
+  [ -n "$poke_win" ] || poke_win=$(sidebar_window right)
+  if [ -n "$poke_win" ]; then
+    _run_safe "rename-window -t $poke_win __sidebar-$(window_type "$poke_win" | sed 's/^sidebar-//')"
+  fi
 }
 
 # Ensure the stash session exists, creating it detached if needed.

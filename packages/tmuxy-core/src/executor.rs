@@ -49,6 +49,8 @@ pub struct WindowInfo {
     pub float_parent: String,
     /// `@tmuxy-sidebar-cols` — a sidebar column's dragged width, if set.
     pub sidebar_cols: Option<u32>,
+    /// `@tmuxy-sidebar-hidden` — the user has closed this sidebar column.
+    pub sidebar_hidden: bool,
 }
 
 pub fn execute_tmux_command(args: &[&str]) -> Result<String> {
@@ -347,14 +349,14 @@ pub fn get_windows(session_name: &str) -> Result<Vec<WindowInfo>> {
         "-t",
         session_name,
         "-F",
-        "#{window_id},#{window_index},#{window_active},#{window_zoomed_flag},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-sidebar-cols},#{window_name}",
+        "#{window_id},#{window_index},#{window_active},#{window_zoomed_flag},#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-sidebar-cols},#{@tmuxy-sidebar-hidden},#{window_name}",
     ])?;
 
     let mut windows = Vec::new();
 
     for line in output.lines() {
-        let parts: Vec<&str> = line.splitn(8, ',').collect();
-        if parts.len() < 8 {
+        let parts: Vec<&str> = line.splitn(9, ',').collect();
+        if parts.len() < 9 {
             continue;
         }
 
@@ -366,7 +368,8 @@ pub fn get_windows(session_name: &str) -> Result<Vec<WindowInfo>> {
             window_type: parts[4].trim().to_string(),
             float_parent: parts[5].trim().to_string(),
             sidebar_cols: parts[6].trim().parse::<u32>().ok(),
-            name: parts[7].to_string(),
+            sidebar_hidden: parts[7].trim() == "1",
+            name: parts[8].to_string(),
         });
     }
 

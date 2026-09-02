@@ -64,6 +64,7 @@ export const FIELD_OWNERS = {
   cellGap: 'parent',
   containerWidth: 'parent',
   containerHeight: 'parent',
+  bodyWidth: 'parent',
   sessions: 'parent',
 
   // ---- layout ----
@@ -93,6 +94,11 @@ export const FIELD_OWNERS = {
   leftSidebarFocused: 'groupsAndFloats',
   rightSidebarOpen: 'groupsAndFloats',
   rightSidebarFocused: 'groupsAndFloats',
+  leftSidebarStartFailed: 'groupsAndFloats',
+  rightSidebarStartFailed: 'groupsAndFloats',
+  leftSidebarStarting: 'groupsAndFloats',
+  rightSidebarStarting: 'groupsAndFloats',
+  sidebarColsPreview: 'groupsAndFloats',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -143,6 +149,7 @@ export function createInitialContext(): AppMachineContext {
     statusLine: '',
     containerWidth: 0,
     containerHeight: 0,
+    bodyWidth: 0,
     sessions: [],
     floatPanes: {},
     focusedFloatPaneId: null,
@@ -150,6 +157,11 @@ export function createInitialContext(): AppMachineContext {
     leftSidebarFocused: false,
     rightSidebarOpen: false,
     rightSidebarFocused: false,
+    leftSidebarStartFailed: false,
+    rightSidebarStartFailed: false,
+    leftSidebarStarting: false,
+    rightSidebarStarting: false,
+    sidebarColsPreview: null,
     enableAnimations: false,
     keybindings: null,
     copyModeStates: {},

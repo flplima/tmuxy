@@ -139,3 +139,29 @@ describe('applyDelta - content preservation', () => {
     expect(result.panes[0].content[0]).toEqual(newLine);
   });
 });
+
+describe('handleStateUpdate — malformed updates', () => {
+  // A state update the client cannot digest must never throw out of the state
+  // pipeline: that exception used to unmount the whole app and leave a blank
+  // page (seen after a float window appeared and vanished within one poll).
+  test('keeps the current state when a full update carries no state', () => {
+    const current = makeState();
+    const update = { type: 'full' } as unknown as StateUpdate;
+    expect(handleStateUpdate(update, current)).toBe(current);
+  });
+
+  test('keeps the current state when a delta update carries no delta', () => {
+    const current = makeState();
+    const update = { type: 'delta' } as unknown as StateUpdate;
+    expect(handleStateUpdate(update, current)).toBe(current);
+  });
+
+  test('keeps the current state when a full update has no pane or window arrays', () => {
+    const current = makeState();
+    const update = {
+      type: 'full',
+      state: { session_name: 'test' },
+    } as unknown as StateUpdate;
+    expect(handleStateUpdate(update, current)).toBe(current);
+  });
+});

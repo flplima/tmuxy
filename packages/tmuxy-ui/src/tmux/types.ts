@@ -97,6 +97,13 @@ export interface TmuxWindow {
    * equivalent to null — the side's default.
    */
   sidebarCols?: number | null;
+  /**
+   * True while the user has closed this sidebar column (@tmuxy-sidebar-hidden).
+   * The pane behind it stays alive, so the window existing no longer means the
+   * column is shown; every client reads the flag, so a close made in one client
+   * or before a reload holds everywhere. Absent is equivalent to false.
+   */
+  sidebarHidden?: boolean;
   /** True while a pane in this window is zoomed (tmux hides the others).
    *  Absent is equivalent to false. */
   zoomed?: boolean;
@@ -221,6 +228,7 @@ export interface ServerWindow {
   float_bg?: string | null;
   float_noheader?: boolean;
   sidebar_cols?: number | null;
+  sidebar_hidden?: boolean;
   zoomed?: boolean;
 }
 
@@ -288,6 +296,7 @@ export interface WindowDelta {
   float_bg?: string | null;
   float_noheader?: boolean;
   sidebar_cols?: number | null;
+  sidebar_hidden?: boolean;
   zoomed?: boolean;
 }
 

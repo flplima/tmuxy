@@ -22,6 +22,10 @@ export const groupsAndFloatsGlobalEvents = {
   OPEN_SESSION_FLOAT: { actions: 'groupsAndFloats_openSessionFloat' },
   OPEN_CONNECT_FLOAT: { actions: 'groupsAndFloats_openConnectFloat' },
   TOGGLE_LEFT_SIDEBAR: { actions: 'groupsAndFloats_toggleLeftSidebar' },
+  SIDEBAR_START_TIMEOUT: { actions: 'groupsAndFloats_sidebarStartTimeout' },
+  SIDEBAR_RESIZE_PREVIEW: { actions: 'groupsAndFloats_sidebarResizePreview' },
+  SIDEBAR_RESIZE_COMMIT: { actions: 'groupsAndFloats_sidebarResizeCommit' },
+  SIDEBAR_PREVIEW_EXPIRE: { actions: 'groupsAndFloats_sidebarPreviewExpire' },
 } as const;
 
 export const groupsAndFloatsIdleEvents = {

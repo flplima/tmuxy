@@ -16,15 +16,18 @@
  *  - click a tab → `SELECT_TAB`; click a pane → `select-pane` (tmux switches to
  *    the pane's window too).
  *  - when the sidebar is focused, j/k/↑/↓ move the selection, Enter activates it,
- *    Escape blurs — driven by a capture-phase key listener so the keys never
- *    reach the pane/tmux (the keyboard actor also skips forwarding while focused).
+ *    l/→ hand the keyboard back to the panes and q closes the column — driven by
+ *    a capture-phase key listener so the keys never reach the pane/tmux (the
+ *    keyboard actor also skips forwarding while focused). Escape is deliberately
+ *    NOT a tree key: a sidebar pane may run a program that needs it, so no
+ *    sidebar ever claims Escape for itself.
  *  - drag a pane node onto a different tab → `join-pane` moves the pane into that
  *    tab (optimistically, via the store).
  *  - right-click a pane or tab row → the same context menu the pane header /
  *    window tabs show (PaneContextMenu / TabContextMenu).
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   useAppSend,
   useAppSelector,
@@ -50,7 +53,10 @@ import type { TmuxPane, TmuxWindow } from '../machines/types';
  */
 type Row =
   | { kind: 'session'; name: string; active: boolean }
-  | { kind: 'tab'; window: TmuxWindow }
+  /** `position` is the tab's 1-based place in the strip — the number the tab
+   *  strip shows. tmux's own window index has gaps where chrome windows sit,
+   *  and printing it here made the two disagree. */
+  | { kind: 'tab'; window: TmuxWindow; position: number }
   | { kind: 'pane'; pane: TmuxPane; window: TmuxWindow; last: boolean }
   | { kind: 'foreign-tab'; sessionName: string; windowId: string; index: number; name: string }
   | {
@@ -75,6 +81,27 @@ type MenuState =
   | { kind: 'pane'; paneId: string; x: number; y: number }
   | { kind: 'tab'; windowIndex: number; x: number; y: number }
   | null;
+
+/** DOM id for a row, so the tree can point `aria-activedescendant` at it. */
+const rowDomId = (key: string) => `tree-row-${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+
+/** Nesting depth for `aria-level`: sessions 1, tabs 2, panes 3 (tabs 1 / panes 2 when there is one session). */
+function rowLevel(r: Row, grouped: boolean): number {
+  const base = grouped ? 1 : 0;
+  switch (r.kind) {
+    case 'session':
+      return 1;
+    case 'tab':
+    case 'foreign-tab':
+      return base + 1;
+    case 'pane':
+    case 'foreign-pane':
+      return base + 2;
+  }
+}
+
+/** Optimistic placeholder panes have no identity worth a row; they resolve within a round trip. */
+const isPlaceholderPane = (p: TmuxPane) => p.tmuxId.startsWith('__placeholder_');
 
 /** Stable identity per row, used to preserve the keyboard cursor across refreshes. */
 function rowKey(r: Row): string {
@@ -129,13 +156,13 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     // The active session's live subtree (index-ordered tabs, each's panes).
     const liveRows = (): Row[] => {
       const out: Row[] = [];
-      for (const window of windows) {
-        out.push({ kind: 'tab', window });
-        const windowPanes = panes.filter((p) => p.windowId === window.id);
+      windows.forEach((window, i) => {
+        out.push({ kind: 'tab', window, position: i + 1 });
+        const windowPanes = panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p));
         windowPanes.forEach((pane, i) => {
           out.push({ kind: 'pane', pane, window, last: i === windowPanes.length - 1 });
         });
-      }
+      });
       return out;
     };
 
@@ -148,12 +175,12 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       if (isActive) {
         out.push(...liveRows());
       } else {
-        for (const w of s.windows) {
+        s.windows.forEach((w, i) => {
           out.push({
             kind: 'foreign-tab',
             sessionName: s.sessionName,
             windowId: w.id,
-            index: w.index,
+            index: i + 1,
             name: w.name,
           });
           const sessionPanes = s.panes.filter((p) => p.windowId === w.id);
@@ -167,7 +194,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               last: i === sessionPanes.length - 1,
             });
           });
-        }
+        });
       }
     }
     return out;
@@ -190,8 +217,14 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           send({ type: 'SELECT_TAB', windowId: row.window.id, windowIndex: row.window.index });
           return;
         case 'pane':
-          // select-pane targets a pane in any window and switches to it.
-          send({ type: 'SEND_TMUX_COMMAND', command: `select-pane -t ${row.pane.tmuxId}` });
+          // `select-pane` only changes which pane is active WITHIN its window;
+          // it never switches the session's current window. So a pane in another
+          // tab is reached by switching the tab first, then focusing the pane
+          // through the same optimistic path a click on it takes.
+          if (row.window.id !== activeWindowId) {
+            send({ type: 'SELECT_TAB', windowId: row.window.id, windowIndex: row.window.index });
+          }
+          send({ type: 'FOCUS_PANE', paneId: row.pane.tmuxId });
           return;
         case 'session':
           if (!row.active) send({ type: 'SWITCH_SESSION', sessionName: row.name });
@@ -205,7 +238,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           return;
       }
     },
-    [send],
+    [send, activeWindowId],
   );
 
   // Move a pane into another tab: join-pane splits that window's active pane and
@@ -229,11 +262,24 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     if (!focused) return;
     const handler = (e: KeyboardEvent) => {
       const { rows: rs, selectedIndex: idx, activate: act, send: s } = stateRef.current;
+      // A context menu opened from a row takes Escape first.
+      if (menuOpenRef.current && e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setMenu(null);
+        return;
+      }
       const move = (delta: number) => {
         const next = Math.max(0, Math.min(rs.length - 1, idx + delta));
         if (rs[next]) setSelectedKey(rowKey(rs[next]));
       };
       switch (e.key) {
+        case 'Tab':
+          // The tree owns the keyboard; letting Tab move the browser's focus to
+          // a header button meant the next Space "clicked" that button.
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
         case 'j':
         case 'ArrowDown':
           e.preventDefault();
@@ -251,10 +297,13 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           e.stopImmediatePropagation();
           if (rs[idx]) act(rs[idx]);
           return;
-        case 'Escape':
+        case 'q':
+          // Close the column from inside it. This is the tree's own command,
+          // not a global key: a program pinned in the other sidebar may need
+          // every key it gets, Escape included.
           e.preventDefault();
           e.stopImmediatePropagation();
-          s({ type: 'BLUR_LEFT_SIDEBAR' });
+          s({ type: 'TOGGLE_LEFT_SIDEBAR' });
           return;
         case 'l':
         case 'ArrowRight':
@@ -296,12 +345,38 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // Right-click context menu (pane or tab), anchored at the cursor.
   const [menu, setMenu] = useState<MenuState>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const menuOpenRef = useRef(false);
+  menuOpenRef.current = menu !== null;
+
+  // Opening a row's menu also gives the column the keyboard, so Escape (and the
+  // menu's own keys) go to the menu rather than to the pane behind the column.
+  const openMenu = useCallback(
+    (state: Exclude<MenuState, null>) => {
+      setMenu(state);
+      send({ type: 'FOCUS_LEFT_SIDEBAR' });
+    },
+    [send],
+  );
+
+  // Keep the keyboard cursor in view: a long tree scrolls inside the column,
+  // and j/k past the fold used to leave the selection out of sight.
+  const treeRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!focused) return;
+    treeRef.current
+      ?.querySelector('.is-selected')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [focused, selectedIndex]);
 
   return (
     <div
+      ref={treeRef}
       className="sidebar-tree"
       role="tree"
       aria-label="Tabs and panes"
+      aria-activedescendant={
+        focused && rows[selectedIndex] ? rowDomId(rowKey(rows[selectedIndex])) : undefined
+      }
       data-testid="sidebar-tree"
       data-focused={focused}
     >
@@ -317,6 +392,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             <div
               key={`s${key}`}
               role="treeitem"
+              id={rowDomId(key)}
+              aria-level={rowLevel(row, grouped)}
+              tabIndex={isSelected ? 0 : -1}
               aria-selected={isSelected}
               className={`sidebar-tree-session${row.active ? ' is-active' : ''}${
                 isSelected ? ' is-selected' : ''
@@ -339,6 +417,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             <div
               key={`ft${key}`}
               role="treeitem"
+              id={rowDomId(key)}
+              aria-level={rowLevel(row, grouped)}
+              tabIndex={isSelected ? 0 : -1}
               aria-selected={isSelected}
               className={`sidebar-tree-tab is-foreign${isSelected ? ' is-selected' : ''}`}
               style={indentStyle}
@@ -357,6 +438,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             <div
               key={`fp${key}`}
               role="treeitem"
+              id={rowDomId(key)}
+              aria-level={rowLevel(row, grouped)}
+              tabIndex={isSelected ? 0 : -1}
               aria-selected={isSelected}
               className={`sidebar-tree-pane is-foreign${isSelected ? ' is-selected' : ''}`}
               style={indentStyle}
@@ -380,6 +464,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             <div
               key={`w${key}`}
               role="treeitem"
+              id={rowDomId(key)}
+              aria-level={rowLevel(row, grouped)}
+              tabIndex={isSelected ? 0 : -1}
               aria-selected={isSelected}
               className={`sidebar-tree-tab${isActive ? ' is-active' : ''}${
                 isSelected ? ' is-selected' : ''
@@ -391,7 +478,12 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                setMenu({ kind: 'tab', windowIndex: row.window.index, x: e.clientX, y: e.clientY });
+                openMenu({
+                  kind: 'tab',
+                  windowIndex: row.window.index,
+                  x: e.clientX,
+                  y: e.clientY,
+                });
               }}
               onDragOver={(e) => {
                 if (dragPaneId) {
@@ -409,7 +501,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               }}
             >
               <span className="sidebar-tree-label">
-                {row.window.index}:{row.window.name || `Tab ${row.window.index}`}
+                {row.position}:{row.window.name || `Tab ${row.position}`}
               </span>
             </div>
           );
@@ -420,6 +512,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           <div
             key={`p${key}`}
             role="treeitem"
+            id={rowDomId(key)}
+            aria-level={rowLevel(row, grouped)}
+            tabIndex={isSelected ? 0 : -1}
             aria-selected={isSelected}
             className={`sidebar-tree-pane${isActive ? ' is-active' : ''}${
               isSelected ? ' is-selected' : ''
@@ -432,7 +527,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setMenu({ kind: 'pane', paneId: row.pane.tmuxId, x: e.clientX, y: e.clientY });
+              openMenu({ kind: 'pane', paneId: row.pane.tmuxId, x: e.clientX, y: e.clientY });
             }}
             onDragStart={(e) => {
               e.dataTransfer.setData('text/tmuxy-pane', row.pane.tmuxId);
@@ -465,6 +560,16 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           </div>
         );
       })}
+      {/* The tree's commands, shown only while it has the keyboard — an idle
+          column listing keys it doesn't currently take would be noise. */}
+      {focused && (
+        <div className="sidebar-tree-hint" aria-hidden="true">
+          <span>j/k move</span>
+          <span>⏎ open</span>
+          <span>l back</span>
+          <span>q close</span>
+        </div>
+      )}
       {menu?.kind === 'pane' && (
         <PaneContextMenu paneId={menu.paneId} x={menu.x} y={menu.y} onClose={closeMenu} />
       )}

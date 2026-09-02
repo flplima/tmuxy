@@ -712,11 +712,15 @@ cmd_nav() {
   local dir="${1:-}"
 
   case "$dir" in
-    left|right|up|down|next)
-      exec tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" run-shell "bash '$SCRIPTS_DIR/nav' $dir #{pane_id}"
-      ;;
-    prev)
-      exec tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" run-shell "bash '$SCRIPTS_DIR/nav' prev #{pane_id}"
+    # The calling pane is $TMUX_PANE. run-shell's own `#{pane_id}` expands to
+    # the session's current pane, which is a different pane when this runs
+    # from inside a sidebar column — the nav script needs to know it is there.
+    # (Resolved in two steps: `${TMUX_PANE:-#{pane_id}}` would let bash close
+    # the expansion at the `}` inside the tmux format.)
+    left|right|up|down|next|prev)
+      local pane_arg="${TMUX_PANE:-}"
+      [ -n "$pane_arg" ] || pane_arg='#{pane_id}'
+      exec tmux "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" run-shell "bash '$SCRIPTS_DIR/nav' $dir $pane_arg"
       ;;
     --help|-h)
       usage_nav

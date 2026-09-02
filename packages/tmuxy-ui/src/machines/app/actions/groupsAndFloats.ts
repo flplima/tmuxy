@@ -46,11 +46,21 @@ function freeWindowIndex(windows: TmuxWindow[]): number {
  * sidebars are chrome windows of exactly that shape, differing only in the type
  * they are tagged with and the width the backend then sizes them to.
  *
+ * A float names the new window's INDEX up front (see `freeWindowIndex`). A
+ * sidebar is targeted by its NAME instead: its name is fixed and unique
+ * (`__sidebar-left` / `__sidebar-right`, which the backend also recognises as
+ * a defensive re-tag), so the list never depends on the client's copy of the
+ * window indices. Those go stale for a beat after any window closes
+ * (`renumber-windows` shifts the rest and `%window-close` carries no indices),
+ * and a guessed index that tmux already uses made `break-pane` fail AFTER
+ * `split-window` had run — leaving a raw `tmuxy widget tree` pane in the tab
+ * and the column stuck on "starting…".
+ *
  * An empty `command` leaves `split-window` to start the default shell in the
  * current pane's directory, which is what makes a sidebar shell open like any
  * freshly split pane.
  */
-function breakOutTaggedWindow(
+export function breakOutTaggedWindow(
   windows: TmuxWindow[],
   {
     command = '',
@@ -64,15 +74,25 @@ function breakOutTaggedWindow(
     extraOptions?: Array<[string, string]>;
   },
 ): string {
-  const index = freeWindowIndex(windows);
+  const byName = windowType !== 'float';
+  const target = byName ? `:${name}` : `:${freeWindowIndex(windows)}`;
   const parts = [
     `split-window ${command}`.trimEnd(),
-    `break-pane -d -n ${name} -t :${index}`,
-    `set-option -w -t :${index} @tmuxy-window-type ${windowType}`,
-    ...extraOptions.map(([key, value]) => `set-option -w -t :${index} ${key} ${value}`),
+    byName ? `break-pane -d -n ${name}` : `break-pane -d -n ${name} -t ${target}`,
+    `set-option -w -t ${target} @tmuxy-window-type ${windowType}`,
+    ...extraOptions.map(([key, value]) => `set-option -w -t ${target} ${key} ${value}`),
   ];
   return parts.join(' \\; ');
 }
+
+/** The fixed window name of a sidebar column (see `breakOutTaggedWindow`). */
+export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-right' } as const;
+
+/** How long a sidebar may sit on "starting…" before the column reports a failure. */
+export const SIDEBAR_START_TIMEOUT_MS = 4000;
+
+/** Safety net: drop a resize preview the server never confirmed. */
+const SIDEBAR_PREVIEW_TIMEOUT_MS = 5000;
 
 export const groupsAndFloatsActions = {
   groupsAndFloats_openSessionFloat: enqueueActions<
@@ -197,9 +217,10 @@ export const groupsAndFloatsActions = {
    * give the column a pane identity — something `ctrl+hjkl` can navigate into,
    * the backend can size, and the keyboard can be routed to.
    *
-   * Closing hides the column and kills the pane: unlike the right column there
-   * is nothing running in it worth preserving, and a stale tree pane would keep
-   * a window in the session for no reason.
+   * Closing HIDES the column: `@tmuxy-sidebar-hidden` goes on its window and
+   * the pane stays, exactly like the dock. Both columns therefore close the same
+   * way, the choice survives a reload, and every other client sees it — a
+   * column that reappeared on every reload was one of the QA findings.
    */
   groupsAndFloats_toggleLeftSidebar: enqueueActions<
     Ctx,
@@ -213,7 +234,7 @@ export const groupsAndFloatsActions = {
     never
   >(({ context, enqueue }) => {
     const willOpen = !context.leftSidebarOpen;
-    enqueue(assign({ leftSidebarOpen: willOpen }));
+    enqueue(assign({ leftSidebarOpen: willOpen, leftSidebarStartFailed: false }));
 
     if (willOpen) {
       // The sessions poll idles while the column is closed — kick an immediate
@@ -221,6 +242,12 @@ export const groupsAndFloatsActions = {
       enqueue(sendTo('servers', { type: 'REFRESH_SESSIONS' as const }));
       const pane = selectLeftSidebarPane(context);
       if (pane) {
+        enqueue(
+          sendTo('tmux', {
+            type: 'SEND_COMMAND' as const,
+            command: `set-option -u -w -t ${pane.windowId} @tmuxy-sidebar-hidden`,
+          }),
+        );
         // Showing it again also hands it the keyboard. Routed through the focus
         // action so the OTHER column is blurred — only one surface at a time.
         enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' as const });
@@ -230,10 +257,17 @@ export const groupsAndFloatsActions = {
             type: 'SEND_COMMAND' as const,
             command: breakOutTaggedWindow(context.windows, {
               command: "'tmuxy widget tree'",
-              name: 'tree',
+              name: SIDEBAR_WINDOW_NAME.left,
               windowType: 'sidebar-left',
             }),
           }),
+        );
+        // If the pane never shows up (the command failed on this server), the
+        // column says so instead of sitting on "starting…" forever.
+        enqueue(assign({ leftSidebarStarting: true }));
+        enqueue.raise(
+          { type: 'SIDEBAR_START_TIMEOUT' as const, side: 'left' as const },
+          { delay: SIDEBAR_START_TIMEOUT_MS },
         );
       }
       return;
@@ -242,7 +276,10 @@ export const groupsAndFloatsActions = {
     const pane = selectLeftSidebarPane(context);
     if (pane) {
       enqueue(
-        sendTo('tmux', { type: 'SEND_COMMAND' as const, command: `kill-pane -t ${pane.tmuxId}` }),
+        sendTo('tmux', {
+          type: 'SEND_COMMAND' as const,
+          command: `set-option -w -t ${pane.windowId} @tmuxy-sidebar-hidden 1`,
+        }),
       );
     }
     if (context.leftSidebarFocused) {
@@ -254,7 +291,7 @@ export const groupsAndFloatsActions = {
   /**
    * Give the tree column keyboard focus (via Ctrl+h from the leftmost pane, a
    * click, or a `tmuxy nav left` focus request). Subsequent keys drive the tree
-   * widget (j/k/Enter/Escape) via its capture-phase listener; the keyboard actor
+   * widget (j/k/Enter/l/q) via its capture-phase listener; the keyboard actor
    * stops forwarding to tmux.
    */
   groupsAndFloats_focusLeftSidebar: enqueueActions<
@@ -289,7 +326,7 @@ export const groupsAndFloatsActions = {
     }
   }),
 
-  /** Return keyboard focus from the sidebar back to the panes (Ctrl+l / Esc). */
+  /** Return keyboard focus from the sidebar back to the panes (Ctrl+l, or l/→ in the tree). */
   groupsAndFloats_blurLeftSidebar: enqueueActions<
     Ctx,
     Evt,
@@ -330,11 +367,17 @@ export const groupsAndFloatsActions = {
     never
   >(({ context, enqueue }) => {
     const willOpen = !context.rightSidebarOpen;
-    enqueue(assign({ rightSidebarOpen: willOpen }));
+    enqueue(assign({ rightSidebarOpen: willOpen, rightSidebarStartFailed: false }));
 
     if (willOpen) {
       const pane = selectRightSidebarPane(context);
       if (pane) {
+        enqueue(
+          sendTo('tmux', {
+            type: 'SEND_COMMAND' as const,
+            command: `set-option -u -w -t ${pane.windowId} @tmuxy-sidebar-hidden`,
+          }),
+        );
         // Already running — showing it again also hands it the keyboard, so the
         // user can type into what they just asked to see. Routed through the
         // focus action so the OTHER column is blurred.
@@ -347,18 +390,137 @@ export const groupsAndFloatsActions = {
             // directory. Focus follows once the pane actually exists (see
             // appMachine's sidebar lifecycle reconciliation).
             command: breakOutTaggedWindow(context.windows, {
-              name: 'terminal',
+              name: SIDEBAR_WINDOW_NAME.right,
               windowType: 'sidebar-right',
             }),
           }),
+        );
+        enqueue(assign({ rightSidebarStarting: true }));
+        enqueue.raise(
+          { type: 'SIDEBAR_START_TIMEOUT' as const, side: 'right' as const },
+          { delay: SIDEBAR_START_TIMEOUT_MS },
         );
       }
       return;
     }
 
+    // Hiding keeps the shell: the option is what makes the close stick across
+    // reloads and clients, where the window's mere existence used to reopen it.
+    const pane = selectRightSidebarPane(context);
+    if (pane) {
+      enqueue(
+        sendTo('tmux', {
+          type: 'SEND_COMMAND' as const,
+          command: `set-option -w -t ${pane.windowId} @tmuxy-sidebar-hidden 1`,
+        }),
+      );
+    }
     if (context.rightSidebarFocused) {
       enqueue(assign({ rightSidebarFocused: false }));
       enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
+    }
+  }),
+
+  /**
+   * A sidebar was asked to open a while ago and its pane still isn't there:
+   * the create command failed on this server (a missing `tmuxy` CLI, a script
+   * error). Flip the column into its failure state so the user learns why
+   * rather than staring at "starting…".
+   */
+  groupsAndFloats_sidebarStartTimeout: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ context, event, enqueue }) => {
+    if (event.type !== 'SIDEBAR_START_TIMEOUT') return;
+    if (event.side === 'left') {
+      enqueue(assign({ leftSidebarStarting: false }));
+      if (context.leftSidebarOpen && !selectLeftSidebarPane(context)) {
+        enqueue(assign({ leftSidebarStartFailed: true }));
+      }
+    } else {
+      enqueue(assign({ rightSidebarStarting: false }));
+      if (context.rightSidebarOpen && !selectRightSidebarPane(context)) {
+        enqueue(assign({ rightSidebarStartFailed: true }));
+      }
+    }
+  }),
+
+  /** Draw a sidebar column at the width under the pointer while its divider is dragged. */
+  groupsAndFloats_sidebarResizePreview: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ event, enqueue }) => {
+    if (event.type !== 'SIDEBAR_RESIZE_PREVIEW') return;
+    enqueue(assign({ sidebarColsPreview: { side: event.side, cols: event.cols } }));
+  }),
+
+  /**
+   * The drag ended: write the width to the column's window so the backend
+   * resizes the pane to match and every client (and the next reload) draws the
+   * column there. The preview stays up until the server echoes the width back,
+   * so the column never snaps to the old size while the round trip is in
+   * flight; a safety timer drops it if the write was rejected.
+   */
+  groupsAndFloats_sidebarResizeCommit: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ context, event, enqueue }) => {
+    if (event.type !== 'SIDEBAR_RESIZE_COMMIT') return;
+    const pane =
+      event.side === 'left' ? selectLeftSidebarPane(context) : selectRightSidebarPane(context);
+    if (!pane) return;
+    enqueue(assign({ sidebarColsPreview: { side: event.side, cols: event.cols } }));
+    enqueue(
+      sendTo('tmux', {
+        type: 'SEND_COMMAND' as const,
+        command:
+          event.cols === null
+            ? `set-option -u -w -t ${pane.windowId} @tmuxy-sidebar-cols`
+            : `set-option -w -t ${pane.windowId} @tmuxy-sidebar-cols ${event.cols}`,
+      }),
+    );
+    enqueue.raise(
+      { type: 'SIDEBAR_PREVIEW_EXPIRE' as const, side: event.side },
+      { delay: SIDEBAR_PREVIEW_TIMEOUT_MS, id: `sidebar-preview-timeout-${event.side}` },
+    );
+  }),
+
+  /** The server never echoed a committed width: stop drawing the preview and show what it has. */
+  groupsAndFloats_sidebarPreviewExpire: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ context, event, enqueue }) => {
+    if (event.type !== 'SIDEBAR_PREVIEW_EXPIRE') return;
+    if (context.sidebarColsPreview?.side === event.side) {
+      enqueue(assign({ sidebarColsPreview: null }));
     }
   }),
 
@@ -396,7 +558,7 @@ export const groupsAndFloatsActions = {
     }
   }),
 
-  /** Return keyboard focus from the dock to the panes (Ctrl+h / Esc). */
+  /** Return keyboard focus from the dock to the panes (Ctrl+h, or a click on a pane). */
   groupsAndFloats_blurRightSidebar: enqueueActions<
     Ctx,
     Evt,

@@ -46,6 +46,13 @@ pub mod tmux_options {
     /// `RIGHT_COLS`).
     pub const SIDEBAR_COLS: &str = "@tmuxy-sidebar-cols";
 
+    /// Window-scoped flag on a sidebar column the user has closed: `1` while
+    /// hidden, unset while shown. Closing a column keeps its pane alive (the
+    /// dock's shell, the tree's widget), so the window's existence alone can
+    /// no longer mean "open" — without this a hidden column came back on every
+    /// reload and in every other client.
+    pub const SIDEBAR_HIDDEN: &str = "@tmuxy-sidebar-hidden";
+
     /// Session-scoped one-shot request from a shell helper to move the client's
     /// keyboard focus somewhere the helper cannot reach itself: `left` or
     /// `right` for the matching sidebar column, `panes` to leave one.
@@ -161,7 +168,7 @@ pub mod tmux_formats {
         "#{window_id},#{window_index},#{window_active},#{@tmuxy-window-type},",
         "#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},",
         "#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},",
-        "#{@tmuxy-focus-request},#{@tmuxy-sidebar-cols},",
+        "#{@tmuxy-focus-request},#{@tmuxy-sidebar-cols},#{@tmuxy-sidebar-hidden},",
         "#{window_zoomed_flag},#{window_name}'",
     );
 

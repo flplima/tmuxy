@@ -9,8 +9,9 @@
  * Because the pane lives in its own window rather than the active one, it stays
  * on screen across every tab — which is the point: a terminal or TUI you pin
  * once and keep reachable from anywhere in the session. Closing the column only
- * HIDES it; the shell is killed by exiting it, which the sidebar lifecycle in
- * appMachine then retracts the column for.
+ * HIDES it (`@tmuxy-sidebar-hidden` on its window, so the choice holds across
+ * reloads and clients); the shell is killed by exiting it, which the sidebar
+ * lifecycle in appMachine then retracts the column for.
  *
  * Keys reach it through the same overlay mechanism a focused float uses (the
  * keyboardActor's `overlayPaneId`) — never `select-pane`, which would switch the
@@ -40,6 +41,7 @@ function RightSidebarInner() {
   const send = useAppSend();
   const { rightOpen, overlay, rightWidth } = useAppSelector(selectSidebarLayout);
   const focused = useAppSelector((ctx) => ctx.rightSidebarFocused);
+  const startFailed = useAppSelector((ctx) => ctx.rightSidebarStartFailed);
   const pane = useAppSelector(selectRightSidebarPane);
 
   const handleFocus = useCallback(() => send({ type: 'FOCUS_RIGHT_SIDEBAR' }), [send]);
@@ -54,6 +56,7 @@ function RightSidebarInner() {
       overlay={overlay}
       focused={focused}
       pane={pane}
+      startFailed={startFailed}
       title={pane ? getTabText(pane) : 'shell'}
       onFocus={handleFocus}
       onClose={handleClose}

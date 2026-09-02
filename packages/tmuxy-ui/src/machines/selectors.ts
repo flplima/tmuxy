@@ -8,6 +8,7 @@ import type {
   TraceSettings,
 } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
+import { CONTAINER_PADDING_X } from '../constants';
 import {
   DEFAULT_CHAR_WIDTH,
   LEFT_SIDEBAR_COLS,
@@ -281,8 +282,10 @@ export const selectSidebarLayout = createMemoizedSelector(
       ctx.leftSidebarOpen,
       ctx.rightSidebarOpen,
       ctx.containerWidth,
+      ctx.bodyWidth,
       ctx.charWidth,
       ctx.windows,
+      ctx.sidebarColsPreview,
     ] as const,
   (
     context: AppMachineContext,
@@ -297,19 +300,30 @@ export const selectSidebarLayout = createMemoizedSelector(
     const charWidth = context.charWidth || DEFAULT_CHAR_WIDTH;
     // A column the user has dragged carries its width on its own window, so the
     // rendered column and the pane the backend sized agree — and so the width
-    // survives a reload and reaches every other client.
-    const draggedCols = (side: 'left' | 'right') =>
-      context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarCols ?? null;
+    // survives a reload and reaches every other client. While the divider is
+    // being dragged the preview wins, so the column follows the pointer without
+    // waiting for the round trip.
+    const draggedCols = (side: 'left' | 'right') => {
+      const preview = context.sidebarColsPreview;
+      if (preview && preview.side === side) return preview.cols;
+      return context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarCols ?? null;
+    };
     const leftWidth = (draggedCols('left') ?? LEFT_SIDEBAR_COLS) * charWidth;
     const rightWidth = (draggedCols('right') ?? RIGHT_SIDEBAR_COLS) * charWidth;
     const { leftSidebarOpen: leftOpen } = context;
     let { rightSidebarOpen: rightOpen } = context;
 
-    // Width of the app body: the pane container plus every column docked beside
-    // it. An overlaying column takes none, so it is already included.
+    // Decide from the app body's width, which does not depend on the decision.
+    // (The pane container's width does: docked columns shrink it, an overlaying
+    // one doesn't — deciding from it flipped between the two on every layout
+    // pass.) Before the body has been measured, reconstruct it from the
+    // container plus whatever is docked, which is exact while nothing overlays.
     const docked = (leftOpen ? leftWidth : 0) + (rightOpen ? rightWidth : 0);
-    const bodyWidth = context.containerWidth + docked;
-    const remaining = bodyWidth - docked;
+    const bodyWidth =
+      context.bodyWidth > 0
+        ? context.bodyWidth
+        : context.containerWidth + 2 * CONTAINER_PADDING_X + docked;
+    const remaining = bodyWidth - 2 * CONTAINER_PADDING_X - docked;
     const overlay = docked > 0 && remaining / charWidth <= SIDEBAR_OVERLAY_MIN_COLS;
 
     // Overlaying columns stack on each other and hide the whole tab, so at most

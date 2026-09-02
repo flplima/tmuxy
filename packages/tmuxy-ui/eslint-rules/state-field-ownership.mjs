@@ -30,6 +30,7 @@ const FIELD_OWNERS = {
   charHeight: 'parent',
   containerWidth: 'parent',
   containerHeight: 'parent',
+  bodyWidth: 'parent',
   lastUpdateTime: 'parent',
 
   // ---- layout ----
@@ -60,6 +61,11 @@ const FIELD_OWNERS = {
   leftSidebarFocused: 'groupsAndFloats',
   rightSidebarOpen: 'groupsAndFloats',
   rightSidebarFocused: 'groupsAndFloats',
+  leftSidebarStartFailed: 'groupsAndFloats',
+  rightSidebarStartFailed: 'groupsAndFloats',
+  leftSidebarStarting: 'groupsAndFloats',
+  rightSidebarStarting: 'groupsAndFloats',
+  sidebarColsPreview: 'groupsAndFloats',
 
   // ---- commandUi ----
   commandMode: 'commandUi',

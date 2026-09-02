@@ -1,5 +1,6 @@
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { AppProvider } from './machines/AppContext';
 import { applyTheme, loadThemeFromStorage } from './utils/themeManager';
 import { isTauri } from './tmux/adapters';
@@ -17,7 +18,9 @@ const savedTheme = loadThemeFromStorage();
 applyTheme(savedTheme?.theme ?? 'default', savedTheme?.mode ?? 'dark');
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <AppProvider>
-    <App />
-  </AppProvider>,
+  <AppErrorBoundary>
+    <AppProvider>
+      <App />
+    </AppProvider>
+  </AppErrorBoundary>,
 );

@@ -1,14 +1,15 @@
 /**
  * WindowTabs - the tmux window tabs in the status bar.
  *
- * The tabs share the strip equally (`flex: 1 1 0` each) and centre their label,
- * so the strip reads as one row of even slots rather than a ragged left-aligned
- * list, and a tab doesn't jump sideways when a neighbour is renamed.
+ * Tabs sit left-aligned at their natural width, each with a close button on its
+ * right, so the rest of the strip stays empty — and on the desktop that empty
+ * header is what drags the OS window (see StatusBar). A lone tab keeps the same
+ * active styling but is pushed to the RIGHT edge of the strip with the `+`
+ * directly after it, carries no close button, and is itself a drag handle for
+ * the window.
  *
  * The active tab is marked by BRIGHTNESS alone — full opacity and pure white
- * against the others' dimmed grey — with no pill or background behind it. A
- * single tab is not "active" in any useful sense, so it renders as a plain title
- * with no highlight at all.
+ * against the others' dimmed grey — with no pill or background behind it.
  *
  * Right-click opens a context menu with tab operations.
  */
@@ -60,6 +61,18 @@ export const WindowTabs = memo(function WindowTabs() {
     send({ type: 'CREATE_TAB' });
   }, [send]);
 
+  // Same command the tab context menu's "Close Tab" runs, targeted at the tab
+  // whose button was pressed rather than the current window.
+  const handleCloseWindow = useCallback(
+    (e: React.MouseEvent, window: TmuxWindow) => {
+      e.preventDefault();
+      e.stopPropagation();
+      haptics.trigger(10);
+      send({ type: 'SEND_COMMAND', command: `kill-window -t ${window.id}` });
+    },
+    [send],
+  );
+
   const handleContextMenu = useCallback((e: React.MouseEvent, windowIndex: number) => {
     e.preventDefault();
     e.stopPropagation();
@@ -80,14 +93,27 @@ export const WindowTabs = memo(function WindowTabs() {
           return (
             <span
               key={window.id}
-              className={`tab-name ${window.active && !isSingleTab ? 'tab-name-active' : ''}`}
+              className={`tab-name ${window.active ? 'tab-name-active' : ''}`}
               onClick={() => handleWindowClick(window)}
               onContextMenu={(e) => handleContextMenu(e, window.index)}
               role="tab"
               aria-selected={window.active}
               aria-label={`Tab ${visualIndex}: ${window.name}${window.active ? ' (active)' : ''}`}
             >
-              {visualIndex}:{window.name || `Tab ${visualIndex}`}
+              <span className="tab-name-label">
+                {visualIndex}:{window.name || `Tab ${visualIndex}`}
+              </span>
+              {!isSingleTab && (
+                <button
+                  type="button"
+                  className="tab-close"
+                  onClick={(e) => handleCloseWindow(e, window)}
+                  title="Close tab"
+                  aria-label={`Close tab ${visualIndex}`}
+                >
+                  ✕
+                </button>
+              )}
             </span>
           );
         })}

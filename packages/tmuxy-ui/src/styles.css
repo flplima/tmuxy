@@ -180,6 +180,10 @@
   display: flex;
   flex-direction: column;
   flex: 1;
+  /* Flex items default to min-height:auto (their content height); without an
+     explicit 0 the app body can only ever grow past the window, never clip. */
+  min-height: 0;
+  overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -835,9 +839,12 @@
   color: var(--pane-header-text-active);
 }
 
-/* Pane tabs container */
+/* Pane tabs container: takes every pixel the header buttons leave, so a
+   single pane's title can run the full width before it ellipsises. */
 .pane-tabs {
   display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
   height: 100%;
@@ -859,7 +866,10 @@
   background-color: transparent;
   border: none;
   transition: color var(--transition-fast);
-  flex-shrink: 0;
+  /* Natural width while it fits; shrinks (and ellipsises its title) only when
+     the header runs out of room, instead of being capped at a fixed width with
+     empty header beside it. */
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -902,7 +912,7 @@
   white-space: nowrap;
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
   color: inherit;
-  max-width: 150px;
+  min-width: 0;
 }
 
 /* Active tab title and icon */
@@ -1557,6 +1567,8 @@
      (a short tree left a 180px column in a 597px body). Cross-size `auto` lets
      stretch fill the app body, which is what both columns want. */
   box-sizing: border-box;
+  /* Same reason as .app-container: the tree inside must scroll, not stretch. */
+  min-height: 0;
   /* Containing block for the resize handle, which straddles the divider. */
   position: relative;
   display: flex;
@@ -1617,6 +1629,9 @@
   width: 9px;
   cursor: col-resize;
   z-index: 2;
+  /* Pointer events drive the drag; the browser must not turn a finger on the
+     handle into a page scroll. */
+  touch-action: none;
 }
 
 .sidebar-column-left .sidebar-resize-handle {
@@ -1715,6 +1730,56 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
   color: var(--text-subtle);
+}
+
+/* The column asked tmux for a pane and none came (SIDEBAR_START_TIMEOUT). */
+.sidebar-start-failed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-xl);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+}
+
+.sidebar-start-failed p {
+  margin: 0;
+}
+
+.sidebar-start-failed-title {
+  color: var(--accent-red, #e06c75);
+}
+
+.sidebar-start-failed code {
+  color: var(--term-white);
+}
+
+.sidebar-start-failed-close {
+  align-self: flex-start;
+  padding: var(--spacing-sm) var(--spacing-xl);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-medium);
+  color: var(--term-white);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sidebar-start-failed-close:hover {
+  background: var(--bg-highlight);
+}
+
+/* The crash screen (AppErrorBoundary) reuses the status screen's .error/.fatal. */
+.ui-crash-reload {
+  margin-top: var(--spacing-xl);
+  padding: var(--spacing-md) var(--spacing-2xl);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-medium);
+  color: var(--term-white);
+  font: inherit;
+  cursor: pointer;
 }
 
 /* ---- Left column: the tab/pane tree widget ---- */
@@ -1829,6 +1894,24 @@
   padding-right: var(--spacing-md);
   font-family: var(--font-mono);
   opacity: 0.85;
+}
+
+/* The tree's key legend, pinned under the rows while the column has focus.
+   Same row height and inset as a tree row so it reads as part of the tree. */
+.sidebar-tree-hint {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: var(--spacing-lg);
+  height: var(--line-height-terminal);
+  align-items: center;
+  padding: 0 var(--spacing-2xl);
+  margin-top: var(--spacing-lg);
+  font-size: 0.85em;
+  color: var(--text-subtle);
+  background: var(--term-background);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 /* See .sidebar-header-title: min-width:0 is required for the ellipsis. */

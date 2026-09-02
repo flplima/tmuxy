@@ -8,10 +8,11 @@
  * dividers line up, and the tab strip stays aligned with the panes.
  *
  * In the desktop app the bar is also the window's title bar (see
- * tmux/desktopWindow.ts): empty space drags the window and double-clicking it
- * performs the native title-bar gesture. On macOS the hamburger menu is hidden
- * (the native menu bar is used instead), room is reserved for the traffic-light
- * buttons, and the bar reports its height so those buttons stay centred on it.
+ * tmux/desktopWindow.ts): empty space drags the window on every desktop
+ * platform, and double-clicking it performs the native title-bar gesture. On
+ * macOS the hamburger menu is hidden (the native menu bar is used instead), room
+ * is reserved for the traffic-light buttons, and the bar reports its height so
+ * those buttons stay centred on it.
  */
 
 import { memo, useCallback } from 'react';
@@ -44,8 +45,16 @@ import './StatusBar.css';
 const CONTROLS =
   'button, [role="tab"], .tab-add, .app-menu-button, .sidebar-toggle, .sidebar-title';
 
-const isControl = (target: EventTarget | null) =>
-  target instanceof Element && target.closest(CONTROLS) !== null;
+/**
+ * A lone tab is a title, not a control: with nothing to switch to, pressing on
+ * it should move the window like the header around it. Its buttons (the `+`
+ * beside it) stay controls.
+ */
+const isControl = (target: EventTarget | null) => {
+  if (!(target instanceof Element)) return false;
+  if (target.closest('.tab-list-single .tab-name') && !target.closest('button')) return false;
+  return target.closest(CONTROLS) !== null;
+};
 
 export const StatusBar = memo(function StatusBar({
   renderTabline,
@@ -59,21 +68,17 @@ export const StatusBar = memo(function StatusBar({
   const rightPane = useAppSelector(selectRightSidebarPane);
   const rightTitle = rightPane ? getTabText(rightPane) : 'shell';
 
-  // On macOS, mousedown on empty bar space hands the click to the OS as a
-  // window drag via startDragging(), which swallows the native dblclick
-  // before it reaches onDoubleClick — so the second mousedown of a
-  // double-click (e.detail === 2) performs the title-bar gesture instead.
+  // On the desktop, mousedown on empty bar space hands the click to the OS as
+  // a window drag via startDragging(). That swallows the native dblclick before
+  // it reaches onDoubleClick — so the second mousedown of a double-click
+  // (e.detail === 2) performs the title-bar gesture instead. macOS and Linux
+  // share the path (on Linux the window keeps its native decorations, so this
+  // is an extra drag handle, not the only one); the Rust side maps the
+  // double-click gesture per OS.
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!isMacTauri || e.buttons !== 1 || isControl(e.target)) return;
+    if (!isTauri() || e.buttons !== 1 || isControl(e.target)) return;
     if (e.detail === 2) titlebarDoubleClick();
     else startWindowDrag();
-  }, []);
-
-  // Other desktop platforms never call startDragging, so the native dblclick
-  // still fires — the same gesture toggles maximize there.
-  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-    if (!isTauri() || isMacTauri || isControl(e.target)) return;
-    titlebarDoubleClick();
   }, []);
 
   // Each cluster spans exactly its sidebar's width, so the divider it ends on
@@ -113,12 +118,7 @@ export const StatusBar = memo(function StatusBar({
 
   return (
     <LogProfiler id="StatusBar">
-      <div
-        ref={reportTitlebarHeight}
-        className="statusbar"
-        onMouseDown={handleMouseDown}
-        onDoubleClick={handleDoubleClick}
-      >
+      <div ref={reportTitlebarHeight} className="statusbar" onMouseDown={handleMouseDown}>
         <div className="statusbar-inner">
           {renderTabline ? renderTabline({ children: defaultContent }) : defaultContent}
           <ConnectionStatus reconnecting={isReconnecting} reconnectAttempt={reconnectAttempt} />

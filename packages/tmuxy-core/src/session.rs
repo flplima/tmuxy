@@ -266,7 +266,42 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         "tmuxy/tmuxy-widget-markdown",
         include_str!("../../../bin/tmuxy/tmuxy-widget-markdown"),
     ),
+    (
+        "tmuxy/tmuxy-widget-tree",
+        include_str!("../../../bin/tmuxy/tmuxy-widget-tree"),
+    ),
 ];
+
+#[cfg(test)]
+mod bundled_scripts_tests {
+    use super::BUNDLED_BIN_SCRIPTS;
+
+    /// Every helper under `bin/tmuxy/` must be in the bundled list, or the
+    /// packaged app ships a `tmuxy-cli` that dispatches to a file that was
+    /// never mirrored to `~/.config/tmuxy/bin/` (the tree sidebar shipped that
+    /// way once: `tmuxy widget tree` died with "No such file or directory").
+    #[test]
+    fn every_helper_script_is_bundled() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/tmuxy");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+            .expect("bin/tmuxy readable")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .map(|e| format!("tmuxy/{}", e.file_name().to_string_lossy()))
+            .collect();
+        on_disk.sort();
+        let mut bundled: Vec<String> = BUNDLED_BIN_SCRIPTS
+            .iter()
+            .map(|(rel, _)| rel.to_string())
+            .filter(|rel| rel.starts_with("tmuxy/"))
+            .collect();
+        bundled.sort();
+        assert_eq!(
+            on_disk, bundled,
+            "bin/tmuxy/* and BUNDLED_BIN_SCRIPTS disagree"
+        );
+    }
+}
 
 /// Resolve the user's tmuxy config directory: $XDG_CONFIG_HOME/tmuxy
 /// or $HOME/.config/tmuxy. Does not create the directory.

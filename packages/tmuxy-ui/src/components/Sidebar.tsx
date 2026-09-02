@@ -33,6 +33,7 @@ function SidebarInner() {
   const send = useAppSend();
   const { leftOpen, overlay, leftWidth } = useAppSelector(selectSidebarLayout);
   const focused = useAppSelector((ctx) => ctx.leftSidebarFocused);
+  const startFailed = useAppSelector((ctx) => ctx.leftSidebarStartFailed);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const pane = useAppSelector(selectLeftSidebarPane);
 
@@ -48,6 +49,7 @@ function SidebarInner() {
       overlay={overlay}
       focused={focused}
       pane={pane}
+      startFailed={startFailed}
       title={sessionName}
       onFocus={handleFocus}
       onClose={handleClose}

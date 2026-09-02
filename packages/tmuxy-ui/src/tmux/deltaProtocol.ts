@@ -56,6 +56,17 @@ export function handleStateUpdate(
   currentState: ServerState | null,
 ): ServerState | null {
   if (update.type === 'full') {
+    // A malformed update must never take the UI down with it: keep what we
+    // have, log, and let the next snapshot resync (the adapter re-requests a
+    // full state whenever sequencing breaks).
+    if (
+      !update.state ||
+      !Array.isArray(update.state.panes) ||
+      !Array.isArray(update.state.windows)
+    ) {
+      console.warn('Ignoring full state update without state', update);
+      return currentState;
+    }
     // When replacing existing state with a full update, preserve non-empty pane
     // content that would be overwritten by empty content. This handles two cases:
     // 1. Initial sync: get_initial_state captured real content, but the control mode
@@ -90,6 +101,10 @@ export function handleStateUpdate(
   if (currentState === null) {
     console.warn('Received delta before full state, ignoring');
     return null;
+  }
+  if (!update.delta) {
+    console.warn('Ignoring delta update without delta', update);
+    return currentState;
   }
 
   return applyDelta(currentState, update.delta);
@@ -312,6 +327,7 @@ function applyWindowDelta(window: ServerWindow, delta: WindowDelta): ServerWindo
     ...(delta.float_bg !== undefined && { float_bg: delta.float_bg }),
     ...(delta.float_noheader !== undefined && { float_noheader: delta.float_noheader }),
     ...(delta.sidebar_cols !== undefined && { sidebar_cols: delta.sidebar_cols }),
+    ...(delta.sidebar_hidden !== undefined && { sidebar_hidden: delta.sidebar_hidden }),
     ...(delta.zoomed !== undefined && { zoomed: delta.zoomed }),
   };
 }

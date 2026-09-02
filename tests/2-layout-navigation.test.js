@@ -1131,7 +1131,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('prefix T docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc blurs → prefix T hides, reopen keeps the shell', async () => {
+  test('prefix T docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc reaches the shell, Ctrl+h blurs → prefix T hides, reopen keeps the shell', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -1179,14 +1179,15 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
         ?.context?.windows?.find((w) => w.windowType === 'sidebar-right');
       const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
       return {
-        // The column's window is named `terminal` and tabs render `index:name`,
+        // The column's window carries the fixed name `__sidebar-right` (the
+        // create command targets it by that name) and tabs render `index:name`,
         // so a tab carrying that label is the column leaking into the strip.
         labels: tabs.map((t) => (t.textContent || '').trim()),
         dockWindowName: win?.name,
       };
     });
-    expect(tabStrip.dockWindowName).toBe('terminal');
-    expect(tabStrip.labels.some((label) => label.includes('terminal'))).toBe(false);
+    expect(tabStrip.dockWindowName).toBe('__sidebar-right');
+    expect(tabStrip.labels.some((label) => label.includes('__sidebar'))).toBe(false);
 
     // Step 4: THE geometry contract. tmux sizes a `sidebar-right` window to that
     // column (sidebar_dock::size in tmuxy-core), not the viewport — otherwise
@@ -1269,8 +1270,9 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     });
     expect(stillDockedOnNewTab).toEqual({ visible: true, keptOutput: true });
 
-    // Step 7: Escape hands the keyboard back to the panes without closing the
-    // dock (unlike a float, whose Escape kills it).
+    // Step 7: Escape is an ordinary key inside the dock — a program pinned
+    // there (vim, fzf) must receive it — so it neither blurs nor closes the
+    // column. Ctrl+h is what hands the keyboard back to the panes.
     await focusPage(ctx.page);
     await ctx.page.click('[data-testid="sidebar-title-right"] .sidebar-title-text');
     await waitForCondition(
@@ -1281,12 +1283,20 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       'dock focused after a click',
     );
     await ctx.page.keyboard.press('Escape');
+    await delay(DELAYS.MEDIUM);
+    const stillFocusedAfterEscape = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.rightSidebarFocused,
+    );
+    expect(stillFocusedAfterEscape).toBe(true);
+    await ctx.page.keyboard.down('Control');
+    await ctx.page.keyboard.press('h');
+    await ctx.page.keyboard.up('Control');
     await waitForCondition(
       ctx.page,
       async () =>
         ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === false),
       5000,
-      'rightSidebarFocused cleared after Escape',
+      'rightSidebarFocused cleared after Ctrl+h',
     );
     const openAfterBlur = await ctx.page.evaluate(
       () => !!document.querySelector('[data-testid="right-sidebar-content"]'),
@@ -1323,7 +1333,12 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     // The column has no kill button: its toggle only hides it, and the shell
     // going away is what retracts the column (see appMachine's sidebar
     // lifecycle).
+    // The Escape from step 7 reached this shell; in a vi-mode zsh that leaves
+    // the line editor in command mode, where `exit` would not be typed. Ctrl+C
+    // aborts the line and starts a fresh one in insert mode under either keymap.
     await ctx.page.click('[data-testid="sidebar-title-right"] .sidebar-title-text');
+    await ctx.page.keyboard.press('Control+c');
+    await delay(DELAYS.SHORT);
     await ctx.page.keyboard.type('exit');
     await ctx.page.keyboard.press('Enter');
     await ctx.page.waitForFunction(
@@ -1342,7 +1357,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('prefix t opens fixed sidebar → tree shows tabs/panes → focus + Enter activates a tab → Esc blurs → prefix t closes', async () => {
+  test('prefix t opens fixed sidebar → tree shows tabs/panes → focus + Enter activates a tab → l blurs → q closes', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -1501,15 +1516,22 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       'tree Enter to activate the first window',
     );
 
-    // Step 6: Escape blurs the sidebar — the column stays open, focus returns
-    // to the panes.
+    // Step 6: `l` (nav right, out of the column) blurs the tree — the column
+    // stays open, focus returns to the panes. Escape is deliberately not a
+    // sidebar key, so it must leave the focus where it is.
     await ctx.page.keyboard.press('Escape');
+    await delay(DELAYS.MEDIUM);
+    const focusedAfterEscape = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.leftSidebarFocused,
+    );
+    expect(focusedAfterEscape).toBe(true);
+    await ctx.page.keyboard.press('l');
     await waitForCondition(
       ctx.page,
       async () =>
         ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.leftSidebarFocused === false),
       5000,
-      'leftSidebarFocused cleared after Escape',
+      'leftSidebarFocused cleared after l',
     );
     const stillOpen = await ctx.page.evaluate(() => {
       const el = document.querySelector('.sidebar-column-left');
@@ -1523,9 +1545,17 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     );
     expect(pressedWhileOpen).toBe('true');
 
-    // Step 7: prefix t again closes the sidebar — the column is removed and
-    // the toggle returns to its unpressed state.
-    await sendPrefixCommand(ctx.page, 't');
+    // Step 7: `q` from inside the focused tree closes the sidebar — the
+    // column is removed and the toggle returns to its unpressed state.
+    await ctx.page.click('[data-testid="sidebar-title-left"] .sidebar-title-text');
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.leftSidebarFocused === true),
+      5000,
+      'tree focused again before q',
+    );
+    await ctx.page.keyboard.press('q');
     await ctx.page.waitForFunction(() => !document.querySelector('.sidebar-column-left'), {
       timeout: 10000,
       polling: 100,

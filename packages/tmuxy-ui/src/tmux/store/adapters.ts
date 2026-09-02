@@ -88,6 +88,9 @@ function preserveWindow(prev: TmuxWindow, next: TmuxWindow): TmuxWindow {
     // column drawn at its previous width while its pane has already rewrapped
     // to the new one.
     (prev.sidebarCols ?? null) === (next.sidebarCols ?? null) &&
+    // Likewise the hidden flag: closing a column changes nothing else about
+    // its window, and the column must retract the moment it flips.
+    Boolean(prev.sidebarHidden) === Boolean(next.sidebarHidden) &&
     // Zoom toggles change nothing else about the window, so omitting it here
     // pins the old object identity and the UI stays stuck in (or out of) zoom
     // until some unrelated field happens to change.

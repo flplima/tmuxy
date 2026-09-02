@@ -117,6 +117,7 @@ export const ServerWindow = Schema.Struct({
   float_bg: Schema.optional(Schema.NullOr(Schema.String)),
   float_noheader: Schema.optional(Schema.Boolean),
   sidebar_cols: Schema.optional(Schema.NullOr(Schema.Number)),
+  sidebar_hidden: Schema.optional(Schema.Boolean),
 });
 
 /** Full server state snapshot. */

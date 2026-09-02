@@ -228,8 +228,11 @@ export const KeyboardNavigate: Story = {
       { timeout: 5000 },
     );
 
-    // Escape blurs the tree.
+    // Escape is not a tree key (a sidebar pane may need it); `l` hands the
+    // keyboard back to the panes.
     await user.keyboard('{Escape}');
+    expect(tree.getAttribute('data-focused')).toBe('true');
+    await user.keyboard('l');
     await waitFor(() => expect(tree.getAttribute('data-focused')).toBe('false'), { timeout: 5000 });
   },
 };

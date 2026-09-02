@@ -653,6 +653,9 @@ pub struct WindowState {
     pub window_type: Option<WindowType>,
     /// `@tmuxy-sidebar-cols` — a user-dragged width for a sidebar column.
     pub sidebar_cols: Option<u32>,
+    /// `@tmuxy-sidebar-hidden` — the user closed this sidebar column; its
+    /// pane stays alive but no client draws it.
+    pub sidebar_hidden: bool,
 
     /// Parent window ID for float / backdrop (@tmuxy-float-parent).
     pub float_parent: Option<String>,
@@ -689,6 +692,7 @@ impl WindowState {
             layout: String::new(),
             window_type: None,
             sidebar_cols: None,
+            sidebar_hidden: false,
             float_parent: None,
             float_width: None,
             float_height: None,
@@ -718,6 +722,7 @@ impl WindowState {
             float_bg: self.float_bg.clone(),
             float_noheader: self.float_noheader,
             sidebar_cols: self.sidebar_cols,
+            sidebar_hidden: self.sidebar_hidden,
             zoomed: self.zoomed,
         }
     }
@@ -923,6 +928,10 @@ pub struct StateAggregator {
     /// idempotent — this in-memory set does, applying the border settings once
     /// per window per connection.
     border_enforced: std::collections::HashSet<String>,
+    /// Sidebar windows whose pane border has been switched off. `pane-border-status
+    /// top` is a GLOBAL window option (every new window inherits it), so a sidebar
+    /// needs it turned off explicitly whether or not it was first adopted as a tab.
+    sidebar_border_cleared: std::collections::HashSet<String>,
 
     /// Compound-command settling state. When armed (`settling_until.is_some()`),
     /// window/layout emissions are suppressed and the aggregator's `tick(now)`
@@ -1092,6 +1101,7 @@ impl StateAggregator {
             early_output: HashMap::new(),
             stash_members: HashMap::new(),
             border_enforced: std::collections::HashSet::new(),
+            sidebar_border_cleared: std::collections::HashSet::new(),
             settling_until: None,
             settling_started: None,
             settling_awaiting_first_event: false,
@@ -1316,23 +1326,25 @@ impl StateAggregator {
             }
         }
 
-        // Undo that border on a window that has since turned out to be a
-        // sidebar. `%window-add` announces a window before its
-        // `@tmuxy-window-type` is readable, so the loop above always treats a
-        // brand-new window as a tab and gives it the border row a tab needs.
-        // A sidebar is drawn headerless and sized without that row, so leaving
-        // it on costs the pane a line of content.
-        let mis_bordered: Vec<String> = self
+        // Take the border row OFF every sidebar window, once. A sidebar is
+        // drawn headerless and sized without that row, so leaving it on costs
+        // the pane a line of content — and it is on by default: the global
+        // `pane-border-status top` applies to every new window, whether the
+        // window was first adopted as a tab above (the marker lands a beat after
+        // `%window-add`) or arrived already typed because `list-windows` was
+        // re-run right behind the create command.
+        let bordered: Vec<String> = self
             .windows
             .values()
             .filter(|w| {
                 w.window_type.is_some_and(WindowType::is_sidebar)
-                    && self.border_enforced.contains(&w.id)
+                    && !self.sidebar_border_cleared.contains(&w.id)
             })
             .map(|w| w.id.clone())
             .collect();
-        for id in mis_bordered {
+        for id in bordered {
             self.border_enforced.remove(&id);
+            self.sidebar_border_cleared.insert(id.clone());
             cmds.push(format!("set-option -w -t {id} pane-border-status off"));
         }
 
@@ -1604,6 +1616,7 @@ impl StateAggregator {
             ControlModeEvent::WindowClose { window_id } => {
                 self.windows.remove(&window_id);
                 self.border_enforced.remove(&window_id);
+                self.sidebar_border_cleared.remove(&window_id);
                 self.panes.retain(|_, p| p.window_id != window_id);
                 self.pending_captures
                     .retain(|id| self.panes.contains_key(id));
@@ -2358,14 +2371,14 @@ impl StateAggregator {
 
     /// Parse a line from list-windows output. Expected format (comma-separated,
     /// see constants::LIST_WINDOWS_CMD):
-    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,focus_request,sidebar_cols,zoomed,name`
+    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,focus_request,sidebar_cols,sidebar_hidden,zoomed,name`
     /// `window_name` is LAST and free text — we `splitn` so its own commas stay
     /// in the trailing field and can't shift any parsed column. Every column
     /// after `active` is a `@tmuxy-*` user option that may be empty.
     fn parse_list_windows_line(&mut self, line: &str) {
-        // 14 fields; splitn keeps window_name (the 14th) intact even with commas.
-        let parts: Vec<&str> = line.splitn(14, ',').collect();
-        if parts.len() < 13 {
+        // 15 fields; splitn keeps window_name (the 15th) intact even with commas.
+        let parts: Vec<&str> = line.splitn(15, ',').collect();
+        if parts.len() < 14 {
             return;
         }
 
@@ -2376,7 +2389,7 @@ impl StateAggregator {
 
         let index: u32 = parts[1].parse().unwrap_or(0);
         let active = parts[2] == "1";
-        let name = parts.get(13).map(|s| s.to_string()).unwrap_or_default();
+        let name = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
 
         let opt = |idx: usize| -> Option<String> {
             parts
@@ -2399,11 +2412,13 @@ impl StateAggregator {
         self.focus_request = opt(10);
         // A sidebar column the user has dragged off its default width.
         let sidebar_cols = opt(11).and_then(|s| s.parse::<u32>().ok());
+        // A sidebar column the user has closed (its pane is kept alive).
+        let sidebar_hidden = opt(12).is_some_and(|s| s == "1");
         // Authoritative zoom state. Deriving it only from `%layout-change`
         // flags loses it whenever window state is rebuilt from list-windows —
         // e.g. every fresh client connect, which is exactly when a client
         // attaching to an already-zoomed window needs it.
-        let zoomed = opt(12).is_some_and(|s| s == "1");
+        let zoomed = opt(13).is_some_and(|s| s == "1");
 
         let window = self
             .windows
@@ -2422,6 +2437,7 @@ impl StateAggregator {
         window.float_bg = float_bg;
         window.float_noheader = float_noheader;
         window.sidebar_cols = sidebar_cols;
+        window.sidebar_hidden = sidebar_hidden;
 
         if active {
             self.active_window_id = Some(window_id.to_string());
@@ -2754,6 +2770,9 @@ impl StateAggregator {
         }
         if prev.sidebar_cols != curr.sidebar_cols {
             delta.sidebar_cols = Some(curr.sidebar_cols);
+        }
+        if prev.sidebar_hidden != curr.sidebar_hidden {
+            delta.sidebar_hidden = Some(curr.sidebar_hidden);
         }
         if prev.zoomed != curr.zoomed {
             delta.zoomed = Some(curr.zoomed);
@@ -3184,8 +3203,8 @@ mod tests {
         // LIST_WINDOWS_CMD) means a name like "build, test" stays in the
         // trailing field and can't shift window_active/@tmuxy-window-type/floats.
         let name = "build, test";
-        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,focus,cols,zoomed,name
-        let line = format!("@7,3,1,tab,,,,,,,,,0,{name}");
+        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,focus,cols,hidden,zoomed,name
+        let line = format!("@7,3,1,tab,,,,,,,,,,0,{name}");
         let mut agg = StateAggregator::new();
         agg.parse_list_windows_line(&line);
         let w = agg.windows.get("@7").expect("window parsed");
@@ -3204,12 +3223,29 @@ mod tests {
     #[test]
     fn list_windows_carries_the_zoom_flag() {
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,1,editor");
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,,1,editor");
         assert!(agg.windows.get("@9").expect("window parsed").zoomed);
 
         // ...and clears it again when the window is no longer zoomed.
-        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,0,editor");
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,,0,editor");
         assert!(!agg.windows.get("@9").expect("window parsed").zoomed);
+    }
+
+    /// A closed sidebar column keeps its window (the dock's shell survives a
+    /// close), so "hidden" has to travel as its own flag — read from the same
+    /// poll as the width, and cleared when the option is unset.
+    #[test]
+    fn list_windows_carries_the_sidebar_hidden_flag() {
+        let mut agg = StateAggregator::new();
+        agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,1,0,__sidebar-right");
+        let w = agg.windows.get("@4").expect("window parsed");
+        assert_eq!(w.window_type, Some(WindowType::SidebarRight));
+        assert_eq!(w.sidebar_cols, Some(35));
+        assert!(w.sidebar_hidden);
+        assert_eq!(w.name, "__sidebar-right");
+
+        agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,,0,__sidebar-right");
+        assert!(!agg.windows.get("@4").expect("window parsed").sidebar_hidden);
     }
 
     /// The group id rides in the final `list-panes` tail field.
@@ -3287,7 +3323,7 @@ mod tests {
     fn untagged_window_is_a_tab_and_gets_only_border_enforcement() {
         let mut agg = StateAggregator::new();
         // @id,index,active,type(empty),float*,zoomed,name
-        agg.parse_list_windows_line("@5,0,1,,,,,,,,,,0,shell");
+        agg.parse_list_windows_line("@5,0,1,,,,,,,,,,,0,shell");
 
         let cmds = agg.collect_window_tag_commands();
         assert!(
@@ -3316,10 +3352,10 @@ mod tests {
         use crate::constants::sidebar_dock;
 
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,0,shell");
-        agg.parse_list_windows_line("@2,1,0,float,,,,,,,,,0,float");
-        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,,0,tree");
-        agg.parse_list_windows_line("@4,3,0,sidebar-right,,,,,,,,,0,term");
+        agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,,0,shell");
+        agg.parse_list_windows_line("@2,1,0,float,,,,,,,,,,0,float");
+        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,,,0,tree");
+        agg.parse_list_windows_line("@4,3,0,sidebar-right,,,,,,,,,,0,term");
 
         let (mut viewport, mut sidebars) = agg.window_ids_by_sizing();
         viewport.sort();
@@ -3357,7 +3393,7 @@ mod tests {
         use crate::constants::sidebar_dock;
 
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,48,0,tree");
+        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,48,,0,tree");
         let (_, sidebars) = agg.window_ids_by_sizing();
         assert_eq!(sidebars, vec![("@3".to_string(), 48)]);
 
@@ -3385,7 +3421,7 @@ mod tests {
         // The window as `%window-add` / the first list-windows sees it: no
         // marker yet, because the create command's `set-option` has not been
         // read back.
-        agg.parse_list_windows_line("@4,2,0,,,,,,,,,,0,side");
+        agg.parse_list_windows_line("@4,2,0,,,,,,,,,,,0,side");
         let adopted = agg.collect_window_tag_commands();
         assert!(
             adopted
@@ -3395,7 +3431,7 @@ mod tests {
         );
 
         // The list-windows response carries the marker the create command set.
-        agg.parse_list_windows_line("@4,2,0,sidebar-right,,,,,,,,,0,side");
+        agg.parse_list_windows_line("@4,2,0,sidebar-right,,,,,,,,,,0,side");
         let corrected = agg.collect_window_tag_commands();
         assert!(
             corrected
@@ -3404,6 +3440,23 @@ mod tests {
             "the border must be taken back once the type lands: {corrected:?}"
         );
         // ...exactly once, and never re-enforced afterwards.
+        assert!(agg.collect_window_tag_commands().is_empty());
+    }
+
+    /// The monitor re-lists windows right behind a create command, so a
+    /// sidebar can be typed before it was ever adopted as a tab. The global
+    /// `pane-border-status top` still applies to it, so the border must come
+    /// off in that case too — it used to be skipped, leaving the pane a row short.
+    #[test]
+    fn sidebar_typed_on_arrival_still_loses_the_pane_border() {
+        let mut agg = StateAggregator::new();
+        agg.parse_list_windows_line("@4,2,0,sidebar-left,,,,,,,,,,0,__sidebar-left");
+        let cmds = agg.collect_window_tag_commands();
+        assert!(
+            cmds.iter()
+                .any(|c| c == "set-option -w -t @4 pane-border-status off"),
+            "a sidebar typed on arrival must still drop the border row: {cmds:?}"
+        );
         assert!(agg.collect_window_tag_commands().is_empty());
     }
 

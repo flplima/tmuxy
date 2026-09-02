@@ -33,6 +33,10 @@ const RESIZE_DEBOUNCE_MS = 100;
 export function createSizeActor(measureFn: MeasureFn) {
   return fromCallback<SizeActorEvent, SizeActorInput>(({ input, receive }) => {
     let containerObserver: ResizeObserver | null = null;
+    // The app body (sidebar columns + pane grid). Its width is what the
+    // docked/overlay decision must read: the pane container's own width already
+    // depends on that decision, and deciding from it oscillates.
+    let bodyObserver: ResizeObserver | null = null;
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
     let lastCols = 0;
     let lastRows = 0;
@@ -114,10 +118,22 @@ export function createSizeActor(measureFn: MeasureFn) {
           }
         });
         containerObserver.observe(event.element);
+
+        bodyObserver?.disconnect();
+        const body = event.element.closest('.app-body') ?? event.element.parentElement;
+        if (body) {
+          bodyObserver = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (entry) input.parent.send({ type: 'SET_BODY_SIZE', width: entry.contentRect.width });
+          });
+          bodyObserver.observe(body);
+        }
       }
       if (event.type === 'STOP_OBSERVE') {
         containerObserver?.disconnect();
         containerObserver = null;
+        bodyObserver?.disconnect();
+        bodyObserver = null;
         measureHost = undefined;
         containerWidth = undefined;
         containerHeight = undefined;

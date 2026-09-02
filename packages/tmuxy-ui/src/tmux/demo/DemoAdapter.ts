@@ -441,12 +441,31 @@ export class DemoAdapter implements TmuxAdapter {
       return;
     }
 
-    // A sidebar column being dragged to a new width.
+    // A sidebar column being dragged to a new width, or reset to its default.
     const sidebarWidth = command.match(
       /set-option\s+-w\s+-t\s+(@\d+)\s+@tmuxy-sidebar-cols\s+(\d+)/,
     );
     if (sidebarWidth) {
       this.tmux.setSidebarCols(sidebarWidth[1], Number(sidebarWidth[2]));
+      return;
+    }
+    const sidebarWidthReset = command.match(
+      /set-option\s+-u\s+-w\s+-t\s+(@\d+)\s+@tmuxy-sidebar-cols/,
+    );
+    if (sidebarWidthReset) {
+      this.tmux.setSidebarCols(sidebarWidthReset[1], null);
+      return;
+    }
+
+    // A sidebar column being closed (hidden, pane kept) or shown again.
+    const sidebarHide = command.match(/set-option\s+-w\s+-t\s+(@\d+)\s+@tmuxy-sidebar-hidden\s+1/);
+    if (sidebarHide) {
+      this.tmux.setSidebarHidden(sidebarHide[1], true);
+      return;
+    }
+    const sidebarShow = command.match(/set-option\s+-u\s+-w\s+-t\s+(@\d+)\s+@tmuxy-sidebar-hidden/);
+    if (sidebarShow) {
+      this.tmux.setSidebarHidden(sidebarShow[1], false);
       return;
     }
 

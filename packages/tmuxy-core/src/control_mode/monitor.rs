@@ -773,7 +773,10 @@ impl TmuxMonitor {
         let is_output_event = matches!(change, ChangeType::PaneOutput { .. });
         let now = self.ctx.clock.now();
 
-        if is_output_event {
+        // A window coming or going also renumbers every window after it
+        // (`renumber-windows on`), and `%window-close` carries no indices — so
+        // schedule the same deferred refresh a window event as for output.
+        if is_output_event || matches!(change, ChangeType::Window) {
             rs.metadata_sync_at = Some(tokio::time::Instant::now() + rs.metadata_sync_delay);
         }
 
@@ -846,10 +849,12 @@ impl TmuxMonitor {
     }
 
     /// Deferred metadata refresh fired — request a fresh `list-panes` so
-    /// `pane_current_command` reflects the post-exit shell prompt.
+    /// `pane_current_command` reflects the post-exit shell prompt, and a fresh
+    /// `list-windows` so window indices are right after a close renumbers them.
     async fn on_metadata_sync<E: StateEmitter>(&mut self, emitter: &E, rs: &mut RunState) {
         rs.metadata_sync_at = None;
         let cmds = vec![
+            tmux_formats::LIST_WINDOWS_CMD.to_string(),
             tmux_formats::LIST_PANES_CMD.to_string(),
             tmux_formats::LIST_STASH_PANES_CMD.to_string(),
         ];
@@ -953,6 +958,20 @@ impl TmuxMonitor {
                     }
                 } else {
                     trace!(cmd = %unescaped, "sent command via control mode");
+                    // tmux emits no control-mode notification when a user option
+                    // changes, so a `@tmuxy-*` write (a dragged sidebar width, a
+                    // hidden column, a focus request) would otherwise only reach
+                    // the clients on the next window event or the idle heartbeat
+                    // — seconds later. Re-list the windows right behind it.
+                    if writes_tmuxy_option(&unescaped) {
+                        if let Err(e) = self
+                            .connection
+                            .send_command(tmux_formats::LIST_WINDOWS_CMD)
+                            .await
+                        {
+                            emitter.emit_error(format!("Failed to refresh windows: {}", e));
+                        }
+                    }
                 }
                 true
             }
@@ -967,6 +986,13 @@ impl TmuxMonitor {
             }
         }
     }
+}
+
+/// Whether a client command writes a `@tmuxy-*` user option. Those carry
+/// sidebar/focus state the clients read off `list-windows`, and tmux sends no
+/// notification for them — the caller re-lists windows right after.
+fn writes_tmuxy_option(command: &str) -> bool {
+    (command.contains("set-option") || command.contains("set -")) && command.contains("@tmuxy-")
 }
 
 /// True when a control-mode command will run a tmuxy bash script that mutates

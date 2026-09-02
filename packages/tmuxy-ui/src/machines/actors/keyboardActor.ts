@@ -363,15 +363,24 @@ export function createKeyboardActor() {
       // stops routing keys to copy mode without any event plumbing to keep in
       // sync. A focused overlay (float or dock) always takes priority, so its
       // keys are never hijacked by an underlying pane's copy mode.
+      // The dock's pane can be in client-side copy mode too (wheel, drag), so
+      // the pane whose copy state matters is the one holding the keyboard.
       let activeCopyState: CopyModeState | undefined;
-      if (!overlayPaneId() && !leftSidebarFocused) {
-        activeCopyState = liveActivePaneId ? liveCopyStates?.[liveActivePaneId] : undefined;
+      if (!leftSidebarFocused) {
+        const keyboardPane = overlayPaneId() ?? liveActivePaneId;
+        activeCopyState = keyboardPane ? liveCopyStates?.[keyboardPane] : undefined;
       }
       const copyModeActive = !!activeCopyState;
 
       // Cmd+C / Ctrl+C: copy selection to clipboard (if in copy mode with selection)
       // or send SIGINT (if not in copy mode / no selection)
       if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+        // The tree owns the keyboard: nothing here is a pane to interrupt.
+        // Forwarding used to SIGINT the shell in the tab behind the column.
+        if (leftSidebarFocused) {
+          event.preventDefault();
+          return;
+        }
         if (copyModeActive) {
           // Extract text for the native copy event handler
           if (activeCopyState?.selectionMode && activeCopyState?.selectionAnchor) {
@@ -415,23 +424,13 @@ export function createKeyboardActor() {
 
       event.preventDefault();
 
-      // Escape returns focus from the sidebar to the panes (the drawer stays
-      // open; the tree window is hidden, not killed).
-      if (event.key === 'Escape' && leftSidebarFocused) {
-        input.parent.send({ type: 'BLUR_LEFT_SIDEBAR' });
-        return;
-      }
-
-      // Escape closes the focused float instead of being sent to tmux
+      // Escape closes the focused float instead of being sent to tmux. A
+      // focused SIDEBAR is different: Escape is an ordinary key there, so a
+      // program running in the pinned dock (vim, lazygit, fzf) receives it,
+      // and the tree column's own key handler decides what it means for the
+      // tree. Leaving a column is Ctrl+h / Ctrl+l, a click, or the tree's `q`.
       if (event.key === 'Escape' && focusedFloatPaneId) {
         input.parent.send({ type: 'CLOSE_FLOAT', paneId: focusedFloatPaneId });
-        return;
-      }
-
-      // Escape hands focus back from the pinned dock to the panes. It only
-      // BLURS — unlike a float, the dock's shell is meant to outlive the visit.
-      if (event.key === 'Escape' && focusedRightSidebarPaneId) {
-        input.parent.send({ type: 'BLUR_RIGHT_SIDEBAR' });
         return;
       }
 
@@ -585,6 +584,14 @@ export function createKeyboardActor() {
           shiftKey: event.shiftKey,
           metaKey: event.metaKey,
         });
+        return;
+      }
+
+      // The tree column has the keyboard and this key was not a binding: it
+      // belongs to nothing. The tree's own listener already swallowed plain
+      // keys; this catches the chords it let through for bindings' sake, which
+      // otherwise reached the tab's active pane behind the column.
+      if (leftSidebarFocused) {
         return;
       }
 

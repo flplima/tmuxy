@@ -195,16 +195,29 @@ export interface AppMachineContext {
   /** Pane ID of the currently focused float (keyboard routes here instead of session) */
   focusedFloatPaneId: string | null;
   /**
-   * Whether the left sidebar column (the tab/pane tree) is open. Its pane lives
+   * Whether the left sidebar column (the tab/pane tree) is shown. Its pane lives
    * in a `sidebar-left`-typed window running `tmuxy widget tree`; closing hides
-   * the column and kills that pane.
+   * the column (`@tmuxy-sidebar-hidden` on its window) and keeps that pane, so
+   * the choice survives a reload and reaches every other client.
    */
   leftSidebarOpen: boolean;
   /**
    * Whether the tree column holds keyboard focus. While true, keys drive the
-   * tree widget (j/k/Enter/Escape) instead of reaching a tab's pane.
+   * tree widget (j/k/Enter/l/q) instead of reaching a tab's pane.
    */
   leftSidebarFocused: boolean;
+  /**
+   * The tree column was asked to open but its pane never appeared (the
+   * `tmuxy widget tree` command failed on this server). The column shows why
+   * instead of "starting…" forever.
+   */
+  leftSidebarStartFailed: boolean;
+  /**
+   * This client asked tmux to create the tree column's pane and is waiting
+   * for it. Cleared by SIDEBAR_START_TIMEOUT. While set, a pane that appears
+   * and vanishes within the window is a failed start, not a user closing it.
+   */
+  leftSidebarStarting: boolean;
   /**
    * Whether the right sidebar column (the pinned terminal) is open. The pane
    * behind it lives in a `sidebar-right`-typed window and survives closing —
@@ -217,6 +230,22 @@ export interface AppMachineContext {
    * focused float uses).
    */
   rightSidebarFocused: boolean;
+  /** The dock was asked to open but its pane never appeared. */
+  rightSidebarStartFailed: boolean;
+  /** Same as `leftSidebarStarting`, for the dock. */
+  rightSidebarStarting: boolean;
+  /**
+   * A sidebar column width being previewed while its divider is dragged, in
+   * columns (null = the default). Drawn immediately; the tmux option is written
+   * on release and the preview is dropped once the server reports that width.
+   */
+  sidebarColsPreview: { side: 'left' | 'right'; cols: number | null } | null;
+  /**
+   * Width of the app body (both columns plus the pane grid), in pixels. The
+   * docked/overlay decision is made from this, never from the pane container,
+   * whose width already depends on that decision.
+   */
+  bodyWidth: number;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /** Keybindings received from the server */
@@ -509,6 +538,24 @@ export type BlurLeftSidebarEvent = { type: 'BLUR_LEFT_SIDEBAR' };
 export type ToggleRightSidebarEvent = { type: 'TOGGLE_RIGHT_SIDEBAR' };
 export type FocusRightSidebarEvent = { type: 'FOCUS_RIGHT_SIDEBAR' };
 export type BlurRightSidebarEvent = { type: 'BLUR_RIGHT_SIDEBAR' };
+/** Raised (delayed) after a sidebar was asked to open; fires the failure state if its pane never came. */
+export type SidebarStartTimeoutEvent = { type: 'SIDEBAR_START_TIMEOUT'; side: 'left' | 'right' };
+/** A sidebar divider is being dragged: draw the column at `cols` now (null = default). */
+export type SidebarResizePreviewEvent = {
+  type: 'SIDEBAR_RESIZE_PREVIEW';
+  side: 'left' | 'right';
+  cols: number | null;
+};
+/** The drag ended: write the width to the column's window (null = unset, back to the default). */
+export type SidebarResizeCommitEvent = {
+  type: 'SIDEBAR_RESIZE_COMMIT';
+  side: 'left' | 'right';
+  cols: number | null;
+};
+/** Safety net after a commit: drop the preview if the server never echoed the width. */
+export type SidebarPreviewExpireEvent = { type: 'SIDEBAR_PREVIEW_EXPIRE'; side: 'left' | 'right' };
+/** The app body (columns + pane grid) was measured. */
+export type SetBodySizeEvent = { type: 'SET_BODY_SIZE'; width: number };
 export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: string };
 
 /**
@@ -705,6 +752,11 @@ export type AppMachineEvent =
   | ToggleRightSidebarEvent
   | FocusRightSidebarEvent
   | BlurRightSidebarEvent
+  | SidebarStartTimeoutEvent
+  | SidebarResizePreviewEvent
+  | SidebarResizeCommitEvent
+  | SidebarPreviewExpireEvent
+  | SetBodySizeEvent
   | WriteToPaneEvent
   | CommandModeSubmitEvent
   | CommandModeCancelEvent

@@ -23,10 +23,16 @@ body {
   background-color: rgba(var(--window-bg-rgb), var(--app-opacity));
 }
 
+/* A fixed height, not a minimum: with a minimum the flex chain below could be
+   pushed taller than the window by content (a tree with more rows than fit
+   grew the whole page, hid the status bar and re-tiled tmux to the taller
+   size). Content that does not fit scrolls inside its own column instead. */
 #root {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   box-sizing: border-box;
 }
 

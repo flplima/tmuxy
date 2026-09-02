@@ -33,9 +33,21 @@ import { extractSelectedText } from '../utils/copyMode';
 
 interface TerminalPaneProps {
   paneId: string;
+  /**
+   * `none` drops the pane header. The pinned dock renders through here so it
+   * gets the same wheel/drag/copy-mode layer a tiled pane has, but its title
+   * lives in the app header instead.
+   */
+  chrome?: 'header' | 'none';
+  /**
+   * Overrides the derived cursor/active state. A dock pane is never tmux's
+   * active pane (it lives in another window), so its column tells it when it
+   * holds the keyboard.
+   */
+  isActive?: boolean;
 }
 
-export function TerminalPane({ paneId }: TerminalPaneProps) {
+export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPaneProps) {
   const send = useAppSend();
   const actor = useAppActor();
   const pane = usePane(paneId);
@@ -364,7 +376,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
       onContextMenu={handleContextMenu}
     >
       <LogProfiler id={`Pane:${paneId}`} />
-      <PaneHeader paneId={paneId} />
+      {chrome === 'header' && <PaneHeader paneId={paneId} />}
       {!collapsed && selectionMenu && (
         <SelectionContextMenu
           paneId={paneId}
@@ -395,7 +407,7 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
                     content={pane.content}
                     cursorX={pane.cursorX}
                     cursorY={pane.cursorY}
-                    isActive={pane.active && isInActiveWindow && !focusedFloatPaneId}
+                    isActive={isActive ?? (pane.active && isInActiveWindow && !focusedFloatPaneId)}
                     width={pane.width}
                     height={pane.height}
                     inMode={pane.inMode}

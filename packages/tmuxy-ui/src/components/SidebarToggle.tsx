@@ -11,7 +11,7 @@
  * terminal).
  */
 
-import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { useAppSend, useAppSelector, selectSidebarLayout } from '../machines/AppContext';
 import { SidebarGlyph } from './SidebarColumn';
 
 interface SidebarToggleProps {
@@ -28,14 +28,23 @@ export function SidebarToggle({ side }: SidebarToggleProps) {
   const open = useAppSelector((ctx) =>
     side === 'left' ? ctx.leftSidebarOpen : ctx.rightSidebarOpen,
   );
+  // What is actually on screen. In a window too narrow for two overlays the
+  // layout shows the tree and suppresses the dock, so the dock's toggle must
+  // not claim it is open — pressing it would then toggle something invisible.
+  const layout = useAppSelector(selectSidebarLayout);
+  const shown = side === 'left' ? layout.leftOpen : layout.rightOpen;
+  const suppressed = open && !shown;
   const labels = LABELS[side];
 
   return (
     <button
-      className={`sidebar-toggle sidebar-toggle-${side}${open ? ' sidebar-toggle-active' : ''}`}
+      className={`sidebar-toggle sidebar-toggle-${side}${shown ? ' sidebar-toggle-active' : ''}`}
       aria-label={labels.aria}
-      aria-pressed={open}
-      title={labels.title}
+      aria-pressed={shown}
+      disabled={suppressed}
+      title={
+        suppressed ? `${labels.title} — hidden while the tree overlays the panes` : labels.title
+      }
       onClick={() =>
         send({ type: side === 'left' ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR' })
       }

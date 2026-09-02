@@ -16,6 +16,7 @@ import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 import type { CopyModeState, CellLine } from '../../../tmux/types';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
 import { mergeScrollbackChunk, getNeededChunk, isWrappedRow } from '../../../utils/copyMode';
+import { selectRightSidebarPane } from '../../selectors';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -429,7 +430,13 @@ export const copyModeActions = {
   copyMode_key: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ event, context, enqueue }) => {
       if (event.type !== 'COPY_MODE_KEY') return;
-      const paneId = context.activePaneId;
+      // The pane holding the keyboard: the dock's pane while the dock is
+      // focused (it can be scrolled into copy mode like any pane), else the
+      // active tab pane. The keyboard actor made the same choice to get here.
+      const dockPaneId = context.rightSidebarFocused
+        ? (selectRightSidebarPane(context)?.tmuxId ?? null)
+        : null;
+      const paneId = dockPaneId ?? context.activePaneId;
       if (!paneId) return;
       const copyState = context.copyModeStates[paneId];
       if (!copyState) return;
