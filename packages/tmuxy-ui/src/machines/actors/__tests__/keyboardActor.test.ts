@@ -83,10 +83,14 @@ function spawnWithLiveContext(initial = '%1') {
   const keyboardActor = createKeyboardActor();
   const parent = createMachine({
     types: {} as {
-      context: { activePaneId: string; copyModeStates: Record<string, unknown> };
+      context: {
+        activePaneId: string;
+        activeWindowId: string;
+        copyModeStates: Record<string, unknown>;
+      };
       events: { type: string; paneId?: string; [k: string]: unknown };
     },
-    context: { activePaneId: initial, copyModeStates: {} },
+    context: { activePaneId: initial, activeWindowId: '@0', copyModeStates: {} },
     invoke: {
       id: 'keyboard',
       src: 'keyboardActor',
@@ -155,6 +159,36 @@ describe('keyboardActor — active-pane target uses the live snapshot', () => {
 
     pressKey({ key: 'b' });
     expect(lastSendCommand(events)).toBe("send-keys -t %7 -l 'b'");
+  });
+});
+
+describe('keyboardActor — bindings are pinned to the window the user sees', () => {
+  it('prepends select-window and select-pane to prefix and root bindings', () => {
+    // A split right after a tab switch: the client is already on the new tab
+    // (optimistically) while tmux may still be on the old one. `select-pane`
+    // alone never changes the current window, so without the window pin the
+    // split could land in the tab the user just left.
+    const { actor, child, events } = spawnWithLiveContext('%1');
+    child.send({
+      type: 'UPDATE_KEYBINDINGS',
+      keybindings: {
+        prefix_key: 'C-a',
+        prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
+        root_bindings: [{ key: 'C-2', command: 'select-window -t 2' }],
+      },
+    });
+    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: '%2' });
+
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: '%', shiftKey: true });
+    expect(lastSendCommand(events)).toBe(
+      'select-window -t @0 \\; select-pane -t %2 \\; split-window -h',
+    );
+
+    pressKey({ key: '2', ctrlKey: true });
+    expect(lastSendCommand(events)).toBe(
+      'select-window -t @0 \\; select-pane -t %2 \\; select-window -t 2',
+    );
   });
 });
 

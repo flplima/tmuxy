@@ -344,17 +344,44 @@ export function createKeyboardActor() {
       // snapshot here closes that window; `activePaneId` (the cached closure)
       // remains the fallback if the read ever throws.
       let liveActivePaneId = activePaneId;
+      let liveActiveWindowId: string | null = null;
       let liveCopyStates: Record<string, CopyModeState> | undefined;
       try {
         const snapshot = input.parent.getSnapshot() as {
-          context?: { activePaneId?: string; copyModeStates?: Record<string, CopyModeState> };
+          context?: {
+            activePaneId?: string;
+            activeWindowId?: string | null;
+            copyModeStates?: Record<string, CopyModeState>;
+          };
         };
         const ctx = snapshot?.context;
         if (ctx?.activePaneId !== undefined) liveActivePaneId = ctx.activePaneId;
+        if (ctx?.activeWindowId) liveActiveWindowId = ctx.activeWindowId;
         liveCopyStates = ctx?.copyModeStates;
       } catch (_) {
         /* keep the cached closure values */
       }
+
+      /**
+       * The pin prepended to a binding so it runs where the user is looking.
+       *
+       * A binding such as `split-window` carries no target and acts on tmux's
+       * CURRENT window and pane. Right after a tab switch the client has already
+       * moved on (the switch is optimistic) while tmux may not have — and
+       * `select-pane -t <pane>` alone never changes the current window, so the
+       * split could land in the tab the user just left. Naming the window too
+       * makes the binding independent of what tmux's current window is at that
+       * instant. An overlay (float, dock) is pinned by pane only: its window must
+       * never become current, or the tab behind it would blank.
+       */
+      const bindingPin = (): string => {
+        const overlay = overlayPaneId();
+        if (overlay) return `select-pane -t ${overlay} \\; `;
+        const pane = realPaneId(liveActivePaneId);
+        if (!pane) return '';
+        const windowPin = liveActiveWindowId ? `select-window -t ${liveActiveWindowId} \\; ` : '';
+        return `${windowPin}select-pane -t ${pane} \\; `;
+      };
 
       // Copy mode is per-pane and derived (not synced): a pane is in copy mode
       // iff the *currently active* pane has a CopyModeState. Deriving this fresh
@@ -514,17 +541,13 @@ export function createKeyboardActor() {
 
         const bindingCommand = prefixBindings.get(bindingKey);
         if (bindingCommand) {
-          // Prefix-pin to activePaneId. Most prefix bindings (e.g., `split-window`,
-          // `kill-pane`) have no `-t` target and run against tmux's server-side
-          // active pane — which can lag the user's perceived focus right after a
-          // window switch or pane-group swap. Prepending `select-pane -t <id>`
-          // aligns tmux's view with ours before the binding executes; for
-          // bindings that carry their own target (e.g., `select-pane -L`), the
-          // prepend is a harmless no-op since the binding overrides it.
-          const target = overlayPaneId() ?? realPaneId(liveActivePaneId);
-          const command = target
-            ? `select-pane -t ${target} \\; ${bindingCommand}`
-            : bindingCommand;
+          // Prefix-pin to the window and pane the user sees (see `bindingPin`).
+          // Most prefix bindings (e.g., `split-window`, `kill-pane`) have no
+          // `-t` target and run against tmux's server-side current window/pane,
+          // which can lag the user's perceived focus right after a window switch
+          // or pane-group swap. For bindings that carry their own target (e.g.,
+          // `select-pane -L`), the prepend is a harmless no-op.
+          const command = `${bindingPin()}${bindingCommand}`;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
             command,
@@ -566,11 +589,10 @@ export function createKeyboardActor() {
       // Check for root bindings (bind -n) - these bypass send-keys
       const rootCommand = formattedKey ? rootBindings.get(formattedKey) : undefined;
       if (rootCommand) {
-        // Same prefix-pin treatment as prefix bindings — root bindings (bind -n)
-        // also run against tmux's server-side active pane and need the
+        // Same pin as prefix bindings — root bindings (bind -n) also run
+        // against tmux's server-side current window/pane and need the
         // post-tab-switch / post-group-swap race guarded the same way.
-        const target = overlayPaneId() ?? realPaneId(liveActivePaneId);
-        const command = target ? `select-pane -t ${target} \\; ${rootCommand}` : rootCommand;
+        const command = `${bindingPin()}${rootCommand}`;
         input.parent.send({
           type: 'SEND_TMUX_COMMAND',
           command,

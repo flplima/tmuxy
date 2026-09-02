@@ -95,6 +95,83 @@ async function waitForFloatModal(page, timeout = 10000) {
   await page.waitForSelector('.modal-overlay', { timeout });
 }
 
+// ==================== Scenario 4b: Split right after a tab switch ====================
+
+describe('Scenario 4b: Split right after a tab switch', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // The tab switch is optimistic: the client is on the new tab before tmux is.
+  // A split fired in that gap used to land in the tab the user just LEFT,
+  // because the binding was pinned with `select-pane` only, which never changes
+  // tmux's current window. Every binding is now pinned to the visible window
+  // too, so the split must follow the eye every time.
+  test('prefix % immediately after ctrl+N / tab click / prefix n always splits the visible tab', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    await createWindowKeyboard(ctx.page);
+    await waitForWindowCount(ctx.page, 2);
+
+    const panesByWindow = async () => {
+      const counts = {};
+      const out = await ctx.session.query("list-panes -s -F '#{window_id}'");
+      for (const line of String(out).split('\n')) {
+        if (line) counts[line] = (counts[line] || 0) + 1;
+      }
+      return counts;
+    };
+    const visibleWindow = () =>
+      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
+
+    // The two tabs' tmux indices, for the ctrl+<digit> root bindings.
+    const indices = await ctx.page.evaluate(() =>
+      (window.app?.getSnapshot()?.context?.windows || [])
+        .filter((w) => w.windowType === 'tab')
+        .map((w) => w.index),
+    );
+    const ctrlDigit = async (digit) => {
+      await ctx.page.keyboard.down('Control');
+      await ctx.page.keyboard.press(String(digit));
+      await ctx.page.keyboard.up('Control');
+    };
+    const switches = [
+      () => ctrlDigit(indices[0]),
+      () => ctrlDigit(indices[1]),
+      () => ctx.page.click('.tab-name:nth-child(1)'),
+      () => ctx.page.click('.tab-name:nth-child(2)'),
+      () => nextWindowKeyboard(ctx.page),
+      () => nextWindowKeyboard(ctx.page),
+    ];
+    for (let i = 0; i < switches.length; i++) {
+      const before = await panesByWindow();
+      await switches[i]();
+      // No settling delay on purpose: this is the race. `%` is Shift+5, `"` is Shift+'.
+      await sendPrefixCommand(ctx.page, i % 2 === 0 ? '5' : "'", { shift: true });
+      const shown = await visibleWindow();
+      await waitForCondition(
+        ctx.page,
+        async () => ((await panesByWindow())[shown] || 0) === (before[shown] || 0) + 1,
+        8000,
+        `iteration ${i}: the new pane to be in the visible window ${shown}`,
+      );
+      const after = await panesByWindow();
+      for (const win of Object.keys(after)) {
+        if (win !== shown) {
+          expect({ iteration: i, window: win, panes: after[win] }).toEqual({
+            iteration: i,
+            window: win,
+            panes: before[win] || 0,
+          });
+        }
+      }
+    }
+  }, 120000);
+});
+
 // ==================== Scenario 4: Window Lifecycle ====================
 
 describe('Scenario 4: Window Lifecycle', () => {
