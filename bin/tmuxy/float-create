@@ -66,6 +66,9 @@ fi
 build_break_and_tag_float() {
   local pane_id="$1" parent_wid="$2"
   printf 'break-pane -d -s %s -n float' "$pane_id"
+  if [ -n "$CALLER_SESSION" ]; then
+    printf ' -t %s:' "$CALLER_SESSION"
+  fi
   printf ' \\; set-option -w -t %s @tmuxy-window-type float' "$pane_id"
   if [ -n "$parent_wid" ]; then
     printf ' \\; set-option -w -t %s @tmuxy-float-parent %s' "$pane_id" "$parent_wid"
@@ -88,8 +91,21 @@ build_break_and_tag_float() {
   printf '\n'
 }
 
+# Act on the CALLER's pane, window and session, never on tmux's notion of the
+# current ones: with several clients attached to different sessions (a desktop
+# app on one, a web tab on another) "current" is whichever session was touched
+# last, and the float would be split from — and broken out into — the wrong
+# session. TMUX_PANE is set in every pane's shell; the run-shell'd commands
+# below carry these explicit targets because they run in the server's context,
+# where that variable is not guaranteed.
+CALLER_TARGET=${TMUX_PANE:+-t $TMUX_PANE}
+CALLER_SESSION=""
+if [ -n "${TMUX_PANE:-}" ]; then
+  CALLER_SESSION=$(_tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null || true)
+fi
+
 # Detect if we're already inside a float pane (by current window's type option)
-CURRENT_WIN=$(_tmux display-message -p '#{window_id}')
+CURRENT_WIN=$(_tmux display-message -p $CALLER_TARGET '#{window_id}')
 CURRENT_TYPE=$(window_type "$CURRENT_WIN")
 
 if [ "$CURRENT_TYPE" = "float" ]; then
@@ -116,7 +132,7 @@ if [ $# -eq 0 ]; then
   # doubled hash survives as a literal #{pane_id} for split-window's -P -F to
   # expand against the NEW pane. A bare #{pane_id} would pre-expand to the
   # ACTIVE pane and break-pane would then move the wrong pane into the float.
-  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET split-window -dP -F '##{pane_id}' > $TMPID"
+  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET split-window $CALLER_TARGET -dP -F '##{pane_id}' > $TMPID"
   NEW_PANE_ID=$(cat "$TMPID")
   rm -f "$TMPID"
   trap - EXIT
@@ -160,7 +176,7 @@ tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET wait-for -S ${WAIT_CHAN}
 SCRIPT
   chmod +x "$WRAPPER"
   # ##{pane_id}: see the interactive branch — run-shell expands ## -> #.
-  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET split-window -dP -F '##{pane_id}' 'bash $WRAPPER' > $TMPID"
+  _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET split-window $CALLER_TARGET -dP -F '##{pane_id}' 'bash $WRAPPER' > $TMPID"
   NEW_PANE_ID=$(cat "$TMPID")
   rm -f "$TMPID"
 

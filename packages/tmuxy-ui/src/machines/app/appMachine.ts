@@ -314,14 +314,16 @@ function navDirection(command: string): 'left' | 'right' | null {
 }
 
 /**
- * Strip the `select-pane -t <id> \;` head that keyboardActor prepends to every
- * prefix/root binding (so tmux's server-side active pane aligns with the user's
- * focus before a `-t`-less binding runs). Returned form is what the client-side
- * intercepts and parsers expect; the original (with prefix) is what we forward
- * to tmux so the alignment actually happens for tmux-bound commands.
+ * Strip the pin that keyboardActor prepends to every prefix/root binding —
+ * `select-window -t <id> \; select-pane -t <id> \;` for a tiled pane, or just
+ * `select-pane -t <id> \;` for an overlay — so tmux's server-side current
+ * window and pane align with the user's focus before a `-t`-less binding runs.
+ * Returned form is what the client-side intercepts and parsers expect; the
+ * original (with the pin) is what we forward to tmux so the alignment actually
+ * happens for tmux-bound commands.
  */
 function stripActivePanePrefix(command: string): string {
-  const m = command.match(/^select-pane\s+-t\s+\S+\s+\\;\s+/);
+  const m = command.match(/^(?:select-window\s+-t\s+\S+\s+\\;\s+)?select-pane\s+-t\s+\S+\s+\\;\s+/);
   return m ? command.slice(m[0].length) : command;
 }
 

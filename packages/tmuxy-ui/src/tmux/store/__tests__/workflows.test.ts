@@ -149,6 +149,13 @@ describe('parseCommandToOp — prefix-pinned commands', () => {
     expect(parseCommandToOp('select-pane -t %1 \\; new-window')).toEqual({
       _tag: 'NewWindow',
     });
+    // A tiled pane's bindings carry a window pin in front of the pane pin.
+    expect(
+      parseCommandToOp('select-window -t @0 \\; select-pane -t %0 \\; split-window -h'),
+    ).toEqual({
+      _tag: 'Split',
+      direction: 'vertical',
+    });
     expect(parseCommandToOp('select-pane -t %2 \\; select-pane -L')).toEqual({
       _tag: 'Navigate',
       direction: 'L',

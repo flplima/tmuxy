@@ -219,7 +219,8 @@ export const KeyboardNavigate: Story = {
       timeout: 3000,
     });
     await user.keyboard('{Enter}');
-    // Enter activated a tab or pane — the active tab or pane changed from the start.
+    // Enter activated a tab or pane — the active tab or pane changed from the
+    // start — and handed the keyboard to it, the way a click on a pane does.
     await waitFor(
       () => {
         const s = app().context;
@@ -227,9 +228,12 @@ export const KeyboardNavigate: Story = {
       },
       { timeout: 5000 },
     );
+    await waitFor(() => expect(tree.getAttribute('data-focused')).toBe('false'), { timeout: 5000 });
 
-    // Escape is not a tree key (a sidebar pane may need it); `l` hands the
-    // keyboard back to the panes.
+    // Back in the tree: Escape is not a tree key (a sidebar pane may need it);
+    // `l` hands the keyboard back to the panes.
+    await userEvent.click(document.querySelector('[data-testid="sidebar-content"]') as HTMLElement);
+    await waitFor(() => expect(tree.getAttribute('data-focused')).toBe('true'), { timeout: 5000 });
     await user.keyboard('{Escape}');
     expect(tree.getAttribute('data-focused')).toBe('true');
     await user.keyboard('l');
@@ -547,23 +551,31 @@ export const DragResizesTheColumn: Story = {
     const startGridCols = gridCols();
     expect(startGridCols).toBeGreaterThan(0);
 
-    // Drag the inner edge 90px to the right. Driven as real mouse events on the
+    // Drag the inner edge 90px to the right. Driven as pointer events on the
     // handle, because the drag is what a user actually does — the column has no
-    // width control to call.
+    // width control to call. The handle captures the pointer, so the move and
+    // the release go to the handle itself, as they would from a real mouse.
     const box = handle.getBoundingClientRect();
     const startX = Math.round(box.x + box.width / 2);
     const y = Math.round(box.y + box.height / 2);
-    handle.dispatchEvent(
-      new MouseEvent('mousedown', { bubbles: true, clientX: startX, clientY: y }),
-    );
-    // The move listeners are installed by an effect, so they are not in place
-    // until the mousedown's render commits. A real drag has human-scale delay
-    // here; dispatching the move synchronously would miss them entirely.
+    const pointer = (type: string, clientX: number) =>
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY: y,
+        button: 0,
+        buttons: type === 'pointerup' ? 0 : 1,
+        pointerId: 1,
+        pointerType: 'mouse',
+        isPrimary: true,
+      });
+    handle.dispatchEvent(pointer('pointerdown', startX));
+    // The drag state lands on the next render; a real drag has human-scale
+    // delay here, so wait for it rather than moving synchronously.
     await waitFor(() => expect(handle.className).toContain('is-dragging'), { timeout: 3000 });
-    window.dispatchEvent(
-      new MouseEvent('mousemove', { bubbles: true, clientX: startX + 90, clientY: y }),
-    );
-    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    handle.dispatchEvent(pointer('pointermove', startX + 90));
+    handle.dispatchEvent(pointer('pointerup', startX + 90));
 
     // The column is drawn wider, and the pane grid gave space up for it — the
     // resize re-tiles the panes rather than covering them. (How MUCH the grid

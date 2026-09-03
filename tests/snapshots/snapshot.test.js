@@ -289,10 +289,12 @@ test('tab bar matches visible windows', async () => {
       .map((w) => ({ index: w.index, name: w.name, active: w.active }))
       .sort((a, b) => a.index - b.index);
 
-    // DOM tab elements — tabs are .tab-name spans inside .tab-list
+    // DOM tab elements — tabs are .tab-name buttons inside .tab-list; the
+    // title lives in .tab-name-label (a ✕ close control follows it once there
+    // are several tabs).
     const tabEls = Array.from(document.querySelectorAll('.tab-list .tab-name'));
     const domTabs = tabEls.map((el) => ({
-      name: el.textContent || '',
+      name: el.querySelector('.tab-name-label')?.textContent || el.textContent || '',
       active: el.classList.contains('tab-name-active'),
     }));
 
@@ -302,25 +304,21 @@ test('tab bar matches visible windows', async () => {
   expect(result).not.toBeNull();
   expect(result.domTabs.length).toBe(result.visibleWindows.length);
 
-  // A LONE tab carries no active marker: there is nothing for it to be active
-  // against, so the strip renders it as a plain title (WindowTabs.tsx). Only
-  // once there are several does the highlight mean anything.
-  const soleTab = result.visibleWindows.length === 1;
-
+  // Every tab — a lone one included — carries the active marker exactly when
+  // tmux says it is active (WindowTabs.tsx keeps the active style on a sole
+  // tab so the strip reads the same however many tabs there are).
   for (let i = 0; i < result.visibleWindows.length; i++) {
     const win = result.visibleWindows[i];
     // DOM tabs show "visualIndex:name" where visualIndex = position + 1
     const visualIndex = i + 1;
     const expectedTabName = `${visualIndex}:${win.name}`;
     expect(result.domTabs[i].name).toBe(expectedTabName);
-    expect(result.domTabs[i].active).toBe(soleTab ? false : win.active);
+    expect(result.domTabs[i].active).toBe(win.active);
   }
 
-  // ...and with several tabs, exactly one of them is marked — a strip with two
-  // highlights (or none) means the active flag and the class have drifted.
-  if (!soleTab) {
-    expect(result.domTabs.filter((t) => t.active).length).toBe(1);
-  }
+  // ...and exactly one of them is marked — a strip with two highlights (or
+  // none) means the active flag and the class have drifted.
+  expect(result.domTabs.filter((t) => t.active).length).toBe(1);
 });
 
 test('no orphan DOM panes: every data-pane-id has an XState pane', async () => {

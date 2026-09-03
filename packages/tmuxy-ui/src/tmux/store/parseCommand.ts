@@ -16,15 +16,19 @@
 import type { TmuxOp } from './types';
 
 /**
- * Strip the leading `select-pane -t %N \;` prefix that keyboardActor pins to
- * every prefix/root-bound command. Without this, every binding would parse as
- * a `SelectPane` op (the prefix matches first) and the real operation —
- * split-window, swap-pane, new-window — would be lost when the op was turned
- * back into a command string. Returns the binding tail for op-classification
- * purposes; the original command is still what gets sent to tmux.
+ * Strip the pin that keyboardActor prepends to every prefix/root-bound
+ * command: `select-window -t @N \; select-pane -t %N \;` for a tiled pane,
+ * `select-pane -t %N \;` alone for an overlay. Without this, every binding
+ * would parse as a `SelectWindow`/`SelectPane` op (the pin matches first) and
+ * the real operation — split-window, swap-pane, new-window — would be lost
+ * when the op was turned back into a command string. Returns the binding tail
+ * for op-classification purposes; the original command is still what gets
+ * sent to tmux.
  */
 function stripActivePanePinPrefix(command: string): string {
-  const m = command.match(/^select-pane\s+-t\s+%\d+\s+\\;\s*(.+)$/s);
+  const m = command.match(
+    /^(?:select-window\s+-t\s+@\d+\s+\\;\s*)?select-pane\s+-t\s+%\d+\s+\\;\s*(.+)$/s,
+  );
   return m ? m[1] : command;
 }
 
