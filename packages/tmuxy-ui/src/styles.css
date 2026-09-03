@@ -568,14 +568,20 @@
 
 /* Active pane surface: the theme's terminal background at
    --active-pane-opacity (1 by default — the colour the theme was designed
-   for). It keeps the same outline as its siblings so the mosaic frame stays
-   continuous; surface and text opacity carry the distinction. */
+   for), and a 1px outline in the theme's focus colour (green on the default
+   and gruvbox themes; `--pane-focus-border` per theme, falling back to the
+   accent). Green means "the keyboard is in this tiled pane": PaneLayout drops
+   the class while a float, the dock or the tree holds the keyboard. The
+   outline sits above its siblings' so the whole frame reads, not just the
+   edges no neighbour shares. */
 .pane-layout-item.pane-active {
   background-color: color-mix(
     in srgb,
     var(--term-background) calc(var(--active-pane-opacity) * 100%),
     transparent
   );
+  outline-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
+  z-index: 1;
 }
 
 /* Zoomed pane: the active-pane surface applies; it only needs to sit above

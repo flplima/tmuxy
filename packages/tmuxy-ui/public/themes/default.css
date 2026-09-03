@@ -50,6 +50,8 @@
 
   --accent-green: var(--term-green);
   --accent-green-bright: var(--term-bright-green);
+  /* Active pane outline: the classic tmux green. */
+  --pane-focus-border: var(--term-green);
   --accent-green-bg: #1a3d1a;
   --accent-green-border: #2d5a2d;
   --accent-green-hover: #254d25;

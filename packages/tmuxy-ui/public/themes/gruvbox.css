@@ -82,6 +82,8 @@
      `--border-medium` (which inactive panes use) so the active state reads
      clearly without being a hard white box. */
   --pane-active-border: #504945;
+  /* Active pane outline: gruvbox bright green. */
+  --pane-focus-border: #b8bb26;
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -175,6 +177,8 @@
 
   /* Active pane bar/outline: one step lighter than the light-mode border. */
   --pane-active-border: #a89984;
+  /* Active pane outline: gruvbox light-mode green. */
+  --pane-focus-border: #79740e;
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
