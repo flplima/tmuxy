@@ -174,7 +174,7 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
       keybindings: {
         prefix_key: 'C-a',
         prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
-        root_bindings: [{ key: 'C-2', command: 'select-window -t 2' }],
+        root_bindings: [{ key: 'C-n', command: 'next-window' }],
       },
     });
     actor.send({ type: 'SET_PARENT_ACTIVE', paneId: '%2' });
@@ -185,10 +185,43 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
       'select-window -t @0 \\; select-pane -t %2 \\; split-window -h',
     );
 
-    pressKey({ key: '2', ctrlKey: true });
+    pressKey({ key: 'n', ctrlKey: true });
     expect(lastSendCommand(events)).toBe(
-      'select-window -t @0 \\; select-pane -t %2 \\; select-window -t 2',
+      'select-window -t @0 \\; select-pane -t %2 \\; next-window',
     );
+  });
+});
+
+describe('keyboardActor — ctrl+digit is the tab strip, not a tmux binding', () => {
+  it('sends the strip position for ctrl+1–9 and toggles the overview on ctrl+0', () => {
+    // Sidebars and floats occupy tmux window indexes the user never sees, so
+    // `select-window -t N` would pick the wrong tab. The client resolves the
+    // Nth visible tab itself; a root binding on the same key never wins.
+    const { child, events } = spawnWithLiveContext('%1');
+    child.send({
+      type: 'UPDATE_KEYBINDINGS',
+      keybindings: {
+        prefix_key: 'C-a',
+        prefix_bindings: [],
+        root_bindings: [{ key: 'C-2', command: 'select-window -t 2' }],
+      },
+    });
+
+    const ofType = (type: string) => events.filter((e) => e.type === type);
+
+    pressKey({ key: '2', ctrlKey: true });
+    expect(ofType('SELECT_TAB_BY_POSITION')).toEqual([
+      { type: 'SELECT_TAB_BY_POSITION', position: 2 },
+    ]);
+    expect(ofType('SEND_COMMAND')).toEqual([]);
+
+    pressKey({ key: '0', ctrlKey: true });
+    expect(ofType('TOGGLE_TAB_OVERVIEW')).toHaveLength(1);
+
+    // prefix w opens the same overview.
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'w' });
+    expect(ofType('TOGGLE_TAB_OVERVIEW')).toHaveLength(2);
   });
 });
 

@@ -32,6 +32,8 @@ import { copyModeActions, copyModeExitTimes, COPY_MODE_REENTRY_COOLDOWN } from '
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { layoutState } from './states/layout';
+import { tabOverviewGlobalEvents } from './states/tabOverview';
+import { tabOverviewActions } from './actions/tabOverview';
 import { layoutActions } from './actions/layout';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { selectLeftSidebarPane, selectRightSidebarPane } from '../selectors';
@@ -347,6 +349,7 @@ export const appMachine = setup({
     ...commandUiActions,
     ...copyModeActions,
     ...groupsAndFloatsActions,
+    ...tabOverviewActions,
     ...layoutActions,
   },
 }).createMachine({
@@ -408,6 +411,7 @@ export const appMachine = setup({
     ...uiPrefsState.on,
     ...commandUiState.on,
     ...groupsAndFloatsGlobalEvents,
+    ...tabOverviewGlobalEvents,
 
     LOG_APPEND: {
       actions: assign(({ context, event }) => {

@@ -246,6 +246,13 @@ export interface AppMachineContext {
    * whose width already depends on that decision.
    */
   bodyWidth: number;
+  /**
+   * The Tab Overview (ctrl+0): every tab as a slot over the pane area, the
+   * current one zoomed out into its slot. `tabOverviewSelected` is the keyboard
+   * cursor over the slots in strip order, the last index being the "+" slot.
+   */
+  tabOverviewOpen: boolean;
+  tabOverviewSelected: number;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /** Keybindings received from the server */
@@ -556,6 +563,21 @@ export type SidebarResizeCommitEvent = {
 export type SidebarPreviewExpireEvent = { type: 'SIDEBAR_PREVIEW_EXPIRE'; side: 'left' | 'right' };
 /** The app body (columns + pane grid) was measured. */
 export type SetBodySizeEvent = { type: 'SET_BODY_SIZE'; width: number };
+
+// Tab Overview (the "all tabs" view) and position-based tab keys
+export type ToggleTabOverviewEvent = { type: 'TOGGLE_TAB_OVERVIEW' };
+export type CloseTabOverviewEvent = { type: 'CLOSE_TAB_OVERVIEW' };
+/** Move the overview's keyboard cursor by `delta` slots (wraps). */
+export type TabOverviewMoveEvent = { type: 'TAB_OVERVIEW_MOVE'; delta: number };
+export type TabOverviewSelectEvent = { type: 'TAB_OVERVIEW_SELECT'; index: number };
+/** Open the slot at `index` (default: the cursor); the trailing slot creates a tab. */
+export type TabOverviewActivateEvent = { type: 'TAB_OVERVIEW_ACTIVATE'; index?: number };
+/** ctrl+1…9: select the Nth tab as the strip shows it (1-based position). */
+export type SelectTabByPositionEvent = { type: 'SELECT_TAB_BY_POSITION'; position: number };
+/** Put a tab at a new strip position (0-based among the other tabs). */
+export type ReorderTabEvent = { type: 'REORDER_TAB'; windowId: string; toIndex: number };
+/** Close a specific tab (kill-window on that window, not the current one). */
+export type CloseTabEvent = { type: 'CLOSE_TAB'; windowId: string };
 export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: string };
 
 /**
@@ -757,6 +779,14 @@ export type AppMachineEvent =
   | SidebarResizeCommitEvent
   | SidebarPreviewExpireEvent
   | SetBodySizeEvent
+  | ToggleTabOverviewEvent
+  | CloseTabOverviewEvent
+  | TabOverviewMoveEvent
+  | TabOverviewSelectEvent
+  | TabOverviewActivateEvent
+  | SelectTabByPositionEvent
+  | ReorderTabEvent
+  | CloseTabEvent
   | WriteToPaneEvent
   | CommandModeSubmitEvent
   | CommandModeCancelEvent

@@ -89,6 +89,10 @@ export function AppMenu() {
           New Tab
           <KeyLabel keybindings={keybindings} command="new-window" />
         </MenuItem>
+        <MenuItem onClick={() => handleAction('tab-overview')}>
+          Show All Tabs
+          <span className="menu-keybinding">ctrl+0</span>
+        </MenuItem>
         <MenuItem onClick={() => handleAction('tab-next')} disabled={isSingleWindow}>
           Next Tab
           <KeyLabel keybindings={keybindings} command="next-window" />

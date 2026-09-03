@@ -27,6 +27,7 @@ export type { AppMachineContext };
  */
 export type StateName =
   | 'layout'
+  | 'tabOverview'
   | 'copyMode'
   | 'groupsAndFloats'
   | 'commandUi'
@@ -99,6 +100,8 @@ export const FIELD_OWNERS = {
   leftSidebarStarting: 'groupsAndFloats',
   rightSidebarStarting: 'groupsAndFloats',
   sidebarColsPreview: 'groupsAndFloats',
+  tabOverviewOpen: 'tabOverview',
+  tabOverviewSelected: 'tabOverview',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -162,6 +165,8 @@ export function createInitialContext(): AppMachineContext {
     leftSidebarStarting: false,
     rightSidebarStarting: false,
     sidebarColsPreview: null,
+    tabOverviewOpen: false,
+    tabOverviewSelected: 0,
     enableAnimations: false,
     keybindings: null,
     copyModeStates: {},

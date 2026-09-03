@@ -1946,3 +1946,211 @@
 .sidebar-tree-pane.is-foreign {
   opacity: 0.72;
 }
+
+/* ============================================
+   Tab Overview — the "all tabs" view (ctrl+0)
+   ============================================ */
+.tab-overview {
+  position: absolute;
+  inset: 0;
+  /* Above floats (1001+) and the zoomed pane; the live grid is lifted over it
+     only while the overview is open (see .tab-overview-open .pane-layout). */
+  z-index: 1200;
+  background: color-mix(in srgb, var(--term-background) 78%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  overflow: hidden;
+}
+
+.tab-overview-grid {
+  height: 100%;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: var(--spacing-2xl);
+  padding: var(--spacing-2xl);
+  box-sizing: border-box;
+  align-content: start;
+}
+
+@media (max-width: 600px) {
+  .tab-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--spacing-lg);
+    padding: var(--spacing-lg);
+  }
+}
+
+.tab-overview-slot {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--term-background);
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.tab-overview-slot:hover {
+  border-color: var(--text-subtle);
+}
+
+/* The current tab: its slot is where the live grid lands. */
+.tab-overview-slot.is-active {
+  border-color: var(--accent-green);
+}
+
+/* The keyboard cursor. */
+.tab-overview-slot.is-selected {
+  box-shadow: 0 0 0 2px var(--accent-blue-light);
+}
+
+.tab-overview-slot.is-dragging {
+  opacity: 0.85;
+  z-index: 1;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  transition: none;
+}
+
+/* Where a dragged slot would be inserted: a bar on the card's leading edge. */
+.tab-overview-slot.is-drop-before {
+  box-shadow: -6px 0 0 -2px var(--accent-green);
+}
+
+.tab-overview-slot-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  height: var(--line-height-terminal);
+  padding: 0 var(--spacing-md) 0 var(--spacing-lg);
+  font-family: var(--font-mono);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.85);
+  color: var(--term-white);
+  opacity: 0.85;
+}
+
+.tab-overview-slot.is-active .tab-overview-slot-header {
+  color: var(--accent-green);
+  opacity: 1;
+}
+
+.tab-overview-slot-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-overview-slot-close {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.tab-overview-slot-close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--term-white) 20%, transparent);
+}
+
+/* The tab's pane layout to scale: pane boxes in percent of the tab's extent. */
+.tab-overview-frame {
+  position: relative;
+  aspect-ratio: var(--tab-overview-aspect, 16 / 9);
+  margin: 0 var(--spacing-md) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--term-background) 60%, var(--bg-medium));
+  overflow: hidden;
+}
+
+.tab-overview-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--border-medium);
+  background: var(--term-background);
+  overflow: hidden;
+}
+
+.tab-overview-box.is-active {
+  border-color: var(--pane-active-border, var(--accent-green));
+}
+
+.tab-overview-box-label {
+  display: block;
+  padding: 1px 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 12px;
+  color: var(--text-dimmed);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The trailing "+" slot creates a tab. */
+.tab-overview-slot-new {
+  border-style: dashed;
+  background: transparent;
+}
+
+.tab-overview-frame-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.tab-overview-plus {
+  font-family: var(--font-mono);
+  font-size: 32px;
+  color: var(--text-subtle);
+}
+
+.tab-overview-slot-new:hover .tab-overview-plus {
+  color: var(--term-white);
+}
+
+/* The FLIP: while the overview is open the live pane grid is scaled from its
+   full box into the current tab's frame (custom properties measured by
+   TabOverview), lifted above the overview and made inert so the slot under
+   it takes the click. Closing removes the class and the same transition
+   plays back to the full grid. */
+.pane-container.tab-overview-open .pane-layout {
+  /* Display only while the overview is open: a click on the shrinking grid
+     goes to the slot underneath it, never to a pane. */
+  pointer-events: none;
+  transform-origin: 0 0;
+  transform: translate(var(--tab-overview-x, 0px), var(--tab-overview-y, 0px))
+    scale(var(--tab-overview-sx, 1), var(--tab-overview-sy, 1));
+  z-index: 1201;
+  pointer-events: none;
+}
+
+.pane-container .pane-layout {
+  transition: transform 200ms ease;
+}
+
+.pane-container.tab-overview-open .float-modal,
+.pane-container.tab-overview-open .float-container-root {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-container .pane-layout {
+    transition: none;
+  }
+}

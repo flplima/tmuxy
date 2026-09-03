@@ -500,6 +500,17 @@ export class DemoAdapter implements TmuxAdapter {
         break;
       }
 
+      // Tab Overview drag-reorder: `move-window -b/-a -s <src> -t <target>`.
+      case 'move-window':
+      case 'movew': {
+        const sIdx = parts.indexOf('-s');
+        const tIdx = parts.indexOf('-t');
+        if (sIdx !== -1 && tIdx !== -1) {
+          this.tmux.moveWindow(parts[sIdx + 1], parts[tIdx + 1], parts.includes('-a'));
+        }
+        break;
+      }
+
       case 'select-window':
       case 'selectw': {
         const tIdx = parts.indexOf('-t');

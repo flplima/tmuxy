@@ -105,6 +105,9 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
     case 'tab-new':
       send({ type: 'CREATE_TAB' });
       break;
+    case 'tab-overview':
+      send({ type: 'TOGGLE_TAB_OVERVIEW' });
+      break;
     case 'tab-next':
       send({ type: 'SEND_COMMAND', command: 'next-window' });
       break;

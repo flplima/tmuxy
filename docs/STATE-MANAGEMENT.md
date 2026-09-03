@@ -227,6 +227,7 @@ machines/app/
 │   ├── commandUi.ts       # command mode, status messages, prefix indicator
 │   ├── copyMode.ts        # client-side copy mode (per-pane CopyModeState)
 │   ├── groupsAndFloats.ts # pane groups, float panes, both sidebar columns
+│   ├── tabOverview.ts     # the "all tabs" view: open flag, keyboard cursor
 │   └── layout.ts          # panes, windows, focus, drag/resize
 │                          # (optimistic state lives in src/tmux/store/, not here)
 ├── actions/               # Named action implementations referenced by
@@ -237,7 +238,7 @@ machines/app/
 
 **One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
 `AppMachineContext` field to its owning state (`'layout' | 'copyMode' |
-'groupsAndFloats' | 'commandUi' | 'uiPrefs' | 'parent'`). The
+'groupsAndFloats' | 'tabOverview' | 'commandUi' | 'uiPrefs' | 'parent'`). The
 `tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
 enforces this: any `assign({...})` inside a `states/<name>.ts` or
 `actions/<name>.ts` file may only mutate fields owned by `<name>`.

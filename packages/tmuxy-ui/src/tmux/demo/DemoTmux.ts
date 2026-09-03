@@ -423,6 +423,28 @@ export class DemoTmux {
     return windowId;
   }
 
+  /**
+   * Reorder the tab strip: put `windowId` before (`after` = false) or after
+   * `targetId` among the tab windows, renumbering their indices the way
+   * `renumber-windows on` does. Chrome windows keep their own indices.
+   */
+  moveWindow(windowId: string, targetId: string, after: boolean): boolean {
+    const tabs = this.windows
+      .filter((w) => w.windowType === 'tab')
+      .sort((a, b) => a.index - b.index);
+    const source = tabs.find((w) => w.id === windowId);
+    const target = tabs.find((w) => w.id === targetId);
+    if (!source || !target || source === target) return false;
+    const rest = tabs.filter((w) => w !== source);
+    const at = rest.indexOf(target) + (after ? 1 : 0);
+    rest.splice(at, 0, source);
+    const indices = tabs.map((w) => w.index);
+    rest.forEach((w, i) => {
+      w.index = indices[i];
+    });
+    return true;
+  }
+
   selectWindow(windowId: string): boolean {
     const window = this.windows.find((w) => w.id === windowId);
     if (!window) {

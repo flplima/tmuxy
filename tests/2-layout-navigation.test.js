@@ -181,6 +181,203 @@ describe('Scenario 4d: Marked pane', () => {
   }, 120000);
 });
 
+// ==================== Scenario 4e: Tab Overview and ctrl+N by position ====================
+
+describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // ctrl+0 zooms the current tab out into a grid of every tab (Safari's tab
+  // overview): click a slot to switch, "+" creates, ✕ closes, drag reorders,
+  // Escape restores. ctrl+1…9 pick a tab by its POSITION in the strip — a
+  // sidebar window occupying a tmux index must never shift which tab a digit
+  // lands on.
+  test('ctrl+0 shows every tab; click, +, ✕ and drag act on the strip; ctrl+3 picks the third visible tab', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    const state = () =>
+      page.evaluate(() => {
+        const c = window.app?.getSnapshot()?.context;
+        const tabs = (c?.windows || [])
+          .filter((w) => w.windowType === 'tab')
+          .sort((a, b) => a.index - b.index)
+          .map((w) => ({ id: w.id, index: w.index }));
+        return { tabs, active: c?.activeWindowId, chrome: (c?.windows || []).length - tabs.length };
+      });
+    const overview = () =>
+      page.evaluate(() => {
+        const o = document.querySelector('[data-testid="tab-overview"]');
+        if (!o) return null;
+        const box = (el) => {
+          const r = el.getBoundingClientRect();
+          return { x: r.x, y: r.y, w: r.width, h: r.height };
+        };
+        const layout = document.querySelector('.pane-layout');
+        return {
+          slots: [...o.querySelectorAll('[data-testid^="tab-overview-slot-"]')].map((el) => ({
+            id: el.dataset.testid.replace('tab-overview-slot-', ''),
+            active: el.classList.contains('is-active'),
+            rect: box(el),
+            close: box(el.querySelector('.tab-overview-slot-close')),
+            frame: box(el.querySelector('.tab-overview-frame')),
+          })),
+          plus: box(o.querySelector('[data-testid="tab-overview-new"]')),
+          layout: box(layout),
+          transform: getComputedStyle(layout).transform,
+        };
+      });
+    const ctrl = async (key) => {
+      await page.keyboard.down('Control');
+      await page.keyboard.press(key);
+      await page.keyboard.up('Control');
+    };
+    const clickAt = (r) => page.mouse.click(r.x + r.w / 2, r.y + r.h / 2);
+    const waitOverview = (open) =>
+      waitForCondition(
+        page,
+        async () => ((await overview()) !== null) === open,
+        8000,
+        `the tab overview to ${open ? 'open' : 'close'}`,
+      );
+
+    const inside = (a, b) =>
+      a.x >= b.x - 1 && a.y >= b.y - 1 && a.x + a.w <= b.x + b.w + 1 && a.y + a.h <= b.y + b.h + 1;
+    // ctrl+0, then wait for the zoom-out transition to settle: the live grid
+    // must sit inside the current tab's frame before anything is clicked.
+    const openOverview = async () => {
+      await ctrl('0');
+      await waitOverview(true);
+      await waitForCondition(
+        page,
+        async () => {
+          const o = await overview();
+          const slot = o?.slots.find((s) => s.active);
+          return Boolean(slot) && inside(o.layout, slot.frame);
+        },
+        8000,
+        'the pane grid to zoom into its slot',
+      );
+    };
+
+    // A chrome window (the right sidebar) takes tmux index 2 BEFORE the tabs
+    // that follow, so strip position and tmux index disagree from here on.
+    await sendPrefixCommand(page, 'T', { shift: true });
+    await waitForCondition(page, async () => (await state()).chrome >= 1, 8000, 'the dock window');
+    await createWindowKeyboard(page);
+    await createWindowKeyboard(page);
+    await waitForWindowCount(page, 3);
+    const three = await state();
+    expect(three.tabs.map((t) => t.index)).not.toEqual([1, 2, 3]);
+
+    // Step 1: ctrl+0 opens the overview — one slot per tab, the "+" slot, and
+    // the live pane grid scaled INTO the current tab's frame.
+    await openOverview();
+    let ov = await overview();
+    expect(ov.slots.map((s) => s.id)).toEqual(three.tabs.map((t) => t.id));
+    expect(ov.plus.w).toBeGreaterThan(50);
+    expect(ov.transform).not.toBe('none');
+    const activeSlot = ov.slots.find((s) => s.active);
+    expect(activeSlot.id).toBe(three.active);
+
+    // Step 2: clicking the first slot switches to that tab and closes the overview.
+    await clickAt(ov.slots[0].rect);
+    await waitOverview(false);
+    await waitForCondition(
+      page,
+      async () => (await state()).active === three.tabs[0].id,
+      8000,
+      'the first tab to become current',
+    );
+    expect(await overview()).toBeNull();
+    await waitForCondition(
+      page,
+      () =>
+        page.evaluate(
+          () => getComputedStyle(document.querySelector('.pane-layout')).transform === 'none',
+        ),
+      8000,
+      'the pane grid to zoom back to full size',
+    );
+
+    // Step 3: "+" creates a tab.
+    await openOverview();
+    await clickAt((await overview()).plus);
+    await waitForWindowCount(page, 4);
+    await waitOverview(false);
+    // The strip shows the new tab optimistically first; wait for tmux's @id.
+    await waitForCondition(
+      page,
+      async () => (await state()).tabs.every((t) => t.id.startsWith('@')),
+      8000,
+      'the new tab to get its tmux id',
+    );
+
+    // Step 4: the ✕ on the last slot closes that tab; the overview stays open.
+    await openOverview();
+    ov = await overview();
+    const doomed = ov.slots[3].id;
+    await page.mouse.move(ov.slots[3].rect.x + 20, ov.slots[3].rect.y + 20);
+    await clickAt(ov.slots[3].close);
+    await waitForWindowCount(page, 3);
+    await waitForCondition(
+      page,
+      async () => !(await overview())?.slots.some((s) => s.id === doomed),
+      8000,
+      'the closed tab to leave the overview',
+    );
+
+    // Step 5: drag the first slot past the last one → it becomes the last tab,
+    // in the strip AND in tmux.
+    ov = await overview();
+    const dragged = ov.slots[0].id;
+    const from = ov.slots[0].rect;
+    const to = ov.slots[2].rect;
+    await page.mouse.move(from.x + from.w / 2, from.y + from.h / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.w + 40, to.y + to.h / 2, { steps: 12 });
+    await page.mouse.up();
+    await waitForCondition(
+      page,
+      async () => {
+        const tabs = (await state()).tabs;
+        return tabs.length === 3 && tabs[2].id === dragged;
+      },
+      8000,
+      'the dragged tab to become the last one',
+    );
+    const tmuxOrder = String(await ctx.session.query("list-windows -F '#{window_id}'"))
+      .split('\n')
+      .filter((id) => ov.slots.some((s) => s.id === id));
+    expect(tmuxOrder[tmuxOrder.length - 1]).toBe(dragged);
+
+    // Step 6: Escape restores the tab; ctrl+3 picks the THIRD visible tab even
+    // though its tmux index is not 3.
+    await page.keyboard.press('Escape');
+    await waitOverview(false);
+    await ctrl('1');
+    const after = await state();
+    await waitForCondition(
+      page,
+      async () => (await state()).active === after.tabs[0].id,
+      8000,
+      'ctrl+1',
+    );
+    await ctrl('3');
+    await waitForCondition(
+      page,
+      async () => (await state()).active === after.tabs[2].id,
+      8000,
+      'ctrl+3',
+    );
+    expect(after.tabs[2].index).not.toBe(3);
+  }, 150000);
+});
+
 // ==================== Scenario 4c: Zoom in a 2×2 grid ====================
 
 describe('Scenario 4c: Zoom in a 2×2 grid', () => {

@@ -326,7 +326,8 @@ export function createKeyboardActor() {
           input.parent.send({ type: 'DECREASE_FONT_SIZE' });
           return;
         }
-        if (event.key === '0') {
+        // cmd+0 resets the font; ctrl+0 is the Tab Overview (handled below).
+        if (event.key === '0' && event.metaKey) {
           event.preventDefault();
           input.parent.send({ type: 'RESET_FONT_SIZE' });
           return;
@@ -523,9 +524,16 @@ export function createKeyboardActor() {
         // right one (the pinned dock). Handled client-side (like the header
         // buttons) so they never reach tmux and work for web clients
         // regardless of any server-side binding for those keys.
-        if (bindingKey === 't' || bindingKey === 'T') {
+        // `prefix w` is tmux's own "choose window" key; here it opens the Tab
+        // Overview, the same view ctrl+0 toggles.
+        if (bindingKey === 't' || bindingKey === 'T' || bindingKey === 'w') {
           input.parent.send({
-            type: bindingKey === 't' ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR',
+            type:
+              bindingKey === 't'
+                ? 'TOGGLE_LEFT_SIDEBAR'
+                : bindingKey === 'T'
+                  ? 'TOGGLE_RIGHT_SIDEBAR'
+                  : 'TOGGLE_TAB_OVERVIEW',
           });
           prefixMode.exit();
           input.parent.send({
@@ -575,6 +583,27 @@ export function createKeyboardActor() {
 
         // Unknown binding - just ignore (like tmux does)
         prefixMode.exit();
+        input.parent.send({
+          type: 'KEY_PRESS',
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+          shiftKey: event.shiftKey,
+          metaKey: event.metaKey,
+        });
+        return;
+      }
+
+      // ctrl+1…9 select a tab by its POSITION in the strip and ctrl+0 toggles
+      // the Tab Overview — handled here, not by tmux root bindings, so a
+      // chrome window's tmux index (a sidebar, a float) can never shift which
+      // tab a digit lands on, and so the overview works on every client.
+      if (event.ctrlKey && !event.altKey && !event.metaKey && /^[0-9]$/.test(event.key)) {
+        if (event.key === '0') {
+          input.parent.send({ type: 'TOGGLE_TAB_OVERVIEW' });
+        } else {
+          input.parent.send({ type: 'SELECT_TAB_BY_POSITION', position: Number(event.key) });
+        }
         input.parent.send({
           type: 'KEY_PRESS',
           key: event.key,

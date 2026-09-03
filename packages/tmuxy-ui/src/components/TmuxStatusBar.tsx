@@ -95,7 +95,9 @@ function StatusLineHints({
       {hasTabs && (
         <>
           <Separator />
-          <Key>ctrl+&lt;0-9&gt;</Key> <span className="statusline-hint-desc">tab nav</span>
+          <Key>ctrl+&lt;1-9&gt;</Key> <span className="statusline-hint-desc">tabs</span>
+          {' · '}
+          <Key>ctrl+0</Key> <span className="statusline-hint-desc">all tabs</span>
         </>
       )}
     </span>

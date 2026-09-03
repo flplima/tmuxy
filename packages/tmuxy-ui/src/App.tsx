@@ -15,6 +15,7 @@ import { FloatContainer } from './components/FloatPane';
 import { Sidebar } from './components/Sidebar';
 import { SidebarBackdrop } from './components/SidebarBackdrop';
 import { RightSidebar } from './components/RightSidebar';
+import { TabOverview } from './components/TabOverview';
 import {
   useAppSelector,
   useAppSend,
@@ -119,6 +120,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const containerSize = useAppSelector(selectContainerSize);
   const cellMetrics = useAppSelector(selectCellMetrics);
   const isConnecting = useAppState('connecting');
+  const tabOverviewOpen = useAppSelector((ctx) => ctx.tabOverviewOpen);
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
 
@@ -189,7 +191,14 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
             over this backdrop instead. */}
         {showLayout && <SidebarBackdrop />}
         {showLayout && <Sidebar />}
-        <div ref={containerRef} className="pane-container" style={{ position: 'relative' }}>
+        <div
+          ref={containerRef}
+          // While the Tab Overview is open the live pane grid is FLIP-scaled
+          // into its slot (custom properties set by TabOverview, applied by
+          // the `.tab-overview-open .pane-layout` rule).
+          className={`pane-container${tabOverviewOpen ? ' tab-overview-open' : ''}`}
+          style={{ position: 'relative' }}
+        >
           {!showLayout ? (
             <StatusScreen
               error={error}
@@ -202,6 +211,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
               <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
               {/* Float panes overlay - renders above tiled panes */}
               <FloatContainer />
+              {/* The "all tabs" view, over panes and floats alike */}
+              <TabOverview />
             </>
           )}
         </div>

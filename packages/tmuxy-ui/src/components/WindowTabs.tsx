@@ -61,14 +61,13 @@ export const WindowTabs = memo(function WindowTabs() {
     send({ type: 'CREATE_TAB' });
   }, [send]);
 
-  // Same command the tab context menu's "Close Tab" runs, targeted at the tab
-  // whose button was pressed rather than the current window.
+  // Closes the tab whose button was pressed, not the current window.
   const handleCloseWindow = useCallback(
     (e: React.MouseEvent, window: TmuxWindow) => {
       e.preventDefault();
       e.stopPropagation();
       haptics.trigger(10);
-      send({ type: 'SEND_COMMAND', command: `kill-window -t ${window.id}` });
+      send({ type: 'CLOSE_TAB', windowId: window.id });
     },
     [send],
   );
