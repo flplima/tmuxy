@@ -276,3 +276,38 @@ export const FullwidthAndCombining: Story = {
     expect(end.start).toBeCloseTo(6, 1);
   },
 };
+
+/**
+ * `⎿` (U+23BF) is one column to tmux — Claude Code draws it before every tool
+ * result — but ~1.6 cells in FiraCode Nerd Font. Laid out as part of the run
+ * it pushed the rest of the text past its box and over the dim hint that
+ * follows: text drawn on top of text. It now gets its own 1-cell box and is
+ * scaled into it, so the run after it starts on its own cell.
+ */
+export const FatNarrowGlyph: Story = {
+  args: {
+    line: [
+      ...text('  '),
+      { c: '⎿' },
+      ...text('  Read 47 lines '),
+      ...styled('(ctrl+o to expand)', { dim: true }),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    await cellGridReady();
+    const cellW = cellWidthOf(grid(canvasElement));
+
+    const elbow = runCells(spanWithText(canvasElement, '⎿'), cellW);
+    const label = runCells(spanWithText(canvasElement, '  Read 47 lines '), cellW);
+    const hint = runCells(spanWithText(canvasElement, '(ctrl+o to expand)'), cellW);
+
+    expect(elbow.start).toBeCloseTo(2, 1);
+    expect(elbow.box).toBeCloseTo(1, 1);
+    // Painted inside its cell, not over the label.
+    expect(elbow.ink).toBeLessThanOrEqual(1 + CELL_TOLERANCE);
+    expect(label.start).toBeCloseTo(3, 1);
+    // The label's glyphs end where its box ends, so the hint is not overdrawn.
+    expect(label.ink).toBeLessThanOrEqual(label.box + CELL_TOLERANCE);
+    expect(hint.start).toBeCloseTo(19, 1);
+  },
+};

@@ -15,6 +15,7 @@ import { memo, useMemo, useCallback, CSSProperties } from 'react';
 import { LogProfiler } from '../utils/renderLog';
 import type { CellLine, TerminalCell, CellStyle } from '../tmux/types';
 import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
+import { glyphFit } from '../utils/glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls } from '../utils/urlDetect';
 import { openExternalUrl } from '../utils/openUrl';
@@ -147,6 +148,8 @@ export const TerminalLine = memo(
         autoUrlIdx: number;
         wide: boolean;
         blockCh: string | null;
+        /** `scale()` that fits a fat one-column glyph into its cell (utils/glyphFit). */
+        fit: number | null;
       } | null = null;
 
       const flushGroup = () => {
@@ -171,8 +174,27 @@ export const TerminalLine = memo(
         const linkUrl = oscUrl || autoUrl;
         const linkClass = oscUrl ? 'terminal-hyperlink' : autoUrl ? 'terminal-autolink' : undefined;
 
+        // A one-column glyph wider than its cell shrinks into it instead of
+        // painting over the run that follows (see utils/glyphFit.ts). The
+        // scale goes on an inner element so the span keeps its 1-cell box.
+        const fitClass = currentGroup.fit !== null ? 'terminal-fit' : undefined;
+        const content =
+          currentGroup.fit !== null ? (
+            <span
+              className="terminal-fit-glyph"
+              style={{ '--glyph-fit': String(currentGroup.fit) } as CSSProperties}
+            >
+              {text}
+            </span>
+          ) : (
+            text
+          );
+
         // Apply selection highlight — override fg/bg via inline style
-        const selectedClass = currentGroup.selected ? 'terminal-selected' : undefined;
+        const selectedClass =
+          [currentGroup.selected ? 'terminal-selected' : undefined, fitClass]
+            .filter(Boolean)
+            .join(' ') || undefined;
         if (currentGroup.selected) {
           style = { ...style, color: 'var(--term-black)', backgroundColor: '#c0c0c0' };
         }
@@ -211,13 +233,13 @@ export const TerminalLine = memo(
                 openExternalUrl(linkUrl);
               }}
             >
-              {text}
+              {content}
             </a>,
           );
         } else {
           spans.push(
             <span key={spans.length} style={style} className={selectedClass}>
-              {text}
+              {content}
             </span>,
           );
         }
@@ -231,6 +253,7 @@ export const TerminalLine = memo(
         const cellUrlIdx = cell.s?.url ? -1 : urlIdx(i); // skip auto-detect if OSC 8
         const wide = isWideChar(cell.c);
         const blockCh = isBlockGlyph(cell.c) ? cell.c : null;
+        const fit = !wide && !blockCh ? glyphFit(cell.c) : null;
 
         if (
           currentGroup &&
@@ -239,6 +262,9 @@ export const TerminalLine = memo(
           // the blank continuation cell rather than shifting a grouped span.
           !wide &&
           !currentGroup.wide &&
+          // A fat glyph is shrunk on its own; it never shares a box.
+          fit === null &&
+          currentGroup.fit === null &&
           // A geometric block run is one repeated glyph: a different block
           // char (or ordinary text) needs its own box to paint into.
           blockCh === currentGroup.blockCh &&
@@ -257,6 +283,7 @@ export const TerminalLine = memo(
             autoUrlIdx: cellUrlIdx,
             wide,
             blockCh,
+            fit,
           };
         }
       }
