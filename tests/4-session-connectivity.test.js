@@ -97,6 +97,99 @@ describe('Scenario 12: Session Reconnect', () => {
   }, 180000);
 });
 
+// ==================== Scenario 12b: Connection overlay ====================
+
+describe('Scenario 12b: Connection overlay', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // The old "Connecting to tmux…" page dumped the command log on screen and
+  // unmounted the panes. Now a first load shows a placeholder + spinner, and
+  // a dropped channel keeps the last frame mounted under a blurred overlay
+  // that leaves on its own once the channel is back.
+  test('reload shows no log → offline blurs the last frame under "Connecting…" → online clears it → shell still works', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    await splitPaneKeyboard(page, 'horizontal');
+    await waitForPaneCount(page, 2);
+
+    // Step 1: a fresh load never shows the log or the old status page.
+    // Chrome keeps an already-open SSE stream alive under offline emulation,
+    // so the drop below is delivered as the stream's own `error` event; keep a
+    // handle on the streams this page opens.
+    await page.addInitScript(() => {
+      const streams = [];
+      window.__eventSources = streams;
+      const Native = window.EventSource;
+      window.EventSource = function (url, init) {
+        const es = new Native(url, init);
+        streams.push(es);
+        return es;
+      };
+      window.EventSource.prototype = Native.prototype;
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForPaneCount(page, 2, 15000);
+    expect(await page.$('[data-testid="status-log"]')).toBeNull();
+    expect(await page.$('.status-details-log')).toBeNull();
+    expect(await page.$('[data-testid="loading-display"]')).toBeNull();
+
+    // Step 2: the network goes away and the channel drops → the adapter's
+    // reconnect loop keeps failing while offline → overlay over the panes,
+    // which stay mounted underneath.
+    await page.context().setOffline(true);
+    await page.evaluate(() => {
+      const es = window.__eventSources[window.__eventSources.length - 1];
+      es.dispatchEvent(new Event('error'));
+    });
+    await waitForCondition(
+      page,
+      async () => (await page.$('[data-mode="reconnecting"]')) !== null,
+      20000,
+      'the reconnecting overlay',
+    );
+    const shown = await page.evaluate(() => {
+      const overlay = document.querySelector('[data-mode="reconnecting"]');
+      const container = document.querySelector('.pane-container');
+      const scrim = overlay.querySelector('.connection-overlay-scrim');
+      return {
+        panes: document.querySelectorAll('.pane-layout-item').length,
+        overlay: overlay.getBoundingClientRect().toJSON(),
+        container: container.getBoundingClientRect().toJSON(),
+        text: overlay.textContent,
+        blur: getComputedStyle(scrim).backdropFilter,
+        spinner: Boolean(overlay.querySelector('.connection-spinner')),
+      };
+    });
+    expect(shown.panes).toBe(2);
+    expect(shown.text).toContain('Connecting');
+    expect(shown.text).not.toContain('Details');
+    expect(shown.spinner).toBe(true);
+    expect(shown.blur).toContain('blur');
+    expect(Math.abs(shown.overlay.width - shown.container.width)).toBeLessThan(2);
+    expect(Math.abs(shown.overlay.height - shown.container.height)).toBeLessThan(2);
+
+    // Step 3: the network is back → the overlay leaves on the first update
+    // and the shell is live again.
+    await page.context().setOffline(false);
+    await waitForCondition(
+      page,
+      async () => (await page.$('[data-mode]')) === null,
+      45000,
+      'the overlay to clear after the channel recovers',
+    );
+    await focusPage(page);
+    await typeInTerminal(page, 'echo OVERLAY_OK');
+    await pressEnter(page);
+    await waitForTerminalText(page, 'OVERLAY_OK', 15000);
+  }, 150000);
+});
+
 // ==================== Scenario 13: Multi-Client ====================
 
 describe('Scenario 13: Multi-Client', () => {
@@ -341,8 +434,8 @@ describe('Scenario 24: Multi-Session Sidebar Tree (web)', () => {
 
       // The switch is real end-to-end: URL reflects it and the terminal for the
       // new session renders with a visible area (not a blank/disconnected view).
-      const urlSession = await ctx.page.evaluate(
-        () => new URL(window.location.href).searchParams.get('session'),
+      const urlSession = await ctx.page.evaluate(() =>
+        new URL(window.location.href).searchParams.get('session'),
       );
       expect(urlSession).toBe(siblingName);
       await ctx.page.waitForSelector('[role="log"]', { timeout: 15000 });

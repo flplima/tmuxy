@@ -16,6 +16,7 @@ import { Sidebar } from './components/Sidebar';
 import { SidebarBackdrop } from './components/SidebarBackdrop';
 import { RightSidebar } from './components/RightSidebar';
 import { TabOverview } from './components/TabOverview';
+import { ConnectionOverlay, type ConnectionOverlayMode } from './components/ConnectionOverlay';
 import {
   useAppSelector,
   useAppSend,
@@ -28,88 +29,11 @@ import {
   selectContainerSize,
   selectCellMetrics,
 } from './machines/AppContext';
-import type { LogEntry } from './machines/types';
 import { cellMetricsStyle } from './utils/cellMetrics';
 import { latencyTracker } from './tmux/latencyTracker';
 import { PerfHud } from './components/PerfHud';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
-
-function formatLog(log: LogEntry[]): string {
-  if (log.length === 0) return 'No activity yet.';
-  return log
-    .map((entry) => {
-      const time = new Date(entry.timestamp).toISOString().slice(11, 23);
-      const tag = entry.kind.toUpperCase().padEnd(7);
-      return `[${time}] ${tag} ${entry.message}`;
-    })
-    .join('\n');
-}
-
-interface StatusScreenProps {
-  error: string | null;
-  fatalError: string | null;
-  isConnecting: boolean;
-  log: LogEntry[];
-}
-
-function StatusScreen({ error, fatalError, isConnecting, log }: StatusScreenProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const text = formatLog(log);
-
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    // Auto-scroll to bottom unless the user is selecting text
-    if (document.activeElement !== el) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [text]);
-
-  const isFatal = fatalError != null;
-  const displayMessage = fatalError ?? error;
-  const heading = isFatal
-    ? 'Cannot connect to tmux'
-    : displayMessage
-      ? 'Connection Error'
-      : isConnecting
-        ? 'Connecting to tmux...'
-        : 'Waiting for tmux state...';
-  const testId = isFatal ? 'fatal-display' : displayMessage ? 'error-display' : 'loading-display';
-  const className = isFatal ? 'error fatal' : displayMessage ? 'error' : 'loading';
-
-  return (
-    <div className={className} data-testid={testId}>
-      <h2>{heading}</h2>
-      {displayMessage && (
-        <p className="status-message">
-          {displayMessage.length > 0
-            ? displayMessage
-            : 'Failed to connect to tmux. Make sure tmux is installed and running.'}
-        </p>
-      )}
-      {isFatal && (
-        <p className="status-hint">
-          The backend has stopped retrying. Restart the app to try again.
-        </p>
-      )}
-      <div className="status-details">
-        <label htmlFor="status-log" className="status-details-label">
-          Details (commands &amp; errors)
-        </label>
-        <textarea
-          id="status-log"
-          ref={textareaRef}
-          className="status-details-log"
-          data-testid="status-log"
-          readOnly
-          value={text}
-          spellCheck={false}
-        />
-      </div>
-    </div>
-  );
-}
 
 function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // Select minimal state needed at App level
@@ -120,6 +44,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const containerSize = useAppSelector(selectContainerSize);
   const cellMetrics = useAppSelector(selectCellMetrics);
   const isConnecting = useAppState('connecting');
+  const isReconnecting = useAppState('reconnecting');
   const tabOverviewOpen = useAppSelector((ctx) => ctx.tabOverviewOpen);
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
@@ -165,10 +90,21 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // layout from being unmounted and replaced with a loading div for ~55ms.
   const hasBeenReadyRef = useRef(false);
   if (isReady) hasBeenReadyRef.current = true;
-  // A fatal is not a transient empty-pane state: break the ready latch so the
-  // non-recoverable status screen replaces the dead layout (the machine is in
-  // `disconnected` and nothing will repopulate the panes).
-  const showLayout = (isReady || hasBeenReadyRef.current) && fatalError == null;
+  const showLayout = isReady || hasBeenReadyRef.current;
+
+  // What covers the pane area while nothing live is on it: a fatal (the
+  // backend gave up) wins, then a dropped channel, then the first connection.
+  // The layout, once shown, stays mounted underneath as the blurred last
+  // snapshot — even through a fatal, so a Retry has something to come back to.
+  const overlayMode: ConnectionOverlayMode | null =
+    fatalError != null
+      ? 'fatal'
+      : isReconnecting
+        ? 'reconnecting'
+        : !showLayout
+          ? 'connecting'
+          : null;
+  const retry = useCallback(() => window.location.reload(), []);
 
   // Always render .app-container so containerRef is attached and ResizeObserver
   // starts measuring immediately, preventing a layout flash on first pane render.
@@ -199,14 +135,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           className={`pane-container${tabOverviewOpen ? ' tab-overview-open' : ''}`}
           style={{ position: 'relative' }}
         >
-          {!showLayout ? (
-            <StatusScreen
-              error={error}
-              fatalError={fatalError}
-              isConnecting={isConnecting}
-              log={log}
-            />
-          ) : (
+          {showLayout && (
             <>
               <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
               {/* Float panes overlay - renders above tiled panes */}
@@ -214,6 +143,16 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
               {/* The "all tabs" view, over panes and floats alike */}
               <TabOverview />
             </>
+          )}
+          {overlayMode && (
+            <ConnectionOverlay
+              mode={overlayMode}
+              hasLayout={showLayout}
+              error={error}
+              fatalError={fatalError}
+              log={log}
+              onRetry={retry}
+            />
           )}
         </div>
         {showLayout && <RightSidebar />}

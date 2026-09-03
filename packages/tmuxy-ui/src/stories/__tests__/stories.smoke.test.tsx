@@ -28,7 +28,7 @@ type StoryModule = any;
 import * as previewAnnotations from '../../../.storybook/preview';
 
 // Pure-component stories (no AppContext needed)
-import * as ConnectionStatusStories from '../../components/ConnectionStatus.stories';
+import * as ConnectionOverlayStories from '../../components/ConnectionOverlay.stories';
 import * as ModalStories from '../../components/Modal.stories';
 import * as CursorStories from '../../components/Cursor.stories';
 import * as TerminalLineStories from '../../components/TerminalLine.stories';
@@ -81,7 +81,7 @@ afterEach(() => {
 });
 
 const PURE_STORY_MODULES: Record<string, StoryModule> = {
-  ConnectionStatus: ConnectionStatusStories,
+  ConnectionStatus: ConnectionOverlayStories,
   Modal: ModalStories,
   Cursor: CursorStories,
   TerminalLine: TerminalLineStories,

@@ -19,13 +19,11 @@ import { memo, useCallback } from 'react';
 import type { RenderTabline } from '../App';
 import {
   useAppSelector,
-  useAppState,
   selectSidebarLayout,
   selectRightSidebarPane,
 } from '../machines/AppContext';
 import { getTabText } from './paneTabDisplay';
 import { CONTAINER_PADDING_X } from '../constants';
-import { selectReconnectAttempt } from '../machines/selectors';
 import { isTauri } from '../tmux/adapters';
 import {
   isMacTauri,
@@ -38,7 +36,6 @@ import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
 import { SidebarToggle } from './SidebarToggle';
 import { SidebarTitle } from './SidebarTitle';
-import { ConnectionStatus } from './ConnectionStatus';
 import './StatusBar.css';
 
 /** Interactive chrome inside the bar — clicks on these never drag or zoom the window. */
@@ -61,8 +58,6 @@ export const StatusBar = memo(function StatusBar({
 }: {
   renderTabline?: RenderTabline;
 }) {
-  const isReconnecting = useAppState('reconnecting');
-  const reconnectAttempt = useAppSelector(selectReconnectAttempt);
   const { leftOpen, rightOpen, overlay, leftWidth, rightWidth } =
     useAppSelector(selectSidebarLayout);
   const rightPane = useAppSelector(selectRightSidebarPane);
@@ -121,7 +116,6 @@ export const StatusBar = memo(function StatusBar({
       <div ref={reportTitlebarHeight} className="statusbar" onMouseDown={handleMouseDown}>
         <div className="statusbar-inner">
           {renderTabline ? renderTabline({ children: defaultContent }) : defaultContent}
-          <ConnectionStatus reconnecting={isReconnecting} reconnectAttempt={reconnectAttempt} />
         </div>
       </div>
     </LogProfiler>

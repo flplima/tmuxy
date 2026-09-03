@@ -687,8 +687,8 @@ export const Resize: Story = {
 
 /**
  * Reconnect / fatal: when the control channel drops, the adapter signals a
- * reconnection and the app surfaces the `.connection-status-reconnecting`
- * indicator; when it recovers, the indicator clears. We drive the same
+ * reconnection and the app blurs the last frame under the
+ * `.connection-overlay-reconnecting` overlay; when it recovers, the overlay clears. We drive the same
  * reconnection lifecycle events the adapter emits (`TMUX_RECONNECTING` →
  * `TMUX_RECONNECTED`) on the live client and assert the UI reflects each phase.
  */
@@ -704,11 +704,11 @@ export const Reconnect: Story = {
       timeout: 45000,
       interval: 500,
     });
-    expect(doc.querySelector('.connection-status-reconnecting')).toBeNull();
+    expect(doc.querySelector('.connection-overlay-reconnecting')).toBeNull();
     // Channel drops → reconnecting indicator appears.
     app.send({ type: 'TMUX_RECONNECTING', attempt: 1 });
     await waitFor(
-      () => expect(doc.querySelector('.connection-status-reconnecting')).not.toBeNull(),
+      () => expect(doc.querySelector('.connection-overlay-reconnecting')).not.toBeNull(),
       {
         timeout: 10000,
         interval: 200,
@@ -716,7 +716,7 @@ export const Reconnect: Story = {
     );
     // Channel recovers → indicator clears.
     app.send({ type: 'TMUX_RECONNECTED' });
-    await waitFor(() => expect(doc.querySelector('.connection-status-reconnecting')).toBeNull(), {
+    await waitFor(() => expect(doc.querySelector('.connection-overlay-reconnecting')).toBeNull(), {
       timeout: 10000,
       interval: 200,
     });

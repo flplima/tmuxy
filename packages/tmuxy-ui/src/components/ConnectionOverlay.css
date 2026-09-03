@@ -1,0 +1,145 @@
+/* ConnectionOverlay — sits over the pane container (which is positioned),
+   above panes, floats and the tab overview. */
+
+.connection-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  user-select: none;
+}
+
+/* First load: the frame a pane will occupy, in the theme's colours, so the
+   screen already has the shape of the app while tmux answers. */
+.connection-placeholder {
+  position: absolute;
+  inset: 0 12px 4px;
+  display: flex;
+  flex-direction: column;
+  outline: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+  background-color: var(--term-background);
+}
+
+.connection-placeholder-header {
+  height: var(--pane-header-height);
+  background-color: color-mix(
+    in srgb,
+    var(--pane-active-border, var(--border-medium)) 35%,
+    transparent
+  );
+}
+
+.connection-placeholder-surface {
+  flex: 1 1 auto;
+}
+
+/* The blur: over the placeholder on first load, over the last snapshot of
+   the panes while reconnecting. */
+.connection-overlay-scrim {
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--term-background) 45%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.connection-overlay-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: min(80ch, 100% - 48px);
+  padding: 20px 28px;
+  border-radius: var(--radius-md);
+  background-color: color-mix(in srgb, var(--term-background) 85%, transparent);
+  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.3));
+}
+
+.connection-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--text-primary) 25%, transparent);
+  border-top-color: var(--text-primary);
+  animation: connection-spin 0.9s linear infinite;
+}
+
+@keyframes connection-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.connection-overlay-text {
+  margin: 0;
+  font-size: var(--tmuxy-font-size, 15px);
+}
+
+.connection-overlay-fatal .connection-overlay-text {
+  color: var(--error-light);
+}
+
+.connection-overlay-note {
+  margin: 0;
+  max-width: 80ch;
+  text-align: center;
+  word-break: break-word;
+  font-size: var(--font-size-small);
+  color: var(--text-muted);
+}
+
+.connection-overlay-retry {
+  margin-top: 4px;
+  padding: 6px 18px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-highlight-alt, transparent);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-small);
+  cursor: pointer;
+}
+
+.connection-overlay-retry:hover,
+.connection-overlay-retry:focus-visible {
+  border-color: var(--text-primary);
+  outline: none;
+}
+
+.connection-overlay-details {
+  width: 100%;
+  font-size: var(--font-size-small);
+  color: var(--text-muted);
+}
+
+.connection-overlay-details summary {
+  cursor: pointer;
+}
+
+.connection-overlay-log {
+  max-height: 40vh;
+  margin: 8px 0 0;
+  padding: 0.75rem;
+  overflow: auto;
+  white-space: pre;
+  user-select: text;
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-spinner {
+    animation: none;
+    border-style: dotted;
+    border-top-color: inherit;
+  }
+}
