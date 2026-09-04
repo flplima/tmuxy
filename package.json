@@ -39,5 +39,8 @@
   },
   "dependencies": {
     "web-haptics": "^0.0.6"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }
