@@ -1761,6 +1761,69 @@ async function sampleSidebarSlide(
 }
 
 /**
+ * Watch the smooth cursor (the one overlay that glides between the panes'
+ * cursor anchors) travel: sample the centroid of its smear polygon on every
+ * frame after `trigger`, from its first movement until it has been still for
+ * `settleMs`, and return the series with where it settled.
+ */
+async function sampleCursorGlide(page, trigger, { settleMs = 250, timeoutMs = 8000 } = {}) {
+  const sampling = page.evaluate(
+    ({ settleMs, timeoutMs }) =>
+      new Promise((resolve) => {
+        const shape = document.querySelector('[data-testid="smooth-cursor"] .smooth-cursor-shape');
+        const centroid = () => {
+          const pts = [...shape.style.clipPath.matchAll(/([-\d.]+)px ([-\d.]+)px/g)].map((m) => [
+            +m[1],
+            +m[2],
+          ]);
+          if (pts.length === 0) return null;
+          const sum = pts.reduce((a, p) => [a[0] + p[0], a[1] + p[1]], [0, 0]);
+          return [Math.round(sum[0] / pts.length), Math.round(sum[1] / pts.length)];
+        };
+        const same = (a, b) => (!a && !b) || (a && b && a[0] === b[0] && a[1] === b[1]);
+        const frames = [];
+        const start = performance.now();
+        let movedAt = null;
+        let stillSince = null;
+        const tick = () => {
+          const now = performance.now();
+          const c = centroid();
+          if (movedAt === null && frames.length > 0 && !same(c, frames[0])) {
+            movedAt = now;
+            frames.length = 1;
+          }
+          if (frames.length > 0 && same(c, frames[frames.length - 1])) {
+            if (stillSince === null) stillSince = now;
+          } else {
+            stillSince = null;
+          }
+          frames.push(c);
+          const done =
+            movedAt === null
+              ? now - start > timeoutMs
+              : stillSince !== null && now - stillSince > settleMs;
+          if (done) resolve({ frames, settled: c });
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    { settleMs, timeoutMs },
+  );
+  await trigger();
+  return sampling;
+}
+
+/** Centre of the pane's own cursor anchor (hidden; what the overlay glides to). */
+async function cursorAnchorCenter(page, scopeSelector) {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(`${sel} .terminal-cursor`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)];
+  }, scopeSelector);
+}
+
+/**
  * Why the series is NOT an eased slide (several distinct widths, never
  * reversing direction), or null when it is — so the failure shows the frames.
  */
@@ -1883,7 +1946,17 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     // focus (headless Chrome drops it across the DOM re-render the new column
     // causes) before typing character by character, the same cadence
     // typeInTerminal uses so the adapter's send-keys batching can't transpose.
-    await ctx.page.click('[data-testid="right-sidebar-content"] [role="log"]');
+    // The cursor GLIDES into the dock: the smooth cursor overlay travels from
+    // the tiled pane's cursor to the dock's over several frames rather than
+    // reappearing there, and settles exactly on the dock's anchor.
+    const glideIn = await sampleCursorGlide(ctx.page, () =>
+      ctx.page.click('[data-testid="right-sidebar-content"] [role="log"]'),
+    );
+    expect(glideIn.frames.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(glideIn.frames.map(String)).size).toBeGreaterThanOrEqual(3);
+    expect(glideIn.settled).toEqual(
+      await cursorAnchorCenter(ctx.page, '[data-testid="right-sidebar-content"]'),
+    );
     await ctx.page.bringToFront();
     await delay(200);
     for (const char of 'echo dock-typing-works') {
@@ -1960,9 +2033,13 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       () => window.app?.getSnapshot()?.context?.rightSidebarFocused,
     );
     expect(stillFocusedAfterEscape).toBe(true);
-    await ctx.page.keyboard.down('Control');
-    await ctx.page.keyboard.press('h');
-    await ctx.page.keyboard.up('Control');
+    // ...and glides back out to the tiled pane's cursor when Ctrl+h hands the
+    // keyboard back.
+    const glideOut = await sampleCursorGlide(ctx.page, async () => {
+      await ctx.page.keyboard.down('Control');
+      await ctx.page.keyboard.press('h');
+      await ctx.page.keyboard.up('Control');
+    });
     await waitForCondition(
       ctx.page,
       async () =>
@@ -1970,6 +2047,8 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       5000,
       'rightSidebarFocused cleared after Ctrl+h',
     );
+    expect(new Set(glideOut.frames.map(String)).size).toBeGreaterThanOrEqual(3);
+    expect(glideOut.settled).toEqual(await cursorAnchorCenter(ctx.page, '.pane-layout-item'));
     // The keyboard is back in the panes: the tiled pane draws its cursor again
     // and the dock draws none.
     await waitForCondition(
@@ -2092,6 +2171,11 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       8000,
       'second window to become active',
     );
+
+    // A pane whose title outgrows the column: the tree gives it a second line
+    // before cutting it, instead of ellipsing everything past line one.
+    const longTitle = 'a very long pane title that certainly needs a second line in this tree';
+    await ctx.session.runCommand(`select-pane -t ${ctx.session.name} -T '${longTitle}'`);
 
     // Step 1: Open the sidebar via the real keybinding (prefix t).
     await sendPrefixCommand(ctx.page, 't');

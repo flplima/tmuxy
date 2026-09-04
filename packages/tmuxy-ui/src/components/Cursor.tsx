@@ -1,5 +1,6 @@
 import './Cursor.css';
 import { cellsToCss } from './terminalShared';
+import { attachCursorAnchor } from './cursorAnchor';
 
 export type CursorMode = 'block' | 'underline' | 'bar';
 
@@ -52,6 +53,9 @@ export function Cursor({ x, y, char = ' ', mode = 'block', copyMode = false }: C
 
   return (
     <span
+      // The anchor SmoothCursor glides to. A fresh callback every render makes
+      // React re-attach it on every commit, which is how a move is noticed.
+      ref={(el) => (el ? attachCursorAnchor(el) : undefined)}
       className={className}
       data-cursor-x={x}
       data-cursor-y={y}

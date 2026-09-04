@@ -73,6 +73,8 @@ Like native tmux, when multiple browser clients connect to the same session, the
 
 8. **Policy as data** — Retry and timeout for async tmux dispatch are values, not hard-coded constants. They flow through a Tower middleware stack (`TraceLayer → RetryLayer → TimeoutLayer → TmuxService`) with one composition point in code.
 
+9. **One cursor for the whole app** — Each pane still renders a cursor element at its cursor cell, but only as an anchor: it is not painted. The cursor the user sees is a single fixed overlay (`tmuxy-ui/src/components/SmoothCursor.tsx`) that glides to whichever anchor belongs to the pane holding the keyboard, Neovide-style — the corners facing the direction of travel arrive first, the trailing ones lag, so a jump smears and snaps back into a cell. Because the overlay is one element, the same glide covers a move within a pane, a jump between panes, and a jump into the dock or a float. It re-measures the anchor every frame while anything moves, so it also follows transitions running underneath it (a re-tile, a sidebar sliding). Only the pane holding the keyboard has an anchor at all; a pane without it draws no cursor in any mode.
+
 ## Crate layout
 
 Each crate's source tree is one `ls packages/<crate>/src` away — the durable thing to know is **what each crate owns**, not which files happen to currently exist.

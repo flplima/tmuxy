@@ -1,0 +1,43 @@
+/* The one cursor the user sees: a fixed overlay that glides to wherever the
+   keyboard-holding pane put its cursor. The pane's own cursor element stays as
+   the overlay's anchor (and as what tests measure) but is not painted. */
+.has-smooth-cursor .terminal-cursor {
+  visibility: hidden;
+}
+
+.smooth-cursor {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-dropdown);
+  opacity: 0;
+}
+
+/* The smear: a full-viewport sheet in the cursor colour, clipped per frame to
+   the quadrilateral spanned by the four gliding corners. */
+.smooth-cursor-shape {
+  position: absolute;
+  inset: 0;
+  background: var(--cursor-bg);
+  will-change: clip-path;
+}
+
+.smooth-cursor.is-copy .smooth-cursor-shape {
+  background: var(--cursor-copy-bg);
+}
+
+/* The glyph under a block cursor, painted in the cursor's text colour once the
+   block has arrived (mid-flight the pane's own glyph shows through). */
+.smooth-cursor-char {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--cursor-text);
+  white-space: pre;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.smooth-cursor.is-copy .smooth-cursor-char {
+  color: var(--cursor-bg);
+}

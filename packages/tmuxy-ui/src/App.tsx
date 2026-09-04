@@ -32,6 +32,7 @@ import {
 import { cellMetricsStyle } from './utils/cellMetrics';
 import { latencyTracker } from './tmux/latencyTracker';
 import { PerfHud } from './components/PerfHud';
+import { SmoothCursor } from './components/SmoothCursor';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 
@@ -111,7 +112,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   return (
     <div
       ref={appContainerRef}
-      className="app-container"
+      className="app-container has-smooth-cursor"
       // Publish the measured cell grid (--cell-w / --cell-gap) to every
       // terminal text run and cell-addressed box below — see utils/cellMetrics.ts.
       style={cellMetricsStyle(cellMetrics) as React.CSSProperties}
@@ -158,6 +159,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
         {showLayout && <RightSidebar />}
       </div>
       <TmuxStatusBar />
+      {/* The cursor itself: one overlay gliding between the panes' anchors. */}
+      <SmoothCursor />
       {/* Dev-only latency overlay; mounted only when enabled via ?perf /
           localStorage so it and its store subscription cost nothing otherwise. */}
       {latencyTracker.isEnabled() && <PerfHud />}
