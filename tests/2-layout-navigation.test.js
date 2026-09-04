@@ -1802,8 +1802,25 @@ async function sampleCursorGlide(page, trigger, { settleMs = 250, timeoutMs = 80
             movedAt === null
               ? now - start > timeoutMs
               : stillSince !== null && now - stillSince > settleMs;
-          if (done) resolve({ frames, settled: c });
-          else requestAnimationFrame(tick);
+          if (done) {
+            // What the overlay and its anchor look like at the end, so a run
+            // that saw no glide says why (never drawn, hidden, anchor missing).
+            const root = document.querySelector('[data-testid="smooth-cursor"]');
+            const anchors = [...document.querySelectorAll('.terminal-cursor')].map((el) => {
+              const r = el.getBoundingClientRect();
+              return `${el.className}@${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+            });
+            resolve({
+              frames,
+              settled: c,
+              overlay: {
+                opacity: root ? root.style.opacity : 'no overlay',
+                clipPath: shape.style.clipPath.slice(0, 120),
+                reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+                anchors,
+              },
+            });
+          } else requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
       }),
@@ -1811,6 +1828,15 @@ async function sampleCursorGlide(page, trigger, { settleMs = 250, timeoutMs = 80
   );
   await trigger();
   return sampling;
+}
+
+/** Distinct positions in a glide's frames — the failure message carries the frames and overlay state. */
+function glidePositions(glide) {
+  return {
+    distinct: new Set(glide.frames.map(String)).size,
+    frames: glide.frames,
+    overlay: glide.overlay,
+  };
 }
 
 /** Centre of the pane's own cursor anchor (hidden; what the overlay glides to). */
@@ -1953,7 +1979,12 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       ctx.page.click('[data-testid="right-sidebar-content"] [role="log"]'),
     );
     expect(glideIn.frames.length).toBeGreaterThanOrEqual(4);
-    expect(new Set(glideIn.frames.map(String)).size).toBeGreaterThanOrEqual(3);
+    expect(glidePositions(glideIn)).toEqual(
+      expect.objectContaining({ distinct: expect.any(Number) }),
+    );
+    expect(
+      glidePositions(glideIn).distinct >= 3 ? 'glided' : JSON.stringify(glidePositions(glideIn)),
+    ).toBe('glided');
     expect(glideIn.settled).toEqual(
       await cursorAnchorCenter(ctx.page, '[data-testid="right-sidebar-content"]'),
     );
@@ -2047,7 +2078,9 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       5000,
       'rightSidebarFocused cleared after Ctrl+h',
     );
-    expect(new Set(glideOut.frames.map(String)).size).toBeGreaterThanOrEqual(3);
+    expect(
+      glidePositions(glideOut).distinct >= 3 ? 'glided' : JSON.stringify(glidePositions(glideOut)),
+    ).toBe('glided');
     expect(glideOut.settled).toEqual(await cursorAnchorCenter(ctx.page, '.pane-layout-item'));
     // The keyboard is back in the panes: the tiled pane draws its cursor again
     // and the dock draws none.

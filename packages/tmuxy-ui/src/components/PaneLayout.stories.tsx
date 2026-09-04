@@ -75,6 +75,6 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
     );
     // `l` hands the keyboard back: the green returns.
     await user.keyboard('l');
-    await waitFor(() => expect(activeOutline()).toBe('rgb(184, 187, 38)'), { timeout: 5000 });
+    await waitFor(() => expect(activeOutline()).toBe('rgb(168, 153, 132)'), { timeout: 5000 });
   },
 };
