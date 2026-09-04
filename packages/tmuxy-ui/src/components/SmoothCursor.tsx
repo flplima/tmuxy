@@ -20,10 +20,10 @@ import { getCursorAnchor, getCursorAnchorVersion, subscribeCursorAnchor } from '
  */
 
 /** Time constants of the corner easing: the leading corners and the trailing ones. */
-const LEAD_TAU_MS = 22;
-const TRAIL_TAU_MS = 60;
+const LEAD_TAU_MS = 11;
+const TRAIL_TAU_MS = 32;
 /** Below this many pixels off target a corner is snapped onto it. */
-const SETTLE_PX = 0.4;
+const SETTLE_PX = 0.75;
 /** How long after a commit the overlay keeps re-measuring, to follow transitions. */
 const FOLLOW_MS = 450;
 /** A cursor that reappears within this long flies in from where the last one was. */
