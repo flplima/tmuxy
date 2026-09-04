@@ -543,6 +543,9 @@ export const DragResizesTheColumn: Story = {
     );
     const handle = column.querySelector('.sidebar-resize-handle') as HTMLElement;
     expect(handle).not.toBeNull();
+    // The column slides open; measure it once it has stopped moving, or the
+    // widths below are mid-slide and a column short.
+    await waitFor(() => expect(column.className).not.toContain('is-moving'), { timeout: 3000 });
 
     const startWidth = column.getBoundingClientRect().width;
     // The width the grid has left. A column that grew without the grid giving
