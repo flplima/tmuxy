@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within } from 'storybook/test';
 import { TerminalLine } from './TerminalLine';
@@ -309,5 +310,50 @@ export const FatNarrowGlyph: Story = {
     // The label's glyphs end where its box ends, so the hint is not overdrawn.
     expect(label.ink).toBeLessThanOrEqual(label.box + CELL_TOLERANCE);
     expect(hint.start).toBeCloseTo(19, 1);
+  },
+};
+
+/**
+ * A row's edges reach the pane border. The pane's horizontal padding (the
+ * half separator column it reaches into) is painted with the first cell's
+ * background on the left and the last cell's on the right, so a status line
+ * or an editor gutter drawn edge to edge does not stop half a cell short.
+ */
+export const EdgesReachThePaneBorder: Story = {
+  args: {
+    line: [
+      ...styled(' NORMAL ', { bg: { r: 168, g: 153, b: 132 } }),
+      ...styled(' file.rs ', { bg: { r: 60, g: 56, b: 54 } }),
+    ],
+  },
+  decorators: [
+    (Story) => (
+      <div
+        style={
+          {
+            '--pane-h-padding-left': '9px',
+            '--pane-h-padding-right': '9px',
+            padding: '0 9px',
+            width: 400,
+            overflow: 'hidden',
+          } as CSSProperties
+        }
+      >
+        <Story />
+      </div>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    await cellGridReady();
+    const line = canvasElement.querySelector('.terminal-line') as HTMLElement;
+    const before = getComputedStyle(line, '::before');
+    const after = getComputedStyle(line, '::after');
+    expect(before.backgroundColor).toBe('rgb(168, 153, 132)');
+    expect(after.backgroundColor).toBe('rgb(60, 56, 54)');
+    // The left edge sits in the padding, flush with the pane's border.
+    expect(parseFloat(before.width)).toBeCloseTo(9, 0);
+    const lineBox = line.getBoundingClientRect();
+    const paneBox = line.parentElement!.parentElement!.getBoundingClientRect();
+    expect(lineBox.left - paneBox.left).toBeCloseTo(9, 0);
   },
 };

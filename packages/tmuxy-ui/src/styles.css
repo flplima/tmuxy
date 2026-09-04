@@ -261,7 +261,10 @@
   position: relative;
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  /* Not a clip box: .pane-content clips at its padding edge, and the rows
+     paint their edge backgrounds INTO that padding (`.terminal-line::before`
+     / `::after`), which an overflow clip here would cut off. */
+  overflow: visible;
   /* Establish the cell metrics for everything positioned on the grid inside
      this pane. The cursor overlay and image placements are siblings of
      .terminal-content, not descendants, so they need the terminal font here
@@ -296,7 +299,7 @@
   line-height: var(--line-height-terminal);
   color: var(--term-foreground);
   white-space: pre;
-  overflow: hidden;
+  overflow: visible;
   user-select: none;
   /* Snap the advance to the cell grid: --cell-gap is the letter-spacing that
      pads the font's natural advance up to --cell-w, the whole-device-pixel cell
@@ -318,6 +321,26 @@
      eliminating sub-pixel gaps between span backgrounds */
   display: flex;
   white-space: pre;
+}
+
+/* A row's edges: the pane's horizontal padding (the half separator column
+   each pane reaches into) takes the first cell's background on the left, and
+   everything right of the line — the padding and any cells the row does not
+   fill — takes the last cell's. A status line or an editor gutter painted
+   edge to edge then reaches the pane border instead of stopping half a cell
+   short (the colours come from TerminalLine as --row-edge-left/right). */
+.terminal-line::before {
+  content: '';
+  flex: 0 0 var(--pane-h-padding-left, 0px);
+  margin-left: calc(-1 * var(--pane-h-padding-left, 0px));
+  background-color: var(--row-edge-left, transparent);
+}
+
+.terminal-line::after {
+  content: '';
+  flex: 1 1 var(--pane-h-padding-right, 0px);
+  margin-right: calc(-1 * var(--pane-h-padding-right, 0px));
+  background-color: var(--row-edge-right, transparent);
 }
 
 .terminal-line > span,

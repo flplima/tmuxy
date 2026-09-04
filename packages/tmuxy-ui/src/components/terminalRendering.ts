@@ -125,6 +125,31 @@ function detectLineBg(line: CellLine): string | null {
  * Render a cell line into a DOM element, replacing its children.
  * Groups consecutive cells by style for efficiency (fewer spans).
  */
+/**
+ * The background a row's edge takes: the first cell's for the pane's left
+ * padding, the last cell's for everything right of the line (see
+ * `.terminal-line::before` / `::after` in styles.css). A status line or an
+ * editor gutter painted edge to edge then reaches the pane border instead of
+ * stopping half a cell short. Inverse video counts the way the cell renders.
+ */
+export function rowEdgeBackground(style: CellStyle | undefined): string | undefined {
+  if (!style) return undefined;
+  const fg = style.fg !== undefined ? cellColorToCss(style.fg) : '';
+  const bg = style.bg !== undefined ? cellColorToCss(style.bg) : '';
+  const painted = style.inverse ? fg || 'var(--terminal-fg, #fff)' : bg;
+  return painted || undefined;
+}
+
+/** Publish a row's edge backgrounds as the custom properties the CSS reads. */
+export function applyRowEdges(el: HTMLElement, line: CellLine): void {
+  const left = rowEdgeBackground(line[0]?.s);
+  const right = rowEdgeBackground(line[line.length - 1]?.s);
+  if (left) el.style.setProperty('--row-edge-left', left);
+  else el.style.removeProperty('--row-edge-left');
+  if (right) el.style.setProperty('--row-edge-right', right);
+  else el.style.removeProperty('--row-edge-right');
+}
+
 export function renderLineToDOM(
   el: HTMLDivElement,
   line: CellLine,
@@ -133,6 +158,7 @@ export function renderLineToDOM(
   el.textContent = '';
   // Reset inline background so stale colors don't persist across updates
   el.style.backgroundColor = '';
+  applyRowEdges(el, line);
 
   if (line.length === 0) return;
 
