@@ -7,7 +7,7 @@
 # When only one member remains, its @tmuxy-group-id is cleared (degrouped).
 
 set -euo pipefail
-source "$(dirname "$0")/_lib"
+source "${0%/*}/_lib"
 
 CLOSE_PANE="$1"
 

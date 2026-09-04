@@ -8,7 +8,7 @@
 # preserved automatically.
 
 set -euo pipefail
-source "$(dirname "$0")/_lib"
+source "${0%/*}/_lib"
 
 TARGET_PANE="$1"
 

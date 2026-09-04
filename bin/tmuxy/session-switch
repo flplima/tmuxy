@@ -4,7 +4,7 @@
 # Standalone mode (default): switch tmux client to selected session
 # Float mode (--float): set TMUXY_SWITCH_TO env var and exit (caller handles switch)
 set -euo pipefail
-source "$(dirname "$0")/_lib"
+source "${0%/*}/_lib"
 
 float_mode=false
 for arg in "$@"; do

@@ -15,7 +15,17 @@
 # picker/tree (matches tmuxy-core `STASH_SESSION`).
 STASH_SESSION="__tmuxy_stash"
 
-SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolved with parameter expansion, not `dirname`. These scripts run from
+# `run-shell` on a keypress, and every external binary is another process
+# spawn — tens of milliseconds on macOS, felt latency for something the shell
+# does for free. The `cd`+`pwd` fork survives only for the relative-path case,
+# which `run-shell` and `tmuxy-cli` never produce.
+_dir="${0%/*}"
+[ "$_dir" = "$0" ] && _dir="."
+case "$_dir" in
+  /*) SCRIPTS_DIR="$_dir" ;;
+  *) SCRIPTS_DIR="$(cd "$_dir" && pwd)" ;;
+esac
 
 # Derive TMUX_SOCKET from TMUX env var if not already set.
 # Inside run-shell, TMUX is e.g. "/tmp/tmux-1000/tmuxy-dev,110,9" — extract
@@ -24,7 +34,7 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 # tmux server).
 if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
   _path="${TMUX%%,*}"
-  TMUX_SOCKET="$(basename "$_path")"
+  TMUX_SOCKET="${_path##*/}"
 fi
 TMUX_SOCKET="${TMUX_SOCKET:-tmuxy}"
 export TMUX_SOCKET

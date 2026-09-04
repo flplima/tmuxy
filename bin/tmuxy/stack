@@ -16,7 +16,7 @@
 # header bar (the "tab"), so the stack reads like zellij's stacked panes.
 
 set -euo pipefail
-source "$(dirname "$0")/_lib"
+source "${0%/*}/_lib"
 
 STACK_OPT="@tmuxy-stack"
 

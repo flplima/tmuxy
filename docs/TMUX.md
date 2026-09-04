@@ -214,6 +214,23 @@ One trap: `-H` commands must never be merged by the frontend's send-keys batcher
 
 The frontend joins compound commands with a shell-escaped `\;` (correct for commands that pass through a shell or `run-shell` context). But tmux's control-mode line parser treats `\;` as a literal argument, silently erroring the whole command — which orphans the frontend's optimistic state (the "frozen UI after keyboard split" bug). Raw control-mode transports must rewrite the separator to a bare `;` — never inside a `send-keys -l` literal.
 
+## `list-keys` Reports Aliases Already Expanded
+
+A `command-alias` is a config-time convenience, not something the client ever
+sees. `bind -n C-l tmuxy-nav-right` reads back through `list-keys` — the source
+the frontend builds its binding table from — as the alias's **expansion**:
+`run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav right #{pane_id}"`.
+
+This matters because the client classifies each binding's command to decide
+whether it can predict the result optimistically
+(`tmuxy-ui/src/tmux/store/parseCommand.ts`). Anything it fails to recognise
+becomes a `RawCommand` — correct, but unpredicted, so the user waits out the
+full round trip instead of seeing the result on the next frame. Matching only
+the alias spelling is therefore a silent latency bug, not a parse error: the
+key still works, it is just several hundred milliseconds slower. Any classifier
+that keys off a bound command must match the **expanded** form (and may accept
+the alias too, for commands built in-code).
+
 ## Client-Side Placeholder Substitution
 
 Independent of tmux's own expansion, the frontend substitutes `#{pane_id}`, `#{pane_width}`, and `#{pane_height}` in **every outgoing command** with the active pane's values (`appMachine`'s SEND_TMUX_COMMAND handler). This is deliberate — prefix-binding commands are written against these placeholders — but it means text typed or pasted into a terminal containing those three exact placeholders is substituted before tmux ever sees it, on every transport (server, Tauri, v86).

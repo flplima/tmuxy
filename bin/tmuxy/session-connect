@@ -4,7 +4,7 @@
 # Creates a new tmux session running an SSH command and sets
 # TMUXY_SWITCH_TO for the frontend to pick up.
 set -euo pipefail
-source "$(dirname "$0")/_lib"
+source "${0%/*}/_lib"
 
 for arg in "$@"; do
   case "$arg" in

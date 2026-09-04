@@ -8,6 +8,14 @@ harnesses. Conflating them is the most common way to measure the wrong thing.
 | ------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------ | --------------- |
 | **A. Core + client processing** | parse → aggregate → delta → apply → render CPU, render churn, frames-to-paint | v86/wasm probes + native criterion bench   | removed         |
 | **B. Transport**                | wire RTT, head-of-line stalls, reconnect/roaming                              | `latencyTracker` + latency-injection proxy | the whole point |
+| **C. Whole interaction**        | everything one keypress sets off, end to end, per user action                 | `measure-interactions.mjs` in CI           | included        |
+
+Axes A and B decompose a single round trip; axis C asks a different question —
+**how much does one thing a user does actually cost**, with every layer, every
+extra round trip and every subprocess the action drags along still in the
+number. An interaction can regress badly (a binding grows a `run-shell`, a
+window-level refresh lands on the keystroke path) without A or B moving at all,
+which is exactly the gap it exists to close.
 
 The v86/wasm path measures Axis A precisely _because_ it removes the network as
 a variable — so it is a clean "how fast is our code with zero transport cost"
@@ -77,6 +85,86 @@ harness cannot run.
 Because the transports run over TCP, real packet loss reaches the app as delay
 (head-of-line retransmit), not dropped events; `--loss` models that as a random
 extra stall rather than truly dropping bytes.
+
+## Axis C — whole-interaction latency (the CI regression gate)
+
+`packages/tmuxy-ui/scripts/measure-interactions.mjs` drives the handful of
+things a tmuxy user does constantly and times each one from the real browser
+`keydown` to the first DOM change that shows the result — the same
+arm-on-keydown / resolve-on-mutation technique as `measure-keypaint.mjs`,
+generalized past a single keystroke. Everything goes through the real user
+path: the key reaches the page, the keyboard actor resolves the tmux binding,
+the command crosses the transport, tmux acts, state comes back. Nothing is
+short-circuited with an adapter call, so a regression anywhere in that chain
+lands in the number.
+
+Measured today: `key-echo`, `pane-nav-keyboard`, `pane-zoom-toggle`,
+`pane-split`, `tab-switch`.
+
+### The runner-noise problem, and the ratio that solves it
+
+Absolute milliseconds on a GitHub runner are unusable as a merge gate — the
+same commit can vary two-fold between runs. So each interaction is also
+reported as a **ratio to the keystroke echo measured in the same run on the
+same machine**. A keystroke is the cheapest complete round trip tmuxy has; a
+loaded runner inflates it and every other interaction together, and the ratio
+divides that out. Only a real change in how much *work* an interaction does
+moves a ratio.
+
+That gives two signals with very different standing, and
+`compare-interactions.mjs` treats them differently:
+
+| Signal | Compared against | On regression |
+| --- | --- | --- |
+| ratio to `key-echo` | a per-interaction budget in `compare-interactions.mjs` | **fails the job** |
+| absolute p50 | `perf/interaction-baseline.json`, keyed by platform | warns in the step summary |
+
+Budgets are ceilings with headroom, not targets. Raising one is a deliberate
+edit that shows up in review; tightening one belongs in the commit that earns
+it. The baseline is keyed by platform because milliseconds from a macOS laptop
+say nothing about `ubuntu-latest` — a platform with no baseline yet simply
+leaves the absolute column blank and rides on the ratio gate.
+
+### Running it
+
+```
+npm run perf:interactions -- --url http://localhost:9000 --samples 12 \
+                             --label local --out perf/interaction-report.json
+npm run perf:compare -- --report perf/interaction-report.json
+```
+
+Add `--cdp http://localhost:9222` to attach to the Chrome the dev environment
+already runs instead of launching one (the devcontainer deliberately does not
+install Playwright's browsers; CI is the reverse and launches). Refresh the
+committed baseline for a platform with `npm run perf:compare -- --report … --update-baseline`
+and commit the result — CI never writes it, so a baseline change is always a
+reviewed one.
+
+CI runs this as the `interaction-latency` job in `lint-and-tests.yml`, uploads
+the report as an artifact, and writes the table into the job summary.
+
+### Measured
+
+Local server on an isolated socket, macOS arm64, 10 samples per interaction,
+tmux 3.7. Same machine and same session shape for both columns. Treat the
+ratios as the durable part and the milliseconds as machine-specific.
+
+| Interaction | before | after | × keystroke (before → after) |
+| --- | ---: | ---: | --- |
+| `key-echo` | 29.2 ms | 38.3 ms | 1× → 1× |
+| `pane-nav-keyboard` | 356 ms | **10.1 ms** | 12.2× → **0.3×** |
+| `pane-zoom-toggle` | 235.1 ms | **92.3 ms** | 8.1× → 2.4× |
+| `pane-split` | 82.1 ms | 78.1 ms | 2.8× → 2.0× |
+| `tab-switch` | 3.5 ms | 4.7 ms | 0.1× → 0.1× |
+
+"Before" is the state this harness was written to explain: keyboard pane
+navigation cost twelve keystroke round trips. What the three fixes were, and
+how the number moved, is improvement area 4 below.
+
+The sub-keystroke numbers are not magic — `tab-switch` and (now)
+`pane-nav-keyboard` paint from the optimistic prediction before tmux answers.
+The harness measures what the user sees, and for a predicted op that is the
+prediction; the server's answer arrives later and reconciles.
 
 ## Measured baseline
 
@@ -223,13 +311,44 @@ Still open:
    steady-state RTT. Input prediction (a Non-Goal) is the only thing that hides
    RTT itself; the data says revisit it only for genuinely high-RTT (C3+) remote
    use, not for LAN/typical-remote.
-4. **Native status-line refresh spawns subprocesses.** On the native server,
-   a dirty status line makes `to_state_update` synchronously run several
-   `tmux display-message` subprocesses (`executor::capture_status_line`) —
-   milliseconds per refresh, discovered while fixing the bench. It only fires
-   on window-level changes (rename/add/select), not on the keystroke path,
-   but moving it onto the control-mode connection (or making it async) would
-   remove the last subprocess call from the state pipeline.
+4. ~~**Subprocesses on the keyboard path.**~~ **Done** — three separate
+   causes, found by the axis-C harness and fixed together (356 ms → 10 ms for
+   keyboard pane navigation).
+
+   - **Navigation had lost its optimistic prediction.** `Ctrl+hjkl` /
+     `Ctrl+arrow` are bound to the `tmuxy-nav-*` command alias, and
+     `parseCommandToOp` matched that spelling — but bindings reach the client
+     through `list-keys`, which reports aliases **already expanded**, so what
+     a keypress actually carried was
+     `run-shell "bash …/bin/tmuxy/nav <dir> …"`. That fell through to
+     `RawCommand`, no prediction, and the user waited out the shell script
+     *and* the round trip. The parser now recognises both spellings; tmux
+     still receives the original command, so the script's group/sidebar
+     semantics are untouched. This was the whole difference between 356 ms and
+     10 ms — the two below are what the server no longer has to hurry through.
+   - **The status-line refresh ran on every window event.**
+     `executor::capture_status_line` is five `tmux display-message` calls plus
+     a `sh -c` per `#(…)` in `status-right` (the shipped default is
+     `#(whoami)@#H`, so six process spawns), synchronous, inside
+     `to_state_update`. It was marked dirty by every window-level event *and
+     by every `list-windows` response* — several times a second. It now
+     refreshes only when something it renders actually changed (a fingerprint
+     over the session name and each window's id/index/name/active), with a
+     15 s staleness fallback matching tmux's own `status-interval` so a
+     `#(…)`-driven clock still ticks. Zoom toggle: 235 ms → 92 ms.
+   - **The shell helpers forked to compute their own path.** `_lib` ran
+     `dirname`, `basename` and their subshells on every invocation — ~50 ms
+     per call here, paid by every float, group, stack-relayout and nav — and
+     `nav`'s horizontal branch made four separate `tmux` reads (window type,
+     group id, edge flag) that a single `display-message` on the pane target
+     answers at once. Parameter expansion and one probe: `nav right`
+     187 ms → 75 ms, `nav up` 107 ms → 53 ms.
+
+   Still open, and now the largest remaining term: **navigation shells out at
+   all.** `run-shell` + bash is ~30 ms before the script does anything, and
+   the Rust monitor already holds the window/pane/group state the script
+   shells out to rediscover. Prediction hides that from the user, but the
+   server-side move is still the honest fix.
 
 ## What's still absent (by choice, for now)
 
@@ -244,4 +363,4 @@ Still open:
 - [TELEMETRY.md](TELEMETRY.md) — the trace file that generalizes `latencyTracker` into a cross-layer timeline
 - [DATA-FLOW.md](DATA-FLOW.md) — the transports Axis B measures
 - [NON-GOALS.md](NON-GOALS.md) — input prediction and the other latency techniques we deliberately skip
-- [TESTS.md](TESTS.md) — the Storybook probes the Axis-A story measurements ride on
+- [TESTS.md](TESTS.md) — the Storybook probes the Axis-A story measurements ride on, and where the Axis-C job sits among the suites

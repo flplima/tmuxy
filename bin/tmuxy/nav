@@ -12,7 +12,7 @@
 # published as a focus request the client acts on instead (see `request_focus`).
 
 set -euo pipefail
-source "$(dirname "$0")/_lib"
+source "${0%/*}/_lib"
 
 DIR="$1"
 PANE_ID="$2"
@@ -42,22 +42,35 @@ nav_horizontal() {
   local tmux_dir="$1"   # -R or -L
   local edge_dir="$2"   # "right" or "left"
 
+  # Everything the decision below needs, in ONE tmux call. A `display-message`
+  # aimed at a PANE resolves the window-scoped @tmuxy-window-type and the
+  # pane-scoped @tmuxy-group-id alongside the edge flag, so what used to be
+  # four process spawns on every Ctrl+h / Ctrl+l is one. The always-present
+  # edge flag goes last on purpose: `$( )` strips trailing newlines, so an
+  # option that happens to be unset must never be the final field.
+  local probe current_type gid at_edge
+  probe=$(_tmux display-message -t "$PANE_ID" -p "#{@tmuxy-window-type}
+#{@tmuxy-group-id}
+#{pane_at_$edge_dir}")
+  {
+    IFS= read -r current_type || true
+    IFS= read -r gid || true
+    IFS= read -r at_edge || true
+  } <<EOF
+$probe
+EOF
+
   # Step 0: already inside a sidebar column — the only way out is back to the
   # panes, and only when heading away from that column's edge. The CALLER's
   # pane decides this, not the session's current pane: run from the dock's
   # shell, `display-message` with no target names the tab's active pane, and
   # the branch below would never match.
-  local current_type
-  current_type=$(window_type "$(pane_window "$PANE_ID")")
   case "$current_type" in
     sidebar-left)  [ "$edge_dir" = "right" ] && request_focus panes; return ;;
     sidebar-right) [ "$edge_dir" = "left" ]  && request_focus panes; return ;;
   esac
 
   # Step 1: if the pane is in a group, cycle within the group (circular).
-  local gid
-  gid=$(group_id_of_pane "$PANE_ID")
-
   if [ -n "$gid" ]; then
     local members count
     members=$(group_members "$gid")
@@ -85,12 +98,11 @@ nav_horizontal() {
     fi
   fi
 
-  # Step 2: at the grid's edge already? tmux says so directly. (Comparing the
-  # active pane before/after a `select-pane -L/-R` does not work: at the edge
-  # tmux WRAPS to the opposite side rather than doing nothing.) If a sidebar is
-  # docked on that edge, it is the next thing along; otherwise stay put.
-  local at_edge
-  at_edge=$(_tmux display-message -t "$PANE_ID" -p "#{pane_at_$edge_dir}")
+  # Step 2: at the grid's edge already? tmux said so in the probe above.
+  # (Comparing the active pane before/after a `select-pane -L/-R` does not
+  # work: at the edge tmux WRAPS to the opposite side rather than doing
+  # nothing.) If a sidebar is docked on that edge, it is the next thing along;
+  # otherwise stay put.
   if [ "$at_edge" = "1" ]; then
     if [ -n "$(sidebar_window "$edge_dir")" ]; then
       request_focus "$edge_dir"

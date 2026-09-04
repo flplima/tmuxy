@@ -58,14 +58,29 @@ export function parseCommandToOp(command: string): TmuxOp {
     };
   }
 
-  // tmuxy-nav-* — the guest/server command aliases the default Ctrl+hjkl root
-  // bindings map to. Server-side they expand to directional pane navigation;
-  // recognizing them here gives the keys the same Navigate prediction as raw
-  // `select-pane -LRUD`.
-  const navAlias = trimmed.match(/^tmuxy-nav-(left|right|up|down)\b/);
-  if (navAlias) {
+  // Unified navigation — the default Ctrl+hjkl / Ctrl+arrow root bindings.
+  //
+  // Two spellings reach us. The config writes `tmuxy-nav-left`, a
+  // `command-alias`; but bindings arrive at the client through `list-keys`,
+  // and tmux reports aliases ALREADY EXPANDED — so what a keypress actually
+  // carries is the `run-shell "bash …/bin/tmuxy/nav <dir> …"` form. Matching
+  // only the alias means every arrow key falls through to `RawCommand` and
+  // loses its prediction, which is the difference between the highlight moving
+  // on the next frame and waiting out a shell script plus a full round trip.
+  //
+  // Only the prediction is affected: the caller sends the original command
+  // string (see `DispatchOptions.command`), so tmux still runs the script and
+  // keeps its group/sidebar semantics. Where the script would do something the
+  // geometric prediction cannot know about — cycling within a pane group —
+  // `findAdjacentPane` predicts the neighbour and the server's answer rolls it
+  // back, the same reconcile path every other focus op uses. At the grid edge
+  // there is no neighbour, so nothing is predicted at all.
+  const navDirection =
+    trimmed.match(/^tmuxy-nav-(left|right|up|down)\b/)?.[1] ??
+    trimmed.match(/^run-shell\s+.*\bbin\/tmuxy\/nav\s+(left|right|up|down)\b/)?.[1];
+  if (navDirection) {
     const dir = { left: 'L', right: 'R', up: 'U', down: 'D' } as const;
-    return { _tag: 'Navigate', direction: dir[navAlias[1] as keyof typeof dir] };
+    return { _tag: 'Navigate', direction: dir[navDirection as keyof typeof dir] };
   }
 
   // swap-pane -s %X -t %Y (and the reversed -t/-s form)
