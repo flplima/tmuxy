@@ -1899,9 +1899,29 @@
   opacity: 0.75;
 }
 
-/* Panes recede under their tab, so scanning the tree reads tab names first. */
+/* Panes recede under their tab, so scanning the tree reads tab names first.
+   A pane's title gets a second line before it is cut: titles are the one
+   thing in the tree that routinely outgrow a 30-column column (a path, a
+   command with its arguments), and two lines fit most of them. The row grows
+   with it; the connector, icon and cue stay on the first line. */
 .sidebar-tree-pane {
   color: var(--text-dimmed);
+  height: auto;
+  min-height: var(--line-height-terminal);
+  align-items: flex-start;
+}
+
+.sidebar-tree-pane > * {
+  line-height: var(--line-height-terminal);
+}
+
+.sidebar-tree-pane > .sidebar-tree-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 /* The box-drawing connector — quieter than the label it points at. */

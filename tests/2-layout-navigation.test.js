@@ -2206,6 +2206,29 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       20000,
       'tree rows to render in the sidebar',
     );
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate((title) => {
+          const label = [
+            ...document.querySelectorAll('.sidebar-tree-pane .sidebar-tree-label'),
+          ].find((el) => el.textContent.includes(title.slice(0, 20)));
+          if (!label) return false;
+          const column = document.querySelector('.sidebar-column-left').getBoundingClientRect();
+          const r = label.getBoundingClientRect();
+          const lineHeight = parseFloat(getComputedStyle(label).lineHeight);
+          // Two lines tall, both inside the column — the second line is really
+          // shown, not overflowing under something.
+          return (
+            Math.round(r.height / lineHeight) === 2 &&
+            r.left >= column.left &&
+            r.right <= column.right &&
+            r.bottom <= column.bottom
+          );
+        }, longTitle),
+      8000,
+      'the long pane title to wrap onto a second line in the tree',
+    );
 
     // Step 4: Focus the sidebar (click) so keys route to the tree.
     //
