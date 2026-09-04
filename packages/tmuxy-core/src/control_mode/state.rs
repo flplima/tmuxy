@@ -490,9 +490,7 @@ impl PaneState {
         self.cached_content = None;
 
         // Create fresh terminal to clear all state
-        let w = (self.width as u16).max(1);
-        let h = (self.height as u16).max(1);
-        self.terminal = vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
+        self.terminal = self.fresh_terminal();
         // Keep image placements: the capture text can't recreate them (tmux
         // strips image escapes from captured history).
         self.image_parser.reset_for_capture();
@@ -504,6 +502,27 @@ impl PaneState {
         let normalized = normalize_capture_bytes(content);
         safe_process(&mut self.terminal, &normalized);
         self.rebaseline_scroll();
+    }
+
+    /// A parser for this pane's size, already in the screen mode tmux reports.
+    ///
+    /// The alternate screen (`?1049h`) is state the application set once,
+    /// possibly long before this client attached. A parser rebuilt for a
+    /// capture refill (or a window move) never saw that sequence, so it
+    /// reported the main screen while list-panes kept reporting the alternate
+    /// one — and `alternate_on` flapped between the two on every %output /
+    /// list-panes pair, re-rendering the pane a few times a second (the
+    /// "blinking" pane running Claude Code). Entering the mode up front keeps
+    /// the captured screen in the grid tmux drew it on and the two sources in
+    /// agreement.
+    fn fresh_terminal(&self) -> vt100::Parser {
+        let w = (self.width as u16).max(1);
+        let h = (self.height as u16).max(1);
+        let mut terminal = vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
+        if self.alternate_on {
+            terminal.process(b"\x1b[?1049h");
+        }
+        terminal
     }
 
     /// Resize the terminal.
@@ -2114,10 +2133,7 @@ impl StateAggregator {
                 if moved_window && !was_resized {
                     // resize() already resets VT100 when dimensions change.
                     // When only the window changed (same dimensions), reset manually.
-                    let w = (pane.width as u16).max(1);
-                    let h = (pane.height as u16).max(1);
-                    pane.terminal =
-                        vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
+                    pane.terminal = pane.fresh_terminal();
                     pane.image_parser.reset();
                     pane.content_dirty = true;
                     pane.cached_content = None;
@@ -3864,6 +3880,32 @@ mod tests {
             linked_text(&pane),
             vec![("https://example.com/st".to_string(), "OSC-LINK".to_string())]
         );
+    }
+
+    #[test]
+    fn a_refill_keeps_the_alternate_screen_tmux_reports() {
+        // A client that attaches while an application (vim, Claude Code) is
+        // already on the alternate screen: list-panes says alternate_on=1,
+        // then the capture refill rebuilds the parser. The rebuilt parser must
+        // be on the alternate screen too, or every following %output flips
+        // the flag back to false and the pane re-renders on each flap.
+        let mut pane = PaneState::new("%1", 40, 4);
+        pane.alternate_on = true;
+        pane.reset_and_process_capture(b"drawn on the alternate screen\n");
+        assert!(pane.terminal.screen().alternate_screen());
+        pane.process_output(b"more");
+        assert!(
+            pane.alternate_on,
+            "output after a refill must not drop alternate mode"
+        );
+
+        // And a pane on the main screen stays there.
+        let mut main = PaneState::new("%2", 40, 4);
+        main.alternate_on = false;
+        main.reset_and_process_capture(b"shell\n");
+        assert!(!main.terminal.screen().alternate_screen());
+        main.process_output(b"x");
+        assert!(!main.alternate_on);
     }
 
     #[test]
