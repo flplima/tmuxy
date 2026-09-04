@@ -77,6 +77,7 @@ export {
   selectLog,
   selectGridDimensions,
   selectCharSize,
+  selectSidebarCellMetrics,
   selectCellMetrics,
   selectPaneGroupForPane,
   selectPaneGroupPanes,

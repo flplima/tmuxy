@@ -1,3 +1,5 @@
+import { sidebarFontSize } from '../utils/fontSizeManager';
+import { sidebarCellMetrics } from '../utils/cellMetrics';
 import type {
   AppMachineContext,
   LogEntry,
@@ -284,6 +286,8 @@ export const selectSidebarLayout = createMemoizedSelector(
       ctx.containerWidth,
       ctx.bodyWidth,
       ctx.charWidth,
+      ctx.cellGap,
+      ctx.baseFontSize,
       ctx.windows,
       ctx.sidebarColsPreview,
     ] as const,
@@ -309,7 +313,9 @@ export const selectSidebarLayout = createMemoizedSelector(
       return context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarCols ?? null;
     };
     const leftWidth = (draggedCols('left') ?? LEFT_SIDEBAR_COLS) * charWidth;
-    const rightWidth = (draggedCols('right') ?? RIGHT_SIDEBAR_COLS) * charWidth;
+    // The dock is a terminal in the sidebar font: its columns are dock cells.
+    const rightWidth =
+      (draggedCols('right') ?? RIGHT_SIDEBAR_COLS) * selectSidebarCellMetrics(context).cellWidth;
     const { leftSidebarOpen: leftOpen } = context;
     let { rightSidebarOpen: rightOpen } = context;
 
@@ -392,6 +398,26 @@ export const selectGridDimensions = createMemoizedSelector(
     charWidth: context.charWidth,
     charHeight: context.charHeight,
   }),
+);
+
+/**
+ * The dock's cell grid and font: the sidebar font (80% of the pane font,
+ * rounded — see fontSizeManager) with the cell width the pane grid's advance
+ * scales to. The right column is drawn and its tmux pane sized in these cells.
+ */
+export const selectSidebarCellMetrics = createMemoizedSelector(
+  (context: AppMachineContext) =>
+    [context.charWidth, context.cellGap, context.baseFontSize] as const,
+  (context: AppMachineContext) => {
+    const fontSize = sidebarFontSize(context.baseFontSize);
+    const metrics = sidebarCellMetrics(
+      { charWidth: context.charWidth || DEFAULT_CHAR_WIDTH, cellGap: context.cellGap },
+      context.baseFontSize,
+      fontSize,
+      typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+    );
+    return { fontSize, cellWidth: metrics.cellWidth, cellGap: metrics.cellGap };
+  },
 );
 
 export const selectCharSize = createMemoizedSelector(

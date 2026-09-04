@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { snapCellWidth, computeCellMetrics, cellMetricsStyle } from '../cellMetrics';
+import {
+  snapCellWidth,
+  computeCellMetrics,
+  cellMetricsStyle,
+  sidebarCellMetrics,
+} from '../cellMetrics';
 import { cellsToCss } from '../../components/terminalShared';
 
 describe('snapCellWidth', () => {
@@ -41,5 +46,19 @@ describe('cellMetricsStyle / cellsToCss', () => {
       '--cell-gap': '-0.2px',
     });
     expect(cellsToCss(11)).toBe('calc(11 * var(--cell-w, 1ch))');
+  });
+});
+
+describe('sidebarCellMetrics', () => {
+  it('scales the pane advance by the font ratio and snaps to a device pixel', () => {
+    // 15px panes advance 9.0px (snapped 9, gap 0); a 12px sidebar advances 7.2px,
+    // which at DPR 2 snaps to 7.0 with a -0.2 gap.
+    const m = sidebarCellMetrics({ charWidth: 9, cellGap: 0 }, 15, 12, 2);
+    expect(m.advance).toBeCloseTo(7.2, 6);
+    expect(m.cellWidth).toBe(7);
+    expect(m.cellGap).toBeCloseTo(-0.2, 6);
+    // The pane's own gap is not part of the natural advance.
+    const n = sidebarCellMetrics({ charWidth: 9, cellGap: 0.5 }, 15, 15, 1);
+    expect(n.advance).toBeCloseTo(8.5, 6);
   });
 });

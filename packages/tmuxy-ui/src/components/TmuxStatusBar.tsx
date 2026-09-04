@@ -226,10 +226,10 @@ export function TmuxStatusBar() {
 
   return (
     <div className="tmux-status-bar" data-testid="tmux-status-bar">
-      <div
-        className="tmux-statusline-inner"
-        style={gridPixelWidth > 0 ? { width: gridPixelWidth, margin: '0 auto' } : undefined}
-      >
+      {/* Full width, whatever the pane grid measures: with a sidebar open the
+          grid is narrower than the window, but the hints stay at the window's
+          left edge and the host/session at its right. */}
+      <div className="tmux-statusline-inner">
         <div className="tmux-statusline-left">
           {inCopyMode ? (
             <CopyModeHints />

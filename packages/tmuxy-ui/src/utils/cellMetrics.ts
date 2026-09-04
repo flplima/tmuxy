@@ -80,6 +80,23 @@ export function measureCellMetrics(host: HTMLElement = document.body): CellMetri
 }
 
 /**
+ * The cell grid of a sidebar column, whose text is `sidebarFontPx` where the
+ * panes are `paneFontPx`: glyph advances scale linearly with font size, so the
+ * column's natural advance is the pane's scaled by the ratio, snapped to a
+ * device pixel like any other cell. The dock's tmux pane is sized in THESE
+ * cells, so its `@tmuxy-sidebar-cols` and the column's pixel width agree.
+ */
+export function sidebarCellMetrics(
+  pane: { charWidth: number; cellGap: number },
+  paneFontPx: number,
+  sidebarFontPx: number,
+  devicePixelRatio: number,
+): CellMetrics {
+  const advance = (pane.charWidth - pane.cellGap) * (sidebarFontPx / (paneFontPx || 1));
+  return computeCellMetrics(advance, devicePixelRatio);
+}
+
+/**
  * Inline-style custom properties that publish the metrics to the DOM subtree.
  * Set on the app root (see App.tsx) and on story decorators that render
  * terminal content without the app.

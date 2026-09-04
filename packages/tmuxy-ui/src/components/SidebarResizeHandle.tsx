@@ -20,7 +20,12 @@
  */
 
 import { memo, useCallback, useRef, useState } from 'react';
-import { useAppSend, useAppSelector, selectCharSize } from '../machines/AppContext';
+import {
+  useAppSend,
+  useAppSelector,
+  selectCharSize,
+  selectSidebarCellMetrics,
+} from '../machines/AppContext';
 import { SIDEBAR_MAX_COLS, SIDEBAR_MIN_COLS } from '../machines/constants';
 
 interface SidebarResizeHandleProps {
@@ -37,7 +42,10 @@ export const SidebarResizeHandle = memo(function SidebarResizeHandle({
   width,
 }: SidebarResizeHandleProps) {
   const send = useAppSend();
-  const { charWidth } = useAppSelector(selectCharSize);
+  const { charWidth: paneCharWidth } = useAppSelector(selectCharSize);
+  const dock = useAppSelector(selectSidebarCellMetrics);
+  // The dock is sized in its own (smaller) cells; the tree column in pane cells.
+  const charWidth = side === 'right' ? dock.cellWidth : paneCharWidth;
   const [dragging, setDragging] = useState(false);
   // Read inside the move/up handlers; lastCols is -1 until the first change.
   const dragRef = useRef({ startX: 0, startWidth: width, lastCols: -1 });

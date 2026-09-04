@@ -25,10 +25,16 @@
  * the UI doesn't render.
  */
 
-import { memo, useCallback } from 'react';
+import { memo, useCallback, type CSSProperties } from 'react';
 import { TerminalPane } from './TerminalPane';
 import { getWidget } from './widgets';
-import { useAppSend, useAppSelector, selectCharSize } from '../machines/AppContext';
+import {
+  useAppSend,
+  useAppSelector,
+  selectCharSize,
+  selectSidebarCellMetrics,
+} from '../machines/AppContext';
+import { cellMetricsStyle } from '../utils/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
 import type { TmuxPane } from '../machines/types';
 
@@ -76,6 +82,18 @@ export const SidebarColumn = memo(function SidebarColumn({
     [onFocus],
   );
 
+  // The dock's terminal runs in the sidebar font, on a cell grid scaled to it
+  // (selectSidebarCellMetrics): the font and the --cell-w / --cell-gap every
+  // cell-addressed box reads are scoped to this column.
+  const dock = useAppSelector(selectSidebarCellMetrics);
+  const cellVars =
+    side === 'right'
+      ? ({
+          '--tmuxy-font-size': `${dock.fontSize}px`,
+          ...cellMetricsStyle(dock),
+        } as CSSProperties)
+      : undefined;
+
   const handleClose = useCallback(
     (e: React.MouseEvent) => {
       // Without this the click also lands on the column and focuses what we
@@ -94,7 +112,7 @@ export const SidebarColumn = memo(function SidebarColumn({
       // Pinned on all four axes: `flex: 0 0` alone still lets a wide child
       // stretch the column, which would silently desync it from the cell count
       // the backend sized the pane to.
-      style={{ flex: `0 0 ${width}px`, width, minWidth: width, maxWidth: width }}
+      style={{ flex: `0 0 ${width}px`, width, minWidth: width, maxWidth: width, ...cellVars }}
       onClick={handleClick}
       data-testid={testId}
     >
