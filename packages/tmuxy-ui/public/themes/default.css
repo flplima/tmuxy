@@ -44,6 +44,9 @@
   --border-light: #4a4a4a;
 
   --pane-header-bg-active: #444;
+  /* Pane header text weight, active and inactive alike; every theme inherits
+     it through the fallback in styles.css unless it sets its own. */
+  --pane-header-font-weight: 700;
   --pane-header-bg-inactive: #1a1a1a;
   --pane-header-text-active: var(--term-bright-white);
   --pane-header-text-inactive: var(--term-bright-black);
@@ -127,6 +130,9 @@
   --border-light: #c0c0c0;
 
   --pane-header-bg-active: #d8d8d8;
+  /* Pane header text weight, active and inactive alike; every theme inherits
+     it through the fallback in styles.css unless it sets its own. */
+  --pane-header-font-weight: 700;
   --pane-header-bg-inactive: #eeeeee;
   --pane-header-text-active: #1e1e1e;
   --pane-header-text-inactive: #8e8e93;
