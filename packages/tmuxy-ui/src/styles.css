@@ -336,9 +336,12 @@
    from the cell's left edge so it stays inside the box the grid gave it. The
    box itself is untouched, so the run after it starts where tmux says. */
 .terminal-fit-glyph {
-  display: inline-block;
-  transform: scale(var(--glyph-fit, 1));
-  transform-origin: 0 50%;
+  /* Shrunk through font-size, not transform: a transformed inline-block is a
+     compositing layer, and a layer inside a pane whose text opacity fades on
+     every focus change repaints visibly in WebKit. The line box keeps the
+     parent's line-height, so the smaller glyph stays on the row. */
+  font-size: calc(1em * var(--glyph-fit, 1));
+  line-height: inherit;
   letter-spacing: 0;
 }
 
@@ -514,8 +517,8 @@
    per theme — green on the default, yellow on gruvbox — falling back to the
    accent). The outline means "the keyboard is in this tiled pane": PaneLayout drops
    the class while a float, the dock or the tree holds the keyboard. The
-   outline sits above its siblings' so the whole frame reads, not just the
-   edges no neighbour shares. */
+   outline paints above its siblings' (`.pane-active` raises z-index) so the
+   whole frame reads, not just the edges no neighbour shares. */
 .pane-layout-item.pane-active {
   background-color: color-mix(
     in srgb,
@@ -523,7 +526,6 @@
     transparent
   );
   outline-color: var(--pane-focus-border, var(--accent-green, var(--border-medium)));
-  z-index: 1;
 }
 
 /* Zoomed pane: the active-pane surface applies; it only needs to sit above
