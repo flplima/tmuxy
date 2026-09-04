@@ -28,6 +28,21 @@ export const Single: Story = {
       { timeout: 5000 },
     );
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+
+    // A lone tab reads as a label on the window, so it sits where every other
+    // tab sits — hard against the left of the strip — rather than drifting to
+    // the far edge away from the sidebar toggle it follows.
+    const strip = canvasElement.querySelector('.tab-list') as HTMLElement;
+    const stripBox = strip.getBoundingClientRect();
+    const tabBox = tabs[0].getBoundingClientRect();
+    expect(tabBox.left - stripBox.left).toBeLessThan(stripBox.width / 4);
+
+    // ...and it takes no hover background: there is nothing to switch to, and
+    // on the desktop this tab is the window's drag handle.
+    await userEvent.hover(tabs[0]);
+    await waitFor(() => {
+      expect(getComputedStyle(tabs[0]).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    });
   },
 };
 

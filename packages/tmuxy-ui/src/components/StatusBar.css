@@ -239,12 +239,15 @@
   opacity: 1;
 }
 
-/* A lone tab keeps the active tab's look but sits at the right edge of the
-   strip, the `+` directly after it. It carries no close button and, on the
-   desktop, drags the window like the empty header around it (StatusBar leaves
-   it out of the control list). */
-.tab-list-single {
-  justify-content: flex-end;
+/* A lone tab keeps the active tab's look and sits where every other tab sits:
+   at the left of the strip, directly after the sidebar toggle, with the `+`
+   after it. It carries no close button and, on the desktop, drags the window
+   like the empty header around it (StatusBar leaves it out of the control
+   list) — which is also why it takes no hover background: a lone tab is not a
+   thing you switch to, so offering the affordance of one only muddies the
+   drag handle it actually is. */
+.tab-list-single .tab-name:hover {
+  background-color: transparent;
 }
 
 /* Add tab button */

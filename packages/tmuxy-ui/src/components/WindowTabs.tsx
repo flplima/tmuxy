@@ -3,10 +3,11 @@
  *
  * Tabs sit left-aligned at their natural width, each with a close button on its
  * right, so the rest of the strip stays empty — and on the desktop that empty
- * header is what drags the OS window (see StatusBar). A lone tab keeps the same
- * active styling but is pushed to the RIGHT edge of the strip with the `+`
- * directly after it, carries no close button, and is itself a drag handle for
- * the window.
+ * header is what drags the OS window (see StatusBar). A lone tab sits in that
+ * same left-aligned position with the `+` directly after it, but carries no
+ * close button, takes no hover background, and is itself a drag handle for the
+ * window: with nothing to switch to, it is a label on the window rather than a
+ * control.
  *
  * The active tab is marked by BRIGHTNESS alone — full opacity and pure white
  * against the others' dimmed grey — with no pill or background behind it.
