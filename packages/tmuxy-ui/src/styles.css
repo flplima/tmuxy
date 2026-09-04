@@ -789,6 +789,7 @@
   );
   font-family: var(--font-mono);
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
+  font-weight: 700;
   color: var(--pane-header-text-inactive);
   user-select: none;
   box-sizing: border-box;
