@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within } from 'storybook/test';
 import { TerminalLine } from './TerminalLine';
@@ -314,46 +313,25 @@ export const FatNarrowGlyph: Story = {
 };
 
 /**
- * A row's edges reach the pane border. The pane's horizontal padding (the
- * half separator column it reaches into) is painted with the first cell's
- * background on the left and the last cell's on the right, so a status line
- * or an editor gutter drawn edge to edge does not stop half a cell short.
+ * Whatever a row does not fill takes its last cell's background (`::after`),
+ * so a status line shorter than the pane still reads edge to edge. The pane's
+ * padding columns are the RowEdges layer's job (see its stories).
  */
-export const EdgesReachThePaneBorder: Story = {
+export const UnfilledWidthTakesTheLastCellsBackground: Story = {
   args: {
     line: [
       ...styled(' NORMAL ', { bg: { r: 168, g: 153, b: 132 } }),
       ...styled(' file.rs ', { bg: { r: 60, g: 56, b: 54 } }),
     ],
   },
-  decorators: [
-    (Story) => (
-      <div
-        style={
-          {
-            '--pane-h-padding-left': '9px',
-            '--pane-h-padding-right': '9px',
-            padding: '0 9px',
-            width: 400,
-            overflow: 'hidden',
-          } as CSSProperties
-        }
-      >
-        <Story />
-      </div>
-    ),
-  ],
   play: async ({ canvasElement }) => {
     await cellGridReady();
     const line = canvasElement.querySelector('.terminal-line') as HTMLElement;
-    const before = getComputedStyle(line, '::before');
     const after = getComputedStyle(line, '::after');
-    expect(before.backgroundColor).toBe('rgb(168, 153, 132)');
     expect(after.backgroundColor).toBe('rgb(60, 56, 54)');
-    // The left edge sits in the padding, flush with the pane's border.
-    expect(parseFloat(before.width)).toBeCloseTo(9, 0);
+    // The fill covers the whole width the cells leave.
     const lineBox = line.getBoundingClientRect();
-    const paneBox = line.parentElement!.parentElement!.getBoundingClientRect();
-    expect(lineBox.left - paneBox.left).toBeCloseTo(9, 0);
+    const last = line.querySelector('span:last-of-type')!.getBoundingClientRect();
+    expect(parseFloat(after.width)).toBeCloseTo(lineBox.right - last.right, 0);
   },
 };

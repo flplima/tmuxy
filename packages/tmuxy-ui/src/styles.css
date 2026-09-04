@@ -261,10 +261,7 @@
   position: relative;
   width: 100%;
   height: 100%;
-  /* Not a clip box: .pane-content clips at its padding edge, and the rows
-     paint their edge backgrounds INTO that padding (`.terminal-line::before`
-     / `::after`), which an overflow clip here would cut off. */
-  overflow: visible;
+  overflow: hidden;
   /* Establish the cell metrics for everything positioned on the grid inside
      this pane. The cursor overlay and image placements are siblings of
      .terminal-content, not descendants, so they need the terminal font here
@@ -299,7 +296,7 @@
   line-height: var(--line-height-terminal);
   color: var(--term-foreground);
   white-space: pre;
-  overflow: visible;
+  overflow: hidden;
   user-select: none;
   /* Snap the advance to the cell grid: --cell-gap is the letter-spacing that
      pads the font's natural advance up to --cell-w, the whole-device-pixel cell
@@ -323,24 +320,38 @@
   white-space: pre;
 }
 
-/* A row's edges: the pane's horizontal padding (the half separator column
-   each pane reaches into) takes the first cell's background on the left, and
-   everything right of the line — the padding and any cells the row does not
-   fill — takes the last cell's. A status line or an editor gutter painted
-   edge to edge then reaches the pane border instead of stopping half a cell
-   short (the colours come from TerminalLine as --row-edge-left/right). */
-.terminal-line::before {
-  content: '';
-  flex: 0 0 var(--pane-h-padding-left, 0px);
-  margin-left: calc(-1 * var(--pane-h-padding-left, 0px));
-  background-color: var(--row-edge-left, transparent);
-}
-
+/* Whatever a row does not fill takes its last cell's background, so a status
+   line that stops short of the width still reads edge to edge (the colour
+   comes from the renderer as --row-edge-right). The pane's padding columns
+   are painted by RowEdges — see below. */
 .terminal-line::after {
   content: '';
-  flex: 1 1 var(--pane-h-padding-right, 0px);
-  margin-right: calc(-1 * var(--pane-h-padding-right, 0px));
+  flex: 1 1 auto;
   background-color: var(--row-edge-right, transparent);
+}
+
+/* RowEdges: the pane's horizontal padding, painted row by row in the first /
+   last cell's background. Lives in .pane-content beside the scroll container
+   (which would clip anything the rows painted there themselves). */
+.terminal-edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.terminal-edge {
+  position: absolute;
+  height: var(--line-height-terminal);
+}
+
+.terminal-edge-left {
+  left: 0;
+  width: var(--pane-h-padding-left, 0px);
+}
+
+.terminal-edge-right {
+  right: 0;
+  width: var(--pane-h-padding-right, 0px);
 }
 
 .terminal-line > span,
