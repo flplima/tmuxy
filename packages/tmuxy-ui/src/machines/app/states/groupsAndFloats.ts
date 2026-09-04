@@ -3,7 +3,8 @@
  * two sidebar columns.
  *
  * Owns context fields: paneGroups, floatPanes, focusedFloatPaneId,
- * leftSidebarOpen, leftSidebarFocused, rightSidebarOpen, rightSidebarFocused.
+ * leftSidebarOpen, leftSidebarFocused, rightSidebarOpen, rightSidebarFocused,
+ * sidebarMotion, leftSidebarClosing, rightSidebarClosing.
  *
  * - groupsAndFloatsGlobalEvents: spread into machine root on:
  *   (OPEN_SESSION_FLOAT, OPEN_CONNECT_FLOAT, TOGGLE_LEFT_SIDEBAR — pure
@@ -24,6 +25,7 @@ export const groupsAndFloatsGlobalEvents = {
   OPEN_CONNECT_FLOAT: { actions: 'groupsAndFloats_openConnectFloat' },
   TOGGLE_LEFT_SIDEBAR: { actions: 'groupsAndFloats_toggleLeftSidebar' },
   SIDEBAR_START_TIMEOUT: { actions: 'groupsAndFloats_sidebarStartTimeout' },
+  SIDEBAR_MOTION_SETTLED: { actions: 'groupsAndFloats_sidebarMotionSettled' },
   SIDEBAR_RESIZE_PREVIEW: { actions: 'groupsAndFloats_sidebarResizePreview' },
   SIDEBAR_RESIZE_COMMIT: { actions: 'groupsAndFloats_sidebarResizeCommit' },
   SIDEBAR_PREVIEW_EXPIRE: { actions: 'groupsAndFloats_sidebarPreviewExpire' },

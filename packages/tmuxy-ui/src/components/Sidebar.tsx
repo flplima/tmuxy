@@ -31,7 +31,7 @@ export const Sidebar = memo(function Sidebar() {
 
 function SidebarInner() {
   const send = useAppSend();
-  const { leftOpen, overlay, leftWidth } = useAppSelector(selectSidebarLayout);
+  const { leftOpen, leftClosing, motion, overlay, leftWidth } = useAppSelector(selectSidebarLayout);
   const focused = useAppSelector((ctx) => ctx.leftSidebarFocused);
   const startFailed = useAppSelector((ctx) => ctx.leftSidebarStartFailed);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
@@ -40,12 +40,14 @@ function SidebarInner() {
   const handleFocus = useCallback(() => send({ type: 'FOCUS_LEFT_SIDEBAR' }), [send]);
   const handleClose = useCallback(() => send({ type: 'TOGGLE_LEFT_SIDEBAR' }), [send]);
 
-  if (!leftOpen) return null;
+  if (!leftOpen && !leftClosing) return null;
 
   return (
     <SidebarColumn
       side="left"
       width={leftWidth}
+      closing={leftClosing}
+      moving={motion}
       overlay={overlay}
       focused={focused}
       pane={pane}

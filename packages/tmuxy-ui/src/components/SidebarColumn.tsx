@@ -43,6 +43,10 @@ interface SidebarColumnProps {
   side: 'left' | 'right';
   /** Column width in pixels, derived from the cell grid by the caller. */
   width: number;
+  /** Closed and sliding shut: rendered at its full width inside a box going to zero. */
+  closing: boolean;
+  /** A slide is in progress, so the column carries its width transition. */
+  moving: boolean;
   /** True while the column floats over the panes instead of docking beside them. */
   overlay: boolean;
   focused: boolean;
@@ -64,6 +68,8 @@ interface SidebarColumnProps {
 export const SidebarColumn = memo(function SidebarColumn({
   side,
   width,
+  closing,
+  moving,
   overlay,
   focused,
   pane,
@@ -109,11 +115,13 @@ export const SidebarColumn = memo(function SidebarColumn({
     <aside
       className={`sidebar-column sidebar-column-${side}${focused ? ' is-focused' : ''}${
         overlay ? ' is-overlay' : ''
-      }`}
-      // Pinned on all four axes: `flex: 0 0` alone still lets a wide child
-      // stretch the column, which would silently desync it from the cell count
-      // the backend sized the pane to.
-      style={{ flex: `0 0 ${width}px`, width, minWidth: width, maxWidth: width, ...cellVars }}
+      }${moving ? ' is-moving' : ''}${closing ? ' is-closing' : ''}`}
+      // The width is a custom property, not the width itself, so the
+      // stylesheet can pin the column to it on all four axes (`flex: 0 0`
+      // alone still lets a wide child stretch the column, silently desyncing
+      // it from the cell count the backend sized the pane to) AND drive it to
+      // zero for the slide — an inline width would beat both.
+      style={{ '--sidebar-width': `${width}px`, ...cellVars } as CSSProperties}
       onClick={handleClick}
       data-testid={testId}
     >

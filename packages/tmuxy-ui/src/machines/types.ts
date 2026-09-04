@@ -243,6 +243,18 @@ export interface AppMachineContext {
   /** Rows last written to the dock's @tmuxy-sidebar-rows, and for which window. */
   dockRowsSent: { windowId: string; rows: number } | null;
   /**
+   * A sidebar column is sliding open or closed. Set by either toggle, cleared
+   * by SIDEBAR_MOTION_SETTLED once the CSS transition has run. While set, the
+   * pane grid is sized for where the columns will END UP (sent once, at the
+   * toggle), and the sizes the container's ResizeObserver reports for every
+   * in-between frame are dropped — otherwise each frame would re-tile tmux.
+   */
+  sidebarMotion: boolean;
+  /** The tree column is closed but still rendered, sliding shut. */
+  leftSidebarClosing: boolean;
+  /** The dock column is closed but still rendered, sliding shut. */
+  rightSidebarClosing: boolean;
+  /**
    * Width of the app body (both columns plus the pane grid), in pixels. The
    * docked/overlay decision is made from this, never from the pane container,
    * whose width already depends on that decision.
@@ -503,7 +515,13 @@ export type SetCharSizeEvent = {
   charHeight: number;
   cellGap: number;
 };
-export type SetTargetSizeEvent = { type: 'SET_TARGET_SIZE'; cols: number; rows: number };
+export type SetTargetSizeEvent = {
+  type: 'SET_TARGET_SIZE';
+  cols: number;
+  rows: number;
+  /** From the sidebar motion itself: applied even while a column is sliding. */
+  force?: boolean;
+};
 export type SetContainerSizeEvent = { type: 'SET_CONTAINER_SIZE'; width: number; height: number };
 export type ObserveContainerEvent = { type: 'OBSERVE_CONTAINER'; element: HTMLElement };
 export type StopObserveContainerEvent = { type: 'STOP_OBSERVE_CONTAINER' };
@@ -547,6 +565,8 @@ export type BlurLeftSidebarEvent = { type: 'BLUR_LEFT_SIDEBAR' };
 export type ToggleRightSidebarEvent = { type: 'TOGGLE_RIGHT_SIDEBAR' };
 /** Re-derive the dock's row count and tell tmux when it changed. */
 export type SyncDockRowsEvent = { type: 'SYNC_DOCK_ROWS' };
+/** The sidebar slide has run its course; the columns are where they will stay. */
+export type SidebarMotionSettledEvent = { type: 'SIDEBAR_MOTION_SETTLED' };
 export type FocusRightSidebarEvent = { type: 'FOCUS_RIGHT_SIDEBAR' };
 export type BlurRightSidebarEvent = { type: 'BLUR_RIGHT_SIDEBAR' };
 /** Raised (delayed) after a sidebar was asked to open; fires the failure state if its pane never came. */
@@ -782,6 +802,7 @@ export type AppMachineEvent =
   | SidebarResizePreviewEvent
   | SidebarResizeCommitEvent
   | SyncDockRowsEvent
+  | SidebarMotionSettledEvent
   | SidebarPreviewExpireEvent
   | SetBodySizeEvent
   | ToggleTabOverviewEvent

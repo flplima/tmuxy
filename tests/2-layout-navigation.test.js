@@ -1715,6 +1715,65 @@ describe('Scenario 22: Float fzf Workflow', () => {
 
 // ==================== Scenario 6e: Pinned Terminal Dock ====================
 
+/**
+ * Watch a sidebar column and the pane container slide: after `trigger`, sample
+ * both widths on every frame from the first frame the column's width changes
+ * until `settleMs` after it, and return the series — so a test can assert the
+ * column actually eased between its two sizes (several distinct in-between
+ * widths, monotonic) and the grid's width moved with it. The trigger is a tmux
+ * keybinding round trip, so the first movement can be a while coming; sampling
+ * gives up after `timeoutMs` without one.
+ */
+async function sampleSidebarSlide(
+  page,
+  trigger,
+  columnSelector,
+  { settleMs = 400, timeoutMs = 8000 } = {},
+) {
+  const sampling = page.evaluate(
+    ({ sel, settleMs, timeoutMs }) =>
+      new Promise((resolve) => {
+        const column = [];
+        const container = [];
+        const start = performance.now();
+        let movedAt = null;
+        const widthOf = (el) => (el ? Math.round(el.getBoundingClientRect().width) : 0);
+        const tick = () => {
+          const now = performance.now();
+          const w = widthOf(document.querySelector(sel));
+          if (movedAt === null && column.length > 0 && w !== column[0]) {
+            movedAt = now;
+            column.length = 1;
+            container.length = 1;
+          }
+          column.push(w);
+          container.push(widthOf(document.querySelector('.pane-container')));
+          const done = movedAt === null ? now - start > timeoutMs : now - movedAt > settleMs;
+          if (done) resolve({ column, container });
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    { sel: columnSelector, settleMs, timeoutMs },
+  );
+  await trigger();
+  return sampling;
+}
+
+/**
+ * Why the series is NOT an eased slide (several distinct widths, never
+ * reversing direction), or null when it is — so the failure shows the frames.
+ */
+function slideProblem(series, direction) {
+  const distinct = [...new Set(series)];
+  const reversal = series.findIndex(
+    (v, i) => i > 0 && (direction > 0 ? v < series[i - 1] : v > series[i - 1]),
+  );
+  if (distinct.length < 3) return `only ${distinct.length} distinct widths: ${series.join(',')}`;
+  if (reversal !== -1) return `reversed at frame ${reversal}: ${series.join(',')}`;
+  return null;
+}
+
 describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
   const ctx = createTestContext();
   beforeAll(ctx.beforeAll, ctx.hookTimeout);
@@ -1931,8 +1990,24 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     expect(openAfterBlur).toBe(true);
 
     // Step 8: prefix T HIDES the column but keeps the shell alive — reopening
-    // shows the same terminal, scrollback and all.
-    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+    // shows the same terminal, scrollback and all. Both ways the column SLIDES:
+    // its width eases to zero and back, and the pane container's width eases
+    // with it, rather than either jumping between the two layouts.
+    const dockWidth = await ctx.page.evaluate(() =>
+      Math.round(
+        document.querySelector('[data-testid="right-sidebar-content"]').getBoundingClientRect()
+          .width,
+      ),
+    );
+    const closing = await sampleSidebarSlide(
+      ctx.page,
+      () => sendPrefixCommand(ctx.page, 'T', { shift: true }),
+      '[data-testid="right-sidebar-content"]',
+    );
+    expect(slideProblem(closing.column, -1)).toBeNull();
+    expect(slideProblem(closing.container, +1)).toBeNull();
+    expect(closing.column[0]).toBe(dockWidth);
+    expect(closing.column[closing.column.length - 1]).toBe(0);
     await ctx.page.waitForFunction(
       () => !document.querySelector('[data-testid="right-sidebar-content"]'),
       { timeout: 10000, polling: 100 },
@@ -1942,7 +2017,14 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     );
     expect(windowSurvivedHide).toBe(true);
 
-    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+    const opening = await sampleSidebarSlide(
+      ctx.page,
+      () => sendPrefixCommand(ctx.page, 'T', { shift: true }),
+      '[data-testid="right-sidebar-content"]',
+    );
+    expect(slideProblem(opening.column, +1)).toBeNull();
+    expect(slideProblem(opening.container, -1)).toBeNull();
+    expect(opening.column[opening.column.length - 1]).toBe(dockWidth);
     await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 10000 });
     await waitForCondition(
       ctx.page,

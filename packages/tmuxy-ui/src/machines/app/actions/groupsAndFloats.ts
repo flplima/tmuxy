@@ -13,10 +13,22 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents, TmuxWindow } from '../../types';
-import { selectLeftSidebarPane, selectRightSidebarPane, selectDockRows } from '../../selectors';
+import {
+  selectLeftSidebarPane,
+  selectRightSidebarPane,
+  selectDockRows,
+  selectSidebarLayout,
+} from '../../selectors';
+import { calculateTargetSize } from '../../../utils/layout';
+import { CONTAINER_PADDING_X } from '../../../constants';
+import { SIDEBAR_MOTION_SETTLE_MS } from '../../constants';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
+/** The `enqueue` an action in this file receives (xstate does not export it). */
+type Enqueue = Parameters<
+  Parameters<typeof enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>>[0]
+>[0]['enqueue'];
 
 /**
  * The lowest window index the session isn't using, scanning up from its lowest
@@ -90,6 +102,57 @@ export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-r
 
 /** How long a sidebar may sit on "starting…" before the column reports a failure. */
 export const SIDEBAR_START_TIMEOUT_MS = 4000;
+
+const SIDEBAR_MOTION_ID = 'sidebar-motion';
+
+/**
+ * The pane grid's size once the columns have finished sliding, from the app
+ * body's width minus whatever will be docked beside the grid. Null before the
+ * body has been measured, or while a column overlays (the grid's width does
+ * not change then).
+ */
+function settledTargetSize(context: Ctx): { cols: number; rows: number } | null {
+  if (context.bodyWidth <= 0 || context.containerHeight <= 0) return null;
+  const layout = selectSidebarLayout(context);
+  if (layout.overlay) return null;
+  const docked =
+    (layout.leftOpen ? layout.leftWidth : 0) + (layout.rightOpen ? layout.rightWidth : 0);
+  const width = context.bodyWidth - 2 * CONTAINER_PADDING_X - docked;
+  return calculateTargetSize(context.charWidth, width, context.containerHeight);
+}
+
+/**
+ * Start a column sliding. The grid is told its settled size right away so
+ * tmux re-tiles once, under the moving column, instead of once per frame of
+ * the slide; SET_TARGET_SIZE drops the in-between sizes until the settle
+ * event, which is (re)armed here so a toggle mid-slide simply extends it.
+ */
+function beginSidebarMotion(
+  context: Ctx,
+  enqueue: Enqueue,
+  side: 'left' | 'right',
+  willOpen: boolean,
+) {
+  const next: Ctx = {
+    ...context,
+    sidebarMotion: true,
+    [`${side}SidebarOpen`]: willOpen,
+    [`${side}SidebarClosing`]: !willOpen,
+  };
+  enqueue(
+    assign({
+      sidebarMotion: true,
+      [`${side}SidebarClosing`]: !willOpen,
+    }),
+  );
+  enqueue.cancel(SIDEBAR_MOTION_ID);
+  enqueue.raise(
+    { type: 'SIDEBAR_MOTION_SETTLED' as const },
+    { delay: SIDEBAR_MOTION_SETTLE_MS, id: SIDEBAR_MOTION_ID },
+  );
+  const size = settledTargetSize(next);
+  if (size) enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size, force: true });
+}
 
 /** Safety net: drop a resize preview the server never confirmed. */
 const SIDEBAR_PREVIEW_TIMEOUT_MS = 5000;
@@ -267,6 +330,7 @@ export const groupsAndFloatsActions = {
   >(({ context, enqueue }) => {
     const willOpen = !context.leftSidebarOpen;
     enqueue(assign({ leftSidebarOpen: willOpen, leftSidebarStartFailed: false }));
+    beginSidebarMotion(context, enqueue, 'left', willOpen);
 
     if (willOpen) {
       // The sessions poll idles while the column is closed — kick an immediate
@@ -400,6 +464,7 @@ export const groupsAndFloatsActions = {
   >(({ context, enqueue }) => {
     const willOpen = !context.rightSidebarOpen;
     enqueue(assign({ rightSidebarOpen: willOpen, rightSidebarStartFailed: false }));
+    beginSidebarMotion(context, enqueue, 'right', willOpen);
 
     if (willOpen) {
       const pane = selectRightSidebarPane(context);
@@ -459,6 +524,35 @@ export const groupsAndFloatsActions = {
    * error). Flip the column into its failure state so the user learns why
    * rather than staring at "starting…".
    */
+  /**
+   * The slide is over: drop the closing columns, stop dropping sizes, and
+   * apply the grid's measured size — the same the toggle predicted, so this
+   * is a no-op unless the body changed under the slide.
+   */
+  groupsAndFloats_sidebarMotionSettled: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ context, enqueue }) => {
+    enqueue(
+      assign({ sidebarMotion: false, leftSidebarClosing: false, rightSidebarClosing: false }),
+    );
+    if (context.containerWidth > 0 && context.containerHeight > 0) {
+      const size = calculateTargetSize(
+        context.charWidth,
+        context.containerWidth,
+        context.containerHeight,
+      );
+      enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size, force: true });
+    }
+  }),
+
   groupsAndFloats_sidebarStartTimeout: enqueueActions<
     Ctx,
     Evt,

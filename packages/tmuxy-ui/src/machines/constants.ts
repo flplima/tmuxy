@@ -55,5 +55,13 @@ export const SIDEBAR_OVERLAY_MIN_COLS = 60;
  * clamps the same way — so a drag can never preview a width the backend would
  * then refuse to size the pane to.
  */
+/**
+ * How long a sidebar column takes to slide open or shut. Mirrors
+ * `--transition-sidebar` in styles.css; the settle event fires a little after
+ * it so the column's transition classes come off once it has stopped moving.
+ */
+export const SIDEBAR_TRANSITION_MS = 200;
+export const SIDEBAR_MOTION_SETTLE_MS = SIDEBAR_TRANSITION_MS + 50;
+
 export const SIDEBAR_MIN_COLS = 16;
 export const SIDEBAR_MAX_COLS = 120;

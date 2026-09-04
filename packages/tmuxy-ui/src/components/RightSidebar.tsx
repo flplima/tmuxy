@@ -39,7 +39,8 @@ export const RightSidebar = memo(function RightSidebar() {
 
 function RightSidebarInner() {
   const send = useAppSend();
-  const { rightOpen, overlay, rightWidth } = useAppSelector(selectSidebarLayout);
+  const { rightOpen, rightClosing, motion, overlay, rightWidth } =
+    useAppSelector(selectSidebarLayout);
   const focused = useAppSelector((ctx) => ctx.rightSidebarFocused);
   const startFailed = useAppSelector((ctx) => ctx.rightSidebarStartFailed);
   const pane = useAppSelector(selectRightSidebarPane);
@@ -47,12 +48,14 @@ function RightSidebarInner() {
   const handleFocus = useCallback(() => send({ type: 'FOCUS_RIGHT_SIDEBAR' }), [send]);
   const handleClose = useCallback(() => send({ type: 'TOGGLE_RIGHT_SIDEBAR' }), [send]);
 
-  if (!rightOpen) return null;
+  if (!rightOpen && !rightClosing) return null;
 
   return (
     <SidebarColumn
       side="right"
       width={rightWidth}
+      closing={rightClosing}
+      moving={motion}
       overlay={overlay}
       focused={focused}
       pane={pane}

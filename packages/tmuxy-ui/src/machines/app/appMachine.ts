@@ -487,6 +487,10 @@ export const appMachine = setup({
     },
     SET_TARGET_SIZE: {
       actions: enqueueActions(({ event, context, enqueue }) => {
+        // A sliding sidebar column changes the container's width every frame;
+        // the grid was sized for where the slide ends when it started (see
+        // beginSidebarMotion), so the in-between sizes are noise.
+        if (context.sidebarMotion && !event.force) return;
         enqueue(
           assign({
             targetCols: event.cols,

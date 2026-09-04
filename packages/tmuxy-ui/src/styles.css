@@ -149,6 +149,9 @@
   /* Zoom toggle: the pane grows to fill the window. Same easing as the enter
      morph so a zoom reads as the same kind of motion as a split. */
   --transition-pane-zoom: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* A sidebar column sliding open or shut, and the pane grid's width following
+     it. Mirrored as SIDEBAR_TRANSITION_MS in machines/constants.ts. */
+  --transition-sidebar: 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
   /* How small a non-zoomed pane shrinks to as it collapses toward the centre
      on zoom-in (0 = to a point). */
   --zoom-collapse-scale: 0.4;
@@ -695,6 +698,7 @@
     --transition-pane-enter: 0ms linear;
     --transition-pane-leave: 0ms linear;
     --transition-pane-zoom: 0ms linear;
+    --transition-sidebar: 0ms linear;
   }
 }
 
@@ -1563,6 +1567,12 @@
      (a short tree left a 180px column in a 597px body). Cross-size `auto` lets
      stretch fill the app body, which is what both columns want. */
   box-sizing: border-box;
+  /* Pinned on all four axes to the width the column sets inline as
+     --sidebar-width (see SidebarColumn.tsx). */
+  flex: 0 0 var(--sidebar-width);
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  max-width: var(--sidebar-width);
   /* Same reason as .app-container: the tree inside must scroll, not stretch. */
   min-height: 0;
   /* Containing block for the resize handle, which straddles the divider. */
@@ -1575,6 +1585,53 @@
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* ---- The slide ---- */
+/* Opening and closing move the column's box between zero and its width; as a
+   flex sibling of the pane container, that is also what slides the grid's
+   width. Only a column in motion carries the transition (`.is-moving`, held by
+   the machine for the slide's duration): a column that is already open when
+   the app loads, or whose width the user drags, must not ease into place. */
+.sidebar-column.is-moving {
+  transition:
+    flex-basis var(--transition-sidebar),
+    width var(--transition-sidebar),
+    min-width var(--transition-sidebar),
+    max-width var(--transition-sidebar);
+}
+
+/* Where an opening column starts from: the browser transitions from these
+   values on the column's first frame. */
+@starting-style {
+  .sidebar-column.is-moving {
+    flex-basis: 0;
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+  }
+}
+
+/* A closing column is still rendered (see the machine's sidebarMotion) at a
+   box going to zero. */
+.sidebar-column.is-closing {
+  flex-basis: 0;
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+}
+
+/* The content keeps the column's full width throughout, anchored to the
+   column's INNER edge, so it slides with the divider instead of rewrapping to
+   every in-between width — a tree column glides in from the left, the dock
+   from the right. */
+.sidebar-column > .sidebar-body {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+}
+
+.sidebar-column-left > .sidebar-body {
+  align-self: flex-end;
 }
 
 /* The divider faces the pane grid. It stays a flat gray in EVERY state: focus
@@ -1649,6 +1706,18 @@
   inset: calc(-1 * var(--statusbar-height)) 0 0;
   background: rgb(0 0 0 / 55%);
   z-index: 29;
+  transition: opacity var(--transition-sidebar);
+}
+
+@starting-style {
+  .sidebar-backdrop {
+    opacity: 0;
+  }
+}
+
+.sidebar-backdrop.is-closing {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Only an OVERLAYING column has a header — a docked one puts its title in the

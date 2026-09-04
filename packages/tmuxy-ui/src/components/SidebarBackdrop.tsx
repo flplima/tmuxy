@@ -15,17 +15,19 @@ import { useAppSend, useAppSelector, selectSidebarLayout } from '../machines/App
 
 export const SidebarBackdrop = memo(function SidebarBackdrop() {
   const send = useAppSend();
-  const { leftOpen, rightOpen, overlay } = useAppSelector(selectSidebarLayout);
+  const { leftOpen, rightOpen, leftClosing, rightClosing, overlay } =
+    useAppSelector(selectSidebarLayout);
 
   const handleClick = useCallback(() => {
     send({ type: leftOpen ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR' });
   }, [send, leftOpen]);
 
-  if (!overlay || (!leftOpen && !rightOpen)) return null;
+  const shown = leftOpen || rightOpen;
+  if (!overlay || (!shown && !leftClosing && !rightClosing)) return null;
 
   return (
     <div
-      className="sidebar-backdrop"
+      className={`sidebar-backdrop${shown ? '' : ' is-closing'}`}
       data-testid="sidebar-backdrop"
       aria-hidden="true"
       onClick={handleClick}

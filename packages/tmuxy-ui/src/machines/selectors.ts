@@ -284,6 +284,9 @@ export const selectSidebarLayout = createMemoizedSelector(
     [
       ctx.leftSidebarOpen,
       ctx.rightSidebarOpen,
+      ctx.leftSidebarClosing,
+      ctx.rightSidebarClosing,
+      ctx.sidebarMotion,
       ctx.containerWidth,
       ctx.bodyWidth,
       ctx.charWidth,
@@ -297,6 +300,11 @@ export const selectSidebarLayout = createMemoizedSelector(
   ): {
     leftOpen: boolean;
     rightOpen: boolean;
+    /** Closed, but still rendered while it slides shut. */
+    leftClosing: boolean;
+    rightClosing: boolean;
+    /** A column is sliding; the columns carry their transition while it is. */
+    motion: boolean;
     /** True when the open column overlays the panes instead of docking. */
     overlay: boolean;
     leftWidth: number;
@@ -317,15 +325,18 @@ export const selectSidebarLayout = createMemoizedSelector(
     // The dock is a terminal in the sidebar font: its columns are dock cells.
     const rightWidth =
       (draggedCols('right') ?? RIGHT_SIDEBAR_COLS) * selectSidebarCellMetrics(context).cellWidth;
-    const { leftSidebarOpen: leftOpen } = context;
-    let { rightSidebarOpen: rightOpen } = context;
+    const { leftSidebarOpen: leftOpen, leftSidebarClosing: leftClosing } = context;
+    let { rightSidebarOpen: rightOpen, rightSidebarClosing: rightClosing } = context;
 
     // Decide from the app body's width, which does not depend on the decision.
     // (The pane container's width does: docked columns shrink it, an overlaying
     // one doesn't — deciding from it flipped between the two on every layout
     // pass.) Before the body has been measured, reconstruct it from the
     // container plus whatever is docked, which is exact while nothing overlays.
-    const docked = (leftOpen ? leftWidth : 0) + (rightOpen ? rightWidth : 0);
+    // A column sliding shut still counts here, so the layout mode it is drawn
+    // in holds until it is gone rather than flipping under the slide.
+    const docked =
+      (leftOpen || leftClosing ? leftWidth : 0) + (rightOpen || rightClosing ? rightWidth : 0);
     const bodyWidth =
       context.bodyWidth > 0
         ? context.bodyWidth
@@ -336,8 +347,18 @@ export const selectSidebarLayout = createMemoizedSelector(
     // Overlaying columns stack on each other and hide the whole tab, so at most
     // one is shown; the tree wins because it is how you get anywhere else.
     if (overlay && leftOpen && rightOpen) rightOpen = false;
+    if (overlay && leftOpen && rightClosing) rightClosing = false;
 
-    return { leftOpen, rightOpen, overlay, leftWidth, rightWidth };
+    return {
+      leftOpen,
+      rightOpen,
+      leftClosing,
+      rightClosing,
+      motion: context.sidebarMotion,
+      overlay,
+      leftWidth,
+      rightWidth,
+    };
   },
 );
 
