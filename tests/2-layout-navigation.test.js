@@ -1842,6 +1842,20 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       20000,
       'the typed command to echo inside the dock',
     );
+    // While the dock holds the keyboard it is the only surface drawing a
+    // cursor: the tiled pane's block goes away (it no longer receives keys),
+    // and the dock's sits inside the column, not off in its first row.
+    const cursorsWhileDocked = await ctx.page.evaluate(() => {
+      const dock = document.querySelector('[data-testid="right-sidebar-content"]');
+      const d = dock.getBoundingClientRect();
+      const inDock = [...dock.querySelectorAll('.terminal-cursor')].map((c) => {
+        const r = c.getBoundingClientRect();
+        return r.left >= d.left && r.right <= d.right && r.top >= d.top && r.bottom <= d.bottom;
+      });
+      const tiled = document.querySelectorAll('.pane-layout-item .terminal-cursor').length;
+      return { inDock, tiled };
+    });
+    expect(cursorsWhileDocked).toEqual({ inDock: [true], tiled: 0 });
 
     // Step 6: The point of the feature — it stays put when the user changes
     // tabs, because its pane lives in its own window.
@@ -1896,6 +1910,20 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
         ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === false),
       5000,
       'rightSidebarFocused cleared after Ctrl+h',
+    );
+    // The keyboard is back in the panes: the tiled pane draws its cursor again
+    // and the dock draws none.
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(
+          () =>
+            document.querySelectorAll('.pane-layout-item .terminal-cursor').length === 1 &&
+            document.querySelectorAll('[data-testid="right-sidebar-content"] .terminal-cursor')
+              .length === 0,
+        ),
+      5000,
+      'the cursor to move back from the dock to the tiled pane',
     );
     const openAfterBlur = await ctx.page.evaluate(
       () => !!document.querySelector('[data-testid="right-sidebar-content"]'),

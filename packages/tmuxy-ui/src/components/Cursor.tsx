@@ -8,7 +8,6 @@ interface CursorProps {
   y: number;
   char?: string;
   mode?: CursorMode;
-  active?: boolean;
   copyMode?: boolean;
 }
 
@@ -28,19 +27,11 @@ interface CursorProps {
  * the content uses in both renderers (Terminal and ScrollbackTerminal),
  * independent of glyph advance, font fallback and webfont load timing.
  */
-export function Cursor({
-  x,
-  y,
-  char = ' ',
-  mode = 'block',
-  active = true,
-  copyMode = false,
-}: CursorProps) {
+export function Cursor({ x, y, char = ' ', mode = 'block', copyMode = false }: CursorProps) {
   const className = [
     'terminal-cursor',
     `terminal-cursor-${mode}`,
     copyMode ? 'terminal-cursor-copy' : '',
-    !active ? 'terminal-cursor-inactive' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -54,11 +45,10 @@ export function Cursor({
 
   // Only a filled block repaints the character. Its background is opaque, so it
   // hides the glyph the line already drew and has to draw it back in the cursor
-  // colour. The underline and bar shapes — and the hollow inactive-pane box —
-  // are transparent decorations layered over that glyph, so painting the
-  // character again would double-draw it, in the container's colour rather than
-  // the cell's.
-  const paintsChar = mode === 'block' && active;
+  // colour. The underline and bar shapes are transparent decorations layered
+  // over that glyph, so painting the character again would double-draw it, in
+  // the container's colour rather than the cell's.
+  const paintsChar = mode === 'block';
 
   return (
     <span

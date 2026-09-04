@@ -109,6 +109,15 @@ describe('Terminal', () => {
     expect(cursor).toHaveAttribute('data-cursor-y', '0');
   });
 
+  it('draws no cursor for a pane without the keyboard, even when tmux reports a mode on it', () => {
+    // The dock lives in another window and can carry a stale or out-of-band
+    // mode flag; drawing its copy cursor (resting at 0,0) showed a ghost box
+    // in its first row.
+    const content = createContent(['hello world']);
+    render(<Terminal content={content} cursorX={3} cursorY={0} isActive={false} inMode={true} />);
+    expect(document.querySelector('.terminal-cursor')).toBeNull();
+  });
+
   it('uses copy mode cursor position when in copy mode', () => {
     const content = createContent(['test line here that is long enough']);
     render(

@@ -43,6 +43,7 @@ import {
   selectDropTarget,
   selectEnableAnimations,
   selectSuppressLayoutTransition,
+  selectKeyboardElsewhere,
   selectGroupSwitchPaneIds,
   selectPaneKeyOverrides,
 } from '../machines/AppContext';
@@ -134,12 +135,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const groupSwitchPanes = useAppSelector(selectGroupSwitchPaneIds);
   const paneKeyOverrides = useAppSelector(selectPaneKeyOverrides);
 
-  // The active cue means "the keyboard is in this tiled pane": a focused
-  // float, the dock or the tree takes it away without changing tmux's
-  // active pane.
-  const keyboardElsewhere = useAppSelector(
-    (ctx) => Boolean(ctx.focusedFloatPaneId) || ctx.leftSidebarFocused || ctx.rightSidebarFocused,
-  );
+  // The active cue means "the keyboard is in this tiled pane".
+  const keyboardElsewhere = useAppSelector(selectKeyboardElsewhere);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
   // tmux shows ONLY the zoomed pane — the others are not visible at all. The
   // layout still knows their geometry, so without this they keep painting

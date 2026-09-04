@@ -25,6 +25,7 @@ import {
   useAppSelector,
   useAppConfig,
   selectCharSize,
+  selectKeyboardElsewhere,
 } from '../machines/AppContext';
 import { usePaneMouse, usePaneTouch } from '../hooks';
 import { LogProfiler } from '../utils/renderLog';
@@ -55,7 +56,12 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
-  const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
+  const keyboardElsewhere = useAppSelector(selectKeyboardElsewhere);
+  // The pane holds the keyboard: tmux's active pane in the active window with
+  // nothing (float, dock, tree) focused over it — or whatever the dock's column
+  // says about its own pane.
+  const holdsKeyboard =
+    isActive ?? (pane?.active === true && isInActiveWindow && !keyboardElsewhere);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -404,14 +410,14 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
           >
             <div style={{ height: copyState ? totalHeight : '100%', position: 'relative' }}>
               {copyState ? (
-                <ScrollbackTerminal copyState={copyState} />
+                <ScrollbackTerminal copyState={copyState} isActive={holdsKeyboard} />
               ) : (
                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
                   <Terminal
                     content={pane.content}
                     cursorX={pane.cursorX}
                     cursorY={pane.cursorY}
-                    isActive={isActive ?? (pane.active && isInActiveWindow && !focusedFloatPaneId)}
+                    isActive={holdsKeyboard}
                     width={pane.width}
                     height={pane.height}
                     inMode={pane.inMode}

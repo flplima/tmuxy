@@ -18,6 +18,8 @@ import type { CopyModeState, CellLine } from '../tmux/types';
 
 interface ScrollbackTerminalProps {
   copyState: CopyModeState;
+  /** Whether the pane holds the keyboard; only then is the copy cursor drawn. */
+  isActive: boolean;
 }
 
 const EMPTY_LINE: CellLine = [];
@@ -96,7 +98,7 @@ function computeScrollbackSelection(
   };
 }
 
-export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
+export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalProps) {
   const { charHeight } = useAppSelector(selectCharSize);
   const preRef = useRef<HTMLPreElement>(null);
   // Indexed by div position (not by absolute row): each entry records what
@@ -128,7 +130,7 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
   const visibleEnd = renderEnd;
   const visibleCount = visibleEnd - visibleStart + 1;
 
-  const isCursorVisible = cursorRow >= visibleStart && cursorRow <= visibleEnd;
+  const isCursorVisible = isActive && cursorRow >= visibleStart && cursorRow <= visibleEnd;
 
   // Imperative DOM update
   useLayoutEffect(() => {
@@ -212,14 +214,7 @@ export function ScrollbackTerminal({ copyState }: ScrollbackTerminalProps) {
         style={{ position: 'relative' }}
       />
       {isCursorVisible && (
-        <Cursor
-          x={cursorCol}
-          y={cursorRelY}
-          char={cursorChar}
-          copyMode={true}
-          active={true}
-          mode="block"
-        />
+        <Cursor x={cursorCol} y={cursorRelY} char={cursorChar} copyMode={true} mode="block" />
       )}
     </div>
   );

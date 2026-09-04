@@ -34,11 +34,10 @@ function cursorCellRect(canvasElement: HTMLElement) {
 }
 
 export const Block: Story = {
-  args: { x: 0, y: 0, mode: 'block', char: 'M', active: true },
+  args: { x: 0, y: 0, mode: 'block', char: 'M' },
   play: async ({ canvasElement }) => {
     const cursor = getCursor(canvasElement);
     expect(cursor).toHaveClass('terminal-cursor-block');
-    expect(cursor).not.toHaveClass('terminal-cursor-inactive');
     expect(cursor).toHaveAttribute('data-cursor-x', '0');
     const { col, cols } = cursorCellRect(canvasElement);
     expect(col).toBeCloseTo(0, 1);
@@ -47,7 +46,7 @@ export const Block: Story = {
 };
 
 export const AtColumn: Story = {
-  args: { x: 7, y: 1, mode: 'block', char: 'M', active: true },
+  args: { x: 7, y: 1, mode: 'block', char: 'M' },
   parameters: {
     docs: {
       description: {
@@ -65,33 +64,21 @@ export const AtColumn: Story = {
 };
 
 export const Underline: Story = {
-  args: { x: 0, y: 0, mode: 'underline', char: 'M', active: true },
+  args: { x: 0, y: 0, mode: 'underline', char: 'M' },
   play: async ({ canvasElement }) => {
     expect(getCursor(canvasElement)).toHaveClass('terminal-cursor-underline');
   },
 };
 
 export const Bar: Story = {
-  args: { x: 0, y: 0, mode: 'bar', char: 'M', active: true },
+  args: { x: 0, y: 0, mode: 'bar', char: 'M' },
   play: async ({ canvasElement }) => {
     expect(getCursor(canvasElement)).toHaveClass('terminal-cursor-bar');
   },
 };
 
-export const Inactive: Story = {
-  args: { x: 0, y: 0, mode: 'block', char: 'M', active: false },
-  parameters: {
-    docs: {
-      description: { story: 'When the pane is unfocused, the cursor becomes hollow.' },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    expect(getCursor(canvasElement)).toHaveClass('terminal-cursor-inactive');
-  },
-};
-
 export const CopyMode: Story = {
-  args: { x: 0, y: 0, mode: 'block', char: 'M', active: true, copyMode: true },
+  args: { x: 0, y: 0, mode: 'block', char: 'M', copyMode: true },
   play: async ({ canvasElement }) => {
     expect(getCursor(canvasElement)).toHaveClass('terminal-cursor-copy');
   },

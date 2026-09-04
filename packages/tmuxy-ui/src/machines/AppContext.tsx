@@ -78,6 +78,7 @@ export {
   selectGridDimensions,
   selectCharSize,
   selectSidebarCellMetrics,
+  selectKeyboardElsewhere,
   selectCellMetrics,
   selectPaneGroupForPane,
   selectPaneGroupPanes,

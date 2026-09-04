@@ -12,6 +12,7 @@ vi.mock('../machines/AppContext', () => ({
   useAppSelector: vi.fn(),
   useAppConfig: vi.fn(() => ({ forwardScrollToParent: false })),
   selectCharSize: vi.fn(),
+  selectKeyboardElsewhere: vi.fn(() => false),
 }));
 
 // Mock heavy children so we can assert purely on what TerminalPane renders.
@@ -89,7 +90,7 @@ function makePane(overrides: Record<string, unknown>) {
 describe('TerminalPane — collapsed (stacked) pane', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    const ctx = { charWidth: 9.6, charHeight: 21, focusedFloatPaneId: null };
+    const ctx = { charWidth: 9.6, charHeight: 21 };
     mockSelectCharSize.mockImplementation(() => ({ charWidth: 9.6, charHeight: 21 }));
     mockUseAppSelector.mockImplementation((sel: (c: typeof ctx) => unknown) => sel(ctx));
   });

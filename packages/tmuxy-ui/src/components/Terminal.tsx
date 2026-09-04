@@ -131,8 +131,13 @@ export const Terminal: React.FC<TerminalProps> = ({
   // Use copy mode cursor position when in copy mode
   const effectiveCursorX = inMode ? copyCursorX : cursorX;
   const effectiveCursorY = inMode ? copyCursorY : cursorY;
-  // Hide cursor when application requests it (DECTCEM off), but always show in copy mode
-  const showCursor = (isActive && !cursorHidden) || inMode;
+  // Only the pane holding the keyboard draws a cursor. It honours the
+  // application's DECTCEM-off except in copy mode, where the cursor is the
+  // selection point and must stay visible. An unfocused pane draws nothing even
+  // when tmux reports a mode on it: the dock lives in another window and can
+  // carry a stale or out-of-band mode flag, and a hollow box at the copy
+  // cursor's resting (0,0) read as a ghost cursor in its first row.
+  const showCursor = isActive && (!cursorHidden || inMode);
 
   // Derive cursor mode from DECSCUSR shape (blink is intentionally dropped —
   // tmuxy doesn't render a blinking cursor regardless of what the running
@@ -219,7 +224,6 @@ export const Terminal: React.FC<TerminalProps> = ({
           y={cursorRow}
           char={cursorChar}
           mode={cursorMode}
-          active={isActive}
           copyMode={inMode}
         />
       )}

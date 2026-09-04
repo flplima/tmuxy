@@ -779,6 +779,17 @@ export function selectPrefixActive(context: AppMachineContext): boolean {
   return context.prefixActive;
 }
 
+/**
+ * The keyboard is somewhere other than the tiled panes: a focused float, the
+ * dock or the tree take it without changing tmux's active pane. A tiled pane
+ * then neither shows the active cue nor draws its cursor.
+ */
+export function selectKeyboardElsewhere(context: AppMachineContext): boolean {
+  return (
+    Boolean(context.focusedFloatPaneId) || context.leftSidebarFocused || context.rightSidebarFocused
+  );
+}
+
 export function selectActivePaneCopyMode(context: AppMachineContext): boolean {
   if (!context.activePaneId) return false;
   const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);

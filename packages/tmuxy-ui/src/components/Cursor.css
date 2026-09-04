@@ -15,12 +15,6 @@
   white-space: pre;
 }
 
-.terminal-cursor-inactive {
-  background-color: transparent;
-  outline: 1px solid var(--cursor-inactive);
-  color: inherit;
-}
-
 .terminal-cursor-copy {
   background-color: var(--cursor-copy-bg);
   color: var(--cursor-bg);
