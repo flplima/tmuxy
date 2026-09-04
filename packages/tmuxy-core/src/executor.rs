@@ -817,6 +817,67 @@ pub fn new_window_rewrite(session: &str, size: Option<(u32, u32)>) -> String {
     }
 }
 
+/// The verb of a single tmux command — its first whitespace-delimited token.
+fn command_verb(command: &str) -> &str {
+    command.split_whitespace().next().unwrap_or("")
+}
+
+/// Does any command in a (possibly compound) command list use one of `verbs`?
+///
+/// The keyboard actor prepends `select-window -t @N \; select-pane -t %N \;`
+/// to every bound command, so a binding arrives as a compound whose FIRST
+/// command is the pin. Any interception written as
+/// `command.starts_with("<verb>")` silently stops matching the moment a
+/// binding is pinned — the guard is still there, it just never fires again.
+/// Ask about the whole list instead.
+pub fn compound_has_verb(command: &str, verbs: &[&str]) -> bool {
+    split_compound(command)
+        .iter()
+        .any(|part| verbs.contains(&command_verb(part)))
+}
+
+/// Rewrite a `new-window` sitting anywhere in a (possibly pinned) command list,
+/// leaving the commands around it — the keyboard actor's window/pane pin — in
+/// place.
+///
+/// Without this, `prefix c` (`select-window … \; select-pane … \; new-window`)
+/// misses the `starts_with("new-window")` intercept and the raw `new-window`
+/// runs as an external subprocess against an attached control-mode client:
+/// the exact crash the rewrite exists to prevent (see docs/TMUX.md).
+///
+/// Keeping the pin matters beyond the crash. `splitw -t <session>` targets the
+/// session's *current* window, so the pin ahead of it is what makes the new tab
+/// come from the window the user is actually looking at rather than whichever
+/// one tmux last considered current.
+///
+/// Returns `None` when the list contains no `new-window`.
+pub fn rewrite_new_window_in_compound(
+    command: &str,
+    session: &str,
+    size: Option<(u32, u32)>,
+) -> Option<String> {
+    let mut found = false;
+    let parts: Vec<String> = split_compound(command)
+        .iter()
+        .filter_map(|part| {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if !found && matches!(command_verb(trimmed), "new-window" | "neww") {
+                found = true;
+                return Some(new_window_rewrite(session, size));
+            }
+            Some(trimmed.to_string())
+        })
+        .collect();
+
+    // Bare `;` on purpose: control mode's line parser rejects the shell-escaped
+    // `\;` the frontend joins with, and the monitor's unescape only rewrites
+    // the form it already knows.
+    found.then(|| parts.join(" ; "))
+}
+
 /// Split a compound tmux command on the `\;` separators that are *outside*
 /// quotes.
 ///
@@ -1218,6 +1279,67 @@ bind-key    -T prefix \\% send-keys %";
         let plain = new_window_rewrite("tmuxy", None);
         assert!(!plain.contains("resizew"), "{plain}");
         assert!(!plain.contains("@tmuxy-window-type"), "{plain}");
+    }
+
+    /// The regression this pair of helpers exists for: the keyboard actor pins
+    /// every bound command, so `prefix c` never looked like a `new-window` to a
+    /// head-anchored check, and the raw command escaped to an external
+    /// subprocess against an attached control-mode client.
+    #[test]
+    fn compound_has_verb_sees_past_the_binding_pin() {
+        let pinned =
+            "select-window -t @2 \\; select-pane -t %5 \\; new-window -c \"#{pane_current_path}\"";
+        assert!(compound_has_verb(pinned, &["new-window", "neww"]));
+        assert!(compound_has_verb("neww", &["new-window", "neww"]));
+        // A pane pin alone (an overlay binding) is still seen through.
+        assert!(compound_has_verb(
+            "select-pane -t %5 \\; neww",
+            &["new-window", "neww"]
+        ));
+        // No false positives: `new-window` as an argument is not a verb, and a
+        // different command with the same prefix does not count.
+        assert!(!compound_has_verb(
+            "select-pane -t %5 \\; split-window -h",
+            &["new-window", "neww"]
+        ));
+        assert!(!compound_has_verb(
+            "send-keys -l 'new-window'",
+            &["new-window", "neww"]
+        ));
+    }
+
+    #[test]
+    fn rewrite_new_window_in_compound_keeps_the_pin_around_the_rewrite() {
+        let pinned = "select-window -t @2 \\; select-pane -t %5 \\; new-window";
+        let out = rewrite_new_window_in_compound(pinned, "tmuxy", Some((120, 40)))
+            .expect("a new-window in the list");
+
+        // The pin survives, ahead of the rewrite — `splitw -t <session>` targets
+        // the session's CURRENT window, so the pin is what aims it at the tab
+        // the user is looking at.
+        assert!(
+            out.starts_with("select-window -t @2 ; select-pane -t %5 ;"),
+            "{out}"
+        );
+        assert!(out.contains("splitw -t 'tmuxy'"), "{out}");
+        assert!(out.contains("breakp"), "{out}");
+        assert!(out.contains("resizew -x 120 -y 40"), "{out}");
+        // Control mode's line parser rejects the shell-escaped separator.
+        assert!(!out.contains("\\;"), "{out}");
+    }
+
+    #[test]
+    fn rewrite_new_window_in_compound_passes_through_unpinned_and_unrelated() {
+        let bare = rewrite_new_window_in_compound("new-window", "tmuxy", None)
+            .expect("a bare new-window still rewrites");
+        assert_eq!(bare, new_window_rewrite("tmuxy", None));
+
+        assert!(rewrite_new_window_in_compound(
+            "select-pane -t %5 \\; split-window -h",
+            "tmuxy",
+            None
+        )
+        .is_none());
     }
 
     #[test]

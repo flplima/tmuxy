@@ -616,16 +616,25 @@ async fn handle_command(
         ClientCommand::RunTmuxCommand { command } => {
             // Block raw resize-window commands from clients — resize must go through
             // set_client_size to prevent stale SSE connections from overriding sizes.
-            if command.starts_with("resize-window") || command.starts_with("resizew") {
+            // Asked of the whole command list, not its head: the keyboard actor
+            // pins every bound command with `select-window … \; select-pane … \;`,
+            // and a head-anchored check stops firing the moment it does.
+            if executor::compound_has_verb(&command, &["resize-window", "resizew"]) {
                 warn!(?conn_id, %command, "blocked resize command (use set_client_size)");
                 return Ok(serde_json::json!(null));
             }
 
-            // neww crashes tmux 3.5a control mode — use split+break workaround
-            if command.starts_with("new-window") || command.starts_with("neww") {
-                let cmd = build_new_window_command(state, session).await;
-                send_via_control_mode(state, session, &cmd).await?;
-                return Ok(serde_json::json!(null));
+            // neww crashes tmux 3.5a control mode — use split+break workaround.
+            // The rewrite replaces the `new-window` wherever it sits in the list
+            // and keeps the pin around it, so the new tab is split off the window
+            // the user is looking at.
+            if executor::compound_has_verb(&command, &["new-window", "neww"]) {
+                let size = new_window_client_size(state, session).await;
+                if let Some(cmd) = executor::rewrite_new_window_in_compound(&command, session, size)
+                {
+                    send_via_control_mode(state, session, &cmd).await?;
+                    return Ok(serde_json::json!(null));
+                }
             }
 
             // Read-only session/window/pane enumeration is safe to run as a
@@ -893,21 +902,18 @@ fn is_readonly_query(command: &str) -> bool {
         .any(|p| head == *p || head.starts_with(&format!("{p} ")))
 }
 
-/// Build the `new-window` rewrite (splitw + breakp + resizew + window-tag).
-/// Resolves the viewport size, then defers to `executor::new_window_rewrite`
-/// so the Tauri app and this server can't drift on the rewrite shape.
-async fn build_new_window_command(state: &Arc<AppState>, session: &str) -> String {
-    let resize = {
-        let sessions = state.sessions.read().await;
-        sessions.get(session).and_then(|s| {
-            if s.client_sizes.is_empty() {
-                None
-            } else {
-                Some(compute_min_client_size(&s.client_sizes))
-            }
-        })
-    };
-    executor::new_window_rewrite(session, resize)
+/// The viewport size a freshly created window should be resized to, or `None`
+/// when no client has reported one yet. Feeds `executor`'s shared rewrite so
+/// the Tauri app and this server can't drift on the rewrite shape.
+async fn new_window_client_size(state: &Arc<AppState>, session: &str) -> Option<(u32, u32)> {
+    let sessions = state.sessions.read().await;
+    sessions.get(session).and_then(|s| {
+        if s.client_sizes.is_empty() {
+            None
+        } else {
+            Some(compute_min_client_size(&s.client_sizes))
+        }
+    })
 }
 
 /// Store a client's viewport size and resize the tmux session.

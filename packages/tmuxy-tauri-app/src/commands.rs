@@ -114,16 +114,26 @@ async fn dispatch_tmux_command(
     // can crash the server (surfaced as a TransportError when the Tauri
     // invoke promise rejects). Going through the same connection that's
     // already attached avoids the race entirely.
-    let trimmed = command.trim_start();
-    if trimmed.starts_with("new-window") || trimmed.starts_with("neww") {
+    //
+    // Asked of the whole command list, not its head. The keyboard actor pins
+    // every bound command with `select-window -t @N \; select-pane -t %N \;`,
+    // so `prefix c` arrives as a compound whose first command is the pin — a
+    // `starts_with("new-window")` check misses it, and the raw `new-window`
+    // falls all the way through to the external-subprocess path at the bottom
+    // of this function, which is exactly the crash this branch exists to avoid.
+    if tmuxy_core::executor::compound_has_verb(&command, &["new-window", "neww"]) {
         let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
-        if let Some(tx) = cmd_tx {
-            let session = get_session();
-            let size = state.last_client_size.read().ok().and_then(|g| *g);
-            // Shared with the SSE server so the rewrite shape and the window
-            // tag can't drift between transports; also quotes the session,
-            // which can contain whitespace when it comes from servers.json.
-            let rewrite = tmuxy_core::executor::new_window_rewrite(&session, size);
+        let session = get_session();
+        let size = state.last_client_size.read().ok().and_then(|g| *g);
+        // Shared with the SSE server so the rewrite shape and the window tag
+        // can't drift between transports; also quotes the session, which can
+        // contain whitespace when it comes from servers.json. Keeping the pin
+        // around the rewrite is what makes the new tab split off the window the
+        // user is looking at — `splitw -t <session>` targets whatever window
+        // tmux currently considers current.
+        let rewrite =
+            tmuxy_core::executor::rewrite_new_window_in_compound(&command, &session, size);
+        if let (Some(tx), Some(rewrite)) = (cmd_tx, rewrite) {
             tx.send(MonitorCommand::RunCommand { command: rewrite })
                 .await
                 .map_err(|e| format!("Monitor channel error: {}", e))?;
@@ -132,7 +142,7 @@ async fn dispatch_tmux_command(
         // CC connection isn't up yet (very early startup). The external
         // path is the only option here; if it crashes tmux, the reconnect
         // loop will recover.
-        executor::new_window(&get_session())?;
+        executor::new_window(&session)?;
         return Ok(String::new());
     }
 
