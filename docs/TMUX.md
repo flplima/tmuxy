@@ -268,6 +268,7 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The one p
 | `@tmuxy-focus-request` | session | `left` \| `right` \| `panes` \| unset | a shell helper asking a client to move keyboard focus |
 | `@tmuxy-sidebar-cols` | window | integer (columns) \| unset | a sidebar column the user has dragged off its default width |
 | `@tmuxy-sidebar-hidden` | window | `1` \| unset | a sidebar column the user has closed; its pane stays alive, no client draws it |
+| `@tmuxy-collapsible` | window | `1` \| unset | collapsible panes: only the first-level row holding the active pane is expanded (see below) |
 
 `@tmuxy-float-parent` is always a **window id**, interpreted by the window's type: on a `float` it is the window the float was launched from (focus returns there on close); on a `float-backdrop` it is the float window the backdrop sits behind. The window-type disambiguates, so there is no separate backdrop-of option.
 
@@ -306,6 +307,14 @@ Creating a chrome window is one atomic tmux command list: `split-window ; break-
 **Keyboard contract while a column has the keyboard.** Plain keys and non-binding chords stay in the column (the tree swallows them; the dock's pane receives them, Escape included). Prefix bindings and root bindings still run, and they act on the *tab grid* — tmux cannot make a chrome window current without blanking the tab, so `prefix %` with the dock focused splits the tab's active pane, not the dock. Leaving a column is Ctrl+h / Ctrl+l (or `l`/`q` in the tree), a click on a pane, or `tmuxy nav`.
 
 **Option writes and latency.** tmux emits no control-mode notification when a user option changes. The monitor therefore re-lists windows right after forwarding any client command that writes a `@tmuxy-*` option, and a shell helper that writes one (`request_focus` in `bin/tmuxy/_lib`) follows it with a harmless `%window-renamed` (renaming a sidebar's chrome window to the name it already has), which the monitor's deferred metadata sync turns into a `list-windows`. Without either, a dragged width or a focus request waited for the idle heartbeat.
+
+### Collapsible panes
+
+A window tagged `@tmuxy-collapsible` keeps only the **first-level** row that holds the active pane expanded; every other first-level row collapses to one line per pane, which the UI draws as just the header. "First level" is the root of tmux's layout tree when it is a vertical stack (`[…]` in `#{window_layout}`): a row that is itself a nested split collapses as a unit and keeps its inner proportions, and navigating among panes inside the expanded row changes nothing.
+
+The backend owns the reshaping (`tmuxy-core/src/layout.rs`, `collapsible_layout_commands` in `control_mode/state.rs`): it parses the layout string, edits the first-level heights, re-serialises it with tmux's checksum and sends `select-layout`. It runs on focus changes, layout changes and option changes, and is idempotent, so the `%layout-change` its own command causes never echoes another. Zoomed windows are left alone.
+
+`prefix s` (`tmuxy-stack`) sets the option and adds a full-width row below (`split-window -v -f`); `prefix S` (`tmuxy-stack-off`) unsets it, and the backend evens the first-level rows back out. The tab's context menu toggles the same option.
 
 ### The marked pane
 

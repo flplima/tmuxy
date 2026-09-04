@@ -378,6 +378,144 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
   }, 150000);
 });
 
+// ==================== Scenario 4f: Collapsible panes ====================
+
+describe('Scenario 4f: Collapsible panes', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  // prefix s turns the window collapsible and adds a first-level row: only the
+  // row holding the active pane stays expanded, the others collapse to one line
+  // per pane. Nested panes inside a row are never touched. prefix S turns it
+  // off and evens the first-level rows out (docs/TMUX.md, "Collapsible panes").
+  test('prefix s ×2 collapses the other rows → nested split + nav leaves the first level alone → ctrl+k expands a row → prefix S evens out', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    // First-level row heights from tmux's own layout string; null when the
+    // root is not a vertical stack.
+    const rows = async () => {
+      const layout = String(
+        await ctx.session.runCommand(
+          `display-message -p -t ${ctx.session.name} '#{window_layout}'`,
+        ),
+      ).trim();
+      const body = layout.replace(/^[0-9a-f]{4},/, '');
+      const m = body.match(/^\d+x\d+,\d+,\d+\[(.*)\]$/);
+      if (!m) return null;
+      // Top-level cells: a depth-0 comma followed by a new "WxH," starts one.
+      const cells = [];
+      let depth = 0;
+      let start = 0;
+      for (let i = 0; i < m[1].length; i++) {
+        const c = m[1][i];
+        if (c === '[' || c === '{') depth++;
+        else if (c === ']' || c === '}') depth--;
+        else if (c === ',' && depth === 0 && /^\d+x\d+,/.test(m[1].slice(i + 1))) {
+          cells.push(m[1].slice(start, i));
+          start = i + 1;
+        }
+      }
+      cells.push(m[1].slice(start));
+      return cells.map((cell) => Number(cell.match(/^\d+x(\d+)/)[1]));
+    };
+    const collapsible = async () =>
+      String(
+        await ctx.session.runCommand(
+          `show-options -wqv -t ${ctx.session.name}: @tmuxy-collapsible`,
+        ),
+      ).trim() === '1';
+    // A collapsed pane keeps its header and drops its terminal (TerminalPane
+    // renders no content for a one-row pane); the header must still be visible.
+    const headerOnly = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('.pane-layout-item')].map((el) => {
+          const header = el.querySelector('.pane-header')?.getBoundingClientRect();
+          return {
+            paneId: el.querySelector('[data-pane-id]')?.dataset.paneId,
+            collapsed: el.querySelector('.terminal-container') === null,
+            headerVisible: Boolean(header && header.width > 20 && header.height > 8),
+          };
+        }),
+      );
+
+    // Step 1: prefix s twice → three first-level rows, only the newest expanded.
+    await sendPrefixCommand(page, 's');
+    await waitForPaneCount(page, 2);
+    await sendPrefixCommand(page, 's');
+    await waitForPaneCount(page, 3);
+    await waitForCondition(
+      page,
+      async () => {
+        const r = await rows();
+        return r !== null && r.length === 3 && r[0] <= 2 && r[1] <= 2 && r[2] > 5;
+      },
+      10000,
+      async () => `the first two rows to collapse (rows: ${JSON.stringify(await rows())})`,
+    );
+    expect(await collapsible()).toBe(true);
+    // The collapsed rows render as headers only; the expanded one does not.
+    await waitForCondition(
+      page,
+      async () => {
+        const panes = await headerOnly();
+        return (
+          panes.length === 3 &&
+          panes.filter((p) => p.collapsed).length === 2 &&
+          panes.every((p) => p.headerVisible)
+        );
+      },
+      8000,
+      'two header-only panes in the DOM',
+    );
+
+    // Step 2: split the expanded row side by side and navigate inside it: the
+    // first-level heights do not change.
+    await splitPaneKeyboard(page, 'vertical');
+    await waitForPaneCount(page, 4);
+    const before = await rows();
+    expect(before.length).toBe(3);
+    await navigatePaneKeyboard(page, 'left');
+    await delay(DELAYS.SYNC);
+    await navigatePaneKeyboard(page, 'right');
+    await delay(DELAYS.SYNC);
+    expect(await rows()).toEqual(before);
+
+    // Step 3: moving up into a collapsed row expands it and collapses the
+    // row that held the nested pair.
+    await navigatePaneKeyboard(page, 'up');
+    await waitForCondition(
+      page,
+      async () => {
+        const r = await rows();
+        return r !== null && r[1] > 5 && r[2] <= 2;
+      },
+      10000,
+      async () => `the middle row to expand (rows: ${JSON.stringify(await rows())})`,
+    );
+
+    // Step 4: prefix S turns the feature off and evens the rows out.
+    await sendPrefixCommand(page, 'S', { shift: true });
+    await waitForCondition(
+      page,
+      async () => {
+        const r = await rows();
+        if (r === null || r.length !== 3) return false;
+        const max = Math.max(...r);
+        const min = Math.min(...r);
+        return max - min <= 2 && !(await collapsible());
+      },
+      10000,
+      async () => `the rows to even out (rows: ${JSON.stringify(await rows())})`,
+    );
+    expect((await headerOnly()).filter((p) => p.collapsed)).toEqual([]);
+  }, 150000);
+});
+
 // ==================== Scenario 4c: Zoom in a 2×2 grid ====================
 
 describe('Scenario 4c: Zoom in a 2×2 grid', () => {

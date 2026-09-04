@@ -52,6 +52,10 @@ pub mod tmux_options {
     /// no longer mean "open" — without this a hidden column came back on every
     /// reload and in every other client.
     pub const SIDEBAR_HIDDEN: &str = "@tmuxy-sidebar-hidden";
+    /// `1` while the window keeps only the first-level row that holds the
+    /// active pane expanded and collapses the others to one row per pane
+    /// (see `layout.rs`). Unset for a normally tiled window.
+    pub const COLLAPSIBLE: &str = "@tmuxy-collapsible";
 
     /// Session-scoped one-shot request from a shell helper to move the client's
     /// keyboard focus somewhere the helper cannot reach itself: `left` or
@@ -169,7 +173,7 @@ pub mod tmux_formats {
         "#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},",
         "#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},",
         "#{@tmuxy-focus-request},#{@tmuxy-sidebar-cols},#{@tmuxy-sidebar-hidden},",
-        "#{window_zoomed_flag},#{window_name}'",
+        "#{@tmuxy-collapsible},#{window_zoomed_flag},#{window_name}'",
     );
 
     /// The application-set pane title, with tmux's own default filtered out.

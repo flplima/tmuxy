@@ -203,6 +203,7 @@ function normalizeWindow(w: TmuxWindow): TmuxWindow {
     floatNoheader: Boolean(w.floatNoheader),
     sidebarCols: w.sidebarCols ?? null,
     sidebarHidden: Boolean(w.sidebarHidden),
+    collapsible: Boolean(w.collapsible),
     zoomed: Boolean(w.zoomed),
   };
 }

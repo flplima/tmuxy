@@ -682,6 +682,8 @@ pub struct WindowState {
     /// `@tmuxy-sidebar-hidden` — the user closed this sidebar column; its
     /// pane stays alive but no client draws it.
     pub sidebar_hidden: bool,
+    /// Only the active pane's first-level row is expanded (@tmuxy-collapsible).
+    pub collapsible: bool,
 
     /// Parent window ID for float / backdrop (@tmuxy-float-parent).
     pub float_parent: Option<String>,
@@ -719,6 +721,7 @@ impl WindowState {
             window_type: None,
             sidebar_cols: None,
             sidebar_hidden: false,
+            collapsible: false,
             float_parent: None,
             float_width: None,
             float_height: None,
@@ -749,6 +752,7 @@ impl WindowState {
             float_noheader: self.float_noheader,
             sidebar_cols: self.sidebar_cols,
             sidebar_hidden: self.sidebar_hidden,
+            collapsible: self.collapsible,
             zoomed: self.zoomed,
         }
     }
@@ -870,6 +874,9 @@ fn parse_layout_node(bytes: &[u8], pos: &mut usize, panes: &mut Vec<LayoutPane>)
 
 /// Aggregates control mode events into coherent state
 pub struct StateAggregator {
+    /// Windows whose `@tmuxy-collapsible` just dropped: their first-level rows
+    /// are evened out on the next step (see `collapsible_layout_commands`).
+    even_out_pending: Vec<String>,
     /// Session name (e.g., "tmuxy")
     session_name: String,
 
@@ -1139,6 +1146,7 @@ impl StateAggregator {
             buffer_read_armed: false,
 
             focus_request: None,
+            even_out_pending: Vec::new(),
             cached_status_line: String::new(),
             status_line_dirty: true, // Fetch on first state request
             status_line_refreshed_at: None,
@@ -1673,6 +1681,7 @@ impl StateAggregator {
                     state_changed: !self.suppress_window_emissions,
                     panes_needing_refresh: resized_panes,
                     change_type: ChangeType::PaneLayout,
+                    commands: self.collapsible_layout_commands(Some(&window_id)),
                     ..Default::default()
                 }
             }
@@ -1766,6 +1775,7 @@ impl StateAggregator {
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::PaneFocus,
+                    commands: self.collapsible_layout_commands(Some(&window_id)),
                     ..Default::default()
                 }
             }
@@ -1944,6 +1954,7 @@ impl StateAggregator {
                     state_changed: true,
                     panes_needing_refresh: resized_panes,
                     change_type: ChangeType::Full, // Command responses may update many things,
+                    commands: self.collapsible_layout_commands(None),
                     ..Default::default()
                 }
             }
@@ -2481,14 +2492,14 @@ impl StateAggregator {
 
     /// Parse a line from list-windows output. Expected format (comma-separated,
     /// see constants::LIST_WINDOWS_CMD):
-    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,focus_request,sidebar_cols,sidebar_hidden,zoomed,name`
+    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,focus_request,sidebar_cols,sidebar_hidden,collapsible,zoomed,name`
     /// `window_name` is LAST and free text — we `splitn` so its own commas stay
     /// in the trailing field and can't shift any parsed column. Every column
     /// after `active` is a `@tmuxy-*` user option that may be empty.
     fn parse_list_windows_line(&mut self, line: &str) {
-        // 15 fields; splitn keeps window_name (the 15th) intact even with commas.
-        let parts: Vec<&str> = line.splitn(15, ',').collect();
-        if parts.len() < 14 {
+        // 16 fields; splitn keeps window_name (the 16th) intact even with commas.
+        let parts: Vec<&str> = line.splitn(16, ',').collect();
+        if parts.len() < 15 {
             return;
         }
 
@@ -2499,7 +2510,7 @@ impl StateAggregator {
 
         let index: u32 = parts[1].parse().unwrap_or(0);
         let active = parts[2] == "1";
-        let name = parts.get(14).map(|s| s.to_string()).unwrap_or_default();
+        let name = parts.get(15).map(|s| s.to_string()).unwrap_or_default();
 
         let opt = |idx: usize| -> Option<String> {
             parts
@@ -2524,11 +2535,14 @@ impl StateAggregator {
         let sidebar_cols = opt(11).and_then(|s| s.parse::<u32>().ok());
         // A sidebar column the user has closed (its pane is kept alive).
         let sidebar_hidden = opt(12).is_some_and(|s| s == "1");
+        // Collapsible panes (see `layout.rs`): the flag turning off evens the
+        // first-level rows back out.
+        let collapsible = opt(13).is_some_and(|s| s == "1");
         // Authoritative zoom state. Deriving it only from `%layout-change`
         // flags loses it whenever window state is rebuilt from list-windows —
         // e.g. every fresh client connect, which is exactly when a client
         // attaching to an already-zoomed window needs it.
-        let zoomed = opt(13).is_some_and(|s| s == "1");
+        let zoomed = opt(14).is_some_and(|s| s == "1");
 
         let window = self
             .windows
@@ -2548,10 +2562,53 @@ impl StateAggregator {
         window.float_noheader = float_noheader;
         window.sidebar_cols = sidebar_cols;
         window.sidebar_hidden = sidebar_hidden;
+        if window.collapsible && !collapsible {
+            self.even_out_pending.push(window_id.to_string());
+        }
+        window.collapsible = collapsible;
 
         if active {
             self.active_window_id = Some(window_id.to_string());
         }
+    }
+
+    /// The `select-layout` commands that keep collapsible windows in shape:
+    /// windows whose flag just dropped get their first-level rows evened out,
+    /// and every collapsible tab keeps only the active pane's first-level row
+    /// expanded (`layout::collapse_first_level`). Idempotent — a window already
+    /// in shape yields nothing, so the %layout-change our own command causes
+    /// does not echo another. Zoomed windows are left alone until they unzoom.
+    fn collapsible_layout_commands(&mut self, only_window: Option<&str>) -> Vec<String> {
+        let mut cmds = Vec::new();
+        for wid in std::mem::take(&mut self.even_out_pending) {
+            if let Some(w) = self.windows.get(&wid) {
+                if let Some(layout) = crate::layout::even_first_level(&w.layout) {
+                    cmds.push(format!("select-layout -t {wid} '{layout}'"));
+                }
+            }
+        }
+        for (wid, w) in &self.windows {
+            if only_window.is_some_and(|o| o != wid) {
+                continue;
+            }
+            if !w.collapsible || w.zoomed || w.window_type.is_some_and(|t| t != WindowType::Tab) {
+                continue;
+            }
+            let active = self
+                .panes
+                .values()
+                .find(|p| p.window_id == *wid && p.active)
+                .map(|p| p.id.as_str())
+                .or(w.active_pane_id.as_deref());
+            let Some(active) = active.and_then(|p| p.trim_start_matches('%').parse::<u32>().ok())
+            else {
+                continue;
+            };
+            if let Some(layout) = crate::layout::collapse_first_level(&w.layout, active) {
+                cmds.push(format!("select-layout -t {wid} '{layout}'"));
+            }
+        }
+        cmds
     }
 
     /// Convert current state to a StateUpdate (full or delta) for efficient transmission.
@@ -2886,6 +2943,9 @@ impl StateAggregator {
         }
         if prev.sidebar_hidden != curr.sidebar_hidden {
             delta.sidebar_hidden = Some(curr.sidebar_hidden);
+        }
+        if prev.collapsible != curr.collapsible {
+            delta.collapsible = Some(curr.collapsible);
         }
         if prev.zoomed != curr.zoomed {
             delta.zoomed = Some(curr.zoomed);
@@ -3316,8 +3376,8 @@ mod tests {
         // LIST_WINDOWS_CMD) means a name like "build, test" stays in the
         // trailing field and can't shift window_active/@tmuxy-window-type/floats.
         let name = "build, test";
-        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,focus,cols,hidden,zoomed,name
-        let line = format!("@7,3,1,tab,,,,,,,,,,0,{name}");
+        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,focus,cols,hidden,collapsible,zoomed,name
+        let line = format!("@7,3,1,tab,,,,,,,,,,,0,{name}");
         let mut agg = StateAggregator::new();
         agg.parse_list_windows_line(&line);
         let w = agg.windows.get("@7").expect("window parsed");
@@ -3336,11 +3396,11 @@ mod tests {
     #[test]
     fn list_windows_carries_the_zoom_flag() {
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,,1,editor");
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,,,1,editor");
         assert!(agg.windows.get("@9").expect("window parsed").zoomed);
 
         // ...and clears it again when the window is no longer zoomed.
-        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,,0,editor");
+        agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,,,0,editor");
         assert!(!agg.windows.get("@9").expect("window parsed").zoomed);
     }
 
@@ -3348,16 +3408,69 @@ mod tests {
     /// close), so "hidden" has to travel as its own flag — read from the same
     /// poll as the width, and cleared when the option is unset.
     #[test]
+    fn a_collapsible_window_keeps_only_the_active_row_expanded() {
+        let mut agg = StateAggregator::new();
+        agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,,1,0,shell");
+        // Three stacked rows, the middle one active.
+        let layout = "0000,80x32,0,0[80x10,0,0,1,80x10,0,11,2,80x10,0,22,3]";
+        let r = agg.process_event(ControlModeEvent::LayoutChange {
+            window_id: "@1".into(),
+            layout: layout.into(),
+            visible_layout: layout.into(),
+            flags: String::new(),
+        });
+        assert!(
+            r.commands.is_empty(),
+            "no active pane known yet: nothing to reshape"
+        );
+
+        let r = agg.process_event(ControlModeEvent::WindowPaneChanged {
+            window_id: "@1".into(),
+            pane_id: "%2".into(),
+        });
+        assert_eq!(r.commands.len(), 1);
+        assert!(r.commands[0].starts_with("select-layout -t @1 '"));
+        let sent = r.commands[0]
+            .trim_start_matches("select-layout -t @1 '")
+            .trim_end_matches('\'');
+        assert_eq!(
+            crate::layout::first_level_heights(sent),
+            Some(vec![1, 28, 1])
+        );
+
+        // tmux applies it and reports the new layout: already in shape, no echo.
+        let r = agg.process_event(ControlModeEvent::LayoutChange {
+            window_id: "@1".into(),
+            layout: sent.to_string(),
+            visible_layout: sent.to_string(),
+            flags: String::new(),
+        });
+        assert!(r.commands.is_empty());
+
+        // The flag drops: the rows are evened back out on the next poll.
+        agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,,,0,shell");
+        let cmds = agg.collapsible_layout_commands(None);
+        assert_eq!(cmds.len(), 1);
+        let sent = cmds[0]
+            .trim_start_matches("select-layout -t @1 '")
+            .trim_end_matches('\'');
+        assert_eq!(
+            crate::layout::first_level_heights(sent),
+            Some(vec![10, 10, 10])
+        );
+    }
+
+    #[test]
     fn list_windows_carries_the_sidebar_hidden_flag() {
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,1,0,__sidebar-right");
+        agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,1,,0,__sidebar-right");
         let w = agg.windows.get("@4").expect("window parsed");
         assert_eq!(w.window_type, Some(WindowType::SidebarRight));
         assert_eq!(w.sidebar_cols, Some(35));
         assert!(w.sidebar_hidden);
         assert_eq!(w.name, "__sidebar-right");
 
-        agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,,0,__sidebar-right");
+        agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,,,0,__sidebar-right");
         assert!(!agg.windows.get("@4").expect("window parsed").sidebar_hidden);
     }
 
@@ -3436,7 +3549,7 @@ mod tests {
     fn untagged_window_is_a_tab_and_gets_only_border_enforcement() {
         let mut agg = StateAggregator::new();
         // @id,index,active,type(empty),float*,zoomed,name
-        agg.parse_list_windows_line("@5,0,1,,,,,,,,,,,0,shell");
+        agg.parse_list_windows_line("@5,0,1,,,,,,,,,,,,0,shell");
 
         let cmds = agg.collect_window_tag_commands();
         assert!(
@@ -3465,10 +3578,10 @@ mod tests {
         use crate::constants::sidebar_dock;
 
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,,0,shell");
-        agg.parse_list_windows_line("@2,1,0,float,,,,,,,,,,0,float");
-        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,,,0,tree");
-        agg.parse_list_windows_line("@4,3,0,sidebar-right,,,,,,,,,,0,term");
+        agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,,,0,shell");
+        agg.parse_list_windows_line("@2,1,0,float,,,,,,,,,,,0,float");
+        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,,,,0,tree");
+        agg.parse_list_windows_line("@4,3,0,sidebar-right,,,,,,,,,,,0,term");
 
         let (mut viewport, mut sidebars) = agg.window_ids_by_sizing();
         viewport.sort();
@@ -3506,7 +3619,7 @@ mod tests {
         use crate::constants::sidebar_dock;
 
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,48,,0,tree");
+        agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,48,,,0,tree");
         let (_, sidebars) = agg.window_ids_by_sizing();
         assert_eq!(sidebars, vec![("@3".to_string(), 48)]);
 
@@ -3544,7 +3657,7 @@ mod tests {
         );
 
         // The list-windows response carries the marker the create command set.
-        agg.parse_list_windows_line("@4,2,0,sidebar-right,,,,,,,,,,0,side");
+        agg.parse_list_windows_line("@4,2,0,sidebar-right,,,,,,,,,,,0,side");
         let corrected = agg.collect_window_tag_commands();
         assert!(
             corrected
@@ -3563,7 +3676,7 @@ mod tests {
     #[test]
     fn sidebar_typed_on_arrival_still_loses_the_pane_border() {
         let mut agg = StateAggregator::new();
-        agg.parse_list_windows_line("@4,2,0,sidebar-left,,,,,,,,,,0,__sidebar-left");
+        agg.parse_list_windows_line("@4,2,0,sidebar-left,,,,,,,,,,,0,__sidebar-left");
         let cmds = agg.collect_window_tag_commands();
         assert!(
             cmds.iter()
@@ -3620,7 +3733,7 @@ mod tests {
         let mut agg = StateAggregator::new();
         // list-windows row: id, index, active, then the @tmuxy-* option columns,
         // with the window name last.
-        let poll = |name: &str| format!("@0,1,1,tab,,,,,,,,,,,{name}");
+        let poll = |name: &str| format!("@0,1,1,tab,,,,,,,,,,,,{name}");
         // `new()` starts dirty so the first state request fetches; clear it so
         // the assertion below is about the poll, not about construction.
         agg.status_line_dirty = false;
@@ -3759,7 +3872,7 @@ mod tests {
         agg.process_event(ControlModeEvent::CommandResponse {
             timestamp: 0,
             command_num: 0,
-            output: "@1,5,1,tab,,,,,,,,,,shell".to_string(),
+            output: "@1,5,1,tab,,,,,,,,,,,shell".to_string(),
             success: true,
         });
         assert_eq!(

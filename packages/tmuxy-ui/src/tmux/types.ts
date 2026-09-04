@@ -109,6 +109,12 @@ export interface TmuxWindow {
    * or before a reload holds everywhere. Absent is equivalent to false.
    */
   sidebarHidden?: boolean;
+  /**
+   * True while the window keeps only the active pane's first-level row
+   * expanded (@tmuxy-collapsible; the backend reshapes the layout). Absent is
+   * equivalent to false.
+   */
+  collapsible?: boolean;
   /** True while a pane in this window is zoomed (tmux hides the others).
    *  Absent is equivalent to false. */
   zoomed?: boolean;
@@ -235,6 +241,7 @@ export interface ServerWindow {
   float_noheader?: boolean;
   sidebar_cols?: number | null;
   sidebar_hidden?: boolean;
+  collapsible?: boolean;
   zoomed?: boolean;
 }
 
@@ -304,6 +311,7 @@ export interface WindowDelta {
   float_noheader?: boolean;
   sidebar_cols?: number | null;
   sidebar_hidden?: boolean;
+  collapsible?: boolean;
   zoomed?: boolean;
 }
 

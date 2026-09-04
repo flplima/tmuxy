@@ -1012,7 +1012,13 @@ fn toggles_pane_mark(command: &str) -> bool {
 }
 
 fn writes_tmuxy_option(command: &str) -> bool {
-    (command.contains("set-option") || command.contains("set -")) && command.contains("@tmuxy-")
+    ((command.contains("set-option") || command.contains("set -")) && command.contains("@tmuxy-"))
+        // The stack script sets / unsets `@tmuxy-collapsible` itself, where
+        // the write is invisible here; the re-list is what turns the flag into
+        // a relayout (`collapsible_layout_commands`). Bindings arrive with the
+        // alias already expanded to its `run-shell "bash …/tmuxy/stack …"`.
+        || command.contains("tmuxy-stack")
+        || command.contains("tmuxy/stack")
 }
 
 /// True when a control-mode command will run a tmuxy bash script that mutates
@@ -1040,6 +1046,18 @@ fn is_multi_step_run_shell(command: &str) -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    #[test]
+    fn stack_commands_count_as_option_writes() {
+        assert!(super::writes_tmuxy_option(
+            "select-window -t @0 \\; select-pane -t %2 \\; run-shell \"bash /x/tmuxy/stack off #{window_id}\""
+        ));
+        assert!(super::writes_tmuxy_option("tmuxy-stack-off"));
+        assert!(super::writes_tmuxy_option(
+            "set-option -w -t @1 @tmuxy-collapsible 1"
+        ));
+        assert!(!super::writes_tmuxy_option("split-window -h"));
+    }
+
     use super::*;
 
     #[test]

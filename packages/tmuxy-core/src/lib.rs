@@ -9,6 +9,8 @@ pub mod ctx;
 pub mod debug_log;
 #[cfg(feature = "native")]
 pub mod executor;
+
+pub mod layout;
 #[cfg(feature = "native")]
 pub mod retry;
 #[cfg(feature = "native")]
@@ -388,6 +390,10 @@ pub struct TmuxWindow {
     /// existing no longer means the column is shown.
     #[serde(default, skip_serializing_if = "is_false")]
     pub sidebar_hidden: bool,
+    /// True while the window keeps only the active pane's first-level row
+    /// expanded (from @tmuxy-collapsible; see `layout.rs`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub collapsible: bool,
     /// True while a pane in this window is zoomed. tmux hides every other pane
     /// when zoomed; the frontend must not keep painting them underneath.
     #[serde(default)]
@@ -581,6 +587,8 @@ pub struct WindowDelta {
     pub sidebar_cols: Option<Option<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidebar_hidden: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collapsible: Option<bool>,
     /// True while this window has a zoomed pane. tmux hides the other panes
     /// entirely when zoomed, so the frontend needs this to do the same.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -600,6 +608,7 @@ impl WindowDelta {
             && self.float_noheader.is_none()
             && self.sidebar_cols.is_none()
             && self.sidebar_hidden.is_none()
+            && self.collapsible.is_none()
             && self.zoomed.is_none()
     }
 }
@@ -795,6 +804,7 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
             float_noheader: false,
             sidebar_cols: w.sidebar_cols,
             sidebar_hidden: w.sidebar_hidden,
+            collapsible: w.collapsible,
             zoomed: w.zoomed,
         })
         .collect();

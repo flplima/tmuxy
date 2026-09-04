@@ -32,6 +32,8 @@ export function TabContextMenu({ windowIndex, x, y, onClose }: TabContextMenuPro
   const keybindings = useAppSelector(selectKeyBindings);
   const allWindows = useAppSelectorShallow(selectWindows);
   const isSingleWindow = allWindows.filter((w) => w.windowType === 'tab').length <= 1;
+  const target = allWindows.find((w) => w.index === windowIndex);
+  const collapsible = Boolean(target?.collapsible);
 
   const handleAction = (actionId: string) => {
     executeMenuAction(send, actionId);
@@ -40,6 +42,20 @@ export function TabContextMenu({ windowIndex, x, y, onClose }: TabContextMenuPro
 
   const handleCloseSpecificTab = () => {
     send({ type: 'SEND_COMMAND', command: `kill-window -t :${windowIndex}` });
+    onClose();
+  };
+
+  // Collapsible panes: a window option the backend reads (docs/TMUX.md). On,
+  // only the active pane's first-level row stays expanded; off evens the rows
+  // back out.
+  const handleToggleCollapsible = () => {
+    if (!target) return;
+    send({
+      type: 'SEND_COMMAND',
+      command: collapsible
+        ? `set-option -u -w -t ${target.id} @tmuxy-collapsible`
+        : `set-option -w -t ${target.id} @tmuxy-collapsible 1`,
+    });
     onClose();
   };
 
@@ -75,6 +91,11 @@ export function TabContextMenu({ windowIndex, x, y, onClose }: TabContextMenuPro
         <KeyLabel keybindings={keybindings} command="last-window" />
       </MenuItem>
       <MenuDivider />
+      <MenuItem type="checkbox" checked={collapsible} onClick={handleToggleCollapsible}>
+        Collapsible Panes
+        <KeyLabel keybindings={keybindings} command="tmuxy-stack" />
+      </MenuItem>
+
       <MenuItem onClick={handleRenameSpecificTab}>
         Rename Tab
         <KeyLabel

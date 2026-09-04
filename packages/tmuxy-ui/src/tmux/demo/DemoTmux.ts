@@ -61,6 +61,8 @@ interface FakeWindow {
   sidebarCols?: number | null;
   /** The user closed this sidebar column (@tmuxy-sidebar-hidden). */
   sidebarHidden?: boolean;
+  /** Only the active pane's first-level row is expanded (@tmuxy-collapsible). */
+  collapsible?: boolean;
   floatDrawer?: 'left' | 'right' | 'top' | 'bottom' | null;
   floatBg?: 'dim' | 'blur' | 'none' | null;
   floatNoheader?: boolean;
@@ -258,6 +260,7 @@ export class DemoTmux {
         float_noheader: w.floatNoheader ?? false,
         sidebar_cols: w.sidebarCols ?? null,
         sidebar_hidden: w.sidebarHidden ?? false,
+        collapsible: w.collapsible ?? false,
       }));
 
     return {

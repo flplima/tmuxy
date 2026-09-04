@@ -329,6 +329,7 @@ function applyWindowDelta(window: ServerWindow, delta: WindowDelta): ServerWindo
     ...(delta.float_noheader !== undefined && { float_noheader: delta.float_noheader }),
     ...(delta.sidebar_cols !== undefined && { sidebar_cols: delta.sidebar_cols }),
     ...(delta.sidebar_hidden !== undefined && { sidebar_hidden: delta.sidebar_hidden }),
+    ...(delta.collapsible !== undefined && { collapsible: delta.collapsible }),
     ...(delta.zoomed !== undefined && { zoomed: delta.zoomed }),
   };
 }
