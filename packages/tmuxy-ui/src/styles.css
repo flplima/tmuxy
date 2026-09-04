@@ -891,7 +891,7 @@
 }
 
 .pane-tab-active .pane-tab-title {
-  font-weight: 500;
+  font-weight: var(--pane-header-font-weight, 700);
 }
 
 /* Pane three-dot menu button */
@@ -1635,7 +1635,7 @@
   gap: var(--spacing-xl);
   padding: 0 var(--spacing-2xl);
   font-family: var(--font-mono);
-  font-size: calc(var(--tmuxy-font-size, 15px) * 0.9);
+  font-size: var(--tmuxy-sidebar-font-size, calc(var(--tmuxy-font-size, 15px) * 0.8));
   color: var(--term-white);
   border-bottom: 1px solid var(--border-medium);
 }
@@ -1759,7 +1759,7 @@
   padding: var(--spacing-lg) 0;
   box-sizing: border-box;
   font-family: var(--font-mono);
-  font-size: calc(var(--tmuxy-font-size, 15px) * 0.9);
+  font-size: var(--tmuxy-sidebar-font-size, calc(var(--tmuxy-font-size, 15px) * 0.8));
   color: var(--term-foreground);
   scrollbar-width: thin;
   scrollbar-color: var(--border-light) transparent;

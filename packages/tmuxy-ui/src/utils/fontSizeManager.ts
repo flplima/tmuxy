@@ -3,8 +3,15 @@ export const DEFAULT_FONT_SIZE = 15;
 const MIN_FONT_SIZE = 9;
 const MAX_FONT_SIZE = 21;
 
+/** The sidebar's text is 80% of the pane font, rounded to whole pixels. */
+export function sidebarFontSize(size: number): number {
+  return Math.round(size * 0.8);
+}
+
 export function applyFontSize(size: number): void {
-  document.documentElement.style.setProperty('--tmuxy-font-size', `${size}px`);
+  const root = document.documentElement.style;
+  root.setProperty('--tmuxy-font-size', `${size}px`);
+  root.setProperty('--tmuxy-sidebar-font-size', `${sidebarFontSize(size)}px`);
 }
 
 export function loadFontSizeFromStorage(): number {
