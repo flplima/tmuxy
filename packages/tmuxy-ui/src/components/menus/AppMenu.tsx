@@ -37,6 +37,7 @@ import {
 } from '../../machines/AppContext';
 import type { TraceLevel } from '../../machines/types';
 import { isTauri } from '../../tmux/adapters';
+import { restartApp } from '../../utils/restartApp';
 import { activeCloseTarget, executeMenuAction } from './menuActions';
 import { PaneMenuItems } from './PaneMenuItems';
 import { KeyLabel } from './KeyLabel';
@@ -235,6 +236,9 @@ export function AppMenu() {
         >
           Copy trace.ndjson Path
         </MenuItem>
+
+        <MenuDivider />
+        <MenuItem onClick={restartApp}>Restart App</MenuItem>
       </SubMenu>
 
       <SubMenu label="Help">

@@ -554,6 +554,8 @@ fn build_app_menu(
         None::<&str>,
     )?;
 
+    let restart_app = MenuItem::with_id(app, "restart-app", "Restart App", true, None::<&str>)?;
+
     let debug_menu = SubmenuBuilder::new(app, "Debug")
         .item(&trace_toggle)
         .separator()
@@ -564,6 +566,8 @@ fn build_app_menu(
         .separator()
         .item(&trace_open)
         .item(&trace_copy_path)
+        .separator()
+        .item(&restart_app)
         .build()?;
 
     // Keep the handles: clicking any of these has to re-render the others
@@ -719,6 +723,7 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
             sync_trace_menu(app_handle);
             return;
         }
+        "restart-app" => app_handle.restart(),
         "trace-open" => {
             if let Err(e) = commands::open_trace_file() {
                 show_status_message(app_handle, &e);
@@ -1037,7 +1042,17 @@ pub fn run() {
             // libc `getenv` on another thread is UB.
             #[cfg(target_os = "macos")]
             {
-                let extras = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
+                // `~/.local/bin` holds the `tmuxy` shorthand the app writes on launch
+                // (session::refresh_launcher); without it a pane's `tmuxy widget tree`
+                // (the left sidebar) is "command not found" when launched from Finder.
+                let local_bin = std::env::var("HOME")
+                    .map(|h| format!("{h}/.local/bin"))
+                    .unwrap_or_default();
+                let extras: Vec<&str> =
+                    ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
+                        .into_iter()
+                        .chain((!local_bin.is_empty()).then_some(local_bin.as_str()))
+                        .collect();
                 let current = std::env::var("PATH").unwrap_or_default();
                 let missing: Vec<&str> = extras
                     .iter()
@@ -1195,6 +1210,7 @@ pub fn run() {
             // Local action tracing (docs/TELEMETRY.md): the frontend tracer
             // queries `trace_enabled` and ships batches to `record_trace`.
             commands::trace_enabled,
+            commands::restart_app,
             commands::record_trace,
             // Debug menu: read/flip the trace switch, level, and file.
             commands::get_trace_settings,

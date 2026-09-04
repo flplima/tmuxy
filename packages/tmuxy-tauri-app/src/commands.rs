@@ -325,6 +325,13 @@ pub async fn connect_server(state: State<'_, MonitorState>, id: String) -> Resul
     Ok(())
 }
 
+/// Relaunch the desktop app in place (Debug ▸ Restart App). tmux keeps every
+/// session; the new process reattaches to the same socket on start.
+#[tauri::command]
+pub fn restart_app(app: tauri::AppHandle) {
+    app.restart()
+}
+
 /// Whether local action tracing is active on this desktop backend
 /// (docs/TELEMETRY.md). The frontend tracer ships events only when this is true.
 #[tauri::command]

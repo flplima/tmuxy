@@ -995,12 +995,26 @@ fn add_session_target_if_needed(
                 }
             }
             // Default: add -t session_name
-            Ok(format!("{} -t {}", cmd, session_name))
+            Ok(with_session_target(cmd, session_name))
         }
         // Everything else — including resize-window and send-keys/send-prefix,
         // which used to have their own byte-identical arms — defaults to
         // targeting the session.
-        _ => Ok(format!("{} -t {}", cmd, session_name)),
+        _ => Ok(with_session_target(cmd, session_name)),
+    }
+}
+
+/// `cmd` with `-t <session>` inserted right after the command name — never
+/// appended. tmux takes flags before positionals, and several commands end in
+/// a positional shell command (`split-window 'tmuxy widget tree'`,
+/// `new-window`, `respawn-pane`, `display-popup`): appended, `-t tmuxy`
+/// became part of that shell command and the pane ran the literal program
+/// `"tmuxy widget tree" -t tmuxy`, which is how the left sidebar's tree pane
+/// died on the desktop app while the same command worked on the web server.
+fn with_session_target(cmd: &str, session_name: &str) -> String {
+    match cmd.split_once(char::is_whitespace) {
+        Some((name, rest)) => format!("{} -t {} {}", name, session_name, rest.trim_start()),
+        None => format!("{} -t {}", cmd, session_name),
     }
 }
 
@@ -1389,6 +1403,23 @@ bind-key    -T prefix \\% send-keys %";
             "quoted separator must not split the command: {out}"
         );
         assert!(out.contains("'a\\;b'"), "payload must survive: {out}");
+    }
+
+    #[test]
+    fn session_target_goes_before_a_positional_shell_command() {
+        // The left sidebar's tree pane: the shell command must stay last.
+        assert_eq!(
+            with_session_target("split-window 'tmuxy widget tree'", "tmuxy"),
+            "split-window -t tmuxy 'tmuxy widget tree'"
+        );
+        assert_eq!(
+            with_session_target("split-window -h", "tmuxy"),
+            "split-window -t tmuxy -h"
+        );
+        assert_eq!(
+            with_session_target("split-window", "tmuxy"),
+            "split-window -t tmuxy"
+        );
     }
 
     #[test]

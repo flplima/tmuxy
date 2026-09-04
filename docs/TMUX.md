@@ -146,6 +146,8 @@ Window indices (`:0`, `:1`, `:3`) can shift when windows are created or destroye
 
 This matters especially in automation and tests where multiple operations happen in sequence — between a query and the next command, indices may have shifted.
 
+The desktop app's executor adds `-t <session>` to commands that name no target. It goes **right after the command name**, never at the end: `split-window`, `new-window`, `respawn-pane` and `display-popup` end in a positional shell command, and an appended `-t tmuxy` became part of it — the left sidebar's `split-window 'tmuxy widget tree'` ran the literal program `"tmuxy widget tree" -t tmuxy` and died (see `with_session_target` in `tmuxy-core/src/executor.rs`).
+
 The same rule shapes the tab strip. Chrome windows (floats, sidebars) hold tmux indices the user never sees, so `select-window -t N` from a root binding lands on the wrong tab whenever one sits before it. tmuxy therefore resolves `ctrl+1`…`ctrl+9` on the client, by **position in the strip** (the index-ordered visible tabs), and no longer ships `bind -n C-N` lines in its config. `ctrl+0` (and `prefix w`) opens the Tab Overview — a client-side grid of every tab where a slot click selects, the trailing "+" creates, a slot's ✕ kills, and a drag reorders by sending `move-window -b`/`-a` against the neighbouring tab's `@id`. See `tmuxy-ui/src/machines/app/actions/tabOverview.ts` and `tmuxy-ui/src/components/TabOverview.tsx`.
 
 ## `%unlinked-window-close` Events

@@ -404,7 +404,16 @@ impl ControlModeConnection {
         }
         #[cfg(target_os = "macos")]
         {
-            let extras = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
+            // `~/.local/bin` holds the `tmuxy` shorthand the app writes on launch
+            // (session::refresh_launcher); without it a pane's `tmuxy widget tree`
+            // (the left sidebar) is "command not found" when launched from Finder.
+            let local_bin = dirs::home_dir()
+                .map(|h| h.join(".local/bin").to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let extras: Vec<&str> = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
+                .into_iter()
+                .chain((!local_bin.is_empty()).then_some(local_bin.as_str()))
+                .collect();
             let current = std::env::var("PATH").unwrap_or_default();
             let missing: Vec<&str> = extras
                 .iter()

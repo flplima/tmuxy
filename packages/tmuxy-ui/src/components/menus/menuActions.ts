@@ -4,6 +4,7 @@
  * Maps action IDs to send() calls on the app machine.
  */
 
+import { restartApp } from '../../utils/restartApp';
 import type { AppMachineEvent } from '../../machines/types';
 
 const GITHUB_URL = 'https://github.com/flplima/tmuxy';
@@ -107,6 +108,9 @@ export function executeMenuAction(send: Send, actionId: string, closeTargetPaneI
       break;
     case 'tab-overview':
       send({ type: 'TOGGLE_TAB_OVERVIEW' });
+      break;
+    case 'restart-app':
+      restartApp();
       break;
     case 'tab-next':
       send({ type: 'SEND_COMMAND', command: 'next-window' });
