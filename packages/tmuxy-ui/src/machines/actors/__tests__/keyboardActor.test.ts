@@ -87,10 +87,21 @@ function spawnWithLiveContext(initial = '%1') {
         activePaneId: string;
         activeWindowId: string;
         copyModeStates: Record<string, unknown>;
+        panes: Array<{ tmuxId: string; windowId: string; active: boolean }>;
       };
-      events: { type: string; paneId?: string; [k: string]: unknown };
+      events: { type: string; paneId?: string; windowId?: string; [k: string]: unknown };
     },
-    context: { activePaneId: initial, activeWindowId: '@0', copyModeStates: {} },
+    context: {
+      activePaneId: initial,
+      activeWindowId: '@0',
+      copyModeStates: {},
+      // Two tabs: @0 holds %1 (active) and %2; @1 holds %3.
+      panes: [
+        { tmuxId: '%1', windowId: '@0', active: true },
+        { tmuxId: '%2', windowId: '@0', active: false },
+        { tmuxId: '%3', windowId: '@1', active: true },
+      ],
+    },
     invoke: {
       id: 'keyboard',
       src: 'keyboardActor',
@@ -101,6 +112,10 @@ function spawnWithLiveContext(initial = '%1') {
       // deliberately WITHOUT sending UPDATE_ACTIVE_PANE to the child.
       SET_PARENT_ACTIVE: {
         actions: assign({ activePaneId: ({ event }) => event.paneId as string }),
+      },
+      // Test-only: the machine's active window, as a tab switch sets it.
+      SET_PARENT_WINDOW: {
+        actions: assign({ activeWindowId: ({ event }) => event.windowId as string }),
       },
       '*': {
         actions: ({ event }) => {
@@ -189,6 +204,37 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     expect(lastSendCommand(events)).toBe(
       'select-window -t @0 \\; select-pane -t %2 \\; next-window',
     );
+  });
+
+  it("never pins a pane outside the pinned window: the window's own active pane stands in", () => {
+    // `select-pane` on a pane in another tab also re-points the command list's
+    // current target at it, so `split-window` after it would land in THAT tab
+    // (seen in the wild: a stale active-pane id from the initial snapshot,
+    // tab 2 on screen, the split appeared in tab 1).
+    const { actor, child, events } = spawnWithLiveContext('%1');
+    child.send({
+      type: 'UPDATE_KEYBINDINGS',
+      keybindings: {
+        prefix_key: 'C-a',
+        prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
+        root_bindings: [],
+      },
+    });
+    // The machine shows tab @1 while its active pane id still points into @0.
+    actor.send({ type: 'SET_PARENT_WINDOW', windowId: '@1' });
+    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: '%2' });
+
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: '%', shiftKey: true });
+    expect(lastSendCommand(events)).toBe(
+      'select-window -t @1 \\; select-pane -t %3 \\; split-window -h',
+    );
+
+    // A window whose panes are not known yet is pinned on its own.
+    actor.send({ type: 'SET_PARENT_WINDOW', windowId: '@2' });
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: '%', shiftKey: true });
+    expect(lastSendCommand(events)).toBe('select-window -t @2 \\; split-window -h');
   });
 });
 

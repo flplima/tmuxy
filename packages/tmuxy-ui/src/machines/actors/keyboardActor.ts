@@ -347,18 +347,21 @@ export function createKeyboardActor() {
       let liveActivePaneId = activePaneId;
       let liveActiveWindowId: string | null = null;
       let liveCopyStates: Record<string, CopyModeState> | undefined;
+      let livePanes: ReadonlyArray<{ tmuxId: string; windowId: string; active: boolean }> = [];
       try {
         const snapshot = input.parent.getSnapshot() as {
           context?: {
             activePaneId?: string;
             activeWindowId?: string | null;
             copyModeStates?: Record<string, CopyModeState>;
+            panes?: ReadonlyArray<{ tmuxId: string; windowId: string; active: boolean }>;
           };
         };
         const ctx = snapshot?.context;
         if (ctx?.activePaneId !== undefined) liveActivePaneId = ctx.activePaneId;
         if (ctx?.activeWindowId) liveActiveWindowId = ctx.activeWindowId;
         liveCopyStates = ctx?.copyModeStates;
+        if (ctx?.panes) livePanes = ctx.panes;
       } catch (_) {
         /* keep the cached closure values */
       }
@@ -374,14 +377,32 @@ export function createKeyboardActor() {
        * makes the binding independent of what tmux's current window is at that
        * instant. An overlay (float, dock) is pinned by pane only: its window must
        * never become current, or the tab behind it would blank.
+       *
+       * The pane pin must name a pane OF the pinned window. `select-pane` on a
+       * pane elsewhere not only activates it there — it also re-points the
+       * command list's "current" target at that pane, so the `split-window`
+       * after it lands in that other tab, whatever `select-window` said. When
+       * the machine's active pane is not in its active window (a stale id from
+       * a snapshot, a switch mid-flight), the window's own active pane is
+       * pinned instead, or just the window.
        */
       const bindingPin = (): string => {
         const overlay = overlayPaneId();
         if (overlay) return `select-pane -t ${overlay} \\; `;
-        const pane = realPaneId(liveActivePaneId);
-        if (!pane) return '';
-        const windowPin = liveActiveWindowId ? `select-window -t ${liveActiveWindowId} \\; ` : '';
-        return `${windowPin}select-pane -t ${pane} \\; `;
+        let pane = realPaneId(liveActivePaneId);
+        if (liveActiveWindowId) {
+          const inWindow = (id: string | null) =>
+            id !== null &&
+            livePanes.some((p) => p.tmuxId === id && p.windowId === liveActiveWindowId);
+          if (!inWindow(pane)) {
+            pane = realPaneId(
+              livePanes.find((p) => p.windowId === liveActiveWindowId && p.active)?.tmuxId ?? null,
+            );
+          }
+          const windowPin = `select-window -t ${liveActiveWindowId} \\; `;
+          return pane ? `${windowPin}select-pane -t ${pane} \\; ` : windowPin;
+        }
+        return pane ? `select-pane -t ${pane} \\; ` : '';
       };
 
       // Copy mode is per-pane and derived (not synced): a pane is in copy mode

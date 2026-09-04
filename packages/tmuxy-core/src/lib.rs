@@ -698,6 +698,23 @@ pub enum StateUpdate {
 /// one-off external tmux reads (the polling/snapshot fallback path — the live
 /// server/Tauri paths get state from the control-mode aggregator instead).
 #[cfg(feature = "native")]
+/// The session's active pane: the active pane OF THE ACTIVE WINDOW. Every
+/// window has an active pane, so the first `active` pane in the list is
+/// whichever window happens to be listed first — on a session whose current
+/// window is not the first, that handed the client a pane in another tab,
+/// and a binding pinned to it (`select-pane -t <it> \; split-window`) made
+/// tmux split that tab instead of the one on screen.
+fn active_pane_in_window<'a>(
+    panes: impl Iterator<Item = (&'a str, &'a str, bool)> + Clone,
+    active_window_id: Option<&str>,
+) -> Option<String> {
+    panes
+        .clone()
+        .find(|(_, window_id, active)| *active && active_window_id == Some(*window_id))
+        .or_else(|| panes.clone().find(|(_, _, active)| *active))
+        .map(|(id, _, _)| id.to_string())
+}
+
 pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState, TmuxError> {
     let pane_infos = executor::get_all_panes_info(session_name)?;
     let window_infos = executor::get_windows(session_name)?;
@@ -809,8 +826,12 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
         })
         .collect();
 
-    // Find active pane
-    let active_pane_id = panes.iter().find(|p| p.active).map(|p| p.tmux_id.clone());
+    let active_pane_id = active_pane_in_window(
+        panes
+            .iter()
+            .map(|p| (p.tmux_id.as_str(), p.window_id.as_str(), p.active)),
+        active_window_id.as_deref(),
+    );
 
     // Capture status line (use total_width from pane layout for proper padding)
     let status_line =
@@ -849,6 +870,24 @@ mod tests {
         }
         assert_eq!(WindowType::parse("workspace"), None);
         assert_eq!(WindowType::parse(""), None);
+    }
+
+    #[test]
+    fn the_initial_state_reports_the_active_windows_active_pane() {
+        // Every window has an active pane; the first one listed belongs to
+        // whichever window is listed first, not to the current one.
+        let panes = [("%1", "@0", true), ("%2", "@0", false), ("%3", "@1", true)];
+        let it = panes.iter().copied();
+        assert_eq!(
+            active_pane_in_window(it.clone(), Some("@1")),
+            Some("%3".to_string())
+        );
+        assert_eq!(
+            active_pane_in_window(it.clone(), Some("@0")),
+            Some("%1".to_string())
+        );
+        // No known active window: any active pane beats none.
+        assert_eq!(active_pane_in_window(it, None), Some("%1".to_string()));
     }
 
     #[test]
