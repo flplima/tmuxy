@@ -90,6 +90,7 @@ export const SidebarColumn = memo(function SidebarColumn({
     side === 'right'
       ? ({
           '--tmuxy-font-size': `${dock.fontSize}px`,
+          '--line-height-terminal': `${dock.lineHeight}px`,
           ...cellMetricsStyle(dock),
         } as CSSProperties)
       : undefined;
@@ -199,6 +200,7 @@ function SidebarPane({
 }) {
   const send = useAppSend();
   const { charHeight } = useAppSelector(selectCharSize);
+  const dock = useAppSelector(selectSidebarCellMetrics);
 
   if (!pane) {
     if (startFailed) {
@@ -249,7 +251,7 @@ function SidebarPane({
     // rendered grid and tmux's idea of the pane can't drift apart.
     <div
       className="sidebar-terminal"
-      style={{ height: pane.height * charHeight }}
+      style={{ height: pane.height * (side === 'right' ? dock.lineHeight : charHeight) }}
       data-pane-id={pane.tmuxId}
     >
       <TerminalPane paneId={pane.tmuxId} chrome="none" isActive={focused} />

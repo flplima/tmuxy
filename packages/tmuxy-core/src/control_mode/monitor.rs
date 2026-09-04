@@ -688,15 +688,19 @@ impl TmuxMonitor {
         if viewport_windows.is_empty() && sidebar_windows.is_empty() {
             return;
         }
-        // A sidebar keeps the viewport's rows — both columns run the full height
-        // of the app body — and only narrows to its own column width.
+        // A sidebar runs the full height of the app body in its own column
+        // width. It keeps the viewport's rows unless the client set the rows
+        // its column holds (the dock's rows are shorter than the pane grid's
+        // — see `tmux_options::SIDEBAR_ROWS`).
         let desired: Vec<(String, (u32, u32))> = viewport_windows
             .into_iter()
             .map(|wid| (wid, (cols, rows)))
             .chain(
                 sidebar_windows
                     .into_iter()
-                    .map(|(wid, sidebar_cols)| (wid, (sidebar_cols, rows.max(1)))),
+                    .map(|(wid, sidebar_cols, sidebar_rows)| {
+                        (wid, (sidebar_cols, sidebar_rows.unwrap_or(rows).max(1)))
+                    }),
             )
             .collect();
 

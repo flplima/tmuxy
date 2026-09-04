@@ -56,6 +56,11 @@ pub mod tmux_options {
     /// active pane expanded and collapses the others to one row per pane
     /// (see `layout.rs`). Unset for a normally tiled window.
     pub const COLLAPSIBLE: &str = "@tmuxy-collapsible";
+    /// Rows the dock's pane is sized to. The dock runs in the sidebar font,
+    /// whose rows are shorter than the pane grid's, so the column holds more
+    /// of them than the viewport does; the client sets this from its own row
+    /// height. Unset: the viewport's rows.
+    pub const SIDEBAR_ROWS: &str = "@tmuxy-sidebar-rows";
 
     /// Session-scoped one-shot request from a shell helper to move the client's
     /// keyboard focus somewhere the helper cannot reach itself: `left` or
@@ -173,7 +178,7 @@ pub mod tmux_formats {
         "#{@tmuxy-float-parent},#{@tmuxy-float-width},#{@tmuxy-float-height},",
         "#{@tmuxy-float-drawer},#{@tmuxy-float-bg},#{@tmuxy-float-noheader},",
         "#{@tmuxy-focus-request},#{@tmuxy-sidebar-cols},#{@tmuxy-sidebar-hidden},",
-        "#{@tmuxy-collapsible},#{window_zoomed_flag},#{window_name}'",
+        "#{@tmuxy-collapsible},#{window_zoomed_flag},#{@tmuxy-sidebar-rows},#{window_name}'",
     );
 
     /// The application-set pane title, with tmux's own default filtered out.

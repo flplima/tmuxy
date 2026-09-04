@@ -1782,8 +1782,10 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
 
     // Step 4: THE geometry contract. tmux sizes a `sidebar-right` window to that
     // column (sidebar_dock::size in tmuxy-core), not the viewport — otherwise
-    // the shell wraps at a width the UI never draws. 35 cols wide, and the full
-    // viewport height: the column is headerless, so it loses no row.
+    // the shell wraps at a width the UI never draws. 35 cols wide, and the rows
+    // the column holds in the sidebar font (@tmuxy-sidebar-rows, written by
+    // the client): shorter rows than the pane grid's, so MORE of them than the
+    // viewport has — the column is headerless, so it loses none.
     await waitForCondition(
       ctx.page,
       async () =>
@@ -1791,7 +1793,13 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
           const ctxState = window.app?.getSnapshot()?.context;
           const win = ctxState?.windows?.find((w) => w.windowType === 'sidebar-right');
           const pane = ctxState?.panes?.find((p) => p.windowId === win?.id);
-          return pane?.width === 35 && pane?.height === ctxState.targetRows;
+          const sent = ctxState?.dockRowsSent;
+          return (
+            pane?.width === 35 &&
+            sent?.windowId === win?.id &&
+            pane?.height === sent.rows &&
+            pane.height > ctxState.targetRows
+          );
         }),
       20000,
       async () =>
@@ -1799,7 +1807,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
           const ctxState = window.app?.getSnapshot()?.context;
           const win = ctxState?.windows?.find((w) => w.windowType === 'sidebar-right');
           const pane = ctxState?.panes?.find((p) => p.windowId === win?.id);
-          return `column pane sized to its own column (got ${pane?.width}x${pane?.height}, want 35x${ctxState?.targetRows})`;
+          return `column pane sized to its own column (got ${pane?.width}x${pane?.height}, want 35x${ctxState?.dockRowsSent?.rows}, viewport rows ${ctxState?.targetRows})`;
         }),
     );
 

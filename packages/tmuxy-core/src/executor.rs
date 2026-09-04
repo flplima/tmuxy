@@ -168,15 +168,17 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<()> {
     // List every window with its tmuxy type and any dragged column width, so the
     // sidebars can be told apart and sized to what the user actually set.
     let format = format!(
-        "#{{window_id}},#{{{}}},#{{{}}}",
+        "#{{window_id}},#{{{}}},#{{{}}},#{{{}}}",
         crate::constants::tmux_options::WINDOW_TYPE,
-        crate::constants::tmux_options::SIDEBAR_COLS
+        crate::constants::tmux_options::SIDEBAR_COLS,
+        crate::constants::tmux_options::SIDEBAR_ROWS
     );
     let output =
         execute_tmux_command(&["list-windows", "-t", session_name, "-F", format.as_str()])?;
 
-    // (window_id, column width for a sidebar — None means viewport-sized)
-    let windows: Vec<(&str, Option<u32>)> = output
+    // (window_id, column width for a sidebar — None means viewport-sized,
+    //  rows the dock holds — None means the viewport's)
+    let windows: Vec<(&str, Option<u32>, Option<u32>)> = output
         .trim()
         .lines()
         .filter(|l| !l.is_empty())
@@ -185,9 +187,10 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<()> {
             let id = fields.next().unwrap_or(line);
             let kind = fields.next().unwrap_or("");
             let user_cols = fields.next().and_then(|c| c.parse::<u32>().ok());
+            let user_rows = fields.next().and_then(|c| c.parse::<u32>().ok());
             let cols = WindowType::parse(kind)
                 .and_then(|t| crate::constants::sidebar_dock::cols(t, user_cols));
-            (id, cols)
+            (id, cols, cols.and(user_rows))
         })
         .collect();
     trace!(?windows, "resize_window window ids");
@@ -197,13 +200,18 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<()> {
 
     // Build a single compound command: resize-window -t @1 -x C -y R \; resize-window -t @2 ...
     let mut args: Vec<&str> = Vec::new();
-    // Owns the per-sidebar width strings for the lifetime of `args`.
-    let sidebar_cols_strs: Vec<Option<String>> = windows
+    // Owns the per-sidebar size strings for the lifetime of `args`.
+    let sidebar_strs: Vec<(Option<String>, Option<String>)> = windows
         .iter()
-        .map(|(_, cols)| cols.map(|c| c.to_string()))
+        .map(|(_, cols, rows)| {
+            (
+                cols.map(|c| c.to_string()),
+                rows.map(|r| r.max(1).to_string()),
+            )
+        })
         .collect();
-    for (i, ((window_id, _), sidebar_cols_str)) in
-        windows.iter().zip(sidebar_cols_strs.iter()).enumerate()
+    for (i, ((window_id, _, _), (sidebar_cols_str, sidebar_rows_str))) in
+        windows.iter().zip(sidebar_strs.iter()).enumerate()
     {
         if i > 0 {
             args.push(";");
@@ -214,7 +222,7 @@ pub fn resize_window(session_name: &str, cols: u32, rows: u32) -> Result<()> {
         args.push("-x");
         args.push(sidebar_cols_str.as_deref().unwrap_or(&cols_str));
         args.push("-y");
-        args.push(&rows_str);
+        args.push(sidebar_rows_str.as_deref().unwrap_or(&rows_str));
     }
 
     trace!(?args, "resize_window executing tmux");

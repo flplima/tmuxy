@@ -13,7 +13,7 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents, TmuxWindow } from '../../types';
-import { selectLeftSidebarPane, selectRightSidebarPane } from '../../selectors';
+import { selectLeftSidebarPane, selectRightSidebarPane, selectDockRows } from '../../selectors';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -222,6 +222,38 @@ export const groupsAndFloatsActions = {
    * way, the choice survives a reload, and every other client sees it — a
    * column that reappeared on every reload was one of the QA findings.
    */
+  /**
+   * The dock runs in the sidebar font, whose rows are shorter than the pane
+   * grid's, so its column holds more rows than the viewport. Write that count
+   * to the dock's window (`@tmuxy-sidebar-rows`) whenever it changes — the
+   * backend sizes the pane from it — and only then, so the poll is not poked
+   * on every state update.
+   */
+  groupsAndFloats_syncDockRows: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ context, enqueue }) => {
+    const dock = context.windows.find((w) => w.windowType === 'sidebar-right');
+    const rows = selectDockRows(context);
+    if (!dock || rows < 1) return;
+    const sent = context.dockRowsSent;
+    if (sent && sent.windowId === dock.id && sent.rows === rows) return;
+    enqueue(
+      sendTo('tmux', {
+        type: 'SEND_COMMAND' as const,
+        command: `set-option -w -t ${dock.id} @tmuxy-sidebar-rows ${rows}`,
+      }),
+    );
+    enqueue(assign({ dockRowsSent: { windowId: dock.id, rows } }));
+  }),
+
   groupsAndFloats_toggleLeftSidebar: enqueueActions<
     Ctx,
     Evt,

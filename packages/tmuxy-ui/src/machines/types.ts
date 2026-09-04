@@ -240,6 +240,8 @@ export interface AppMachineContext {
    * on release and the preview is dropped once the server reports that width.
    */
   sidebarColsPreview: { side: 'left' | 'right'; cols: number | null } | null;
+  /** Rows last written to the dock's @tmuxy-sidebar-rows, and for which window. */
+  dockRowsSent: { windowId: string; rows: number } | null;
   /**
    * Width of the app body (both columns plus the pane grid), in pixels. The
    * docked/overlay decision is made from this, never from the pane container,
@@ -543,6 +545,8 @@ export type BlurLeftSidebarEvent = { type: 'BLUR_LEFT_SIDEBAR' };
 
 // Right sidebar (the pinned terminal — a `sidebar-right`-typed tmux window)
 export type ToggleRightSidebarEvent = { type: 'TOGGLE_RIGHT_SIDEBAR' };
+/** Re-derive the dock's row count and tell tmux when it changed. */
+export type SyncDockRowsEvent = { type: 'SYNC_DOCK_ROWS' };
 export type FocusRightSidebarEvent = { type: 'FOCUS_RIGHT_SIDEBAR' };
 export type BlurRightSidebarEvent = { type: 'BLUR_RIGHT_SIDEBAR' };
 /** Raised (delayed) after a sidebar was asked to open; fires the failure state if its pane never came. */
@@ -777,6 +781,7 @@ export type AppMachineEvent =
   | SidebarStartTimeoutEvent
   | SidebarResizePreviewEvent
   | SidebarResizeCommitEvent
+  | SyncDockRowsEvent
   | SidebarPreviewExpireEvent
   | SetBodySizeEvent
   | ToggleTabOverviewEvent

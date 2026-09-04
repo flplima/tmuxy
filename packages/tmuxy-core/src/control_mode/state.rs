@@ -682,6 +682,8 @@ pub struct WindowState {
     /// `@tmuxy-sidebar-hidden` — the user closed this sidebar column; its
     /// pane stays alive but no client draws it.
     pub sidebar_hidden: bool,
+    /// Rows the dock's pane is sized to (@tmuxy-sidebar-rows); None = the viewport's.
+    pub sidebar_rows: Option<u32>,
     /// Only the active pane's first-level row is expanded (@tmuxy-collapsible).
     pub collapsible: bool,
 
@@ -721,6 +723,7 @@ impl WindowState {
             window_type: None,
             sidebar_cols: None,
             sidebar_hidden: false,
+            sidebar_rows: None,
             collapsible: false,
             float_parent: None,
             float_width: None,
@@ -873,6 +876,10 @@ fn parse_layout_node(bytes: &[u8], pos: &mut usize, panes: &mut Vec<LayoutPane>)
 }
 
 /// Aggregates control mode events into coherent state
+/// A sidebar window with its column width and, when the client set it, the
+/// rows its column holds (`tmux_options::SIDEBAR_ROWS`).
+pub type SidebarSizing = (String, u32, Option<u32>);
+
 pub struct StateAggregator {
     /// Windows whose `@tmuxy-collapsible` just dropped: their first-level rows
     /// are evened out on the next step (see `collapsible_layout_commands`).
@@ -1345,7 +1352,7 @@ impl StateAggregator {
     /// floats take the whole viewport; each sidebar takes its own narrow column
     /// (the two differ in width), so those come back paired with that width.
     /// Returns `(viewport_sized, sidebar_sized_with_cols)`.
-    pub fn window_ids_by_sizing(&self) -> (Vec<String>, Vec<(String, u32)>) {
+    pub fn window_ids_by_sizing(&self) -> (Vec<String>, Vec<SidebarSizing>) {
         let mut viewport = Vec::new();
         let mut sidebars = Vec::new();
         for w in self.windows.values() {
@@ -1353,7 +1360,7 @@ impl StateAggregator {
                 .window_type
                 .and_then(|t| crate::constants::sidebar_dock::cols(t, w.sidebar_cols));
             match cols {
-                Some(cols) => sidebars.push((w.id.clone(), cols)),
+                Some(cols) => sidebars.push((w.id.clone(), cols, w.sidebar_rows)),
                 None => viewport.push(w.id.clone()),
             }
         }
@@ -2492,13 +2499,15 @@ impl StateAggregator {
 
     /// Parse a line from list-windows output. Expected format (comma-separated,
     /// see constants::LIST_WINDOWS_CMD):
-    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,focus_request,sidebar_cols,sidebar_hidden,collapsible,zoomed,name`
+    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,focus_request,sidebar_cols,sidebar_hidden,collapsible,zoomed,sidebar_rows,name`
     /// `window_name` is LAST and free text — we `splitn` so its own commas stay
     /// in the trailing field and can't shift any parsed column. Every column
     /// after `active` is a `@tmuxy-*` user option that may be empty.
     fn parse_list_windows_line(&mut self, line: &str) {
-        // 16 fields; splitn keeps window_name (the 16th) intact even with commas.
-        let parts: Vec<&str> = line.splitn(16, ',').collect();
+        // 17 fields; splitn keeps window_name (the 17th) intact even with commas.
+        // The name is always the LAST field, so a row from a format that
+        // predates the trailing option columns still parses.
+        let parts: Vec<&str> = line.splitn(17, ',').collect();
         if parts.len() < 15 {
             return;
         }
@@ -2510,7 +2519,7 @@ impl StateAggregator {
 
         let index: u32 = parts[1].parse().unwrap_or(0);
         let active = parts[2] == "1";
-        let name = parts.get(15).map(|s| s.to_string()).unwrap_or_default();
+        let name = parts.last().map(|s| s.to_string()).unwrap_or_default();
 
         let opt = |idx: usize| -> Option<String> {
             parts
@@ -2543,6 +2552,13 @@ impl StateAggregator {
         // e.g. every fresh client connect, which is exactly when a client
         // attaching to an already-zoomed window needs it.
         let zoomed = opt(14).is_some_and(|s| s == "1");
+        // The dock's own row count (see `tmux_options::SIDEBAR_ROWS`); only a
+        // 17-field row carries it — in a shorter row field 15 is the name.
+        let sidebar_rows = if parts.len() >= 17 {
+            opt(15).and_then(|s| s.parse::<u32>().ok())
+        } else {
+            None
+        };
 
         let window = self
             .windows
@@ -2562,6 +2578,7 @@ impl StateAggregator {
         window.float_noheader = float_noheader;
         window.sidebar_cols = sidebar_cols;
         window.sidebar_hidden = sidebar_hidden;
+        window.sidebar_rows = sidebar_rows;
         if window.collapsible && !collapsible {
             self.even_out_pending.push(window_id.to_string());
         }
@@ -3376,8 +3393,8 @@ mod tests {
         // LIST_WINDOWS_CMD) means a name like "build, test" stays in the
         // trailing field and can't shift window_active/@tmuxy-window-type/floats.
         let name = "build, test";
-        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,focus,cols,hidden,collapsible,zoomed,name
-        let line = format!("@7,3,1,tab,,,,,,,,,,,0,{name}");
+        // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,focus,cols,hidden,collapsible,zoomed,rows,name
+        let line = format!("@7,3,1,tab,,,,,,,,,,,0,,{name}");
         let mut agg = StateAggregator::new();
         agg.parse_list_windows_line(&line);
         let w = agg.windows.get("@7").expect("window parsed");
@@ -3458,6 +3475,22 @@ mod tests {
             crate::layout::first_level_heights(sent),
             Some(vec![10, 10, 10])
         );
+    }
+
+    #[test]
+    fn list_windows_carries_the_dock_rows_and_sizing_uses_them() {
+        let mut agg = StateAggregator::new();
+        agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,,,0,52,__sidebar-right");
+        let w = agg.windows.get("@4").expect("window parsed");
+        assert_eq!(w.sidebar_rows, Some(52));
+        assert_eq!(w.name, "__sidebar-right");
+        let (_, sidebars) = agg.window_ids_by_sizing();
+        assert_eq!(sidebars, vec![("@4".to_string(), 35, Some(52))]);
+        // A row without the trailing column: the name is still the last field.
+        agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,,,0,__sidebar-right");
+        let w = agg.windows.get("@4").expect("window parsed");
+        assert_eq!(w.sidebar_rows, None);
+        assert_eq!(w.name, "__sidebar-right");
     }
 
     #[test]
@@ -3590,8 +3623,8 @@ mod tests {
         assert_eq!(
             sidebars,
             vec![
-                ("@3".to_string(), sidebar_dock::LEFT_COLS),
-                ("@4".to_string(), sidebar_dock::RIGHT_COLS),
+                ("@3".to_string(), sidebar_dock::LEFT_COLS, None),
+                ("@4".to_string(), sidebar_dock::RIGHT_COLS, None),
             ],
             "each column carries its own width, not a shared one"
         );
@@ -3621,7 +3654,7 @@ mod tests {
         let mut agg = StateAggregator::new();
         agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,48,,,0,tree");
         let (_, sidebars) = agg.window_ids_by_sizing();
-        assert_eq!(sidebars, vec![("@3".to_string(), 48)]);
+        assert_eq!(sidebars, vec![("@3".to_string(), 48, None)]);
 
         assert_eq!(
             sidebar_dock::cols(WindowType::SidebarLeft, Some(2)),

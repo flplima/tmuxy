@@ -1577,9 +1577,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* Opaque: the column sits beside the pane grid, so it must not let the
-     app-chrome background bleed through and read as part of a pane. */
-  background: var(--term-background);
+  /* Transparent: the column is app chrome, like the header and the status
+     bar, so it shows the same background they do rather than a pane's. */
+  background: transparent;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -1723,7 +1723,7 @@
    size the backend gave the tmux pane exactly. */
 .sidebar-terminal {
   overflow: hidden;
-  background: var(--term-background);
+  background: transparent;
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
 }

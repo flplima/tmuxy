@@ -66,6 +66,7 @@ const FIELD_OWNERS = {
   leftSidebarStarting: 'groupsAndFloats',
   rightSidebarStarting: 'groupsAndFloats',
   sidebarColsPreview: 'groupsAndFloats',
+  dockRowsSent: 'groupsAndFloats',
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
 

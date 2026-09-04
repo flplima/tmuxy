@@ -100,6 +100,7 @@ export const FIELD_OWNERS = {
   leftSidebarStarting: 'groupsAndFloats',
   rightSidebarStarting: 'groupsAndFloats',
   sidebarColsPreview: 'groupsAndFloats',
+  dockRowsSent: 'groupsAndFloats',
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
 
@@ -165,6 +166,7 @@ export function createInitialContext(): AppMachineContext {
     leftSidebarStarting: false,
     rightSidebarStarting: false,
     sidebarColsPreview: null,
+    dockRowsSent: null,
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
     enableAnimations: false,

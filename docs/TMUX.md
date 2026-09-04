@@ -269,6 +269,7 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The one p
 | `@tmuxy-sidebar-cols` | window | integer (columns) \| unset | a sidebar column the user has dragged off its default width — for the dock these are its own cells: the right column runs in the sidebar font (80% of the pane font), so its cell width is the pane grid's advance scaled to that size (`selectSidebarCellMetrics`) |
 | `@tmuxy-sidebar-hidden` | window | `1` \| unset | a sidebar column the user has closed; its pane stays alive, no client draws it |
 | `@tmuxy-collapsible` | window | `1` \| unset | collapsible panes: only the first-level row holding the active pane is expanded (see below) |
+| `@tmuxy-sidebar-rows` | window | integer (rows) \| unset | rows the dock's pane is sized to; the client sets it from its own (shorter, sidebar-font) row height, so the column holds more rows than the viewport |
 
 `@tmuxy-float-parent` is always a **window id**, interpreted by the window's type: on a `float` it is the window the float was launched from (focus returns there on close); on a `float-backdrop` it is the float window the backdrop sits behind. The window-type disambiguates, so there is no separate backdrop-of option.
 

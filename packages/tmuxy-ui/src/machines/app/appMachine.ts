@@ -493,6 +493,8 @@ export const appMachine = setup({
             targetRows: event.rows,
           }),
         );
+        // The dock's own row count follows the viewport and the font.
+        enqueue.raise({ type: 'SYNC_DOCK_ROWS' as const });
 
         // If connected but no panes yet, fetch initial state with correct viewport size
         // This handles the race condition where TMUX_CONNECTED fires before SET_TARGET_SIZE
@@ -780,6 +782,9 @@ export const appMachine = setup({
             // real pane IDs back to their placeholder React keys. No
             // placeholder reinjection, no stale-timeout dance, no
             // position-tolerance heuristics in this handler.
+
+            // A dock window that just appeared needs its row count written.
+            enqueue.raise({ type: 'SYNC_DOCK_ROWS' as const });
 
             // Skip heavy structural computations when only content changed.
             // Compare pane count, window count, active window, and window names.

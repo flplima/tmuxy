@@ -1,5 +1,6 @@
 import { sidebarFontSize } from '../utils/fontSizeManager';
 import { sidebarCellMetrics } from '../utils/cellMetrics';
+import { CHAR_HEIGHT } from '../constants';
 import type {
   AppMachineContext,
   LogEntry,
@@ -416,9 +417,27 @@ export const selectSidebarCellMetrics = createMemoizedSelector(
       fontSize,
       typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
     );
-    return { fontSize, cellWidth: metrics.cellWidth, cellGap: metrics.cellGap };
+    // Rows scale with the font too; whole pixels keep the grid crisp.
+    const lineHeight = Math.max(
+      1,
+      Math.round((CHAR_HEIGHT * fontSize) / (context.baseFontSize || 1)),
+    );
+    return { fontSize, cellWidth: metrics.cellWidth, cellGap: metrics.cellGap, lineHeight };
   },
 );
+
+/**
+ * Rows the dock's pane should have: the column runs the app body's height in
+ * the sidebar font's shorter rows, so it holds more of them than the pane
+ * grid. 0 before the body has been measured.
+ */
+export function selectDockRows(context: AppMachineContext): number {
+  if (context.containerHeight <= 0) return 0;
+  return Math.max(
+    1,
+    Math.floor(context.containerHeight / selectSidebarCellMetrics(context).lineHeight),
+  );
+}
 
 export const selectCharSize = createMemoizedSelector(
   (context: AppMachineContext) => ({

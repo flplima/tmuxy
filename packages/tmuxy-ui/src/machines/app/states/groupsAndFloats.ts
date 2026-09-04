@@ -19,6 +19,7 @@
  */
 
 export const groupsAndFloatsGlobalEvents = {
+  SYNC_DOCK_ROWS: { actions: 'groupsAndFloats_syncDockRows' },
   OPEN_SESSION_FLOAT: { actions: 'groupsAndFloats_openSessionFloat' },
   OPEN_CONNECT_FLOAT: { actions: 'groupsAndFloats_openConnectFloat' },
   TOGGLE_LEFT_SIDEBAR: { actions: 'groupsAndFloats_toggleLeftSidebar' },
