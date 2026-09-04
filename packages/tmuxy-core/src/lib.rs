@@ -697,13 +697,13 @@ pub enum StateUpdate {
 /// Capture the state of all panes in a specific session's current window, via
 /// one-off external tmux reads (the polling/snapshot fallback path — the live
 /// server/Tauri paths get state from the control-mode aggregator instead).
-#[cfg(feature = "native")]
 /// The session's active pane: the active pane OF THE ACTIVE WINDOW. Every
 /// window has an active pane, so the first `active` pane in the list is
 /// whichever window happens to be listed first — on a session whose current
 /// window is not the first, that handed the client a pane in another tab,
 /// and a binding pinned to it (`select-pane -t <it> \; split-window`) made
 /// tmux split that tab instead of the one on screen.
+#[cfg(feature = "native")]
 fn active_pane_in_window<'a>(
     panes: impl Iterator<Item = (&'a str, &'a str, bool)> + Clone,
     active_window_id: Option<&str>,
@@ -715,6 +715,7 @@ fn active_pane_in_window<'a>(
         .map(|(id, _, _)| id.to_string())
 }
 
+#[cfg(feature = "native")]
 pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState, TmuxError> {
     let pane_infos = executor::get_all_panes_info(session_name)?;
     let window_infos = executor::get_windows(session_name)?;
@@ -872,6 +873,7 @@ mod tests {
         assert_eq!(WindowType::parse(""), None);
     }
 
+    #[cfg(feature = "native")]
     #[test]
     fn the_initial_state_reports_the_active_windows_active_pane() {
         // Every window has an active pane; the first one listed belongs to

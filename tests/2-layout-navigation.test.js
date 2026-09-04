@@ -1972,6 +1972,16 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     // focus (headless Chrome drops it across the DOM re-render the new column
     // causes) before typing character by character, the same cadence
     // typeInTerminal uses so the adapter's send-keys batching can't transpose.
+    // Opening the dock handed it the keyboard; put the keyboard back in the
+    // tiled pane first so the click below is a real focus change.
+    await ctx.page.click('.pane-layout-item [role="log"]');
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === false),
+      5000,
+      'the tiled pane to take the keyboard back before the glide',
+    );
     // The cursor GLIDES into the dock: the smooth cursor overlay travels from
     // the tiled pane's cursor to the dock's over several frames rather than
     // reappearing there, and settles exactly on the dock's anchor.
