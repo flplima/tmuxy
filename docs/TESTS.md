@@ -215,6 +215,23 @@ Both probes expect a running Storybook (`npm run storybook -w tmuxy-ui`). CI run
 - Example: XState machine + mock adapter, or parser + real tmux output
 - Can use JSDOM for lightweight DOM assertions when visual correctness is not the concern
 
+## Interaction-Latency Tests
+
+A separate CI job (`interaction-latency` in `lint-and-tests.yml`) times the
+interactions a user performs constantly — typing, moving between panes,
+splitting, zooming, switching tabs — through the same real keyboard path the
+E2E suites use, and gates on how expensive each one is **relative to a single
+keystroke round trip measured in the same run**. That ratio is what survives
+runner load; absolute milliseconds are recorded as a trend only. It exists to
+catch the class of regression the functional suites pass straight through: the
+feature still works, it just costs three times what it used to.
+
+Adding an interaction means adding one entry in
+`packages/tmuxy-ui/scripts/measure-interactions.mjs` (how to trigger it, and
+the visible thing that says it happened) and one budget in
+`compare-interactions.mjs`. See [PERFORMANCE.md](PERFORMANCE.md) § Axis C for
+the design and the current numbers.
+
 ## Tauri Tests
 
 - Tauri desktop app wraps the same React UI with native IPC instead of HTTP/SSE
@@ -239,6 +256,10 @@ npm run test:e2e        # E2E tests (Jest + Playwright CDP)
 npm run storybook -w tmuxy-ui           # Storybook dev server (required for probes)
 npm run test-storybook -w tmuxy-ui      # Probe all non-v86 stories
 npm run test-storybook:v86 -w tmuxy-ui  # Probe v86 stories (shared engine)
+
+# Interaction latency (needs a running server; --cdp reuses the dev browser)
+npm run perf:interactions -- --url http://localhost:9000 --out perf/interaction-report.json
+npm run perf:compare -- --report perf/interaction-report.json
 ```
 
 ## Debugging

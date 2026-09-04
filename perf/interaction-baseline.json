@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "platforms": {
+    "darwin-arm64": {
+      "schema": 1,
+      "label": "after-all-2",
+      "generatedAt": "2026-09-04T02:15:22.927Z",
+      "commit": "7458c69",
+      "platform": "darwin-arm64",
+      "url": "http://127.0.0.1:9021",
+      "samplesRequested": 10,
+      "reference": "key-echo",
+      "interactions": [
+        {
+          "name": "key-echo",
+          "samples": 10,
+          "timeouts": 0,
+          "p50": 38.3,
+          "p95": 47,
+          "max": 83,
+          "ratioToReference": 1
+        },
+        {
+          "name": "pane-nav-keyboard",
+          "samples": 10,
+          "timeouts": 0,
+          "p50": 10.1,
+          "p95": 14.4,
+          "max": 15.9,
+          "ratioToReference": 0.3
+        },
+        {
+          "name": "pane-zoom-toggle",
+          "samples": 10,
+          "timeouts": 0,
+          "p50": 92.3,
+          "p95": 99.8,
+          "max": 115.6,
+          "ratioToReference": 2.4
+        },
+        {
+          "name": "pane-split",
+          "samples": 10,
+          "timeouts": 0,
+          "p50": 78.1,
+          "p95": 89.1,
+          "max": 118.5,
+          "ratioToReference": 2
+        },
+        {
+          "name": "tab-switch",
+          "samples": 10,
+          "timeouts": 0,
+          "p50": 4.7,
+          "p95": 12.9,
+          "max": 13.7,
+          "ratioToReference": 0.1
+        }
+      ]
+    }
+  }
+}

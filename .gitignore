@@ -55,3 +55,6 @@ target/
 
 # Local reference images (not tracked)
 split-smooth-animations.png
+
+# Interaction-latency run output (the baseline next to it IS tracked)
+perf/interaction-report.json

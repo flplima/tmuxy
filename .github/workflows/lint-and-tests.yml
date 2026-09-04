@@ -235,6 +235,112 @@ jobs:
         if: failure()
         run: cat /tmp/tmuxy-server.log | tail -2000
 
+  # Interaction latency. Drives the handful of things a user does constantly
+  # (type, move between panes, split, zoom, switch tab) through the real
+  # keyboard path and records how long each takes to become visible.
+  #
+  # The gate is the RATIO of each interaction to the keystroke round trip
+  # measured in the same run — a loaded runner inflates both, so the ratio is
+  # what survives GitHub's noise. The raw milliseconds are uploaded as an
+  # artifact and diffed against the committed per-platform baseline for trend
+  # only; they never fail the build. See docs/PERFORMANCE.md.
+  interaction-latency:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libevent-dev libncurses-dev bison
+
+      # Same tmux the e2e job pins — the binding set and the run-shell cost
+      # this harness measures are version-sensitive.
+      - name: Cache tmux 3.7a
+        id: tmux-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ runner.os }}-tmux-3.7a-v1
+
+      - name: Build tmux 3.7a (cache miss)
+        if: steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.7a
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Build frontend
+        run: npm run build -w tmuxy-ui
+
+      # Release, not debug: a debug server's own slowness would swamp the
+      # differences between interactions this harness exists to see.
+      - name: Build server (release)
+        run: cargo build --release -p tmuxy-server
+
+      - name: Link tmuxy CLI onto PATH
+        run: sudo ln -sf "$GITHUB_WORKSPACE/bin/tmuxy-cli" /usr/local/bin/tmuxy
+
+      - name: Start server
+        run: |
+          ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
+          node -e "
+            const start = Date.now();
+            const check = async () => {
+              while (Date.now() - start < 30000) {
+                try {
+                  const res = await fetch('http://localhost:9000');
+                  if (res.ok) process.exit(0);
+                } catch {}
+                await new Promise(r => setTimeout(r, 500));
+              }
+              process.exit(1);
+            };
+            check();
+          "
+
+      - name: Measure interactions
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          npm run perf:interactions -- \
+            --url http://localhost:9000 \
+            --samples 12 \
+            --label ci \
+            --out perf/interaction-report.json
+
+      - name: Compare against budgets and baseline
+        run: npm run perf:compare -- --report perf/interaction-report.json
+
+      - name: Upload interaction report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interaction-latency-${{ github.sha }}
+          path: perf/interaction-report.json
+
+      - name: Server logs (debug)
+        if: failure()
+        run: tail -2000 /tmp/tmuxy-server.log
+
   # Tauri E2E runs as its own parallel job. Previously chained after the
   # E2E suite, adding ~3 min to the critical path. Still builds a debug
   # Tauri binary (different profile from build-app's release), but no
