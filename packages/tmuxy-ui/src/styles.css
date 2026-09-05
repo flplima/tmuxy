@@ -820,7 +820,9 @@
   );
   font-family: var(--font-mono);
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
-  font-weight: var(--pane-header-font-weight, 700);
+  /* Regular weight, active and inactive alike; the active header says so
+     with colour, not weight, and no theme gets a hook to make it bold. */
+  font-weight: 400;
   color: var(--pane-header-text-inactive);
   user-select: none;
   box-sizing: border-box;
@@ -919,10 +921,6 @@
 .pane-tab-active .pane-tab-title,
 .pane-tab-active .pane-tab-icon {
   color: var(--accent-green);
-}
-
-.pane-tab-active .pane-tab-title {
-  font-weight: var(--pane-header-font-weight, 700);
 }
 
 /* Pane three-dot menu button */
