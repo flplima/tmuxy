@@ -42,9 +42,9 @@
   --border-medium: #3c3836;
   --border-light: #504945;
 
-  --pane-header-bg-active: #504945;
+  --pane-header-bg-active: #3c3836;
   --pane-header-bg-inactive: #1d2021;
-  --pane-header-text-active: #a89984;
+  --pane-header-text-active: #ebdbb2;
   /* The current tab in the app header takes the yellow accent. */
   --tab-active-text: var(--term-yellow);
   --pane-header-text-inactive: #928374;
@@ -94,12 +94,12 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
 }
 
-/* Gruvbox dark: the active pane's header bar stays gruvbox dark gray (bg2)
-   with its text in gruvbox white (fg4); the yellow accent is the pane's
-   outline and the current tab in the app header. */
+/* Gruvbox dark: the active pane's header bar is gruvbox's bg1 gray with its
+   text in the light foreground (fg, the palette's bright white); the yellow
+   accent is the pane's outline and the current tab in the app header. */
 :root.theme-dark .pane-header-active {
-  background-color: #504945;
-  color: var(--term-white);
+  background-color: #3c3836;
+  color: var(--term-bright-white);
 }
 
 :root.theme-dark .pane-header-active .pane-tab-active,
@@ -108,7 +108,7 @@
 :root.theme-dark .pane-header-active .pane-tab-icon,
 :root.theme-dark .pane-header-active .pane-header-menu,
 :root.theme-dark .pane-header-active .pane-header-close {
-  color: var(--term-white);
+  color: var(--term-bright-white);
 }
 
 :root.theme-light {
@@ -152,9 +152,9 @@
   --border-medium: #d5c4a1;
   --border-light: #c9b89a;
 
-  --pane-header-bg-active: #d5c4a1;
+  --pane-header-bg-active: #bdae93;
   --pane-header-bg-inactive: #f2e5bc;
-  --pane-header-text-active: #3c3836;
+  --pane-header-text-active: #282828;
   --tab-active-text: var(--term-yellow);
   --pane-header-text-inactive: #928374;
 
@@ -201,11 +201,11 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
-/* Gruvbox light: same treatment as dark — the active header bar keeps its
-   gray (bg2) with light mode's "white" (its dark foreground) on it. */
+/* Gruvbox light: same treatment as dark — one step darker gray (bg3) with
+   light mode's strongest foreground on it. */
 :root.theme-light .pane-header-active {
-  background-color: #d5c4a1;
-  color: var(--term-white);
+  background-color: #bdae93;
+  color: var(--term-bright-white);
 }
 
 :root.theme-light .pane-header-active .pane-tab-active,
@@ -214,5 +214,5 @@
 :root.theme-light .pane-header-active .pane-tab-icon,
 :root.theme-light .pane-header-active .pane-header-menu,
 :root.theme-light .pane-header-active .pane-header-close {
-  color: var(--term-white);
+  color: var(--term-bright-white);
 }
