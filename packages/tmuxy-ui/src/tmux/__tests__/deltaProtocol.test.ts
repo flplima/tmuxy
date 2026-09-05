@@ -165,3 +165,20 @@ describe('handleStateUpdate — malformed updates', () => {
     expect(handleStateUpdate(update, current)).toBe(current);
   });
 });
+
+describe('applyDelta — window order', () => {
+  test('an index-only window delta renumbers the window (a reorder moves its neighbours too)', () => {
+    const state = makeState({
+      windows: [
+        { id: '@0', index: 1, name: 'a', active: true, window_type: 'tab' },
+        { id: '@1', index: 2, name: 'b', active: false, window_type: 'tab' },
+      ],
+    });
+    const delta: ServerDelta = { seq: 1, windows: { '@1': { index: 1 }, '@0': { index: 2 } } };
+    const next = applyDelta(state, delta);
+    expect(next.windows.map((w) => [w.id, w.index])).toEqual([
+      ['@0', 2],
+      ['@1', 1],
+    ]);
+  });
+});

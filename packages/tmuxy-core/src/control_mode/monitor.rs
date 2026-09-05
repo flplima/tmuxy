@@ -967,7 +967,11 @@ impl TmuxMonitor {
                     // hidden column, a focus request) would otherwise only reach
                     // the clients on the next window event or the idle heartbeat
                     // — seconds later. Re-list the windows right behind it.
-                    if writes_tmuxy_option(&unescaped) {
+                    // The same goes for a reorder: `move-window` / `swap-window`
+                    // renumber every window past the moved one, and tmux tells
+                    // us about none of them — the tab strip would show two
+                    // tabs at one index until the heartbeat.
+                    if writes_tmuxy_option(&unescaped) || reorders_windows(&unescaped) {
                         if let Err(e) = self
                             .connection
                             .send_command(tmux_formats::LIST_WINDOWS_CMD)
@@ -1015,6 +1019,27 @@ fn toggles_pane_mark(command: &str) -> bool {
         && command.split_whitespace().any(|w| w == "-m" || w == "-M")
 }
 
+/// Whether a client command changes window indices (`move-window`,
+/// `swap-window`, `renumber-windows`, and their short forms). tmux emits no
+/// notification for an index change, so the caller re-lists windows right after.
+fn reorders_windows(command: &str) -> bool {
+    const VERBS: [&str; 5] = [
+        "move-window",
+        "movew",
+        "swap-window",
+        "swapw",
+        "renumber-windows",
+    ];
+    // The verb heads a command; anywhere else it is an argument (a key sent
+    // to a shell, say).
+    command.split("\\;").any(|segment| {
+        segment
+            .split_whitespace()
+            .next()
+            .is_some_and(|w| VERBS.contains(&w))
+    })
+}
+
 fn writes_tmuxy_option(command: &str) -> bool {
     ((command.contains("set-option") || command.contains("set -")) && command.contains("@tmuxy-"))
         // The stack script sets / unsets `@tmuxy-collapsible` itself, where
@@ -1050,6 +1075,17 @@ fn is_multi_step_run_shell(command: &str) -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    #[test]
+    fn reorder_commands_re_list_the_windows() {
+        assert!(reorders_windows("move-window -b -s @3 -t @1"));
+        assert!(reorders_windows(
+            "select-window -t @0 \\; swapw -s @3 -t @1"
+        ));
+        assert!(reorders_windows("renumber-windows"));
+        assert!(!reorders_windows("select-window -t @3"));
+        assert!(!reorders_windows("send-keys -t %1 move-window Enter"));
+    }
+
     #[test]
     fn stack_commands_count_as_option_writes() {
         assert!(super::writes_tmuxy_option(

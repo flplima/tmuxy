@@ -418,29 +418,56 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
       'the closed tab to leave the overview',
     );
 
-    // Step 5: drag the first slot past the last one → it becomes the last tab,
-    // in the strip AND in tmux.
+    // Step 5: drag the first slot (the CURRENT tab's) to between the other two
+    // → it becomes the middle tab, in the strip AND in tmux, with every index
+    // renumbered (a drop in the middle shifts the tabs behind it; a stale index
+    // would leave two tabs claiming one position).
     ov = await overview();
     const dragged = ov.slots[0].id;
+    expect(ov.slots[0].active).toBe(true);
     const from = ov.slots[0].rect;
-    const to = ov.slots[2].rect;
+    const between = ov.slots[2].rect;
     await page.mouse.move(from.x + from.w / 2, from.y + from.h / 2);
     await page.mouse.down();
-    await page.mouse.move(to.x + to.w + 40, to.y + to.h / 2, { steps: 12 });
+    await page.mouse.move(between.x - 20, between.y + between.h / 2, { steps: 12 });
+    // Mid-drag: the live pane grid rides along inside the dragged card (the
+    // card's move is a React render away from the last pointer event).
+    const midDrag = () =>
+      page.evaluate(() => {
+        const card = document.querySelector('.tab-overview-slot.is-dragging');
+        if (!card) return null;
+        const f = card.querySelector('.tab-overview-frame').getBoundingClientRect();
+        const g = document.querySelector('.pane-layout').getBoundingClientRect();
+        const box = (r) => ({ x: r.x, y: r.y, w: r.width, h: r.height });
+        return { dragging: card.dataset.windowId, frame: box(f), grid: box(g) };
+      });
+    await waitForCondition(
+      page,
+      async () => {
+        const d = await midDrag();
+        return d?.dragging === dragged && inside(d.grid, d.frame);
+      },
+      3000,
+      'the live grid to ride inside the dragged card',
+    );
     await page.mouse.up();
     await waitForCondition(
       page,
       async () => {
         const tabs = (await state()).tabs;
-        return tabs.length === 3 && tabs[2].id === dragged;
+        return tabs.length === 3 && tabs[1].id === dragged;
       },
       8000,
-      'the dragged tab to become the last one',
+      'the dragged tab to become the middle one',
     );
     const tmuxOrder = String(await ctx.session.query("list-windows -F '#{window_id}'"))
       .split('\n')
       .filter((id) => ov.slots.some((s) => s.id === id));
-    expect(tmuxOrder[tmuxOrder.length - 1]).toBe(dragged);
+    expect(tmuxOrder[1]).toBe(dragged);
+    // The client's strip order is tmux's, with distinct indices all round.
+    const clientTabs = (await state()).tabs;
+    expect(clientTabs.map((t) => t.id)).toEqual(tmuxOrder);
+    expect(new Set(clientTabs.map((t) => t.index)).size).toBe(clientTabs.length);
 
     // Step 6: Escape restores the tab; ctrl+3 picks the THIRD visible tab even
     // though its tmux index is not 3.

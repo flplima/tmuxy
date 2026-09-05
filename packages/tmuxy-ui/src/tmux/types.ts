@@ -300,6 +300,8 @@ export interface PaneDelta {
 }
 
 export interface WindowDelta {
+  /** The window's index moved (a reorder renumbers its neighbours too). */
+  index?: number;
   name?: string;
   active?: boolean;
   window_type?: WindowType | null;

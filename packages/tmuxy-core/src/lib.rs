@@ -565,6 +565,10 @@ impl PaneDelta {
 /// Delta update for a single window (only changed fields)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WindowDelta {
+    /// The window's index moved: `move-window` / `swap-window` renumber the
+    /// windows behind the moved one too, and the strip is ordered by index.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -597,7 +601,8 @@ pub struct WindowDelta {
 
 impl WindowDelta {
     pub fn is_empty(&self) -> bool {
-        self.name.is_none()
+        self.index.is_none()
+            && self.name.is_none()
             && self.active.is_none()
             && self.window_type.is_none()
             && self.float_parent.is_none()

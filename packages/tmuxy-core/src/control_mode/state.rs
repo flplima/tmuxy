@@ -2928,6 +2928,9 @@ impl StateAggregator {
     ) -> crate::WindowDelta {
         let mut delta = crate::WindowDelta::default();
 
+        if prev.index != curr.index {
+            delta.index = Some(curr.index);
+        }
         if prev.name != curr.name {
             delta.name = Some(curr.name.clone());
         }
@@ -3475,6 +3478,36 @@ mod tests {
             crate::layout::first_level_heights(sent),
             Some(vec![10, 10, 10])
         );
+    }
+
+    #[test]
+    fn a_window_whose_index_moved_is_in_the_delta() {
+        // move-window renumbers the windows behind the moved one; the strip
+        // orders by index, so an index-only change must reach the client.
+        let agg = StateAggregator::new();
+        let before = crate::TmuxWindow {
+            id: String::new(),
+            index: 0,
+            name: String::new(),
+            active: false,
+            window_type: None,
+            float_parent: None,
+            float_width: None,
+            float_height: None,
+            float_drawer: None,
+            float_bg: None,
+            float_noheader: false,
+            sidebar_cols: None,
+            sidebar_hidden: false,
+            collapsible: false,
+            zoomed: false,
+        };
+        let mut after = before.clone();
+        after.index = 3;
+        let delta = agg.compute_window_delta(&before, &after);
+        assert_eq!(delta.index, Some(3));
+        assert!(!delta.is_empty());
+        assert!(agg.compute_window_delta(&before, &before).is_empty());
     }
 
     #[test]

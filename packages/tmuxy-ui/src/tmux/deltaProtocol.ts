@@ -318,6 +318,7 @@ function applyPaneDelta(pane: ServerPane, delta: PaneDelta): ServerPane {
 function applyWindowDelta(window: ServerWindow, delta: WindowDelta): ServerWindow {
   return {
     ...window,
+    ...(delta.index !== undefined && { index: delta.index }),
     ...(delta.name !== undefined && { name: delta.name }),
     ...(delta.active !== undefined && { active: delta.active }),
     ...(delta.window_type !== undefined && { window_type: delta.window_type }),
