@@ -149,15 +149,23 @@ describe('DemoTmux', () => {
       expect(state.active_window_id).toBe('@1');
     });
 
-    it('only shows panes from active window', () => {
+    it("carries every window's panes, each placed by its own window's layout", () => {
+      // Like the server: the state holds the panes of every tab (the Tab
+      // Overview draws the other tabs from them); PaneLayout filters by the
+      // active window. Positions come from each pane's own window.
       tmux.splitPane('vertical');
       expect(tmux.getState().panes).toHaveLength(2);
       tmux.newWindow();
-      // New window only has 1 pane
-      expect(tmux.getState().panes).toHaveLength(1);
-      // Switch back
-      tmux.selectWindow('@0');
-      expect(tmux.getState().panes).toHaveLength(2);
+      const state = tmux.getState();
+      expect(state.panes).toHaveLength(3);
+      const byWindow = (id: string) => state.panes.filter((p) => p.window_id === id);
+      expect(byWindow('@0')).toHaveLength(2);
+      expect(byWindow(state.active_window_id!)).toHaveLength(1);
+      // The first window's two panes still tile its surface side by side.
+      const [a, b] = byWindow('@0').sort((p, q) => p.x - q.x);
+      expect(a.x).toBe(0);
+      expect(b.x).toBeGreaterThan(0);
+      expect(a.width + b.width).toBeGreaterThan(0);
     });
   });
 

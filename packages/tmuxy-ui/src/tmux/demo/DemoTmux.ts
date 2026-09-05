@@ -171,17 +171,26 @@ export class DemoTmux {
   }
 
   getState(): ServerState {
-    // Compute pane positions from layout
-    const window = this.getActiveWindow();
-    const activeLayout =
-      this.zoomedPaneId && window
-        ? ({ type: 'leaf', paneId: this.zoomedPaneId } as LayoutNode)
-        : window?.layout;
-    const panePositions =
-      window && activeLayout
-        ? this.computePositions(activeLayout, 0, 0, this.totalWidth, this.totalHeight)
-        : [];
-    const posMap = new Map(panePositions.map((p) => [p.paneId, p]));
+    // Compute pane positions from every window's layout: like the server, the
+    // state carries the panes of EVERY window (the Tab Overview draws the
+    // other tabs' screens from them; PaneLayout shows only the active one's).
+    // Zoom applies to the active window alone.
+    const posMap = new Map<
+      string,
+      { paneId: string; x: number; y: number; width: number; height: number }
+    >();
+    for (const w of this.windows) {
+      // Only tabs tile the surface; a float, sidebar or group window's panes
+      // keep their shell's own grid.
+      if (w.windowType !== 'tab' || !w.layout) continue;
+      const layout =
+        this.zoomedPaneId && w.id === this.activeWindowId
+          ? ({ type: 'leaf', paneId: this.zoomedPaneId } as LayoutNode)
+          : w.layout;
+      for (const p of this.computePositions(layout, 0, 0, this.totalWidth, this.totalHeight)) {
+        posMap.set(p.paneId, p);
+      }
+    }
 
     // Map each group member to its group id (the group window's id stands in
     // for @tmuxy-group-id). Members carry this on the wire; the group windows
@@ -195,14 +204,6 @@ export class DemoTmux {
     const panes: ServerPane[] = [];
     for (const [, pane] of this.panes) {
       const pos = posMap.get(pane.id);
-      // Include panes from the active window, float windows, group windows, and
-      // both sidebar windows (each rendered in its own docked column).
-      const paneWindow = this.windows.find((w) => w.id === pane.windowId);
-      const isFloat = paneWindow?.windowType === 'float';
-      const isGroup = paneWindow?.windowType === 'group';
-      const isSidebar =
-        paneWindow?.windowType === 'sidebar-left' || paneWindow?.windowType === 'sidebar-right';
-      if (pane.windowId !== this.activeWindowId && !isFloat && !isGroup && !isSidebar) continue;
       // In zoom mode, only show the zoomed pane from the active window
       if (
         this.zoomedPaneId &&
@@ -261,6 +262,10 @@ export class DemoTmux {
         sidebar_cols: w.sidebarCols ?? null,
         sidebar_hidden: w.sidebarHidden ?? false,
         collapsible: w.collapsible ?? false,
+        active_pane_id:
+          w.id === this.activeWindowId
+            ? this.activePaneId
+            : ([...this.panes.values()].find((p) => p.windowId === w.id)?.id ?? null),
       }));
 
     return {

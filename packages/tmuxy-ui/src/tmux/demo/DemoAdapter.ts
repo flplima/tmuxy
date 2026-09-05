@@ -560,10 +560,11 @@ export class DemoAdapter implements TmuxAdapter {
           if (target === ':.+') {
             // Next pane - select first pane that isn't active
             const state = this.tmux.getState();
-            const currentIdx = state.panes.findIndex((p) => p.tmux_id === state.active_pane_id);
-            if (state.panes.length > 1) {
-              const nextIdx = (currentIdx + 1) % state.panes.length;
-              this.tmux.selectPane(state.panes[nextIdx].tmux_id);
+            const panes = state.panes.filter((p) => p.window_id === state.active_window_id);
+            const currentIdx = panes.findIndex((p) => p.tmux_id === state.active_pane_id);
+            if (panes.length > 1) {
+              const nextIdx = (currentIdx + 1) % panes.length;
+              this.tmux.selectPane(panes[nextIdx].tmux_id);
             }
           } else {
             this.tmux.selectPane(target);
@@ -662,14 +663,15 @@ export class DemoAdapter implements TmuxAdapter {
           } else if (parts[i] === '-U') {
             // swap up - swap with previous pane
             const state = this.tmux.getState();
-            const idx = state.panes.findIndex((p) => p.tmux_id === state.active_pane_id);
-            if (idx > 0)
-              this.tmux.swapPanes(state.panes[idx].tmux_id, state.panes[idx - 1].tmux_id);
+            const panes = state.panes.filter((p) => p.window_id === state.active_window_id);
+            const idx = panes.findIndex((p) => p.tmux_id === state.active_pane_id);
+            if (idx > 0) this.tmux.swapPanes(panes[idx].tmux_id, panes[idx - 1].tmux_id);
           } else if (parts[i] === '-D') {
             const state = this.tmux.getState();
-            const idx = state.panes.findIndex((p) => p.tmux_id === state.active_pane_id);
-            if (idx >= 0 && idx < state.panes.length - 1)
-              this.tmux.swapPanes(state.panes[idx].tmux_id, state.panes[idx + 1].tmux_id);
+            const panes = state.panes.filter((p) => p.window_id === state.active_window_id);
+            const idx = panes.findIndex((p) => p.tmux_id === state.active_pane_id);
+            if (idx >= 0 && idx < panes.length - 1)
+              this.tmux.swapPanes(panes[idx].tmux_id, panes[idx + 1].tmux_id);
           }
         }
         if (src && dst) this.tmux.swapPanes(src, dst);

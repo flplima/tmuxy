@@ -170,16 +170,17 @@ export const ClickTabAndPaneActivate: Story = {
       tree.querySelector(`[data-testid="tree-tab-${otherTab.id}"]`) as HTMLElement,
     );
     await waitFor(() => expect(app().context.activeWindowId).toBe(otherTab.id), { timeout: 5000 });
-    // Wait for the switch to SETTLE, not just the optimistic flip: the demo
-    // (like tmux list-panes routing) emits panes for the active window, so
-    // until its response lands, context.panes still holds the old window's
-    // panes. The old removingPane 300ms hold used to mask this transient.
-    await waitFor(() => expect(tabPanes().every((p) => p.windowId === otherTab.id)).toBe(true), {
+    // Wait for the switch to SETTLE, not just the optimistic flip: the state
+    // carries every window's panes (like the server's), so the new tab's
+    // panes must be there before one can be picked.
+    await waitFor(() => expect(tabPanes().some((p) => p.windowId === otherTab.id)).toBe(true), {
       timeout: 5000,
     });
 
-    // Click a pane that isn't active → it becomes the active pane.
-    const target = tabPanes().find((p) => p.tmuxId !== app().context.activePaneId)!;
+    // Click a pane of that tab that isn't active → it becomes the active pane.
+    const target = tabPanes().find(
+      (p) => p.windowId === otherTab.id && p.tmuxId !== app().context.activePaneId,
+    )!;
     await userEvent.click(
       tree.querySelector(`[data-testid="tree-pane-${target.tmuxId}"]`) as HTMLElement,
     );
