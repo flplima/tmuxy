@@ -23,6 +23,7 @@ tmuxy-server = { path = "../tmuxy-server" }
 tauri-plugin-single-instance = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-webdriver = { version = "0.2", optional = true }
+tauri-plugin-window-state = "2"
 
 [features]
 webdriver = ["tauri-plugin-webdriver"]

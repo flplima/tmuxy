@@ -999,6 +999,21 @@ pub fn run() {
         // Clipboard manager: powers Help > Copy Logs to Clipboard so users
         // launched from Finder can grab ~/tmuxy-debug.log without a terminal.
         .plugin(tauri_plugin_clipboard_manager::init())
+        // Window state: the window comes back where it was closed — position,
+        // size, maximized and fullscreen — from a file in the app's data dir.
+        // The 800×600 in the window builder is only the first-launch default.
+        // Visibility is deliberately not restored: a window hidden at quit
+        // must not come back hidden.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                        | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+                )
+                .build(),
+        )
         .manage(monitor::KeyBindingsState::default())
         .manage(monitor::MonitorState::default())
         // Shared execution context — handed to TmuxMonitor on connect AND used
