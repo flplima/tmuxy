@@ -757,6 +757,7 @@ impl WindowState {
             sidebar_hidden: self.sidebar_hidden,
             collapsible: self.collapsible,
             zoomed: self.zoomed,
+            active_pane_id: self.active_pane_id.clone(),
         }
     }
 }
@@ -2476,6 +2477,13 @@ impl StateAggregator {
         pane.copy_cursor_y = copy_cursor_y;
         pane.scroll_position = scroll_position;
         pane.window_id = window_id;
+        // `#{pane_active}` is per window: it names each window's own active
+        // pane, which %window-pane-changed only reports for later changes.
+        if active {
+            if let Some(w) = self.windows.get_mut(&pane.window_id) {
+                w.active_pane_id = Some(pane.id.clone());
+            }
+        }
         pane.alternate_on = alternate_on;
         pane.mouse_any_flag = mouse_any_flag;
         pane.marked = marked;
@@ -2969,6 +2977,9 @@ impl StateAggregator {
         }
         if prev.zoomed != curr.zoomed {
             delta.zoomed = Some(curr.zoomed);
+        }
+        if prev.active_pane_id != curr.active_pane_id {
+            delta.active_pane_id = Some(curr.active_pane_id.clone());
         }
 
         delta
@@ -3501,11 +3512,14 @@ mod tests {
             sidebar_hidden: false,
             collapsible: false,
             zoomed: false,
+            active_pane_id: None,
         };
         let mut after = before.clone();
         after.index = 3;
+        after.active_pane_id = Some("%7".to_string());
         let delta = agg.compute_window_delta(&before, &after);
         assert_eq!(delta.index, Some(3));
+        assert_eq!(delta.active_pane_id, Some(Some("%7".to_string())));
         assert!(!delta.is_empty());
         assert!(agg.compute_window_delta(&before, &before).is_empty());
     }

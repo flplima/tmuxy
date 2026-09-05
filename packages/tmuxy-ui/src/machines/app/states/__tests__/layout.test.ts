@@ -108,6 +108,65 @@ describe('layout state', () => {
     expect(ctx.lastActivePaneByWindow['@0']).toBe('%0');
   });
 
+  it("SELECT_TAB lands on the target window's own active pane, not its first pane", () => {
+    // `pane.active` is session-wide: none of a background tab's panes carry
+    // it. The window's own activePaneId (from the server) is what the switch
+    // must use — the first pane was a wrong guess the server then corrected.
+    const win = (id: string, index: number, active: boolean, activePaneId: string | null) => ({
+      id,
+      index,
+      name: id,
+      active,
+      windowType: 'tab' as const,
+      floatParent: null,
+      floatWidth: null,
+      floatHeight: null,
+      floatDrawer: null,
+      floatBg: null,
+      floatNoheader: false,
+      activePaneId,
+    });
+    const pane = (tmuxId: string, windowId: string, active: boolean) => ({
+      id: Number(tmuxId.slice(1)),
+      tmuxId,
+      windowId,
+      content: [],
+      cursorX: 0,
+      cursorY: 0,
+      width: 80,
+      height: 24,
+      x: 0,
+      y: 0,
+      active,
+      command: 'bash',
+      title: '',
+      borderTitle: '',
+      inMode: false,
+      copyCursorX: 0,
+      copyCursorY: 0,
+      alternateOn: false,
+      mouseAnyFlag: false,
+      marked: false,
+      paused: false,
+      historySize: 0,
+      selectionPresent: false,
+      selectionStartX: 0,
+      selectionStartY: 0,
+      images: [],
+      cursorShape: 0,
+      cursorHidden: false,
+    });
+    const actor = mountState(layoutState, layoutActions, layoutGuards, {
+      activeWindowId: '@0',
+      activePaneId: '%0',
+      windows: [win('@0', 0, true, '%0'), win('@4', 4, false, '%36')],
+      panes: [pane('%0', '@0', true), pane('%50', '@4', false), pane('%36', '@4', false)],
+    });
+    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: '@4', windowIndex: 4 });
+    expect(ctx.activeWindowId).toBe('@4');
+    expect(ctx.activePaneId).toBe('%36');
+  });
+
   it('SELECT_TAB is a no-op when already on the target window', () => {
     const actor = mountState(layoutState, layoutActions, layoutGuards, {
       activeWindowId: '@5',

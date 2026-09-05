@@ -174,11 +174,16 @@ describe('applyDelta — window order', () => {
         { id: '@1', index: 2, name: 'b', active: false, window_type: 'tab' },
       ],
     });
-    const delta: ServerDelta = { seq: 1, windows: { '@1': { index: 1 }, '@0': { index: 2 } } };
+    const delta: ServerDelta = {
+      seq: 1,
+      windows: { '@1': { index: 1, active_pane_id: '%9' }, '@0': { index: 2 } },
+    };
     const next = applyDelta(state, delta);
     expect(next.windows.map((w) => [w.id, w.index])).toEqual([
       ['@0', 2],
       ['@1', 1],
     ]);
+    // A window's own active pane travels in the same delta.
+    expect(next.windows.find((w) => w.id === '@1')?.active_pane_id).toBe('%9');
   });
 });

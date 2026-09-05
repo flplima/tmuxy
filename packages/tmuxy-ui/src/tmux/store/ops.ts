@@ -684,7 +684,13 @@ function predictSelectWindow(
   const patch: Patch = (s) => {
     if (!s.windows.some((w) => w.id === targetId)) return s;
     const targetPanes = s.panes.filter((p) => p.windowId === targetId);
-    const activeInTarget = targetPanes.find((p) => p.active) ?? targetPanes[0];
+    // The window's own active pane first: `pane.active` is session-wide, so
+    // a background tab's panes never carry it.
+    const ownActive = s.windows.find((w) => w.id === targetId)?.activePaneId;
+    const activeInTarget =
+      targetPanes.find((p) => p.tmuxId === ownActive) ??
+      targetPanes.find((p) => p.active) ??
+      targetPanes[0];
     return {
       ...s,
       windows: s.windows.map((w) => ({ ...w, active: w.id === targetId })),

@@ -95,6 +95,12 @@ export interface TmuxWindow {
   /** True when the float hides its header chrome. */
   floatNoheader: boolean;
   /**
+   * The window's own active pane, from the server. `pane.active` is a
+   * session-wide flag (only the current window's active pane carries it), so
+   * this is how a tab switch knows which pane of a background tab to land on.
+   */
+  activePaneId?: string | null;
+  /**
    * A sidebar column's width in cells when the user has dragged it off its
    * default (@tmuxy-sidebar-cols). The column is drawn at this many cells, and
    * the backend sized its pane to the same number — so a drag moves both, and
@@ -243,6 +249,7 @@ export interface ServerWindow {
   sidebar_hidden?: boolean;
   collapsible?: boolean;
   zoomed?: boolean;
+  active_pane_id?: string | null;
 }
 
 export interface ServerState {
@@ -315,6 +322,7 @@ export interface WindowDelta {
   sidebar_hidden?: boolean;
   collapsible?: boolean;
   zoomed?: boolean;
+  active_pane_id?: string | null;
 }
 
 export interface ServerDelta {

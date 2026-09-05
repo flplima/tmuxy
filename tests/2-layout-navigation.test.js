@@ -1699,6 +1699,98 @@ describe('Scenario 24: Tab Switch No Blink', () => {
     const transitions = seq.filter((v, i) => i > 0 && v !== seq[i - 1]).length;
     expect(transitions).toBe(1);
   }, 60000);
+
+  test('Switching to a tab whose active pane is not its first lands on that pane at once (no first-pane hop)', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+    const state = () =>
+      page.evaluate(() => {
+        const c = window.app?.getSnapshot()?.context;
+        return { window: c?.activeWindowId, pane: c?.activePaneId, panes: c?.panes?.length };
+      });
+    const ctrl = async (key) => {
+      await page.keyboard.down('Control');
+      await page.keyboard.press(key);
+      await page.keyboard.up('Control');
+    };
+
+    // A second tab with two panes, the SECOND one active (a split activates
+    // the new pane), then back to the first tab.
+    const firstTab = (await state()).window;
+    await createWindowKeyboard(page);
+    await waitForWindowCount(page, 2);
+    const secondTab = (await state()).window;
+    expect(secondTab).not.toBe(firstTab);
+    await splitPaneKeyboard(page, 'vertical');
+    await waitForPaneCount(page, 3);
+    const rightPane = (await state()).pane;
+    // Tab 2's panes by geometry: the split put the new, active pane on the
+    // right; the left one is where a wrong guess would land.
+    const secondTabPanes = await page.evaluate(
+      (id) =>
+        window.app
+          ?.getSnapshot()
+          ?.context?.panes.filter((p) => p.windowId === id)
+          .sort((a, b) => a.x - b.x)
+          .map((p) => p.tmuxId),
+      secondTab,
+    );
+    expect(secondTabPanes).toHaveLength(2);
+    expect(secondTabPanes[1]).toBe(rightPane);
+    await ctrl('1');
+    await waitForCondition(
+      page,
+      async () => (await state()).window === firstTab,
+      8000,
+      'the first tab to become current',
+    );
+
+    // A fresh client (no memory of where it left tab 2) is what hit the bug.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForCondition(
+      page,
+      async () => {
+        const s = await state();
+        return s.window === firstTab && (s.panes ?? 0) >= 3;
+      },
+      20000,
+      'the reloaded client to connect on the first tab with every pane known',
+    );
+
+    // Record every active pane the client passes through during the switch.
+    await page.evaluate(() => {
+      const seq = [window.app.getSnapshot().context.activePaneId];
+      window.__paneSeq = seq;
+      window.__paneSub = window.app.subscribe((snap) => {
+        const id = snap.context.activePaneId;
+        if (id !== seq[seq.length - 1]) seq.push(id);
+      });
+    });
+    await ctrl('2');
+    await waitForCondition(
+      page,
+      async () => (await state()).window === secondTab,
+      8000,
+      'the second tab to become current',
+    );
+    await delay(1500);
+    const seq = await page.evaluate(() => {
+      window.__paneSub?.unsubscribe();
+      return window.__paneSeq;
+    });
+    // Straight from the first tab's pane to tab 2's right pane: no visit to
+    // its first pane on the way.
+    const known = await page.evaluate(() =>
+      window.app.getSnapshot().context.windows.map((w) => [w.id, w.activePaneId]),
+    );
+    expect({ seq, known, rightPane, leftPaneOfTab2: secondTabPanes[0] }).toEqual({
+      seq: [seq[0], rightPane],
+      known,
+      rightPane,
+      leftPaneOfTab2: secondTabPanes[0],
+    });
+  }, 60000);
 });
 
 // ==================== Scenario 22: Float fzf Workflow ====================

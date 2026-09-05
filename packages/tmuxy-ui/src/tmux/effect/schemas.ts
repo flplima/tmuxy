@@ -120,6 +120,8 @@ export const ServerWindow = Schema.Struct({
   sidebar_cols: Schema.optional(Schema.NullOr(Schema.Number)),
   sidebar_hidden: Schema.optional(Schema.Boolean),
   collapsible: Schema.optional(Schema.Boolean),
+  zoomed: Schema.optional(Schema.Boolean),
+  active_pane_id: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 /** Full server state snapshot. */

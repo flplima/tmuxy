@@ -128,10 +128,16 @@ export const layoutActions = {
       }
 
       const targetPanes = context.panes.filter((p) => p.windowId === event.windowId);
-      const remembered = context.lastActivePaneByWindow[event.windowId];
-      const rememberedExists = remembered && targetPanes.some((p) => p.tmuxId === remembered);
+      const inTarget = (id: string | null | undefined) =>
+        id && targetPanes.some((p) => p.tmuxId === id) ? id : null;
+      // Where the switch lands, best knowledge first: the pane this client
+      // last left the tab on; the tab's own active pane as tmux reports it
+      // (`pane.active` is session-wide, so a background tab's panes never
+      // carry it — without the window's own field the switch fell on the
+      // first pane for a beat, then jumped); the flagged pane; the first.
       const targetPaneId =
-        (rememberedExists ? remembered : null) ??
+        inTarget(context.lastActivePaneByWindow[event.windowId]) ??
+        inTarget(context.windows.find((w) => w.id === event.windowId)?.activePaneId) ??
         targetPanes.find((p) => p.active)?.tmuxId ??
         targetPanes[0]?.tmuxId ??
         null;

@@ -205,6 +205,7 @@ function normalizeWindow(w: TmuxWindow): TmuxWindow {
     sidebarHidden: Boolean(w.sidebarHidden),
     collapsible: Boolean(w.collapsible),
     zoomed: Boolean(w.zoomed),
+    activePaneId: w.activePaneId ?? null,
   };
 }
 

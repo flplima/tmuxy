@@ -72,3 +72,22 @@ describe('preserveSnapshotIdentity — zoom', () => {
     expect(preserveSnapshotIdentity(prev, next)).toBe(prev);
   });
 });
+
+describe("preserveSnapshotIdentity — a window's own active pane", () => {
+  it("publishes a new window object when a background tab's active pane changes", () => {
+    // Only the window's active pane changes when a split lands in a tab that
+    // is not current; pinned, a switch to that tab would land on a stale pane.
+    const prev = snap([win({ active: false, activePaneId: '%50' })]);
+    const next = snap([win({ active: false, activePaneId: '%36' })]);
+    const result = preserveSnapshotIdentity(prev, next);
+
+    expect(result).not.toBe(prev);
+    expect(result.windows[0].activePaneId).toBe('%36');
+  });
+
+  it('treats absent and null as the same', () => {
+    const prev = snap([win({ activePaneId: null })]);
+    const next = snap([win()]);
+    expect(preserveSnapshotIdentity(prev, next)).toBe(prev);
+  });
+});

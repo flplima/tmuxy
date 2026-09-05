@@ -332,5 +332,6 @@ function applyWindowDelta(window: ServerWindow, delta: WindowDelta): ServerWindo
     ...(delta.sidebar_hidden !== undefined && { sidebar_hidden: delta.sidebar_hidden }),
     ...(delta.collapsible !== undefined && { collapsible: delta.collapsible }),
     ...(delta.zoomed !== undefined && { zoomed: delta.zoomed }),
+    ...(delta.active_pane_id !== undefined && { active_pane_id: delta.active_pane_id }),
   };
 }

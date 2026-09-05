@@ -96,7 +96,10 @@ function preserveWindow(prev: TmuxWindow, next: TmuxWindow): TmuxWindow {
     // Zoom toggles change nothing else about the window, so omitting it here
     // pins the old object identity and the UI stays stuck in (or out of) zoom
     // until some unrelated field happens to change.
-    Boolean(prev.zoomed) === Boolean(next.zoomed);
+    Boolean(prev.zoomed) === Boolean(next.zoomed) &&
+    // A background tab's active pane changes nothing else about its window;
+    // pinned here, a switch to it would land on a stale pane.
+    (prev.activePaneId ?? null) === (next.activePaneId ?? null);
   return same ? prev : next;
 }
 

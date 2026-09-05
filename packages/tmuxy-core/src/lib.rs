@@ -398,6 +398,12 @@ pub struct TmuxWindow {
     /// when zoomed; the frontend must not keep painting them underneath.
     #[serde(default)]
     pub zoomed: bool,
+    /// The window's own active pane. tmux keeps one per window, but `pane.active`
+    /// is collapsed to the session's single active pane for the client, so a
+    /// background tab's active pane would otherwise be unknown until it is
+    /// switched to — and the switch would land on its first pane for a beat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_pane_id: Option<String>,
 }
 
 /// Full tmux state with all panes and windows
@@ -597,11 +603,14 @@ pub struct WindowDelta {
     /// entirely when zoomed, so the frontend needs this to do the same.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zoomed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_pane_id: Option<Option<String>>,
 }
 
 impl WindowDelta {
     pub fn is_empty(&self) -> bool {
         self.index.is_none()
+            && self.active_pane_id.is_none()
             && self.name.is_none()
             && self.active.is_none()
             && self.window_type.is_none()
@@ -808,27 +817,34 @@ pub fn capture_window_state_for_session(session_name: &str) -> Result<TmuxState,
     // the tab strip, and zoom decides whether a pane renders full-screen.
     let windows: Vec<TmuxWindow> = window_infos
         .into_iter()
-        .map(|w| TmuxWindow {
-            id: w.id,
-            index: w.index,
-            name: w.name,
-            active: w.active,
-            // Untagged windows are tabs (tabs carry no marker); float/sidebar
-            // keep their explicit type.
-            window_type: Some(WindowType::parse(&w.window_type).unwrap_or(WindowType::Tab)),
-            float_parent: (!w.float_parent.is_empty()).then(|| w.float_parent.clone()),
-            // A dragged sidebar width has to be here too: the column is drawn at
-            // this many cells, so a client whose baseline is this snapshot would
-            // otherwise draw a resized column at its default width.
-            float_width: None,
-            float_height: None,
-            float_drawer: None,
-            float_bg: None,
-            float_noheader: false,
-            sidebar_cols: w.sidebar_cols,
-            sidebar_hidden: w.sidebar_hidden,
-            collapsible: w.collapsible,
-            zoomed: w.zoomed,
+        .map(|w| {
+            let active_pane_id = panes
+                .iter()
+                .find(|p| p.window_id == w.id && p.active)
+                .map(|p| p.tmux_id.clone());
+            TmuxWindow {
+                id: w.id,
+                index: w.index,
+                name: w.name,
+                active: w.active,
+                // Untagged windows are tabs (tabs carry no marker); float/sidebar
+                // keep their explicit type.
+                window_type: Some(WindowType::parse(&w.window_type).unwrap_or(WindowType::Tab)),
+                float_parent: (!w.float_parent.is_empty()).then(|| w.float_parent.clone()),
+                // A dragged sidebar width has to be here too: the column is drawn at
+                // this many cells, so a client whose baseline is this snapshot would
+                // otherwise draw a resized column at its default width.
+                float_width: None,
+                float_height: None,
+                float_drawer: None,
+                float_bg: None,
+                float_noheader: false,
+                sidebar_cols: w.sidebar_cols,
+                sidebar_hidden: w.sidebar_hidden,
+                collapsible: w.collapsible,
+                zoomed: w.zoomed,
+                active_pane_id,
+            }
         })
         .collect();
 
