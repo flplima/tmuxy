@@ -230,9 +230,11 @@
 
 /* Active tab: brightness only. A filled pill would compete with the active
    pane's own border for "where am I", and the tab strip is the coarser of the
-   two — so it states it more quietly. */
+   two — so it states it more quietly. A theme may give it its accent colour
+   (--tab-active-text). */
 .tab-name-active {
   opacity: 1;
+  color: var(--tab-active-text, var(--term-white));
 }
 
 .tab-name-active:hover {
