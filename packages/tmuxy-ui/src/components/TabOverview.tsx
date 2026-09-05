@@ -6,10 +6,11 @@
  *
  *  - Each slot is a card: a header row with the tab's strip number and name
  *    and a ✕ that closes the tab, then a frame drawing the tab's pane layout
- *    to scale as a wireframe (pane boxes with their titles). The current tab's
+ *    to scale, each pane box showing the pane's screen as it was when the
+ *    overview opened (the machine's `tabOverviewSnapshot`: a still, so a tab
+ *    that keeps printing does not churn its thumbnail). The current tab's
  *    frame is the FLIP target: the live `.pane-layout` is scaled into it
- *    (see the CSS custom properties set on `.pane-container`), so that slot
- *    shows real content while every other slot is a wireframe.
+ *    (see the CSS custom properties set on `.pane-container`).
  *  - The trailing slot is a dashed "+" that creates a tab.
  *  - Keyboard while open: arrows / hjkl move, Enter opens, Delete / x closes
  *    the selected tab, 1–9 open the Nth tab, Escape or ctrl+0 leaves. The
@@ -29,9 +30,11 @@ import {
   selectVisibleWindows,
   selectPanes,
   selectContainerSize,
+  selectCharSize,
 } from '../machines/AppContext';
-import { dropIndex, overviewSlots } from '../utils/tabOverview';
+import { dropIndex, overviewSlots, stillPanes } from '../utils/tabOverview';
 import { LogProfiler } from '../utils/renderLog';
+import { Terminal } from './Terminal';
 
 /** Pixels a mouse must travel before a press becomes a drag. */
 const DRAG_THRESHOLD_PX = 6;
@@ -68,9 +71,18 @@ function TabOverviewInner() {
   const selected = useAppSelector((ctx) => ctx.tabOverviewSelected);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
   const windows = useAppSelectorShallow(selectVisibleWindows);
-  const panes = useAppSelectorShallow(selectPanes);
+  const livePanes = useAppSelectorShallow(selectPanes);
+  const snapshot = useAppSelector((ctx) => ctx.tabOverviewSnapshot);
+  const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
-  const slots = useMemo(() => overviewSlots(windows, panes), [windows, panes]);
+  const slots = useMemo(
+    () => overviewSlots(windows, stillPanes(livePanes, snapshot)),
+    [windows, livePanes, snapshot],
+  );
+  // A frame's pixel box, so each pane's still can be scaled from its cell
+  // size into its share of the frame. Every frame has the same size (one grid
+  // track, one aspect ratio), so one measurement serves them all.
+  const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -88,6 +100,13 @@ function TabOverviewInner() {
     const frame = root?.querySelector<HTMLElement>(
       '.tab-overview-slot.is-active .tab-overview-frame',
     );
+    const anyFrame = root?.querySelector<HTMLElement>('.tab-overview-frame');
+    if (anyFrame) {
+      const r = anyFrame.getBoundingClientRect();
+      if (r.width > 0 && (r.width !== frameSize?.width || r.height !== frameSize?.height)) {
+        setFrameSize({ width: r.width, height: r.height });
+      }
+    }
     if (!container || !layout || !frame) return;
     const from = layout.getBoundingClientRect();
     const to = frame.getBoundingClientRect();
@@ -105,7 +124,7 @@ function TabOverviewInner() {
     container.style.setProperty('--tab-overview-y', `${targetY - originY}px`);
     container.style.setProperty('--tab-overview-sx', String(sx));
     container.style.setProperty('--tab-overview-sy', String(sy));
-  }, [slots.length, containerWidth, containerHeight, activeWindowId]);
+  }, [slots.length, containerWidth, containerHeight, activeWindowId, frameSize]);
 
   // ---- keyboard: the overview owns every key while it is open ---------------
   const stateRef = useRef({ slots, selected, send });
@@ -363,20 +382,49 @@ function TabOverviewInner() {
                   drawn over it, so its wireframe only shows through the
                   zoom animation. */}
               <div className="tab-overview-frame" aria-hidden="true">
-                {slot.boxes.map((box) => (
-                  <div
-                    key={box.paneId}
-                    className={`tab-overview-box${box.active ? ' is-active' : ''}`}
-                    style={{
-                      left: `${box.left}%`,
-                      top: `${box.top}%`,
-                      width: `${box.width}%`,
-                      height: `${box.height}%`,
-                    }}
-                  >
-                    <span className="tab-overview-box-label">{box.label}</span>
-                  </div>
-                ))}
+                {slot.boxes.map((box) => {
+                  // The pane's screen at its natural cell size, scaled into
+                  // the box (each axis on its own, so it fills the box the
+                  // way the pane fills its share of the tab).
+                  const naturalW = box.cols * charWidth;
+                  const naturalH = box.rows * charHeight;
+                  const shot =
+                    frameSize && naturalW > 0 && naturalH > 0
+                      ? {
+                          width: naturalW,
+                          height: naturalH,
+                          transform: `scale(${(frameSize.width * box.width) / 100 / naturalW}, ${
+                            (frameSize.height * box.height) / 100 / naturalH
+                          })`,
+                        }
+                      : null;
+                  return (
+                    <div
+                      key={box.paneId}
+                      className={`tab-overview-box${box.active ? ' is-active' : ''}`}
+                      style={{
+                        left: `${box.left}%`,
+                        top: `${box.top}%`,
+                        width: `${box.width}%`,
+                        height: `${box.height}%`,
+                      }}
+                    >
+                      {shot ? (
+                        <div className="tab-overview-shot" style={shot}>
+                          <Terminal
+                            content={box.content}
+                            width={box.cols}
+                            height={box.rows}
+                            isActive={false}
+                            paneId={box.paneId}
+                          />
+                        </div>
+                      ) : (
+                        <span className="tab-overview-box-label">{box.label}</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );

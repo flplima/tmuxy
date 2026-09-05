@@ -35,6 +35,7 @@ import { LogProfiler } from '../utils/renderLog';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
 import { SidebarToggle } from './SidebarToggle';
+import { TabOverviewToggle } from './TabOverviewToggle';
 import { SidebarTitle } from './SidebarTitle';
 import './StatusBar.css';
 
@@ -105,6 +106,7 @@ export const StatusBar = memo(function StatusBar({
         className={`statusbar-cluster statusbar-cluster-right${dockedRight ? ' is-docked' : ''}`}
         style={dockedRight ? { flex: `0 0 ${rightCluster}px`, width: rightCluster } : undefined}
       >
+        <TabOverviewToggle />
         <SidebarToggle side="right" />
         {dockedRight && <SidebarTitle side="right" title={rightTitle} />}
       </div>

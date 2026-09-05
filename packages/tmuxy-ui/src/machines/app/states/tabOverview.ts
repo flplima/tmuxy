@@ -1,7 +1,7 @@
 /**
  * tabOverview state — the "all tabs" view over the pane area.
  *
- * Owns context fields: tabOverviewOpen, tabOverviewSelected.
+ * Owns context fields: tabOverviewOpen, tabOverviewSelected, tabOverviewSnapshot.
  *
  * Every event here is spread into the machine root: opening the overview,
  * moving its cursor and picking a slot are pure client-side dispatches, and

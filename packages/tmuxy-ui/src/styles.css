@@ -2156,6 +2156,18 @@
   border-color: var(--pane-active-border, var(--accent-green));
 }
 
+/* A pane's still inside its box: rendered at the pane's natural cell size
+   (so the terminal grid lays out exactly as on screen) and scaled down from
+   the box's top-left into the box. */
+.tab-overview-shot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 .tab-overview-box-label {
   display: block;
   padding: 1px 4px;

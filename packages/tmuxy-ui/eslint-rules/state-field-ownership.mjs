@@ -72,6 +72,7 @@ const FIELD_OWNERS = {
   rightSidebarClosing: 'groupsAndFloats',
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
+  tabOverviewSnapshot: 'tabOverview',
 
   // ---- commandUi ----
   commandMode: 'commandUi',

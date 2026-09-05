@@ -1,7 +1,7 @@
 /**
  * Tab Overview actions — the Safari-style "all tabs" view.
  *
- * Owns context fields: tabOverviewOpen, tabOverviewSelected.
+ * Owns context fields: tabOverviewOpen, tabOverviewSelected, tabOverviewSnapshot.
  *
  * The overview is a client-side surface over the pane area: opening it zooms
  * the current tab out into a grid of every tab; picking a slot zooms that tab
@@ -30,20 +30,32 @@ const activeSlot = (context: Ctx) => {
   return idx === -1 ? 0 : idx;
 };
 
+/** The still the slots draw: every pane, by id, as it is right now. */
+const snapshotPanes = (context: Ctx) =>
+  Object.fromEntries(context.panes.map((p) => [p.tmuxId, p] as const));
+
+const closed = { tabOverviewOpen: false, tabOverviewSnapshot: null } as const;
+
 export const tabOverviewActions = {
   tabOverview_toggle: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ context, enqueue }) => {
       if (context.tabOverviewOpen) {
-        enqueue(assign({ tabOverviewOpen: false }));
+        enqueue(assign(closed));
       } else {
-        enqueue(assign({ tabOverviewOpen: true, tabOverviewSelected: activeSlot(context) }));
+        enqueue(
+          assign({
+            tabOverviewOpen: true,
+            tabOverviewSelected: activeSlot(context),
+            tabOverviewSnapshot: snapshotPanes(context),
+          }),
+        );
       }
     },
   ),
 
   tabOverview_close: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ context, enqueue }) => {
-      if (context.tabOverviewOpen) enqueue(assign({ tabOverviewOpen: false }));
+      if (context.tabOverviewOpen) enqueue(assign(closed));
     },
   ),
 
@@ -75,7 +87,7 @@ export const tabOverviewActions = {
       if (event.type !== 'TAB_OVERVIEW_ACTIVATE') return;
       const visible = selectVisibleWindows(context);
       const index = event.index ?? context.tabOverviewSelected;
-      enqueue(assign({ tabOverviewOpen: false }));
+      enqueue(assign(closed));
       const target = visible[index];
       if (target) {
         if (target.id !== context.activeWindowId) {

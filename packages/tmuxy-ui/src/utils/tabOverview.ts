@@ -27,6 +27,10 @@ export interface SlotBox {
   top: number;
   width: number;
   height: number;
+  /** The pane's screen, drawn to scale inside the box. */
+  content: TmuxPane['content'];
+  cols: number;
+  rows: number;
 }
 
 /** One overview slot: a tab and its wireframe. The trailing "+" slot has no window. */
@@ -59,7 +63,26 @@ export function slotBoxes(panes: readonly TmuxPane[], windowId: string): SlotBox
     top: ((p.y - minY) / height) * 100,
     width: (p.width / width) * 100,
     height: (p.height / height) * 100,
+    content: p.content,
+    cols: p.width,
+    rows: p.height,
   }));
+}
+
+/**
+ * The panes the overview draws: the live panes (so a tab created while it is
+ * open gets a slot with boxes) with each pane's screen frozen to the still
+ * taken when the overview opened, where one exists.
+ */
+export function stillPanes(
+  live: readonly TmuxPane[],
+  snapshot: Record<string, TmuxPane> | null,
+): TmuxPane[] {
+  if (!snapshot) return [...live];
+  return live.map((p) => {
+    const still = snapshot[p.tmuxId];
+    return still ? { ...p, content: still.content } : p;
+  });
 }
 
 /** The slots in strip order, one per visible tab (the "+" slot is the caller's). */

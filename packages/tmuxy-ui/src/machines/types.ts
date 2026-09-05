@@ -267,6 +267,13 @@ export interface AppMachineContext {
    */
   tabOverviewOpen: boolean;
   tabOverviewSelected: number;
+  /**
+   * Every pane as it was the moment the overview opened, by pane id. The
+   * slots draw THIS content, not the live panes: the overview is a still of
+   * the session, so a tab that keeps printing while you look does not churn
+   * its thumbnail. Null while the overview is closed.
+   */
+  tabOverviewSnapshot: Record<string, TmuxPane> | null;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /** Keybindings received from the server */

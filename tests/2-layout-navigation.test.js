@@ -264,6 +264,17 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
       );
     };
 
+    // Leave a marker on the first tab's screen; the overview, opened later from
+    // the third tab, must show that screen in the first tab's slot.
+    const marker = `overview-still-${Date.now()}`;
+    await typeInTerminal(page, `echo ${marker}`);
+    await pressEnter(page);
+    await waitForTerminalText(page, marker, 10000);
+    const markedPane = await page.evaluate(
+      () => window.app?.getSnapshot()?.context?.panes.find((p) => p.active)?.tmuxId,
+    );
+    expect(markedPane).toMatch(/^%\d+$/);
+
     // A chrome window (the right sidebar) takes tmux index 2 BEFORE the tabs
     // that follow, so strip position and tmux index disagree from here on.
     await sendPrefixCommand(page, 'T', { shift: true });
@@ -283,6 +294,82 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
     expect(ov.transform).not.toBe('none');
     const activeSlot = ov.slots.find((s) => s.active);
     expect(activeSlot.id).toBe(three.active);
+
+    // The first tab's slot shows the marker — a rendered terminal, drawn
+    // inside the slot's frame rather than off somewhere at full size.
+    const slotText = (tabId) =>
+      page.evaluate((id) => {
+        const slot = document.querySelector(`[data-testid="tab-overview-slot-${id}"]`);
+        const shot = slot?.querySelector('.tab-overview-shot');
+        if (!shot) return null;
+        const f = slot.querySelector('.tab-overview-frame').getBoundingClientRect();
+        const r = shot.getBoundingClientRect();
+        return {
+          text: shot.textContent,
+          inFrame:
+            r.left >= f.left - 1 &&
+            r.right <= f.right + 1 &&
+            r.top >= f.top - 1 &&
+            r.bottom <= f.bottom + 1,
+        };
+      }, tabId);
+    await waitForCondition(
+      page,
+      async () => (await slotText(three.tabs[0].id))?.text.includes(marker),
+      8000,
+      "the first tab's slot to show its screen",
+    );
+    expect((await slotText(three.tabs[0].id)).inFrame).toBe(true);
+
+    // It is a STILL: output that arrives while the overview is open does not
+    // reach the slot, though the live pane has it.
+    const later = `${marker}-later`;
+    await ctx.session.runCommand(`send-keys -t ${markedPane} 'echo ${later}' Enter`);
+    await waitForCondition(
+      page,
+      () =>
+        page.evaluate(
+          ({ id, text }) =>
+            window.app
+              ?.getSnapshot()
+              ?.context?.panes.find((p) => p.tmuxId === id)
+              ?.content.some((line) =>
+                line
+                  .map((c) => c.c)
+                  .join('')
+                  .includes(text),
+              ),
+          { id: markedPane, text: later },
+        ),
+      10000,
+      'the later echo to reach the live pane',
+    );
+    expect((await slotText(three.tabs[0].id)).text).not.toContain(later);
+
+    // The header's grid button is the same toggle: it closes the overview and
+    // opens it again (a fresh still, which now has the later line).
+    const gridButton = () => page.$('[data-testid="tab-overview-toggle"]');
+    await (await gridButton()).click();
+    await waitOverview(false);
+    await (await gridButton()).click();
+    await waitOverview(true);
+    await waitForCondition(
+      page,
+      async () => (await slotText(three.tabs[0].id))?.text.includes(later),
+      8000,
+      'the reopened overview to show the fresh still',
+    );
+    await waitForCondition(
+      page,
+      async () => {
+        const o = await overview();
+        const slot = o?.slots.find((s) => s.active);
+        return Boolean(slot) && inside(o.layout, slot.frame);
+      },
+      8000,
+      'the pane grid to zoom into its slot again',
+    );
+    ov = await overview();
 
     // Step 2: clicking the first slot switches to that tab and closes the overview.
     await clickAt(ov.slots[0].rect);

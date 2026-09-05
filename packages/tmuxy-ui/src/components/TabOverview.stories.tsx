@@ -69,6 +69,14 @@ export const OpenClickSlotSwitchesTab: Story = {
     expect(overview.textContent).toContain('2:logs');
     const active = overview.querySelector('.tab-overview-slot.is-active') as HTMLElement;
     expect(active.dataset.testid).toBe(`tab-overview-slot-${app().context.activeWindowId}`);
+
+    // A tab that is NOT current shows its panes' screens, not a wireframe:
+    // the "main" slot's box holds a rendered terminal with that pane's text.
+    await waitFor(() => {
+      const shot = slots[0].querySelector('.tab-overview-shot .terminal-line');
+      expect(shot).not.toBeNull();
+      expect(slots[0].querySelector('.tab-overview-shot')!.textContent).toMatch(/\S/);
+    });
     const frame = active.querySelector('.tab-overview-frame') as HTMLElement;
     const layout = document.querySelector('.pane-layout') as HTMLElement;
     // The zoom-out is a transition: wait for the grid to settle in the frame.
@@ -85,6 +93,15 @@ export const OpenClickSlotSwitchesTab: Story = {
     await waitForOverview(false);
     await waitFor(() => expect(app().context.activeWindowId).toBe(logs.id));
     await waitFor(() => expect(getComputedStyle(layout).transform).toBe('none'));
+
+    // The header's grid button is the same toggle: open, pressed, close.
+    const toggle = canvas.getByTestId('tab-overview-toggle');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    await user.click(toggle);
+    await waitForOverview(true);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    await user.click(toggle);
+    await waitForOverview(false);
   },
 };
 
