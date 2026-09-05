@@ -78,10 +78,13 @@ export const StatusBar = memo(function StatusBar({
   }, []);
 
   // Each cluster spans exactly its sidebar's width, so the divider it ends on
-  // is the same divider the column below draws — the toggle and title then sit
-  // over the panel they belong to (mock 1b/1d). A docked column takes its width
-  // out of the tab list, which is what keeps the strip aligned with the pane
-  // grid; an overlaying one carries its own header instead, so the header here
+  // is the same divider the column below draws — the title then sits over the
+  // panel it belongs to (mock 1b/1d). The toggles do NOT ride the cluster's
+  // width: the left one stays at the header's left end (right after the menu)
+  // and the right ones at its right end, whatever is open, so the same click
+  // that opened a column closes it. A docked column takes its width out of
+  // the tab list, which is what keeps the strip aligned with the pane grid;
+  // an overlaying one carries its own header instead, so the header here
   // stays in its closed shape.
   const dockedLeft = leftOpen && !overlay;
   const dockedRight = rightOpen && !overlay;
@@ -98,17 +101,17 @@ export const StatusBar = memo(function StatusBar({
         style={dockedLeft ? { flex: `0 0 ${leftCluster}px`, width: leftCluster } : undefined}
       >
         {isMacTauri ? <div className="traffic-light-spacer" /> : <AppMenu />}
-        {dockedLeft && <SidebarTitle side="left" />}
         <SidebarToggle side="left" />
+        {dockedLeft && <SidebarTitle side="left" />}
       </div>
       <WindowTabs />
       <div
         className={`statusbar-cluster statusbar-cluster-right${dockedRight ? ' is-docked' : ''}`}
         style={dockedRight ? { flex: `0 0 ${rightCluster}px`, width: rightCluster } : undefined}
       >
+        {dockedRight && <SidebarTitle side="right" title={rightTitle} />}
         <TabOverviewToggle />
         <SidebarToggle side="right" />
-        {dockedRight && <SidebarTitle side="right" title={rightTitle} />}
       </div>
     </>
   );

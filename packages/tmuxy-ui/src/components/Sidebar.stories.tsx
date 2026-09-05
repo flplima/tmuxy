@@ -600,3 +600,36 @@ export const DragResizesTheColumn: Story = {
     );
   },
 };
+
+export const TogglesKeepTheirPlace: Story = {
+  args: { height: 500 },
+  play: async ({ canvasElement }) => {
+    // The click that opens a column must close it from the same spot: the
+    // tree's toggle stays at the header's left end and the dock's at its
+    // right end, whether the columns are open or closed.
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /Pane/i }, { timeout: 8000 });
+    const left = await canvas.findByRole('button', { name: /toggle tree sidebar/i });
+    const right = await canvas.findByRole('button', { name: /toggle terminal sidebar/i });
+    const place = () => ({
+      left: Math.round(left.getBoundingClientRect().left),
+      right: Math.round(right.getBoundingClientRect().right),
+    });
+    const closed = place();
+
+    await userEvent.click(left);
+    await waitFor(() => expect(left).toHaveAttribute('aria-pressed', 'true'), { timeout: 8000 });
+    await userEvent.click(right);
+    await waitFor(() => expect(right).toHaveAttribute('aria-pressed', 'true'), { timeout: 8000 });
+    await waitFor(() => expect(document.querySelector('.sidebar-column-right')).not.toBeNull(), {
+      timeout: 8000,
+    });
+    expect(place()).toEqual(closed);
+
+    await userEvent.click(left);
+    await userEvent.click(right);
+    await waitFor(() => expect(left).toHaveAttribute('aria-pressed', 'false'), { timeout: 8000 });
+    await waitFor(() => expect(right).toHaveAttribute('aria-pressed', 'false'), { timeout: 8000 });
+    expect(place()).toEqual(closed);
+  },
+};

@@ -129,10 +129,6 @@
     color var(--transition-fast);
 }
 
-.sidebar-toggle-left {
-  margin-left: auto;
-}
-
 .sidebar-toggle:hover {
   color: var(--text-muted);
   background-color: var(--bg-medium);
