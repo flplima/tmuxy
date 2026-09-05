@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import './SmoothCursor.css';
 import { getCursorAnchor, getCursorAnchorVersion, subscribeCursorAnchor } from './cursorAnchor';
+import { useAppSelector } from '../machines/AppContext';
 
 /**
  * The cursor as a single overlay that glides between positions, Neovide-style.
@@ -121,6 +122,14 @@ export function SmoothCursor() {
     getCursorAnchorVersion,
     getCursorAnchorVersion,
   );
+  // The anchor also moves when the DOM around it does without the pane's
+  // cursor re-rendering: the pane grid zooming into the Tab Overview, a
+  // sidebar sliding, a font or viewport change. A single key over those
+  // states wakes the overlay to follow.
+  const layoutKey = useAppSelector(
+    (ctx) =>
+      `${ctx.tabOverviewOpen}|${ctx.sidebarMotion}|${ctx.leftSidebarOpen}|${ctx.rightSidebarOpen}|${ctx.containerWidth}x${ctx.containerHeight}|${ctx.charWidth}|${ctx.baseFontSize}|${ctx.activeWindowId}`,
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const shapeRef = useRef<HTMLDivElement>(null);
   const charRef = useRef<HTMLSpanElement>(null);
@@ -222,7 +231,7 @@ export function SmoothCursor() {
 
       if (maxDist > 0 || now < m.followUntil) m.raf = requestAnimationFrame(frame);
     }
-  }, [version]);
+  }, [version, layoutKey]);
 
   return (
     <div ref={rootRef} className="smooth-cursor" aria-hidden="true" data-testid="smooth-cursor">

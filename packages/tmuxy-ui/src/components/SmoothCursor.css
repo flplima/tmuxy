@@ -9,7 +9,11 @@
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: var(--z-dropdown);
+  /* Above floats (1001+), the Tab Overview (1200) and the pane grid lifted
+     over it (1201) — the cursor belongs to whatever surface holds the
+     keyboard, and every one of those can — but under the connection overlay
+     (1300), which covers the whole app. */
+  z-index: 1250;
   opacity: 0;
 }
 
