@@ -58,10 +58,6 @@ export const WindowTabs = memo(function WindowTabs() {
     [send],
   );
 
-  const handleNewWindow = useCallback(() => {
-    send({ type: 'CREATE_TAB' });
-  }, [send]);
-
   // Closes the tab whose button was pressed, not the current window.
   const handleCloseWindow = useCallback(
     (e: React.MouseEvent, window: TmuxWindow) => {
@@ -117,15 +113,6 @@ export const WindowTabs = memo(function WindowTabs() {
             </span>
           );
         })}
-        <button
-          className="tab-add"
-          onClick={handleNewWindow}
-          title="New tab"
-          aria-label="Create new tab"
-        >
-          +
-        </button>
-
         {contextMenu.visible && (
           <TabContextMenu
             windowIndex={contextMenu.windowIndex}

@@ -36,6 +36,7 @@ import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
 import { SidebarToggle } from './SidebarToggle';
 import { TabOverviewToggle } from './TabOverviewToggle';
+import { NewTabButton } from './NewTabButton';
 import { SidebarTitle } from './SidebarTitle';
 import './StatusBar.css';
 
@@ -81,8 +82,9 @@ export const StatusBar = memo(function StatusBar({
   // is the same divider the column below draws — the title then sits over the
   // panel it belongs to (mock 1b/1d). The toggles do NOT ride the cluster's
   // width: the left one stays at the header's left end (right after the menu)
-  // and the right ones at its right end, whatever is open, so the same click
-  // that opened a column closes it. A docked column takes its width out of
+  // and the right one at its right end, whatever is open, so the same click
+  // that opened a column closes it. The "+" and the overview button sit
+  // between the strip and the dock's cluster, over the pane area. A docked column takes its width out of
   // the tab list, which is what keeps the strip aligned with the pane grid;
   // an overlaying one carries its own header instead, so the header here
   // stays in its closed shape.
@@ -105,12 +107,17 @@ export const StatusBar = memo(function StatusBar({
         {dockedLeft && <SidebarTitle side="left" />}
       </div>
       <WindowTabs />
+      {/* Tab-level actions at the strip's right end: they sit BEFORE the
+          dock's cluster, so a docked column never covers them. */}
+      <div className="statusbar-actions">
+        <NewTabButton />
+        <TabOverviewToggle />
+      </div>
       <div
         className={`statusbar-cluster statusbar-cluster-right${dockedRight ? ' is-docked' : ''}`}
         style={dockedRight ? { flex: `0 0 ${rightCluster}px`, width: rightCluster } : undefined}
       >
         {dockedRight && <SidebarTitle side="right" title={rightTitle} />}
-        <TabOverviewToggle />
         <SidebarToggle side="right" />
       </div>
     </>

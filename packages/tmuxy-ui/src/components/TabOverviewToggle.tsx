@@ -2,8 +2,8 @@
  * TabOverviewToggle - header icon-button that opens/closes the Tab Overview,
  * the "all tabs" grid (ctrl+0, prefix w).
  *
- * It sits at the start of the right cluster, just left of the dock's toggle:
- * the header's right end is where the app-wide views live. Pressed while the
+ * It sits with the "+" between the tab strip and the dock's cluster, over
+ * the pane area, so a docked column never covers it. Pressed while the
  * overview is open; dispatches the same event the keybinding sends.
  */
 
