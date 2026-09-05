@@ -55,10 +55,10 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
       expect(getComputedStyle(active).outlineColor).toBe('rgb(0, 205, 0)');
     });
 
-    // Gruvbox: its light gray (the palette's "white", #a89984) rather than a
-    // green — the active header shares it.
+    // Gruvbox: its yellow accent (#d79921) rather than a green — the active
+    // header's text shares it.
     app().send({ type: 'SET_THEME', name: 'gruvbox' });
-    await waitFor(() => expect(activeOutline()).toBe('rgb(168, 153, 132)'), { timeout: 8000 });
+    await waitFor(() => expect(activeOutline()).toBe('rgb(215, 153, 33)'), { timeout: 8000 });
 
     // While the tree holds the keyboard (prefix t) no pane is green.
     const user = userEvent.setup({ delay: 5 });
@@ -75,6 +75,6 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
     );
     // `l` hands the keyboard back: the green returns.
     await user.keyboard('l');
-    await waitFor(() => expect(activeOutline()).toBe('rgb(168, 153, 132)'), { timeout: 5000 });
+    await waitFor(() => expect(activeOutline()).toBe('rgb(215, 153, 33)'), { timeout: 5000 });
   },
 };
