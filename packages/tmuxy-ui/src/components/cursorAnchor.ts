@@ -29,6 +29,15 @@ export function attachCursorAnchor(el: HTMLElement): () => void {
   };
 }
 
+/**
+ * The anchor did not change but the DOM under it moved in a way no pane
+ * render announces (the Tab Overview dragging the current tab's card, and
+ * the live grid inside it): tell the overlay to look again.
+ */
+export function nudgeCursorAnchor(): void {
+  bump();
+}
+
 export function subscribeCursorAnchor(listener: () => void): () => void {
   listeners.add(listener);
   return () => {

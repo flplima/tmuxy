@@ -3,6 +3,7 @@ import {
   attachCursorAnchor,
   getCursorAnchor,
   getCursorAnchorVersion,
+  nudgeCursorAnchor,
   subscribeCursorAnchor,
 } from '../cursorAnchor';
 
@@ -37,5 +38,14 @@ describe('cursorAnchor', () => {
     unsubscribe();
     attachCursorAnchor(document.createElement('span'));
     expect(notified).toBe(2);
+  });
+
+  it('a nudge bumps the version without touching the anchor', () => {
+    const el = document.createElement('span');
+    attachCursorAnchor(el);
+    const before = getCursorAnchorVersion();
+    nudgeCursorAnchor();
+    expect(getCursorAnchorVersion()).toBe(before + 1);
+    expect(getCursorAnchor()).toBe(el);
   });
 });

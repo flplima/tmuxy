@@ -35,6 +35,7 @@ import {
 import { dropIndex, overviewSlots, stillPanes } from '../utils/tabOverview';
 import { LogProfiler } from '../utils/renderLog';
 import { Terminal } from './Terminal';
+import { nudgeCursorAnchor } from './cursorAnchor';
 
 /** Pixels a mouse must travel before a press becomes a drag. */
 const DRAG_THRESHOLD_PX = 6;
@@ -135,6 +136,9 @@ function TabOverviewInner() {
     container.style.setProperty('--tab-overview-y', `${targetY - originY}px`);
     container.style.setProperty('--tab-overview-sx', String(sx));
     container.style.setProperty('--tab-overview-sy', String(sy));
+    // The grid — and the cursor anchor inside it — just moved without any
+    // pane rendering; the cursor overlay has to be told.
+    nudgeCursorAnchor();
   }, [slots.length, containerWidth, containerHeight, activeWindowId, frameSize, dragOffset]);
 
   // ---- keyboard: the overview owns every key while it is open ---------------
