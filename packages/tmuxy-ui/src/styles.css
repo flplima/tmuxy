@@ -2220,7 +2220,9 @@
 }
 
 .pane-container .pane-layout {
-  transition: transform 200ms ease;
+  /* The Tab Overview zeroes the duration while the current tab's card is
+     dragged, so the grid rides with the pointer instead of trailing it. */
+  transition: transform var(--tab-overview-motion, 200ms) ease;
 }
 
 .pane-container.tab-overview-open .float-modal,

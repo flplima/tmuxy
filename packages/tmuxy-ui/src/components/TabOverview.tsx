@@ -93,9 +93,20 @@ function TabOverviewInner() {
   // Measured after layout so the grid's real slot geometry is known. The
   // numbers go on `.pane-container` as custom properties; the CSS applies them
   // to `.pane-layout` while the container carries `tab-overview-open`.
+  //
+  // While the CURRENT tab's card is being dragged, the grid must ride along
+  // with it: the frame's measured box already includes the card's drag
+  // translate, so re-measuring on every drag move is enough — with the
+  // grid's own 200ms transition switched off, or it would trail the pointer.
+  const draggingActive = drag?.active && drag.windowId === activeWindowId ? drag : null;
+  const dragOffset = draggingActive ? `${draggingActive.dx},${draggingActive.dy}` : '';
   useLayoutEffect(() => {
     const root = rootRef.current;
     const container = root?.parentElement;
+    if (container) {
+      if (dragOffset) container.style.setProperty('--tab-overview-motion', '0s');
+      else container.style.removeProperty('--tab-overview-motion');
+    }
     const layout = container?.querySelector<HTMLElement>('.pane-layout');
     const frame = root?.querySelector<HTMLElement>(
       '.tab-overview-slot.is-active .tab-overview-frame',
@@ -124,7 +135,7 @@ function TabOverviewInner() {
     container.style.setProperty('--tab-overview-y', `${targetY - originY}px`);
     container.style.setProperty('--tab-overview-sx', String(sx));
     container.style.setProperty('--tab-overview-sy', String(sy));
-  }, [slots.length, containerWidth, containerHeight, activeWindowId, frameSize]);
+  }, [slots.length, containerWidth, containerHeight, activeWindowId, frameSize, dragOffset]);
 
   // ---- keyboard: the overview owns every key while it is open ---------------
   const stateRef = useRef({ slots, selected, send });

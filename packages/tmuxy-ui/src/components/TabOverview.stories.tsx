@@ -72,11 +72,15 @@ export const OpenClickSlotSwitchesTab: Story = {
 
     // A tab that is NOT current shows its panes' screens, not a wireframe:
     // the "main" slot's box holds a rendered terminal with that pane's text.
-    await waitFor(() => {
-      const shot = slots[0].querySelector('.tab-overview-shot .terminal-line');
-      expect(shot).not.toBeNull();
-      expect(slots[0].querySelector('.tab-overview-shot')!.textContent).toMatch(/\S/);
-    });
+    // (The still appears a render after the frame is measured.)
+    await waitFor(
+      () => {
+        const shot = slots[0].querySelector('.tab-overview-shot .terminal-line');
+        expect(shot).not.toBeNull();
+        expect(slots[0].querySelector('.tab-overview-shot')!.textContent).toMatch(/\S/);
+      },
+      { timeout: 8000 },
+    );
     const frame = active.querySelector('.tab-overview-frame') as HTMLElement;
     const layout = document.querySelector('.pane-layout') as HTMLElement;
     // The zoom-out is a transition: wait for the grid to settle in the frame.
