@@ -12,10 +12,11 @@
  * The active tab is marked by BRIGHTNESS alone — full opacity and pure white
  * against the others' dimmed grey — with no pill or background behind it.
  *
- * A press selects; a press that travels (a mouse after a few pixels, a finger
+ * A click selects; a press that travels (a mouse after a few pixels, a finger
  * after a long press) drags the tab along the strip and drops it at a new
  * position, reordering tmux's windows the way the Tab Overview does. The drag
- * is transient pointer state and stays here.
+ * is transient pointer state and stays here; the click the browser fires after
+ * a drop is swallowed so a drop never doubles as a select.
  *
  * Right-click opens a context menu with tab operations.
  */
@@ -59,6 +60,7 @@ export const WindowTabs = memo(function WindowTabs() {
   const rawWindows = useAppSelectorShallow(selectVisibleWindows);
   const listRef = useRef<HTMLDivElement>(null);
   const longPressRef = useRef<number | null>(null);
+  const suppressClickRef = useRef(false);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>({
     visible: false,
@@ -71,6 +73,18 @@ export const WindowTabs = memo(function WindowTabs() {
   const visibleWindows = useMemo(
     () => [...new Map(rawWindows.map((w) => [w.id, w])).values()],
     [rawWindows],
+  );
+
+  const handleWindowClick = useCallback(
+    (window: TmuxWindow) => {
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false;
+        return;
+      }
+      haptics.trigger(10);
+      send({ type: 'SELECT_TAB', windowId: window.id });
+    },
+    [send],
   );
 
   // Closes the tab whose button was pressed, not the current window.
@@ -96,7 +110,7 @@ export const WindowTabs = memo(function WindowTabs() {
 
   const isSingleTab = visibleWindows.length === 1;
 
-  // ---- pointer: press to select, drag to reorder ---------------------------
+  // ---- pointer: drag to reorder --------------------------------------------
   // The strip is one row, so only the x axis decides where a tab lands.
   const centersExcluding = (windowId: string) =>
     Array.from(listRef.current?.querySelectorAll<HTMLElement>('.tab-name[data-window-id]') ?? [])
@@ -160,7 +174,7 @@ export const WindowTabs = memo(function WindowTabs() {
     setDrag({ ...drag, dx, overIndex, active });
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLSpanElement>, window: TmuxWindow) => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLSpanElement>) => {
     clearLongPress();
     if (!drag || e.pointerId !== drag.pointerId) return;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -168,16 +182,12 @@ export const WindowTabs = memo(function WindowTabs() {
     }
     const d = drag;
     setDrag(null);
-    if (d.active) {
-      if (d.overIndex !== d.fromIndex) {
-        haptics.trigger(10);
-        send({ type: 'REORDER_TAB', windowId: d.windowId, toIndex: d.overIndex });
-      }
-      return;
+    if (!d.active) return;
+    suppressClickRef.current = true;
+    if (d.overIndex !== d.fromIndex) {
+      haptics.trigger(10);
+      send({ type: 'REORDER_TAB', windowId: d.windowId, toIndex: d.overIndex });
     }
-    // A press that never became a drag selects the tab.
-    haptics.trigger(10);
-    send({ type: 'SELECT_TAB', windowId: window.id });
   };
 
   const handlePointerCancel = () => {
@@ -219,8 +229,9 @@ export const WindowTabs = memo(function WindowTabs() {
               style={isDragged ? { transform: `translateX(${dragging!.dx}px)` } : undefined}
               onPointerDown={(e) => handlePointerDown(e, idx)}
               onPointerMove={handlePointerMove}
-              onPointerUp={(e) => handlePointerUp(e, window)}
+              onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerCancel}
+              onClick={() => handleWindowClick(window)}
               onContextMenu={(e) => handleContextMenu(e, window.id)}
               role="tab"
               aria-selected={window.active}

@@ -155,6 +155,8 @@ export const Reorder: Story = {
     expect(centre(dashboard).x).toBeLessThan(from.x - 20);
 
     fireEvent.pointerUp(dashboard, { ...pointer, clientX: to.x - 10, clientY: to.y });
+    // The browser follows a release with a click; after a drop it is swallowed.
+    fireEvent.click(dashboard, { clientX: to.x - 10, clientY: to.y });
     await waitFor(() => {
       expect(canvasElement.querySelector('.is-dragging')).toBeNull();
       expect(canvasElement.querySelector('.is-drop-before')).toBeNull();
@@ -162,5 +164,11 @@ export const Reorder: Story = {
     // A drop is not a click: the selection did not move to the dragged tab.
     expect(features).toHaveAttribute('aria-selected', 'true');
     expect(dashboard).toHaveAttribute('aria-selected', 'false');
+
+    // The next plain click selects as ever.
+    await userEvent.click(dashboard);
+    await waitFor(() => {
+      expect(dashboard).toHaveAttribute('aria-selected', 'true');
+    });
   },
 };
