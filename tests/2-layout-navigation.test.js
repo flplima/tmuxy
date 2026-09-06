@@ -490,6 +490,74 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
     );
     expect(after.tabs[2].index).not.toBe(3);
   }, 150000);
+
+  // The strip itself reorders by drag, like the overview's cards: a press that
+  // travels lifts the tab, the tab it would precede shows the drop bar, and
+  // the drop is a move — not a click — so the active tab does not change.
+  test('a tab dragged along the strip lands where it was dropped, in the client and in tmux', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+    await createWindowKeyboard(page);
+    await createWindowKeyboard(page);
+    await waitForWindowCount(page, 3);
+
+    const strip = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('.tab-list .tab-name[data-window-id]')].map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            id: el.dataset.windowId,
+            active: el.getAttribute('aria-selected') === 'true',
+            x: r.x,
+            y: r.y,
+            w: r.width,
+            h: r.height,
+          };
+        }),
+      );
+    const before = await strip();
+    expect(before).toHaveLength(3);
+    const dragged = before[2].id;
+    const activeBefore = before.find((t) => t.active).id;
+
+    await page.mouse.move(before[2].x + before[2].w / 2, before[2].y + before[2].h / 2);
+    await page.mouse.down();
+    await page.mouse.move(before[0].x + 4, before[0].y + before[0].h / 2, { steps: 10 });
+    // Mid-drag: the lifted tab rides left of where it sat and the first tab
+    // carries the drop bar.
+    await waitForCondition(
+      page,
+      () =>
+        page.evaluate((id) => {
+          const lifted = document.querySelector('.tab-name.is-dragging');
+          const bar = document.querySelector('.tab-name.is-drop-before');
+          return lifted?.dataset.windowId === id && bar?.dataset.windowId !== id;
+        }, dragged),
+      3000,
+      'the lifted tab and the drop bar',
+    );
+    const lifted = (await strip()).find((t) => t.id === dragged);
+    expect(lifted.x).toBeLessThan(before[2].x - 20);
+    await page.mouse.up();
+
+    await waitForCondition(
+      page,
+      async () => (await strip())[0]?.id === dragged,
+      8000,
+      'the dragged tab to become the first',
+    );
+    const tmuxOrder = String(await ctx.session.query("list-windows -F '#{window_id}'"))
+      .split('\n')
+      .filter((id) => before.some((t) => t.id === id));
+    expect(tmuxOrder[0]).toBe(dragged);
+    const after = await strip();
+    expect(after.map((t) => t.id)).toEqual(tmuxOrder);
+    expect(after.find((t) => t.active).id).toBe(activeBefore);
+    expect(
+      await page.evaluate(() => document.querySelector('.is-dragging, .is-drop-before, .is-drop-after')),
+    ).toBeNull();
+  }, 60000);
 });
 
 // ==================== Scenario 4f: Collapsible panes ====================

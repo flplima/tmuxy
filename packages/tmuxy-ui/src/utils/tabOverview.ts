@@ -17,6 +17,25 @@ import type { TmuxPane, TmuxWindow } from '../machines/types';
  */
 export const isPlaceholderId = (id: string): boolean => id.startsWith('__placeholder_');
 
+/** Pixels a mouse must travel before a press on a tab becomes a drag. */
+export const DRAG_THRESHOLD_PX = 6;
+/** How long a finger holds a tab before the press becomes a drag. */
+export const LONG_PRESS_MS = 300;
+
+/**
+ * Route the rest of a press to `el` even when the pointer leaves it. A
+ * synthetic pointer (a test firing events by hand) has no active pointer id
+ * to capture, and the browser refuses it; the drag then works as long as the
+ * events keep targeting the element, which is what such a test does.
+ */
+export function capturePointer(el: Element, pointerId: number): void {
+  try {
+    el.setPointerCapture(pointerId);
+  } catch {
+    return;
+  }
+}
+
 /** A pane drawn inside a slot, in percent of the slot's box. */
 export interface SlotBox {
   paneId: string;

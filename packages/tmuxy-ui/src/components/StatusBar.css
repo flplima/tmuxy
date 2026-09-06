@@ -237,6 +237,27 @@
   opacity: 1;
 }
 
+/* A tab being dragged rides with the pointer above its neighbours, with no
+   hover transition to trail it. */
+.tab-name.is-dragging {
+  position: relative;
+  z-index: 1;
+  opacity: 0.9;
+  background-color: var(--bg-medium);
+  cursor: grabbing;
+  transition: none;
+}
+
+/* Where the dragged tab would land: a bar on the leading edge of the tab it
+   would precede, or on the trailing edge of the last tab. */
+.tab-name.is-drop-before {
+  box-shadow: -6px 0 0 -2px var(--accent-green);
+}
+
+.tab-name.is-drop-after {
+  box-shadow: 6px 0 0 -2px var(--accent-green);
+}
+
 /* A lone tab keeps the active tab's look and sits where every other tab sits:
    at the left of the strip, directly after the sidebar toggle. It carries no
    close button and, on the desktop, drags the window

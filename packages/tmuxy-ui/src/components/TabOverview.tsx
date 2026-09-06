@@ -32,15 +32,17 @@ import {
   selectContainerSize,
   selectCharSize,
 } from '../machines/AppContext';
-import { dropIndex, overviewSlots, stillPanes } from '../utils/tabOverview';
+import {
+  DRAG_THRESHOLD_PX,
+  LONG_PRESS_MS,
+  capturePointer,
+  dropIndex,
+  overviewSlots,
+  stillPanes,
+} from '../utils/tabOverview';
 import { LogProfiler } from '../utils/renderLog';
 import { Terminal } from './Terminal';
 import { nudgeCursorAnchor } from './cursorAnchor';
-
-/** Pixels a mouse must travel before a press becomes a drag. */
-const DRAG_THRESHOLD_PX = 6;
-/** How long a finger holds before a touch press becomes a drag. */
-const LONG_PRESS_MS = 300;
 
 interface DragState {
   windowId: string;
@@ -245,7 +247,7 @@ function TabOverviewInner() {
     const slot = slots[index];
     if (!slot || e.button !== 0) return;
     if ((e.target as HTMLElement).closest('button')) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    capturePointer(e.currentTarget, e.pointerId);
     const state: DragState = {
       windowId: slot.window.id,
       fromIndex: index,
