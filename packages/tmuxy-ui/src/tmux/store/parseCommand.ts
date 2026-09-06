@@ -147,7 +147,13 @@ export function parseCommandToOp(command: string): TmuxOp {
     return { _tag: 'RawCommand', command };
   }
 
-  // select-window -t N / selectw -t N (with optional `:` and `=` prefixes)
+  // select-window -t @N (by id — what the client's own tab switch sends, so a
+  // stale index can never land on the wrong window) or -t N (by index, with
+  // optional `:` and `=` prefixes).
+  const selectWinId = trimmed.match(/^(select-window|selectw)\s+-t\s+(@\d+)/);
+  if (selectWinId) {
+    return { _tag: 'SelectWindow', target: selectWinId[2] };
+  }
   const selectWinIdx = trimmed.match(/^(select-window|selectw)\s+-t\s+:?=?(\d+)/);
   if (selectWinIdx) {
     return { _tag: 'SelectWindow', target: parseInt(selectWinIdx[2], 10) };

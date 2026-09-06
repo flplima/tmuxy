@@ -21,18 +21,18 @@ import './menus/AppMenu.css';
 
 interface TabContextMenuProps {
   /** tmux window index the actions target (Close/Rename operate on this tab). */
-  windowIndex: number;
+  windowId: string;
   x: number;
   y: number;
   onClose: () => void;
 }
 
-export function TabContextMenu({ windowIndex, x, y, onClose }: TabContextMenuProps) {
+export function TabContextMenu({ windowId, x, y, onClose }: TabContextMenuProps) {
   const send = useAppSend();
   const keybindings = useAppSelector(selectKeyBindings);
   const allWindows = useAppSelectorShallow(selectWindows);
   const isSingleWindow = allWindows.filter((w) => w.windowType === 'tab').length <= 1;
-  const target = allWindows.find((w) => w.index === windowIndex);
+  const target = allWindows.find((w) => w.id === windowId);
   const collapsible = Boolean(target?.collapsible);
 
   const handleAction = (actionId: string) => {
@@ -41,7 +41,7 @@ export function TabContextMenu({ windowIndex, x, y, onClose }: TabContextMenuPro
   };
 
   const handleCloseSpecificTab = () => {
-    send({ type: 'SEND_COMMAND', command: `kill-window -t :${windowIndex}` });
+    send({ type: 'SEND_COMMAND', command: `kill-window -t ${windowId}` });
     onClose();
   };
 
@@ -61,7 +61,7 @@ export function TabContextMenu({ windowIndex, x, y, onClose }: TabContextMenuPro
 
   const handleRenameSpecificTab = () => {
     // Select the window first, then prompt rename
-    send({ type: 'SEND_COMMAND', command: `select-window -t ${windowIndex}` });
+    send({ type: 'SEND_COMMAND', command: `select-window -t ${windowId}` });
     setTimeout(() => {
       send({
         type: 'SEND_COMMAND',

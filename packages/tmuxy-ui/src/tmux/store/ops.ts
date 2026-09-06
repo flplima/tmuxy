@@ -662,6 +662,8 @@ function predictSelectWindow(
   let target: TmuxWindow | undefined;
   if (typeof op.target === 'number') {
     target = visible.find((w) => w.index === op.target);
+  } else if (op.target.startsWith('@')) {
+    target = visible.find((w) => w.id === op.target);
   } else {
     const currentIdx = visible.findIndex((w) => w.id === snapshot.activeWindowId);
     if (currentIdx === -1) return null;

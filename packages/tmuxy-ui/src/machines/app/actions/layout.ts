@@ -162,7 +162,7 @@ export const layoutActions = {
       enqueue(
         sendTo('tmuxStore', {
           type: 'DISPATCH_COMMAND' as const,
-          command: `select-window -t ${event.windowIndex}`,
+          command: `select-window -t ${event.windowId}`,
         }),
       );
 

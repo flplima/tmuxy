@@ -83,7 +83,8 @@ export type TmuxOp =
   | { readonly _tag: 'NewWindow' }
   | {
       readonly _tag: 'SelectWindow';
-      readonly target: number | 'next' | 'previous';
+      /** A window id (`@N`, what the client sends), a tmux index, or a neighbour. */
+      readonly target: string | number | 'next' | 'previous';
     }
   /** paneId null = the active pane. */
   | { readonly _tag: 'KillPane'; readonly paneId: string | null }

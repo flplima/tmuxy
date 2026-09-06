@@ -91,7 +91,7 @@ export const tabOverviewActions = {
       const target = visible[index];
       if (target) {
         if (target.id !== context.activeWindowId) {
-          enqueue.raise({ type: 'SELECT_TAB', windowId: target.id, windowIndex: target.index });
+          enqueue.raise({ type: 'SELECT_TAB', windowId: target.id });
         }
         return;
       }
@@ -114,7 +114,7 @@ export const tabOverviewActions = {
     if (event.type !== 'SELECT_TAB_BY_POSITION') return;
     const target = selectVisibleWindows(context)[event.position - 1];
     if (!target || target.id === context.activeWindowId) return;
-    enqueue.raise({ type: 'SELECT_TAB', windowId: target.id, windowIndex: target.index });
+    enqueue.raise({ type: 'SELECT_TAB', windowId: target.id });
   }),
 
   /** Drag-and-drop in the overview: put the tab at a new strip position. */

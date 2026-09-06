@@ -26,7 +26,7 @@ interface TabContextMenuState {
   visible: boolean;
   x: number;
   y: number;
-  windowIndex: number;
+  windowId: string;
 }
 
 /**
@@ -41,7 +41,7 @@ export const WindowTabs = memo(function WindowTabs() {
     visible: false,
     x: 0,
     y: 0,
-    windowIndex: 0,
+    windowId: '',
   });
 
   // Dedup safety net: ensure no duplicate window IDs reach the DOM
@@ -53,7 +53,7 @@ export const WindowTabs = memo(function WindowTabs() {
   const handleWindowClick = useCallback(
     (window: TmuxWindow) => {
       haptics.trigger(10);
-      send({ type: 'SELECT_TAB', windowId: window.id, windowIndex: window.index });
+      send({ type: 'SELECT_TAB', windowId: window.id });
     },
     [send],
   );
@@ -69,10 +69,10 @@ export const WindowTabs = memo(function WindowTabs() {
     [send],
   );
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, windowIndex: number) => {
+  const handleContextMenu = useCallback((e: React.MouseEvent, windowId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, windowIndex });
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, windowId });
   }, []);
 
   const closeContextMenu = useCallback(() => {
@@ -91,7 +91,7 @@ export const WindowTabs = memo(function WindowTabs() {
               key={window.id}
               className={`tab-name ${window.active ? 'tab-name-active' : ''}`}
               onClick={() => handleWindowClick(window)}
-              onContextMenu={(e) => handleContextMenu(e, window.index)}
+              onContextMenu={(e) => handleContextMenu(e, window.id)}
               role="tab"
               aria-selected={window.active}
               aria-label={`Tab ${visualIndex}: ${window.name}${window.active ? ' (active)' : ''}`}
@@ -115,7 +115,7 @@ export const WindowTabs = memo(function WindowTabs() {
         })}
         {contextMenu.visible && (
           <TabContextMenu
-            windowIndex={contextMenu.windowIndex}
+            windowId={contextMenu.windowId}
             x={contextMenu.x}
             y={contextMenu.y}
             onClose={closeContextMenu}

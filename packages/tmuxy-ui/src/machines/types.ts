@@ -620,7 +620,6 @@ export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: st
 export type SelectTabEvent = {
   type: 'SELECT_TAB';
   windowId: string;
-  windowIndex: number;
 };
 
 // Copy mode events

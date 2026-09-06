@@ -1522,9 +1522,15 @@ impl StateAggregator {
     /// can drive settling extension from `Ctx::clock` and tests can advance
     /// time deterministically.
     pub fn step_at(&mut self, event: ControlModeEvent, now: Instant) -> StepResult {
+        // A window closing needs the same re-list as one appearing: with
+        // renumber-windows on, tmux shifts every later window's index and
+        // announces none of them, and the tab strip is ordered by index.
         let is_window_add = matches!(
             &event,
-            ControlModeEvent::WindowAdd { .. } | ControlModeEvent::UnlinkedWindowAdd { .. }
+            ControlModeEvent::WindowAdd { .. }
+                | ControlModeEvent::UnlinkedWindowAdd { .. }
+                | ControlModeEvent::WindowClose { .. }
+                | ControlModeEvent::UnlinkedWindowClose { .. }
         );
         let mut result = self.process_event(event);
         let mut effects = Vec::new();

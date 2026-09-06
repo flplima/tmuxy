@@ -79,7 +79,7 @@ const connector = (last: boolean) => (last ? '└─ ' : '├─ ');
 /** An open right-click menu targeting a tree row, positioned at the cursor. */
 type MenuState =
   | { kind: 'pane'; paneId: string; x: number; y: number }
-  | { kind: 'tab'; windowIndex: number; x: number; y: number }
+  | { kind: 'tab'; windowId: string; x: number; y: number }
   | null;
 
 /** DOM id for a row, so the tree can point `aria-activedescendant` at it. */
@@ -214,7 +214,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     (row: Row) => {
       switch (row.kind) {
         case 'tab':
-          send({ type: 'SELECT_TAB', windowId: row.window.id, windowIndex: row.window.index });
+          send({ type: 'SELECT_TAB', windowId: row.window.id });
           return;
         case 'pane':
           // `select-pane` only changes which pane is active WITHIN its window;
@@ -222,7 +222,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           // tab is reached by switching the tab first, then focusing the pane
           // through the same optimistic path a click on it takes.
           if (row.window.id !== activeWindowId) {
-            send({ type: 'SELECT_TAB', windowId: row.window.id, windowIndex: row.window.index });
+            send({ type: 'SELECT_TAB', windowId: row.window.id });
           }
           send({ type: 'FOCUS_PANE', paneId: row.pane.tmuxId });
           return;
@@ -244,9 +244,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // Move a pane into another tab: join-pane splits that window's active pane and
   // moves the source there (the source window closes if it was its last pane).
   const movePaneToTab = useCallback(
-    (paneId: string, targetWindowId: string, targetWindowIndex: number) => {
+    (paneId: string, targetWindowId: string) => {
       send({ type: 'SEND_TMUX_COMMAND', command: `join-pane -s ${paneId} -t ${targetWindowId}` });
-      send({ type: 'SELECT_TAB', windowId: targetWindowId, windowIndex: targetWindowIndex });
+      send({ type: 'SELECT_TAB', windowId: targetWindowId });
     },
     [send],
   );
@@ -480,7 +480,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
                 e.stopPropagation();
                 openMenu({
                   kind: 'tab',
-                  windowIndex: row.window.index,
+                  windowId: row.window.id,
                   x: e.clientX,
                   y: e.clientY,
                 });
@@ -495,7 +495,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               onDrop={(e) => {
                 e.preventDefault();
                 const paneId = e.dataTransfer.getData('text/tmuxy-pane') || dragPaneId;
-                if (paneId) movePaneToTab(paneId, row.window.id, row.window.index);
+                if (paneId) movePaneToTab(paneId, row.window.id);
                 setDragPaneId(null);
                 setDropWindowId(null);
               }}
@@ -579,7 +579,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         <PaneContextMenu paneId={menu.paneId} x={menu.x} y={menu.y} onClose={closeMenu} />
       )}
       {menu?.kind === 'tab' && (
-        <TabContextMenu windowIndex={menu.windowIndex} x={menu.x} y={menu.y} onClose={closeMenu} />
+        <TabContextMenu windowId={menu.windowId} x={menu.x} y={menu.y} onClose={closeMenu} />
       )}
     </div>
   );

@@ -408,6 +408,13 @@ describe('SelectWindow predicts even when the target window has no known panes',
     windows: [win('@0', 0, true), win('@1', 1, false)],
   };
 
+  it('resolves a target given by window id, which is what the client sends', () => {
+    const op = parseCommandToOp('select-window -t @1');
+    const result = predict(op, snap, CTX, 'op_selwin_id' as OpId);
+    expect(result).not.toBeNull();
+    expect(result!.patch(snap).activeWindowId).toBe('@1');
+  });
+
   it('pins the window flip immediately and resolves the pane when it arrives', () => {
     const op = parseCommandToOp('select-window -t 1');
     const result = predict(op, snap, CTX, 'op_selwin' as OpId);

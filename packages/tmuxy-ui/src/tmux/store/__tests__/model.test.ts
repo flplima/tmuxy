@@ -241,6 +241,9 @@ describe('TmuxClientModel', () => {
     expect(parseCommandToOp('new-window')).toEqual({ _tag: 'NewWindow' });
     expect(parseCommandToOp('next-window')).toEqual({ _tag: 'SelectWindow', target: 'next' });
     expect(parseCommandToOp('select-window -t 3')).toEqual({ _tag: 'SelectWindow', target: 3 });
+    // The client's own tab switch names the window by id, so a stale index
+    // can never land on the wrong window.
+    expect(parseCommandToOp('select-window -t @3')).toEqual({ _tag: 'SelectWindow', target: '@3' });
     expect(parseCommandToOp('swap-pane -s %1 -t %2')).toEqual({
       _tag: 'Swap',
       sourcePaneId: '%1',

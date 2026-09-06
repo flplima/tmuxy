@@ -202,19 +202,23 @@ function updateActivationOrder(order: string[], paneId: string | null): string[]
 function resolveTabNavTarget(
   command: string,
   context: AppMachineContext,
-): { windowId: string; windowIndex: number } | null {
+): { windowId: string } | null {
   if (!context.activeWindowId) return null;
   const visibleWindows = context.windows.filter((w) => w.windowType === 'tab');
   if (visibleWindows.length === 0) return null;
 
   const trimmed = command.trim();
 
-  const selectMatch = trimmed.match(/^(select-window|selectw)\s+-t\s+:?=?(\d+)\s*$/);
+  // By id (`@N`, what the client itself sends) or by tmux index (a binding
+  // or command typed by hand).
+  const selectMatch = trimmed.match(/^(select-window|selectw)\s+-t\s+:?=?(@?\d+)\s*$/);
   if (selectMatch) {
-    const target = parseInt(selectMatch[2], 10);
-    const targetWindow = visibleWindows.find((w) => w.index === target);
+    const target = selectMatch[2];
+    const targetWindow = target.startsWith('@')
+      ? visibleWindows.find((w) => w.id === target)
+      : visibleWindows.find((w) => w.index === parseInt(target, 10));
     if (targetWindow && targetWindow.id !== context.activeWindowId) {
-      return { windowId: targetWindow.id, windowIndex: targetWindow.index };
+      return { windowId: targetWindow.id };
     }
     return null;
   }
@@ -225,7 +229,7 @@ function resolveTabNavTarget(
   if (trimmed.match(/^(next-window|nextw|next)(\s|$)/)) {
     const target = visibleWindows[(currentIdx + 1) % visibleWindows.length];
     if (target && target.id !== context.activeWindowId) {
-      return { windowId: target.id, windowIndex: target.index };
+      return { windowId: target.id };
     }
     return null;
   }
@@ -233,7 +237,7 @@ function resolveTabNavTarget(
   if (trimmed.match(/^(previous-window|prevw|prev)(\s|$)/)) {
     const target = visibleWindows[(currentIdx - 1 + visibleWindows.length) % visibleWindows.length];
     if (target && target.id !== context.activeWindowId) {
-      return { windowId: target.id, windowIndex: target.index };
+      return { windowId: target.id };
     }
     return null;
   }
@@ -1400,16 +1404,17 @@ export const appMachine = setup({
               }
             }
 
-            // Intercept select-window -t <N> from Ctrl+number keybindings.
-            // Remap the visual tab index to the actual tmux window index,
-            // since pane group windows consume intermediate indices.
+            // Intercept select-window -t <N> from Ctrl+number keybindings:
+            // N is the visual tab position, not a tmux index (chrome windows
+            // consume indices), so resolve it to the window's ID — never its
+            // index, which is stale whenever tmux has renumbered.
             const selectWindowMatch = tail.match(/^select-window\s+-t\s+(\d+)$/);
             if (selectWindowMatch) {
               const targetIndex = parseInt(selectWindowMatch[1], 10);
               const visibleWindows = context.windows.filter((w) => w.windowType === 'tab');
               const targetWindow = visibleWindows.find((_, i) => i + 1 === targetIndex);
               if (targetWindow) {
-                tail = `select-window -t ${targetWindow.index}`;
+                tail = `select-window -t ${targetWindow.id}`;
                 command = tail;
               }
             }
@@ -1422,7 +1427,6 @@ export const appMachine = setup({
               enqueue.raise({
                 type: 'SELECT_TAB',
                 windowId: tabNavTarget.windowId,
-                windowIndex: tabNavTarget.windowIndex,
               });
               return;
             }
@@ -1726,7 +1730,6 @@ export const appMachine = setup({
               enqueue.raise({
                 type: 'SELECT_TAB',
                 windowId: tabNavTarget.windowId,
-                windowIndex: tabNavTarget.windowIndex,
               });
               return;
             }

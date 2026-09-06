@@ -100,7 +100,6 @@ describe('layout state', () => {
     const ctx = sendAndGetContext(actor, {
       type: 'SELECT_TAB',
       windowId: '@1',
-      windowIndex: 1,
     });
     expect(ctx.activeWindowId).toBe('@1');
     expect(ctx.activePaneId).toBe('%1');
@@ -162,7 +161,7 @@ describe('layout state', () => {
       windows: [win('@0', 0, true, '%0'), win('@4', 4, false, '%36')],
       panes: [pane('%0', '@0', true), pane('%50', '@4', false), pane('%36', '@4', false)],
     });
-    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: '@4', windowIndex: 4 });
+    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: '@4' });
     expect(ctx.activeWindowId).toBe('@4');
     expect(ctx.activePaneId).toBe('%36');
   });
@@ -175,7 +174,6 @@ describe('layout state', () => {
     const ctx = sendAndGetContext(actor, {
       type: 'SELECT_TAB',
       windowId: '@5',
-      windowIndex: 5,
     });
     // No flip and no dispatch — active window unchanged.
     expect(ctx.activeWindowId).toBe('@5');
