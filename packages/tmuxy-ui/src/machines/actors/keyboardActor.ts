@@ -10,6 +10,10 @@
  * - During IME composition (CJK input, dead keys), we suppress individual keydowns
  * - The composed text is sent as a single unit when composition ends
  * - This prevents garbled text during pinyin/kana input
+ * - A composition can only START on an editable element, so a hidden input
+ *   (utils/mobileKeyboard.ts) owns browser focus on every device and follows
+ *   the pane holding the keyboard. Text typed into it arrives as `input`
+ *   events; keydowns on it are still classified here so bindings win.
  *
  * Text vs. chord (see isTextKey):
  * - Keyboards produce characters through more than the plain unmodified path:
@@ -25,7 +29,13 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { KeyBindings, CopyModeState } from '../../tmux/types';
 import { extractSelectedText } from '../../utils/copyMode';
-import { setupMobileKeyboard, getMobileInput, isTouchDevice } from '../../utils/mobileKeyboard';
+import {
+  focusKeyboardInput,
+  getMobileInput,
+  isTouchDevice,
+  setKeyboardInputTarget,
+  setupMobileKeyboard,
+} from '../../utils/mobileKeyboard';
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
@@ -196,6 +206,12 @@ export function createKeyboardActor() {
     const overlayPaneId = (): string | null => focusedFloatPaneId ?? focusedRightSidebarPaneId;
     let enabled = true;
     let isComposing = false;
+    // Where a composition begun outside the hidden input commits: pinned when
+    // it starts, so a pane switch mid-composition cannot redirect the text.
+    let compositionTarget: string | null = null;
+    // Whether browser focus has been handed to the hidden input once. After
+    // that, clicks on panes and floats move it; nothing here steals it back.
+    let keyboardFocusEstablished = false;
     // Text pending copy via native clipboard event (client-side copy mode yank)
     let pendingCopyText: string | null = null;
 
@@ -209,21 +225,65 @@ export function createKeyboardActor() {
     // readable and users have time to choose a binding)
     const PREFIX_TIMEOUT_MS = 8000;
 
-    // Mobile keyboard: forward typed characters to the active tmux session.
-    // keydown handles special keys (Backspace, Enter, arrows) via the existing
-    // window listener; this handles printable chars that mobile browsers only
-    // deliver via `input` events.
-    const cleanupMobileKeyboard = isTouchDevice()
-      ? setupMobileKeyboard((text) => {
-          if (!enabled) return;
-          const escaped = escapeLiteralText(text);
-          const mobileTarget = overlayPaneId() ?? realPaneId(activePaneId) ?? sessionName;
-          input.parent.send({
-            type: 'SEND_TMUX_COMMAND',
-            command: `send-keys -t ${mobileTarget} -l ${escaped}`,
-          });
-        })
-      : null;
+    /**
+     * The `-t` target for text and keys: the overlay holding the keyboard, else
+     * the active pane, else the session. A placeholder overlay (a float still
+     * being created) falls through to the session rather than to the pane
+     * behind it — see realPaneId.
+     */
+    const keyTarget = (): string => {
+      const overlay = overlayPaneId();
+      if (overlay) return realPaneId(overlay) ?? sessionName;
+      return realPaneId(activePaneId) ?? sessionName;
+    };
+
+    const isRealFormControl = (target: EventTarget | null): boolean => {
+      const element = target as HTMLElement | null;
+      return (
+        element !== null &&
+        (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') &&
+        element !== getMobileInput()
+      );
+    };
+
+    /**
+     * Point the hidden input at the pane holding the keyboard, and hand it
+     * browser focus the first time a real pane exists — an IME cannot begin a
+     * composition until an editable element owns focus. Only when nothing else
+     * has focus: a real form control keeps it, and a touch device waits for a
+     * tap so the virtual keyboard never pops up unasked.
+     */
+    const syncKeyboardInputTarget = () => {
+      setKeyboardInputTarget(overlayPaneId() ?? activePaneId);
+      if (document.activeElement === getMobileInput()) {
+        keyboardFocusEstablished = true;
+        return;
+      }
+      const target = realPaneId(overlayPaneId() ?? activePaneId);
+      if (
+        !isTouchDevice() &&
+        !keyboardFocusEstablished &&
+        target !== null &&
+        document.activeElement === document.body
+      ) {
+        focusKeyboardInput(target);
+        keyboardFocusEstablished = true;
+      }
+    };
+
+    // Text the hidden input received — typed characters and committed IME
+    // compositions on every device; on touch also the characters a virtual
+    // keyboard delivers only as `input` events. Special keys still travel
+    // through the window keydown listener. The pane the input was aimed at
+    // when the text arrived wins, so a commit lands where composition began.
+    const cleanupKeyboardInput = setupMobileKeyboard((text, paneId) => {
+      if (!enabled || leftSidebarFocused) return;
+      const textTarget = paneId === null ? keyTarget() : (realPaneId(paneId) ?? sessionName);
+      input.parent.send({
+        type: 'SEND_TMUX_COMMAND',
+        command: `send-keys -t ${textTarget} -l ${escapeLiteralText(text)}`,
+      });
+    });
 
     // Prefix mode as a small self-contained unit: it owns the active flag, the
     // auto-exit timer, and the PREFIX_MODE_CHANGE notifications. Every entry/exit
@@ -270,16 +330,9 @@ export function createKeyboardActor() {
       // control (e.g. the read-only debug log textarea on the status screen).
       // Without this, keys like Cmd+A / Cmd+C wouldn't reach the textarea
       // because they'd be intercepted as send-keys / copy-mode triggers.
-      // Mobile keyboard's hidden input is excluded — it has dedicated handling
-      // further down (mobileKeyboard.ts forwards `input` events).
-      const eventTarget = event.target as HTMLElement | null;
-      if (
-        eventTarget &&
-        (eventTarget.tagName === 'TEXTAREA' || eventTarget.tagName === 'INPUT') &&
-        eventTarget !== getMobileInput()
-      ) {
-        return;
-      }
+      // The hidden keyboard input is not one of those: its keydowns are
+      // classified below, and its text arrives through `input` events.
+      if (isRealFormControl(event.target)) return;
 
       // Skip while an IME is mid-composition — the composed text arrives whole
       // on compositionend, so forwarding the individual keydowns would garble
@@ -387,8 +440,8 @@ export function createKeyboardActor() {
        * pinned instead, or just the window.
        */
       const bindingPin = (): string => {
-        const overlay = overlayPaneId();
-        if (overlay) return `select-pane -t ${overlay} \\; `;
+        const overlay = realPaneId(overlayPaneId());
+        if (overlayPaneId()) return overlay ? `select-pane -t ${overlay} \\; ` : '';
         let pane = realPaneId(liveActivePaneId);
         if (liveActiveWindowId) {
           const inWindow = (id: string | null) =>
@@ -465,13 +518,13 @@ export function createKeyboardActor() {
         return;
       }
 
-      // On mobile, printable character keydowns from the hidden input are handled
-      // by the `input` event in mobileKeyboard.ts to avoid double-sending.
-      if (event.target === getMobileInput() && isTextKey(event)) {
-        return;
-      }
-
-      event.preventDefault();
+      // A text keydown on the hidden input becomes an `input` event, which
+      // mobileKeyboard.ts forwards — so it must NOT be sent here too, and its
+      // default must survive. It still runs through the prefix and binding
+      // checks below so a bound printable key wins; each of those branches
+      // cancels the event itself. Only the unbound text path lets it through.
+      const hiddenInputText = event.target === getMobileInput() && isTextKey(event);
+      if (!hiddenInputText) event.preventDefault();
 
       // Escape closes the focused float instead of being sent to tmux. A
       // focused SIDEBAR is different: Escape is an ordinary key there, so a
@@ -491,13 +544,13 @@ export function createKeyboardActor() {
       // would trigger the "double prefix" handler, resetting prefix mode
       // before the user can press the binding key.
       if (formattedKey === prefixKey && !event.repeat) {
+        event.preventDefault();
         if (prefixMode.active) {
           // Double prefix sends literal prefix key to the shell
           prefixMode.exit();
-          const prefixTarget = overlayPaneId() ?? realPaneId(liveActivePaneId) ?? sessionName;
           input.parent.send({
             type: 'SEND_TMUX_COMMAND',
-            command: `send-keys -t ${prefixTarget} ${prefixKey}`,
+            command: `send-keys -t ${keyTarget()} ${prefixKey}`,
           });
         } else {
           // Enter prefix mode
@@ -520,6 +573,9 @@ export function createKeyboardActor() {
       // repeat bindings), which handles the timer and notification — so there
       // is no manual clear/notify to keep in sync here.
       if (prefixMode.active) {
+        // Every key after the prefix is consumed, bound or not (tmux ignores an
+        // unbound one) — it must never fall through as typed text.
+        event.preventDefault();
         // Determine the binding key — map DOM key values to tmux key names
         let bindingKey = KEY_MAP[event.key] ?? event.key;
 
@@ -639,6 +695,7 @@ export function createKeyboardActor() {
       // Check for root bindings (bind -n) - these bypass send-keys
       const rootCommand = formattedKey ? rootBindings.get(formattedKey) : undefined;
       if (rootCommand) {
+        event.preventDefault();
         // Same pin as prefix bindings — root bindings (bind -n) also run
         // against tmux's server-side current window/pane and need the
         // post-tab-switch / post-group-swap race guarded the same way.
@@ -667,11 +724,17 @@ export function createKeyboardActor() {
         return;
       }
 
+      // The hidden input delivers this character itself (see above).
+      if (hiddenInputText) return;
+
       // Normal key handling - send via send-keys
-      // Target priority: focused float > active pane ID > session name
+      // Target priority: focused overlay > active pane ID > session name
       // Using activePaneId ensures input reaches the correct pane immediately
       // after an optimistic tab switch (before tmux processes select-window).
-      const target = overlayPaneId() ?? realPaneId(liveActivePaneId) ?? sessionName;
+      const overlay = overlayPaneId();
+      const target = overlay
+        ? (realPaneId(overlay) ?? sessionName)
+        : (realPaneId(liveActivePaneId) ?? sessionName);
       // Typed characters go as literal mode (-l) so tmux never reads them as key
       // syntax; everything else goes as a tmux key name. A character the layout
       // composed (á, ç, @ via AltGr) has no meaningful key name: tmux accepts
@@ -700,21 +763,36 @@ export function createKeyboardActor() {
       });
     };
 
-    const handleCompositionStart = () => {
+    // A composition inside a real form control belongs to the browser.
+    const handleCompositionStart = (event: CompositionEvent) => {
+      if (isRealFormControl(event.target)) {
+        isComposing = false;
+        compositionTarget = null;
+        return;
+      }
       isComposing = true;
+      compositionTarget = keyTarget();
     };
 
     const handleCompositionEnd = (event: CompositionEvent) => {
       isComposing = false;
+      if (isRealFormControl(event.target)) {
+        compositionTarget = null;
+        return;
+      }
+      const target = compositionTarget ?? keyTarget();
+      compositionTarget = null;
       if (!enabled) return;
+      // The hidden input commits its own composition (mobileKeyboard.ts), so
+      // the `input` event that follows can be de-duplicated there.
+      if (event.target === getMobileInput()) return;
 
       // Send the composed text (CJK, an emoji from the picker, a dead-key
-      // accent) as one literal string. Same target priority as a keystroke, so
-      // composed text reaches a focused float or the pinned dock rather than
+      // accent) as one literal string, to the pane that held the keyboard when
+      // the composition began: a focused float or the pinned dock rather than
       // the pane behind it.
       const composedText = event.data;
       if (!composedText) return;
-      const target = overlayPaneId() ?? realPaneId(activePaneId) ?? sessionName;
       input.parent.send({
         type: 'SEND_TMUX_COMMAND',
         command: `send-keys -t ${target} -l ${escapeLiteralText(composedText)}`,
@@ -735,7 +813,7 @@ export function createKeyboardActor() {
       const lines = text.split('\n');
       const commands: string[] = [];
 
-      const pasteTarget = overlayPaneId() ?? realPaneId(activePaneId) ?? sessionName;
+      const pasteTarget = keyTarget();
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (line.length > 0) {
@@ -781,6 +859,7 @@ export function createKeyboardActor() {
         sessionName = event.sessionName;
       } else if (event.type === 'UPDATE_ACTIVE_PANE') {
         activePaneId = event.paneId;
+        syncKeyboardInputTarget();
       } else if (event.type === 'UPDATE_KEYBINDINGS') {
         const kb = event.keybindings;
         prefixKey = kb.prefix_key;
@@ -791,15 +870,17 @@ export function createKeyboardActor() {
         enabled = event.enabled;
       } else if (event.type === 'UPDATE_FOCUSED_FLOAT') {
         focusedFloatPaneId = event.paneId;
+        syncKeyboardInputTarget();
       } else if (event.type === 'UPDATE_LEFT_SIDEBAR_FOCUSED') {
         leftSidebarFocused = event.focused;
       } else if (event.type === 'UPDATE_RIGHT_SIDEBAR_FOCUSED') {
         focusedRightSidebarPaneId = event.paneId;
+        syncKeyboardInputTarget();
       }
     });
 
     return () => {
-      cleanupMobileKeyboard?.();
+      cleanupKeyboardInput();
       prefixMode.exit(false);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('compositionstart', handleCompositionStart);

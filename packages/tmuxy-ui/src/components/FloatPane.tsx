@@ -21,6 +21,7 @@ import {
   selectContainerSize,
 } from '../machines/AppContext';
 import { LogProfiler } from '../utils/renderLog';
+import { focusKeyboardInput } from '../utils/mobileKeyboard';
 import type { FloatPaneState } from '../machines/types';
 import type { TmuxPane } from '../machines/types';
 
@@ -55,6 +56,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
     (e: React.MouseEvent) => {
       e.stopPropagation();
       send({ type: 'FOCUS_PANE', paneId: floatState.paneId });
+      focusKeyboardInput(floatState.paneId);
     },
     [send, floatState.paneId],
   );

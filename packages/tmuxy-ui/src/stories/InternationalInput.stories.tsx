@@ -44,8 +44,32 @@ type Story = StoryObj<typeof AppHarness>;
 // Typing — the event shapes real keyboards produce
 // ---------------------------------------------------------------------------
 
+/**
+ * The element real key events target: the hidden input that holds browser
+ * focus once a pane exists, so an IME has somewhere to compose. A text keydown
+ * the actor lets through then becomes an `input` event, which the browser
+ * fires and this helper reproduces — that second delivery is exactly what a
+ * dropped or doubled character would show up in.
+ */
+const focusTarget = (): EventTarget => document.activeElement ?? window;
+
 function press(init: KeyboardEventInit): void {
-  window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+  const target = focusTarget();
+  const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+  target.dispatchEvent(event);
+  const input = target as HTMLInputElement;
+  const typed = init.key ?? '';
+  if (
+    !event.defaultPrevented &&
+    input instanceof HTMLInputElement &&
+    Array.from(typed).length === 1 &&
+    !init.isComposing
+  ) {
+    input.value = typed;
+    input.dispatchEvent(
+      new InputEvent('input', { bubbles: true, data: typed, inputType: 'insertText' }),
+    );
+  }
 }
 
 /** A key that types itself: `a`, or a layout-native `ç` / `ü` / `й`. */
@@ -70,9 +94,18 @@ const altGr = (char: string) => () =>
 
 /** IME composition (pinyin, kana, hangul, the emoji picker) committing `text`. */
 const compose = (text: string) => () => {
-  window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+  const target = focusTarget();
+  target.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
   for (const key of text) press({ key, keyCode: 229, isComposing: true });
-  window.dispatchEvent(new CompositionEvent('compositionend', { data: text, bubbles: true }));
+  target.dispatchEvent(new CompositionEvent('compositionend', { data: text, bubbles: true }));
+  // Chrome follows compositionend with an `input` carrying the same text; a
+  // composition committed twice would paint the text twice.
+  if (target instanceof HTMLInputElement) {
+    target.value = text;
+    target.dispatchEvent(
+      new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }),
+    );
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -302,5 +335,34 @@ export const ChordsAreNotText: Story = {
     ]);
     // Exactly the two brackets: the chords typed nothing between them.
     expectPainted(canvasElement, rect, 2);
+  },
+};
+
+/**
+ * Where an IME composes. A composition can only begin inside an editable
+ * element, and until PR #61 nothing on the desktop ever had one — the hidden
+ * input existed for touch keyboards only, so Korean, Japanese and Chinese
+ * input had nowhere to start. Now the input takes browser focus as soon as a
+ * pane exists and follows the pane holding the keyboard. Text typed into it
+ * arrives once: a plain key by its `input` event, a composition by its
+ * `compositionend`, with the `input` event Chrome fires after that commit
+ * de-duplicated rather than painted a second time.
+ */
+export const HiddenInputOwnsFocus: Story = {
+  args: { height: 420 },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(promptLine(canvasElement)).toBeTruthy(), { timeout: 15000 });
+    await waitFor(() => {
+      const active = document.activeElement as HTMLInputElement | null;
+      expect(active?.tagName).toBe('INPUT');
+    });
+
+    const composed = await typeRun(canvasElement, '한글', [compose('한글')]);
+    expectPainted(canvasElement, composed);
+    expect(promptLine(canvasElement).textContent ?? '').not.toContain('한글한글');
+
+    const typed = await typeRun(canvasElement, 'ab', [plain('a'), plain('b')]);
+    expectPainted(canvasElement, typed, 4);
+    expect(promptLine(canvasElement).textContent ?? '').not.toContain('aabb');
   },
 };

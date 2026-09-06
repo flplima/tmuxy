@@ -144,7 +144,7 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 ## Keyboard Input Flow
 
 1. User presses a key in the browser
-2. `keyboardActor` captures the DOM `keydown` event
+2. `keyboardActor` captures the DOM `keydown` event. A hidden text input (`tmuxy-ui/src/utils/mobileKeyboard.ts`) owns browser focus on every device and follows the pane holding the keyboard (pane, float, or dock); an IME can only begin a composition inside an editable element. Text typed into it reaches the actor as `input` events and is sent once; its keydowns still run through the prefix and binding checks so a bound printable key wins
 3. If in copy mode: key routed to `COPY_MODE_KEY` handler (handled client-side, see [COPY-MODE.md](COPY-MODE.md))
 4. If prefix key pressed: enters prefix mode, waits for next key to match a binding
 5. Otherwise the keydown is classified as text or chord (see below) and `keyboardActor` sends `SEND_TMUX_COMMAND` — literal text with `send-keys -l`, a chord as a tmux key name

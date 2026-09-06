@@ -13,6 +13,7 @@ import { useCallback, useRef, useState, useEffect, type RefObject } from 'react'
 import type { AppMachineEvent } from '../machines/types';
 import { sendScrollLines, sgrMouseCommand } from './scrollUtils';
 import { haptics } from '../utils/haptics';
+import { focusKeyboardInput } from '../utils/mobileKeyboard';
 
 interface UsePaneMouseOptions {
   paneId: string;
@@ -199,6 +200,8 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       // so input stayed routed to the previous pane.
       haptics.trigger(10);
       send({ type: 'FOCUS_PANE', paneId });
+      // Browser focus follows: an IME composes only into an editable element.
+      focusKeyboardInput(paneId);
 
       // Shift+click: focus only, don't forward or start a drag-selection.
       if (e.shiftKey) {
