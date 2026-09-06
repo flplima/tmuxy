@@ -59,6 +59,10 @@ pub enum ClientCommand {
         mode: Option<String>,
     },
     GetThemesList,
+    /// Git worktree context for the sidebar tree, discovered from the cwd of
+    /// every pane on the socket. Takes no paths from the client: on the web
+    /// that would let anyone reaching the server probe the filesystem.
+    ListGitWorktrees,
     SetThemeMode {
         mode: String,
     },
@@ -131,7 +135,11 @@ mod tests {
     fn unit_variant_accepts_empty_args_object() {
         // The TS adapter sends `args: {}` for no-arg commands. serde rejects
         // an empty map for a unit variant, so `decode` must strip it.
-        for cmd_name in ["get_theme_settings", "get_themes_list"] {
+        for cmd_name in [
+            "get_theme_settings",
+            "get_themes_list",
+            "list_git_worktrees",
+        ] {
             let body = serde_json::to_vec(&json!({ "cmd": cmd_name, "args": {} })).unwrap();
             ClientCommand::decode(&body)
                 .unwrap_or_else(|e| panic!("'{cmd_name}' with empty args should decode: {e}"));

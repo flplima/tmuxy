@@ -2006,6 +2006,25 @@
   white-space: nowrap;
 }
 
+/* A row's git context: the branch (or short head) of the worktree its pane's
+   cwd sits in, from the host's worktree discovery (docs/TMUX.md "Sessions
+   tree"). A tab shows one only when every pane in it shares that worktree. */
+.sidebar-tree-git {
+  flex: 0 1 auto;
+  margin-left: auto;
+  padding-left: var(--spacing-sm);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.sidebar-tree-git::before {
+  content: '⎇ ';
+}
+
 /* Rows for sessions the app is not attached to — dimmed, read-only. */
 .sidebar-tree-tab.is-foreign,
 .sidebar-tree-pane.is-foreign {

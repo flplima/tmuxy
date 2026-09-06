@@ -2472,6 +2472,38 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       () => window.app?.getSnapshot()?.context?.activeWindowId,
     );
     expect(firstWindowId).toMatch(/^@\d+$/);
+    const firstPaneId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activePaneId,
+    );
+    expect(firstPaneId).toMatch(/^%\d+$/);
+
+    // A pane sitting inside a git checkout: the tree decorates its row with
+    // the branch. The repo is a throwaway created here, so the badge can only
+    // come from discovering this pane's cwd — not from the tmuxy checkout.
+    const os = require('os');
+    const path = require('path');
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-tree-git-'));
+    const branch = 'tree-badge-branch';
+    // The user makes the checkout in the pane, as they would.
+    await ctx.session.runCommand(
+      `send-keys -t ${firstPaneId} 'cd ${repoDir} && git init -q -b ${branch}' Enter`,
+    );
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        if (!fs.existsSync(path.join(repoDir, '.git', 'HEAD'))) return false;
+        const out = String(
+          await ctx.session.query("list-panes -a -F '#{pane_id}\t#{pane_current_path}'"),
+        );
+        const cwd = out
+          .split('\n')
+          .map((l) => l.split('\t'))
+          .find(([id]) => id === firstPaneId)?.[1];
+        return Boolean(cwd) && fs.realpathSync(cwd) === fs.realpathSync(repoDir);
+      },
+      8000,
+      'the pane to sit inside the throwaway repo',
+    );
 
     // Setup (not the feature under test): a second window so the tree lists
     // more than one tab and an activation switch is observable.
@@ -2546,6 +2578,37 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       8000,
       'the long pane title to wrap onto a second line in the tree',
     );
+
+    // The pane inside the repo shows its branch, drawn inside the column, and
+    // no other row does — the other panes sit in whatever checkout the server
+    // was started from, never in this throwaway one.
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(
+          ({ paneId, branch }) => {
+            const badge = document.querySelector(
+              `[data-testid="tree-pane-${paneId}"] .sidebar-tree-git`,
+            );
+            if (!badge || badge.textContent !== branch) return false;
+            const column = document.querySelector('.sidebar-column-left').getBoundingClientRect();
+            const r = badge.getBoundingClientRect();
+            return r.width > 0 && r.left >= column.left && r.right <= column.right;
+          },
+          { paneId: firstPaneId, branch },
+        ),
+      25000,
+      'the branch badge on the pane inside the repo',
+    );
+    const rowsOnBranch = await ctx.page.evaluate(
+      (name) =>
+        [...document.querySelectorAll('.sidebar-tree-pane .sidebar-tree-git')].filter(
+          (el) => el.textContent === name,
+        ).length,
+      branch,
+    );
+    expect(rowsOnBranch).toBe(1);
+    fs.rmSync(repoDir, { recursive: true, force: true });
 
     // Step 4: Focus the sidebar (click) so keys route to the tree.
     //

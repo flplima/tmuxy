@@ -35,8 +35,15 @@ import {
   selectVisibleWindows,
   selectPanes,
   selectSessions,
+  selectRepositories,
 } from '../machines/AppContext';
 import { getTabText, getTabIcon } from './paneTabDisplay';
+import {
+  findPaneGitContext,
+  gitBadgeText,
+  summarizeGitContexts,
+  type PaneGitContext,
+} from './gitContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
 import type { TmuxPane, TmuxWindow } from '../machines/types';
@@ -141,6 +148,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const windows = useAppSelectorShallow(selectVisibleWindows);
   const panes = useAppSelectorShallow(selectPanes);
   const sessions = useAppSelectorShallow(selectSessions);
+  const repositories = useAppSelectorShallow(selectRepositories);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
@@ -150,6 +158,39 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // one session; a lone session needs no disambiguating header, so it keeps the
   // classic flat tab→pane tree (the common case on web and desktop alike).
   const grouped = sessions.length > 1;
+
+  // Git context per pane, from the poll's cwds and the discovered worktrees
+  // (both cover every session, the active one included), and the panes each
+  // window holds — a tab's badge is its panes' shared worktree, if they share one.
+  const git = useMemo(() => {
+    const byPane = new Map<string, PaneGitContext>();
+    const panesByWindow = new Map<string, string[]>();
+    for (const s of sessions) {
+      for (const p of s.panes) {
+        const ids = panesByWindow.get(p.windowId) ?? [];
+        ids.push(p.id);
+        panesByWindow.set(p.windowId, ids);
+        if (repositories.length === 0) continue;
+        const context = findPaneGitContext(p.cwd, repositories);
+        if (context) byPane.set(p.id, context);
+      }
+    }
+    return { byPane, panesByWindow };
+  }, [sessions, repositories]);
+
+  const gitBadge = (paneIds: readonly string[]): { text: string; title: string } | null => {
+    const summary = summarizeGitContexts(paneIds.map((id) => git.byPane.get(id) ?? null));
+    if (summary.kind !== 'single') return null;
+    const text = gitBadgeText(summary.context);
+    return text ? { text, title: summary.context.worktree.path } : null;
+  };
+  const windowBadge = (windowId: string) => gitBadge(git.panesByWindow.get(windowId) ?? []);
+  const badgeSpan = (badge: { text: string; title: string } | null) =>
+    badge && (
+      <span className="sidebar-tree-git" title={badge.title}>
+        {badge.text}
+      </span>
+    );
 
   // Flatten into the ordered row list (also the keyboard nav order).
   const rows = useMemo<Row[]>(() => {
@@ -429,6 +470,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               <span className="sidebar-tree-label">
                 {row.index}:{row.name || `Tab ${row.index}`}
               </span>
+              {badgeSpan(windowBadge(row.windowId))}
             </div>
           );
         }
@@ -453,6 +495,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               <span className="sidebar-tree-label">
                 {row.paneId} {row.label}
               </span>
+              {badgeSpan(gitBadge([row.paneId]))}
             </div>
           );
         }
@@ -503,6 +546,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               <span className="sidebar-tree-label">
                 {row.position}:{row.window.name || `Tab ${row.position}`}
               </span>
+              {badgeSpan(windowBadge(row.window.id))}
             </div>
           );
         }
@@ -555,6 +599,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             <span className="sidebar-tree-label">
               {row.pane.tmuxId} {getTabText(row.pane)}
             </span>
+            {badgeSpan(gitBadge([row.pane.tmuxId]))}
             {/* Which pane the keyboard actually goes to, at a glance — the
                 green label alone reads the same as the active tab's. */}
             {isActive && (

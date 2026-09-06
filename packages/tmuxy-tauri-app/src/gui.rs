@@ -1232,6 +1232,8 @@ pub fn run() {
             commands::set_trace_enabled,
             commands::set_trace_level,
             commands::open_trace_file,
+            // Read-only git context for the sidebar tree.
+            commands::list_git_worktrees,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

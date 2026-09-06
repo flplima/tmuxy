@@ -782,6 +782,23 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
+        ClientCommand::ListGitWorktrees => {
+            // The pane cwds come from tmux, not the request (see the variant),
+            // and git runs off the async runtime like the other subprocess reads.
+            let session = session.to_string();
+            let repositories = tokio::task::spawn_blocking(move || {
+                use tmuxy_core::worktrees::{
+                    list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD,
+                };
+                let listing = executor::run_tmux_command_for_session(&session, LIST_PANE_PATHS_CMD)
+                    .map_err(|e| e.to_string())?;
+                list_git_worktrees(paths_from_pane_listing(&listing)).map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| format!("worktree discovery task failed: {e}"))??;
+            serde_json::to_value(repositories)
+                .map_err(|e| format!("failed to serialize worktrees: {e}"))
+        }
         ClientCommand::SetThemeMode { mode } => {
             tmuxy_core::theme::set_theme_mode(&state.ctx, &mode).await?;
             Ok(serde_json::json!(null))

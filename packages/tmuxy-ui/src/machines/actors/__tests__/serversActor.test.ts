@@ -49,6 +49,18 @@ describe('parseSessions', () => {
     expect(session.panes.map((p) => p.id)).toEqual(['%0']);
   });
 
+  it('carries each pane cwd, empty when tmux reports none', () => {
+    const [session] = parseSessions(
+      row('s', '@0', '0', 'w', 'tab'),
+      [
+        row('s', '@0', '%0', 'bash', '1', '', '/code/app'),
+        row('s', '@0', '%1', 'top', '0', 'a title'),
+      ].join('\n'),
+    );
+    expect(session.panes.find((p) => p.id === '%0')?.cwd).toBe('/code/app');
+    expect(session.panes.find((p) => p.id === '%1')?.cwd).toBe('');
+  });
+
   it('is resilient to empty output', () => {
     expect(parseSessions('', '')).toEqual([]);
   });

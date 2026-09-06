@@ -8,6 +8,7 @@ import type {
   PaneGroup,
   KeyBindings,
   SessionTreeNode,
+  GitRepository,
   TraceSettings,
 } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
@@ -166,6 +167,10 @@ export function selectPanes(context: AppMachineContext): TmuxPane[] {
  */
 export function selectSessions(context: AppMachineContext): SessionTreeNode[] {
   return context.sessions;
+}
+
+export function selectRepositories(context: AppMachineContext): GitRepository[] {
+  return context.repositories;
 }
 
 /**

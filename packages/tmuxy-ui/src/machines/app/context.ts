@@ -67,6 +67,7 @@ export const FIELD_OWNERS = {
   containerHeight: 'parent',
   bodyWidth: 'parent',
   sessions: 'parent',
+  repositories: 'parent',
 
   // ---- layout ----
   panes: 'layout',
@@ -159,6 +160,7 @@ export function createInitialContext(): AppMachineContext {
     containerHeight: 0,
     bodyWidth: 0,
     sessions: [],
+    repositories: [],
     floatPanes: {},
     focusedFloatPaneId: null,
     leftSidebarOpen: false,

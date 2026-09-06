@@ -250,6 +250,22 @@ pub async fn get_themes_list() -> Result<Value, String> {
     Ok(tmuxy_core::theme::get_themes_list())
 }
 
+/// Git worktree context for the sidebar tree, discovered from the cwd of
+/// every pane on the socket (read through tmux, never supplied by the page).
+/// The git subprocesses stay off Tauri's async runtime.
+#[tauri::command]
+pub async fn list_git_worktrees(state: State<'_, MonitorState>) -> Result<Value, String> {
+    use tmuxy_core::worktrees::{list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD};
+    let listing = dispatch_tmux_command(&state, LIST_PANE_PATHS_CMD.to_string()).await?;
+    let repositories = tauri::async_runtime::spawn_blocking(move || {
+        list_git_worktrees(paths_from_pane_listing(&listing))
+    })
+    .await
+    .map_err(|e| format!("worktree discovery task failed: {e}"))?
+    .map_err(|e| e.to_string())?;
+    serde_json::to_value(repositories).map_err(|e| e.to_string())
+}
+
 /// The status bar is the window's title bar; it reports its rendered height
 /// (logical px) so the native window buttons stay centred on it.
 ///

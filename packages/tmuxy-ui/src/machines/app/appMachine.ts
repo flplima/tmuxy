@@ -435,6 +435,9 @@ export const appMachine = setup({
     SESSIONS_UPDATED: {
       actions: assign(({ event }) => ({ sessions: event.sessions })),
     },
+    GIT_REPOSITORIES_UPDATED: {
+      actions: assign(({ event }) => ({ repositories: event.repositories })),
+    },
     // OSC 52 clipboard write request from a terminal application. Mirror it
     // into the system clipboard via navigator.clipboard. Fire-and-forget —
     // a denied permission shouldn't break the rest of the machine. Updates

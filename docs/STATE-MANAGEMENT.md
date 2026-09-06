@@ -151,7 +151,7 @@ The machine invokes five persistent actors:
 
 **`sizeActor`** (`tmuxy-ui/src/machines/actors/sizeActor.ts`) — Viewport tracking. Measures monospace font char dimensions on start, listens to window resize (debounced 100ms), observes container with `ResizeObserver`. Sends `SET_CHAR_SIZE`, `SET_TARGET_SIZE`, `SET_CONTAINER_SIZE` to the parent. While a sidebar column slides open or shut (`sidebarMotion` in context, owned by `groupsAndFloats`), the machine drops the observer's per-frame `SET_TARGET_SIZE`s: the toggle already sent the grid its settled size once, and `SIDEBAR_MOTION_SETTLED` re-applies the measured size when the slide ends.
 
-**`serversActor`** (`tmuxy-ui/src/machines/actors/serversActor.ts`) — Polls the sessions tree for the sidebar (runs on web and desktop when the adapter sets `enumeratesSessions`).
+**`serversActor`** (`tmuxy-ui/src/machines/actors/serversActor.ts`) — Polls the sessions tree for the sidebar (runs on web and desktop when the adapter sets `enumeratesSessions`), and every ~15s the git worktree discovery behind the tree's branch badges (`GIT_REPOSITORIES_UPDATED` → `repositories`; see [TMUX.md](TMUX.md) "Sessions tree").
 
 ### Child Machines
 

@@ -18,13 +18,18 @@
  * this poll supplies the *other* sessions, so a few seconds' refresh lag on
  * them is fine.
  *
- * The saved-server list (which drives the desktop ServerPicker) is the only
- * Tauri-gated part — see {@link createServersActor}.
+ * The same poll carries the tree's git context: each pane row's cwd
+ * (`#{pane_current_path}`) rides along in the pane listing, and every
+ * {@link DISCOVERY_INTERVAL_MS} (and on each forced refresh) the host is asked
+ * for the worktrees those cwds sit in (`list_git_worktrees`, which reads the
+ * pane paths from tmux itself — nothing about the filesystem is sent from
+ * here). `GIT_REPOSITORIES_UPDATED` publishes the result; the tree matches
+ * cwds to worktrees client-side (`components/gitContext.ts`).
  */
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { Effect, Fiber, Schedule } from 'effect';
 import type { TmuxAdapter } from '../../tmux/types';
-import type { SessionTreeNode } from '../types';
+import type { GitRepository, SessionTreeNode } from '../types';
 
 export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
 
@@ -38,6 +43,10 @@ export interface ServersActorInput {
 // skipped entirely while the sidebar is closed, and an immediate refresh fires
 // on open (REFRESH_SESSIONS), so this only governs the steady-state refresh.
 const POLL_INTERVAL_MS = 4000;
+
+// Worktree discovery runs git once per repository; branches change far less
+// often than panes, so it rides on the poll only every few ticks.
+const DISCOVERY_INTERVAL_MS = 15000;
 
 /** Field separator embedded in the tmux `-F` format (a literal tab). */
 const SEP = '\t';
@@ -60,7 +69,7 @@ const WINDOWS_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{window_index}${
  */
 const APP_PANE_TITLE = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
 
-const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}${SEP}${APP_PANE_TITLE}`;
+const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}${SEP}${APP_PANE_TITLE}${SEP}#{pane_current_path}`;
 
 export const LIST_WINDOWS_COMMAND = `list-windows -a -F '${WINDOWS_FORMAT}'`;
 export const LIST_PANES_COMMAND = `list-panes -a -F '${PANES_FORMAT}'`;
@@ -101,7 +110,7 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
 
   for (const line of panesOut.split('\n')) {
     if (!line) continue;
-    const [session, windowId, paneId, command, active, title] = line.split(SEP);
+    const [session, windowId, paneId, command, active, title, cwd] = line.split(SEP);
     if (!session || !windowId || !paneId) continue;
     if (!keptWindowIds.has(windowId)) continue;
     ensure(session).panes.push({
@@ -109,6 +118,7 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
       windowId,
       command: command ?? '',
       title: title ?? '',
+      cwd: cwd ?? '',
       active: active === '1',
     });
   }
@@ -149,6 +159,26 @@ export function createServersActor(adapter: TmuxAdapter) {
     const query = (command: string): Promise<string> =>
       adapter.queryReadonly?.(command) ?? adapter.invoke<string>('run_tmux_command', { command });
 
+    // Worktree discovery, due every DISCOVERY_INTERVAL_MS or when forced. The
+    // host derives the pane paths from tmux and runs git; a failure (no git on
+    // the host, say) just leaves the previous repositories in place.
+    let lastDiscovery = 0;
+    const discover = (force: boolean): Effect.Effect<void> =>
+      Effect.suspend(() => {
+        if (!force && Date.now() - lastDiscovery < DISCOVERY_INTERVAL_MS) return Effect.void;
+        lastDiscovery = Date.now();
+        return Effect.tryPromise(() =>
+          adapter.invoke<GitRepository[] | null>('list_git_worktrees', {}),
+        ).pipe(
+          Effect.flatMap((repositories) =>
+            Effect.sync(() =>
+              parent.send({ type: 'GIT_REPOSITORIES_UPDATED', repositories: repositories ?? [] }),
+            ),
+          ),
+          Effect.ignore,
+        );
+      });
+
     // One poll tick as an Effect. Modelling it in Effect means interrupting the
     // poll fiber (on stop) between a query and its parent.send drops the stale
     // send — no `cancelled` flag to thread through. suspend() re-reads the
@@ -181,6 +211,7 @@ export function createServersActor(adapter: TmuxAdapter) {
               }),
             ),
           ),
+          Effect.flatMap(() => discover(force)),
           Effect.ignore,
         );
       });

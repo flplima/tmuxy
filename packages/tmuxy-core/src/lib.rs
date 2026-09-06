@@ -23,6 +23,8 @@ pub mod theme;
 pub mod tmux_service;
 #[cfg(feature = "native")]
 pub mod trace;
+#[cfg(feature = "native")]
+pub mod worktrees;
 
 #[cfg(feature = "native")]
 pub use ctx::{Clock, Ctx, TmuxCommand};

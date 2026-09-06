@@ -129,7 +129,33 @@ export interface SessionTreePane {
   command: string;
   /** App-set pane title (OSC 0/2); empty when the app never set one. */
   title: string;
+  /** Working directory tmux reports for the pane (`#{pane_current_path}`). */
+  cwd: string;
   active: boolean;
+}
+
+/**
+ * One checkout of a repository as `git worktree list` reports it — the wire
+ * shape of `tmuxy-core/src/worktrees.rs`, discovered by the host from the cwd
+ * of every pane and shown as a branch badge in the sidebar tree.
+ */
+export interface GitWorktree {
+  path: string;
+  /** Absent for a detached HEAD and for a bare repository. */
+  branch?: string;
+  head: string;
+  isMain: boolean;
+  detached: boolean;
+  bare: boolean;
+  locked: boolean;
+  prunable: boolean;
+}
+
+export interface GitRepository {
+  id: string;
+  name: string;
+  root: string | null;
+  worktrees: GitWorktree[];
 }
 
 /**
@@ -345,6 +371,12 @@ export interface AppMachineContext {
    * classic single-session flat tree.
    */
   sessions: SessionTreeNode[];
+  /**
+   * Git repositories discovered from the panes' working directories, refreshed
+   * by the `serversActor` poll alongside `sessions`; `[]` on the sandboxes and
+   * for SSH-backed servers (their pane paths are remote).
+   */
+  repositories: GitRepository[];
 }
 
 // ============================================
@@ -700,6 +732,11 @@ export type SessionsUpdatedEvent = {
   type: 'SESSIONS_UPDATED';
   sessions: SessionTreeNode[];
 };
+/** Git worktree discovery result, from the same poll. */
+export type GitRepositoriesUpdatedEvent = {
+  type: 'GIT_REPOSITORIES_UPDATED';
+  repositories: GitRepository[];
+};
 
 // Display settings events
 export type IncreaseFontSizeEvent = { type: 'INCREASE_FONT_SIZE' };
@@ -841,6 +878,7 @@ export type AppMachineEvent =
   | OpenConnectFloatEvent
   | SessionSwitchRequestedEvent
   | SessionsUpdatedEvent
+  | GitRepositoriesUpdatedEvent
   | IncreaseFontSizeEvent
   | DecreaseFontSizeEvent
   | ResetFontSizeEvent
