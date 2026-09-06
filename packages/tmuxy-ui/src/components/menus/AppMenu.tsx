@@ -22,6 +22,7 @@ import {
 } from '@szhsin/react-menu';
 import '@szhsin/react-menu/dist/index.css';
 import {
+  useAppActor,
   useAppSend,
   useAppSelector,
   useAppSelectorShallow,
@@ -38,6 +39,7 @@ import {
 import type { TraceLevel } from '../../machines/types';
 import { isTauri } from '../../tmux/adapters';
 import { restartApp } from '../../utils/restartApp';
+import { copyAppState } from '../../utils/copyAppState';
 import { activeCloseTarget, executeMenuAction } from './menuActions';
 import { PaneMenuItems } from './PaneMenuItems';
 import { KeyLabel } from './KeyLabel';
@@ -45,6 +47,7 @@ import './AppMenu.css';
 
 export function AppMenu() {
   const send = useAppSend();
+  const actor = useAppActor();
   const { isDemo } = useAppConfig();
   const keybindings = useAppSelector(selectKeyBindings);
   const isSinglePane = useAppSelector(selectIsSinglePane);
@@ -235,6 +238,16 @@ export function AppMenu() {
           }
         >
           Copy trace.ndjson Path
+        </MenuItem>
+
+        <MenuItem
+          onClick={() =>
+            copyAppState(actor.getSnapshot().context, (text) =>
+              send({ type: 'SHOW_STATUS_MESSAGE', text }),
+            )
+          }
+        >
+          Copy App State
         </MenuItem>
 
         <MenuDivider />
