@@ -38,6 +38,10 @@ Two tmux options matter:
 
 The parser is permissive about line wrapping and stray printable bytes between chunked Kitty packets, since tmux re-flows output around its own column wrapping.
 
+An application that writes the sequences **must not wrap them in tmux's DCS passthrough** when it is running under tmuxy. Passthrough exists so a terminal sitting behind tmux still receives an escape tmux does not understand; tmuxy is not behind tmux, it reads the pane stream over control mode and decodes the protocols itself. Nothing unwraps the passthrough on the way, so the wrapper arrives verbatim, and since it opens with `ESC P` exactly like a Sixel frame the Sixel branch claims it and paints one junk strip per chunk. Scripts that support both should send the wrapper only when the socket in `$TMUX` is not tmuxy's.
+
+A picture is retired in one of two ways. Kitty's `a=d` deletes placements (the default `d=a` and `d=A` selectors, which mean "all of them"; the narrower ones address images by a kitty id tmuxy does not keep, so they are left alone). And a new placement anchored at the same cell **replaces** the one already there, so a preview that homes the cursor and repaints once a second keeps exactly one frame on screen without stacking — and without the gap that deleting first would leave while the next frame crosses control mode.
+
 ## End-to-end pipeline
 
 ```

@@ -120,6 +120,21 @@ impl ImageParser {
         self.pending.clear();
     }
 
+    /// Record a placement, replacing any already anchored at the same cell.
+    ///
+    /// A live preview repaints in place: it homes the cursor and sends the next
+    /// frame at the same spot, once a second. Appending each one stacked the
+    /// pane full of dead frames, and the protocol's own `a=d` only avoids that
+    /// by emptying the pane first — which, over control mode, leaves the frame
+    /// visibly missing for as long as the next one takes to arrive. Swapping
+    /// the picture at that anchor keeps exactly one frame on screen with no gap
+    /// in between.
+    fn place(&mut self, placement: ImagePlacement) {
+        self.placements
+            .retain(|p| p.row != placement.row || p.col != placement.col);
+        self.placements.push(placement);
+    }
+
     /// Reset for a capture-pane refill: clear in-flight transfer state but
     /// PRESERVE placements. capture-pane output never contains the original
     /// image escapes (tmux strips them from history), so clearing placements
@@ -271,7 +286,7 @@ impl ImageParser {
 
         let id = self.next_id;
         self.next_id += 1;
-        self.placements.push(ImagePlacement {
+        self.place(ImagePlacement {
             id,
             row: self.cursor_row,
             col: self.cursor_col,
@@ -345,6 +360,7 @@ impl ImageParser {
         let mut src_h: u32 = 0;
         let mut rows: u32 = 0;
         let mut cols: u32 = 0;
+        let mut delete_what: u8 = b'a';
 
         for kv in keys_str.split(',') {
             let mut it = kv.splitn(2, '=');
@@ -360,8 +376,24 @@ impl ImageParser {
                 "v" => src_h = v.parse().unwrap_or(0),
                 "r" => rows = v.parse().unwrap_or(0),
                 "c" => cols = v.parse().unwrap_or(0),
+                "d" => delete_what = v.bytes().next().unwrap_or(b'a'),
                 _ => {}
             }
+        }
+
+        // a=d deletes placements, which is how an application repaints in place
+        // rather than stacking frames: a live preview (ranger, zellij, a
+        // screenshot loop) clears before each new frame, and ignoring it left
+        // the pane accumulating one placement per frame until the tab crawled.
+        // `d` says WHICH to drop; its default 'a' (and 'A', which also frees
+        // the data) means all of them. The narrower selectors address images by
+        // the kitty id, which we do not keep, so those are left alone rather
+        // than guessed at — dropping the wrong picture is worse than keeping it.
+        if action == b'd' {
+            if delete_what == b'a' || delete_what == b'A' {
+                self.placements.clear();
+            }
+            return Some((consumed, None));
         }
 
         // We only support direct (base64-inline) transmission. File / shm
@@ -431,7 +463,7 @@ impl ImageParser {
         let (width_cells, height_cells) = self.kitty_cell_dims(&entry);
         let id = self.next_id;
         self.next_id += 1;
-        self.placements.push(ImagePlacement {
+        self.place(ImagePlacement {
             id,
             row: self.cursor_row,
             col: self.cursor_col,
@@ -522,7 +554,7 @@ impl ImageParser {
 
         let id = self.next_id;
         self.next_id += 1;
-        self.placements.push(ImagePlacement {
+        self.place(ImagePlacement {
             id,
             row: self.cursor_row,
             col: self.cursor_col,
@@ -746,6 +778,65 @@ mod tests {
         assert_eq!(p.height_cells, 2);
         assert_eq!(result.new_images.len(), 1);
         assert_eq!(result.new_images[0].1.mime_type, "image/png");
+    }
+
+    #[test]
+    fn kitty_delete_clears_placements_so_a_repaint_does_not_stack() {
+        // A live preview repaints by deleting, then transmitting the next
+        // frame. Ignoring the delete left one placement per frame on screen.
+        let mut parser = ImageParser::new();
+        let png = b"\x89PNG\r\n\x1a\n";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(png);
+        let frame = format!("\x1b_Ga=T,f=100,c=4,r=2;{}\x1b\\", b64);
+
+        parser.process(frame.as_bytes());
+        parser.cursor_row = 10; // a second picture elsewhere on the screen
+        parser.process(frame.as_bytes());
+        assert_eq!(parser.placements.len(), 2, "two pictures on screen");
+
+        // The delete an application sends before its next frame.
+        let result = parser.process(b"\x1b_Ga=d,q=2\x1b\\");
+        assert!(
+            result.clean_bytes.is_empty(),
+            "the delete must be stripped from the text stream"
+        );
+        assert!(parser.placements.is_empty(), "a=d drops every placement");
+
+        parser.cursor_row = 0;
+        parser.process(frame.as_bytes());
+        assert_eq!(parser.placements.len(), 1, "the repaint leaves one frame");
+    }
+
+    #[test]
+    fn a_frame_redrawn_at_the_same_anchor_replaces_the_old_one() {
+        // A preview loop homes the cursor and sends the next frame at the same
+        // spot. Appending each one stacked the pane full of dead frames.
+        let mut parser = ImageParser::new();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n");
+        let frame = format!("\x1b_Ga=T,f=100,c=4,r=2;{}\x1b\\", b64);
+
+        for _ in 0..5 {
+            parser.cursor_row = 0;
+            parser.cursor_col = 0;
+            parser.process(frame.as_bytes());
+        }
+        assert_eq!(parser.placements.len(), 1, "one frame on screen, not five");
+
+        // A picture somewhere else is its own placement, not a replacement.
+        parser.cursor_row = 12;
+        parser.process(frame.as_bytes());
+        assert_eq!(parser.placements.len(), 2);
+    }
+
+    #[test]
+    fn kitty_delete_by_id_is_left_alone() {
+        // Narrow selectors address images by the kitty id, which we do not
+        // keep; dropping the wrong picture is worse than keeping it.
+        let mut parser = ImageParser::new();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n");
+        parser.process(format!("\x1b_Ga=T,f=100,c=4,r=2;{}\x1b\\", b64).as_bytes());
+        parser.process(b"\x1b_Ga=d,d=i,i=7,q=2\x1b\\");
+        assert_eq!(parser.placements.len(), 1);
     }
 
     #[test]

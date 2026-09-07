@@ -359,7 +359,13 @@ async fn image_handler(
         Some(img) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", &img.mime_type)
-            .header("Cache-Control", "public, max-age=3600")
+            // Never cached. The id is a per-pane counter that starts again at
+            // zero every time the server does, so an hour-long cache serves the
+            // PREVIOUS run's picture at the same URL — a restarted tmuxy shows
+            // a stale frame where the new one should be. Nothing here is worth
+            // caching anyway: a live preview mints a new id per frame, and a
+            // still image is fetched once per mount over a local socket.
+            .header("Cache-Control", "no-store")
             .body(Body::from(img.data.clone()))
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
         None => json_response(
