@@ -52,9 +52,9 @@ jobs:
       APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -224,7 +224,7 @@ jobs:
 
       - name: Upload AppImage
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tmuxy-linux-appimage-${{ matrix.arch }}
           path: target/release/bundle/appimage/*.AppImage
@@ -232,7 +232,7 @@ jobs:
 
       - name: Upload .deb
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tmuxy-linux-deb-${{ matrix.arch }}
           path: target/release/bundle/deb/*.deb
@@ -240,7 +240,7 @@ jobs:
 
       - name: Upload .dmg
         if: matrix.platform == 'macos'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tmuxy-macos-dmg
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
@@ -255,9 +255,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           path: all-artifacts
 
@@ -293,7 +293,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: tmuxy-macos-dmg
           path: dmg
@@ -414,12 +414,12 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: tmuxy-linux-appimage-amd64
           path: appimage-amd64
 
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: tmuxy-linux-appimage-arm64
           path: appimage-arm64
