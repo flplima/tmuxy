@@ -1,0 +1,15 @@
+# cargo-audit policy (CI: the `audit` job in lint-and-tests.yml).
+#
+# Every ignored advisory needs a reason and a way out. Re-check them when the
+# crate that pins the vulnerable version releases.
+[advisories]
+ignore = [
+  # quick-xml 0.38 / 0.39: unbounded namespace allocation and quadratic
+  # duplicate-attribute check in the XML reader. Fixed in 0.41, a semver-
+  # incompatible release that `plist` (tauri's Info.plist reader) and
+  # `wayland-scanner` (a build-time proc macro on Linux) do not accept yet.
+  # Neither parses XML from the network or from a user: plist reads the app's
+  # own bundle metadata, wayland-scanner reads protocol files at build time.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+]

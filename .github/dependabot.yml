@@ -1,0 +1,45 @@
+# Dependabot: security updates for everything that ships, grouped so a scan
+# never turns into a dozen PRs. Version (non-security) bumps stay manual —
+# Tauri pins several crates tightly and a blind bump breaks the desktop build.
+version: 2
+updates:
+  # npm: the root manifest sees every workspace (tmuxy-ui, tmuxy-demo, ...)
+  # and the `overrides` block, so one entry covers the lot.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "🔧"
+
+  # cargo: one workspace lockfile at the root.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cargo-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "🔧"
+
+  # The workflows' own actions.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "🔧"

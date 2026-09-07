@@ -547,3 +547,28 @@ jobs:
       - name: Storybook logs (debug)
         if: failure()
         run: tail -200 /tmp/storybook.log
+
+  # Dependency audits, scoped to what ships: production npm dependencies
+  # (dev tooling — Storybook, Puppeteer, wdio — is audited by Dependabot but
+  # would keep this job permanently red) and the Rust workspace, with the
+  # policy and its reasons in .cargo/audit.toml.
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: npm audit (production dependencies, high and above)
+        run: npm audit --omit=dev --audit-level=high
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@cargo-audit
+
+      - name: cargo audit
+        run: cargo audit
