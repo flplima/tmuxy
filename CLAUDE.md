@@ -16,117 +16,12 @@ See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC prot
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
 See [docs/TELEMETRY.md](docs/TELEMETRY.md) for unified cross-layer action tracing into a single local NDJSON file (design: schema, seams, redaction boundary, phased plan).
 
-## Project Structure
-
-```
-tmuxy/
-├── packages/
-│   ├── tmuxy-core/           # Rust: tmux control mode, parsing, state
-│   ├── tmuxy-server/         # Rust: server (SSE, HTTP, embedded frontend, dev mode)
-│   ├── tmuxy-ui/             # React/Vite frontend
-│   │   └── src/tmux/demo/    # In-browser demo engine (DemoAdapter, DemoTmux, LifoShell)
-│   ├── tmuxy-demo/           # Next.js demo site (static export → GitHub Pages)
-│   ├── tmuxy-wasm/           # Rust: wasm-bindgen facade over tmuxy-core (browser-side parsing)
-│   ├── tmuxy-connect/        # Rust: standalone "add a server" TUI form (tmuxy connect)
-│   ├── tmuxy-tree/           # Rust: standalone sidebar tree TUI (tmuxy tree)
-│   └── tmuxy-tauri-app/      # Tauri desktop app wrapper
-├── bin/
-│   ├── tmuxy-cli              # Shell dispatcher (symlinked as ~/.local/bin/tmuxy)
-│   └── tmuxy/                 # Shell scripts for floats, groups, widgets
-├── tests/                    # E2E tests (Jest + Playwright)
-│   ├── helpers/              # Test helpers, one module per domain
-│   └── *.test.js             # Test suites grouped by operation
-└── docs/                     # Project documentation
-```
-
 ## CLI Usage
 
 The `tmuxy` CLI is a noun-verb dispatcher at `bin/tmuxy-cli`, symlinked as `~/.local/bin/tmuxy`.
 All mutating commands route through `tmux run-shell` for safety with control mode.
 
-```bash
-# Pane operations
-tmuxy pane list [--json] [--all]       # List panes
-tmuxy pane split [-h|-v]               # Split current pane
-tmuxy pane kill [%id]                  # Kill pane
-tmuxy pane select [-U|-D|-L|-R|%id]    # Select pane
-tmuxy pane resize [-U|-D|-L|-R] [n]    # Resize pane
-tmuxy pane swap %0 %1                  # Swap two panes
-tmuxy pane zoom                        # Toggle zoom
-tmuxy pane break                       # Break pane into own tab
-tmuxy pane capture [%id] [--json]      # Capture pane content
-tmuxy pane send ls Enter               # Send keys to pane
-tmuxy pane paste "some text"           # Paste text into pane
-tmuxy pane float [cmd args...]         # Create a float pane
-tmuxy pane group add                   # Add pane to a group
-tmuxy pane group close [%id]           # Close pane from group
-tmuxy pane group switch %5             # Switch to pane in group
-tmuxy pane group next                  # Next pane in group
-tmuxy pane group prev                  # Previous pane in group
-
-# Tab operations
-tmuxy tab list [--json]                # List tabs
-tmuxy tab create [name]                # Create tab (safe splitw+breakp)
-tmuxy tab kill [@id]                   # Kill tab
-tmuxy tab select <index|@id>           # Switch to tab
-tmuxy tab next                         # Next tab
-tmuxy tab prev                         # Previous tab
-tmuxy tab rename <name>                # Rename current tab
-tmuxy tab layout [next|even-h|...]     # Change pane layout
-
-# Session operations
-tmuxy session switch [--float]         # Interactive session switcher
-tmuxy session connect [--web]          # SSH connection prompt
-
-# Navigation (groups → splits → tabs)
-tmuxy nav <left|right|up|down|next|prev>  # Navigate across groups, splits, and tabs
-
-# Sidebar tree
-tmuxy tree                             # Open the interactive tabs+panes tree view
-
-# Widgets
-tmuxy widget image /path/to/img.png    # Display image widget
-tmuxy widget markdown README.md        # Display markdown widget
-echo "# Hello" | tmuxy widget markdown - # Markdown from stdin
-
-# Event queue (inter-agent coordination)
-tmuxy event emit <name> <msg|->        # Publish message (- for stdin)
-tmuxy event wait <name>                # Block until message arrives
-tmuxy event list                       # Show pending events
-
-# Escape hatch (routes safely through run-shell)
-tmuxy run swap-pane -s %0 -t %1       # Run any tmux command safely
-tmuxy run new-window                   # Intercepted → splitw+breakp
-tmuxy run resize-window                # Blocked (crashes control mode)
-
-# Connect the DESKTOP APP to a different tmux server (socket), live
-tmuxy connect                          # Open the "add a server" form (localhost or SSH)
-tmuxy connect default                  # Attach to your everyday tmux server
-tmuxy connect default work             # ...to its "work" session specifically
-tmuxy connect /tmp/tmux-1000/foo       # ...to a socket by full path
-                                       # (no effect in the web UI — its socket is fixed at launch)
-                                       # The desktop sidebar's server picker (footer) lists saved
-                                       # servers (from ~/.config/tmuxy/servers.json) and reconnects
-                                       # to one; its sessions→tabs→panes tree shows every session.
-
-# Server
-tmuxy server                           # Start production server (0.0.0.0:9000, no auth)
-tmuxy server --host 127.0.0.1          # Bind to localhost only
-tmuxy server --password <secret>       # Require HTTP Basic auth (any username); also TMUXY_PASSWORD env
-tmuxy server stop                      # Stop production server
-tmuxy server status                    # Show server status
-```
-
 Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> --help` for details.
-
-## Development
-
-```bash
-npm start               # Start dev server (pm2 + cargo-watch)
-npm run stop            # Stop dev server
-npm test                # Unit tests (Vitest)
-npm run test:e2e        # E2E tests (requires server + Chrome CDP)
-```
 
 ## Devcontainer
 
@@ -192,6 +87,8 @@ The `docs/` directory contains architectural and design documentation. **Review 
 
 When working on a branch other than `main`, always `git merge main` before starting work to avoid future conflicts.
 
+**Stage files explicitly — never `git add -A`.**
+
 Use [gitmoji](https://gitmoji.dev/) for commit messages:
 
 | Emoji | Description |
@@ -207,71 +104,4 @@ Use [gitmoji](https://gitmoji.dev/) for commit messages:
 | 🔧 | Configuration |
 | 🚀 | Version bump / release |
 
-## Release Workflow (Critical)
-
-The full ship sequence — from a green main commit all the way to a Homebrew-installable release. Each step must succeed before the next; never tag ahead of CI.
-
-### 0. macOS signing (one-time setup)
-
-The macOS build signs and notarizes itself when — and only when — these repository secrets exist. The Tauri CLI reads them during `tauri build`: it imports the certificate into a throwaway keychain, signs with the hardened runtime, then notarizes and staples. With `APPLE_CERTIFICATE` absent it skips signing silently, so forks and PRs still produce a working (unsigned) DMG.
-
-| Secret | What it is |
-|---|---|
-| `APPLE_CERTIFICATE` | base64 of the **Developer ID Application** `.p12`. An *Apple Development* cert is NOT enough — it fails Gatekeeper on every machine but the ones registered to it |
-| `APPLE_CERTIFICATE_PASSWORD` | the password set when exporting that `.p12` |
-| `APPLE_SIGNING_IDENTITY` | the identity's full name, e.g. `Developer ID Application: Felipe Lima (NF27TT2TR8)` |
-| `APPLE_API_KEY` | App Store Connect key ID (the `XXXXXXXXXX` in `AuthKey_XXXXXXXXXX.p8`) |
-| `APPLE_API_ISSUER` | the issuer UUID shown above the key list |
-| `APPLE_API_KEY_P8` | base64 of the `.p8` itself — staged to a file at build time, since notarization wants a path |
-
-The API key is used rather than `APPLE_ID` + an app-specific password because it carries no 2FA and can be revoked without touching the Apple ID. Apple issues a `.p8` **once**; losing it means minting a new key.
-
-Signing changes nothing about the cask — Homebrew already strips the quarantine xattr — but it removes the *"couldn't verify tmuxy's signer"* warning and lets the app open on a Mac that downloaded the DMG directly.
-
-### 1. Land the change on main
-Stage files explicitly (never `git add -A`), commit with a gitmoji prefix, push to `origin/main`. CI runs three workflows: `lint and tests`, `Build App`, `Deploy Demo`. The `Build App` workflow on a non-tag push builds and uploads artifacts but **skips** the `release` and `bump-cask` jobs — those are tag-gated.
-
-### 2. Wait for CI green on the change commit
-Poll with `gh run list --commit <SHA> --json name,status,conclusion`. All three must be `success` before proceeding. If `lint and tests` fails on something pre-existing (e.g., `cargo fmt --check` drift in a file you didn't touch), fix it as a separate commit per the "Testing & Bug Fixes" rule above.
-
-### 3. Bump the version
-The next version is the existing version with the alpha number incremented. Update **all** of these to keep the workspace consistent:
-
-- `Cargo.toml` (workspace.package.version)
-- `package.json` (root)
-- `packages/tmuxy-ui/package.json`
-- `packages/tmuxy-demo/package.json`
-- `packages/tmuxy-tauri-app/tauri.conf.json` (literal — Tauri 2 forbids templating; `packages/tmuxy-tauri-app/build.rs` auto-syncs from `Cargo.toml` at build time, but commit the synced value explicitly so the tag is reproducible without a build step)
-- `Cargo.lock` — regenerate with `cargo build -p tmuxy-server`
-
-Commit as `🚀 v<new-version>` with no body. Same 6 files as every prior version bump — check `git show v<previous-version> --stat` to confirm the pattern.
-
-**Heads-up:** stopping `tmuxy-dev` in pm2 first (`pm2 stop tmuxy-dev`) avoids transient `Permission denied` errors when `cargo build` races the dev-mode binary.
-
-### 4. Tag and push
-```
-git tag v<new-version> <commit-sha>
-git push origin main
-git push origin v<new-version>
-```
-Order matters: push main first so the tag's commit is on the remote when the tag arrives.
-
-### 5. Wait for tag-triggered Build App run
-Pushing the tag triggers a **second** `Build App` run (this one with `github.ref = refs/tags/v...`). This run executes `build` → `release` → `bump-cask` → `bump-formula`. Watch it with `gh run list --workflow build-app.yml --limit 5` — the new row has `head_branch = v<new-version>`.
-
-- The `release` job downloads the build artifacts and creates a GitHub Release with both Linux architectures — `tmuxy_<version>_amd64.AppImage`, `tmuxy_<version>_aarch64.AppImage`, `tmuxy_<version>_amd64.deb`, `tmuxy_<version>_arm64.deb` — plus `tmuxy_<version>_universal.dmg` attached. The `build` matrix produces the two Linux arches on the `ubuntu-22.04` (amd64) and `ubuntu-22.04-arm` (arm64) runners.
-- The `bump-cask` job downloads the `.dmg`, computes sha256, and pushes an updated `Casks/tmuxy.rb` to `flplima/homebrew-tap` (macOS install).
-- The `bump-formula` job downloads **both** Linux AppImages, computes a sha256 for each, and pushes an updated `Formula/tmuxy.rb` (with `on_arm`/`on_intel` url+sha256 blocks) to `flplima/homebrew-tap` (Linux install). It runs **after** `bump-cask` (sequential, not parallel) so the two jobs don't race pushing to the same tap repo.
-
-**This run is what makes `brew install --cask flplima/tap/tmuxy` (macOS) and `brew install flplima/tap/tmuxy` (Linux) pick up the new version.** Until it finishes green, brew still points at the previous tag.
-
-### 6. Verify brew is ready
-- `gh release view v<new-version>` should list 5 assets (amd64 + aarch64 `.AppImage`, amd64 + arm64 `.deb`, `.dmg`).
-- The latest commits on `flplima/homebrew-tap` should be `chore: bump tmuxy to v<new-version>` (cask) and `chore: bump tmuxy formula to v<new-version>` (formula).
-- A macOS user running `brew update && brew upgrade --cask flplima/tap/tmuxy`, or a Linux user running `brew update && brew upgrade flplima/tap/tmuxy`, should now get the new build.
-
-### Common failures
-- **Linux build hangs on `npm install`** — runner-side flake. Cancel the hung run (`gh run cancel <id>`) and re-run the workflow (`gh run rerun <id>` or push an empty commit on the tag — simpler is to delete + repush the tag, but that requires `--force` on the second push, so prefer rerun).
-- **`cargo fmt --check` fails on a pre-existing file** — run `cargo fmt -p <crate>`, commit the result as `🎨 cargo fmt <path>` before the version bump, and re-wait for CI.
-- **Tag-triggered run starts but `release` job is skipped** — the tag wasn't pushed (only the commit was). Confirm with `git ls-remote --tags origin`.
-- **`bump-cask`/`bump-formula` fails with "already at v..."** — benign; means a previous run already pushed that tap update. Brew is ready.
+The release process lives in the `release` skill (`.claude/skills/release/`) — invoke it when shipping a version.

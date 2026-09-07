@@ -23,8 +23,9 @@ target/
 # Claude Code (user-specific, not checked in)
 CLAUDE.local.md
 .claude/*
-# Track agent definitions, lib, and startup script
+# Track agent definitions, skills, lib, and startup script
 !.claude/agents/
+!.claude/skills/
 !.claude/lib/
 !.claude/start.sh
 !.claude/README.md

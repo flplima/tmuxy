@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+#
+# Block until a release-relevant CI run reaches a terminal state.
+#
+# Usage: wait-ci commit [<sha>]      # step 2: all 3 workflows green on a commit
+#        wait-ci tag <version>       # step 5: the tag-triggered Build App run
+#        wait-ci ... --timeout <s>   # default 2700 (45 min)
+#
+# Exit 0 when everything watched succeeded, 1 on any failure, 2 on timeout.
+# Never tag ahead of this: the tag-gated release jobs assume CI already passed.
+
+set -euo pipefail
+
+MODE="${1:?Usage: wait-ci commit [<sha>] | wait-ci tag <version>}"
+shift
+
+TIMEOUT=2700
+ARG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --timeout) TIMEOUT="$2"; shift 2 ;;
+    *) ARG="$1"; shift ;;
+  esac
+done
+
+# The three workflows that must pass on a plain push to main.
+EXPECTED=("lint and tests" "Build App" "Deploy Demo")
+
+case "$MODE" in
+  commit)
+    SHA="${ARG:-$(git rev-parse HEAD)}"
+    LABEL="commit ${SHA:0:8}"
+    query() { gh run list --commit "$SHA" --json name,status,conclusion; }
+    ;;
+  tag)
+    [ -n "$ARG" ] || { echo "usage: wait-ci tag <version>" >&2; exit 2; }
+    LABEL="tag v$ARG"
+    EXPECTED=("Build App")
+    query() { gh run list --workflow build-app.yml --branch "v$ARG" --json name,status,conclusion; }
+    ;;
+  *)
+    echo "unknown mode: $MODE (expected 'commit' or 'tag')" >&2; exit 2 ;;
+esac
+
+echo "waiting on $LABEL — expecting: ${EXPECTED[*]}"
+START=$(date +%s)
+
+while :; do
+  RUNS=$(query)
+
+  DONE=1
+  FAILED=0
+  LINE=""
+  for wf in "${EXPECTED[@]}"; do
+    ROW=$(printf '%s' "$RUNS" | jq -r --arg n "$wf" '[.[] | select(.name == $n)][0] // empty')
+    if [ -z "$ROW" ]; then
+      DONE=0; LINE+="  $wf: not started yet\n"; continue
+    fi
+    STATUS=$(printf '%s' "$ROW" | jq -r '.status')
+    CONCL=$(printf '%s' "$ROW" | jq -r '.conclusion // ""')
+    LINE+="  $wf: $STATUS ${CONCL:+($CONCL)}\n"
+    if [ "$STATUS" != "completed" ]; then
+      DONE=0
+    elif [ "$CONCL" != "success" ]; then
+      FAILED=1
+    fi
+  done
+
+  printf '\n[%s]\n' "$(date +%H:%M:%S)"
+  printf '%b' "$LINE"
+
+  if [ "$FAILED" -eq 1 ]; then
+    echo "FAILED — inspect with: gh run list --limit 5"
+    exit 1
+  fi
+  if [ "$DONE" -eq 1 ]; then
+    echo "all green on $LABEL"
+    exit 0
+  fi
+
+  if [ $(( $(date +%s) - START )) -ge "$TIMEOUT" ]; then
+    echo "timed out after ${TIMEOUT}s — a Linux runner hanging on npm install is the usual cause;"
+    echo "cancel with 'gh run cancel <id>' and re-run with 'gh run rerun <id>'."
+    exit 2
+  fi
+  sleep 30
+done

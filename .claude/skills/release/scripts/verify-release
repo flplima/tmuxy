@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+#
+# Confirm a tagged release actually reached brew users.
+#
+# Usage: verify-release <version>
+#
+# Checks the two things that decide whether `brew upgrade` serves the new
+# build: the 5 release assets, and the cask + formula bumps on the tap.
+# Exit 0 only when both are in place.
+
+set -euo pipefail
+
+VERSION="${1:?Usage: verify-release <version>}"
+VERSION="${VERSION#v}"
+TAG="v$VERSION"
+TAP="flplima/homebrew-tap"
+
+FAIL=0
+
+echo "=== release assets on $TAG ==="
+EXPECTED=(
+  "tmuxy_${VERSION}_amd64.AppImage"
+  "tmuxy_${VERSION}_aarch64.AppImage"
+  "tmuxy_${VERSION}_amd64.deb"
+  "tmuxy_${VERSION}_arm64.deb"
+  "tmuxy_${VERSION}_universal.dmg"
+)
+ASSETS=$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
+if [ -z "$ASSETS" ]; then
+  echo "  no release found for $TAG"
+  FAIL=1
+else
+  for a in "${EXPECTED[@]}"; do
+    if printf '%s\n' "$ASSETS" | grep -qxF "$a"; then
+      echo "  ok      $a"
+    else
+      echo "  MISSING $a"
+      FAIL=1
+    fi
+  done
+fi
+
+echo
+echo "=== tap bumps on $TAP ==="
+check_tap() {
+  local path=$1 label=$2
+  local body
+  body=$(gh api "repos/$TAP/contents/$path" -q '.content' 2>/dev/null | base64 -d 2>/dev/null || true)
+  if [ -z "$body" ]; then
+    echo "  MISSING $label ($path not readable)"
+    FAIL=1
+  elif printf '%s' "$body" | grep -q "$VERSION"; then
+    echo "  ok      $label pins $VERSION"
+  else
+    echo "  STALE   $label does not mention $VERSION yet"
+    FAIL=1
+  fi
+}
+check_tap "Casks/tmuxy.rb"   "cask (macOS)"
+check_tap "Formula/tmuxy.rb" "formula (Linux)"
+
+echo
+if [ "$FAIL" -eq 0 ]; then
+  echo "READY — brew update && brew upgrade --cask flplima/tap/tmuxy  (macOS)"
+  echo "        brew update && brew upgrade flplima/tap/tmuxy         (Linux)"
+else
+  echo "NOT READY — brew still serves the previous tag."
+  echo "If bump-cask/bump-formula logged 'already at v...', that is benign; re-check."
+  exit 1
+fi

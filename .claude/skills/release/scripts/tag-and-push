@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# Tag a release and push it in the only order that works.
+#
+# Usage: tag-and-push <version> [<commit-sha>]   # sha defaults to HEAD
+#        tag-and-push <version> --yes            # skip the confirmation
+#
+# main is pushed BEFORE the tag, so the tag's commit already exists on the
+# remote when the tag lands. Pushing the tag alone leaves the release job
+# skipped, which is the most common way a release quietly does nothing.
+
+set -euo pipefail
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+VERSION=""
+SHA=""
+YES=0
+for arg in "$@"; do
+  case "$arg" in
+    --yes|-y) YES=1 ;;
+    -*) echo "unknown flag: $arg" >&2; exit 2 ;;
+    *) if [ -z "$VERSION" ]; then VERSION="$arg"; else SHA="$arg"; fi ;;
+  esac
+done
+
+[ -n "$VERSION" ] || { echo "usage: tag-and-push <version> [<commit-sha>]" >&2; exit 2; }
+VERSION="${VERSION#v}"
+SHA="${SHA:-$(git rev-parse HEAD)}"
+TAG="v$VERSION"
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+[ "$BRANCH" = "main" ] || { echo "on '$BRANCH', not main — releases are tagged from main" >&2; exit 1; }
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "working tree is dirty — commit or stash first" >&2
+  git status --short >&2
+  exit 1
+fi
+
+if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+  echo "tag $TAG already exists locally" >&2; exit 1
+fi
+
+# The version in the tree must match the tag, or brew ships a mislabelled build.
+TREE_VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+[ "$TREE_VERSION" = "$VERSION" ] || {
+  echo "Cargo.toml says $TREE_VERSION but you are tagging $VERSION — run bump-version first" >&2
+  exit 1
+}
+
+echo "tag:    $TAG"
+echo "commit: $(git log -1 --oneline "$SHA")"
+echo "remote: $(git remote get-url origin)"
+echo
+echo "will run:  git tag $TAG $SHA && git push origin main && git push origin $TAG"
+
+if [ "$YES" -eq 0 ]; then
+  printf 'proceed? [y/N] '
+  read -r reply
+  case "$reply" in y|Y|yes) ;; *) echo "aborted"; exit 1 ;; esac
+fi
+
+git tag "$TAG" "$SHA"
+git push origin main
+git push origin "$TAG"
+
+echo
+echo "pushed. The tag-triggered Build App run is what publishes the release:"
+echo "  .claude/skills/release/scripts/wait-ci tag $VERSION"
