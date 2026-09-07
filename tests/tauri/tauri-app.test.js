@@ -309,4 +309,33 @@ describe('State Sync', () => {
     expect(bindings).toBeDefined();
     expect(bindings.prefix).toBeDefined();
   });
+
+  // The left column is created by one command list: split-window, break-pane,
+  // set-option. This transport used to give every command that named no target
+  // a `-t <session>`, and break-pane's `-t` is where the pane should GO, not
+  // what to act on. The injected destination resolved to the session's current
+  // window, whose index is by definition taken, so tmux answered "index in use",
+  // the break failed, and the tree stayed behind as an ordinary pane in the tab
+  // instead of becoming the sidebar. Only this suite can see it: the web server
+  // sends the same list down the control-mode connection with no rewrite.
+  test('opening the left sidebar makes its own window and leaves no pane behind', async () => {
+    await setupApp();
+
+    const panesBefore = await getPaneCount(driver);
+
+    // The path the toggle button and `prefix t` both take.
+    await driver.execute(() => window.app.send({ type: 'TOGGLE_LEFT_SIDEBAR' }));
+
+    let names = '';
+    for (let i = 0; i < 60; i++) {
+      names = tmuxQuery(`list-windows -t ${sessionName} -F '#{window_name}'`);
+      if (names.includes('__sidebar-left')) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    expect(names).toContain('__sidebar-left');
+
+    // The tab the user was looking at is untouched: the tree went into the
+    // sidebar window, it did not stay behind as a pane here.
+    expect(await getPaneCount(driver)).toBe(panesBefore);
+  });
 });

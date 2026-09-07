@@ -1394,3 +1394,118 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
     }
   }, 240000);
 });
+
+// ==================== Scenario: commands act on the tab the user sees ====================
+
+/**
+ * Two shipped bugs shared one cause: nothing forced tmux's current window to be
+ * the tab on screen, so a command that named no window ran wherever tmux
+ * happened to be — usually the first tab.
+ *
+ * The existing coverage could not see it. Every other suite creates tabs with a
+ * helper that POSTs `new-window` straight to the server, and reaches the prefix
+ * through `sendPrefixCommand`, which clicks the active pane first. Both put tmux
+ * back in step with the UI before the command under test ever runs. A user who
+ * clicks a TAB and then presses a prefix key does neither, so this scenario
+ * clicks the "+" button, clicks a tab, and drives the prefix with no pane click
+ * in between.
+ */
+describe('Scenario: an unpinned command lands in the tab on screen', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('split and sidebar both act on the visible tab, not on tmux’s current window', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    // Prefix without the focus click the shared helper performs — that click
+    // is what has been hiding this bug.
+    const prefixNoPaneClick = async (key, shift = false) => {
+      await page.keyboard.down('Control');
+      await delay(60);
+      await page.keyboard.press('a');
+      await delay(60);
+      await page.keyboard.up('Control');
+      await waitForCondition(
+        page,
+        () => page.evaluate(() => window.app?.getSnapshot()?.context?.prefixActive === true),
+        5000,
+        'prefix mode',
+      );
+      if (shift) await page.keyboard.down('Shift');
+      await page.keyboard.press(key);
+      if (shift) await page.keyboard.up('Shift');
+      await delay(DELAYS.LONG);
+    };
+
+    const panesByWindow = async () => {
+      const raw = String(
+        await ctx.session.query("list-panes -a -F '#{window_id}\t#{pane_id}'"),
+      ).trim();
+      const map = {};
+      for (const line of raw.split('\n')) {
+        const [win, pane] = line.split('\t');
+        if (!win) continue;
+        (map[win] = map[win] || []).push(pane);
+      }
+      return map;
+    };
+    const visibleTab = () =>
+      page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
+
+    // Two more tabs, created the way a user does: the "+" button.
+    const startCount = (await page.$$('.tab-list .tab-name')).length;
+    await page.click('.tab-add');
+    await waitForWindowCount(page, startCount + 1);
+    await page.click('.tab-add');
+    await waitForWindowCount(page, startCount + 2);
+
+    // Land on the LAST tab by clicking it in the strip. No pane is clicked, so
+    // nothing re-points tmux at this window behind the scenes.
+    const tabs = await page.$$('.tab-list .tab-name');
+    await tabs[tabs.length - 1].click();
+    await delay(DELAYS.SYNC);
+    const target = await visibleTab();
+    expect(target).toMatch(/^@\d+$/);
+
+    const before = await panesByWindow();
+    const firstTab = await page.evaluate(
+      () =>
+        (window.app?.getSnapshot()?.context?.windows || [])
+          .filter((w) => w.windowType === 'tab')
+          .sort((a, b) => a.index - b.index)[0]?.id,
+    );
+
+    // 1. The split belongs to the tab on screen.
+    await prefixNoPaneClick('5', true);
+    await waitForCondition(
+      page,
+      async () => ((await panesByWindow())[target] || []).length === before[target].length + 1,
+      8000,
+      'the split to land in the visible tab',
+    );
+    const afterSplit = await panesByWindow();
+    expect(afterSplit[firstTab].length).toBe(before[firstTab].length);
+
+    // 2. The sidebar becomes its own window, and leaves no pane behind in any
+    // tab. On the desktop transport the break-pane used to fail outright and
+    // the tree stayed put as an ordinary pane.
+    await prefixNoPaneClick('t');
+    await waitForCondition(
+      page,
+      async () => {
+        const names = String(await ctx.session.query("list-windows -a -F '#{window_name}'"));
+        return names.includes('__sidebar-left');
+      },
+      15000,
+      'the sidebar to become its own window',
+    );
+    const afterSidebar = await panesByWindow();
+    expect(afterSidebar[target].length).toBe(afterSplit[target].length);
+    expect(afterSidebar[firstTab].length).toBe(before[firstTab].length);
+  }, 120000);
+});

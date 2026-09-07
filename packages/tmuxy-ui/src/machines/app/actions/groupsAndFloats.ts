@@ -20,6 +20,7 @@ import {
   selectSidebarLayout,
 } from '../../selectors';
 import { calculateTargetSize } from '../../../utils/layout';
+import { isPlaceholderId } from '../../../utils/tabOverview';
 import { CONTAINER_PADDING_X } from '../../../constants';
 import { SIDEBAR_MOTION_SETTLE_MS } from '../../constants';
 
@@ -69,8 +70,16 @@ function freeWindowIndex(windows: TmuxWindow[]): number {
  * and the column stuck on "starting…".
  *
  * An empty `command` leaves `split-window` to start the default shell in the
- * current pane's directory, which is what makes a sidebar shell open like any
- * freshly split pane.
+ * pane it splits, which is what makes a sidebar shell open like any freshly
+ * split pane.
+ *
+ * `splitFrom` names the pane to split. Without it the split falls back to
+ * tmux's own current pane, which is not necessarily in the tab the user is
+ * looking at: nothing in this list makes tmux switch windows first, so the
+ * column's shell (and the tree pane left behind if anything downstream fails)
+ * would be born in whatever tab tmux happened to be on. A placeholder id is
+ * not a target — tmux has never heard of it — so the caller passes null and
+ * the fallback stands.
  */
 export function breakOutTaggedWindow(
   windows: TmuxWindow[],
@@ -79,17 +88,21 @@ export function breakOutTaggedWindow(
     name,
     windowType,
     extraOptions = [],
+    splitFrom = null,
   }: {
     command?: string;
     name: string;
     windowType: 'float' | 'sidebar-left' | 'sidebar-right';
     extraOptions?: Array<[string, string]>;
+    /** Pane to split, so the new window is born beside what the user sees. */
+    splitFrom?: string | null;
   },
 ): string {
   const byName = windowType !== 'float';
   const target = byName ? `:${name}` : `:${freeWindowIndex(windows)}`;
+  const from = splitFrom && !isPlaceholderId(splitFrom) ? ` -t ${splitFrom}` : '';
   const parts = [
-    `split-window ${command}`.trimEnd(),
+    `split-window${from} ${command}`.trimEnd(),
     byName ? `break-pane -d -n ${name}` : `break-pane -d -n ${name} -t ${target}`,
     `set-option -w -t ${target} @tmuxy-window-type ${windowType}`,
     ...extraOptions.map(([key, value]) => `set-option -w -t ${target} ${key} ${value}`),
@@ -173,6 +186,7 @@ export const groupsAndFloatsActions = {
       sendTo('tmux', {
         type: 'SEND_COMMAND' as const,
         command: breakOutTaggedWindow(context.windows, {
+          splitFrom: context.activePaneId,
           command: '"tmuxy session switch --float"',
           name: 'session',
           windowType: 'float',
@@ -196,6 +210,7 @@ export const groupsAndFloatsActions = {
       sendTo('tmux', {
         type: 'SEND_COMMAND' as const,
         command: breakOutTaggedWindow(context.windows, {
+          splitFrom: context.activePaneId,
           command: '"tmuxy session connect"',
           name: 'connect',
           windowType: 'float',
@@ -352,6 +367,7 @@ export const groupsAndFloatsActions = {
           sendTo('tmux', {
             type: 'SEND_COMMAND' as const,
             command: breakOutTaggedWindow(context.windows, {
+              splitFrom: context.activePaneId,
               command: "'tmuxy widget tree'",
               name: SIDEBAR_WINDOW_NAME.left,
               windowType: 'sidebar-left',
@@ -487,6 +503,7 @@ export const groupsAndFloatsActions = {
             // directory. Focus follows once the pane actually exists (see
             // appMachine's sidebar lifecycle reconciliation).
             command: breakOutTaggedWindow(context.windows, {
+              splitFrom: context.activePaneId,
               name: SIDEBAR_WINDOW_NAME.right,
               windowType: 'sidebar-right',
             }),

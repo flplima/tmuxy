@@ -55,6 +55,33 @@ describe('breakOutTaggedWindow', () => {
     expect(cmd.startsWith('split-window \\; break-pane -d -n __sidebar-right')).toBe(true);
   });
 
+  it('splits the pane the user is in, so the column is not born in another tab', () => {
+    // Nothing in this list switches windows first, so an untargeted split runs
+    // wherever tmux's current pane happens to be — which is how the tree came
+    // up as a bare pane in the first tab.
+    const cmd = breakOutTaggedWindow([tab('@0', 1), tab('@9', 3)], {
+      command: "'tmuxy widget tree'",
+      name: SIDEBAR_WINDOW_NAME.left,
+      windowType: 'sidebar-left',
+      splitFrom: '%31',
+    });
+    expect(cmd.startsWith("split-window -t %31 'tmuxy widget tree'")).toBe(true);
+    // The break must stay bare: its -t is a destination, not a target.
+    expect(cmd).toContain('break-pane -d -n __sidebar-left');
+    expect(cmd).not.toContain('break-pane -t');
+  });
+
+  it('falls back to the current pane when the id is a client-side placeholder', () => {
+    // tmux has never heard of a placeholder, so naming one would fail the split.
+    const cmd = breakOutTaggedWindow([tab('@0', 1)], {
+      command: "'tmuxy widget tree'",
+      name: SIDEBAR_WINDOW_NAME.left,
+      windowType: 'sidebar-left',
+      splitFrom: '__placeholder_pane_1',
+    });
+    expect(cmd.startsWith("split-window 'tmuxy widget tree'")).toBe(true);
+  });
+
   it('still names a free index up front for a float, which has no fixed name', () => {
     const windows = [tab('@0', 1), tab('@2', 2), tab('@9', 4)];
     const cmd = breakOutTaggedWindow(windows, {

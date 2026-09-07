@@ -237,6 +237,35 @@ describe('keyboardActor — bindings are pinned to the window the user sees', ()
     pressKey({ key: '%', shiftKey: true });
     expect(lastSendCommand(events)).toBe('select-window -t @2 \\; split-window -h');
   });
+
+  it('derives the window from the pinned pane when the machine has none yet', () => {
+    // Cold start and the beat after a session switch leave activeWindowId
+    // unset. A pane pin on its own steers nothing: `select-pane` on a pane in
+    // another window leaves tmux's current window alone, so the split ran
+    // wherever tmux already was — the split that kept landing in the first tab.
+    const { actor, events, child } = spawnWithLiveContext('%1');
+    child.send({
+      type: 'UPDATE_KEYBINDINGS',
+      keybindings: {
+        prefix_key: 'C-a',
+        prefix_bindings: [{ key: '%', command: 'split-window -h', repeat: false }],
+        root_bindings: [],
+      },
+    });
+    // No active window published yet, and the user is in %3 (which lives in @1).
+    actor.send({ type: 'SET_PARENT_WINDOW', windowId: '' });
+    actor.send({ type: 'SET_PARENT_ACTIVE', paneId: '%3' });
+
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: '%', shiftKey: true });
+
+    // %3 lives in @1, so the pin names @1 even though the machine published no
+    // active window.
+    expect(lastSendCommand(events)).toBe(
+      'select-window -t @1 \\; select-pane -t %3 \\; split-window -h',
+    );
+    actor.stop();
+  });
 });
 
 describe('keyboardActor — ctrl+digit is the tab strip, not a tmux binding', () => {

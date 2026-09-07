@@ -743,7 +743,10 @@ pub fn run_tmux_command_for_session(session_name: &str, cmd: &str) -> Result<Str
         return Err(TmuxError::other("Empty command"));
     }
 
-    // Commands that need session targeting if no -t is specified
+    // Commands whose `-t` names the thing to ACT ON, so defaulting it to the
+    // session is the right fallback when the caller named no target. Commands
+    // whose `-t` is a destination are handled separately — see
+    // `DESTINATION_TARGET_COMMANDS`.
     const SESSION_TARGETED_COMMANDS: &[&str] = &[
         "select-window",
         "select-pane",
@@ -753,8 +756,6 @@ pub fn run_tmux_command_for_session(session_name: &str, cmd: &str) -> Result<Str
         "kill-pane",
         "resize-window",
         "resize-pane",
-        "swap-pane",
-        "swap-window",
         "next-window",
         "previous-window",
         "last-window",
@@ -763,10 +764,6 @@ pub fn run_tmux_command_for_session(session_name: &str, cmd: &str) -> Result<Str
         "previous-layout",
         "select-layout",
         "rotate-window",
-        "break-pane",
-        "join-pane",
-        "move-pane",
-        "move-window",
         "copy-mode",
         "send-keys",
         "send-prefix",
@@ -961,6 +958,26 @@ fn process_compound_command(
     Ok(processed_parts.join(" \\; "))
 }
 
+/// Commands that take the thing to move in `-s` and where it should go in
+/// `-t`. Their target may be normalised when the caller supplied one, but it
+/// must never be invented: a session target does not steer these, it redirects
+/// them. `break-pane -t <session>` resolves to the session's CURRENT window,
+/// whose index is by definition already taken, so tmux answers "index in use"
+/// and the break fails. That is how the left sidebar came up as a bare pane in
+/// the tab on the desktop app: `split-window` had already run, and the
+/// `break-pane` meant to lift the tree out into its own window died on the
+/// injected target, leaving the tree behind in whatever tab tmux was on. The
+/// web transport sends the same list straight down the control-mode connection
+/// without this rewrite, which is why it was never affected.
+const DESTINATION_TARGET_COMMANDS: &[&str] = &[
+    "break-pane",
+    "join-pane",
+    "move-pane",
+    "move-window",
+    "swap-pane",
+    "swap-window",
+];
+
 /// Add session targeting to a single tmux command if needed
 fn add_session_target_if_needed(
     session_name: &str,
@@ -973,6 +990,15 @@ fn add_session_target_if_needed(
     }
 
     let command_name = parts[0];
+
+    // A destination target is normalised if present and never invented.
+    if DESTINATION_TARGET_COMMANDS.contains(&command_name) {
+        return if has_target_flag(&parts) {
+            validate_and_fix_target(session_name, cmd, command_name)
+        } else {
+            Ok(cmd.to_string())
+        };
+    }
 
     // Check if this command needs session targeting
     if !targeted_commands.contains(&command_name) {
@@ -1247,6 +1273,34 @@ pub fn get_root_bindings() -> Result<Vec<KeyBinding>> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    /// The same names `run_tmux_command_for_session` passes in.
+    const ALL_TARGETED: &[&str] = &[
+        "select-window",
+        "select-pane",
+        "split-window",
+        "new-window",
+        "kill-window",
+        "kill-pane",
+        "resize-window",
+        "resize-pane",
+        "next-window",
+        "previous-window",
+        "last-window",
+        "last-pane",
+        "next-layout",
+        "previous-layout",
+        "select-layout",
+        "rotate-window",
+        "copy-mode",
+        "send-keys",
+        "send-prefix",
+        "capture-pane",
+        "display-message",
+        "pipe-pane",
+        "respawn-pane",
+        "respawn-window",
+    ];
+
     use super::*;
 
     // NOTE: the previous two tests here (`test_pane_info_parsing`,
@@ -1414,6 +1468,62 @@ bind-key    -T prefix \\% send-keys %";
             "quoted separator must not split the command: {out}"
         );
         assert!(out.contains("'a\\;b'"), "payload must survive: {out}");
+    }
+
+    #[test]
+    fn a_destination_target_is_never_invented() {
+        // `-t` on these names where the thing should GO, not what to act on.
+        // Inventing a session target redirects them; for break-pane it makes
+        // tmux answer "index in use" and the break fails outright.
+        for cmd in [
+            "break-pane -d -n __sidebar-left",
+            "join-pane -s %4",
+            "move-pane -s %4",
+            "move-window -s @3",
+            "swap-pane -s %0",
+            "swap-window -s @1",
+        ] {
+            let out = process_compound_command("tmuxy", cmd, ALL_TARGETED).unwrap();
+            assert_eq!(out, cmd, "a destination target must not be invented");
+        }
+    }
+
+    #[test]
+    fn a_destination_target_the_caller_supplied_is_kept() {
+        // Ids are global, so a destination the caller named survives as-is.
+        for cmd in ["swap-pane -s %0 -t %1", "move-window -b -s @3 -t @1"] {
+            let out = process_compound_command("tmuxy", cmd, ALL_TARGETED).unwrap();
+            assert_eq!(out, cmd, "an explicit destination must survive untouched");
+        }
+        // A bare index is still qualified with the session — that names the
+        // same window the caller asked for, in a session-safe way. A float's
+        // break-pane relies on it.
+        assert_eq!(
+            process_compound_command("tmuxy", "break-pane -d -n float -t :7", ALL_TARGETED)
+                .unwrap(),
+            "break-pane -d -n float -t tmuxy:7"
+        );
+    }
+
+    #[test]
+    fn the_sidebar_creation_list_keeps_its_break_pane_intact() {
+        // The exact list the frontend builds for the left column. Only the
+        // split may gain a session target; the break must stay bare or the
+        // tree is left behind as a plain pane in whatever tab tmux was on.
+        let cmd = "split-window 'tmuxy widget tree' \\; break-pane -d -n __sidebar-left \\;                    set-option -w -t :__sidebar-left @tmuxy-window-type sidebar-left";
+        let out = process_compound_command("tmuxy", cmd, ALL_TARGETED).unwrap();
+        assert!(
+            out.contains("split-window -t tmuxy 'tmuxy widget tree'"),
+            "the split keeps its session target: {out}"
+        );
+        assert!(
+            out.contains("break-pane -d -n __sidebar-left"),
+            "the break-pane must be untouched: {out}"
+        );
+        assert!(
+            !out.contains("break-pane -t"),
+            "no destination may be injected into break-pane: {out}"
+        );
     }
 
     #[test]

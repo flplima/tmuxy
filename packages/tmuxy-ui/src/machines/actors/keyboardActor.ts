@@ -431,30 +431,37 @@ export function createKeyboardActor() {
        * instant. An overlay (float, dock) is pinned by pane only: its window must
        * never become current, or the tab behind it would blank.
        *
-       * The pane pin must name a pane OF the pinned window. `select-pane` on a
-       * pane elsewhere not only activates it there — it also re-points the
-       * command list's "current" target at that pane, so the `split-window`
-       * after it lands in that other tab, whatever `select-window` said. When
-       * the machine's active pane is not in its active window (a stale id from
-       * a snapshot, a switch mid-flight), the window's own active pane is
-       * pinned instead, or just the window.
+       * The WINDOW is what steers: `select-pane` on a pane in another window
+       * sets that window's active pane and leaves tmux's current window alone,
+       * so a `split-window` after it still runs wherever tmux already was.
+       * A pane pin on its own therefore steers nothing, which is how splits
+       * kept landing in the first tab. The window is taken from the machine
+       * when it has one and derived from the pinned pane otherwise (cold
+       * start, the beat after a session switch), so the pin is never
+       * pane-only. The pane must then name a pane OF that window: when the
+       * machine's active pane is not in it (a stale id from a snapshot, a
+       * switch mid-flight), the window's own active pane is pinned instead, or
+       * just the window.
        */
       const bindingPin = (): string => {
         const overlay = realPaneId(overlayPaneId());
         if (overlayPaneId()) return overlay ? `select-pane -t ${overlay} \\; ` : '';
         let pane = realPaneId(liveActivePaneId);
-        if (liveActiveWindowId) {
+        const windowId =
+          liveActiveWindowId ?? livePanes.find((p) => p.tmuxId === pane)?.windowId ?? null;
+        if (windowId) {
           const inWindow = (id: string | null) =>
-            id !== null &&
-            livePanes.some((p) => p.tmuxId === id && p.windowId === liveActiveWindowId);
+            id !== null && livePanes.some((p) => p.tmuxId === id && p.windowId === windowId);
           if (!inWindow(pane)) {
             pane = realPaneId(
-              livePanes.find((p) => p.windowId === liveActiveWindowId && p.active)?.tmuxId ?? null,
+              livePanes.find((p) => p.windowId === windowId && p.active)?.tmuxId ?? null,
             );
           }
-          const windowPin = `select-window -t ${liveActiveWindowId} \\; `;
+          const windowPin = `select-window -t ${windowId} \\; `;
           return pane ? `${windowPin}select-pane -t ${pane} \\; ` : windowPin;
         }
+        // Nothing known about the window: the pane pin at least aims at the
+        // right pane if tmux is already on its window.
         return pane ? `select-pane -t ${pane} \\; ` : '';
       };
 
