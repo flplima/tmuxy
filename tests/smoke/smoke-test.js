@@ -96,6 +96,7 @@ function assertHealthyDebugLog() {
 
 async function smokeTest() {
   let driver;
+  const launchedAt = Date.now();
   try {
     driver = await remote({
       hostname: 'localhost',
@@ -109,10 +110,22 @@ async function smokeTest() {
         },
       },
       logLevel: 'warn',
-      connectionRetryTimeout: 30000,
-      connectionRetryCount: 3,
+      // Creating the session launches the app and waits for its webview to
+      // register as an automation target. On the Linux CI runners that has
+      // always taken ~26s (the app itself is silent for ~25s between GTK init
+      // and its first log line), so the old 30s cap left about three seconds
+      // of headroom and any startup cost that crossed it turned the whole
+      // workflow red. The wait is bounded by the job timeout either way;
+      // what matters is that the number is not sitting on top of the
+      // measurement. The elapsed time is printed below so the margin stays
+      // visible in the log instead of being rediscovered from a red build.
+      connectionRetryTimeout: 120000,
+      // No retries: WebKitWebDriver serves one session at a time, so a second
+      // attempt after a timeout fails with "Maximum number of active
+      // sessions" and reports that instead of the timeout that caused it.
+      connectionRetryCount: 0,
     });
-    console.warn('WebDriver session created — app launched');
+    console.warn(`WebDriver session created — app launched (${Date.now() - launchedAt}ms)`);
 
     // Wait for terminal UI element
     const terminal = await driver.$('[role="log"]');
