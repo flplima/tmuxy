@@ -1,6 +1,8 @@
 # Dependabot: security updates for everything that ships, grouped so a scan
 # never turns into a dozen PRs. Version (non-security) bumps stay manual —
-# Tauri pins several crates tightly and a blind bump breaks the desktop build.
+# Tauri pins several crates tightly and a blind bump breaks the desktop build —
+# which is what `open-pull-requests-limit: 0` does: it turns version updates
+# off while the entry's grouping still shapes the security PRs.
 version: 2
 updates:
   # npm: the root manifest sees every workspace (tmuxy-ui, tmuxy-demo, ...)
@@ -10,7 +12,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     groups:
       npm-security:
         applies-to: security-updates
@@ -24,7 +26,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     groups:
       cargo-security:
         applies-to: security-updates
