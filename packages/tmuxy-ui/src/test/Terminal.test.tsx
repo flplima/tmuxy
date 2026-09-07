@@ -304,6 +304,25 @@ describe('Terminal', () => {
     expect(img.getAttribute('src')).toBe('/api/images/7/3');
   });
 
+  it('keeps the same element when a frame is redrawn, so it does not blink', () => {
+    // The browser holds the previous picture on an existing <img> until the
+    // new src has decoded. Rebuilding the element instead leaves a gap with
+    // nothing painted, which is what the blink between frames was.
+    const frame = (id: number) => [
+      { id, row: 0, col: 0, widthCells: 40, heightCells: 20, protocol: 'kitty' as const },
+    ];
+    const { rerender } = render(
+      <Terminal content={createContent(['x'])} paneId="%0" images={frame(1)} />,
+    );
+    const first = screen.getByTestId('terminal').querySelector('img.terminal-image');
+
+    rerender(<Terminal content={createContent(['x'])} paneId="%0" images={frame(2)} />);
+    const second = screen.getByTestId('terminal').querySelector('img.terminal-image');
+
+    expect(second).toBe(first);
+    expect(second?.getAttribute('src')).toBe('/api/images/0/2');
+  });
+
   it('sets aria-live to off to avoid flooding screen readers', () => {
     const content = createContent(['Hello World', 'Line 2']);
     render(<Terminal content={content} />);

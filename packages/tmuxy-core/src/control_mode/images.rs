@@ -155,6 +155,51 @@ impl ImageParser {
     /// Process raw output bytes, extracting image sequences from any of the
     /// three supported protocols. Returns cleaned bytes (image sequences
     /// stripped) and any newly completed images to store.
+    /// Undo tmux's DCS passthrough — `ESC P tmux; <payload, every ESC doubled>
+    /// ESC \` — so the payload is parsed as if the application had written it
+    /// to the terminal itself. Returns `None` when there is nothing wrapped.
+    ///
+    /// An application inside tmux is meant to wrap any escape tmux does not
+    /// understand; that is how the image protocols reach a terminal sitting
+    /// behind tmux. tmuxy is not behind tmux — it reads the pane stream — so
+    /// the wrapper arrives here intact and has to be undone. Reading it also
+    /// keeps the pane's title intact: tmux takes a bare APC string for a title
+    /// (its `input_exit_apc`), so a Kitty frame sent unwrapped turns the pane
+    /// title into base64 while it draws.
+    fn unwrap_passthrough(&mut self, content: &[u8]) -> Option<Vec<u8>> {
+        const PREFIX: &[u8] = b"\x1bPtmux;";
+        if !content.windows(PREFIX.len()).any(|w| w == PREFIX) {
+            return None;
+        }
+        let mut out = Vec::with_capacity(content.len());
+        let mut i = 0;
+        while i < content.len() {
+            if content[i..].starts_with(PREFIX) {
+                match undouble_escapes(&content[i + PREFIX.len()..]) {
+                    Some((payload, consumed)) => {
+                        out.extend_from_slice(&payload);
+                        i += PREFIX.len() + consumed;
+                    }
+                    None => {
+                        // Truncated at the chunk boundary: hold the tail so the
+                        // next call sees the whole wrapper.
+                        let tail = &content[i..];
+                        if tail.len() <= MAX_PENDING_IMAGE {
+                            self.pending.extend_from_slice(tail);
+                        } else {
+                            out.extend_from_slice(tail);
+                        }
+                        return Some(out);
+                    }
+                }
+            } else {
+                out.push(content[i]);
+                i += 1;
+            }
+        }
+        Some(out)
+    }
+
     pub fn process(&mut self, content: &[u8]) -> ImageProcessResult {
         // Prepend any incomplete image escape carried over from the last chunk.
         let buffered;
@@ -164,6 +209,17 @@ impl ImageParser {
             self.pending.extend_from_slice(content);
             buffered = std::mem::take(&mut self.pending);
             &buffered
+        };
+
+        // Payloads tmux was asked to relay verbatim are unwrapped first, so
+        // everything below sees the escapes the application actually wrote.
+        let unwrapped;
+        let content: &[u8] = match self.unwrap_passthrough(content) {
+            Some(bytes) => {
+                unwrapped = bytes;
+                &unwrapped
+            }
+            None => content,
         };
 
         let mut output = Vec::with_capacity(content.len());
@@ -602,6 +658,34 @@ fn parse_iterm2_dim(raw: &str, px_per_cell: u16) -> u16 {
 /// True if `content` contains a string-sequence terminator (BEL or ST `ESC \`).
 /// Used to tell an *incomplete* image escape (none present → split across the
 /// %output boundary) from a complete one that simply isn't an image.
+/// Read a tmux passthrough body up to its terminating `ESC \`, restoring every
+/// doubled `ESC` on the way. Returns the payload and how many bytes it spanned,
+/// or `None` when the terminator has not arrived yet.
+fn undouble_escapes(body: &[u8]) -> Option<(Vec<u8>, usize)> {
+    let mut payload = Vec::with_capacity(body.len());
+    let mut i = 0;
+    while i < body.len() {
+        if body[i] == 0x1B {
+            match body.get(i + 1) {
+                None => return None,
+                Some(0x1B) => {
+                    payload.push(0x1B);
+                    i += 2;
+                }
+                Some(b'\\') => return Some((payload, i + 2)),
+                Some(_) => {
+                    payload.push(body[i]);
+                    i += 1;
+                }
+            }
+        } else {
+            payload.push(body[i]);
+            i += 1;
+        }
+    }
+    None
+}
+
 fn has_escape_terminator(content: &[u8]) -> bool {
     content
         .iter()
@@ -778,6 +862,61 @@ mod tests {
         assert_eq!(p.height_cells, 2);
         assert_eq!(result.new_images.len(), 1);
         assert_eq!(result.new_images[0].1.mime_type, "image/png");
+    }
+
+    #[test]
+    fn a_kitty_frame_wrapped_in_tmux_passthrough_still_renders() {
+        // What an application inside tmux actually sends: the escape wrapped
+        // for tmux to relay, with every ESC in the payload doubled. Sent bare
+        // instead, tmux reads the APC as a pane title and the title turns into
+        // base64 while the picture draws.
+        let mut parser = ImageParser::new();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n");
+        let inner = format!("\x1b_Ga=T,f=100,c=4,r=2;{b64}\x1b\\");
+        let wrapped = format!("\x1bPtmux;{}\x1b\\", inner.replace('\x1b', "\x1b\x1b"));
+
+        let result = parser.process(wrapped.as_bytes());
+
+        assert!(
+            result.clean_bytes.is_empty(),
+            "the whole wrapper is consumed: {:?}",
+            String::from_utf8_lossy(&result.clean_bytes)
+        );
+        assert_eq!(parser.placements.len(), 1);
+        assert_eq!(parser.placements[0].protocol, ImageProtocol::Kitty);
+        assert_eq!(result.new_images.len(), 1);
+    }
+
+    #[test]
+    fn text_inside_a_passthrough_survives_unwrapping() {
+        let mut parser = ImageParser::new();
+        let result = parser.process(b"\x1bPtmux;hello\x1b\\ world");
+        assert_eq!(String::from_utf8_lossy(&result.clean_bytes), "hello world");
+    }
+
+    #[test]
+    fn a_passthrough_split_across_reads_is_held_until_it_completes() {
+        let mut parser = ImageParser::new();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n");
+        let inner = format!("\x1b_Ga=T,f=100,c=4,r=2;{b64}\x1b\\");
+        let wrapped = format!("\x1bPtmux;{}\x1b\\", inner.replace('\x1b', "\x1b\x1b"));
+        let (head, tail) = wrapped.as_bytes().split_at(wrapped.len() / 2);
+
+        let first = parser.process(head);
+        assert!(first.new_images.is_empty(), "nothing yet");
+        assert!(
+            first.clean_bytes.is_empty(),
+            "a torn wrapper must not leak into the screen: {:?}",
+            String::from_utf8_lossy(&first.clean_bytes)
+        );
+
+        let second = parser.process(tail);
+        assert_eq!(
+            second.new_images.len(),
+            1,
+            "the frame lands once it is whole"
+        );
+        assert!(second.clean_bytes.is_empty());
     }
 
     #[test]

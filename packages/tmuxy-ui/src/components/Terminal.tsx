@@ -246,7 +246,14 @@ export const Terminal: React.FC<TerminalProps> = ({
         <div className="terminal-images">
           {images.map((img) => (
             <img
-              key={img.id}
+              // Keyed by WHERE it sits, not by which frame it is. A preview
+              // repaints at the same anchor once a second with a fresh id; on
+              // an id key React threw the element away and built a new one,
+              // which paints nothing until its bytes arrive — the picture
+              // blinked out between frames. Reusing the element lets the
+              // browser hold the old frame on screen until the new one has
+              // decoded, so the swap is seamless.
+              key={`${img.row}:${img.col}`}
               className="terminal-image"
               src={resolveImageSrc(paneId, img.id)}
               alt=""
