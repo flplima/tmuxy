@@ -29,7 +29,7 @@ clap = { version = "4", features = ["derive"] }
 rust-embed = "8"
 dirs = "6.0"
 futures-util = "0.3"
-reqwest = { version = "0.12", features = ["stream"] }
+reqwest = { version = "0.12", features = ["stream"], default-features = false }
 tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
 tmuxy-tree = { path = "../tmuxy-tree" }
