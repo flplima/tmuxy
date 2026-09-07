@@ -30,7 +30,7 @@
     "@tauri-apps/api": "^2.9.0",
     "@xstate/react": "^6.0.0",
     "effect": "^3.21.2",
-    "mermaid": "^11.12.3",
+    "mermaid": "^11.17.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
