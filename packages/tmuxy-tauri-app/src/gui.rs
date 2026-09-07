@@ -1016,6 +1016,34 @@ pub fn run() {
         )
         .manage(monitor::KeyBindingsState::default())
         .manage(monitor::MonitorState::default())
+        // Pictures a pane drew (Kitty, iTerm2, Sixel) are decoded by the
+        // monitor and kept in MonitorState; the webview fetches them through
+        // this scheme. The web build serves the same bytes over
+        // `/api/images/<pane>/<id>`, a route that does not exist here — the
+        // frontend used to ask for it anyway and every image silently failed
+        // to load, which is why no image protocol rendered on the desktop.
+        .register_uri_scheme_protocol("tmuxyimg", |ctx, request| {
+            let not_found = || {
+                tauri::http::Response::builder()
+                    .status(tauri::http::StatusCode::NOT_FOUND)
+                    .body(Vec::new())
+                    .unwrap_or_default()
+            };
+            // tmuxyimg://localhost/<pane digits>/<image id>
+            let path = request.uri().path().to_string();
+            let state = ctx.app_handle().state::<monitor::MonitorState>();
+            match monitor::lookup_image(&state.images, &path) {
+                Some(img) => tauri::http::Response::builder()
+                    .status(tauri::http::StatusCode::OK)
+                    .header("Content-Type", img.mime_type)
+                    // Placement ids restart with the process, so a cached
+                    // response would be the previous run's picture.
+                    .header("Cache-Control", "no-store")
+                    .body(img.data)
+                    .unwrap_or_else(|_| not_found()),
+                None => not_found(),
+            }
+        })
         // Shared execution context — handed to TmuxMonitor on connect AND used
         // by async Tauri commands for retried+timed-out tmux dispatch via the
         // Tower stack. Mirrors AppState::ctx on the server side.

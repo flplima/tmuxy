@@ -53,9 +53,31 @@ impl Default for KeyBindingsState {
 /// `run_tmux_command` uses it when rewriting `new-window` so the broken-out
 /// window matches the visible viewport instead of inheriting the half-width
 /// post-`splitw` size or the 200x50 control-mode PTY default.
+/// Decoded image bytes keyed by `(pane id, placement id)`.
+pub type ImageStore =
+    Arc<RwLock<std::collections::HashMap<(String, u32), tmuxy_core::control_mode::StoredImage>>>;
+
+/// Look up the picture behind a `tmuxyimg:` request path, which is
+/// `<pane digits>/<placement id>` — the same pair the web build spells
+/// `/api/images/<pane>/<id>`. The pane arrives without its `%` because a URL
+/// host/path is a poor place for one.
+pub fn lookup_image(
+    images: &ImageStore,
+    path: &str,
+) -> Option<tmuxy_core::control_mode::StoredImage> {
+    let (pane, id) = path.trim_matches('/').split_once('/')?;
+    if pane.is_empty() || !pane.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let id: u32 = id.parse().ok()?;
+    images.read().ok()?.get(&(format!("%{pane}"), id)).cloned()
+}
+
 #[derive(Clone, Default)]
 pub struct MonitorState {
     pub cmd_tx: Arc<RwLock<Option<MonitorCommandSender>>>,
+    /// Pictures decoded out of pane output, served by the `tmuxyimg:` scheme.
+    pub images: ImageStore,
     pub last_client_size: Arc<RwLock<Option<(u32, u32)>>>,
     /// A pending `tmuxy connect` request. The monitor loop applies it at the
     /// top of its next iteration (switching sockets/session); a live
@@ -82,11 +104,17 @@ pub async fn request_reconnect(monitor_state: &MonitorState, target: ConnectTarg
 /// Tauri emitter that broadcasts state changes to the frontend
 pub struct TauriEmitter {
     app: AppHandle,
+    /// Decoded picture bytes, keyed by pane and placement id, served back to
+    /// the webview by the `tmuxyimg:` scheme (see `gui.rs`). The web server
+    /// keeps the same map behind `/api/images`; without one here every image
+    /// a pane drew was decoded and then dropped, which is why no image
+    /// protocol ever rendered in the desktop app.
+    images: ImageStore,
 }
 
 impl TauriEmitter {
-    pub fn new(app: AppHandle) -> Self {
-        Self { app }
+    pub fn new(app: AppHandle, images: ImageStore) -> Self {
+        Self { app, images }
     }
 }
 
@@ -143,6 +171,20 @@ impl StateEmitter for TauriEmitter {
     /// tauri-plugin-clipboard-manager directly here, but doing it in the WebView
     /// keeps focus/transient activation context attached to the renderer, which
     /// is what some platforms require for clipboard access.
+    fn store_images(
+        &self,
+        pane_id: &str,
+        images: Vec<(u32, tmuxy_core::control_mode::StoredImage)>,
+    ) {
+        // try_write so a contended lock never stalls the monitor loop; a
+        // dropped picture is redrawn by the next frame.
+        if let Ok(mut guard) = self.images.try_write() {
+            for (id, img) in images {
+                guard.insert((pane_id.to_string(), id), img);
+            }
+        }
+    }
+
     fn write_clipboard(&self, pane_id: &str, text: String) {
         let payload = serde_json::json!({ "pane_id": pane_id, "text": text });
         if let Err(e) = self.app.emit("tmux-clipboard", &payload) {
@@ -166,7 +208,7 @@ impl StateEmitter for TauriEmitter {
 
 /// Start control mode monitoring for tmux state changes
 pub async fn start_monitoring(app: AppHandle, monitor_state: MonitorState) {
-    let emitter = Arc::new(TauriEmitter::new(app.clone()));
+    let emitter = Arc::new(TauriEmitter::new(app.clone(), monitor_state.images.clone()));
     let log_sink: Arc<dyn LogSink> = emitter.clone();
     let session = get_session();
 
@@ -509,5 +551,44 @@ fn emit_keybindings(app: &AppHandle) {
 
     if let Err(e) = app.emit("tmux-keybindings", &payload) {
         eprintln!("Failed to emit keybindings: {}", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tmuxy_core::control_mode::StoredImage;
+
+    fn store_with(pane: &str, id: u32) -> ImageStore {
+        let store: ImageStore = Default::default();
+        store.write().unwrap().insert(
+            (pane.to_string(), id),
+            StoredImage {
+                data: vec![1, 2, 3],
+                mime_type: "image/png".to_string(),
+            },
+        );
+        store
+    }
+
+    #[test]
+    fn a_request_path_finds_the_picture_the_pane_drew() {
+        let store = store_with("%3", 7);
+        let found = lookup_image(&store, "/3/7").expect("the picture is served");
+        assert_eq!(found.data, vec![1, 2, 3]);
+        assert_eq!(found.mime_type, "image/png");
+        // The leading slash is optional; the scheme handler may trim it first.
+        assert!(lookup_image(&store, "3/7").is_some());
+    }
+
+    #[test]
+    fn a_path_naming_nothing_we_hold_is_not_served() {
+        let store = store_with("%3", 7);
+        for path in ["/3/8", "/4/7", "/3", "//", "/3/x", "/%3/7", ""] {
+            assert!(
+                lookup_image(&store, path).is_none(),
+                "{path} must not resolve"
+            );
+        }
     }
 }

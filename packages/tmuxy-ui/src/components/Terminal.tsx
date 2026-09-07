@@ -10,13 +10,20 @@ import { TerminalLine } from './TerminalLine';
 import { Cursor } from './Cursor';
 import { cellsToCss } from './terminalShared';
 import { cursorShapeToMode } from '../utils/cursorShape';
+import { isTauri } from '../tmux/adapters';
 import type { CursorMode } from './Cursor';
 import type { PaneContent, CellLine, ImagePlacement } from '../tmux/types';
 
 /**
  * Resolve the URL the browser should load for a given image placement.
- * In production this points at the server's `/api/images/...` route. Tests
- * and Storybook stories can override the resolver by setting
+ *
+ * On the web that is the server's `/api/images/...` route. The desktop app
+ * serves no HTTP at all, so it hands the same bytes out through its own
+ * `tmuxyimg:` scheme (registered in `tmuxy-tauri-app/src/gui.rs`); asking it
+ * for `/api/images/...` resolved against the app's own origin and quietly
+ * loaded nothing, which is why no image protocol ever drew there.
+ *
+ * Tests and Storybook stories can override the resolver by setting
  * `window.__tmuxyImageSrc` — useful for serving data:/blob: URLs without
  * standing up a real backend.
  */
@@ -31,6 +38,14 @@ function resolveImageSrc(paneId: string, imageId: number): string {
     if (override) {
       const resolved = override(paneId, imageId);
       if (resolved) return resolved;
+    }
+    if (isTauri()) {
+      // Windows serves custom schemes over http://<scheme>.localhost; the
+      // platforms tmuxy ships a desktop build for use the scheme directly.
+      const base = navigator.userAgent.includes('Windows')
+        ? 'http://tmuxyimg.localhost'
+        : 'tmuxyimg://localhost';
+      return `${base}/${numericPaneId}/${imageId}`;
     }
   }
   return `/api/images/${numericPaneId}/${imageId}`;

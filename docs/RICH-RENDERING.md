@@ -42,6 +42,18 @@ An application that writes the sequences **must not wrap them in tmux's DCS pass
 
 A picture is retired in one of two ways. Kitty's `a=d` deletes placements (the default `d=a` and `d=A` selectors, which mean "all of them"; the narrower ones address images by a kitty id tmuxy does not keep, so they are left alone). And a new placement anchored at the same cell **replaces** the one already there, so a preview that homes the cursor and repaints once a second keeps exactly one frame on screen without stacking — and without the gap that deleting first would leave while the next frame crosses control mode.
 
+## Where the bytes come from
+
+The decoder hands the host two things: a placement (where on the grid, how big) and the picture's bytes. Placements travel with the pane state; the bytes do not, so each host serves them itself and the frontend asks for whichever URL that host understands.
+
+| Host | Serves the bytes as | Registered in |
+|---|---|---|
+| Web server | `/api/images/<pane>/<id>` | `tmuxy-server/src/state.rs` |
+| Desktop app | `tmuxyimg://localhost/<pane>/<id>` | `tmuxy-tauri-app/src/gui.rs` |
+| Storybook, tests | whatever `window.__tmuxyImageSrc` returns | the story or test |
+
+A host that keeps no bytes renders no pictures, whatever the decoder did with them: `StateEmitter::store_images` defaults to discarding, and the desktop app took that default for a long time while its frontend asked for the web server's route, so every image protocol silently drew nothing there. Neither URL is cached — placement ids restart with the process, so a cached response is the previous run's picture.
+
 ## End-to-end pipeline
 
 ```

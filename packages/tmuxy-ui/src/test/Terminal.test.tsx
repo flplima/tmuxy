@@ -267,6 +267,43 @@ describe('Terminal', () => {
     expect(img.style.height).toBe('calc(4 * var(--line-height-terminal))');
   });
 
+  it('asks the desktop app for image bytes, which serves no HTTP route', () => {
+    // The desktop build has no `/api/images/...` — that is the web server's
+    // route — so a relative URL resolved against the app's own origin and
+    // quietly loaded nothing. It serves the same bytes over its own scheme.
+    const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+    w.__TAURI_INTERNALS__ = {};
+    try {
+      render(
+        <Terminal
+          content={createContent(['x'])}
+          paneId="%7"
+          images={[{ id: 3, row: 0, col: 0, widthCells: 4, heightCells: 2, protocol: 'kitty' }]}
+        />,
+      );
+      const img = screen
+        .getByTestId('terminal')
+        .querySelector('img.terminal-image') as HTMLImageElement;
+      expect(img.getAttribute('src')).toBe('tmuxyimg://localhost/7/3');
+    } finally {
+      delete w.__TAURI_INTERNALS__;
+    }
+  });
+
+  it('asks the server for image bytes on the web', () => {
+    render(
+      <Terminal
+        content={createContent(['x'])}
+        paneId="%7"
+        images={[{ id: 3, row: 0, col: 0, widthCells: 4, heightCells: 2, protocol: 'kitty' }]}
+      />,
+    );
+    const img = screen
+      .getByTestId('terminal')
+      .querySelector('img.terminal-image') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('/api/images/7/3');
+  });
+
   it('sets aria-live to off to avoid flooding screen readers', () => {
     const content = createContent(['Hello World', 'Line 2']);
     render(<Terminal content={content} />);
