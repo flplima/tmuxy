@@ -13,12 +13,28 @@ const fs = require('fs');
 const path = require('path');
 const { startXvfb } = require('./helpers/xvfb');
 const { startTauriDriver } = require('./helpers/tauri-driver');
+const { DEFAULT_SOCKET, tmuxSocket } = require('../helpers/tmux-socket');
 
 const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
 const TAURI_BINARY = path.join(WORKSPACE_ROOT, 'target/debug/tmuxy');
 
 module.exports = async function globalSetup() {
   console.warn('\n[tauri-e2e] Starting global setup...');
+
+  // Pin the tmux socket for the app AND for the assertions about it.
+  //
+  // The app under test resolves its own socket from TMUX_SOCKET, and these
+  // tests read tmux through the shared helpers, which resolve it the same way
+  // — so the two agree only if it is set once, here, before anything starts.
+  // Left unset they diverge the moment the helpers' default differs from the
+  // app's own (`tmuxy`), and the suite then asserts against a tmux server the
+  // app never touched: panes "missing", windows "not created".
+  //
+  // Must happen before startTauriDriver(): the driver inherits this
+  // environment and hands it to the app binary it launches. Jest forks its
+  // workers after globalSetup, so the test files inherit it too.
+  process.env.TMUX_SOCKET = process.env.TMUX_SOCKET || DEFAULT_SOCKET;
+  console.warn(`[tauri-e2e] tmux socket: ${tmuxSocket()}`);
 
   // Step 1: Build frontend dist (needed by Tauri to embed)
   const distDir = path.join(WORKSPACE_ROOT, 'packages/tmuxy-ui/dist');

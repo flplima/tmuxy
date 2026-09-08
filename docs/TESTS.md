@@ -106,6 +106,8 @@ TMUX_SOCKET=tmuxy-test npm start        # or just let the suite start its own
 
 The setup step warns when it reuses a server it did not start, because a running server reports no socket and the mismatch cannot be detected — only flagged.
 
+The Tauri suite (`tests/tauri/`) pins the same socket, in its `jest.global-setup.js` and before `tauri-driver` starts, because the driver hands its environment to the app binary it launches. There the app and the assertions about it are the two halves that have to agree — unset, the app falls back to its own `tmuxy` default while the shared helpers resolve `tmuxy-test`, and the suite reports panes and windows missing from a server the app never touched.
+
 ### Session Lifecycle
 
 - Each **test** gets a fresh tmux session: `createTestContext()`'s `beforeEach` creates a `TmuxTestSession`, and `afterEach` destroys it
