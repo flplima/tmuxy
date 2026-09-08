@@ -150,6 +150,14 @@ jobs:
           - { name: '9-animations', path: 'tests/9-pane-animations.test.js', soft: true }
     name: e2e (${{ matrix.suite.name }})
 
+    # The suite's own tmux socket, for the server started below as much as for
+    # the tests: the two are the halves of every round trip, so a server on a
+    # different socket makes every test fail at "session not found". Matches
+    # DEFAULT_SOCKET in tests/helpers/tmux-socket.js — the tests pin it
+    # themselves, this is what puts the server on it too.
+    env:
+      TMUX_SOCKET: tmuxy-test
+
     steps:
       - uses: actions/checkout@v7
 

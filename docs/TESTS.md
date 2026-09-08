@@ -84,7 +84,7 @@ For every assertion, ask: **"What bug would make this assertion fail?"** If you 
 
 - Tests connect to an existing Chrome via CDP on port 9222 — never install Playwright browsers locally (CI provisions its own chromium; that's the one exception)
 - All E2E tests run sequentially (`maxWorkers: 1`) — they share one tmux server
-- Dev server must be running (`npm start`)
+- A tmuxy server must be reachable on port 9000; the suite builds and starts one itself if nothing answers
 
 Start the Chrome the tests attach to with any system Chrome/Chromium:
 
@@ -96,7 +96,15 @@ curl -s http://127.0.0.1:9222/json/version   # confirm it answers before running
 
 **Confirm that Chrome is up first.** Without it the suite does not fail — every test calls `skipIfNotReady()` and reports green in a couple of milliseconds, which looks identical to a real pass. A suite finishing suspiciously fast is the tell. (`CI=1` turns the skip into a hard failure, which is why CI can't be fooled this way.)
 
-The suite pins `TMUX_SOCKET` to `tmuxy` and clears `$TMUX` in `tests/jest.setup.js`, so it is safe to run from inside a tmux pane: mutations go to the dedicated socket rather than the session you are sitting in.
+The suite pins `TMUX_SOCKET` to **`tmuxy-test`** and clears `$TMUX` in `tests/jest.setup.js` (the default lives in `tests/helpers/tmux-socket.js`), so it is safe to run from inside a tmux pane: it creates and kills sessions on a socket of its own, never the `tmuxy` socket a running tmuxy — quite possibly the one you are sitting in — is serving.
+
+**The server under test has to be on that socket too.** It is the other half of every round trip: a server attached elsewhere leaves the tests reading and writing different tmux servers, and every one of them fails at "session not found" while the UI looks perfectly healthy. The suite gets this right on its own — a server it starts inherits the pinned socket, and CI sets `TMUX_SOCKET` for the whole e2e job. Only a server you started by hand can diverge, so start it to match:
+
+```bash
+TMUX_SOCKET=tmuxy-test npm start        # or just let the suite start its own
+```
+
+The setup step warns when it reuses a server it did not start, because a running server reports no socket and the mismatch cannot be detected — only flagged.
 
 ### Session Lifecycle
 
@@ -249,9 +257,10 @@ the design and the current numbers.
 ## Running Tests
 
 ```bash
-npm start               # Start dev server (required for E2E)
 npm test                # Unit tests (Vitest)
-npm run test:e2e        # E2E tests (Jest + Playwright CDP)
+npm run test:e2e        # E2E tests (Jest + Playwright CDP); starts its own server if needed
+
+TMUX_SOCKET=tmuxy-test npm start        # a dev server the E2E suite can reuse
 
 npm run storybook -w tmuxy-ui           # Storybook dev server (required for probes)
 npm run test-storybook -w tmuxy-ui      # Probe all non-v86 stories

@@ -8,9 +8,14 @@ const { execSync } = require('child_process');
 // $TMUX when TMUX_SOCKET is unset. Running the suite from inside a tmux pane —
 // the normal case for a tmux tool — would therefore aim every split, kill and
 // send-keys at whatever server the developer's shell is attached to, wrecking a
-// real working session. Read-only queries already default to `tmuxy`, so
-// inheriting $TMUX also splits reads and writes across two different servers.
-process.env.TMUX_SOCKET = process.env.TMUX_SOCKET || 'tmuxy';
+// real working session. Inheriting $TMUX also splits reads and writes across
+// two different servers, since the read helpers resolve the socket themselves.
+//
+// The default is the suite's own socket, never the one a live tmuxy serves —
+// see DEFAULT_SOCKET in helpers/tmux-socket.js.
+const { DEFAULT_SOCKET, tmuxEnv, tmuxSocket } = require('./helpers/tmux-socket');
+
+process.env.TMUX_SOCKET = process.env.TMUX_SOCKET || DEFAULT_SOCKET;
 delete process.env.TMUX;
 delete process.env.TMUX_PANE;
 
@@ -38,6 +43,19 @@ beforeAll(async () => {
     // Server not running
   }
 
+  if (serverRunning) {
+    // A server that was already up is used as-is, and it reports no socket, so
+    // this cannot be verified — only flagged. When it is attached elsewhere,
+    // every test fails at "session not found" while the UI looks fine, which
+    // is a genuinely confusing hour if nobody said this out loud.
+    console.warn(
+      `[setup] Reusing the server already on ${TMUXY_URL}. This suite drives ` +
+        `tmux socket "${tmuxSocket()}"; if that server is attached to another ` +
+        `socket, stop it and re-run, or start it with ` +
+        `TMUX_SOCKET=${tmuxSocket()}.`,
+    );
+  }
+
   if (!serverRunning) {
     try {
       console.warn('[setup] Building frontend and server...');
@@ -47,10 +65,14 @@ beforeAll(async () => {
       const { spawn } = require('child_process');
       const fs = require('fs');
       const serverStderr = fs.openSync('/tmp/tmuxy-server-stderr.log', 'w');
+      // Explicit env, not the inherited one: the server is the other half of
+      // every round trip, so it has to attach to the socket the helpers read
+      // and write. tmuxEnv() is the same resolution they use.
       const server = spawn('./target/release/tmuxy-server', [], {
         cwd: WORKSPACE_ROOT,
         stdio: ['ignore', 'ignore', serverStderr],
         detached: true,
+        env: tmuxEnv(),
       });
       server.unref();
       _weStartedServer = true;

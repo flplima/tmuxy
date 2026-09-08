@@ -10,9 +10,24 @@
  * (leaking panes across tests), and list queries return the wrong world.
  */
 
+/**
+ * The socket the E2E suite owns, when `TMUX_SOCKET` says nothing else.
+ *
+ * Deliberately NOT `tmuxy`, the socket a running tmuxy serves and `bin/dev`
+ * defaults to: this suite creates and kills sessions, panes and windows by the
+ * hundred, and a tmux tool is normally developed from inside the very session
+ * it would be tearing down. A socket of its own means a suite run cannot touch
+ * the session the developer is sitting in.
+ *
+ * The server under test must be on this socket too — it is the other half of
+ * every round trip. The suite starts its own that way (jest.setup.js); a
+ * server started by hand needs `TMUX_SOCKET` set to match.
+ */
+const DEFAULT_SOCKET = 'tmuxy-test';
+
 /** The socket name or path the tmuxy server under test uses. */
 function tmuxSocket() {
-  return process.env.TMUX_SOCKET || 'tmuxy';
+  return process.env.TMUX_SOCKET || DEFAULT_SOCKET;
 }
 
 /**
@@ -55,4 +70,4 @@ function tmuxExec(args, { timeout = 10000 } = {}) {
   return execSync(`${tmuxCmd()} ${args}`, { encoding: 'utf-8', timeout, env: tmuxEnv() }).trim();
 }
 
-module.exports = { tmuxSocket, tmuxCmd, tmuxEnv, tmuxExec };
+module.exports = { DEFAULT_SOCKET, tmuxSocket, tmuxCmd, tmuxEnv, tmuxExec };

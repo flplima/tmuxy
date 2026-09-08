@@ -9,6 +9,7 @@
  */
 
 const { tmuxQuery } = require('./cli');
+const { tmuxCmd, tmuxEnv } = require('./tmux-socket');
 
 // ==================== UI State Extraction ====================
 
@@ -256,10 +257,12 @@ function extractTmuxState(sessionName) {
     const { execSync } = require('child_process');
     const paneContent = {};
     for (const pane of panes) {
-      const socketFlag = `-L ${process.env.TMUX_SOCKET || 'tmuxy'} `;
-      const raw = execSync(`tmux ${socketFlag}capture-pane -t ${pane.tmuxId} -p`, {
+      // tmuxCmd() rather than a hand-built `-L`: it resolves the same socket
+      // every other helper uses, and picks `-S` when that socket is a path.
+      const raw = execSync(`${tmuxCmd()} capture-pane -t ${pane.tmuxId} -p`, {
         encoding: 'utf-8',
         timeout: 30000,
+        env: tmuxEnv(),
       });
       // Strip only the trailing newline that capture-pane always appends
       const content = raw.replace(/\n$/, '');
