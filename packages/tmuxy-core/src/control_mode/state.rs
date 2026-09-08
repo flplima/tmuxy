@@ -504,23 +504,40 @@ impl PaneState {
         self.rebaseline_scroll();
     }
 
-    /// A parser for this pane's size, already in the screen mode tmux reports.
+    /// A parser for this pane's size, already in the modes tmux reports.
     ///
-    /// The alternate screen (`?1049h`) is state the application set once,
-    /// possibly long before this client attached. A parser rebuilt for a
-    /// capture refill (or a window move) never saw that sequence, so it
-    /// reported the main screen while list-panes kept reporting the alternate
-    /// one — and `alternate_on` flapped between the two on every %output /
-    /// list-panes pair, re-rendering the pane a few times a second (the
-    /// "blinking" pane running Claude Code). Entering the mode up front keeps
-    /// the captured screen in the grid tmux drew it on and the two sources in
-    /// agreement.
+    /// The alternate screen (`?1049h`) and mouse tracking (`?1000h`) are state
+    /// the application set once, possibly long before this client attached. A
+    /// parser rebuilt for a capture refill (or a window move) never saw those
+    /// sequences — capture-pane replays screen contents, not the modes — so it
+    /// reported neither, while list-panes kept reporting both. The derived
+    /// flags then flapped between the two sources on every %output /
+    /// list-panes pair.
+    ///
+    /// For `alternate_on` that showed up as the pane re-rendering a few times
+    /// a second (the "blinking" pane running Claude Code). For
+    /// `mouse_any_flag` it split a single scroll gesture in two: wheel events
+    /// that landed while the flag read true were sent to the application as
+    /// SGR mouse reports, and the ones in between — the flag momentarily false
+    /// with the alternate screen still on — went as arrow keys, so a
+    /// mouse-tracking app received both for one flick of the trackpad (see
+    /// `sendScrollLines` in tmuxy-ui/src/hooks/scrollUtils.ts, where mouse
+    /// tracking and alt-screen are deliberately exclusive).
+    ///
+    /// Entering the modes up front keeps the captured screen in the grid tmux
+    /// drew it on and the two sources in agreement. Any tracking mode makes
+    /// the flag true, so plain `?1000h` restores it whichever variant
+    /// (1000/1002/1003) the application actually chose; a later `?1000l` from
+    /// the application still clears it.
     fn fresh_terminal(&self) -> vt100::Parser {
         let w = (self.width as u16).max(1);
         let h = (self.height as u16).max(1);
         let mut terminal = vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
         if self.alternate_on {
             terminal.process(b"\x1b[?1049h");
+        }
+        if self.mouse_any_flag {
+            terminal.process(b"\x1b[?1000h");
         }
         terminal
     }
@@ -4105,6 +4122,42 @@ mod tests {
         assert!(!main.terminal.screen().alternate_screen());
         main.process_output(b"x");
         assert!(!main.alternate_on);
+    }
+
+    #[test]
+    fn a_refill_keeps_the_mouse_tracking_tmux_reports() {
+        // The same flap, on the other flag, and the reason one flick of a
+        // trackpad reached a mouse-tracking app as BOTH SGR wheel reports and
+        // arrow keys: list-panes says mouse_any_flag=1, the capture refill
+        // rebuilds the parser without the mode, and each following %output
+        // flips the flag false again. The frontend routes a wheel event by
+        // that flag — SGR when it is set, arrow keys when the pane is merely
+        // on the alternate screen — so events either side of a flap went out
+        // as different things for a single gesture.
+        let mut pane = PaneState::new("%1", 40, 4);
+        pane.alternate_on = true;
+        pane.mouse_any_flag = true;
+        pane.reset_and_process_capture(b"a TUI that tracks the mouse\n");
+        pane.process_output(b"redraw");
+        assert!(
+            pane.mouse_any_flag,
+            "output after a refill must not drop mouse tracking"
+        );
+
+        // An application that turns tracking off is still believed: the
+        // restored mode is a floor for what tmux reported, not a latch.
+        pane.process_output(b"\x1b[?1000l");
+        assert!(
+            !pane.mouse_any_flag,
+            "an explicit disable must still clear the flag"
+        );
+
+        // A pane that never had tracking does not acquire it from a refill.
+        let mut plain = PaneState::new("%2", 40, 4);
+        plain.mouse_any_flag = false;
+        plain.reset_and_process_capture(b"shell\n");
+        plain.process_output(b"x");
+        assert!(!plain.mouse_any_flag);
     }
 
     #[test]
