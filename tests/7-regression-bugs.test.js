@@ -362,7 +362,7 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
   // shows the oldest history at the top after wheeling all the way up. A
   // silent fetch failure, an off-by-one in the range conversion, or a
   // re-render that fails to redraw the divs would all surface here.
-  test('Entering copy mode via wheel-scroll loads the entire scrollback', async () => {
+  test('Wheel-scrolling up opens the scroll view with the entire scrollback loaded', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -375,7 +375,7 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     await delay(DELAYS.SYNC);
 
     // Wheel-scroll up over the pane — this is the user-reported entry point.
-    // The wheel handler in usePaneMouse sends ENTER_COPY_MODE with a
+    // The wheel handler in usePaneMouse sends ENTER_SCROLL_MODE with a
     // negative `scrollLines`, which the state machine seeds with a
     // partially-scrolled scrollTop. The bug surfaces if the subsequent
     // FETCH_SCROLLBACK_CELLS doesn't populate the absolute rows above the
@@ -398,7 +398,7 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     }
     await delay(DELAYS.SYNC);
 
-    // Wait until copy mode is active and the loaded ranges cover the
+    // Wait until the scroll view is open and the loaded ranges cover the
     // entire scrollback (loading may bounce true/false as follow-up
     // chunks land, so check loadedRanges directly).
     await ctx.page.waitForFunction(
@@ -406,7 +406,7 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
         const snap = window.app?.getSnapshot();
         const paneId = snap?.context?.activePaneId;
         const cs = snap?.context?.copyModeStates?.[paneId];
-        if (!cs) return false;
+        if (!cs || cs.mode !== 'scroll') return false;
         if (cs.historySize < 150) return false;
         if (cs.loading) return false;
         if (cs.loadedRanges.length === 0) return false;
@@ -423,9 +423,10 @@ describe('Scenario: Copy mode reveals terminal history above visible content', (
     // After scrolling to scrollTop=0 via wheel, the rendered DOM should
     // show the OLDEST content at the top, not the pane's initial visible
     // area. WHEELMARK_001 lives at the start of scrollback and must
-    // appear in the rendered <pre>.
+    // appear in the rendered scrollback (the scroll view, not copy mode —
+    // a wheel never enters a mode).
     const renderedText = await ctx.page.evaluate(() => {
-      const sb = document.querySelector('[data-copy-mode="true"]');
+      const sb = document.querySelector('[data-testid="scrollback-terminal"]');
       if (!sb) return null;
       return Array.from(sb.querySelectorAll('.terminal-line'))
         .slice(0, 20)
