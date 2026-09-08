@@ -99,7 +99,7 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
 
     // 1. Output comes back.
     let hello = ask(&tx, "display-message -p HELLO_FROM_TMUX").await;
-    assert!(hello.success, "a plain display-message succeeds");
+    assert_eq!(hello.error, None, "a plain display-message succeeds");
     assert_eq!(hello.output.trim(), "HELLO_FROM_TMUX");
 
     // 2. A failure is reported, not waited on: the list aborts at the bad
@@ -109,7 +109,11 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
         "display-message -p FIRST \\; kill-window -t @999 \\; display-message -p NEVER",
     )
     .await;
-    assert!(!failed.success, "an errored block fails the reply");
+    assert_eq!(
+        failed.error.as_deref(),
+        Some("can't find window: @999"),
+        "an errored block fails the reply with tmux's message"
+    );
     assert!(
         failed.output.contains("FIRST"),
         "output before the failure is kept"
@@ -122,7 +126,7 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
     // 3. A query shaped like the aggregator's own poll reaches the caller
     //    whole, and none of it becomes state.
     let all = ask(&tx, "list-panes -a -F '#{pane_id},#{session_name}'").await;
-    assert!(all.success);
+    assert_eq!(all.error, None);
     let other_rows = all.output.lines().filter(|l| l.ends_with(",other")).count();
     assert_eq!(
         other_rows, 3,
@@ -143,6 +147,27 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
         recorder.errors.lock().unwrap().is_empty(),
         "no errors were emitted: {:?}",
         recorder.errors.lock().unwrap()
+    );
+
+    // 4. A fire-and-forget mutation that tmux rejects is reported through the
+    //    emitter — the only way a user learns why a split did nothing — while
+    //    a rejected keystroke is not (a vanished pane is already visible).
+    tx.send(MonitorCommand::RunCommand {
+        command: "send-keys -t %999 -l x".to_string(),
+    })
+    .await
+    .unwrap();
+    tx.send(MonitorCommand::RunCommand {
+        command: "kill-window -t @999".to_string(),
+    })
+    .await
+    .unwrap();
+    let _ = ask(&tx, "display-message -p SYNC").await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        *recorder.errors.lock().unwrap(),
+        vec!["can't find window: @999".to_string()],
+        "the rejected mutation is reported, the rejected keystroke is not"
     );
 
     tx.send(MonitorCommand::Shutdown).await.unwrap();

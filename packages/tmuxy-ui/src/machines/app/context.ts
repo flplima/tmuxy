@@ -32,6 +32,7 @@ export type StateName =
   | 'browser'
   | 'groupsAndFloats'
   | 'commandUi'
+  | 'notifications'
   | 'uiPrefs'
   | 'parent';
 
@@ -119,6 +120,9 @@ export const FIELD_OWNERS = {
   statusLine: 'commandUi',
   prefixActive: 'commandUi',
 
+  // ---- notifications ----
+  notifications: 'notifications',
+
   // ---- uiPrefs ----
   themeName: 'uiPrefs',
   themeMode: 'uiPrefs',
@@ -196,6 +200,7 @@ export function createInitialContext(): AppMachineContext {
     lastUpdateQuiet: true,
     commandMode: null,
     statusMessage: null,
+    notifications: [],
     themeName: loadThemeFromStorage()?.theme ?? 'default',
     themeMode: loadThemeFromStorage()?.mode ?? ('dark' as const),
     availableThemes: [],

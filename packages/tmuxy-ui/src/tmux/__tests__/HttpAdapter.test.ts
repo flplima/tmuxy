@@ -223,6 +223,25 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
+  it('a tmux-error event reaches onError listeners and leaves the stream open', async () => {
+    // The wire name matters: a server event named `error` also fires
+    // EventSource.onerror, and every reported error would bounce the connection.
+    const adapter = new HttpAdapter();
+    const seen: string[] = [];
+    adapter.onError((message) => seen.push(message));
+    const p = adapter.connect();
+    const es = await stream(0);
+    es.emit('connection-info', { data: { connection_id: 1 } });
+    await p;
+
+    es.emit('tmux-error', { data: { message: "can't find window: @999" } });
+    expect(seen).toEqual(["can't find window: @999"]);
+    expect(adapter.isConnected()).toBe(true);
+    expect(es.closed).toBe(false);
+    expect(openStreams().length).toBe(1);
+    adapter.disconnect();
+  });
+
   it('a fatal first event rejects connect() instead of hanging', async () => {
     const adapter = new HttpAdapter();
     const p = adapter.connect();

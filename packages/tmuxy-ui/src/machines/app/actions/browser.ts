@@ -87,15 +87,15 @@ export const browserActions = {
     ({ event, self }) => {
       if (event.type !== 'BROWSER_COPY_URL') return;
       const url = event.url;
-      // The status line reports both outcomes: a clipboard write can be
-      // refused (no permission, no secure context) and a silent no-op would
-      // leave the user pasting whatever was there before. The result arrives
-      // after this action returns, so it goes back in through `self` rather
-      // than the enqueue, which is only live for this synchronous pass.
+      // Both outcomes are reported — success on the status line, failure as
+      // a snackbar: a clipboard write can be refused (no permission, no
+      // secure context) and a silent no-op would leave the user pasting
+      // whatever was there before. The result arrives after this action
+      // returns, so it goes back in through `self` rather than the enqueue,
+      // which is only live for this synchronous pass.
       navigator.clipboard.writeText(url).then(
         () => self.send({ type: 'SHOW_STATUS_MESSAGE', text: `Copied ${url}` }),
-        (e: unknown) =>
-          self.send({ type: 'SHOW_STATUS_MESSAGE', text: `Copy failed: ${String(e)}` }),
+        (e: unknown) => self.send({ type: 'NOTIFY', text: `Copy failed: ${String(e)}` }),
       );
     },
   ),

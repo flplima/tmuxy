@@ -351,13 +351,17 @@ export class HttpAdapter implements TmuxAdapter {
         }
       });
 
-      es.addEventListener('error', (event: MessageEvent) => {
+      // Backend errors for the user (a rejected command, a failed sync). The
+      // wire name is `tmux-error`, not `error`: a server event named `error`
+      // also fires `es.onerror`, and every reported error would have bounced
+      // the connection.
+      es.addEventListener('tmux-error', (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
           const message = data.data?.message || data.message || 'Unknown error';
           this.notifyError(message);
-        } catch {
-          // Not a JSON error event, might be connection error
+        } catch (e) {
+          console.error('Failed to parse tmux-error event:', e);
         }
       });
 

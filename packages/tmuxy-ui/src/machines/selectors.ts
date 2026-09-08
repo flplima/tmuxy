@@ -801,6 +801,10 @@ export function selectStatusMessage(context: AppMachineContext) {
   return context.statusMessage;
 }
 
+export function selectNotifications(context: AppMachineContext) {
+  return context.notifications;
+}
+
 export function selectPrefixActive(context: AppMachineContext): boolean {
   return context.prefixActive;
 }

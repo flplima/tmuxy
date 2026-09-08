@@ -39,7 +39,7 @@ import {
 import type { TraceLevel } from '../../machines/types';
 import { isTauri } from '../../tmux/adapters';
 import { restartApp } from '../../utils/restartApp';
-import { copyAppState } from '../../utils/copyAppState';
+import { copyAppState, type ClipboardReport } from '../../utils/copyAppState';
 import { activeCloseTarget, executeMenuAction } from './menuActions';
 import { PaneMenuItems } from './PaneMenuItems';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
@@ -239,9 +239,10 @@ export function AppMenu() {
         <MenuItem
           disabled={!trace?.enabled || !trace?.path}
           onClick={() =>
-            copyTracePath(trace?.path ?? null, (text) =>
-              send({ type: 'SHOW_STATUS_MESSAGE', text }),
-            )
+            copyTracePath(trace?.path ?? null, {
+              onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
+              onFailed: (text) => send({ type: 'NOTIFY', text }),
+            })
           }
         >
           Copy trace.ndjson Path
@@ -249,9 +250,10 @@ export function AppMenu() {
 
         <MenuItem
           onClick={() =>
-            copyAppState(actor.getSnapshot().context, (text) =>
-              send({ type: 'SHOW_STATUS_MESSAGE', text }),
-            )
+            copyAppState(actor.getSnapshot().context, {
+              onCopied: (text) => send({ type: 'SHOW_STATUS_MESSAGE', text }),
+              onFailed: (text) => send({ type: 'NOTIFY', text }),
+            })
           }
         >
           Copy App State
@@ -275,13 +277,13 @@ export function AppMenu() {
  * thing to hand around (`tmuxy trace`, `jq`, an editor); the file can be
  * hundreds of MB, so this never copies its contents.
  */
-function copyTracePath(path: string | null, showMessage: (text: string) => void): void {
+function copyTracePath(path: string | null, report: ClipboardReport): void {
   if (!path) {
-    showMessage('No trace file path available');
+    report.onFailed('No trace file path available');
     return;
   }
   navigator.clipboard.writeText(path).then(
-    () => showMessage(`Copied ${path}`),
-    (e: unknown) => showMessage(`Clipboard write failed: ${String(e)}`),
+    () => report.onCopied(`Copied ${path}`),
+    (e: unknown) => report.onFailed(`Clipboard write failed: ${String(e)}`),
   );
 }

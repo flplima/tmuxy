@@ -125,7 +125,7 @@ pub struct ProcessEventResult {
     pub commands: Vec<String>,
     /// Completed reply-wrapped commands: (reply id, everything the command
     /// printed, whether every block succeeded). See `reply_wrapped_lines`.
-    pub command_replies: Vec<(u64, String, bool)>,
+    pub command_replies: Vec<(u64, String, Option<String>)>,
 }
 
 /// Outcome of a single `StateAggregator::step` call.
@@ -178,13 +178,13 @@ pub enum SideEffect {
     /// Forward an OSC 52 clipboard write to the system clipboard.
     WriteClipboard { pane_id: String, text: String },
     /// A command sent with `reply_wrapped_lines` has finished: hand its output
-    /// back to whoever asked. `success` is false if any of its blocks was an
-    /// `%error` — tmux stops a command list at the first failure, so the
-    /// output may then be partial.
+    /// back to whoever asked. `error` is tmux's message when a block of the
+    /// command was an `%error` — tmux stops a command list at the first
+    /// failure, so `output` is then what the commands before it printed.
     CommandReply {
         id: u64,
         output: String,
-        success: bool,
+        error: Option<String>,
     },
 }
 
@@ -1149,7 +1149,8 @@ pub const REPLY_END_MARKER: &str = "TMUXY_RPY_END";
 struct ReplyInFlight {
     id: u64,
     output: String,
-    success: bool,
+    /// tmux's message from the first `%error` block, if any.
+    error: Option<String>,
 }
 
 /// The three control-mode lines that run `command` and get its output back.
@@ -1644,11 +1645,11 @@ impl StateAggregator {
         for cmd in result.commands.iter() {
             effects.push(SideEffect::SendTmuxCommand(cmd.clone()));
         }
-        for (id, output, success) in result.command_replies.iter() {
+        for (id, output, error) in result.command_replies.iter() {
             effects.push(SideEffect::CommandReply {
                 id: *id,
                 output: output.clone(),
-                success: *success,
+                error: error.clone(),
             });
         }
 
@@ -1952,7 +1953,7 @@ impl StateAggregator {
                     self.reply_in_flight = Some(ReplyInFlight {
                         id,
                         output: String::new(),
-                        success: true,
+                        error: None,
                     });
                     return ProcessEventResult::default();
                 }
@@ -1966,18 +1967,25 @@ impl StateAggregator {
                         // older reply is lost, the newer one must not inherit
                         // its output. Fail the older, report nothing for this.
                         return ProcessEventResult {
-                            command_replies: vec![(reply.id, reply.output, false)],
+                            command_replies: vec![(
+                                reply.id,
+                                reply.output,
+                                Some("reply lost: a later reply closed before it".to_string()),
+                            )],
                             ..Default::default()
                         };
                     }
                     return ProcessEventResult {
-                        command_replies: vec![(reply.id, reply.output, reply.success)],
+                        command_replies: vec![(reply.id, reply.output, reply.error)],
                         ..Default::default()
                     };
                 }
                 if let Some(reply) = self.reply_in_flight.as_mut() {
-                    reply.output.push_str(&output);
-                    reply.success &= success;
+                    if success {
+                        reply.output.push_str(&output);
+                    } else if reply.error.is_none() {
+                        reply.error = Some(output.trim().to_string());
+                    }
                     return ProcessEventResult::default();
                 }
 
@@ -3297,7 +3305,7 @@ mod tests {
         assert!(
             matches!(
                 &end.effects[..],
-                [SideEffect::CommandReply { id: 7, output, success: true }] if output == "HELLO\n"
+                [SideEffect::CommandReply { id: 7, output, error: None }] if output == "HELLO\n"
             ),
             "got {:?}",
             end.effects
@@ -3312,14 +3320,15 @@ mod tests {
         agg.step(response("TMUXY_RPY_BEGIN 3\n", true));
         agg.step(response("can't find window: @999\n", false));
         let end = agg.step(response("TMUXY_RPY_END 3\n", true));
-        assert!(matches!(
-            &end.effects[..],
-            [SideEffect::CommandReply {
-                id: 3,
-                success: false,
-                ..
-            }]
-        ));
+        assert!(
+            matches!(
+                &end.effects[..],
+                [SideEffect::CommandReply { id: 3, error: Some(msg), .. }]
+                    if msg == "can't find window: @999"
+            ),
+            "the reply carries tmux's message: {:?}",
+            end.effects
+        );
     }
 
     /// The reason replies are routed by marker: a `list-panes -a` query
@@ -3345,7 +3354,7 @@ mod tests {
         );
         assert!(matches!(
             &end.effects[..],
-            [SideEffect::CommandReply { id: 9, output, success: true }] if output.contains("%41,")
+            [SideEffect::CommandReply { id: 9, output, error: None }] if output.contains("%41,")
         ));
     }
 
@@ -3361,7 +3370,7 @@ mod tests {
             &end.effects[..],
             [SideEffect::CommandReply {
                 id: 1,
-                success: false,
+                error: Some(_),
                 ..
             }]
         ));

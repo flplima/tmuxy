@@ -236,6 +236,39 @@ describe('IPC Commands', () => {
   // `tmux new-window` while control mode is attached crashes the server,
   // so run_tmux_command must intercept and rewrite to `splitw ; breakp` —
   // exactly like the SSE server does.
+  // A mutation resolves to nothing, so tmux's `%error` is the only word the
+  // user gets when a command did nothing. The monitor attributes it to the
+  // command and the app shows it in the snackbar.
+  test('a rejected run_tmux_command is reported in the snackbar', async () => {
+    await setupApp();
+    const message = "can't find window: @999";
+    await invokeCommand(driver, 'run_tmux_command', { command: 'kill-window -t @999' });
+
+    const snackbarTexts = () =>
+      driver.execute(() =>
+        Array.from(document.querySelectorAll('[data-testid="snackbar-item"]')).map(
+          (el) => el.textContent,
+        ),
+      );
+    const start = Date.now();
+    let texts = [];
+    while (!texts.some((t) => t.includes(message)) && Date.now() - start < 10000) {
+      await new Promise((r) => setTimeout(r, 200));
+      texts = await snackbarTexts();
+    }
+    expect(texts.some((t) => t.includes(message))).toBe(true);
+
+    // Its close button takes it away.
+    await driver.execute((needle) => {
+      const item = Array.from(document.querySelectorAll('[data-testid="snackbar-item"]')).find(
+        (el) => el.textContent.includes(needle),
+      );
+      item.querySelector('button[aria-label="Dismiss notification"]').click();
+    }, message);
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await snackbarTexts()).some((t) => t.includes(message))).toBe(false);
+  });
+
   test('run_tmux_command rewrites new-window to splitw+breakp', async () => {
     await setupApp();
 

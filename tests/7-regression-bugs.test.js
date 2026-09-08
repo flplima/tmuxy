@@ -21,6 +21,7 @@ const {
   waitForCondition,
   runCommand,
   focusPage,
+  tmuxCommandKeyboard,
   enterCopyModeAndWait,
   getCopyModeState,
   DELAYS,
@@ -1509,4 +1510,55 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
     expect(afterSidebar[target].length).toBe(afterSplit[target].length);
     expect(afterSidebar[firstTab].length).toBe(before[firstTab].length);
   }, 120000);
+});
+
+// ==================== Scenario: a rejected tmux command is reported ====================
+//
+// Every command reaches tmux over the control-mode connection and resolves
+// to nothing, so tmux's `%error` is the only word the user gets when a split,
+// a kill or a prompt command did nothing. The monitor attributes it to the
+// command and the app shows it as a snackbar in the top-right corner — not on
+// the status line, which is for status.
+
+describe('Scenario: a rejected tmux command is reported in the snackbar', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('tmux’s message appears top-right, off the status line, and the close button dismisses it', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+    const message = "can't find window: @999";
+
+    await tmuxCommandKeyboard(page, 'kill-window -t @999');
+
+    const findItem = async () => {
+      for (const item of await page.$$('[data-testid="snackbar-item"]')) {
+        if ((await item.evaluate((el) => el.textContent)).includes(message)) return item;
+      }
+      return null;
+    };
+    await waitForCondition(page, async () => (await findItem()) !== null, 8000, 'the snackbar');
+    const item = await findItem();
+
+    // On screen, in the top-right corner of the chrome, under the tab bar.
+    const box = await item.boundingBox();
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.x).toBeGreaterThan(viewport.width / 2);
+    expect(box.y).toBeLessThan(viewport.height / 4);
+
+    // The status line stays clear of it.
+    const statusText = await page.$eval('[data-testid="tmux-status-bar"]', (el) => el.textContent);
+    expect(statusText).not.toContain(message);
+
+    // The close button dismisses this entry.
+    const close = await item.$('button[aria-label="Dismiss notification"]');
+    await close.click();
+    await waitForCondition(page, async () => (await findItem()) === null, 5000, 'the snackbar to close');
+  }, 60000);
 });

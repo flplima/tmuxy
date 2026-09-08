@@ -12,7 +12,7 @@ The web version uses two HTTP endpoints on the Axum server:
 - `theme-settings` — Theme name/mode and appearance (surface opacities, blur flag) from tmux config; re-sent after a `source-file`
 - `state-update` — Full state snapshots and incremental deltas (serialized JSON)
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
-- `log`, `error`, `fatal` — Diagnostic and error notifications
+- `log`, `tmux-error`, `fatal` — Diagnostic and error notifications. The error event is named `tmux-error`, never `error`: the browser hands a server event called `error` to `EventSource.onerror` too, and the adapter would treat every reported error as a dropped connection.
 
 **`POST /commands?session=<name>`** — HTTP POST (client-to-server):
 - Request body: `{ "cmd": "command_name", "args": {...} }`
@@ -105,7 +105,7 @@ Frontend `adapter.invoke(cmd, args)` is decoded into a typed `ClientCommand` var
 
 Read-only async tmux dispatch (e.g., scrollback fetch, theme get/set) flows through the Tower stack (`AppState::tmux_call`) so it picks up the standard timeout, retry, and tracing in one place. Sync helpers in `executor::*` remain for CLI/blocking contexts.
 
-**Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. Web (`ClientCommand::QueryTmux`) and desktop (the `query_tmux` Tauri command) implement both identically, and the frontend reaches them as `adapter.invoke('run_tmux_command', …)` and `adapter.query(command)`. There is no subprocess path and no allowlist: nothing a client sends reaches a shell.
+**Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`SseEvent::Error` / `tmux-error`), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Web (`ClientCommand::QueryTmux`) and desktop (the `query_tmux` Tauri command) implement both identically, and the frontend reaches them as `adapter.invoke('run_tmux_command', …)` and `adapter.query(command)`. There is no subprocess path and no allowlist: nothing a client sends reaches a shell.
 
 ```
 Frontend

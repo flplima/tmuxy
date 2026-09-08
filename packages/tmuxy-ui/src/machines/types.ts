@@ -105,6 +105,17 @@ export interface ResizeState {
 // App Machine Types
 // ============================================
 
+/**
+ * An error the user needs to see, shown as a snackbar in the top-right of the
+ * app chrome until dismissed or aged out. The status line is for status
+ * ("Copied …", `display-message` output); errors come here.
+ */
+export interface AppNotification {
+  id: number;
+  text: string;
+  timestamp: number;
+}
+
 /** Log entry shown on the connecting/error status screen for debugging */
 export interface LogEntry {
   timestamp: number;
@@ -361,6 +372,8 @@ export interface AppMachineContext {
   } | null;
   /** Temporary status message (from display-message) */
   statusMessage: { text: string; timestamp: number } | null;
+  /** Errors on screen, oldest first (see AppNotification) */
+  notifications: AppNotification[];
   /** Current theme name */
   themeName: string;
   /** Current theme mode */
@@ -785,6 +798,10 @@ export type CommandModeCancelEvent = { type: 'COMMAND_MODE_CANCEL' };
 export type ShowStatusMessageEvent = { type: 'SHOW_STATUS_MESSAGE'; text: string };
 export type ClearStatusMessageEvent = { type: 'CLEAR_STATUS_MESSAGE' };
 
+// Snackbar events
+export type NotifyEvent = { type: 'NOTIFY'; text: string };
+export type DismissNotificationEvent = { type: 'DISMISS_NOTIFICATION'; id: number };
+
 // Focus events (for keyboard capture gating)
 export type AppFocusEvent = { type: 'APP_FOCUS' };
 export type AppBlurEvent = { type: 'APP_BLUR' };
@@ -939,6 +956,8 @@ export type AppMachineEvent =
   | CommandModeCancelEvent
   | ShowStatusMessageEvent
   | ClearStatusMessageEvent
+  | NotifyEvent
+  | DismissNotificationEvent
   | SetThemeEvent
   | SetThemeModeEvent
   | ThemeSettingsReceivedEvent

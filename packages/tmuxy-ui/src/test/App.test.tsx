@@ -41,6 +41,9 @@ vi.mock('../components/SidebarBackdrop', () => ({
 vi.mock('../components/RightSidebar', () => ({
   RightSidebar: () => null,
 }));
+vi.mock('../components/Snackbar', () => ({
+  Snackbar: () => null,
+}));
 
 // Import the mocked module to access mock functions
 import * as AppContext from '../machines/AppContext';

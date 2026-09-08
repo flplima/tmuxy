@@ -20,13 +20,33 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, instrument, trace, warn};
 
-/// What a `RunCommandWithReply` command printed, and whether it succeeded.
+/// What a `RunCommandWithReply` command printed, and how it failed if it did.
 #[derive(Debug, Clone)]
 pub struct CommandReply {
     pub output: String,
-    /// False when any block of the command was a `%error`. tmux stops a
-    /// command list at its first failure, so `output` may then be partial.
-    pub success: bool,
+    /// tmux's message when a block of the command was a `%error`. tmux stops
+    /// a command list at its first failure, so `output` is then partial.
+    pub error: Option<String>,
+}
+
+impl CommandReply {
+    /// The output, or tmux's message.
+    pub fn into_result(self) -> Result<String, String> {
+        match self.error {
+            None => Ok(self.output),
+            Some(error) => Err(error),
+        }
+    }
+}
+
+/// Who is waiting on a reply-wrapped command.
+enum ReplyWaiter {
+    /// A `RunCommandWithReply` caller: gets the whole reply, success or not.
+    Caller(oneshot::Sender<CommandReply>),
+    /// A fire-and-forget `RunCommand`: nobody wants the output, but a
+    /// `%error` is reported to the emitter so the user learns why nothing
+    /// happened.
+    ReportFailure,
 }
 
 /// Commands that can be sent to the monitor from external code
@@ -328,7 +348,7 @@ pub struct TmuxMonitor {
 
     /// Replies still waiting for their closing marker, by reply id, with the
     /// instant each was sent — the loop fails any that outlive REPLY_TIMEOUT.
-    pending_replies: HashMap<u64, (oneshot::Sender<CommandReply>, tokio::time::Instant)>,
+    pending_replies: HashMap<u64, (ReplyWaiter, tokio::time::Instant)>,
     /// Source of reply ids. Monotonic for the life of the monitor, so a late
     /// block from an expired reply can never be matched to a newer one.
     next_reply_id: u64,
@@ -702,16 +722,18 @@ impl TmuxMonitor {
                         emitter.emit_error(format!("Failed to send command: {}", e));
                     }
                 }
-                SideEffect::CommandReply {
-                    id,
-                    output,
-                    success,
-                } => {
-                    if let Some((reply, _)) = self.pending_replies.remove(&id) {
-                        // A caller that stopped waiting is not an error.
-                        let _ = reply.send(CommandReply { output, success });
-                    } else {
-                        debug!(id, "reply for an expired or unknown request");
+                SideEffect::CommandReply { id, output, error } => {
+                    match self.pending_replies.remove(&id) {
+                        Some((ReplyWaiter::Caller(reply), _)) => {
+                            // A caller that stopped waiting is not an error.
+                            let _ = reply.send(CommandReply { output, error });
+                        }
+                        Some((ReplyWaiter::ReportFailure, _)) => {
+                            if let Some(error) = error {
+                                emitter.emit_error(error);
+                            }
+                        }
+                        None => debug!(id, "reply for an expired or unknown request"),
                     }
                 }
             }
@@ -997,23 +1019,38 @@ impl TmuxMonitor {
             debug!("settling armed for multi-step run-shell");
         }
 
-        let sent = match reply {
+        // A fire-and-forget command is still marker-wrapped when it is not a
+        // keystroke, so tmux's `%error` can be attributed to it and shown to
+        // the user (a split that failed for "pane too small" would otherwise
+        // do nothing, silently). Keystrokes are the hot path — one command
+        // per key — and the only way they fail is a vanished pane, which the
+        // layout already shows; they go out bare.
+        let waiter = match reply {
+            Some(reply) => Some(ReplyWaiter::Caller(reply)),
+            None if reports_failure(&unescaped) => Some(ReplyWaiter::ReportFailure),
+            None => None,
+        };
+        let sent = match waiter {
             None => self.connection.send_command(&unescaped).await,
-            Some(reply) => {
+            Some(waiter) => {
                 self.next_reply_id += 1;
                 let id = self.next_reply_id;
                 let lines = super::state::reply_wrapped_lines(id, &unescaped);
                 let sent = self.connection.send_commands_batch(&lines).await;
-                if sent.is_ok() {
-                    self.pending_replies
-                        .insert(id, (reply, tokio::time::Instant::now()));
-                } else {
+                match (&sent, waiter) {
+                    (Ok(()), waiter) => {
+                        self.pending_replies
+                            .insert(id, (waiter, tokio::time::Instant::now()));
+                    }
                     // The command never went out: tell the caller now rather
                     // than at the timeout.
-                    let _ = reply.send(CommandReply {
-                        output: String::new(),
-                        success: false,
-                    });
+                    (Err(e), ReplyWaiter::Caller(reply)) => {
+                        let _ = reply.send(CommandReply {
+                            output: String::new(),
+                            error: Some(e.to_string()),
+                        });
+                    }
+                    (Err(_), ReplyWaiter::ReportFailure) => {}
                 }
                 sent
             }
@@ -1070,12 +1107,17 @@ impl TmuxMonitor {
             .map(|(id, _)| *id)
             .collect();
         for id in expired {
-            if let Some((reply, _)) = self.pending_replies.remove(&id) {
-                warn!(id, "command reply timed out");
-                let _ = reply.send(CommandReply {
-                    output: String::new(),
-                    success: false,
-                });
+            match self.pending_replies.remove(&id) {
+                Some((ReplyWaiter::Caller(reply), _)) => {
+                    warn!(id, "command reply timed out");
+                    let _ = reply.send(CommandReply {
+                        output: String::new(),
+                        error: Some("tmux did not answer in time".to_string()),
+                    });
+                }
+                // A long `run-shell` is a legitimate reason for a late END
+                // marker; with nobody waiting there is nothing to report.
+                Some((ReplyWaiter::ReportFailure, _)) | None => {}
             }
         }
     }
@@ -1173,6 +1215,16 @@ fn writes_tmuxy_option(command: &str) -> bool {
         || command.contains("tmuxy/stack")
 }
 
+/// Whether a fire-and-forget command is marker-wrapped so its `%error`
+/// reaches the user. Everything but keystrokes (`send-keys`, also pinned).
+/// The list separator may still be the client's `\;` or already unescaped.
+fn reports_failure(command: &str) -> bool {
+    !crate::executor::split_compound(command)
+        .iter()
+        .flat_map(|part| part.split(" ; "))
+        .any(|part| matches!(crate::executor::command_verb(part), "send-keys" | "send"))
+}
+
 /// True when a control-mode command will run a tmuxy bash script that mutates
 /// tmux state across multiple separate tmux calls (split → break → set-option
 /// → swap → resize, etc.). Each step fires its own %layout-change / %window-add
@@ -1254,6 +1306,24 @@ mod tests {
         // Non-run-shell commands never arm.
         assert!(!is_multi_step_run_shell("splitw -h"));
         assert!(!is_multi_step_run_shell("splitw ; breakp"));
+    }
+
+    /// Keystrokes go out bare; everything else is wrapped so a `%error`
+    /// can be attributed and shown. A pinned keystroke is still a keystroke.
+    #[test]
+    fn only_keystrokes_skip_failure_reporting() {
+        assert!(!reports_failure("send-keys -t %1 -l x"));
+        assert!(!reports_failure(
+            "select-window -t @1 ; select-pane -t %1 ; send-keys Enter"
+        ));
+        assert!(!reports_failure(
+            "select-window -t @1 \\; select-pane -t %1 \\; send-keys Enter"
+        ));
+        assert!(reports_failure("split-window -h"));
+        assert!(reports_failure(
+            "select-window -t @1 ; select-pane -t %1 ; kill-pane"
+        ));
+        assert!(reports_failure("run-shell 'tmuxy pane float'"));
     }
 
     // =========================================================================

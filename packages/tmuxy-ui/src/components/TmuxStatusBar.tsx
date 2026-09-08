@@ -211,7 +211,7 @@ export function TmuxStatusBar() {
         if (isTauri()) {
           send({ type: 'OPEN_CONNECT_FLOAT' });
         } else {
-          send({ type: 'SHOW_STATUS_MESSAGE', text: 'SSH only available in desktop app' });
+          send({ type: 'NOTIFY', text: 'SSH only available in desktop app' });
         }
       };
 

@@ -175,7 +175,7 @@ A `TmuxOp` is a typed value, not a parsed command string. The store knows how to
 2. **Dispatch** — `TmuxStore.dispatch(op)` runs predict → applies the patch → marks the op `in-flight` → sends the command through the adapter → on `TmuxError` rolls the patch back. Once the adapter acks, the op moves to `awaiting-confirm`.
 3. **Reconcile** — `TmuxStore.reconcile(serverState)` advances `committed`, runs each pending op's reconciler, drops matched/stale ones, recomputes `derived`.
 
-Stale sweeping is status-aware: only an op the adapter was never asked to send (`pending`) is swept quickly (`OP_STALE_TIMEOUT_MS`) — its command may be a phantom with nothing coming. An op whose adapter call is still running (`in-flight`) is exempt from the quick sweep: the ack alone can outlast it on a slow transport (v86 serial, loaded server), the call is guaranteed to settle either way, and sweeping earlier blinks the optimistic UI away exactly when the backend is slowest. Both `in-flight` and acked (`awaiting-confirm`) ops fall to the longer `OP_ACKED_STALE_TIMEOUT_MS` backstop (the confirming delta may arrive slowly — e.g. a new window's type tag on a later list-windows sync). Rollbacks of structural ops surface to the status line via `TMUX_ERROR`; focus-op rollbacks stay console-only.
+Stale sweeping is status-aware: only an op the adapter was never asked to send (`pending`) is swept quickly (`OP_STALE_TIMEOUT_MS`) — its command may be a phantom with nothing coming. An op whose adapter call is still running (`in-flight`) is exempt from the quick sweep: the ack alone can outlast it on a slow transport (v86 serial, loaded server), the call is guaranteed to settle either way, and sweeping earlier blinks the optimistic UI away exactly when the backend is slowest. Both `in-flight` and acked (`awaiting-confirm`) ops fall to the longer `OP_ACKED_STALE_TIMEOUT_MS` backstop (the confirming delta may arrive slowly — e.g. a new window's type tag on a later list-windows sync). Rollbacks of structural ops surface in the snackbar via `TMUX_ERROR`; focus-op rollbacks stay console-only.
 
 Predicted ops today: Split, NewWindow, SelectPane, Navigate (with the MRU tiebreak), Swap, SelectWindow, KillPane (removal + aligned-neighbor expansion + MRU refocus), KillWindow, RenameWindow, and ZoomToggle (zoom-in only — the pre-zoom slot is unknown client-side, so unzoom waits for the server). Deliberately NOT predicted: break-pane, layout cycling, and plain resizes (server-side layout math), plus keystrokes (see NON-GOALS.md). While ops are pending the store also re-reconciles on a timer, so age-based verdicts fire even when the control stream is idle.
 
@@ -225,6 +225,7 @@ machines/app/
 │   │                      # config (on: slice) referenced by named actions.
 │   ├── uiPrefs.ts         # theme, font size, animations
 │   ├── commandUi.ts       # command mode, status messages, prefix indicator
+│   ├── notifications.ts   # the snackbar: errors the user has to see
 │   ├── copyMode.ts        # client-side copy mode (per-pane CopyModeState)
 │   ├── browser.ts         # browser widget history + zoom (per-pane)
 │   ├── groupsAndFloats.ts # pane groups, float panes, both sidebar columns
@@ -239,8 +240,8 @@ machines/app/
 
 **One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
 `AppMachineContext` field to its owning state (`'layout' | 'copyMode' |
-'browser' | 'groupsAndFloats' | 'tabOverview' | 'commandUi' | 'uiPrefs' |
-'parent'`). The
+'browser' | 'groupsAndFloats' | 'tabOverview' | 'commandUi' | 'notifications' |
+'uiPrefs' | 'parent'`). The
 `tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
 enforces this: any `assign({...})` inside a `states/<name>.ts` or
 `actions/<name>.ts` file may only mutate fields owned by `<name>`.
@@ -274,6 +275,21 @@ errors, structured concurrency, and schema-validated decoding. Files under
 `TMUX_ERROR { error: <display string>, tagged?: <AdapterError> }`.
 Consumers can `switch (event.tagged?._tag)` for typed handling or fall back
 to `event.error` for logging.
+
+### Errors the user sees
+
+There is one surface for errors: the snackbar (`components/Snackbar.tsx`),
+stacked in the top-right corner of the app chrome, each entry with a close
+button and an expiry. It renders the `notifications` field, owned by the
+`notifications` parallel state; anything that has an error for the user
+raises `NOTIFY { text }` — the connected-state `TMUX_ERROR` handler (backend
+errors, rejected commands, optimistic rollbacks), a refused clipboard write,
+a menu action that cannot run on this transport. The same text arriving while
+still on screen refreshes the entry rather than stacking a duplicate. The
+status line (`statusMessage`, commandUi) is for status — "Copied …",
+`display-message` output — never errors. While the app is still connecting,
+the connection overlay shows the transient `error` instead, so the same
+message is not shown twice.
 
 ### React Integration
 

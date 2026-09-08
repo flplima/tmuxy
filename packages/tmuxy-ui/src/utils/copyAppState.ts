@@ -43,10 +43,16 @@ export function appStateSummary(ctx: AppMachineContext): Record<string, unknown>
   };
 }
 
-export function copyAppState(ctx: AppMachineContext, showMessage: (text: string) => void): void {
+/** Where a clipboard write's outcome goes: status line on success, snackbar on failure. */
+export interface ClipboardReport {
+  onCopied: (text: string) => void;
+  onFailed: (text: string) => void;
+}
+
+export function copyAppState(ctx: AppMachineContext, report: ClipboardReport): void {
   const text = JSON.stringify(appStateSummary(ctx), null, 2);
   navigator.clipboard.writeText(text).then(
-    () => showMessage('Copied app state'),
-    (e: unknown) => showMessage(`Clipboard write failed: ${String(e)}`),
+    () => report.onCopied('Copied app state'),
+    (e: unknown) => report.onFailed(`Clipboard write failed: ${String(e)}`),
   );
 }

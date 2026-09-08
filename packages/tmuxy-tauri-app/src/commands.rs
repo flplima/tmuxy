@@ -122,14 +122,9 @@ async fn query_via_monitor(
         },
     )
     .await?;
-    let reply = rx
-        .await
-        .map_err(|_| "monitor went away before answering".to_string())?;
-    if reply.success {
-        Ok(reply.output)
-    } else {
-        Err(reply.output)
-    }
+    rx.await
+        .map_err(|_| "monitor went away before answering".to_string())?
+        .into_result()
 }
 
 /// How long to wait after a `source-file` before re-reading tmux options.

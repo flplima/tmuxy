@@ -88,7 +88,9 @@ Every command a client sends — mutations through `run_tmux_command`, reads thr
 `query_tmux` — rides the monitor's control-mode connection. Reads are answered in-band:
 the monitor brackets the command with marker lines and hands back the `%begin…%end`
 blocks between them (`MonitorCommand::RunCommandWithReply`, `reply_wrapped_lines` in
-`tmuxy-core/src/control_mode/state.rs`). Nothing a client sends reaches a shell, and no
+`tmuxy-core/src/control_mode/state.rs`). Mutations other than keystrokes are bracketed
+too, so an `%error` can be attributed to the command that caused it and reported to the
+user instead of being lost in the stream. Nothing a client sends reaches a shell, and no
 per-command `tmux` process is spawned on either transport. The policy for what goes
 where lives once, in `tmuxy-core/src/command_router.rs`, and both transports call it.
 

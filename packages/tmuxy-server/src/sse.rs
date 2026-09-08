@@ -51,7 +51,7 @@ fn sse_event_type(payload: &str) -> &'static str {
         if let Some(end) = rest.find('"') {
             return match &rest[..end] {
                 "state-update" => "state-update",
-                "error" => "error",
+                "tmux-error" => "tmux-error",
                 "connection-info" => "connection-info",
                 "keybindings" => "keybindings",
                 "log" => "log",
@@ -214,7 +214,11 @@ enum SseEvent {
     },
     #[serde(rename = "state-update")]
     StateUpdate(Box<StateUpdate>),
-    #[serde(rename = "error")]
+    /// A backend error for the user (a rejected command, a failed sync).
+    /// Named `tmux-error` on the wire, never `error`: the browser dispatches
+    /// a server event called `error` to `EventSource.onerror` as well, and
+    /// the adapter would take every reported error for a dropped connection.
+    #[serde(rename = "tmux-error")]
     Error { message: String },
     #[serde(rename = "keybindings")]
     KeyBindings(KeyBindings),
@@ -651,12 +655,10 @@ async fn handle_command(
                 }
                 tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
             };
-            let reply = query_via_control_mode(state, session, &routed).await?;
-            if reply.success {
-                Ok(serde_json::json!(reply.output))
-            } else {
-                Err(reply.output)
-            }
+            let output = query_via_control_mode(state, session, &routed)
+                .await?
+                .into_result()?;
+            Ok(serde_json::json!(output))
         }
         ClientCommand::GetScrollbackCells {
             pane_id,
@@ -763,13 +765,11 @@ async fn handle_command(
             use tmuxy_core::worktrees::{
                 list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD,
             };
-            let listing = query_via_control_mode(state, session, LIST_PANE_PATHS_CMD).await?;
-            if !listing.success {
-                return Err(listing.output);
-            }
+            let listing = query_via_control_mode(state, session, LIST_PANE_PATHS_CMD)
+                .await?
+                .into_result()?;
             let repositories = tokio::task::spawn_blocking(move || {
-                list_git_worktrees(paths_from_pane_listing(&listing.output))
-                    .map_err(|e| e.to_string())
+                list_git_worktrees(paths_from_pane_listing(&listing)).map_err(|e| e.to_string())
             })
             .await
             .map_err(|e| format!("worktree discovery task failed: {e}"))??;

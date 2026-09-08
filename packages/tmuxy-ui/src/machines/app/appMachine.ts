@@ -17,6 +17,7 @@ import {
   assign,
   sendTo,
   enqueueActions,
+  raise,
   type ActorRefFrom,
   fromCallback,
   type AnyActorRef,
@@ -27,6 +28,8 @@ import { uiPrefsState } from './states/uiPrefs';
 import { uiPrefsActions } from './actions/uiPrefs';
 import { commandUiState } from './states/commandUi';
 import { commandUiActions } from './actions/commandUi';
+import { notificationsState } from './states/notifications';
+import { notificationsActions } from './actions/notifications';
 import { browserState } from './states/browser';
 import { browserActions } from './actions/browser';
 import { copyModeState } from './states/copyMode';
@@ -353,6 +356,7 @@ export const appMachine = setup({
   actions: {
     ...uiPrefsActions,
     ...commandUiActions,
+    ...notificationsActions,
     ...copyModeActions,
     ...browserActions,
     ...groupsAndFloatsActions,
@@ -417,6 +421,7 @@ export const appMachine = setup({
     // are restricted to that state per FIELD_OWNERS in ./context.ts.
     ...uiPrefsState.on,
     ...commandUiState.on,
+    ...notificationsState.on,
     ...groupsAndFloatsGlobalEvents,
     ...tabOverviewGlobalEvents,
 
@@ -1349,13 +1354,12 @@ export const appMachine = setup({
             }
           }),
         },
+        // While connected an error is the user's to read and dismiss (the
+        // snackbar). `error` stays what the connection overlay shows while
+        // connecting, so a rejected command is not repeated under the
+        // spinner if the channel drops later.
         TMUX_ERROR: {
-          actions: enqueueActions(({ event, enqueue }) => {
-            enqueue(assign({ error: event.error }));
-            enqueue(({ self }) => {
-              self.send({ type: 'SHOW_STATUS_MESSAGE', text: event.error });
-            });
-          }),
+          actions: raise(({ event }) => ({ type: 'NOTIFY' as const, text: event.error })),
         },
         TMUX_DISCONNECTED: {
           target: 'disconnected',

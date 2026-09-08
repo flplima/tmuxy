@@ -33,6 +33,7 @@ import { cellMetricsStyle } from './utils/cellMetrics';
 import { latencyTracker } from './tmux/latencyTracker';
 import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/SmoothCursor';
+import { Snackbar } from './components/Snackbar';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 
@@ -159,6 +160,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
         {showLayout && <RightSidebar />}
       </div>
       <TmuxStatusBar />
+      {/* Errors, top-right, over everything but the cursor. */}
+      <Snackbar />
       {/* The cursor itself: one overlay gliding between the panes' anchors. */}
       <SmoothCursor />
       {/* Dev-only latency overlay; mounted only when enabled via ?perf /

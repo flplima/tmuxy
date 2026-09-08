@@ -1,0 +1,91 @@
+/* Snackbar — pinned to the top-right of the app chrome, under the tab bar so
+   the tabs (and the desktop traffic lights) stay reachable. Built from the
+   theme's own tokens: the terminal's colours set the surface, its red the
+   accent, so it follows whatever colourscheme the user picked. */
+
+.snackbar-stack {
+  position: fixed;
+  top: calc(var(--statusbar-height) + 6px);
+  right: 12px;
+  z-index: 1400; /* over the connection overlay (1300) and the tab overview */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: min(60ch, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.snackbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 100%;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--error-color) 55%, transparent);
+  border-left: 3px solid var(--error-color);
+  border-radius: var(--radius-md);
+  background-color: color-mix(in srgb, var(--term-background) 92%, var(--error-color));
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-small);
+  line-height: 1.4;
+  pointer-events: auto;
+  animation: snackbar-in 0.15s ease-out;
+}
+
+.snackbar-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  /* The app chrome is user-select: none; an error message is for copying. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.snackbar-close {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: -1px -2px 0 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.snackbar-close:hover,
+.snackbar-close:focus-visible {
+  background-color: color-mix(in srgb, var(--text-primary) 15%, transparent);
+  color: var(--text-primary);
+  outline: none;
+}
+
+@keyframes snackbar-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snackbar {
+    animation: none;
+  }
+}

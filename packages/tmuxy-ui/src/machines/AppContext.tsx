@@ -99,6 +99,7 @@ export {
   selectKeyBindings,
   selectCommandMode,
   selectStatusMessage,
+  selectNotifications,
   selectPrefixActive,
   selectActivePaneCopyMode,
   selectThemeName,

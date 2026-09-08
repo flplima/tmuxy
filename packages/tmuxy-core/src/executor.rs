@@ -715,7 +715,7 @@ pub fn new_window_rewrite(session: &str, size: Option<(u32, u32)>) -> String {
 }
 
 /// The verb of a single tmux command — its first whitespace-delimited token.
-fn command_verb(command: &str) -> &str {
+pub(crate) fn command_verb(command: &str) -> &str {
     command.split_whitespace().next().unwrap_or("")
 }
 
@@ -780,7 +780,7 @@ pub fn rewrite_new_window_in_compound(
 ///
 /// A plain `cmd.split("\\;")` also splits inside quoted payloads, so
 /// `send-keys -l 'a\;b'` was torn into two bogus commands.
-fn split_compound(cmd: &str) -> Vec<String> {
+pub(crate) fn split_compound(cmd: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut in_single = false;
