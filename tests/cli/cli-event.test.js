@@ -1,8 +1,9 @@
 /**
  * tmuxy event emit / wait / list — the inter-agent coordination queue.
  *
- * Storage is /tmp/tmuxy-events/<socket>/<name>/ with flock-serialized
- * sequence allocation and consume. Each test uses a unique socket name so
+ * Storage is /tmp/tmuxy-events/<socket>/<name>/, with sequence allocation and
+ * consume serialized by the mkdir mutex in bin/tmuxy/_lib (mkdir rather than
+ * flock, which macOS does not ship). Each test uses a unique socket name so
  * runs are isolated from each other and from any real queue. The tmux mock
  * absorbs the `wait-for` signal/block calls, so `event wait` only takes the
  * fast path here (message already pending) — blocking-wait wakeups need a
@@ -10,7 +11,7 @@
  */
 
 const fs = require('fs');
-const { runCLI } = require('./helpers/run-cli');
+const { runCLI, runCLIConcurrent, reapedPid } = require('./helpers/run-cli');
 
 /** Unique socket per test → unique /tmp/tmuxy-events namespace. */
 function freshSocket() {
@@ -118,5 +119,60 @@ describe('CLI event subcommands', () => {
       expect(exitCode).toBe(0);
       expect(stdout).toContain('No event channels');
     });
+  });
+
+  describe('sequence allocation under contention', () => {
+    test('concurrent emits each get their own sequence, losing no message', async () => {
+      const socket = freshSocket();
+      const count = 16;
+      try {
+        const codes = await runCLIConcurrent(
+          Array.from({ length: count }, (_, i) => ['event', 'emit', 'ch', `m${i}`]),
+          { env: { TMUX_SOCKET: socket } },
+        );
+        expect(codes.every((c) => c === 0)).toBe(true);
+
+        // Without a working mutex the read-modify-write of `next` interleaves:
+        // emitters collide on a sequence number and one message overwrites
+        // another, so the counter lands short and payloads go missing.
+        const dir = eventDir(socket, 'ch');
+        const seqs = fs
+          .readdirSync(dir)
+          .filter((f) => /^msg\.\d+$/.test(f))
+          .map((f) => Number(f.slice('msg.'.length)))
+          .sort((a, b) => a - b);
+        expect(seqs).toEqual(Array.from({ length: count }, (_, i) => i));
+        expect(fs.readFileSync(`${dir}/next`, 'utf-8').trim()).toBe(String(count));
+
+        const payloads = seqs.map((n) => fs.readFileSync(`${dir}/msg.${n}`, 'utf-8'));
+        expect([...new Set(payloads)].sort()).toEqual(
+          Array.from({ length: count }, (_, i) => `m${i}`).sort(),
+        );
+        // Nothing holds the channel once the emitters are done.
+        expect(fs.existsSync(`${dir}/.lock`)).toBe(false);
+      } finally {
+        cleanup(socket);
+      }
+    }, 30000);
+
+    test('a lock left behind by a dead process is reclaimed, not waited on', () => {
+      const socket = freshSocket();
+      const dir = eventDir(socket, 'ch');
+      try {
+        const dead = reapedPid();
+        fs.mkdirSync(`${dir}/.lock`, { recursive: true });
+        fs.writeFileSync(`${dir}/.lock/pid`, String(dead));
+
+        // Before the mutex learned to reclaim, this hung until the harness
+        // killed it: nothing drops the lock when its owner dies.
+        const { exitCode } = runCLI(['event', 'emit', 'ch', 'after-crash'], {
+          env: { TMUX_SOCKET: socket },
+        });
+        expect(exitCode).toBe(0);
+        expect(fs.readFileSync(`${dir}/msg.0`, 'utf-8')).toBe('after-crash');
+      } finally {
+        cleanup(socket);
+      }
+    }, 30000);
   });
 });

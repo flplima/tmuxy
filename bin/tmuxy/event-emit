@@ -25,12 +25,14 @@ SOCKET="${TMUX_SOCKET:-tmuxy}"
 DIR="/tmp/tmuxy-events/$SOCKET/$NAME"
 mkdir -p "$DIR"
 
-# Atomically read+increment the sequence counter (flock for concurrency)
-exec 9>"$DIR/.lock"
-flock 9
+# Atomically read+increment the sequence counter. Released on any exit, so a
+# killed emitter does not wedge the channel for the next one.
+_lock_acquire "$DIR"
+trap '_lock_release "$DIR"' EXIT
 SEQ=$(cat "$DIR/next" 2>/dev/null || echo 0)
 echo $((SEQ + 1)) > "$DIR/next"
-exec 9>&-
+_lock_release "$DIR"
+trap - EXIT
 
 # Write payload atomically (tmp + mv)
 printf '%s' "$MSG" > "$DIR/msg.${SEQ}.tmp"

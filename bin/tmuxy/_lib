@@ -61,6 +61,57 @@ _run_safe() {
   _tmux run-shell "tmux $TMUX_SOCKET_FLAG $TMUX_SOCKET $*"
 }
 
+# --- Cross-process mutex ---------------------------------------------------
+#
+# `mkdir` is the lock primitive because it is atomic on every POSIX filesystem
+# and is always present. `flock` is not: macOS ships none at all, so the event
+# queue — the one thing here that needs a lock — failed with "command not
+# found" on every Mac, taking `tmuxy event emit/wait` down with it.
+#
+# BusyBox's sleep (the v86 guest) may not accept a fraction, so the nap falls
+# back to a whole second rather than failing under `set -e`.
+_lock_nap() { sleep 0.05 2>/dev/null || sleep 1; }
+
+# Take the lock for a directory, blocking until it is free.
+# Args: $1=directory to lock within
+_lock_acquire() {
+  local lock="$1/.lock" owner tries=0
+  # A `.lock` left as a FILE is from the flock era, when the lock was an fd
+  # onto a file of that name; it would block mkdir forever.
+  [ -f "$lock" ] && rm -f "$lock"
+  while ! mkdir "$lock" 2>/dev/null; do
+    owner="$(cat "$lock/pid" 2>/dev/null || true)"
+    tries=$((tries + 1))
+    _lock_nap
+    # Steal a lock whose owner died between taking and releasing it: nothing
+    # drops it on exit the way the kernel drops an flock, so one crashed
+    # emitter would wedge the channel for good. The ~10s arm covers an owner
+    # that is alive but stuck.
+    #
+    # Two guards against stealing a lock somebody legitimately holds: the pid
+    # must be the same dead one seen before the nap (a lock that changed hands
+    # meanwhile has a live owner), and the steal is a `mv` — of two processes
+    # racing to reclaim the same lock only one can move it, so the other
+    # cannot delete the winner's fresh lock. A lock re-taken in the instant
+    # between the check and the move can still be lost; the window is a
+    # syscall wide and only opens after a crash.
+    if [ "$owner" = "$(cat "$lock/pid" 2>/dev/null || true)" ] &&
+      { { [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; } || [ "$tries" -gt 200 ]; }; then
+      if mv "$lock" "$lock.stale.$$" 2>/dev/null; then
+        rm -rf "$lock.stale.$$"
+      fi
+      tries=0
+    fi
+  done
+  echo $$ > "$lock/pid"
+}
+
+# Release the lock for a directory. Safe to call when not held.
+# Args: $1=directory to unlock within
+_lock_release() {
+  rm -rf "$1/.lock" 2>/dev/null || true
+}
+
 # Get the window type set on a window via @tmuxy-window-type.
 # Args: $1=window_id (e.g., @5)
 # Output: float|float-backdrop|sidebar-left|sidebar-right  (empty for a tab)

@@ -47,9 +47,15 @@ run_safe() {
 # doubled because run-shell format-expands its command string before the shell
 # sees it (see docs/TMUX.md).
 shquote() {
-  local out='' arg
+  # The `'` -> `'\''` escape is built from variables rather than written as
+  # literal backslashes in the replacement: bash 3.2 (the only bash macOS
+  # ships) and bash 4+ disagree about how many backslashes survive a literal
+  # replacement string, and 3.2 turned `it's` into `it\'\\'\''` — a tmux
+  # command that no longer parses. A replacement that arrives by expansion is
+  # taken literally by both.
+  local out='' arg sq="'" sq_esc="'\\''"
   for arg in "$@"; do
-    arg="'${arg//\'/\'\\\'\'}'"
+    arg="'${arg//$sq/$sq_esc}'"
     out="$out ${arg//#/##}"
   done
   printf '%s' "${out# }"
