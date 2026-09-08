@@ -313,7 +313,10 @@ Still open:
    use, not for LAN/typical-remote.
 4. ~~**Subprocesses on the keyboard path.**~~ **Done** — three separate
    causes, found by the axis-C harness and fixed together (356 ms → 10 ms for
-   keyboard pane navigation).
+   keyboard pane navigation). The desktop app kept one more until every
+   command was routed through control mode: each keystroke's `send-keys` was
+   an external `sh -c "tmux …"` — a shell and a tmux client forked per
+   character typed — while the web sent the same string down the connection.
 
    - **Navigation had lost its optimistic prediction.** `Ctrl+hjkl` /
      `Ctrl+arrow` are bound to the `tmuxy-nav-*` command alias, and

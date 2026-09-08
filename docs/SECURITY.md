@@ -76,6 +76,8 @@ The Tauri app has no network-level authentication concerns — all communication
 
 **Context:** This is by design — tmuxy is a tmux UI, and tmux provides full shell access. Combined with #1 (no authentication), network reachability alone is sufficient for code execution.
 
+What the server does *not* do is interpolate a client's command into a shell of its own: every command goes down the monitor's control-mode connection as a tmux command line, reads included, so there is no `sh -c` for shell metacharacters to escape from.
+
 ### 4. Unrestricted File Access (High)
 
 **Risk:** The `/api/file` and `/api/browse` endpoints read arbitrary files, with no path restrictions beyond Unix file permissions. `/api/browse` additionally serves them with a real content type, so an HTML file it hands out is *rendered* by whatever loads it — the browser widget frames those responses.

@@ -4,7 +4,7 @@
  * The live tmux state the app holds is single-session (the attached session's
  * windows/panes). To show *every* session on the current tmux socket, this
  * actor shells `list-windows -a` / `list-panes -a` through the adapter
- * (`queryReadonly`, which returns stdout on web and desktop alike), parses the
+ * (`query`, answered in-band on web and desktop alike), parses the
  * result into {@link SessionTreeNode}s, and sends `SESSIONS_UPDATED` to the
  * parent machine. This runs on the web build too — a web client attached to a
  * multi-session socket now sees and can switch to its sibling sessions.
@@ -144,20 +144,17 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
  * adapter, not the single-session demo/v86 sandboxes): `list-windows -a` /
  * `list-panes -a` enumerate all sessions on that socket, so the web build lists
  * its socket's other sessions too (activating one reconnects the SSE stream via
- * `HttpAdapter.switchSession`). Reads go through `adapter.queryReadonly` so they
+ * `HttpAdapter.switchSession`). Reads go through `adapter.query` so they
  * bypass the mutation serial queue.
  */
 export function createServersActor(adapter: TmuxAdapter) {
   return fromCallback<ServersActorEvent, ServersActorInput>(({ input, receive }) => {
-    // In-browser sandboxes (demo, v86) are single-session — nothing to enumerate.
-    if (!adapter.enumeratesSessions) return () => {};
+    // In-browser sandboxes (demo, v86) are single-session — nothing to
+    // enumerate, and nothing to read it with: `query` is the only call that
+    // returns tmux output, `run_tmux_command` resolves null everywhere.
+    const query = adapter.query?.bind(adapter);
+    if (!adapter.enumeratesSessions || !query) return () => {};
     const { parent } = input;
-
-    // Read a tmux query off the mutation serial queue when the adapter supports
-    // it (web + Tauri do), so the poll's external-subprocess reads never sit in
-    // front of window/pane commands. Falls back to the plain invoke otherwise.
-    const query = (command: string): Promise<string> =>
-      adapter.queryReadonly?.(command) ?? adapter.invoke<string>('run_tmux_command', { command });
 
     // Worktree discovery, due every DISCOVERY_INTERVAL_MS or when forced. The
     // host derives the pane paths from tmux and runs git; a failure (no git on

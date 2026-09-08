@@ -1266,10 +1266,9 @@ pub fn run() {
             commands::set_client_size,
             // Pane/window operations exercised by the Tauri webdriver test
             // (the production UI drives these through run_tmux_command).
-            commands::split_pane_horizontal,
-            commands::new_window,
             // General
             commands::run_tmux_command,
+            commands::query_tmux,
             commands::get_key_bindings,
             commands::get_keybindings_snapshot,
             // Copy mode + themes (mirrors the SSE server's invoke surface so

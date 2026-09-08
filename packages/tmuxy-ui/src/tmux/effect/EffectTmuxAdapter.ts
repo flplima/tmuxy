@@ -53,6 +53,12 @@ export interface EffectTmuxAdapter {
     args?: Record<string, unknown>,
   ) => Effect.Effect<A, AdapterError>;
 
+  /**
+   * Read from tmux: the command's output, typed errors. Fails with a
+   * TransportError on adapters that cannot read (demo, v86).
+   */
+  query: (command: string) => Effect.Effect<string, AdapterError>;
+
   /** Optional: switch active tmux session. */
   switchSession: (sessionName: string) => Effect.Effect<void, AdapterError>;
 }
@@ -96,6 +102,19 @@ export function toEffectAdapter(adapter: TmuxAdapter): EffectTmuxAdapter {
         ),
       );
     },
+
+    query: (command: string) =>
+      adapter.query
+        ? Effect.tryPromise<string, AdapterError>({
+            try: () => adapter.query!(command),
+            catch: (cause) => classifyAdapterError(cause, { command }),
+          })
+        : Effect.fail(
+            new TransportError({
+              cause: 'query not supported by this adapter',
+              context: command,
+            }),
+          ),
 
     switchSession: (sessionName: string) =>
       adapter.switchSession

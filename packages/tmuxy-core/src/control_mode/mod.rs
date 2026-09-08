@@ -30,11 +30,13 @@ pub use connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 pub use images::{ImageParser, ImagePlacement, ImageProtocol, StoredImage};
 pub use log::{LogKind, LogSink};
 #[cfg(feature = "native")]
-pub use monitor::{MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor};
+pub use monitor::{
+    CommandReply, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor,
+};
 pub use octal::decode_octal;
 pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};
 pub use state::{
-    capture_command, capture_command_range, normalize_capture_bytes, ChangeType, SideEffect,
-    StateAggregator, StepResult,
+    capture_command, capture_command_range, normalize_capture_bytes, reply_wrapped_lines,
+    ChangeType, SideEffect, StateAggregator, StepResult,
 };

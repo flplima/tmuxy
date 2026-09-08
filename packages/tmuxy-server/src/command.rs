@@ -44,6 +44,13 @@ pub enum ClientCommand {
     RunTmuxCommand {
         command: String,
     },
+    /// Run a tmux command and return what it printed. The one way a client
+    /// reads from tmux; rides the monitor's control-mode connection like every
+    /// mutation (`RunCommandWithReply`), so nothing a client sends ever
+    /// reaches a shell.
+    QueryTmux {
+        command: String,
+    },
     GetScrollbackCells {
         #[serde(rename = "paneId")]
         pane_id: String,

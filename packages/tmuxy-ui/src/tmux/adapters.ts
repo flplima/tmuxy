@@ -365,13 +365,14 @@ export class TauriAdapter implements TmuxAdapter {
   }
 
   /**
-   * Read-only tmux query that bypasses the mutation serial queue (see
-   * TmuxAdapter.queryReadonly) — go straight to the Tauri command instead of
-   * chaining onto `sendQueue`, so the sessions poll can't delay window ops.
+   * Read from tmux (see TmuxAdapter.query) — straight to the Tauri command
+   * rather than onto `sendQueue`: it is answered in-band on the monitor's
+   * connection, so the sessions poll can't delay window ops and needs no
+   * ordering from here.
    */
-  async queryReadonly(command: string): Promise<string> {
+  async query(command: string): Promise<string> {
     const { invoke } = await import('@tauri-apps/api/core');
-    return invoke<string>('run_tmux_command', { command });
+    return invoke<string>('query_tmux', { command });
   }
 
   /** Mint a per-instance action id (e.g. `a-t-17`); the `t` marks the Tauri

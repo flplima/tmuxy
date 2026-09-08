@@ -210,10 +210,6 @@ enum SseEvent {
     ConnectionInfo {
         connection_id: u64,
         default_shell: String,
-        /// Whether action tracing is on for this server. The client ships its
-        /// own trace events to `POST /trace` only when this is true — the ingest
-        /// endpoint independently rejects when off, so this is a hint, not the
-        /// enforcement point (docs/TELEMETRY.md § Gating).
         trace_enabled: bool,
     },
     #[serde(rename = "state-update")]
@@ -614,73 +610,52 @@ async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::RunTmuxCommand { command } => {
-            // Block raw resize-window commands from clients — resize must go through
-            // set_client_size to prevent stale SSE connections from overriding sizes.
-            // Asked of the whole command list, not its head: the keyboard actor
-            // pins every bound command with `select-window … \; select-pane … \;`,
-            // and a head-anchored check stops firing the moment it does.
-            if executor::compound_has_verb(&command, &["resize-window", "resizew"]) {
-                warn!(?conn_id, %command, "blocked resize command (use set_client_size)");
-                return Ok(serde_json::json!(null));
-            }
-
-            // neww crashes tmux 3.5a control mode — use split+break workaround.
-            // The rewrite replaces the `new-window` wherever it sits in the list
-            // and keeps the pin around it, so the new tab is split off the window
-            // the user is looking at.
-            if executor::compound_has_verb(&command, &["new-window", "neww"]) {
-                let size = new_window_client_size(state, session).await;
-                if let Some(cmd) = executor::rewrite_new_window_in_compound(&command, session, size)
-                {
-                    send_via_control_mode(state, session, &cmd).await?;
+            // Policy lives in tmuxy-core (`route_command`) and is shared with
+            // the desktop app; only the channel write is ours.
+            let routed = match tmuxy_core::command_router::route_command(
+                &command,
+                session,
+                new_window_client_size(state, session).await,
+            ) {
+                tmuxy_core::command_router::Route::Blocked(reason) => {
+                    warn!(?conn_id, %command, reason, "blocked command");
                     return Ok(serde_json::json!(null));
                 }
-            }
-
-            // Read-only session/window/pane enumeration is safe to run as a
-            // one-off external subprocess even while control mode is attached
-            // (docs/TMUX.md "Commands Safe to Run"). Run it synchronously and
-            // return stdout: the fire-and-forget control-mode path below can't
-            // return output, so a caller that needs it — the sidebar's sessions
-            // poll runs `list-windows -a` / `list-panes -a` to enumerate every
-            // session on the socket — would otherwise get null. Mirrors the
-            // Tauri `run_tmux_command` path (which already returns stdout).
-            if is_readonly_query(&command) {
-                return executor::run_tmux_command_for_session(session, &command)
-                    .map(|out| serde_json::json!(out))
-                    .map_err(|e| e.to_string());
-            }
-
-            // Detect source-file commands — keybindings may change
-            let is_source_file =
-                command.starts_with("source-file") || command.starts_with("source ");
-
-            let command_tx = {
-                let sessions = state.sessions.read().await;
-                sessions
-                    .get(session)
-                    .and_then(|s| s.monitor_command_tx.clone())
+                tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
             };
 
-            if let Some(tx) = command_tx {
-                tx.send(MonitorCommand::RunCommand {
-                    command: command.clone(),
-                })
-                .await
-                .map_err(|e| format!("Monitor channel error: {}", e))?;
-                trace!(?conn_id, %command, "client sent command via control mode");
+            // Detect source-file commands — keybindings may change
+            let is_source_file = routed.starts_with("source-file") || routed.starts_with("source ");
 
-                // After source-file, re-broadcast keybindings (prefix key may have
-                // changed) and theme settings (theme/appearance options may have).
-                if is_source_file {
-                    tokio::time::sleep(SOURCE_FILE_SETTLE).await;
-                    broadcast_keybindings(state, session).await;
-                    broadcast_theme_settings(state, session).await;
+            send_via_control_mode(state, session, &routed).await?;
+            trace!(?conn_id, command = %routed, "client sent command via control mode");
+
+            // After source-file, re-broadcast keybindings (prefix key may have
+            // changed) and theme settings (theme/appearance options may have).
+            if is_source_file {
+                tokio::time::sleep(SOURCE_FILE_SETTLE).await;
+                broadcast_keybindings(state, session).await;
+                broadcast_theme_settings(state, session).await;
+            }
+
+            Ok(serde_json::json!(null))
+        }
+        ClientCommand::QueryTmux { command } => {
+            let routed = match tmuxy_core::command_router::route_command(
+                &command,
+                session,
+                new_window_client_size(state, session).await,
+            ) {
+                tmuxy_core::command_router::Route::Blocked(reason) => {
+                    return Err(reason.to_string());
                 }
-
-                Ok(serde_json::json!(null))
+                tmuxy_core::command_router::Route::ControlMode(cmd) => cmd,
+            };
+            let reply = query_via_control_mode(state, session, &routed).await?;
+            if reply.success {
+                Ok(serde_json::json!(reply.output))
             } else {
-                Err("No monitor connection available".to_string())
+                Err(reply.output)
             }
         }
         ClientCommand::GetScrollbackCells {
@@ -785,14 +760,16 @@ async fn handle_command(
         ClientCommand::ListGitWorktrees => {
             // The pane cwds come from tmux, not the request (see the variant),
             // and git runs off the async runtime like the other subprocess reads.
-            let session = session.to_string();
+            use tmuxy_core::worktrees::{
+                list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD,
+            };
+            let listing = query_via_control_mode(state, session, LIST_PANE_PATHS_CMD).await?;
+            if !listing.success {
+                return Err(listing.output);
+            }
             let repositories = tokio::task::spawn_blocking(move || {
-                use tmuxy_core::worktrees::{
-                    list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD,
-                };
-                let listing = executor::run_tmux_command_for_session(&session, LIST_PANE_PATHS_CMD)
-                    .map_err(|e| e.to_string())?;
-                list_git_worktrees(paths_from_pane_listing(&listing)).map_err(|e| e.to_string())
+                list_git_worktrees(paths_from_pane_listing(&listing.output))
+                    .map_err(|e| e.to_string())
             })
             .await
             .map_err(|e| format!("worktree discovery task failed: {e}"))??;
@@ -887,36 +864,44 @@ async fn send_via_control_mode(
     }
 }
 
+/// Run a command through the session's control-mode connection and wait for
+/// what it printed. The counterpart of `send_via_control_mode` for reads.
+async fn query_via_control_mode(
+    state: &Arc<AppState>,
+    session: &str,
+    command: &str,
+) -> Result<tmuxy_core::control_mode::CommandReply, String> {
+    tracing::debug!(
+        target: "tmuxy_server::sse",
+        verb = command.split_whitespace().next().unwrap_or(""),
+        command,
+        "query"
+    );
+    let command_tx = {
+        let sessions = state.sessions.read().await;
+        sessions
+            .get(session)
+            .and_then(|s| s.monitor_command_tx.clone())
+    };
+    let Some(tx) = command_tx else {
+        return Err("No monitor connection available".to_string());
+    };
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    tx.send(MonitorCommand::RunCommandWithReply {
+        command: command.to_string(),
+        reply,
+    })
+    .await
+    .map_err(|e| format!("Monitor channel error: {}", e))?;
+    rx.await
+        .map_err(|_| "monitor went away before answering".to_string())
+}
+
 /// Compute the minimum (cols, rows) across all connected clients
 fn compute_min_client_size(sizes: &HashMap<u64, (u32, u32)>) -> (u32, u32) {
     let min_cols = sizes.values().map(|(c, _)| *c).min().unwrap_or(80);
     let min_rows = sizes.values().map(|(_, r)| *r).min().unwrap_or(24);
     (min_cols, min_rows)
-}
-
-/// True for read-only tmux queries that are safe to run as a one-off external
-/// subprocess while a control-mode client is attached (docs/TMUX.md). These
-/// return stdout the fire-and-forget control-mode path can't.
-///
-/// The command is interpolated into `sh -c` by `run_tmux_command_for_session`,
-/// so any shell metacharacter can chain a mutating command onto a read
-/// (`list-panes -a && kill-server`, `$(...)`, backticks, pipes, redirection).
-/// We reject the full set of shell control/expansion characters — the only
-/// legitimate callers (the sidebar's `list-* -a -F '…'` poll) use just
-/// alphanumerics, spaces, `-`, single quotes, `#{…}`, `@`, and tabs.
-fn is_readonly_query(command: &str) -> bool {
-    // Any of these lets a mutating command ride along the `sh -c` invocation.
-    const SHELL_METACHARS: &[char] = &[
-        ';', '\n', '\r', '&', '|', '$', '`', '<', '>', '(', ')', '\\',
-    ];
-    if command.contains(SHELL_METACHARS) {
-        return false;
-    }
-    const READONLY_PREFIXES: &[&str] = &["list-windows", "list-panes", "list-sessions"];
-    let head = command.trim_start();
-    READONLY_PREFIXES
-        .iter()
-        .any(|p| head == *p || head.starts_with(&format!("{p} ")))
 }
 
 /// The viewport size a freshly created window should be resized to, or `None`
@@ -1372,54 +1357,5 @@ mod tests {
         assert_eq!(parsed["event"], "clipboard");
         assert_eq!(parsed["data"]["pane_id"], "%4");
         assert_eq!(parsed["data"]["text"], "hello world");
-    }
-
-    #[test]
-    fn readonly_query_allows_session_enumeration_reads() {
-        // The exact commands the sidebar sessions poll issues, including the
-        // tab-joined multi-field format (literal tabs, not metacharacters).
-        assert!(is_readonly_query("list-windows -a -F '#{session_name}'"));
-        assert!(is_readonly_query("list-panes -a -F '#{pane_id}'"));
-        assert!(is_readonly_query("list-sessions"));
-        assert!(is_readonly_query(
-            "list-windows -a -F '#{session_name}\t#{window_id}\t#{@tmuxy-window-type}'"
-        ));
-    }
-
-    /// The sessions poll asks for the app-set pane title through this guard. A
-    /// format built with a shell metacharacter (`#{||:…}` is the tempting way
-    /// to write the host-name comparison) is rejected here and the poll then
-    /// returns NO ROWS rather than an error — the sidebar tree silently loses
-    /// every foreign pane. Pin the constant against the guard so the two can't
-    /// drift apart quietly.
-    #[test]
-    fn readonly_query_allows_the_app_set_pane_title_format() {
-        let title = tmuxy_core::constants::tmux_formats::APP_PANE_TITLE;
-        assert!(
-            is_readonly_query(&format!(
-                "list-panes -a -F '#{{session_name}}\t#{{pane_id}}\t{title}'"
-            )),
-            "APP_PANE_TITLE introduced a shell metacharacter: {title}"
-        );
-    }
-
-    #[test]
-    fn readonly_query_rejects_mutations_and_smuggling() {
-        // Mutating commands must keep flowing through the control-mode channel.
-        assert!(!is_readonly_query("split-window -h"));
-        assert!(!is_readonly_query("kill-session -t foo"));
-        // A read must not carry a compound/multiline mutation past the guard.
-        assert!(!is_readonly_query("list-windows -a ; kill-server"));
-        assert!(!is_readonly_query("list-panes\nkill-session -t foo"));
-        // The command is run via `sh -c`, so every shell metacharacter that can
-        // chain a second command must be rejected, not just `;` and newlines.
-        assert!(!is_readonly_query("list-panes -a && kill-server"));
-        assert!(!is_readonly_query("list-panes -a | sh"));
-        assert!(!is_readonly_query("list-panes -a $(kill-server)"));
-        assert!(!is_readonly_query("list-panes -a `kill-server`"));
-        assert!(!is_readonly_query("list-panes -a > /etc/passwd"));
-        assert!(!is_readonly_query("list-panes -a & kill-server"));
-        // Prefix-only match must not let `list-windows-evil` style names through.
-        assert!(!is_readonly_query("list-windowsX"));
     }
 }

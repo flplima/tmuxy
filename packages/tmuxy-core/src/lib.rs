@@ -4,6 +4,8 @@ pub mod error;
 
 // Native (non-wasm) transport + tmux-command layer, gated behind `native`.
 #[cfg(feature = "native")]
+pub mod command_router;
+#[cfg(feature = "native")]
 pub mod ctx;
 #[cfg(feature = "native")]
 pub mod debug_log;

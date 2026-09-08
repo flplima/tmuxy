@@ -82,9 +82,19 @@ Use short command forms when sending through control mode.
 
 **Note:** `new` is short for `new-session`, NOT `new-window`. Use `neww` for creating windows.
 
-### Commands Safe to Run as External Subprocesses
+### What still runs outside control mode, and why
 
-These are used in `tmuxy-core/src/executor.rs` and `session.rs`:
+Every command a client sends — mutations through `run_tmux_command`, reads through
+`query_tmux` — rides the monitor's control-mode connection. Reads are answered in-band:
+the monitor brackets the command with marker lines and hands back the `%begin…%end`
+blocks between them (`MonitorCommand::RunCommandWithReply`, `reply_wrapped_lines` in
+`tmuxy-core/src/control_mode/state.rs`). Nothing a client sends reaches a shell, and no
+per-command `tmux` process is spawned on either transport. The policy for what goes
+where lives once, in `tmuxy-core/src/command_router.rs`, and both transports call it.
+
+The subprocess calls that remain are in `tmuxy-core/src/executor.rs` and `session.rs`, and
+each is either needed before any control-mode client exists or is a read the migration
+has not reached yet:
 
 | Command           | Location                      | Justification                                                |
 | ----------------- | ----------------------------- | ------------------------------------------------------------ |
@@ -92,19 +102,16 @@ These are used in `tmuxy-core/src/executor.rs` and `session.rs`:
 | `new-session`     | `session.rs`                  | Create session **before** control mode attaches              |
 | `source-file`     | `session.rs`, `monitor.rs`    | Source config during session creation and initial state sync |
 | `kill-session`    | `session.rs`                  | Destroy session (no control mode attached)                   |
-| `capture-pane`    | `executor.rs`                 | Initial state capture and scrollback history                 |
-| `display-message` | `executor.rs`                 | Query pane metadata (width, history size)                    |
-| `list-keys`       | `executor.rs`                 | Read keybindings from tmux config                            |
-| `show-options`    | `executor.rs`                 | Read tmux options                                            |
-| `list-windows`    | `executor.rs`, `sse.rs`       | `resize_window` fallback; sessions-tree enumeration (`-a`)   |
-| `send-keys -l`    | `executor.rs`                 | Mouse event SGR sequences (escape-heavy)                     |
-| `list-panes`      | `executor.rs`, `sse.rs`       | Pane info; sessions-tree enumeration (`-a`)                  |
-| `list-sessions`   | `sse.rs`                      | Sessions-tree enumeration                                    |
+| `show-options`    | `gui.rs` (desktop setup)      | The window's blur/appearance is read before the monitor starts |
+| `capture-pane`    | `executor.rs`                 | Initial-state snapshot and the scrollback fetch — read-only; moving in-band next |
+| `display-message` | `executor.rs`                 | Pane metadata for the scrollback fetch — read-only; moving in-band next |
+| `list-keys`       | `executor.rs`                 | Read keybindings from tmux config (sync callers)             |
+| `list-windows`    | `executor.rs`                 | `resize_window` pre-connect fallback                         |
+| `list-panes`      | `executor.rs`                 | Initial-state snapshot                                       |
 | `load-buffer -`   | `bin/tmuxy-cli` (`pane paste`)| Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
 
-These are safe because they either run **before** control mode connects, are **read-only queries**, or use `send-keys -l` for binary escape sequences that control mode handles differently.
-
-The web server's `RunTmuxCommand` handler (`sse.rs`) normally forwards commands to the control-mode channel fire-and-forget (no stdout back). The three `list-*` reads above are the exception: it runs them as one-off subprocesses via `executor::run_tmux_command_for_session` and returns their stdout, so the frontend's sessions poll can read output on web the same way it does under Tauri. A guard (`is_readonly_query`) rejects compound (`;`) or multiline strings so a mutation can't ride along a read.
+These are safe because they either run **before** control mode connects or are read-only
+queries. Do not add to this table: a read a client needs goes through `query_tmux`.
 
 ### Shell Scripts and `run-shell`
 
@@ -150,7 +157,7 @@ This matters especially in automation and tests where multiple operations happen
 
 The desktop app's executor adds `-t <session>` to commands that name no target. It goes **right after the command name**, never at the end: `split-window`, `new-window`, `respawn-pane` and `display-popup` end in a positional shell command, and an appended `-t tmuxy` became part of it — the left sidebar's `split-window 'tmuxy widget tree'` ran the literal program `"tmuxy widget tree" -t tmuxy` and died (see `with_session_target` in `tmuxy-core/src/executor.rs`).
 
-The same rule shapes the tab strip. Chrome windows (floats, sidebars) hold tmux indices the user never sees, so `select-window -t N` from a root binding lands on the wrong tab whenever one sits before it. tmuxy therefore resolves `ctrl+1`…`ctrl+9` on the client, by **position in the strip** (the index-ordered visible tabs), and no longer ships `bind -n C-N` lines in its config. Every window or pane the client then names in a command is an **id** (`@N` / `%N`), never a tmux index: `renumber-windows` shifts indices whenever a window closes and tmux announces none of the shifts, so an index the client holds can be a beat stale (a split once landed in the wrong tab that way). The backend re-lists windows after any window add, close or reorder, but the id rule is what makes a stale list harmless. A command must also name the WINDOW it acts on, not just the pane: `select-pane` on a pane in another window sets that window's active pane and leaves tmux's current window alone, so a `split-window` after it still runs wherever tmux already was. The keyboard actor's pin therefore always leads with `select-window` (taking the window from the pinned pane when the machine has not published an active one yet), and the sidebar and float creators name the pane they split, because nothing in their command list switches windows first. One class of target must never be invented, though: `break-pane`, `join-pane`, `move-pane`, `move-window`, `swap-pane` and `swap-window` take the thing to move in `-s` and where it goes in `-t`. The desktop transport, which runs commands as external subprocesses (`executor::run_tmux_command_for_session`), defaults a missing `-t` to the session for every other command and skips these — a session destination resolves to the current window, whose index is already taken, so `break-pane` answers "index in use" and the left column's tree is left behind as a plain pane in the tab. `ctrl+0` (and `prefix w`, and the grid button at the right end of the app header) opens the Tab Overview — a client-side grid of every tab where a slot click selects, the trailing "+" creates, a slot's ✕ kills, and a drag reorders by sending `move-window -b`/`-a` against the neighbouring tab's `@id` (a tab dragged along the strip itself reorders the same way). Each slot draws its tab's panes with the screen each pane had when the overview opened: a still taken once, kept in the machine's `tabOverviewSnapshot`, so a tab that keeps printing does not churn its thumbnail. See `tmuxy-ui/src/machines/app/actions/tabOverview.ts` and `tmuxy-ui/src/components/TabOverview.tsx`.
+The same rule shapes the tab strip. Chrome windows (floats, sidebars) hold tmux indices the user never sees, so `select-window -t N` from a root binding lands on the wrong tab whenever one sits before it. tmuxy therefore resolves `ctrl+1`…`ctrl+9` on the client, by **position in the strip** (the index-ordered visible tabs), and no longer ships `bind -n C-N` lines in its config. Every window or pane the client then names in a command is an **id** (`@N` / `%N`), never a tmux index: `renumber-windows` shifts indices whenever a window closes and tmux announces none of the shifts, so an index the client holds can be a beat stale (a split once landed in the wrong tab that way). The backend re-lists windows after any window add, close or reorder, but the id rule is what makes a stale list harmless. A command must also name the WINDOW it acts on, not just the pane: `select-pane` on a pane in another window sets that window's active pane and leaves tmux's current window alone, so a `split-window` after it still runs wherever tmux already was. The keyboard actor's pin therefore always leads with `select-window` (taking the window from the pinned pane when the machine has not published an active one yet), and the sidebar and float creators name the pane they split, because nothing in their command list switches windows first. No target is ever added on the way to tmux, on either transport: the pinned list reaches the control-mode connection byte-identical (`command_router::route_command`). The desktop used to run commands as external subprocesses and inject `-t <session>` into any command without one; a session target is resolved late, against the session's *current* window, so a concurrent `select-window` from the monitor's own client between the pin and the split moved the split to whatever tab tmux was on — the untargeted command after a pin, sent as-is, inherits the queue's current target and holds it. `ctrl+0` (and `prefix w`, and the grid button at the right end of the app header) opens the Tab Overview — a client-side grid of every tab where a slot click selects, the trailing "+" creates, a slot's ✕ kills, and a drag reorders by sending `move-window -b`/`-a` against the neighbouring tab's `@id` (a tab dragged along the strip itself reorders the same way). Each slot draws its tab's panes with the screen each pane had when the overview opened: a still taken once, kept in the machine's `tabOverviewSnapshot`, so a tab that keeps printing does not churn its thumbnail. See `tmuxy-ui/src/machines/app/actions/tabOverview.ts` and `tmuxy-ui/src/components/TabOverview.tsx`.
 
 ## `%unlinked-window-close` Events
 

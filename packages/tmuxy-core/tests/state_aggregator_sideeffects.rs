@@ -20,6 +20,7 @@ fn variant_names(effects: &[SideEffect]) -> Vec<&'static str> {
             SideEffect::ResumePane(_) => "ResumePane",
             SideEffect::StoreImages { .. } => "StoreImages",
             SideEffect::WriteClipboard { .. } => "WriteClipboard",
+            SideEffect::CommandReply { .. } => "CommandReply",
         })
         .collect()
 }

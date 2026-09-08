@@ -17,17 +17,38 @@ use crate::StateUpdate;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, instrument, trace, warn};
+
+/// What a `RunCommandWithReply` command printed, and whether it succeeded.
+#[derive(Debug, Clone)]
+pub struct CommandReply {
+    pub output: String,
+    /// False when any block of the command was a `%error`. tmux stops a
+    /// command list at its first failure, so `output` may then be partial.
+    pub success: bool,
+}
 
 /// Commands that can be sent to the monitor from external code
 #[derive(Debug)]
 pub enum MonitorCommand {
     /// Resize all windows in the session to the given dimensions
     ResizeWindow { cols: u32, rows: u32 },
-    /// Run an arbitrary tmux command through control mode
-    /// Use this for commands that crash when run externally with control mode attached (e.g., new-window)
+    /// Run an arbitrary tmux command through control mode, fire-and-forget.
+    /// The command's own `%begin/%end` block is not attributed to anyone.
     RunCommand { command: String },
+    /// Run a tmux command through control mode and get its output back.
+    ///
+    /// The one way to *read* from tmux while a control-mode client is
+    /// attached: the command is bracketed by marker lines
+    /// (`reply_wrapped_lines`) so its blocks can be told apart from the
+    /// monitor's own polls, and the reply resolves when the closing marker's
+    /// block arrives. A reply that does not arrive within
+    /// `REPLY_TIMEOUT` fails; a receiver that has gone away is ignored.
+    RunCommandWithReply {
+        command: String,
+        reply: oneshot::Sender<CommandReply>,
+    },
     /// Gracefully shutdown the monitor
     /// Sends detach-client and waits for the connection to close cleanly
     Shutdown,
@@ -112,6 +133,11 @@ pub type MonitorCommandSender = mpsc::Sender<MonitorCommand>;
 /// real deadline is the `if` guard on the branch; this constant only exists
 /// so the future has *some* await point when the guard is false.
 const LONG_SLEEP: Duration = Duration::from_secs(3600);
+
+/// How long a `RunCommandWithReply` waits for its closing marker before it
+/// fails. The same deadline the subprocess path gave a call, so a caller
+/// moving from one to the other sees no change in worst-case latency.
+const REPLY_TIMEOUT: Duration = crate::tmux_service::TMUX_CALL_TIMEOUT;
 
 /// All the per-invocation runtime state that used to live as locals in
 /// `TmuxMonitor::run`. Extracting it lets `run`'s body shrink to a ~50-line
@@ -299,6 +325,13 @@ pub struct TmuxMonitor {
     /// Execution context — `ctx.clock.now()` replaces every `Instant::now()`
     /// inside the loop so tests can advance time with `FakeClock`.
     ctx: Arc<Ctx>,
+
+    /// Replies still waiting for their closing marker, by reply id, with the
+    /// instant each was sent — the loop fails any that outlive REPLY_TIMEOUT.
+    pending_replies: HashMap<u64, (oneshot::Sender<CommandReply>, tokio::time::Instant)>,
+    /// Source of reply ids. Monotonic for the life of the monitor, so a late
+    /// block from an expired reply can never be matched to a newer one.
+    next_reply_id: u64,
 }
 
 impl TmuxMonitor {
@@ -342,6 +375,8 @@ impl TmuxMonitor {
                 client_size: None,
                 applied_window_sizes: HashMap::new(),
                 ctx,
+                pending_replies: HashMap::new(),
+                next_reply_id: 0,
             },
             command_tx,
         ))
@@ -489,6 +524,12 @@ impl TmuxMonitor {
             let metadata_deadline = rs
                 .metadata_sync_at
                 .unwrap_or_else(|| tokio::time::Instant::now() + LONG_SLEEP);
+            let reply_deadline = self
+                .pending_replies
+                .values()
+                .map(|(_, sent_at)| *sent_at + REPLY_TIMEOUT)
+                .min()
+                .unwrap_or_else(|| tokio::time::Instant::now() + LONG_SLEEP);
 
             tokio::select! {
                 // Process control mode events
@@ -529,6 +570,13 @@ impl TmuxMonitor {
                     if !self.on_command(emitter, cmd).await {
                         break;
                     }
+                }
+
+                // A reply whose closing marker never came: fail it so the
+                // caller is not left waiting on a connection that has gone
+                // quiet, rather than for ever.
+                _ = tokio::time::sleep_until(reply_deadline), if !self.pending_replies.is_empty() => {
+                    self.expire_replies();
                 }
             }
         }
@@ -652,6 +700,18 @@ impl TmuxMonitor {
                 SideEffect::SendTmuxCommand(cmd) => {
                     if let Err(e) = self.connection.send_command(&cmd).await {
                         emitter.emit_error(format!("Failed to send command: {}", e));
+                    }
+                }
+                SideEffect::CommandReply {
+                    id,
+                    output,
+                    success,
+                } => {
+                    if let Some((reply, _)) = self.pending_replies.remove(&id) {
+                        // A caller that stopped waiting is not an error.
+                        let _ = reply.send(CommandReply { output, success });
+                    } else {
+                        debug!(id, "reply for an expired or unknown request");
                     }
                 }
             }
@@ -916,6 +976,110 @@ impl TmuxMonitor {
         }
     }
 
+    /// Send a command a client asked for, with or without wanting its output.
+    ///
+    /// One path for both, so the things that have to happen around a user
+    /// command — the `\;` unescape, settling for the multi-step group
+    /// scripts, and the re-lists after option writes, reorders and pane
+    /// marks (tmux announces none of those) — cannot drift between the
+    /// fire-and-forget and the reply-carrying variant.
+    async fn send_user_command<E: StateEmitter>(
+        &mut self,
+        emitter: &E,
+        command: &str,
+        reply: Option<oneshot::Sender<CommandReply>>,
+    ) {
+        debug!(%command, wants_reply = reply.is_some(), "processing user command");
+        let unescaped = command.replace(" \\; ", " ; ");
+        let is_compound = is_multi_step_run_shell(&unescaped);
+        if is_compound {
+            self.aggregator.arm_settling(self.ctx.clock.now());
+            debug!("settling armed for multi-step run-shell");
+        }
+
+        let sent = match reply {
+            None => self.connection.send_command(&unescaped).await,
+            Some(reply) => {
+                self.next_reply_id += 1;
+                let id = self.next_reply_id;
+                let lines = super::state::reply_wrapped_lines(id, &unescaped);
+                let sent = self.connection.send_commands_batch(&lines).await;
+                if sent.is_ok() {
+                    self.pending_replies
+                        .insert(id, (reply, tokio::time::Instant::now()));
+                } else {
+                    // The command never went out: tell the caller now rather
+                    // than at the timeout.
+                    let _ = reply.send(CommandReply {
+                        output: String::new(),
+                        success: false,
+                    });
+                }
+                sent
+            }
+        };
+
+        if let Err(e) = sent {
+            emitter.emit_error(format!("Failed to run command: {}", e));
+            if is_compound {
+                self.aggregator.clear_settling();
+            }
+            return;
+        }
+        trace!(cmd = %unescaped, "sent command via control mode");
+
+        // tmux emits no control-mode notification when a user option
+        // changes, so a `@tmuxy-*` write (a dragged sidebar width, a
+        // hidden column, a focus request) would otherwise only reach
+        // the clients on the next window event or the idle heartbeat
+        // — seconds later. Re-list the windows right behind it.
+        // The same goes for a reorder: `move-window` / `swap-window`
+        // renumber every window past the moved one, and tmux tells
+        // us about none of them — the tab strip would show two
+        // tabs at one index until the heartbeat.
+        if writes_tmuxy_option(&unescaped) || reorders_windows(&unescaped) {
+            if let Err(e) = self
+                .connection
+                .send_command(tmux_formats::LIST_WINDOWS_CMD)
+                .await
+            {
+                emitter.emit_error(format!("Failed to refresh windows: {}", e));
+            }
+        }
+        // Likewise the marked pane: `select-pane -m/-M` changes
+        // `#{pane_marked}` without any notification, so re-list the
+        // panes right behind it or the flag waits for the heartbeat.
+        if toggles_pane_mark(&unescaped) {
+            if let Err(e) = self
+                .connection
+                .send_command(tmux_formats::LIST_PANES_CMD)
+                .await
+            {
+                emitter.emit_error(format!("Failed to refresh panes: {}", e));
+            }
+        }
+    }
+
+    /// Fail every pending reply that has outlived REPLY_TIMEOUT.
+    fn expire_replies(&mut self) {
+        let now = tokio::time::Instant::now();
+        let expired: Vec<u64> = self
+            .pending_replies
+            .iter()
+            .filter(|(_, (_, sent_at))| now.duration_since(*sent_at) >= REPLY_TIMEOUT)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in expired {
+            if let Some((reply, _)) = self.pending_replies.remove(&id) {
+                warn!(id, "command reply timed out");
+                let _ = reply.send(CommandReply {
+                    output: String::new(),
+                    success: false,
+                });
+            }
+        }
+    }
+
     /// Handle a `MonitorCommand` from external code. Returns false to stop the loop.
     async fn on_command<E: StateEmitter>(
         &mut self,
@@ -947,52 +1111,11 @@ impl TmuxMonitor {
                 true
             }
             Some(MonitorCommand::RunCommand { command }) => {
-                debug!(%command, "processing RunCommand");
-                let unescaped = command.replace(" \\; ", " ; ");
-                let is_compound = is_multi_step_run_shell(&unescaped);
-                if is_compound {
-                    self.aggregator.arm_settling(self.ctx.clock.now());
-                    debug!("settling armed for multi-step run-shell");
-                }
-
-                if let Err(e) = self.connection.send_command(&unescaped).await {
-                    emitter.emit_error(format!("Failed to run command: {}", e));
-                    if is_compound {
-                        self.aggregator.clear_settling();
-                    }
-                } else {
-                    trace!(cmd = %unescaped, "sent command via control mode");
-                    // tmux emits no control-mode notification when a user option
-                    // changes, so a `@tmuxy-*` write (a dragged sidebar width, a
-                    // hidden column, a focus request) would otherwise only reach
-                    // the clients on the next window event or the idle heartbeat
-                    // — seconds later. Re-list the windows right behind it.
-                    // The same goes for a reorder: `move-window` / `swap-window`
-                    // renumber every window past the moved one, and tmux tells
-                    // us about none of them — the tab strip would show two
-                    // tabs at one index until the heartbeat.
-                    if writes_tmuxy_option(&unescaped) || reorders_windows(&unescaped) {
-                        if let Err(e) = self
-                            .connection
-                            .send_command(tmux_formats::LIST_WINDOWS_CMD)
-                            .await
-                        {
-                            emitter.emit_error(format!("Failed to refresh windows: {}", e));
-                        }
-                    }
-                    // Likewise the marked pane: `select-pane -m/-M` changes
-                    // `#{pane_marked}` without any notification, so re-list the
-                    // panes right behind it or the flag waits for the heartbeat.
-                    if toggles_pane_mark(&unescaped) {
-                        if let Err(e) = self
-                            .connection
-                            .send_command(tmux_formats::LIST_PANES_CMD)
-                            .await
-                        {
-                            emitter.emit_error(format!("Failed to refresh panes: {}", e));
-                        }
-                    }
-                }
+                self.send_user_command(emitter, &command, None).await;
+                true
+            }
+            Some(MonitorCommand::RunCommandWithReply { command, reply }) => {
+                self.send_user_command(emitter, &command, Some(reply)).await;
                 true
             }
             Some(MonitorCommand::Shutdown) => {

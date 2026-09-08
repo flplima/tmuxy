@@ -145,8 +145,8 @@ describe('IPC Commands', () => {
     // Start with 1 pane
     expect(await getPaneCount(driver)).toBe(1);
 
-    // Split via Tauri IPC command
-    await invokeCommand(driver, 'split_pane_horizontal');
+    // Split via the same IPC path the UI uses
+    await invokeCommand(driver, 'run_tmux_command', { command: 'split-window -h' });
     await waitForPaneCount(driver, 2);
 
     expect(await getPaneCount(driver)).toBe(2);
@@ -163,22 +163,71 @@ describe('IPC Commands', () => {
     // is the behavior under test here, and it's classification-independent.
     await waitForRawWindowCount(driver, 1);
 
-    await invokeCommand(driver, 'new_window');
+    await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
     await waitForRawWindowCount(driver, 2);
 
     expect(await getRawWindowCount(driver)).toBe(2);
   });
 
-  test('run_tmux_command via IPC', async () => {
+  test('query_tmux returns what a command printed; run_tmux_command returns nothing', async () => {
     await setupApp();
 
-    // Run a tmux command through the IPC channel
-    const result = await invokeCommand(driver, 'run_tmux_command', {
+    // A read goes through query_tmux and is answered in-band on the monitor's
+    // control-mode connection — no subprocess, and the same contract as web.
+    const result = await invokeCommand(driver, 'query_tmux', {
       command: 'display-message -p #{session_name}',
     });
-
-    // The result should contain our session name
     expect(result).toContain(sessionName);
+
+    // A mutation is fire-and-forget on every transport: it resolves to
+    // nothing, exactly as the web server answers it.
+    const nothing = await invokeCommand(driver, 'run_tmux_command', {
+      command: 'display-message -p #{session_name}',
+    });
+    expect(nothing == null || nothing === '').toBe(true);
+  });
+
+  // The bug this transport used to have: the frontend pins every command to
+  // the tab the user is looking at (`select-window ; select-pane ; <cmd>`),
+  // and the desktop rewrote the pinned command with a session target that
+  // tmux resolves late — against whatever window the session was on when
+  // the command ran. A split on tab B landed on tab A. Every command now
+  // reaches tmux byte-identical over the control-mode connection.
+  test('a split pinned to a tab that is not tmux\'s current window lands on that tab', async () => {
+    await setupApp();
+    await waitForRawWindowCount(driver, 1);
+
+    // Two windows; tmux's current window is the FIRST, the pin names the second.
+    await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
+    await waitForRawWindowCount(driver, 2);
+    const windows = (await invokeCommand(driver, 'query_tmux', {
+      command: "list-windows -F '#{window_id} #{pane_id}'",
+    }))
+      .trim()
+      .split('\n')
+      .map((line) => line.split(' '));
+    expect(windows.length).toBe(2);
+    const [first, second] = windows;
+    await invokeCommand(driver, 'run_tmux_command', { command: `select-window -t ${first[0]}` });
+
+    const panesIn = async (windowId) =>
+      (await invokeCommand(driver, 'query_tmux', { command: `list-panes -t ${windowId}` }))
+        .trim()
+        .split('\n')
+        .filter(Boolean).length;
+    expect(await panesIn(second[0])).toBe(1);
+
+    await invokeCommand(driver, 'run_tmux_command', {
+      command: `select-window -t ${second[0]} \\; select-pane -t ${second[1]} \\; split-window -h`,
+    });
+
+    // The split is on the pinned window — and NOT on the one tmux was on.
+    const start = Date.now();
+    while ((await panesIn(second[0])) < 2 && Date.now() - start < 10000) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(await panesIn(second[0])).toBe(2);
+    expect(await panesIn(first[0])).toBe(1);
   });
 
   // Regression for the "+ New Tab" button: the frontend dispatches
@@ -287,7 +336,7 @@ describe('State Sync', () => {
     expect(before).toBeGreaterThanOrEqual(1);
 
     // Split creates new pane — state should update via Tauri event → delta protocol
-    await invokeCommand(driver, 'split_pane_horizontal');
+    await invokeCommand(driver, 'run_tmux_command', { command: 'split-window -h' });
     await waitForPaneCount(driver, before + 1);
 
     state = await getAppState(driver);

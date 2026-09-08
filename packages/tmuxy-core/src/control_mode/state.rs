@@ -123,6 +123,9 @@ pub struct ProcessEventResult {
     /// push-based (wasm) path, e.g. reading a paste buffer after
     /// %paste-buffer-changed.
     pub commands: Vec<String>,
+    /// Completed reply-wrapped commands: (reply id, everything the command
+    /// printed, whether every block succeeded). See `reply_wrapped_lines`.
+    pub command_replies: Vec<(u64, String, bool)>,
 }
 
 /// Outcome of a single `StateAggregator::step` call.
@@ -174,6 +177,15 @@ pub enum SideEffect {
     },
     /// Forward an OSC 52 clipboard write to the system clipboard.
     WriteClipboard { pane_id: String, text: String },
+    /// A command sent with `reply_wrapped_lines` has finished: hand its output
+    /// back to whoever asked. `success` is false if any of its blocks was an
+    /// `%error` — tmux stops a command list at the first failure, so the
+    /// output may then be partial.
+    CommandReply {
+        id: u64,
+        output: String,
+        success: bool,
+    },
 }
 
 /// State of a single pane with terminal emulation
@@ -933,6 +945,10 @@ pub struct StateAggregator {
     /// response that immediately follows it (each command in a control-mode
     /// command list gets its own %begin/%end block).
     buffer_read_armed: bool,
+    /// The reply-wrapped command whose output is being collected: everything
+    /// between its `TMUXY_RPY_BEGIN <id>` and `TMUXY_RPY_END <id>` marker
+    /// blocks. See `reply_wrapped_lines`.
+    reply_in_flight: Option<ReplyInFlight>,
 
     /// Latest value of the session-scoped `@tmuxy-focus-request` option, read
     /// as a column of the `list-windows` poll. A one-shot request from a shell
@@ -1125,6 +1141,45 @@ pub const CAPTURE_BEGIN_MARKER: &str = "TMUXY_CAP_BEGIN";
 /// Marker printed immediately AFTER a self-issued capture-pane command.
 pub const CAPTURE_END_MARKER: &str = "TMUXY_CAP_END";
 
+/// Brackets for a command whose output is wanted back — see `reply_wrapped_lines`.
+pub const REPLY_BEGIN_MARKER: &str = "TMUXY_RPY_BEGIN";
+pub const REPLY_END_MARKER: &str = "TMUXY_RPY_END";
+
+/// A reply-wrapped command's output, being collected between its markers.
+struct ReplyInFlight {
+    id: u64,
+    output: String,
+    success: bool,
+}
+
+/// The three control-mode lines that run `command` and get its output back.
+///
+/// Control mode answers every line with a `%begin … %end|%error` block, so
+/// output can be attributed to the command that produced it by bracketing it
+/// with two marker lines whose blocks are unmistakable. The runtime writes the
+/// three lines in one flush and resolves the reply when the END marker's
+/// block arrives (`SideEffect::CommandReply`).
+///
+/// Three LINES, not one `;` list: tmux stops a command list at its first
+/// error, so an END marker sharing the command's line would never run after
+/// a failure and the reply would hang. Separate lines are separate queue
+/// entries, each executed in send order whatever happened to the previous
+/// one — a `%error` block for the command is simply followed by the END
+/// marker's block. `command` may itself be a `;` list; that is its own
+/// business.
+pub fn reply_wrapped_lines(id: u64, command: &str) -> [String; 3] {
+    [
+        format!("display-message -p '{REPLY_BEGIN_MARKER} {id}'"),
+        command.to_string(),
+        format!("display-message -p '{REPLY_END_MARKER} {id}'"),
+    ]
+}
+
+/// The reply id a marker line carries, if it is one of ours.
+fn reply_marker_id(line: &str, marker: &str) -> Option<u64> {
+    line.strip_prefix(marker)?.trim().parse().ok()
+}
+
 /// Build the marker-bracketed capture-pane command for a pane's visible
 /// viewport. Each segment of a control-mode command list gets its own
 /// %begin/%end block, so the three responses arrive consecutively:
@@ -1169,6 +1224,7 @@ impl StateAggregator {
             capture_armed: None,
             pending_buffer_reads: std::collections::VecDeque::new(),
             buffer_read_armed: false,
+            reply_in_flight: None,
 
             focus_request: None,
             even_out_pending: Vec::new(),
@@ -1588,6 +1644,13 @@ impl StateAggregator {
         for cmd in result.commands.iter() {
             effects.push(SideEffect::SendTmuxCommand(cmd.clone()));
         }
+        for (id, output, success) in result.command_replies.iter() {
+            effects.push(SideEffect::CommandReply {
+                id: *id,
+                output: output.clone(),
+                success: *success,
+            });
+        }
 
         if is_window_add {
             effects.push(SideEffect::RefreshAfterWindowAdd);
@@ -1669,6 +1732,7 @@ impl StateAggregator {
             },
             new_images,
             clipboard_writes,
+            command_replies: Vec::new(),
             commands: Vec::new(),
         }
     }
@@ -1874,13 +1938,55 @@ impl StateAggregator {
             ControlModeEvent::CommandResponse {
                 output, success, ..
             } => {
+                let marker_line = output.trim_end_matches(['\r', '\n']);
+
+                // Reply-wrapped commands (see reply_wrapped_lines). Everything
+                // between the BEGIN and END marker blocks belongs to the
+                // caller and is handed back whole; none of it may fall
+                // through to the parsers below. A `list-panes -a` sent as a
+                // query prints rows shaped exactly like the aggregator's own
+                // list-panes poll, and letting them reach
+                // handle_command_response would conjure another session's
+                // panes into this one.
+                if let Some(id) = reply_marker_id(marker_line, REPLY_BEGIN_MARKER) {
+                    self.reply_in_flight = Some(ReplyInFlight {
+                        id,
+                        output: String::new(),
+                        success: true,
+                    });
+                    return ProcessEventResult::default();
+                }
+                if let Some(id) = reply_marker_id(marker_line, REPLY_END_MARKER) {
+                    let Some(reply) = self.reply_in_flight.take() else {
+                        return ProcessEventResult::default();
+                    };
+                    if reply.id != id {
+                        // A BEGIN whose END never came (its command wedged the
+                        // connection?) followed by a later reply's END: the
+                        // older reply is lost, the newer one must not inherit
+                        // its output. Fail the older, report nothing for this.
+                        return ProcessEventResult {
+                            command_replies: vec![(reply.id, reply.output, false)],
+                            ..Default::default()
+                        };
+                    }
+                    return ProcessEventResult {
+                        command_replies: vec![(reply.id, reply.output, reply.success)],
+                        ..Default::default()
+                    };
+                }
+                if let Some(reply) = self.reply_in_flight.as_mut() {
+                    reply.output.push_str(&output);
+                    reply.success &= success;
+                    return ProcessEventResult::default();
+                }
+
                 // Marker-wrapped show-buffer responses (copy-mode yank mirror).
                 // Each command in a control-mode command list gets its OWN
                 // %begin/%end block, so the wrap arrives as three consecutive
                 // responses: BEGIN marker → buffer content → END marker. The
                 // marker blocks are unambiguous, so this can never be misread
                 // as (or steal) a capture-pane response.
-                let marker_line = output.trim_end_matches(['\r', '\n']);
                 if marker_line == "TMUXY_BUF_BEGIN" {
                     self.buffer_read_armed = !self.pending_buffer_reads.is_empty();
                     return ProcessEventResult::default();
@@ -3154,6 +3260,127 @@ mod tests {
         });
 
         assert_eq!(agg.panes.len(), before, "no ghost panes may be created");
+    }
+
+    fn response(output: &str, success: bool) -> ControlModeEvent {
+        ControlModeEvent::CommandResponse {
+            timestamp: 0,
+            command_num: 0,
+            output: output.to_string(),
+            success,
+        }
+    }
+
+    /// A reply-wrapped command's blocks come back whole, to the caller only.
+    #[test]
+    fn reply_markers_collect_the_blocks_between_them() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+
+        let lines = reply_wrapped_lines(7, "display-message -p HELLO");
+        assert!(lines[0].contains("TMUXY_RPY_BEGIN 7"));
+        assert_eq!(lines[1], "display-message -p HELLO");
+        assert!(lines[2].contains("TMUXY_RPY_END 7"));
+
+        let begin = agg.step(response("TMUXY_RPY_BEGIN 7\n", true));
+        assert!(
+            begin.effects.is_empty(),
+            "the BEGIN marker is not an emission"
+        );
+        let body = agg.step(response("HELLO\n", true));
+        assert!(
+            body.effects.is_empty(),
+            "a collected block is not an emission"
+        );
+        let end = agg.step(response("TMUXY_RPY_END 7\n", true));
+
+        assert!(
+            matches!(
+                &end.effects[..],
+                [SideEffect::CommandReply { id: 7, output, success: true }] if output == "HELLO\n"
+            ),
+            "got {:?}",
+            end.effects
+        );
+    }
+
+    /// tmux stops a list at its first `%error`; the END marker is its own
+    /// line so it still arrives, and the reply reports the failure.
+    #[test]
+    fn a_failed_block_fails_the_reply_and_still_closes_it() {
+        let mut agg = StateAggregator::new();
+        agg.step(response("TMUXY_RPY_BEGIN 3\n", true));
+        agg.step(response("can't find window: @999\n", false));
+        let end = agg.step(response("TMUXY_RPY_END 3\n", true));
+        assert!(matches!(
+            &end.effects[..],
+            [SideEffect::CommandReply {
+                id: 3,
+                success: false,
+                ..
+            }]
+        ));
+    }
+
+    /// The reason replies are routed by marker: a `list-panes -a` query
+    /// prints rows shaped exactly like the aggregator's own poll, and those
+    /// rows must never be taken for this session's panes.
+    #[test]
+    fn a_query_between_markers_never_reaches_the_pane_parser() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        let before = agg.panes.len();
+
+        agg.step(response("TMUXY_RPY_BEGIN 9\n", true));
+        // Two rows in LIST_PANES_CMD shape for panes of some other session.
+        let rows = "%40,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@20,,0,0,0,0,0,10\n\
+                    %41,1,0,0,80,24,0,0,0,zsh,,0,0,0,0,@20,,0,0,0,0,0,10\n";
+        let body = agg.step(response(rows, true));
+        let end = agg.step(response("TMUXY_RPY_END 9\n", true));
+
+        assert_eq!(agg.panes.len(), before, "query rows must not become panes");
+        assert!(
+            body.effects.is_empty(),
+            "no state emission for a collected block"
+        );
+        assert!(matches!(
+            &end.effects[..],
+            [SideEffect::CommandReply { id: 9, output, success: true }] if output.contains("%41,")
+        ));
+    }
+
+    /// An END for a different id than the one in flight: the older reply is
+    /// lost (fail it), and the newer one must not inherit its output.
+    #[test]
+    fn a_mismatched_end_marker_fails_the_stale_reply() {
+        let mut agg = StateAggregator::new();
+        agg.step(response("TMUXY_RPY_BEGIN 1\n", true));
+        agg.step(response("old\n", true));
+        let end = agg.step(response("TMUXY_RPY_END 2\n", true));
+        assert!(matches!(
+            &end.effects[..],
+            [SideEffect::CommandReply {
+                id: 1,
+                success: false,
+                ..
+            }]
+        ));
+        assert!(agg.reply_in_flight.is_none());
+    }
+
+    /// Unmarked responses keep today's behaviour: they fall through to the
+    /// pane/window parsers and report a Full change.
+    #[test]
+    fn unmarked_responses_still_fall_through() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        let r = agg.step(response("", true));
+        assert!(r.effects.iter().any(|e| matches!(
+            e,
+            SideEffect::EmitState {
+                change: ChangeType::Full
+            }
+        )));
     }
 
     #[test]

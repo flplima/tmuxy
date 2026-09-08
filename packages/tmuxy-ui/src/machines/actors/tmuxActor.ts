@@ -312,29 +312,27 @@ export function createTmuxActor(adapter: TmuxAdapter) {
           logPrefix: `switch-session ${event.sessionName}`,
         });
       } else if (event.type === 'CHECK_SESSION_SWITCH') {
-        run(
-          eff.invoke<string>('run_tmux_command', {
-            command: 'show-environment -g TMUXY_SWITCH_TO',
-          }),
-          {
-            onSuccess: (result) => {
-              const str = String(result);
-              const match = str.match(/TMUXY_SWITCH_TO=(.+)/);
-              if (!match) return;
-              const sessionName = match[1].trim();
-              parent.send({ type: 'SESSION_SWITCH_REQUESTED', sessionName });
-              // Clear the env var (fire-and-forget)
-              run(
-                eff.invoke('run_tmux_command', {
-                  command: 'set-environment -g -u TMUXY_SWITCH_TO',
-                }),
-                { silentFail: true, logPrefix: 'clear TMUXY_SWITCH_TO' },
-              );
-            },
-            silentFail: true,
-            logPrefix: 'check session switch',
+        // A read, so it must be a query: run_tmux_command resolves null on
+        // every transport, and matching on String(null) is how this check
+        // sat dead on the web for a while.
+        run(eff.query('show-environment -g TMUXY_SWITCH_TO'), {
+          onSuccess: (result) => {
+            const str = String(result);
+            const match = str.match(/TMUXY_SWITCH_TO=(.+)/);
+            if (!match) return;
+            const sessionName = match[1].trim();
+            parent.send({ type: 'SESSION_SWITCH_REQUESTED', sessionName });
+            // Clear the env var (fire-and-forget)
+            run(
+              eff.invoke('run_tmux_command', {
+                command: 'set-environment -g -u TMUXY_SWITCH_TO',
+              }),
+              { silentFail: true, logPrefix: 'clear TMUXY_SWITCH_TO' },
+            );
           },
-        );
+          silentFail: true,
+          logPrefix: 'check session switch',
+        });
       }
     });
 

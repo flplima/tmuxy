@@ -17,7 +17,7 @@ pub async fn get_initial_state(
 ) -> Result<Value, String> {
     // Resize if dimensions provided
     if let (Some(c), Some(r)) = (cols, rows) {
-        let _ = executor::resize_window(&get_session(), c, r);
+        resize_via_monitor(&state, c, r).await;
 
         // Cache the viewport size so the FIRST `new-window` after startup sizes
         // the broken-out window to match the viewport. Otherwise `last_client_size`
@@ -46,22 +46,26 @@ pub async fn set_client_size(
     if let Ok(mut size) = state.last_client_size.write() {
         *size = Some((cols, rows));
     }
-    executor::resize_window(&get_session(), cols, rows).map_err(Into::into)
+    resize_via_monitor(&state, cols, rows).await;
+    Ok(())
 }
 
-#[tauri::command]
-pub async fn split_pane_horizontal() -> Result<(), String> {
-    executor::split_pane_horizontal(&get_session()).map_err(Into::into)
-}
-
-#[tauri::command]
-pub async fn new_window(state: State<'_, MonitorState>) -> Result<(), String> {
-    // Reuse the same CC-routed rewrite as `run_tmux_command("new-window")`
-    // so callers that hit this dedicated command don't slip back into the
-    // external-subprocess path that races with control mode.
-    dispatch_tmux_command(&state, "new-window".to_string())
-        .await
-        .map(|_| ())
+/// Ask the monitor to size the session's windows to the viewport — the same
+/// `MonitorCommand::ResizeWindow` the web server sends. Before the monitor is
+/// connected there is nothing to size yet; it replays the client size once
+/// the window list lands (see `TmuxMonitor::apply_client_size`).
+async fn resize_via_monitor(state: &State<'_, MonitorState>, cols: u32, rows: u32) {
+    let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
+    match cmd_tx {
+        Some(tx) => {
+            if let Err(e) = tx.send(MonitorCommand::ResizeWindow { cols, rows }).await {
+                tracing::warn!(target: "tmuxy_tauri_app::commands", error = %e, "resize not sent");
+            }
+        }
+        None => {
+            tracing::debug!(target: "tmuxy_tauri_app::commands", "no monitor yet, skipping resize")
+        }
+    }
 }
 
 #[tauri::command]
@@ -69,7 +73,7 @@ pub async fn run_tmux_command(
     app: tauri::AppHandle,
     state: State<'_, MonitorState>,
     command: String,
-) -> Result<String, String> {
+) -> Result<(), String> {
     // `source-file` may change the prefix, the theme or the appearance options:
     // push the fresh settings once tmux has applied it (same settle delay as
     // the SSE server's re-broadcast).
@@ -77,7 +81,10 @@ pub async fn run_tmux_command(
         let trimmed = command.trim_start();
         trimmed.starts_with("source-file") || trimmed.starts_with("source ")
     };
-    let result = dispatch_tmux_command(&state, command).await;
+    let Some(routed) = route(&state, &command)? else {
+        return Ok(());
+    };
+    send_via_monitor(&state, MonitorCommand::RunCommand { command: routed }).await?;
     if is_source_file {
         tokio::time::sleep(SOURCE_FILE_SETTLE).await;
         crate::monitor::emit_theme_settings(&app).await;
@@ -85,16 +92,52 @@ pub async fn run_tmux_command(
             crate::gui::apply_blur(&window);
         }
     }
-    result
+    Ok(())
+}
+
+/// Run a tmux command and return what it printed — the one way the frontend
+/// reads from tmux. Same route as a mutation, same connection; the reply is
+/// the command's own output (`RunCommandWithReply`), and an `%error` from
+/// tmux comes back as the Err.
+#[tauri::command]
+pub async fn query_tmux(state: State<'_, MonitorState>, command: String) -> Result<String, String> {
+    let Some(routed) = route(&state, &command)? else {
+        return Err("command not allowed".to_string());
+    };
+    query_via_monitor(&state, &routed).await
+}
+
+/// Run a command through the monitor and wait for what it printed. An
+/// `%error` from tmux is the Err, carrying tmux's message.
+async fn query_via_monitor(
+    state: &State<'_, MonitorState>,
+    command: &str,
+) -> Result<String, String> {
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    send_via_monitor(
+        state,
+        MonitorCommand::RunCommandWithReply {
+            command: command.to_string(),
+            reply,
+        },
+    )
+    .await?;
+    let reply = rx
+        .await
+        .map_err(|_| "monitor went away before answering".to_string())?;
+    if reply.success {
+        Ok(reply.output)
+    } else {
+        Err(reply.output)
+    }
 }
 
 /// How long to wait after a `source-file` before re-reading tmux options.
 const SOURCE_FILE_SETTLE: std::time::Duration = std::time::Duration::from_millis(300);
 
-async fn dispatch_tmux_command(
-    state: &State<'_, MonitorState>,
-    command: String,
-) -> Result<String, String> {
+/// The shared policy (`tmuxy_core::command_router`): `None` for a blocked
+/// command (logged, not an error — the web server answers those with null).
+fn route(state: &State<'_, MonitorState>, command: &str) -> Result<Option<String>, String> {
     // Record the WHAT as the tmux verb (content-free; args only at trace level
     // `full`) — parity with the web server's send_via_control_mode.
     tracing::debug!(
@@ -103,70 +146,34 @@ async fn dispatch_tmux_command(
         command,
         "run command"
     );
-    // `new-window` (neww) crashes tmux 3.5a control mode when run as an external
-    // subprocess while a control-mode client is attached. Tmuxy's monitor is one
-    // such client. Rewrite to `split-window` + `break-pane -d`, which produces
-    // the same window without the crash. Mirrors the same intercept in the SSE
-    // server (packages/tmuxy-server/src/sse.rs).
-    //
-    // We push the rewrite through the monitor's CC connection — even the
-    // intermediate split-window + break-pane subprocesses race with CC and
-    // can crash the server (surfaced as a TransportError when the Tauri
-    // invoke promise rejects). Going through the same connection that's
-    // already attached avoids the race entirely.
-    //
-    // Asked of the whole command list, not its head. The keyboard actor pins
-    // every bound command with `select-window -t @N \; select-pane -t %N \;`,
-    // so `prefix c` arrives as a compound whose first command is the pin — a
-    // `starts_with("new-window")` check misses it, and the raw `new-window`
-    // falls all the way through to the external-subprocess path at the bottom
-    // of this function, which is exactly the crash this branch exists to avoid.
-    if tmuxy_core::executor::compound_has_verb(&command, &["new-window", "neww"]) {
-        let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
-        let session = get_session();
-        let size = state.last_client_size.read().ok().and_then(|g| *g);
-        // Shared with the SSE server so the rewrite shape and the window tag
-        // can't drift between transports; also quotes the session, which can
-        // contain whitespace when it comes from servers.json. Keeping the pin
-        // around the rewrite is what makes the new tab split off the window the
-        // user is looking at — `splitw -t <session>` targets whatever window
-        // tmux currently considers current.
-        let rewrite =
-            tmuxy_core::executor::rewrite_new_window_in_compound(&command, &session, size);
-        if let (Some(tx), Some(rewrite)) = (cmd_tx, rewrite) {
-            tx.send(MonitorCommand::RunCommand { command: rewrite })
-                .await
-                .map_err(|e| format!("Monitor channel error: {}", e))?;
-            return Ok(String::new());
+    let size = state.last_client_size.read().ok().and_then(|g| *g);
+    match tmuxy_core::command_router::route_command(command, &get_session(), size) {
+        tmuxy_core::command_router::Route::Blocked(reason) => {
+            tracing::warn!(target: "tmuxy_tauri_app::commands", command, reason, "blocked command");
+            Ok(None)
         }
-        // CC connection isn't up yet (very early startup). The external
-        // path is the only option here; if it crashes tmux, the reconnect
-        // loop will recover.
-        executor::new_window(&session)?;
-        return Ok(String::new());
+        tmuxy_core::command_router::Route::ControlMode(cmd) => Ok(Some(cmd)),
     }
+}
 
-    // Multi-command batches (newline-joined) — e.g. the multiline-paste sequence
-    // the keyboard actor builds (`send-keys -l 'line1'` / `send-keys Enter` / …)
-    // — MUST go through the control-mode connection. tmux control mode reads each
-    // line as a separate command, executing the batch atomically and in order. An
-    // external `sh -c "tmux <batch>"` subprocess can't: only the first line gets a
-    // `tmux` prefix, so the remaining `send-keys` lines are mangled into the shell
-    // (the literal "send-keys …" text the user sees pasted on every linebreak).
-    // The SSE server already routes these through `MonitorCommand::RunCommand`.
-    if command.contains('\n') {
-        let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
-        if let Some(tx) = cmd_tx {
-            tx.send(MonitorCommand::RunCommand { command })
-                .await
-                .map_err(|e| format!("Monitor channel error: {}", e))?;
-            return Ok(String::new());
-        }
-        // CC connection isn't up yet — fall through to the external path, which
-        // at least lands the first line rather than dropping the paste entirely.
-    }
-
-    executor::run_tmux_command_for_session(&get_session(), &command).map_err(Into::into)
+/// Write to the monitor's command channel. Every tmux command the app runs
+/// after connecting goes through here — there is no subprocess path: an
+/// external `tmux` while the control-mode client is attached can crash tmux
+/// 3.5a, and a client-less command has no current session to act on, which
+/// is how a pinned split used to land on the wrong tab. Before the monitor
+/// connects there is nothing to write to; the frontend only sends once
+/// connected, so reaching this without a channel is a bug worth surfacing.
+async fn send_via_monitor(
+    state: &State<'_, MonitorState>,
+    cmd: MonitorCommand,
+) -> Result<(), String> {
+    let cmd_tx = state.cmd_tx.read().ok().and_then(|g| g.clone());
+    let Some(tx) = cmd_tx else {
+        return Err("monitor not connected".to_string());
+    };
+    tx.send(cmd)
+        .await
+        .map_err(|e| format!("Monitor channel error: {}", e))
 }
 
 /// Fetch a range of scrollback cells for copy mode.
@@ -256,7 +263,7 @@ pub async fn get_themes_list() -> Result<Value, String> {
 #[tauri::command]
 pub async fn list_git_worktrees(state: State<'_, MonitorState>) -> Result<Value, String> {
     use tmuxy_core::worktrees::{list_git_worktrees, paths_from_pane_listing, LIST_PANE_PATHS_CMD};
-    let listing = dispatch_tmux_command(&state, LIST_PANE_PATHS_CMD.to_string()).await?;
+    let listing = query_via_monitor(&state, LIST_PANE_PATHS_CMD).await?;
     let repositories = tauri::async_runtime::spawn_blocking(move || {
         list_git_worktrees(paths_from_pane_listing(&listing))
     })

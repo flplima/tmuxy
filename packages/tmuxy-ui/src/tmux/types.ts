@@ -418,14 +418,16 @@ export interface TmuxAdapter {
    */
   enumeratesSessions?: boolean;
   /**
-   * Run a read-only tmux query (e.g. the sessions poll's `list-windows -a`)
-   * WITHOUT the mutation serial queue. Read-only enumeration needs no ordering
-   * against mutations, so it must not sit behind (or in front of) queued
-   * window/pane commands — otherwise the ~1.5s poll's external-subprocess reads
-   * delay window creation and the async `@tmuxy-window-type` tagging. Optional;
-   * callers fall back to `invoke('run_tmux_command', …)` when absent.
+   * Run a tmux command and resolve with what it printed (`query_tmux`).
+   *
+   * The one way to READ from tmux: `run_tmux_command` is fire-and-forget and
+   * resolves null on every transport. A query rides the same control-mode
+   * connection as mutations and is answered in-band, so it needs no place in
+   * the client-side serial queue — ordering against queued window/pane
+   * commands is tmux's, not ours. Absent on the in-browser sandboxes (demo,
+   * v86), which never enumerate sessions.
    */
-  queryReadonly?(command: string): Promise<string>;
+  query?(command: string): Promise<string>;
 }
 
 // ============================================
