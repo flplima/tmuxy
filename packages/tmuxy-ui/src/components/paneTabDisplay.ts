@@ -6,6 +6,7 @@
  */
 
 import type { TmuxPane } from '../tmux/types';
+import { getWidget } from './widgets';
 
 const PROCESS_ICONS: Record<string, string> = {
   zsh: '\ue795', //  nf-custom-terminal
@@ -36,11 +37,6 @@ const PROCESS_ICONS: Record<string, string> = {
   tmux: '\ue795', //  nf-custom-terminal
 };
 
-const WIDGET_ICONS: Record<string, string> = {
-  markdown: '\uf48a', //  nf-oct-markdown
-  image: '\uf03e', //  nf-fa-image
-};
-
 const DEFAULT_ICON = '\ue795'; //  nf-custom-terminal
 
 function getProcessIcon(command: string): string {
@@ -50,9 +46,14 @@ function getProcessIcon(command: string): string {
   return DEFAULT_ICON;
 }
 
-/** Process/widget icon for a pane. */
+/**
+ * Process/widget icon for a pane. A widget's own icon comes from its
+ * registered definition (components/widgets), so adding a widget never means
+ * editing a table here.
+ */
 export function getTabIcon(pane: TmuxPane, widgetName?: string): string | null {
-  if (widgetName && WIDGET_ICONS[widgetName]) return WIDGET_ICONS[widgetName];
+  const widgetIcon = widgetName ? getWidget(widgetName)?.icon : undefined;
+  if (widgetIcon) return widgetIcon;
   if (pane.command) return getProcessIcon(pane.command);
   return null;
 }

@@ -98,7 +98,7 @@ Commands:
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect)
   nav         Navigate across groups, splits, and tabs
-  widget      Display widgets (image, markdown, tree)
+  widget      Display widgets (browser, tree)
   event       Event queue for inter-agent coordination (emit, wait, list)
   tree        Open the sidebar tree view (tabs + panes)
   run         Run any tmux command safely
@@ -178,8 +178,9 @@ usage_widget() {
 Usage: tmuxy widget <command> [args...]
 
 Commands:
-  image         Display an image (file path or URL)
-  markdown      Display markdown (file or stdin via -)
+  browser       Show a page: a local HTML file, a URL, a markdown file
+                (rendered, with mermaid), or an image. `-` reads markdown
+                from stdin.
   tree          Display the tabs+panes tree (the left sidebar's content)
 EOF
 }
@@ -636,20 +637,12 @@ cmd_widget() {
   shift 2>/dev/null || true
 
   case "$sub" in
-    image)
+    browser|web)
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy widget image <source>"; return ;;
-        "") echo "Error: image source required" >&2; return 1 ;;
+        --help|-h) echo "Usage: tmuxy widget browser <file|url|->"; return ;;
+        "") echo "Error: file, url or - required" >&2; return 1 ;;
       esac
-      exec "$SCRIPTS_DIR/tmuxy-widget-image" "$@"
-      ;;
-
-    markdown|md)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy widget markdown <file|->"; return ;;
-        "") echo "Error: file or - required" >&2; return 1 ;;
-      esac
-      exec "$SCRIPTS_DIR/tmuxy-widget-markdown" "$@"
+      exec "$SCRIPTS_DIR/tmuxy-widget-browser" "$@"
       ;;
 
     tree)

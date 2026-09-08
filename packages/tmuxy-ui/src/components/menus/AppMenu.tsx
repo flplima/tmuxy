@@ -42,6 +42,8 @@ import { restartApp } from '../../utils/restartApp';
 import { copyAppState } from '../../utils/copyAppState';
 import { activeCloseTarget, executeMenuAction } from './menuActions';
 import { PaneMenuItems } from './PaneMenuItems';
+import { useWidgetMenuItems } from '../widgets/usePaneWidget';
+import type { WidgetMenuItem } from '../widgets';
 import { KeyLabel } from './KeyLabel';
 import './AppMenu.css';
 
@@ -57,6 +59,9 @@ export function AppMenu() {
   const themeMode = useAppSelector(selectThemeMode);
   const availableThemes = useAppSelector(selectAvailableThemes);
   const activePaneId = useAppSelector((c) => c.activePaneId);
+  // Widgets contribute their own items for whichever pane is active, the same
+  // section the pane's ⋮ menu shows.
+  const widgetItems = useWidgetMenuItems(activePaneId);
   const focusedFloatPaneId = useAppSelector((c) => c.focusedFloatPaneId);
   const trace = useAppSelector(selectTraceSettings);
 
@@ -82,6 +87,8 @@ export function AppMenu() {
         <PaneMenuItems
           keybindings={keybindings}
           isSinglePane={isSinglePane}
+          widgetItems={widgetItems}
+          onWidgetAction={(item: WidgetMenuItem) => send(item.event)}
           isMarked={markedPaneId !== null && markedPaneId === activePaneId}
           hasMarked={markedPaneId !== null}
           onAction={handleAction}

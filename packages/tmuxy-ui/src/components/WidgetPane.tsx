@@ -10,6 +10,8 @@ import { PaneHeader } from './PaneHeader';
 import { getWidget } from './widgets';
 import { getWidgetTitle } from './widgets/getWidgetTitle';
 import {
+  useAppActor,
+  useAppSelector,
   useAppSend,
   usePane,
   useIsPaneInActiveWindow,
@@ -23,16 +25,26 @@ interface WidgetPaneProps {
 
 export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   const send = useAppSend();
+  const actor = useAppActor();
   const pane = usePane(paneId);
+  const definition = getWidget(widgetInfo.widgetName)!;
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
+  // The widget's own title when it declares one — a browser pane names itself
+  // after the page it is showing — else the generic `__TITLE__`/URL sniffing.
+  const widgetTitle = useAppSelector(
+    (context) =>
+      definition?.selectTitle?.(context, paneId, widgetInfo.contentLines) ??
+      getWidgetTitle(widgetInfo.contentLines),
+  );
+
   // Vi-key navigation: capture-phase window listener that fires BEFORE
   // the keyboard actor's bubble-phase window listener.
   const isActiveWidget = !!pane?.active && isInActiveWindow;
-  const widgetKeyRef = useRef({ send, paneId, isActiveWidget });
-  widgetKeyRef.current = { send, paneId, isActiveWidget };
+  const widgetKeyRef = useRef({ send, paneId, isActiveWidget, definition, actor, widgetInfo });
+  widgetKeyRef.current = { send, paneId, isActiveWidget, definition, actor, widgetInfo };
 
   useEffect(() => {
     const LINE_HEIGHT = 24;
@@ -40,7 +52,22 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
     const handler = (e: KeyboardEvent) => {
       if (!widgetKeyRef.current.isActiveWidget) return;
 
-      const { send: s, paneId: pid } = widgetKeyRef.current;
+      const { send: s, paneId: pid, definition: def, actor: act } = widgetKeyRef.current;
+
+      // The widget's own keys come first — it is the thing on screen, so its
+      // bindings outrank both the generic scrolling below and tmux.
+      if (
+        def.onKeyDown?.(e, {
+          paneId: pid,
+          lines: widgetKeyRef.current.widgetInfo.contentLines,
+          context: act.getSnapshot().context,
+          send: s,
+        })
+      ) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
 
       // Ctrl+C: send SIGINT to tmux pane (kills widget, restores shell)
       if (e.ctrlKey && e.key === 'c') {
@@ -114,9 +141,8 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
 
   if (!pane) return null;
 
-  const WidgetComponent = getWidget(widgetInfo.widgetName)!;
+  const WidgetComponent = definition.component;
   const lastLine = widgetInfo.contentLines.filter((l) => l.trim()).pop() || '';
-  const widgetTitle = getWidgetTitle(widgetInfo.contentLines);
   const writeStdin = (data: string) => {
     send({ type: 'WRITE_TO_PANE', paneId, data });
   };

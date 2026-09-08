@@ -465,25 +465,36 @@ export const PaneGroup: Story = {
 };
 
 /**
- * Widget: piping content to `tmuxy widget markdown -` prints a
- * `__TMUXY_WIDGET__:markdown` marker into the pane's output; the UI detects it
- * and swaps the terminal renderer for the real markdown **widget component**
- * (`.widget-markdown`) — all client-side, driven by the live %output stream.
+ * Widget: a pane pointed at a URL prints a `__TMUXY_WIDGET__:browser` marker
+ * followed by its source; the UI detects it, swaps the terminal renderer for
+ * the browser **widget component**, and names the pane after the page — the
+ * URL with its protocol stripped — all client-side off the live %output stream.
+ *
+ * Driven through `tmuxy-widget` directly rather than the `tmuxy widget browser`
+ * wrapper: the marker protocol is what the UI actually contracts on, and the
+ * pinned boot snapshot predates the wrapper script.
  */
 export const Widget: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
-    pasteLine("echo '# HELLO_WIDGET' | tmuxy widget markdown -");
-    // The widget pane must mount and show the content we piped in. (The pre-built
-    // boot snapshot predates the stdin-mode raw-markdown fix in
-    // bin/tmuxy/tmuxy-widget-markdown, so older snapshots wrap it in a meta block;
-    // either way the widget mounts and the text is present.)
+    pasteLine(
+      `{ echo '__SRC__:https://example.com/hello-widget'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
+    );
     await waitFor(
       () => {
-        const widget = canvasElement.ownerDocument.querySelector('.widget-markdown');
-        expect(widget).not.toBeNull();
-        expect(widget?.textContent ?? '').toContain('HELLO_WIDGET');
+        const doc = canvasElement.ownerDocument;
+        const frame = doc.querySelector('.widget-browser-frame') as HTMLIFrameElement | null;
+        expect(frame).not.toBeNull();
+        expect(frame!.getAttribute('src')).toBe('https://example.com/hello-widget');
+        // Visible, not merely mounted: the frame sits under two stacked
+        // full-height boxes that a layout slip would collapse.
+        expect(frame!.getBoundingClientRect().height).toBeGreaterThan(50);
+        // The pane names itself after the page, protocol stripped.
+        const pane = doc.querySelector('[role=group][aria-label^="Widget pane"]');
+        expect(pane?.querySelector('.pane-tab-title')?.textContent).toBe(
+          'example.com/hello-widget',
+        );
       },
       { timeout: 40000, interval: 500 },
     );
@@ -2409,50 +2420,72 @@ export const SidebarDragPaneToTab: Story = {
 // ───────────────────────── §6 Widgets & rich rendering ─────────────────────────
 
 /**
- * Image widget: piping a data URI through the real `tmuxy-widget image` script
- * prints the widget marker + content; the UI swaps the terminal for the image
- * widget and renders a real `<img>` from the URI.
+ * The browser widget showing an image, and its own section of the pane menu.
+ *
+ * An image source is drawn as a real `<img>` (no server involved — the data
+ * URI is loadable as-is), and the ⋮ menu carries the browser's items: Back is
+ * offered but dead on the opening page, and Zoom In visibly enlarges what is
+ * on screen. That is the whole widget-menu chain — pane content → widget
+ * detection → the widget's declared items → an app-machine event → a redraw.
  */
-export const WidgetImage: Story = {
+export const WidgetBrowserImage: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await focusFirstPane(canvas, userEvent.setup());
-    // Keep the pipe open (like the markdown wrapper does): tmuxy-widget's EXIT
-    // trap clears the widget the moment stdin closes.
+    const user = userEvent.setup();
+    await focusFirstPane(canvas, user);
+    const doc = canvasElement.ownerDocument;
+    // Keep the pipe open: tmuxy-widget's EXIT trap clears the widget the
+    // moment stdin closes.
     pasteLine(
-      `{ echo 'data:image/png;base64,${INLINE_PNG_B64}'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget image`,
+      `{ echo '__SRC__:data:image/png;base64,${INLINE_PNG_B64}'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
     );
-    await waitFor(
+    const img = await waitFor(
       () => {
-        const img = canvasElement.ownerDocument.querySelector(
-          '[role=group][aria-label^="Widget pane"] img[src^="data:image/png"]',
+        const el = doc.querySelector(
+          '[role=group][aria-label^="Widget pane"] .widget-browser-image img',
         ) as HTMLImageElement | null;
-        expect(img).not.toBeNull();
-        expect(img!.getBoundingClientRect().width).toBeGreaterThan(0);
+        expect(el).not.toBeNull();
+        expect(el!.getBoundingClientRect().width).toBeGreaterThan(0);
+        return el!;
       },
       { timeout: 40000, interval: 500 },
     );
+    const before = img.getBoundingClientRect().width;
+
+    const widgetPane = doc.querySelector('[role=group][aria-label^="Widget pane"]') as HTMLElement;
+    await user.click(within(widgetPane).getByRole('button', { name: /pane menu/i }));
+
+    const back = await waitFor(() => within(doc.body).getByText('Back'), { timeout: 10000 });
+    // Nothing behind the opening page, so Back is offered but not available.
+    expect(back.getAttribute('aria-disabled')).toBe('true');
+    await user.click(within(doc.body).getByText('Zoom In'));
+
+    await waitFor(() => expect(img.getBoundingClientRect().width).toBeGreaterThan(before), {
+      timeout: 10000,
+      interval: 200,
+    });
   },
 };
 
 /**
- * Markdown widget from a guest FILE: client-side there is no `/api/file` server
- * to fetch the watched file from (the request 404s), so the widget must mount
- * and surface that fetch error in its defined fallback — not crash, not render
- * garbage, and not silently pretend the file loaded. This pins down the
- * client-side contract for file-mode widgets.
+ * Markdown from a guest FILE: client-side there is no server behind
+ * `/api/browse`, so the fetch fails — and the widget must mount and surface
+ * that in its defined fallback rather than crash, render garbage, or silently
+ * pretend the file loaded. This pins down the client-side contract for
+ * file-backed sources.
  */
-export const WidgetMarkdownFile: Story = {
+export const WidgetBrowserMarkdownFile: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
-    pasteLine("printf '# FILE_WIDGET_7\\n' > /tmp/w7.md; tmuxy widget markdown /tmp/w7.md");
+    pasteLine(
+      `printf '# FILE_WIDGET_7\\n' > /tmp/w7.md; { echo '__SRC__:/tmp/w7.md'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
+    );
     await waitFor(
       () => {
         const widget = canvasElement.ownerDocument.querySelector('.widget-markdown-empty');
         expect(widget).not.toBeNull();
-        // The /api/file fetch fails client-side; the widget reports it.
-        expect(widget!.textContent ?? '').toMatch(/404/);
+        expect(widget!.textContent ?? '').toMatch(/404|Failed|Error/i);
       },
       { timeout: 40000, interval: 500 },
     );
@@ -2462,7 +2495,8 @@ export const WidgetMarkdownFile: Story = {
 /**
  * Widget exit: Ctrl+C in a widget pane kills the widget process (SIGINT through
  * the real WidgetPane capture-phase handler → send-keys C-c), the terminal
- * returns, and the shell is usable again.
+ * returns, and the shell is usable again. This is what the browser widget's
+ * "Close Browser" menu item does too.
  */
 export const WidgetExitRestoresShell: Story = {
   play: async ({ canvasElement }) => {
@@ -2470,13 +2504,15 @@ export const WidgetExitRestoresShell: Story = {
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
     const doc = canvasElement.ownerDocument;
-    pasteLine("echo '# WIDGET_EXIT_5' | tmuxy widget markdown -");
-    await waitFor(() => expect(doc.querySelector('.widget-markdown')).not.toBeNull(), {
+    pasteLine(
+      `{ echo '__SRC__:https://example.com/widget-exit-5'; sleep 3600; } | $HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget browser`,
+    );
+    await waitFor(() => expect(doc.querySelector('.widget-browser')).not.toBeNull(), {
       timeout: 40000,
       interval: 500,
     });
     await user.keyboard('{Control>}c{/Control}');
-    await waitFor(() => expect(doc.querySelector('.widget-markdown')).toBeNull(), {
+    await waitFor(() => expect(doc.querySelector('.widget-browser')).toBeNull(), {
       timeout: 20000,
       interval: 500,
     });

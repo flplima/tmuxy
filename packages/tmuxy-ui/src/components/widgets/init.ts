@@ -1,8 +1,6 @@
 import { registerWidget } from './index';
-import { TmuxyImage } from './TmuxyImage';
-import { TmuxyMarkdown } from './TmuxyMarkdown';
+import { browserWidget } from './browser/definition';
 import { TmuxyTree } from './TmuxyTree';
 
-registerWidget('image', TmuxyImage);
-registerWidget('markdown', TmuxyMarkdown);
-registerWidget('tree', TmuxyTree);
+registerWidget('browser', browserWidget);
+registerWidget('tree', { component: TmuxyTree });

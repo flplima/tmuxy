@@ -29,6 +29,7 @@ export type StateName =
   | 'layout'
   | 'tabOverview'
   | 'copyMode'
+  | 'browser'
   | 'groupsAndFloats'
   | 'commandUi'
   | 'uiPrefs'
@@ -87,6 +88,9 @@ export const FIELD_OWNERS = {
 
   // ---- copyMode ----
   copyModeStates: 'copyMode',
+
+  // ---- browser ----
+  browserStates: 'browser',
 
   // ---- groupsAndFloats ----
   paneGroups: 'groupsAndFloats',
@@ -182,6 +186,7 @@ export function createInitialContext(): AppMachineContext {
     enableAnimations: false,
     keybindings: null,
     copyModeStates: {},
+    browserStates: {},
     lastLayoutCommandTime: 0,
     suppressLayoutTransition: false,
     paneKeyOverrides: {},

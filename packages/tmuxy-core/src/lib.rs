@@ -11,6 +11,7 @@ pub mod debug_log;
 pub mod executor;
 
 pub mod layout;
+pub mod mime;
 #[cfg(feature = "native")]
 pub mod retry;
 #[cfg(feature = "native")]

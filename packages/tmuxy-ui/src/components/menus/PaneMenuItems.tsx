@@ -4,11 +4,20 @@
 
 import { MenuItem, MenuDivider } from '@szhsin/react-menu';
 import type { KeyBindings } from '../../machines/types';
+import type { WidgetMenuItem } from '../widgets';
 import { KeyLabel } from './KeyLabel';
 
 interface PaneMenuItemsProps {
   keybindings: KeyBindings | null;
   isSinglePane: boolean;
+  /**
+   * The pane's widget's own items, shown as a section above the generic ones
+   * (see components/widgets — a widget contributes these by name, nothing here
+   * knows which widget is running).
+   */
+  widgetItems?: WidgetMenuItem[];
+  /** Called with the chosen widget item; its `event` is what to dispatch. */
+  onWidgetAction?: (item: WidgetMenuItem) => void;
   /** The pane these items act on is tmux's marked pane. */
   isMarked?: boolean;
   /** Some pane (possibly another one) is marked, so swap/join with it make sense. */
@@ -19,12 +28,30 @@ interface PaneMenuItemsProps {
 export function PaneMenuItems({
   keybindings,
   isSinglePane,
+  widgetItems,
+  onWidgetAction,
   isMarked = false,
   hasMarked = false,
   onAction,
 }: PaneMenuItemsProps) {
   return (
     <>
+      {widgetItems && widgetItems.length > 0 && (
+        <>
+          {widgetItems.map((item) => (
+            <MenuItem
+              key={item.id}
+              disabled={item.disabled}
+              data-widget-action={item.id}
+              onClick={() => onWidgetAction?.(item)}
+            >
+              {item.label}
+              {item.keyHint && <span className="menu-keybinding">{item.keyHint}</span>}
+            </MenuItem>
+          ))}
+          <MenuDivider />
+        </>
+      )}
       <MenuItem onClick={() => onAction('pane-split-below')}>
         Split Pane Below
         <KeyLabel keybindings={keybindings} command="split-window -v" />

@@ -239,7 +239,7 @@ function SidebarPane({
   }
 
   if (side === 'left') {
-    const Tree = getWidget('tree')!;
+    const Tree = getWidget('tree')!.component;
     return (
       <Tree
         paneId={pane.tmuxId}

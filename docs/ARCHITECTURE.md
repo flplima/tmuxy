@@ -51,6 +51,36 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 6. The frontend's XState machine merges state updates into its context, and React components re-render via selector hooks. See [DATA-FLOW.md](DATA-FLOW.md) for detailed flow diagrams.
 
+## Widgets
+
+A **widget** is a React component rendered *in place of* a pane's terminal. The pane is a real
+tmux pane running a real process — it can be focused, navigated into, resized and closed like any
+other — but what it draws is a component, not cells.
+
+A pane declares itself a widget by printing a marker line: `__TMUXY_WIDGET__:<name>`, which
+`bin/tmuxy/tmuxy-widget` emits before passing stdin through. The frontend scans pane content for
+it (`components/widgets/index.ts`), and everything the pane prints after the marker is the
+widget's content — the channel a widget's script uses to hand it a payload. The process must stay
+alive; closing the pipe fires the wrapper's EXIT trap, which clears the marker and hands the pane
+back to a shell. That is what ctrl+c in a widget pane does.
+
+| Widget | Started by | Content it reads |
+|--------|-----------|------------------|
+| `browser` | `tmuxy widget browser <file\|url\|->` | `__SRC__:<path or url>` — one source: an HTML file, a website, a markdown file (rendered, mermaid included), or an image |
+| `tree` | `tmuxy widget tree` | none — the tabs/panes tree is derived from state the app already holds |
+
+A widget registers a **definition**, not just a component, so it can furnish the parts of the pane
+chrome it does not own: its tab `icon`, a `selectTitle` for the tab (the browser names its pane
+after the page it is showing), a `selectMenuItems` section that leads the pane's ⋮ menu, and an
+`onKeyDown` for keys it claims before they reach tmux. Each is a pure function of machine context
+plus the pane's widget content, so a menu that is not the widget's own child can still ask the
+widget what it can currently do. Adding a widget means writing a definition and registering it in
+`components/widgets/init.ts`; no shared component needs to learn its name.
+
+Widget state that outlives a render — the browser's per-pane history and zoom — lives in the app
+machine's `browser` parallel state rather than in the component, so the menu and the pane read the
+same source of truth. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md).
+
 ## Multi-Client Viewport Sizing
 
 Like native tmux, when multiple browser clients connect to the same session, the session is sized to the **smallest client's viewport**. Each client reports its viewport size, the server computes the minimum, and sends a resize command through the monitor's control mode connection. Resize commands must go through control mode — external `tmux resize-window` commands are ignored when a control mode client is attached.
@@ -87,7 +117,7 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 | `tmuxy-wasm`      | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script.           |
 | `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` + `Ctx` plumbing as the server; transport is native IPC instead of SSE/HTTP.                                                                                            |
 | `tmuxy-connect`   | Standalone TUI for the "add a server" form (`tmuxy connect`), which the desktop app opens in a float. `bin/tmuxy-cli` prefers this binary when present.                                                                    |
-| `tmuxy-tree`      | Standalone TUI browser of the sessions→tabs→panes tree (`tmuxy tree`), for a plain terminal — packaged separately so the v86 guest can run it. `bin/tmuxy-cli` prefers this binary when present. The left sidebar renders the same tree as a React widget instead (`tmuxy widget tree`).                                                 |
+| `tmuxy-tree`      | Standalone TUI browser of the sessions→tabs→panes tree (`tmuxy tree`), for a plain terminal — packaged separately so the v86 guest can run it. `bin/tmuxy-cli` prefers this binary when present. The left sidebar renders the same tree as a React widget instead (`tmuxy widget tree` — see [Widgets](#widgets)).                                                 |
 
 ## Related Documentation
 

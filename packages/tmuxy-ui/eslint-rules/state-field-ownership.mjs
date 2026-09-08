@@ -52,6 +52,9 @@ const FIELD_OWNERS = {
   // ---- copyMode ----
   copyModeStates: 'copyMode',
 
+  // ---- browser ----
+  browserStates: 'browser',
+
   // ---- groupsAndFloats ----
   paneGroups: 'groupsAndFloats',
   floatPanes: 'groupsAndFloats',

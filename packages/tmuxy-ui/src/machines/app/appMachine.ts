@@ -27,6 +27,8 @@ import { uiPrefsState } from './states/uiPrefs';
 import { uiPrefsActions } from './actions/uiPrefs';
 import { commandUiState } from './states/commandUi';
 import { commandUiActions } from './actions/commandUi';
+import { browserState } from './states/browser';
+import { browserActions } from './actions/browser';
 import { copyModeState } from './states/copyMode';
 import { copyModeActions, copyModeExitTimes, COPY_MODE_REENTRY_COOLDOWN } from './actions/copyMode';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states/groupsAndFloats';
@@ -352,6 +354,7 @@ export const appMachine = setup({
     ...uiPrefsActions,
     ...commandUiActions,
     ...copyModeActions,
+    ...browserActions,
     ...groupsAndFloatsActions,
     ...tabOverviewActions,
     ...layoutActions,
@@ -610,6 +613,7 @@ export const appMachine = setup({
             connected: false,
             error: null,
             copyModeStates: {},
+            browserStates: {},
             enableAnimations: false,
           }),
         );
@@ -692,6 +696,7 @@ export const appMachine = setup({
       on: {
         // Per-state handlers active only during idle (require a live connection).
         ...copyModeState.on,
+        ...browserState.on,
         ...groupsAndFloatsIdleEvents,
         ...layoutState.on,
 
@@ -1152,6 +1157,19 @@ export const appMachine = setup({
               }
             }
 
+            // Same for browser widget state. tmux hands out pane ids from a
+            // counter that starts again when the server does, so a stale
+            // record left behind by a closed pane could be inherited by an
+            // unrelated pane after a restart — and its history cursor would
+            // point the new pane's browser at a page that was never opened.
+            let updatedBrowserStates = context.browserStates;
+            for (const staleId of Object.keys(updatedBrowserStates)) {
+              if (!currentPaneIdSet.has(staleId)) {
+                updatedBrowserStates = { ...updatedBrowserStates };
+                delete updatedBrowserStates[staleId];
+              }
+            }
+
             // Detect pane dimension changes from command-based resize
             // (not drag-resize, which uses resizeActive). Suppress CSS
             // transitions so dimensions snap instantly without visual jumps.
@@ -1205,6 +1223,7 @@ export const appMachine = setup({
                 paneGroups,
                 floatPanes,
                 copyModeStates: updatedCopyModeStates,
+                browserStates: updatedBrowserStates,
                 // Hold the optimistic resize preview during the drag AND after
                 // release until the server geometry has STABLY caught up to the
                 // preview's prediction — i.e. this update matches the

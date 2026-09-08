@@ -1044,6 +1044,44 @@ pub fn run() {
                 None => not_found(),
             }
         })
+        // Local files the browser widget shows (`tmuxy widget browser`) — an
+        // HTML page, a markdown source, an image. The web build serves these
+        // over `/api/browse/<path>`; there is no HTTP server here, so the same
+        // path-shaped URLs arrive as `tmuxyfile://localhost/<path>` and are
+        // read straight off disk. Path-shaped (rather than `?path=`) so a
+        // framed page's relative links resolve to their neighbouring files.
+        //
+        // This reads anything the desktop app itself can read, which is the
+        // same reach the pane's own shell already has.
+        .register_uri_scheme_protocol("tmuxyfile", |_ctx, request| {
+            let respond = |status: tauri::http::StatusCode, content_type: &str, body: Vec<u8>| {
+                tauri::http::Response::builder()
+                    .status(status)
+                    .header("Content-Type", content_type)
+                    // The webview's own origin fetches these (markdown is read
+                    // with fetch(), not framed), so they need CORS to be
+                    // readable rather than merely displayable.
+                    .header("Access-Control-Allow-Origin", "*")
+                    // A widget re-reads a file to show an edit; a cached
+                    // response would show the version from before the save.
+                    .header("Cache-Control", "no-store")
+                    .body(body)
+                    .unwrap_or_default()
+            };
+            let path = tmuxy_core::mime::percent_decode(request.uri().path());
+            match std::fs::read(&path) {
+                Ok(bytes) => respond(
+                    tauri::http::StatusCode::OK,
+                    tmuxy_core::mime::content_type_for_path(&path),
+                    bytes,
+                ),
+                Err(e) => respond(
+                    tauri::http::StatusCode::NOT_FOUND,
+                    "text/plain; charset=utf-8",
+                    format!("{}: {}", path, e).into_bytes(),
+                ),
+            }
+        })
         // Shared execution context — handed to TmuxMonitor on connect AND used
         // by async Tauri commands for retried+timed-out tmux dispatch via the
         // Tower stack. Mirrors AppState::ctx on the server side.

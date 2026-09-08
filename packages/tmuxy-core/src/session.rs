@@ -259,12 +259,8 @@ const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../bin/tmuxy/tmuxy-widget"),
     ),
     (
-        "tmuxy/tmuxy-widget-image",
-        include_str!("../../../bin/tmuxy/tmuxy-widget-image"),
-    ),
-    (
-        "tmuxy/tmuxy-widget-markdown",
-        include_str!("../../../bin/tmuxy/tmuxy-widget-markdown"),
+        "tmuxy/tmuxy-widget-browser",
+        include_str!("../../../bin/tmuxy/tmuxy-widget-browser"),
     ),
     (
         "tmuxy/tmuxy-widget-tree",

@@ -15,6 +15,8 @@ import {
 } from '../machines/AppContext';
 import { executeMenuAction } from './menus/menuActions';
 import { PaneMenuItems } from './menus/PaneMenuItems';
+import { useWidgetMenuItems } from './widgets/usePaneWidget';
+import type { WidgetMenuItem } from './widgets';
 import './menus/AppMenu.css';
 
 interface PaneContextMenuProps {
@@ -30,6 +32,8 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
   const visiblePanes = useAppSelector(selectVisiblePanes);
   const isSinglePane = visiblePanes.length <= 1;
   const markedPaneId = useAppSelector(selectMarkedPaneId);
+  // A pane running a widget gets that widget's own section at the top.
+  const widgetItems = useWidgetMenuItems(paneId);
 
   const handleAction = (actionId: string) => {
     if (actionId === 'pane-close') {
@@ -44,11 +48,18 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
     onClose();
   };
 
+  const handleWidgetAction = (item: WidgetMenuItem) => {
+    send(item.event);
+    onClose();
+  };
+
   return (
     <ControlledMenu state="open" anchorPoint={{ x, y }} onClose={onClose} transition={false}>
       <PaneMenuItems
         keybindings={keybindings}
         isSinglePane={isSinglePane}
+        widgetItems={widgetItems}
+        onWidgetAction={handleWidgetAction}
         isMarked={markedPaneId === paneId}
         hasMarked={markedPaneId !== null}
         onAction={handleAction}

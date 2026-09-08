@@ -1,0 +1,51 @@
+#!/bin/bash
+# Show a page in a tmuxy browser widget pane
+#
+# Usage:
+#   tmuxy-widget-browser <file>      Local HTML, markdown or image file
+#   tmuxy-widget-browser <url>       A website, or a remote image/markdown
+#   tmuxy-widget-browser -           Render markdown read from stdin
+#
+# The widget takes a single resolved source and shows it: HTML and websites go
+# in a frame, markdown is rendered (mermaid included), images are drawn. The
+# UI decides which from the source, so this only has to resolve it and keep the
+# pane alive — the pipe closing is what tears the widget down.
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+SOURCE="${1:?Usage: tmuxy-widget-browser <file|url|->}"
+
+if [ "$SOURCE" = "-" ]; then
+  # Stdin has nowhere to live: the widget fetches its source by path or URL,
+  # and there is no path for a stream. Spill it to a temp file and point the
+  # widget at that. Removed when the widget exits.
+  #
+  # A directory rather than `mktemp <template>.md`: BSD mktemp only substitutes
+  # X's at the very end of the template, so asking for a random name with an
+  # extension yields a file literally called `XXXXXX.md` — and two stdin
+  # browsers would then fight over it.
+  # $TMPDIR often ends in a slash; the path becomes the pane's title, so trim it.
+  TMPROOT="${TMPDIR:-/tmp}"
+  TMPHOME="$(mktemp -d "${TMPROOT%/}"/tmuxy-browser-XXXXXX)"
+  trap 'rm -rf "$TMPHOME"' EXIT
+  RESOLVED="$TMPHOME/stdin.md"
+  cat >"$RESOLVED"
+elif [[ "$SOURCE" =~ ^(https?|data): ]]; then
+  RESOLVED="$SOURCE"
+else
+  # A file:// URL is just a path written the long way.
+  RESOLVED="${SOURCE#file://}"
+  if [[ "$RESOLVED" != /* ]]; then
+    RESOLVED="$(cd "$(dirname "$RESOLVED")" && pwd)/$(basename "$RESOLVED")"
+  fi
+  if [ ! -f "$RESOLVED" ]; then
+    echo "Error: File not found: $RESOLVED" >&2
+    exit 1
+  fi
+fi
+
+# Emit the source through the widget marker, then block so the pane — and the
+# widget rendered in place of it — stays up until the user closes it.
+{ echo "__SRC__:${RESOLVED}"; while true; do sleep 3600; done; } |
+  "${SCRIPTS_DIR}/tmuxy-widget" browser

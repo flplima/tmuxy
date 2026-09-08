@@ -32,9 +32,8 @@ import * as ConnectionOverlayStories from '../../components/ConnectionOverlay.st
 import * as ModalStories from '../../components/Modal.stories';
 import * as CursorStories from '../../components/Cursor.stories';
 import * as TerminalLineStories from '../../components/TerminalLine.stories';
-import * as TmuxyMarkdownStories from '../../components/widgets/TmuxyMarkdown.stories';
-import * as MermaidBlockStories from '../../components/widgets/MermaidBlock.stories';
-import * as TmuxyImageStories from '../../components/widgets/TmuxyImage.stories';
+import * as MermaidBlockStories from '../../components/widgets/browser/MermaidBlock.stories';
+import * as TmuxyBrowserStories from '../../components/widgets/browser/TmuxyBrowser.stories';
 
 // Provider-backed stories (need the full machine + DemoAdapter)
 import * as StatusBarStories from '../../components/StatusBar.stories';
@@ -85,9 +84,7 @@ const PURE_STORY_MODULES: Record<string, StoryModule> = {
   Modal: ModalStories,
   Cursor: CursorStories,
   TerminalLine: TerminalLineStories,
-  TmuxyMarkdown: TmuxyMarkdownStories,
   MermaidBlock: MermaidBlockStories,
-  TmuxyImage: TmuxyImageStories,
 };
 
 const PROVIDER_STORY_MODULES: Record<string, StoryModule> = {
@@ -95,6 +92,7 @@ const PROVIDER_STORY_MODULES: Record<string, StoryModule> = {
   WindowTabs: WindowTabsStories,
   TmuxStatusBar: TmuxStatusBarStories,
   PaneHeader: PaneHeaderStories,
+  TmuxyBrowser: TmuxyBrowserStories,
   FloatPane: FloatPaneStories,
   ImageProtocols: ImageProtocolsStories,
   AppMenu: AppMenuStories,

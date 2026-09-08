@@ -310,6 +310,7 @@ pub fn api_routes() -> Router<Arc<AppState>> {
             post(crate::sse::trace_handler).layer(axum::extract::DefaultBodyLimit::max(256 * 1024)),
         )
         .route("/api/file", get(file_handler))
+        .route("/api/browse/{*path}", get(browse_handler))
         .route("/api/images/{pane_id}/{image_id}", get(image_handler))
         .layer(
             CorsLayer::new()
@@ -329,19 +330,31 @@ struct FileQuery {
 }
 
 async fn file_handler(Query(query): Query<FileQuery>) -> Response {
-    let path = std::path::Path::new(&query.path);
-    let content_type = match path.extension().and_then(|e| e.to_str()) {
-        Some("png") => "image/png",
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("svg") => "image/svg+xml",
-        Some("bmp") => "image/bmp",
-        Some("ico") => "image/x-icon",
-        _ => "text/plain; charset=utf-8",
-    };
+    read_file_response(&query.path)
+}
+
+/// Serve a local file at a path-shaped URL: `/api/browse/Users/me/doc/index.html`.
+///
+/// The browser widget frames this route, and a framed page's relative links
+/// (`./style.css`, `../img/logo.png`) resolve against the URL it was loaded
+/// from — which is why this exists alongside `/api/file?path=`, whose query
+/// string would send every subresource to `/api/style.css`. Axum has already
+/// percent-decoded the captured path; the leading `/` it strips is put back so
+/// the absolute path on disk round-trips.
+///
+/// Like `/api/file` this reads anywhere the server process can, gated only by
+/// the optional `--password` Basic auth. See docs/SECURITY.md.
+async fn browse_handler(Path(path): Path<String>) -> Response {
+    read_file_response(&format!("/{}", path.trim_start_matches('/')))
+}
+
+fn read_file_response(path: &str) -> Response {
     match std::fs::read(path) {
-        Ok(content) => build_response(StatusCode::OK, content_type, content),
+        Ok(content) => build_response(
+            StatusCode::OK,
+            tmuxy_core::mime::content_type_for_path(path),
+            content,
+        ),
         Err(e) => json_response(
             StatusCode::NOT_FOUND,
             &serde_json::json!({ "error": format!("{}", e) }),

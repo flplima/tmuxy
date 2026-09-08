@@ -226,6 +226,7 @@ machines/app/
 │   ├── uiPrefs.ts         # theme, font size, animations
 │   ├── commandUi.ts       # command mode, status messages, prefix indicator
 │   ├── copyMode.ts        # client-side copy mode (per-pane CopyModeState)
+│   ├── browser.ts         # browser widget history + zoom (per-pane)
 │   ├── groupsAndFloats.ts # pane groups, float panes, both sidebar columns
 │   ├── tabOverview.ts     # the "all tabs" view: open flag, keyboard cursor
 │   └── layout.ts          # panes, windows, focus, drag/resize
@@ -238,7 +239,8 @@ machines/app/
 
 **One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
 `AppMachineContext` field to its owning state (`'layout' | 'copyMode' |
-'groupsAndFloats' | 'tabOverview' | 'commandUi' | 'uiPrefs' | 'parent'`). The
+'browser' | 'groupsAndFloats' | 'tabOverview' | 'commandUi' | 'uiPrefs' |
+'parent'`). The
 `tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
 enforces this: any `assign({...})` inside a `states/<name>.ts` or
 `actions/<name>.ts` file may only mutate fields owned by `<name>`.

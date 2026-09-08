@@ -314,10 +314,13 @@ Beyond the core SSE/HTTP protocol, the web server exposes:
 |----------|--------|---------|
 | `/events` | GET | SSE stream (state updates, connection info) |
 | `/commands` | POST | tmux commands (no authentication unless `--password` is set — see SECURITY.md) |
-| `/api/file` | GET | Read file contents (used by widget panes) |
+| `/api/file` | GET | Read file contents by `?path=` |
+| `/api/browse/{*path}` | GET | Read a file at a path-shaped URL, typed by extension |
 | `/api/images/{pane_id}/{image_id}` | GET | Serve a decoded inline-image blob |
 
-The `/api/file` endpoint exists for widget rendering (markdown viewer, image viewer). Like every route it is gated by the optional `--password` Basic auth, but has no path restrictions beyond that. See [SECURITY.md](SECURITY.md) for the implications.
+Both file routes exist for widget rendering. `/api/browse` is the one the browser widget frames: the path lives in the URL rather than a query string, so a framed page's relative links resolve to the files beside it, and the response carries a real content type (see `tmuxy-core/src/mime.rs`) so HTML renders as a page instead of as source. The desktop app serves no HTTP; it answers the same requests over its `tmuxyfile:` scheme, and the frontend picks between the two in `tmuxy-ui/src/utils/fileUrl.ts` — the same split `Terminal.tsx` makes for inline images.
+
+Like every route these are gated by the optional `--password` Basic auth, but have no path restrictions beyond that. See [SECURITY.md](SECURITY.md) for the implications.
 
 ## Related
 

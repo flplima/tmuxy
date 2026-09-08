@@ -759,14 +759,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
 const RED_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
 
-// 1x1 blue PNG, base64-encoded
-const BLUE_PNG =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMCbHYQAAAABJRU5ErkJggg==';
-
-// 1x1 green PNG, base64-encoded
-const GREEN_PNG =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-
 /**
  * Type a command in the terminal via browser keyboard (no output wait).
  * Uses the real user path: browser keyboard → tmux → SSE → DOM.
@@ -786,8 +778,20 @@ function waitForDomSelector(page, selector, timeout = 10000) {
   });
 }
 
-// Resolve tmuxy-widget path relative to this file (works in both dev and CI)
+// Resolve the CLI and the raw widget wrapper relative to this file (works in
+// both dev and CI).
+const TMUXY_CLI = path.resolve(__dirname, '..', 'bin/tmuxy-cli');
 const TMUXY_WIDGET = path.resolve(__dirname, '..', 'bin/tmuxy/tmuxy-widget');
+
+/** Geometry + text of the browser widget's first rendered heading. */
+function readHeading(page) {
+  return page.evaluate(() => {
+    const el = document.querySelector('.widget-markdown h1');
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    return { text: el.textContent, width: rect.width, height: rect.height, top: rect.top };
+  });
+}
 
 describe('Category 17: Widgets', () => {
   const wCtx = createTestContext();
@@ -797,77 +801,125 @@ describe('Category 17: Widgets', () => {
   afterEach(wCtx.afterEach, wCtx.hookTimeout);
 
   // ====================
-  // 17.1 Image Widget
+  // 17.1 Browser Widget: a markdown file, its pane menu, and closing it
   // ====================
-  describe('17.1 Image Widget', () => {
-    test('Renders image, has pane header, no Terminal element', async () => {
+  describe('17.1 Browser Widget', () => {
+    test('Renders a markdown file, names the pane after it, zooms from the pane menu, and closes back to a shell', async () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
-      await sendWidgetCommand(wCtx.page, `(echo "${RED_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`);
+      const file = `/tmp/tmuxy-browser-e2e-${Date.now()}.md`;
+      await sendWidgetCommand(
+        wCtx.page,
+        `printf '# BROWSER_WIDGET_MD\\n\\nbody text\\n' > ${file}; ${TMUXY_CLI} widget browser ${file}`,
+      );
 
-      await delay(2000);
-      await waitForDomSelector(wCtx.page, '.widget-image', 30000);
+      // The file's content is rendered as a document — not printed as source,
+      // and not merely present in the DOM: the heading must have real area.
+      await waitForDomSelector(wCtx.page, '.widget-markdown h1', 30000);
+      const heading = await readHeading(wCtx.page);
+      expect(heading.text).toBe('BROWSER_WIDGET_MD');
+      expect(heading.width).toBeGreaterThan(0);
+      expect(heading.height).toBeGreaterThan(0);
 
-      const src = await wCtx.page.evaluate(() => {
-        const img = document.querySelector('.widget-image img');
-        return img ? img.getAttribute('src') : null;
+      // The pane names itself after the file it is showing, and wears the
+      // browser widget's globe rather than a shell icon.
+      const tab = await wCtx.page.evaluate(() => {
+        const pane = document.querySelector('[role=group][aria-label^="Widget pane"]');
+        return {
+          title: pane?.querySelector('.pane-tab-title')?.textContent ?? null,
+          icon: pane?.querySelector('.pane-tab-icon')?.textContent ?? null,
+          hasTerminal: pane?.querySelector('[role="log"]') !== null,
+        };
       });
-      expect(src).toContain('data:image/png;base64,');
+      expect(tab.title).toBe(file);
+      expect(tab.icon).toBe('\uf0ac'); // nf-fa-globe
+      expect(tab.hasTerminal).toBe(false);
 
-      const hasPaneHeader = await wCtx.page.evaluate(() => {
-        const wrapper = document.querySelector('[data-pane-id]');
-        if (!wrapper) return false;
-        return wrapper.querySelector('.pane-tab, .pane-tabs') !== null;
+      // The ⋮ menu carries the browser's own section. Back has nowhere to go
+      // on the opening page; Zoom In visibly enlarges the rendered document.
+      await wCtx.page.evaluate(() => {
+        const pane = document.querySelector('[role=group][aria-label^="Widget pane"]');
+        pane.querySelector('.pane-header-menu').click();
       });
-      expect(hasPaneHeader).toBe(true);
-
-      const hasTerminal = await wCtx.page.evaluate(() => {
-        const wrapper = document.querySelector('[data-pane-id]');
-        if (!wrapper) return true;
-        return wrapper.querySelector('[role="log"]') !== null;
+      const menu = await wCtx.page.evaluate(() => {
+        const items = [...document.querySelectorAll('[role="menuitem"]')];
+        return {
+          // The widget's items lead the menu, ahead of the generic pane ones.
+          leading: items.slice(0, 7).map((el) => el.textContent.trim()),
+          backDisabled: items[0]?.getAttribute('aria-disabled') === 'true',
+        };
       });
-      expect(hasTerminal).toBe(false);
-    });
-  });
+      expect(menu.backDisabled).toBe(true);
+      expect(menu.leading.map((label) => label.replace(/ctrl\+[a-z]$/, ''))).toEqual([
+        'Back',
+        'Forward',
+        'Zoom In',
+        'Zoom Out',
+        'Copy Current URL',
+        'Refresh',
+        'Close Browser',
+      ]);
 
-  // ====================
-  // 17.2 Animation
-  // ====================
-  describe('17.2 Image Widget Animation', () => {
-    test('Cycles through 3 base64 image frames', async () => {
+      await wCtx.page.evaluate(() => {
+        [...document.querySelectorAll('[role="menuitem"]')]
+          .find((el) => el.textContent.trim() === 'Zoom In')
+          .click();
+      });
+      // Zooming a rendered document grows the type, so the heading's line box
+      // gets taller — its width is the pane's and would not move.
+      await waitForCondition(
+        wCtx.page,
+        async () => (await readHeading(wCtx.page)).height > heading.height,
+        10000,
+        'the zoomed heading to grow',
+      );
+
+      // Closing the browser ends the widget process and hands the pane back to
+      // a working shell.
+      await sendKeyCombo(wCtx.page, 'Control', 'c');
+      await waitForCondition(
+        wCtx.page,
+        () => wCtx.page.evaluate(() => document.querySelector('.widget-browser') === null),
+        20000,
+        'the browser widget to close',
+      );
+      await sendWidgetCommand(wCtx.page, 'echo AFTER_BROWSER_WIDGET');
+      await waitForTerminalText(wCtx.page, 'AFTER_BROWSER_WIDGET');
+    }, 120000);
+
+    test('Renders an image source as a real picture', async () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
 
       await sendWidgetCommand(
         wCtx.page,
-        `(echo "${RED_PNG}"; sleep 1; echo "${BLUE_PNG}"; sleep 1; echo "${GREEN_PNG}"; sleep 999) | ${TMUXY_WIDGET} image`,
+        `{ echo "__SRC__:${RED_PNG}"; sleep 999; } | ${TMUXY_WIDGET} browser`,
       );
 
-      await waitForDomSelector(wCtx.page, '.widget-image', 30000);
-
-      const greenSignature = GREEN_PNG.slice(-30);
-      await wCtx.page.waitForFunction(
-        (sig) => {
-          const img = document.querySelector('.widget-image img');
-          return img && img.src && img.src.includes(sig);
-        },
-        greenSignature,
-        { timeout: 30000, polling: 300 },
-      );
-
-      const finalSrc = await wCtx.page.evaluate(() => {
-        const img = document.querySelector('.widget-image img');
-        return img ? img.src : null;
+      await waitForDomSelector(wCtx.page, '.widget-browser-image img', 30000);
+      const img = await wCtx.page.evaluate(() => {
+        const el = document.querySelector('.widget-browser-image img');
+        const rect = el.getBoundingClientRect();
+        return {
+          src: el.getAttribute('src'),
+          decoded: el.naturalWidth > 0,
+          width: rect.width,
+          height: rect.height,
+        };
       });
-      expect(finalSrc).toContain(greenSignature);
-    });
+      expect(img.src).toContain('data:image/png;base64,');
+      // Decoded and drawn, not a broken-image placeholder.
+      expect(img.decoded).toBe(true);
+      expect(img.width).toBeGreaterThan(0);
+      expect(img.height).toBeGreaterThan(0);
+    }, 90000);
   });
 
   // ====================
-  // 17.3 Edge Cases
+  // 17.2 Edge Cases
   // ====================
-  describe('17.3 Widget Detection Edge Cases', () => {
+  describe('17.2 Widget Detection Edge Cases', () => {
     test('Normal pane without marker renders Terminal', async () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();
@@ -881,7 +933,7 @@ describe('Category 17: Widgets', () => {
       expect(hasTerminal).toBe(true);
 
       const hasWidget = await wCtx.page.evaluate(
-        () => document.querySelector('.widget-image') !== null,
+        () => document.querySelector('.widget-browser') !== null,
       );
       expect(hasWidget).toBe(false);
     });
@@ -900,7 +952,7 @@ describe('Category 17: Widgets', () => {
       expect(hasTerminal).toBe(true);
 
       const hasWidget = await wCtx.page.evaluate(
-        () => document.querySelector('.widget-image') !== null,
+        () => document.querySelector('.widget-browser') !== null,
       );
       expect(hasWidget).toBe(false);
     });
