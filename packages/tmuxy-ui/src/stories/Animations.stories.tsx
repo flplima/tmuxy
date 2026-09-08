@@ -17,6 +17,9 @@
  *  - OpenFloat            overlay portals into <body> and runs `float-appear`
  *  - OpenDrawer           drawer overlay runs the `slide-in-left` keyframe
  *  - CloseFloat           overlay node is removed (float close is instant)
+ *  - SwapPanes            the same two nodes trade boxes in one gated commit; the
+ *                         gate releases after (command geometry snaps — BUG-6)
+ *  - ConfigAnimationsOff  `@tmuxy-animations off`: a split lands in place, no morph
  *  - AnimationsDisabled   new-window still flips `.pane-layout-no-animations`
  *  - FocusCueNeverHardFlips  switching panes fades surface + text on one clock,
  *                         under every layout-suppression gate
@@ -711,6 +714,197 @@ export const FocusCueNeverHardFlips: Story = {
     }
 
     appearance.forEach(([k]) => root.style.removeProperty(k));
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Swap — the same two nodes trade boxes in one commit, and the gate releases
+// ---------------------------------------------------------------------------
+
+export const SwapPanes: Story = {
+  args: { height: 600, initCommands: ['split-window -h'] },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 600 },
+      description: {
+        story:
+          'A swap rewrites both panes’ boxes in one commit. Command-driven geometry snaps by design (BUG-6: `suppressLayoutTransition` latches `.pane-layout-resizing` for exactly that commit so nothing wobbles through an intermediate box), so the assertion is about what a swap must and must not do: the same two DOM nodes end up with left and right exchanged — no node added or removed, no enter/leave lifecycle — and the gate lets go afterwards, the 0.1s layout transition back on both panes for whatever comes next.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForPaneCount(canvas, 2);
+
+    const layout = getPaneLayout(canvasElement);
+    await waitForAnimationsEnabled(layout);
+
+    const before = paneNodes(canvasElement).map((n) => ({
+      id: n.dataset.paneId as string,
+      left: n.getBoundingClientRect().left,
+    }));
+    expect(before).toHaveLength(2);
+    const [leftPane, rightPane] = [...before].sort((a, b) => a.left - b.left);
+
+    // The commit that moves the boxes must carry the gate — that is what
+    // keeps a swap from sliding through the other pane. Watch the class flip.
+    // The class can be set and cleared within one task, before the observer
+    // callback runs: read the old value each record carries as well.
+    let gated = false;
+    const classWatcher = new MutationObserver((records) => {
+      if (layout.classList.contains('pane-layout-resizing')) gated = true;
+      for (const r of records) {
+        if ((r.oldValue ?? '').includes('pane-layout-resizing')) gated = true;
+      }
+    });
+    classWatcher.observe(layout, {
+      attributes: true,
+      attributeFilter: ['class'],
+      attributeOldValue: true,
+    });
+    let sawLifecycle = false;
+    let sampling = true;
+    const sampleFrame = () => {
+      if (layout.querySelector('.pane-entering, .pane-shifting, .pane-leaving')) {
+        sawLifecycle = true;
+      }
+      if (sampling) requestAnimationFrame(sampleFrame);
+    };
+    requestAnimationFrame(sampleFrame);
+    const recorder = new LayoutMutationRecorder(layout);
+    try {
+      // The active pane is the split's new one (right); `-U` swaps it with the
+      // pane before it, so both exchange places.
+      getApp().send({ type: 'SEND_TMUX_COMMAND', command: `select-pane -t ${rightPane.id}` });
+      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane -U' });
+
+      // Same nodes, sides exchanged; nothing entered or left.
+      await waitFor(
+        () => {
+          const after = new Map(
+            paneNodes(canvasElement).map((n) => [
+              n.dataset.paneId as string,
+              n.getBoundingClientRect().left,
+            ]),
+          );
+          expect(after.size).toBe(2);
+          expect(after.get(leftPane.id)!).toBeGreaterThan(after.get(rightPane.id)!);
+        },
+        { timeout: 2000 },
+      );
+      expect(recorder.geometryRewrites).toBeGreaterThan(0);
+      expect(recorder.addedPaneIds.size).toBe(0);
+      expect(recorder.removedPaneIds.size).toBe(0);
+      expect(gated).toBe(true);
+      sampling = false;
+      expect(sawLifecycle).toBe(false);
+
+      // The gate is for that commit only: animations are back for the next thing.
+      await waitFor(
+        () => {
+          expect(layout.classList.contains('pane-layout-resizing')).toBe(false);
+          expect(layout.classList.contains('pane-layout-no-animations')).toBe(false);
+        },
+        { timeout: 4000 },
+      );
+      for (const node of paneNodes(canvasElement)) {
+        expect(getComputedStyle(node).transitionDuration).toContain('0.1s');
+      }
+    } finally {
+      sampling = false;
+      recorder.disconnect();
+      classWatcher.disconnect();
+    }
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Config off — `@tmuxy-animations off` draws a split in place, no morph at all
+// ---------------------------------------------------------------------------
+
+const APPEARANCE = {
+  opacity: 0.7,
+  activePaneOpacity: 1,
+  inactivePaneOpacity: 0.7,
+  activeTextOpacity: 1,
+  inactiveTextOpacity: 0.7,
+  blur: false,
+};
+
+export const ConfigAnimationsOff: Story = {
+  args: { height: 600 },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 600 },
+      description: {
+        story:
+          '`set -g @tmuxy-animations off` in tmuxy.conf reaches the client with the appearance (THEME_SETTINGS_RECEIVED). The switch holds `.pane-layout-no-animations` on the grid and `.app-no-animations` on the chrome whatever the settle logic decides, and PaneLayout skips the enter/leave lifecycle: a split lands as two tiled panes with no `transitionstart`, no `.pane-entering`, and a 0s geometry transition. Turning the option back on (a `source-file` re-push) restores the 0.1s transition.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitForPaneCount(canvas, 1);
+    const layout = getPaneLayout(canvasElement);
+    await waitForAnimationsEnabled(layout);
+
+    getApp().send({
+      type: 'THEME_SETTINGS_RECEIVED',
+      theme: 'default',
+      mode: 'dark',
+      appearance: { ...APPEARANCE, animations: false },
+    });
+    await waitFor(() => {
+      expect(layout.classList.contains('pane-layout-no-animations')).toBe(true);
+      expect(canvasElement.querySelector('.app-container.app-no-animations')).not.toBeNull();
+    });
+
+    const starts: string[] = [];
+    const onTransitionStart = (e: Event) => starts.push((e as TransitionEvent).propertyName);
+    layout.addEventListener('transitionstart', onTransitionStart);
+    let sawLifecycle = false;
+    let sampling = true;
+    const sampleFrame = () => {
+      if (layout.querySelector('.pane-entering, .pane-shifting, .pane-leaving')) {
+        sawLifecycle = true;
+      }
+      if (sampling) requestAnimationFrame(sampleFrame);
+    };
+    requestAnimationFrame(sampleFrame);
+    try {
+      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+      await waitForPaneCount(canvas, 2);
+      // Give any morph that was going to start its chance, then check nothing did.
+      await new Promise((r) => setTimeout(r, 400));
+      sampling = false;
+
+      expect(sawLifecycle).toBe(false);
+      // Colour transitions (the focus cue) are allowed under the gate; no
+      // geometry moved on a clock.
+      const GEOMETRY = ['left', 'top', 'width', 'height', 'transform'];
+      expect(starts.filter((p) => GEOMETRY.includes(p))).toEqual([]);
+      for (const node of paneNodes(canvasElement)) {
+        expect(getComputedStyle(node).transitionDuration).not.toContain('0.1s');
+      }
+      const [a, b] = paneNodes(canvasElement).map((n) => n.getBoundingClientRect());
+      const ovX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const ovY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      expect(Math.min(ovX, ovY)).toBeLessThanOrEqual(1);
+
+      // Back on: the config's re-push lifts the gate once the app has settled.
+      getApp().send({
+        type: 'THEME_SETTINGS_RECEIVED',
+        theme: 'default',
+        mode: 'dark',
+        appearance: { ...APPEARANCE, animations: true },
+      });
+      await waitForAnimationsEnabled(layout);
+      expect(canvasElement.querySelector('.app-container.app-no-animations')).toBeNull();
+      expect(getComputedStyle(paneNodes(canvasElement)[0]).transitionDuration).toContain('0.1s');
+    } finally {
+      sampling = false;
+      layout.removeEventListener('transitionstart', onTransitionStart);
+    }
   },
 };
 

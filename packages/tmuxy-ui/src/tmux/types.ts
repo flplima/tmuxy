@@ -462,6 +462,8 @@ export interface Appearance {
   inactiveTextOpacity: number;
   /** macOS blur behind the window; ignored elsewhere. */
   blur: boolean;
+  /** Layout animations (`@tmuxy-animations`): pane morphs, swaps, resizes, float keyframes. */
+  animations: boolean;
 }
 
 /** `get_theme_settings` result / `theme-settings` push payload. */

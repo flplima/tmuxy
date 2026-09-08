@@ -769,6 +769,15 @@
     background-color var(--transition-active);
 }
 
+/* The config said no (`@tmuxy-animations off`): the keyframes the pane gate
+   does not reach — floats appearing, drawers sliding — are stopped too. The
+   pane grid itself follows `.pane-layout-no-animations`, which the selector
+   holds while the switch is off. */
+.app-no-animations .modal-container,
+.app-no-animations .snackbar {
+  animation: none;
+}
+
 /* Disable layout transitions when enableAnimations is false */
 .pane-layout-no-animations .pane-layout-item {
   transition:

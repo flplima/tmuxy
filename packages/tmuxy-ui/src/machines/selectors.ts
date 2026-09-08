@@ -763,8 +763,14 @@ export function selectKeyBindings(context: AppMachineContext): KeyBindings | nul
 /**
  * Select whether browser-side animations are enabled
  */
+/** Layout animations right now: settled after a change, and allowed by the config. */
 export function selectEnableAnimations(context: AppMachineContext): boolean {
-  return context.enableAnimations;
+  return context.enableAnimations && context.animationsAllowed;
+}
+
+/** The config's `@tmuxy-animations` switch. */
+export function selectAnimationsAllowed(context: AppMachineContext): boolean {
+  return context.animationsAllowed;
 }
 
 /**

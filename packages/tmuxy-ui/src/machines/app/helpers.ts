@@ -92,6 +92,29 @@ export function parseDisplayMessage(command: string): string | null {
   return null;
 }
 
+/**
+ * The grid's extent in cells: the far edges of the panes in the active
+ * window — what the client draws and sizes its viewport against. Every
+ * other window's panes (hidden group members, floats, sidebars, a tab left
+ * at an older size) live in their own layouts and must not count, or the
+ * client compares its viewport with a size it can never reach and asks tmux
+ * for a resize on every update. Falls back to every pane when the active
+ * window has none, and to the server's own numbers when there are no panes.
+ */
+export function gridExtent(
+  panes: ReadonlyArray<Pick<TmuxPane, 'windowId' | 'x' | 'y' | 'width' | 'height'>>,
+  activeWindowId: string | null,
+  fallback: { cols: number; rows: number },
+): { cols: number; rows: number } {
+  const inWindow = activeWindowId ? panes.filter((p) => p.windowId === activeWindowId) : [];
+  const extent = inWindow.length > 0 ? inWindow : panes;
+  if (extent.length === 0) return fallback;
+  return {
+    cols: Math.max(...extent.map((p) => p.x + p.width)),
+    rows: Math.max(...extent.map((p) => p.y + p.height)),
+  };
+}
+
 export const STATUS_MESSAGE_DURATION = 5000;
 
 // Shared id for the delayed CLEAR_STATUS_MESSAGE raise. Re-scheduling with the

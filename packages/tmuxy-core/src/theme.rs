@@ -28,6 +28,8 @@ pub struct Appearance {
     pub active_text_opacity: f64,
     pub inactive_text_opacity: f64,
     pub blur: bool,
+    /// Layout animations on or off (`@tmuxy-animations`).
+    pub animations: bool,
 }
 
 impl Default for Appearance {
@@ -39,6 +41,7 @@ impl Default for Appearance {
             active_text_opacity: 1.0,
             inactive_text_opacity: 0.7,
             blur: true,
+            animations: true,
         }
     }
 }
@@ -115,6 +118,10 @@ pub async fn get_appearance(ctx: &Ctx) -> Appearance {
         blur: parse_flag(
             &read_option(ctx, tmux_options::BLUR, "appearance:blur").await,
             defaults.blur,
+        ),
+        animations: parse_flag(
+            &read_option(ctx, tmux_options::ANIMATIONS, "appearance:animations").await,
+            defaults.animations,
         ),
     }
 }

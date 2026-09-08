@@ -138,6 +138,7 @@ The context holds all frontend state. Key fields:
 - `containerWidth`, `containerHeight` — Browser container pixel dimensions
 - `themeName`, `themeMode`, `availableThemes` — Theme settings
 - `enableAnimations` — CSS transitions toggle (disabled on load, enabled after state settles)
+- `animationsAllowed` — the config's `@tmuxy-animations` switch (`tmuxy.conf`, read with the appearance options); false strips the pane transitions and the float keyframes for the session, whatever `enableAnimations` settles to
 
 ### Actors
 

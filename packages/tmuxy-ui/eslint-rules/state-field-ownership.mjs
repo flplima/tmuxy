@@ -93,6 +93,7 @@ const FIELD_OWNERS = {
   traceSettings: 'uiPrefs',
   baseFontSize: 'uiPrefs',
   enableAnimations: 'uiPrefs',
+  animationsAllowed: 'uiPrefs',
 };
 
 const STATE_FILE_REGEX = /\/machines\/app\/(?:states|actions)\/([a-zA-Z0-9_-]+)\.ts$/;

@@ -45,6 +45,7 @@ describe('uiPrefs state', () => {
         activeTextOpacity: 0.9,
         inactiveTextOpacity: 0.3,
         blur: false,
+        animations: true,
       },
     });
     const root = document.documentElement.style;
@@ -53,6 +54,41 @@ describe('uiPrefs state', () => {
     expect(root.getPropertyValue('--inactive-pane-opacity')).toBe('0.4');
     expect(root.getPropertyValue('--active-text-opacity')).toBe('0.9');
     expect(root.getPropertyValue('--inactive-text-opacity')).toBe('0.3');
+  });
+
+  it('THEME_SETTINGS_RECEIVED carries the config’s animation switch', () => {
+    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+    const appearance = {
+      opacity: 0.7,
+      activePaneOpacity: 1,
+      inactivePaneOpacity: 0.7,
+      activeTextOpacity: 1,
+      inactiveTextOpacity: 0.7,
+      blur: false,
+      animations: false,
+    };
+    const off = sendAndGetContext(actor, {
+      type: 'THEME_SETTINGS_RECEIVED',
+      theme: 'default',
+      mode: 'dark',
+      appearance,
+    });
+    expect(off.animationsAllowed).toBe(false);
+    // `source-file` re-pushes the settings: turning it back on lands too.
+    const on = sendAndGetContext(actor, {
+      type: 'THEME_SETTINGS_RECEIVED',
+      theme: 'default',
+      mode: 'dark',
+      appearance: { ...appearance, animations: true },
+    });
+    expect(on.animationsAllowed).toBe(true);
+    // An adapter without a config (demo, v86) sends no appearance: allowed.
+    const none = sendAndGetContext(actor, {
+      type: 'THEME_SETTINGS_RECEIVED',
+      theme: 'default',
+      mode: 'dark',
+    });
+    expect(none.animationsAllowed).toBe(true);
   });
 
   it('THEMES_LIST_RECEIVED populates availableThemes', () => {

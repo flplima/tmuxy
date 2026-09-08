@@ -28,6 +28,7 @@ import {
   selectLog,
   selectContainerSize,
   selectCellMetrics,
+  selectAnimationsAllowed,
 } from './machines/AppContext';
 import { cellMetricsStyle } from './utils/cellMetrics';
 import { latencyTracker } from './tmux/latencyTracker';
@@ -48,6 +49,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const isConnecting = useAppState('connecting');
   const isReconnecting = useAppState('reconnecting');
   const tabOverviewOpen = useAppSelector((ctx) => ctx.tabOverviewOpen);
+  const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
 
@@ -113,7 +115,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   return (
     <div
       ref={appContainerRef}
-      className="app-container has-smooth-cursor"
+      className={`app-container has-smooth-cursor${animationsAllowed ? '' : ' app-no-animations'}`}
       // Publish the measured cell grid (--cell-w / --cell-gap) to every
       // terminal text run and cell-addressed box below — see utils/cellMetrics.ts.
       style={cellMetricsStyle(cellMetrics) as React.CSSProperties}

@@ -51,6 +51,7 @@ import {
   parseDisplayMessage,
   STATUS_MESSAGE_DURATION,
   STATUS_MESSAGE_CLEAR_ID,
+  gridExtent,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
 import type { CopyModeState, CellLine } from '../../tmux/types';
@@ -530,10 +531,14 @@ export const appMachine = setup({
 
         // Notify server of viewport size change so it can set the control mode
         // client size (refresh-client -C). This works with window-size smallest.
+        const grid = gridExtent(context.panes, context.activeWindowId, {
+          cols: context.totalWidth,
+          rows: context.totalHeight,
+        });
         const shouldResize =
           context.connected &&
-          context.totalWidth > 0 &&
-          (event.cols !== context.totalWidth || event.rows !== context.totalHeight);
+          grid.cols > 0 &&
+          (event.cols !== grid.cols || event.rows !== grid.rows);
         if (shouldResize) {
           enqueue(
             sendTo('tmux', {
@@ -1316,12 +1321,18 @@ export const appMachine = setup({
             // overwrite the optimistic positions, causing target detection to break.
 
             // If tmux size doesn't match our target, notify server to update
-            // client size (uses refresh-client -C for window-size smallest)
+            // client size (uses refresh-client -C for window-size smallest).
+            // Compared against the active window's own extent: a hidden
+            // window at another size would otherwise keep this true forever
+            // — and animations off with it, since they wait for the resize.
+            const grid = gridExtent(transformed.panes, transformed.activeWindowId, {
+              cols: transformed.totalWidth,
+              rows: transformed.totalHeight,
+            });
             const shouldResize =
               context.targetCols > 0 &&
               context.targetRows > 0 &&
-              (context.targetCols !== transformed.totalWidth ||
-                context.targetRows !== transformed.totalHeight);
+              (context.targetCols !== grid.cols || context.targetRows !== grid.rows);
             if (shouldResize) {
               enqueue(
                 sendTo('tmux', {

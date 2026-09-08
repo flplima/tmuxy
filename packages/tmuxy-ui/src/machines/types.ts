@@ -337,6 +337,12 @@ export interface AppMachineContext {
   tabOverviewSnapshot: Record<string, TmuxPane> | null;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
+  /**
+   * The config's say (`@tmuxy-animations`): false strips every layout
+   * transition and keyframe for the session, whatever `enableAnimations`
+   * settles to. Defaults to true, also on adapters without a config.
+   */
+  animationsAllowed: boolean;
   /** Keybindings received from the server */
   keybindings: KeyBindings | null;
   /** Client-side copy mode state per pane */

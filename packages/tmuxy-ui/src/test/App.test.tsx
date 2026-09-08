@@ -14,6 +14,7 @@ vi.mock('../machines/AppContext', () => ({
   selectContainerSize: vi.fn(),
   selectCharSize: vi.fn(),
   selectCellMetrics: vi.fn(),
+  selectAnimationsAllowed: vi.fn(),
 }));
 
 // Mock child components that depend on machine context
@@ -77,6 +78,7 @@ function scene({
     if (selector === AppContext.selectContainerSize) return container;
     if (selector === AppContext.selectCharSize) return { charWidth: 8, charHeight: 16 };
     if (selector === AppContext.selectCellMetrics) return { cellWidth: 8, cellGap: 0 };
+    if (selector === AppContext.selectAnimationsAllowed) return true;
     if (typeof selector === 'function') return selector({ tabOverviewOpen: false });
     return undefined;
   });

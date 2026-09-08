@@ -100,6 +100,7 @@ export {
   selectCommandMode,
   selectStatusMessage,
   selectNotifications,
+  selectAnimationsAllowed,
   selectPrefixActive,
   selectActivePaneCopyMode,
   selectThemeName,

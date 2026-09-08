@@ -27,6 +27,7 @@ import {
   type PaneBox,
 } from '../constants';
 import { findEnterFromBox, findLeaveToBox } from '../utils/paneTransitions';
+import { gridExtent } from '../machines/app/helpers';
 import { LeavingPanesContext } from '../machines/LeavingPanesContext';
 import {
   useAppSelector,
@@ -153,18 +154,15 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [dragOffsetX, dragOffsetY],
   );
 
-  // Derive grid dimensions from visible panes only.
-  // The server's totalWidth/totalHeight includes group/float window panes whose
-  // coordinates are in independent layouts — using them for centering causes the
-  // active window grid to appear off-center.
+  // The grid is the visible panes' extent (see gridExtent): panes of other
+  // windows sit in independent layouts, and centering on them would put the
+  // active window's grid off-center.
   const { totalWidth, totalHeight } = useMemo(() => {
-    if (visiblePanes.length === 0) {
-      return { totalWidth: serverTotalWidth, totalHeight: serverTotalHeight };
-    }
-    return {
-      totalWidth: Math.max(...visiblePanes.map((p) => p.x + p.width)),
-      totalHeight: Math.max(...visiblePanes.map((p) => p.y + p.height)),
-    };
+    const { cols, rows } = gridExtent(visiblePanes, null, {
+      cols: serverTotalWidth,
+      rows: serverTotalHeight,
+    });
+    return { totalWidth: cols, totalHeight: rows };
   }, [visiblePanes, serverTotalWidth, serverTotalHeight]);
 
   // Which pane tmux has expanded to fill the window, or null when not zoomed.

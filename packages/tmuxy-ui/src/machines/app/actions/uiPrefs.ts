@@ -101,6 +101,7 @@ export const uiPrefsActions = {
     // The appearance has no client-side setting: the config is its only
     // source, so it always applies (and re-applies after a source-file).
     if (event.appearance) applyAppearance(event.appearance);
+    enqueue(assign({ animationsAllowed: event.appearance?.animations ?? true }));
     // localStorage takes precedence — server defaults only apply when
     // the user hasn't chosen a theme yet (e.g. first visit).
     const saved = loadThemeFromStorage();

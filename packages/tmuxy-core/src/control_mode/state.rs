@@ -3198,9 +3198,25 @@ impl StateAggregator {
 
         let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
 
-        // Calculate total dimensions
-        let total_width = panes.iter().map(|p| p.x + p.width).max().unwrap_or(80);
-        let total_height = panes.iter().map(|p| p.y + p.height).max().unwrap_or(24);
+        // The grid's size is the ACTIVE window's extent — what the client
+        // draws and sizes its viewport against. Every other window is in the
+        // list too (hidden group members, floats, sidebars, a tab left at an
+        // older size), each in its own layout; a max over all of them told
+        // the client the grid was as tall as the tallest hidden window, so it
+        // asked for a resize on every update and, waiting for a size that
+        // could never come, kept its layout animations off for good.
+        let in_active_window = |p: &&TmuxPane| active_window.is_none_or(|w| p.window_id == *w);
+        let extent = |f: fn(&TmuxPane) -> u32, fallback: u32| {
+            panes
+                .iter()
+                .filter(in_active_window)
+                .map(f)
+                .max()
+                .or_else(|| panes.iter().map(f).max())
+                .unwrap_or(fallback)
+        };
+        let total_width = extent(|p| p.x + p.width, 80);
+        let total_height = extent(|p| p.y + p.height, 24);
 
         // Find the active pane ID from the active window
         // (each window has its own active pane, we want the one in the active window)
@@ -3243,6 +3259,29 @@ mod tests {
         let mut pane = PaneState::new(pane_id, 80, 24);
         pane.window_id = window_id.to_string();
         agg.panes.insert(pane_id.to_string(), pane);
+    }
+
+    /// The grid the client sizes itself against is the active window's, not
+    /// the tallest window in the session. A hidden window at another size
+    /// (a group member, a float, a tab left behind by an older viewport) used
+    /// to inflate the total, and the client — never seeing the size it asked
+    /// for — kept requesting a resize and never re-enabled its animations.
+    #[test]
+    fn the_grid_size_is_the_active_windows_extent() {
+        let mut agg = StateAggregator::new();
+        seed_pane(&mut agg, "%0", "@0");
+        let mut tall = PaneState::new("%3", 35, 43);
+        tall.window_id = "@3".to_string();
+        agg.panes.insert("%3".to_string(), tall);
+        agg.active_window_id = Some("@0".to_string());
+
+        let state = agg.to_tmux_state();
+        assert_eq!((state.total_width, state.total_height), (80, 24));
+
+        // No active window known yet: any pane is better than none.
+        agg.active_window_id = None;
+        let state = agg.to_tmux_state();
+        assert_eq!((state.total_width, state.total_height), (80, 43));
     }
 
     /// Empty command acks MUST keep reporting a Full change.

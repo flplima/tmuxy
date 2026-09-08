@@ -130,6 +130,7 @@ export const FIELD_OWNERS = {
   traceSettings: 'uiPrefs',
   baseFontSize: 'uiPrefs',
   enableAnimations: 'uiPrefs',
+  animationsAllowed: 'uiPrefs',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
 /**
@@ -188,6 +189,7 @@ export function createInitialContext(): AppMachineContext {
     tabOverviewSelected: 0,
     tabOverviewSnapshot: null,
     enableAnimations: false,
+    animationsAllowed: true,
     keybindings: null,
     copyModeStates: {},
     browserStates: {},
