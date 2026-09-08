@@ -193,16 +193,18 @@ describe('IPC Commands', () => {
   // tmux resolves late — against whatever window the session was on when
   // the command ran. A split on tab B landed on tab A. Every command now
   // reaches tmux byte-identical over the control-mode connection.
-  test('a split pinned to a tab that is not tmux\'s current window lands on that tab', async () => {
+  test("a split pinned to a tab that is not tmux's current window lands on that tab", async () => {
     await setupApp();
     await waitForRawWindowCount(driver, 1);
 
     // Two windows; tmux's current window is the FIRST, the pin names the second.
     await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
     await waitForRawWindowCount(driver, 2);
-    const windows = (await invokeCommand(driver, 'query_tmux', {
-      command: "list-windows -F '#{window_id} #{pane_id}'",
-    }))
+    const windows = (
+      await invokeCommand(driver, 'query_tmux', {
+        command: "list-windows -F '#{window_id} #{pane_id}'",
+      })
+    )
       .trim()
       .split('\n')
       .map((line) => line.split(' '));
@@ -285,6 +287,35 @@ describe('IPC Commands', () => {
       command: 'display-message -p #{session_name}',
     });
     expect(result).toContain(sessionName);
+  });
+
+  // The monitor starts with the app, before the webview can listen, so its
+  // one Full broadcast is gone by the time the frontend asks for a baseline.
+  // That baseline used to be a subprocess poll that did not know the modes a
+  // program had set before the app started — so a pane running a full-screen
+  // mouse-tracking program (Claude Code) stayed "plain" on the client and
+  // every wheel over it was dropped. The initial state is the monitor's own now.
+  test('get_initial_state reports the modes of a program that was already running', async () => {
+    await setupApp();
+    await invokeCommand(driver, 'run_tmux_command', {
+      command:
+        'send-keys -l \'printf "\\033[?1049h\\033[?1000h\\033[?1006h"; sleep 60\' \\; send-keys Enter',
+    });
+    // tmux has the modes once the program printed them.
+    let flags = '';
+    for (let i = 0; i < 50; i++) {
+      flags = tmuxQuery(
+        `display-message -p -t ${sessionName} '#{alternate_on} #{mouse_any_flag}'`,
+      ).trim();
+      if (flags === '1 1') break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(flags).toBe('1 1');
+
+    const state = await invokeCommand(driver, 'get_initial_state', { cols: 120, rows: 40 });
+    const pane = state.panes.find((p) => p.active) || state.panes[0];
+    expect(pane.alternate_on).toBe(true);
+    expect(pane.mouse_any_flag).toBe(true);
   });
 
   // Regression for copy mode scrollback: without get_scrollback_cells the

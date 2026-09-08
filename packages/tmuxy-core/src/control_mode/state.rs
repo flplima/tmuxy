@@ -934,6 +934,10 @@ pub struct StateAggregator {
     /// responses (see `capture_command`), so a capture block is attributed to
     /// its pane exactly, never by arrival order or output-shape guessing.
     pending_captures: std::collections::VecDeque<String>,
+    /// Whether a list-panes / list-windows response has been parsed since
+    /// this aggregator was created — the first ones are the initial sync.
+    panes_synced: bool,
+    windows_synced: bool,
     /// Pane the response between a `TMUXY_CAP_BEGIN <pane>` marker and its
     /// `TMUXY_CAP_END` belongs to (each command in a control-mode command
     /// list gets its own %begin/%end block, so the trio arrives consecutively).
@@ -1222,6 +1226,8 @@ impl StateAggregator {
             windows: HashMap::new(),
             active_window_id: None,
             pending_captures: std::collections::VecDeque::new(),
+            panes_synced: false,
+            windows_synced: false,
             capture_armed: None,
             pending_buffer_reads: std::collections::VecDeque::new(),
             buffer_read_armed: false,
@@ -2410,6 +2416,10 @@ impl StateAggregator {
             }
         }
 
+        if is_list_panes_response {
+            self.panes_synced = true;
+        }
+
         // If this was a list-panes response, remove panes that weren't seen
         // (they were deleted in tmux)
         if is_list_panes_response && !seen_panes.is_empty() {
@@ -2457,6 +2467,7 @@ impl StateAggregator {
         // The `list-windows` poll runs constantly and almost always reports the
         // same windows with the same names, indices and active flag.
         if is_list_windows_response {
+            self.windows_synced = true;
             self.refresh_status_line_if_inputs_changed();
         }
 
@@ -3120,6 +3131,14 @@ impl StateAggregator {
         }
 
         delta
+    }
+
+    /// Whether `to_tmux_state` would describe the session in full: the
+    /// initial list-panes and list-windows have been parsed and no
+    /// capture-pane refill is on its way — a snapshot taken mid-refill would
+    /// carry the blank panes a reset parser holds until capture-pane answers.
+    pub fn initial_state_ready(&self) -> bool {
+        self.panes_synced && self.windows_synced && self.pending_captures.is_empty()
     }
 
     /// Convert current state to TmuxState for the frontend.

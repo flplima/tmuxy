@@ -15,7 +15,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tmuxy_core::control_mode::{
-    LogKind, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
+    LogKind, LogSink, MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter,
+    TmuxMonitor,
 };
 use tmuxy_core::{executor, StateUpdate};
 use tokio::sync::broadcast;
@@ -596,15 +597,7 @@ async fn handle_command(
                     set_client_size(state, session, conn_id, c, r).await;
                 }
             }
-            // capture_window_state_for_session shells several synchronous tmux
-            // subprocesses; run it off the async worker threads so a slow
-            // capture on connect doesn't stall the runtime under multi-client load.
-            let session_owned = session.to_string();
-            let snapshot = tokio::task::spawn_blocking(move || {
-                tmuxy_core::capture_window_state_for_session(&session_owned)
-            })
-            .await
-            .map_err(|e| format!("capture task failed: {}", e))??;
+            let snapshot = initial_state_via_control_mode(state, session).await?;
             serde_json::to_value(snapshot).map_err(|e| format!("Failed to serialize state: {}", e))
         }
         ClientCommand::SetClientSize { cols, rows } => {
@@ -862,6 +855,53 @@ async fn send_via_control_mode(
     } else {
         Err("No monitor connection available".to_string())
     }
+}
+
+/// How long `get_initial_state` waits for the session's monitor to come up.
+/// The monitor is started by the SSE connect that precedes the request, and
+/// its own connect gives tmux ten seconds to answer.
+const MONITOR_READY_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The session's monitor command channel, waiting for the monitor to finish
+/// connecting if the request got here first.
+async fn wait_for_monitor(
+    state: &Arc<AppState>,
+    session: &str,
+) -> Result<MonitorCommandSender, String> {
+    let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
+    loop {
+        let tx = {
+            let sessions = state.sessions.read().await;
+            sessions
+                .get(session)
+                .and_then(|s| s.monitor_command_tx.clone())
+        };
+        if let Some(tx) = tx {
+            return Ok(tx);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err("tmux monitor did not come up in time".to_string());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A client's initial state: the monitor's own picture of the session, the
+/// same one its `Full` broadcast carries. A client that connects after that
+/// broadcast would otherwise start from a baseline the deltas never correct.
+async fn initial_state_via_control_mode(
+    state: &Arc<AppState>,
+    session: &str,
+) -> Result<tmuxy_core::TmuxState, String> {
+    let tx = wait_for_monitor(state, session).await?;
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    tx.send(MonitorCommand::GetState { reply })
+        .await
+        .map_err(|e| format!("Monitor channel error: {}", e))?;
+    tokio::time::timeout(MONITOR_READY_TIMEOUT, rx)
+        .await
+        .map_err(|_| "tmux monitor did not answer with the initial state".to_string())?
+        .map_err(|_| "monitor went away before answering".to_string())
 }
 
 /// Run a command through the session's control-mode connection and wait for

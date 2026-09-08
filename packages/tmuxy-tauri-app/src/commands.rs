@@ -30,8 +30,42 @@ pub async fn get_initial_state(
         }
     }
 
-    let snapshot = tmuxy_core::capture_window_state_for_session(&get_session())?;
+    // The monitor's own picture of the session — the same state its `Full`
+    // broadcast carries. The monitor starts with the app, before the webview
+    // can listen, so that broadcast is gone by the time the frontend asks; a
+    // baseline built any other way stays wrong wherever it disagrees with
+    // the monitor, because a delta only carries what changed.
+    let tx = wait_for_monitor(&state).await?;
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    tx.send(MonitorCommand::GetState { reply })
+        .await
+        .map_err(|e| format!("monitor channel error: {e}"))?;
+    let snapshot = tokio::time::timeout(MONITOR_READY_TIMEOUT, rx)
+        .await
+        .map_err(|_| "tmux monitor did not answer with the initial state".to_string())?
+        .map_err(|_| "monitor went away before answering".to_string())?;
     serde_json::to_value(snapshot).map_err(|e| e.to_string())
+}
+
+/// How long `get_initial_state` waits for the monitor to come up. The
+/// monitor's own connect gives tmux ten seconds to answer.
+const MONITOR_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The monitor's command channel, waiting for the monitor to finish
+/// connecting if the webview asked first.
+async fn wait_for_monitor(
+    state: &State<'_, MonitorState>,
+) -> Result<tmuxy_core::control_mode::MonitorCommandSender, String> {
+    let deadline = tokio::time::Instant::now() + MONITOR_READY_TIMEOUT;
+    loop {
+        if let Some(tx) = state.cmd_tx.read().ok().and_then(|g| g.clone()) {
+            return Ok(tx);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err("tmux monitor did not come up in time".to_string());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 }
 
 #[tauri::command]

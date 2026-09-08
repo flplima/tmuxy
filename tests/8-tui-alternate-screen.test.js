@@ -17,6 +17,8 @@ const {
   createTestContext,
   delay,
   waitForTerminalText,
+  waitForPaneCount,
+  waitForCondition,
   typeInTerminal,
   pressEnter,
   focusPage,
@@ -65,5 +67,85 @@ describe('Scenario: Heavy TUI alternate-screen rendering matches tmux capture-pa
       await ctx.page.keyboard.up('Control');
       await delay(DELAYS.SYNC);
     }
+  }, 120000);
+});
+
+// ==================== Scenario: a wheel reaches a TUI that was already running ====================
+//
+// The desktop app starts its monitor before the webview can listen, so the
+// monitor's one Full broadcast is gone by the time the frontend asks for a
+// baseline. That baseline used to be a subprocess poll that did not know the
+// modes a program had set before the client attached — capture-pane replays
+// the screen, not `?1049h` / `?1000h` — and a delta only carries what
+// changed, so a pane running a mouse-tracking full-screen program (Claude
+// Code) stayed "plain" on the client for as long as the program ran: every
+// wheel over it was dropped. A reload reproduces "attach after the program
+// started" on the web: the initial state is the monitor's own picture now.
+
+describe('Scenario: a wheel reaches a mouse-tracking TUI that was running before the client attached', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll, ctx.hookTimeout);
+  beforeEach(ctx.beforeEach, ctx.hookTimeout);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('after a reload the pane is known to track the mouse and the wheel arrives as SGR reports', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await focusPage(ctx.page);
+    const page = ctx.page;
+
+    // A program that turns on the alternate screen and SGR mouse tracking,
+    // then echoes every byte it receives as visible text.
+    await typeInTerminal(page, "printf '\\e[?1049h\\e[?1000h\\e[?1006h'; cat -v");
+    await pressEnter(page);
+    await waitForCondition(
+      page,
+      async () =>
+        String(
+          await ctx.session.query("list-panes -F '#{alternate_on} #{mouse_any_flag}'"),
+        ).trim() === '1 1',
+      10000,
+      'tmux to report the alternate screen and mouse tracking',
+    );
+
+    // A fresh client, attaching after the program set its modes.
+    await page.reload();
+    await waitForPaneCount(page, 1, 15000);
+    await waitForCondition(
+      page,
+      () =>
+        page.evaluate(() => {
+          const c = window.app?.getSnapshot()?.context;
+          const p = c?.panes?.find((x) => x.tmuxId === c.activePaneId);
+          return !!p && p.alternateOn === true && p.mouseAnyFlag === true;
+        }),
+      10000,
+      'the client to know the pane tracks the mouse',
+    );
+
+    // Wheel over the pane: with the modes known, the wheel is forwarded to
+    // the program as SGR mouse reports (button 64 = wheel up), which cat -v
+    // shows as text.
+    const box = await page.evaluate(() => {
+      const r = document.querySelector('.terminal-content').getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await page.mouse.move(box.x, box.y);
+    await page.mouse.wheel(0, -120);
+    await delay(DELAYS.SHORT);
+    await page.mouse.wheel(0, -120);
+    await waitForCondition(
+      page,
+      async () => String(await ctx.session.query('capture-pane -p')).includes('^[[<64;'),
+      10000,
+      'the program to receive an SGR wheel report',
+    );
+
+    // Ctrl+C ends cat; the pane goes back to the shell.
+    await page.keyboard.down('Control');
+    await page.keyboard.press('c');
+    await page.keyboard.up('Control');
+    await delay(DELAYS.SYNC);
   }, 120000);
 });

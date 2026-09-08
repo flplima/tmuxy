@@ -69,6 +69,18 @@ pub enum MonitorCommand {
         command: String,
         reply: oneshot::Sender<CommandReply>,
     },
+    /// The aggregator's current picture of the session, for a client's
+    /// initial state.
+    ///
+    /// This is the same state the monitor's `StateUpdate::Full` carries,
+    /// and it is what makes a client that connects after that broadcast
+    /// whole: a delta only carries what changed since the last emission, so
+    /// anything the client's baseline got wrong stays wrong until it happens
+    /// to change. Answered once no capture-pane refill is in flight, so the
+    /// pane contents are settled; a receiver that has gone away is ignored.
+    GetState {
+        reply: oneshot::Sender<crate::TmuxState>,
+    },
     /// Gracefully shutdown the monitor
     /// Sends detach-client and waits for the connection to close cleanly
     Shutdown,
@@ -352,6 +364,8 @@ pub struct TmuxMonitor {
     /// Source of reply ids. Monotonic for the life of the monitor, so a late
     /// block from an expired reply can never be matched to a newer one.
     next_reply_id: u64,
+    /// `GetState` requests waiting for the aggregator to settle.
+    pending_state_requests: Vec<oneshot::Sender<crate::TmuxState>>,
 }
 
 impl TmuxMonitor {
@@ -397,6 +411,7 @@ impl TmuxMonitor {
                 ctx,
                 pending_replies: HashMap::new(),
                 next_reply_id: 0,
+                pending_state_requests: Vec::new(),
             },
             command_tx,
         ))
@@ -748,6 +763,10 @@ impl TmuxMonitor {
             self.apply_client_size(emitter).await;
         }
 
+        // After this event's refreshes were queued, so a snapshot never slips
+        // in between a list-panes and the captures it asked for.
+        self.answer_state_requests();
+
         true
     }
 
@@ -1097,6 +1116,18 @@ impl TmuxMonitor {
         }
     }
 
+    /// Hand every waiting `GetState` the aggregator's state, once it describes
+    /// the session in full (`StateAggregator::initial_state_ready`).
+    fn answer_state_requests(&mut self) {
+        if self.pending_state_requests.is_empty() || !self.aggregator.initial_state_ready() {
+            return;
+        }
+        let state = self.aggregator.to_tmux_state();
+        for reply in self.pending_state_requests.drain(..) {
+            let _ = reply.send(state.clone());
+        }
+    }
+
     /// Fail every pending reply that has outlived REPLY_TIMEOUT.
     fn expire_replies(&mut self) {
         let now = tokio::time::Instant::now();
@@ -1158,6 +1189,11 @@ impl TmuxMonitor {
             }
             Some(MonitorCommand::RunCommandWithReply { command, reply }) => {
                 self.send_user_command(emitter, &command, Some(reply)).await;
+                true
+            }
+            Some(MonitorCommand::GetState { reply }) => {
+                self.pending_state_requests.push(reply);
+                self.answer_state_requests();
                 true
             }
             Some(MonitorCommand::Shutdown) => {

@@ -318,7 +318,7 @@ The from/to geometry is inferred generically from previous-render pixel boxes (`
 
 ## How Backend and Frontend Stay in Sync
 
-1. **Initial sync** — On connection, the frontend sends `get_initial_state` with viewport size. The backend responds with a full `TmuxState` snapshot. The frontend stores this as the base state.
+1. **Initial sync** — On connection, the frontend sends `get_initial_state` with viewport size. The backend answers with the monitor's own `TmuxState` (`MonitorCommand::GetState`, the same picture its `Full` broadcast carries), so a client that connects after that broadcast — the desktop webview always does, its monitor starts first — begins from a baseline the deltas agree with. The frontend stores this as the base state.
 
 2. **Incremental updates** — The backend sends `TmuxDelta` updates with sequence numbers. The frontend merges these via `handleStateUpdate()` in `tmuxy-ui/src/tmux/deltaProtocol.ts`. Only changed fields are transmitted.
 
