@@ -349,7 +349,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Click focus → scroll enters copy mode → ScrollbackTerminal renders → exit q → user-select none → double-click word select → drag no browser selection', async () => {
+  test('Click focus → wheel opens the scroll view (no copy mode) → text selects natively → typing closes it → prefix [ still gives copy mode', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await assertContentMatch(ctx.page, 'Scenario 7 setup');
@@ -362,69 +362,93 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     await ctx.page.mouse.click(box.x + 100, box.y + 100);
     await delay(DELAYS.LONG);
     await runCommand(ctx.page, 'echo click_test', 'click_test');
-
-    // Step 2: Enter copy mode (keyboard: prefix+[)
     await runCommand(ctx.page, 'seq 1 100', '100');
-    const csAfterScroll = await enterCopyModeAndWait(ctx.page);
-    expect(csAfterScroll.active).toBe(true);
 
-    // Step 3: ScrollbackTerminal renders in copy mode
-    const scrollbackEl = await ctx.page.$('[data-copy-mode="true"]');
-    expect(scrollbackEl).not.toBeNull();
+    // Step 2: the wheel opens the native-like scroll view — scrollback to read
+    // and select, with no cursor and nothing said to tmux. A wheel gesture
+    // handing the pane a cursor and vi keys is the bug this replaced.
+    await ctx.page.mouse.move(box.x + 100, box.y + box.height / 2);
+    for (let i = 0; i < 8; i++) await ctx.page.mouse.wheel({ deltaY: -60 });
+    await waitForCondition(
+      ctx.page,
+      async () => (await getCopyModeState(ctx.page))?.mode === 'scroll',
+      10000,
+      'the scroll view to open',
+    );
+    const scrolled = await getCopyModeState(ctx.page);
+    expect(scrolled.mode).toBe('scroll');
 
-    // Step 4: Exit copy mode with 'q' via browser keyboard
-    await ctx.page.keyboard.press('q');
-    await waitForCopyMode(ctx.page, false);
-    const csAfterExit = await getCopyModeState(ctx.page);
-    expect(csAfterExit).toBeNull();
-
-    // Step 5: user-select: none on terminal content
-    const userSelect = await ctx.page.evaluate(() => {
-      const el = document.querySelector('.terminal-content');
-      return el ? getComputedStyle(el).userSelect : null;
+    // tmux is untouched: the pane never entered copy mode, so the application
+    // in it carries on and no mode is advertised to the user.
+    const duringScroll = await ctx.page.evaluate(() => {
+      const el = document.querySelector('[data-scroll-mode="true"]');
+      const pane = window.app.getSnapshot().context.panes[0];
+      return {
+        rendered: !!el && el.getBoundingClientRect().height > 0,
+        userSelect: el ? getComputedStyle(el).userSelect : null,
+        copyCursor: !!document.querySelector('.terminal-cursor-copy'),
+        inMode: pane.inMode,
+        statusSaysCopyMode: document.body.innerText.includes('[COPY MODE]'),
+      };
     });
-    expect(userSelect).toBe('none');
+    expect(duringScroll.rendered).toBe(true);
+    expect(duringScroll.userSelect).toBe('text');
+    expect(duringScroll.copyCursor).toBe(false);
+    expect(duringScroll.inMode).toBe(false);
+    expect(duringScroll.statusSaysCopyMode).toBe(false);
 
-    // Step 6: Double-click enters copy mode with word selection (no browser selection)
+    // Step 3: the scrollback selects with the browser's own selection, and the
+    // text comes back without the grid's trailing padding.
+    const selected = await ctx.page.evaluate(() => {
+      const pre = document.querySelector('[data-scroll-mode="true"]');
+      const rows = [...pre.children].filter((d) => d.textContent.trim().length > 0);
+      if (rows.length < 2) return null;
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.setStart(rows[0], 0);
+      range.setEnd(rows[1], rows[1].childNodes.length);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return sel.toString();
+    });
+    expect(selected).not.toBeNull();
+    expect(selected.trim().length).toBeGreaterThan(0);
+    expect(selected).not.toMatch(/ {5}/);
+    await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
+
+    // Step 4: typing closes the view and lands at the prompt, as in any
+    // terminal — the key is not swallowed by a mode.
+    await runCommand(ctx.page, 'echo AFTER_SCROLL_VIEW', 'AFTER_SCROLL_VIEW');
+    expect(await getCopyModeState(ctx.page)).toBeNull();
+
+    // Step 5: a double-click selects natively and still enters no mode.
     await runCommand(ctx.page, 'echo "WORD1 WORD2 WORD3"', 'WORD1');
     const termEl = await ctx.page.$('[role="log"]');
     box = await termEl.boundingBox();
     await ctx.page.mouse.dblclick(box.x + 100, box.y + box.height / 2);
     await delay(DELAYS.SYNC);
-    // Browser text selection must be empty (user-select: none prevents it)
-    const selectedText = await ctx.page.evaluate(() => {
-      const selection = window.getSelection();
-      return selection ? selection.toString() : '';
-    });
-    expect(selectedText).toBe('');
-    // Exit copy mode if entered by double-click
-    const csAfterDblClick = await getCopyModeState(ctx.page);
-    if (csAfterDblClick?.active) {
-      await ctx.page.keyboard.press('q');
-      await waitForCopyMode(ctx.page, false);
-    }
+    const afterDblClick = await ctx.page.evaluate(() => ({
+      selection: window.getSelection()?.toString() ?? '',
+      copyState: window.app.getSnapshot().context.copyModeStates['%0'] ?? null,
+    }));
+    expect(afterDblClick.copyState).toBeNull();
+    await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
 
-    // Step 7: Drag creates no browser selection
-    await typeInTerminal(ctx.page, 'echo DRAG_TEST_CONTENT');
-    await pressEnter(ctx.page);
-    await delay(DELAYS.SYNC);
-    const t2 = await ctx.page.$('[role="log"]');
-    box = await t2.boundingBox();
-    await ctx.page.mouse.move(box.x + 50, box.y + box.height / 2);
-    await ctx.page.mouse.down();
-    await ctx.page.mouse.move(box.x + 200, box.y + box.height / 2, { steps: 10 });
-    await ctx.page.mouse.up();
-    await delay(DELAYS.LONG);
-    const selText = await ctx.page.evaluate(() => window.getSelection()?.toString() || '');
-    expect(selText).toBe('');
-    // Exit copy mode if drag entered it — must fully exit before sending shell commands
-    const csAfterDrag = await getCopyModeState(ctx.page);
-    if (csAfterDrag?.active) {
-      await ctx.page.keyboard.press('q');
-      await waitForCopyMode(ctx.page, false);
-      await delay(DELAYS.SYNC);
-    }
-    await runCommand(ctx.page, 'echo AFTER_DRAG_OK', 'AFTER_DRAG_OK');
+    // Step 6: `prefix [` is the one way into copy mode, and it still works —
+    // tmux really enters the mode and the client draws its cursor.
+    const cs = await enterCopyModeAndWait(ctx.page);
+    expect(cs.active).toBe(true);
+    expect(cs.mode).toBe('copy');
+    const inCopyMode = await ctx.page.evaluate(() => ({
+      copyModeEl: !!document.querySelector('[data-copy-mode="true"]'),
+      statusSaysCopyMode: document.body.innerText.includes('[COPY MODE]'),
+    }));
+    expect(inCopyMode.copyModeEl).toBe(true);
+    expect(inCopyMode.statusSaysCopyMode).toBe(true);
+
+    await ctx.page.keyboard.press('q');
+    await waitForCopyMode(ctx.page, false);
+    await runCommand(ctx.page, 'echo AFTER_COPY_MODE_OK', 'AFTER_COPY_MODE_OK');
     await assertContentMatch(ctx.page, 'Scenario 7 end');
   }, 180000);
 });
@@ -819,7 +843,11 @@ describe('Scenario 21: Touch Scrolling', () => {
     });
     expect(paneBox).not.toBeNull();
 
-    // Step 3: Touch scroll up in normal shell → should enter copy mode
+    // Step 3: Touch scroll up in a normal shell opens a scrollback view.
+    // A swipe opens the native-like scroll view (the wheel's equivalent);
+    // the keyboard fallback below opens tmux copy mode instead, so this
+    // asserts only that a view opened — the wheel path's mode is pinned down
+    // in Scenario 7.
     // Finger moves DOWN (positive delta) = scroll UP through history
     await dispatchTouchScroll(
       ctx.page,
@@ -831,8 +859,8 @@ describe('Scenario 21: Touch Scrolling', () => {
     );
     await delay(DELAYS.SYNC);
 
-    // Verify copy mode was entered — touch events unreliable in headless,
-    // fall back to keyboard entry which uses the correct prefix from tmuxy.conf
+    // Touch events are unreliable in headless, so fall back to keyboard entry
+    // (the correct prefix from tmuxy.conf) when the swipe did not register.
     let copyModeActive = await getCopyModeState(ctx.page);
     if (!copyModeActive?.active) {
       await enterCopyModeAndWait(ctx.page);

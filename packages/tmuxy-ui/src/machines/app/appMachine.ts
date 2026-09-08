@@ -1107,6 +1107,9 @@ export const appMachine = setup({
                 const preRanges: Array<[number, number]> =
                   newPane.content.length > 0 ? [[hs, hs + newPane.content.length - 1]] : [];
                 const copyState: CopyModeState = {
+                  // tmux reported `in_mode`, so this is its copy mode, with a
+                  // cursor and vi keys — never the client-only scroll view.
+                  mode: 'copy',
                   lines: preLines,
                   totalLines: tl,
                   historySize: hs,

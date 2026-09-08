@@ -1,5 +1,5 @@
 /**
- * ScrollbackTerminal - Virtual-scrolling terminal renderer for copy mode scrollback
+ * ScrollbackTerminal - Virtual-scrolling renderer for a pane's scrollback
  *
  * Renders loaded scrollback content as a positioned <pre> block inside Pane's
  * shared scroll container. Only visible AND loaded lines are rendered.
@@ -21,6 +21,12 @@ interface ScrollbackTerminalProps {
   /** Whether the pane holds the keyboard; only then is the copy cursor drawn. */
   isActive: boolean;
 }
+
+/**
+ * The scroll view draws no cursor and paints no selection of its own: the
+ * browser owns selecting there, the way it does in a native terminal. Copy
+ * mode keeps both, because its cursor IS the selection's moving end.
+ */
 
 const EMPTY_LINE: CellLine = [];
 
@@ -115,12 +121,21 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
   >([]);
 
   const { totalLines, scrollTop, height, cursorRow, cursorCol, lines, loadedRanges } = copyState;
-  const { selectionAnchor, selectionMode, width } = copyState;
+  const { selectionAnchor, selectionMode, width, mode } = copyState;
+  const isCopyMode = mode === 'copy';
 
   const getSelectionRange = useMemo(
     () =>
-      computeScrollbackSelection({ selectionAnchor, selectionMode, cursorRow, cursorCol, width }),
-    [selectionAnchor, selectionMode, cursorRow, cursorCol, width],
+      isCopyMode
+        ? computeScrollbackSelection({
+            selectionAnchor,
+            selectionMode,
+            cursorRow,
+            cursorCol,
+            width,
+          })
+        : () => null,
+    [isCopyMode, selectionAnchor, selectionMode, cursorRow, cursorCol, width],
   );
 
   // Visible line range with overscan buffer (1 screen above + 1 screen below)
@@ -130,7 +145,8 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
   const visibleEnd = renderEnd;
   const visibleCount = visibleEnd - visibleStart + 1;
 
-  const isCursorVisible = isActive && cursorRow >= visibleStart && cursorRow <= visibleEnd;
+  const isCursorVisible =
+    isCopyMode && isActive && cursorRow >= visibleStart && cursorRow <= visibleEnd;
 
   // Imperative DOM update
   useLayoutEffect(() => {
@@ -206,10 +222,11 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
       }}
     >
       <pre
-        className="terminal-content"
+        className={`terminal-content ${isCopyMode ? '' : 'terminal-selectable'}`}
         aria-hidden="true"
         data-testid="scrollback-terminal"
-        data-copy-mode="true"
+        data-copy-mode={isCopyMode ? 'true' : undefined}
+        data-scroll-mode={isCopyMode ? undefined : 'true'}
         ref={preRef}
         style={{ position: 'relative' }}
       />

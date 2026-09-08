@@ -1,7 +1,8 @@
 /**
- * Copy Mode Helpers
+ * Scrollback view helpers
  *
- * Utilities for entering, exiting, and querying copy mode state.
+ * Utilities for entering, exiting, and querying the per-pane scrollback state
+ * — tmux's copy mode and the native-like scroll view both live in it.
  */
 
 const { delay } = require('./browser');
@@ -21,6 +22,9 @@ async function getCopyModeState(page) {
     if (!cs) return null;
     return {
       active: true,
+      // 'scroll' (the native-like wheel view) or 'copy' (tmux copy mode) —
+      // the two share this record; see ScrollbackMode.
+      mode: cs.mode,
       cursorRow: cs.cursorRow,
       cursorCol: cs.cursorCol,
       scrollTop: cs.scrollTop,

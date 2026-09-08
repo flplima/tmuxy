@@ -163,7 +163,26 @@ export type PaneContent = CellLine[];
 // Client-Side Copy Mode Types
 // ============================================
 
+/**
+ * Which of the two scrollback views a pane is showing.
+ *
+ * `scroll` is the native-like one a wheel gesture opens: scrollback rendered
+ * and selectable with the browser's own selection, no cursor, no vi keys, and
+ * tmux never told anything — the pane is not in `in_mode`, so the application
+ * keeps running as if nothing happened.
+ *
+ * `copy` is tmux's copy mode as reached by `prefix [`: the pane really is in
+ * `in_mode`, and the client draws a block cursor and resolves vi motions and
+ * cell selection against it.
+ *
+ * Both share this record, and a pane has at most one, so the two can never be
+ * live at once. See docs/COPY-MODE.md.
+ */
+export type ScrollbackMode = 'scroll' | 'copy';
+
 export interface CopyModeState {
+  /** Which view this is — see ScrollbackMode. */
+  mode: ScrollbackMode;
   /** Loaded lines of scrollback content, keyed by absolute line index */
   lines: Map<number, CellLine>;
   /** Total lines available (historySize + height) */

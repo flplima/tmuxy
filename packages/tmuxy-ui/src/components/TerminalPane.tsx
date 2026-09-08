@@ -13,11 +13,11 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
+import { readNativeSelection, selectWordAtPoint } from '../utils/nativeSelection';
 import { PaneHeader } from './PaneHeader';
 import { SelectionContextMenu } from './SelectionContextMenu';
 import {
   useAppSend,
-  useAppActor,
   usePane,
   useIsPaneInActiveWindow,
   useIsSinglePane,
@@ -51,7 +51,6 @@ interface TerminalPaneProps {
 
 export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPaneProps) {
   const send = useAppSend();
-  const actor = useAppActor();
   const pane = usePane(paneId);
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
@@ -99,12 +98,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
   const scrollIndicatorTimer = useRef<number | null>(null);
 
   // Context menu timeout refs (cleaned on unmount to prevent stale state updates)
-  // Right-click-menu sequencing without fixed delays: a word-select deferred
-  // until copy mode is active, and the menu position to show once the selection
-  // actually appears in state. Driven by the effect after showMenuFromSnapshot.
-  const pendingWordSelectRef = useRef<{ row: number; col: number } | null>(null);
-  const pendingMenuRef = useRef<{ x: number; y: number } | null>(null);
-
   const flashScrollIndicator = useCallback(() => {
     const el = scrollIndicatorRef.current;
     if (!el) return;
@@ -115,7 +108,8 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
     }, 1200);
   }, []);
 
-  // onScroll: detect scroll away from bottom -> enter copy mode
+  // onScroll: report the container's position while a scrollback view is open
+  // (either kind). Opening one is the wheel handler's job, not this one's.
   const handleContainerScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       if (suppressScrollRef.current) return;
@@ -192,7 +186,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
     alternateOn: pane?.alternateOn ?? false,
     inMode: pane?.inMode ?? false,
-    copyModeActive: !!copyState,
+    scrollbackMode: copyState?.mode ?? null,
     paneHeight,
     contentRef,
     scrollRef,
@@ -209,6 +203,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
     scrollRef,
     send,
     historySize,
+    scrollbackOpen: !!copyState,
     forwardScrollToParent,
   });
 
@@ -249,35 +244,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
     };
   }, []);
 
-  // Show context menu after word select by reading state directly from the actor
-  const showMenuFromSnapshot = useCallback(
-    (x: number, y: number) => {
-      const snap = actor.getSnapshot();
-      const cs = snap.context.copyModeStates[paneId];
-      if (cs?.selectionMode) {
-        const text = extractSelectedText(cs);
-        if (text) setSelectionMenu({ x, y, text });
-      }
-    },
-    [actor, paneId],
-  );
-
-  // Two-stage context-menu sequencing, off state transitions rather than
-  // setTimeout guesses: (1) once copy mode is active, run the deferred
-  // word-select; (2) once that produces a selection, show the menu from it.
-  useEffect(() => {
-    if (pendingWordSelectRef.current && copyState) {
-      const { row, col } = pendingWordSelectRef.current;
-      pendingWordSelectRef.current = null;
-      send({ type: 'COPY_MODE_WORD_SELECT', paneId, row, col, broad: true });
-    }
-    if (pendingMenuRef.current && copyState?.selectionMode) {
-      const { x, y } = pendingMenuRef.current;
-      pendingMenuRef.current = null;
-      showMenuFromSnapshot(x, y);
-    }
-  }, [copyState, send, paneId, showMenuFromSnapshot]);
-
   // Handle right-click context menu for text selection
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -290,54 +256,24 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
 
       e.preventDefault();
 
-      // Compute cell coordinates (same logic as pixelToCell in usePaneMouse)
-      const rect = contentRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const relX = e.clientX - rect.left;
-      let relY = e.clientY - rect.top;
-      const subLineOffset = scrollRef.current ? scrollRef.current.scrollTop % charHeight : 0;
-      relY += subLineOffset;
-      const cellCol = Math.max(0, Math.floor(relX / charWidth));
-      const cellRow = Math.floor(relY / charHeight);
-      const menuX = e.clientX;
-      const menuY = e.clientY;
-
-      if (copyState?.selectionMode) {
-        // Already have a selection — show menu immediately
+      // Copy mode keeps its own cell selection; everywhere else the browser's
+      // selection is the real one. Right-clicking with nothing selected picks
+      // the word under the pointer first, the way a right-click does in a
+      // browser or a native terminal — no mode change, no cursor.
+      if (copyState?.mode === 'copy' && copyState.selectionMode) {
         const text = extractSelectedText(copyState);
-        if (text) {
-          setSelectionMenu({ x: menuX, y: menuY, text });
-        }
-      } else if (!copyState) {
-        // Not in copy mode — enter it; the effect runs the word-select once copy
-        // mode is active, then shows the menu once the selection appears.
-        send({ type: 'ENTER_COPY_MODE', paneId });
-        pendingWordSelectRef.current = { row: cellRow, col: cellCol };
-        pendingMenuRef.current = { x: menuX, y: menuY };
-      } else {
-        // In copy mode but no selection — select word now; the effect shows the
-        // menu once the selection lands in state.
-        send({
-          type: 'COPY_MODE_WORD_SELECT',
-          paneId,
-          row: cellRow,
-          col: cellCol,
-          broad: true,
-        });
-        pendingMenuRef.current = { x: menuX, y: menuY };
+        if (text) setSelectionMenu({ x: e.clientX, y: e.clientY, text });
+        return;
       }
+
+      let text = readNativeSelection();
+      if (!text) {
+        selectWordAtPoint(e.clientX, e.clientY);
+        text = readNativeSelection();
+      }
+      if (text) setSelectionMenu({ x: e.clientX, y: e.clientY, text });
     },
-    [
-      send,
-      paneId,
-      pane?.mouseAnyFlag,
-      copyState,
-      charWidth,
-      charHeight,
-      contentRef,
-      scrollRef,
-      showMenuFromSnapshot,
-    ],
+    [pane?.mouseAnyFlag, copyState],
   );
 
   if (!pane) return null;
@@ -431,6 +367,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
                     paneId={pane.tmuxId}
                     cursorShape={pane.cursorShape}
                     cursorHidden={pane.cursorHidden}
+                    selectable={!pane.mouseAnyFlag}
                   />
                 </div>
               )}

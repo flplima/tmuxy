@@ -3,11 +3,12 @@ import { renderHook } from '@testing-library/react';
 import { createRef } from 'react';
 import { usePaneMouse } from '../usePaneMouse';
 import type { AppMachineEvent } from '../../machines/types';
+import type { ScrollbackMode } from '../../tmux/types';
 
 interface SetupOptions {
   alternateOn?: boolean;
   mouseAnyFlag?: boolean;
-  copyModeActive?: boolean;
+  scrollbackMode?: ScrollbackMode | null;
   inMode?: boolean;
   historySize?: number;
   charHeight?: number;
@@ -31,7 +32,7 @@ function setup(overrides: SetupOptions = {}) {
       mouseAnyFlag: overrides.mouseAnyFlag ?? false,
       alternateOn: overrides.alternateOn ?? false,
       inMode: overrides.inMode ?? false,
-      copyModeActive: overrides.copyModeActive ?? false,
+      scrollbackMode: overrides.scrollbackMode ?? null,
       paneHeight: 24,
       contentRef,
       scrollRef,
@@ -93,7 +94,7 @@ describe('usePaneMouse.handleWheel', () => {
     const { result, events } = setup({
       alternateOn: false,
       mouseAnyFlag: false,
-      copyModeActive: false,
+      scrollbackMode: null,
       inMode: true,
     });
     result.current.handleWheel(wheelEvent(-100));
@@ -101,17 +102,22 @@ describe('usePaneMouse.handleWheel', () => {
     expect(enterCopy).toBeUndefined();
   });
 
-  it('enters copy mode on scroll-up in a normal shell with scrollback', () => {
+  it('opens the scroll view — not copy mode — on scroll-up in a shell with scrollback', () => {
     const { result, events } = setup({
       alternateOn: false,
       mouseAnyFlag: false,
-      copyModeActive: false,
+      scrollbackMode: null,
       inMode: false,
       historySize: 100,
     });
     result.current.handleWheel(wheelEvent(-100));
-    const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
-    expect(enterCopy).toBeDefined();
+    // A wheel gesture must never hand the pane a cursor and vi keys; that is
+    // what `prefix [` is for.
+    expect(events.find((e) => e.type === 'ENTER_COPY_MODE')).toBeUndefined();
+    const enterScroll = events.find((e) => e.type === 'ENTER_SCROLL_MODE');
+    expect(enterScroll).toBeDefined();
+    // Quantized to whole lines, and scrolling up means a negative delta.
+    expect(enterScroll).toMatchObject({ paneId: '%1', scrollLines: -5 });
   });
 
   it('does NOT enter copy mode on scroll-down in normal shell', () => {
@@ -122,7 +128,7 @@ describe('usePaneMouse.handleWheel', () => {
   });
 
   it('forwards wheel delta to scroll container when client copy mode is active', () => {
-    const { result, scrollRef } = setup({ copyModeActive: true });
+    const { result, scrollRef } = setup({ scrollbackMode: 'copy' });
     scrollRef.current!.scrollTop = 0;
     result.current.handleWheel(wheelEvent(50));
     expect(scrollRef.current!.scrollTop).toBe(50);
@@ -142,7 +148,7 @@ describe('usePaneMouse.handleWheel', () => {
 });
 
 describe('usePaneMouse — copy-mode selection sequencing', () => {
-  function setupSeq(initialCopyModeActive: boolean) {
+  function setupSeq(initialMode: ScrollbackMode | null) {
     const events: AppMachineEvent[] = [];
     const send = (e: AppMachineEvent) => events.push(e);
     const contentRef = createRef<HTMLDivElement>();
@@ -156,7 +162,7 @@ describe('usePaneMouse — copy-mode selection sequencing', () => {
       mouseAnyFlag: false,
       alternateOn: false,
       inMode: false,
-      copyModeActive: initialCopyModeActive,
+      scrollbackMode: initialMode,
       paneHeight: 24,
       contentRef,
       scrollRef,
@@ -177,29 +183,36 @@ describe('usePaneMouse — copy-mode selection sequencing', () => {
       preventDefault: () => {},
     }) as unknown as React.MouseEvent;
 
-  it('defers word-select until copy mode actually becomes active', () => {
-    const { result, events, rerender, baseProps } = setupSeq(false);
+  it('leaves a double-click alone outside copy mode, so the browser selects the word', () => {
+    const { result, events } = setupSeq(null);
     result.current.handleDoubleClick(clickEvent(2));
-    // Entered copy mode, but the selection waits for it to initialize.
-    expect(events.some((e) => e.type === 'ENTER_COPY_MODE')).toBe(true);
-    expect(events.some((e) => e.type === 'COPY_MODE_WORD_SELECT')).toBe(false);
-    // Copy mode initializes → the deferred selection fires (no fixed delay).
-    rerender({ ...baseProps, copyModeActive: true });
-    expect(events.some((e) => e.type === 'COPY_MODE_WORD_SELECT')).toBe(true);
+    // Nothing is sent and nothing is prevented: the native selection is the
+    // whole point on the live screen and in the scroll view.
+    expect(events).toEqual([]);
   });
 
-  it('word-selects immediately when copy mode is already active', () => {
-    const { result, events } = setupSeq(true);
+  it('word-selects through the client only in copy mode, where the cursor is the selection', () => {
+    const { result, events } = setupSeq('copy');
     result.current.handleDoubleClick(clickEvent(2));
     expect(events.some((e) => e.type === 'COPY_MODE_WORD_SELECT')).toBe(true);
   });
 
-  it('defers line-select until copy mode becomes active', () => {
-    const { result, events, rerender, baseProps } = setupSeq(false);
+  it('leaves a triple-click alone outside copy mode', () => {
+    const { result, events } = setupSeq(null);
     result.current.handleTripleClick(clickEvent(3));
-    expect(events.some((e) => e.type === 'ENTER_COPY_MODE')).toBe(true);
-    expect(events.some((e) => e.type === 'COPY_MODE_LINE_SELECT')).toBe(false);
-    rerender({ ...baseProps, copyModeActive: true });
+    expect(events).toEqual([]);
+  });
+
+  it('line-selects through the client in copy mode', () => {
+    const { result, events } = setupSeq('copy');
+    result.current.handleTripleClick(clickEvent(3));
     expect(events.some((e) => e.type === 'COPY_MODE_LINE_SELECT')).toBe(true);
+  });
+
+  it('never opens copy mode from the mouse — that is what prefix [ is for', () => {
+    const { result, events } = setupSeq(null);
+    result.current.handleDoubleClick(clickEvent(2));
+    result.current.handleTripleClick(clickEvent(3));
+    expect(events.some((e) => e.type === 'ENTER_COPY_MODE')).toBe(false);
   });
 });

@@ -7,7 +7,8 @@
  * - Routes through the same three scroll modes as wheel events:
  *   1. Alternate screen (vim, less) → arrow keys
  *   2. Mouse tracking → SGR wheel events
- *   3. Normal shell → proxy to scroll container (enters copy mode)
+ *   3. Normal shell → open the native-like scroll view, then proxy to its
+ *      scroll container
  */
 
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
@@ -32,6 +33,8 @@ interface UsePaneTouchOptions {
   scrollRef: RefObject<HTMLDivElement | null>;
   send: (event: AppMachineEvent) => void;
   historySize: number;
+  /** True while a scrollback view is already open (either kind). */
+  scrollbackOpen: boolean;
   forwardScrollToParent?: boolean;
 }
 
@@ -56,6 +59,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
     scrollRef,
     send,
     historySize,
+    scrollbackOpen,
     forwardScrollToParent,
   } = options;
 
@@ -113,15 +117,24 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           alternateOn,
           mouseAnyFlag,
         });
-      } else {
-        // Normal mode: proxy pixel delta to scroll container.
+      } else if (scrollbackOpen) {
+        // A view is open: proxy the pixel delta to its scroll container.
         // Negate: finger down = scroll up (decrease scrollTop)
         if (scrollRef.current) {
           scrollRef.current.scrollTop += -deltaPixels;
         }
+      } else if (historySize > 0 && deltaPixels > 0) {
+        // Live screen, finger moving down, history behind it: open the scroll
+        // view, exactly as a wheel-up does. Without this the container is
+        // pinned to the bottom and the swipe goes nowhere.
+        remainderRef.current += -deltaPixels;
+        const lines = Math.trunc(remainderRef.current / charHeight);
+        if (lines === 0) return;
+        remainderRef.current -= lines * charHeight;
+        send({ type: 'ENTER_SCROLL_MODE', paneId, scrollLines: lines });
       }
     },
-    [send, paneId, charHeight, alternateOn, mouseAnyFlag, scrollRef],
+    [send, paneId, charHeight, alternateOn, mouseAnyFlag, scrollRef, scrollbackOpen, historySize],
   );
 
   const handleTouchStart = useCallback(

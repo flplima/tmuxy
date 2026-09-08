@@ -711,6 +711,27 @@ export type EnterCopyModeEvent = {
   nativeScrollTop?: number;
 };
 export type ExitCopyModeEvent = { type: 'EXIT_COPY_MODE'; paneId: string };
+
+/**
+ * Open the native-like scrollback view — a wheel or touch scroll up on a pane
+ * that is not a full-screen application. Deliberately its own event rather
+ * than a flag on ENTER_COPY_MODE: the two differ in what they tell tmux
+ * (nothing vs `copy-mode`), and a distinct name is what the action trace and
+ * every reader see. Both build the same per-pane record; see ScrollbackMode.
+ */
+export type EnterScrollModeEvent = {
+  type: 'ENTER_SCROLL_MODE';
+  paneId: string;
+  scrollLines?: number;
+  nativeScrollTop?: number;
+};
+/**
+ * Leave it: drop the record and let the pane follow live output again. Unlike
+ * EXIT_COPY_MODE there is no `send-keys -X cancel` — tmux was never put in
+ * copy mode — and no re-entry cooldown, which exists only to outlast a stale
+ * `in_mode` flag this view never sets.
+ */
+export type ExitScrollModeEvent = { type: 'EXIT_SCROLL_MODE'; paneId: string };
 export type CopyModeChunkLoadedEvent = {
   type: 'COPY_MODE_CHUNK_LOADED';
   paneId: string;
@@ -868,6 +889,8 @@ export type AppMachineEvent =
   | CopySelectionEvent
   | EnterCopyModeEvent
   | ExitCopyModeEvent
+  | EnterScrollModeEvent
+  | ExitScrollModeEvent
   | CopyModeChunkLoadedEvent
   | CopyModeCursorMoveEvent
   | CopyModeSelectionStartEvent

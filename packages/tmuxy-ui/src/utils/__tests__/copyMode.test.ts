@@ -17,6 +17,7 @@ function makeState(
     lines.set(Number(row), makeLine(text));
   }
   return {
+    mode: 'copy',
     lines,
     totalLines: Object.keys(rows).length,
     historySize: 0,

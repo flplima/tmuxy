@@ -76,6 +76,13 @@ interface TerminalProps {
   cursorShape?: number;
   /** Whether the cursor is hidden (DECTCEM mode 25 off) */
   cursorHidden?: boolean;
+  /**
+   * Let the browser select this pane's text.
+   *
+   * False for a pane whose application is tracking the mouse: there a drag is
+   * the application's, forwarded as SGR, and a selection would fight it.
+   */
+  selectable?: boolean;
 }
 
 // Empty line constant for padding
@@ -142,6 +149,7 @@ export const Terminal: React.FC<TerminalProps> = ({
   paneId,
   cursorShape = 0,
   cursorHidden = false,
+  selectable = false,
 }) => {
   // Use copy mode cursor position when in copy mode
   const effectiveCursorX = inMode ? copyCursorX : cursorX;
@@ -228,7 +236,10 @@ export const Terminal: React.FC<TerminalProps> = ({
 
   return (
     <div className="terminal-container" data-testid="terminal" role="log" aria-live="off">
-      <pre className="terminal-content" aria-hidden="true">
+      <pre
+        className={`terminal-content ${selectable ? 'terminal-selectable' : ''}`}
+        aria-hidden="true"
+      >
         {lines.map((line, lineIndex) => (
           <TerminalLine key={lineIndex} line={line} selectionRange={getSelectionRange(lineIndex)} />
         ))}

@@ -11,6 +11,7 @@
 
 import { useCallback, useRef, useState, useEffect, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
+import type { ScrollbackMode } from '../tmux/types';
 import { sendScrollLines, sgrMouseCommand } from './scrollUtils';
 import { haptics } from '../utils/haptics';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
@@ -27,8 +28,15 @@ interface UsePaneMouseOptions {
   alternateOn: boolean;
   /** Whether the pane is in copy mode */
   inMode: boolean;
-  /** Whether client-side copy mode is active */
-  copyModeActive: boolean;
+  /**
+   * Which scrollback view the pane is showing, or null for the live screen.
+   *
+   * Only `copy` drives the client's cell selection from here. On the live
+   * screen and in the scroll view the browser owns selecting — this hook must
+   * keep its hands off the event so the native selection can happen, which is
+   * what makes dragging feel like any other terminal.
+   */
+  scrollbackMode: ScrollbackMode | null;
   /** Pane height in rows (for scroll calculations) */
   paneHeight: number;
   /** Ref to the .pane-content element (used for coordinate calculation) */
@@ -58,12 +66,20 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     mouseAnyFlag,
     alternateOn,
     inMode,
-    copyModeActive,
+    scrollbackMode,
     contentRef,
     scrollRef,
     historySize,
     forwardScrollToParent,
   } = options;
+
+  // A scrollback view is open at all (either kind): the pane is not following
+  // live output, so wheel deltas move the loaded scrollback rather than
+  // deciding whether to open it.
+  const scrollbackOpen = scrollbackMode !== null;
+  // tmux's copy mode specifically: the only place the client drives selection
+  // and the cursor. Everywhere else the browser's own selection is the point.
+  const copyModeActive = scrollbackMode === 'copy';
 
   // Track mouse button state for drag events
   const mouseButtonRef = useRef<number | null>(null);
@@ -81,19 +97,6 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
   const autoScrollColRef = useRef(0);
   // Document-level mouseup listener ref (for cleanup when mouse released outside pane)
   const documentMouseUpRef = useRef<(() => void) | null>(null);
-  // A selection action deferred until copy mode is actually active. Set when a
-  // drag / double- / triple-click has to ENTER_COPY_MODE first; the effect
-  // below runs it the moment copyModeActive flips true. This sequences the
-  // selection off the real state transition instead of a fixed setTimeout that
-  // guessed how long copy-mode initialization takes.
-  const pendingSelectionRef = useRef<(() => void) | null>(null);
-  useEffect(() => {
-    if (copyModeActive && pendingSelectionRef.current) {
-      pendingSelectionRef.current();
-      pendingSelectionRef.current = null;
-    }
-  }, [copyModeActive]);
-
   // Unmount cleanup: tear down every timer/listener this hook can leave
   // running. A pane can unmount mid-drag (e.g. tmux kills it during a
   // selection), which would otherwise leave the auto-scroll interval firing
@@ -310,7 +313,12 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      // Non-mouse-tracking: handle drag for client-side copy mode selection
+      // Everywhere but tmux's copy mode the browser owns the drag: returning
+      // here (without preventDefault anywhere on the way) is what lets a plain
+      // text selection happen, on the live screen and in the scroll view alike.
+      if (!copyModeActive) return;
+
+      // Copy mode: drive the client's cell selection.
       if (!dragStartRef.current || mouseButtonRef.current !== 0) return;
 
       const cell = pixelToCell(e);
@@ -329,23 +337,13 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         isDraggingForSelectionRef.current = true;
         const start = dragStartRef.current;
 
-        const startSelection = () =>
-          send({
-            type: 'COPY_MODE_SELECTION_START',
-            paneId,
-            mode: 'char',
-            row: start.y,
-            col: start.x,
-          });
-
-        // Enter client-side copy mode if not already active, deferring the
-        // selection start until it is; otherwise start selecting immediately.
-        if (!copyModeActive) {
-          send({ type: 'ENTER_COPY_MODE', paneId });
-          pendingSelectionRef.current = startSelection;
-        } else {
-          startSelection();
-        }
+        send({
+          type: 'COPY_MODE_SELECTION_START',
+          paneId,
+          mode: 'char',
+          row: start.y,
+          col: start.x,
+        });
         lastCellRef.current = { ...start };
       }
 
@@ -430,13 +428,15 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         historySize === 0 &&
         !alternateOn &&
         !mouseAnyFlag &&
-        !copyModeActive
+        !scrollbackOpen
       ) {
         return;
       }
 
-      // Alternate screen (vim, less) and mouse tracking need line-quantized input.
-      // Forward to the app — never enter copy mode while the app owns the screen.
+      // A full-screen application owns the screen: the scroll is its business,
+      // as line-quantized input. This is the branch that keeps the scroll view
+      // out of nvim, htop, less and anything else drawing its own viewport —
+      // it never opens over them.
       if (alternateOn || mouseAnyFlag) {
         e.preventDefault();
         wheelRemainder.current += e.deltaY;
@@ -457,11 +457,11 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      // Copy mode: manually forward wheel delta to the scroll container.
-      // The wrapper is non-scrollable, so native scroll won't reach the
-      // inner pane-scroll-container. Adjusting scrollTop fires the onScroll
-      // handler which sends COPY_MODE_SCROLL to the state machine.
-      if (copyModeActive) {
+      // A scrollback view is already open (either kind): forward the wheel
+      // delta to the scroll container by hand. The wrapper is non-scrollable,
+      // so native scroll never reaches the inner pane-scroll-container;
+      // adjusting scrollTop fires onScroll, which reports the new top row.
+      if (scrollbackOpen) {
         e.preventDefault();
         if (scrollRef.current) {
           scrollRef.current.scrollTop += e.deltaY;
@@ -476,14 +476,18 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         return;
       }
 
-      // Normal mode: scroll up with history enters copy mode directly
+      // Live screen with history behind it: scrolling up opens the scroll
+      // view — scrollback you can read and select, with no cursor and nothing
+      // said to tmux. Copy mode is not on this path at all any more; it is
+      // reached by `prefix [`, which is the only thing that should hand a pane
+      // a cursor and vi keys.
       if (historySize > 0 && e.deltaY < 0) {
         e.preventDefault();
         wheelRemainder.current += e.deltaY;
         const lines = Math.trunc(wheelRemainder.current / charHeight);
         if (lines === 0) return;
         wheelRemainder.current -= lines * charHeight;
-        send({ type: 'ENTER_COPY_MODE', paneId, scrollLines: lines });
+        send({ type: 'ENTER_SCROLL_MODE', paneId, scrollLines: lines });
         return;
       }
 
@@ -496,7 +500,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       charHeight,
       alternateOn,
       mouseAnyFlag,
-      copyModeActive,
+      scrollbackOpen,
       inMode,
       pixelToCell,
       scrollRef,
@@ -514,16 +518,13 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       // Skip if this is actually a triple-click (detail >= 3) — handled in handleMouseDown
       if (e.detail >= 3) return;
 
-      const cell = pixelToCell(e);
+      // Outside copy mode the browser already selects the word under a
+      // double-click, and better than a cell grid can — it knows about word
+      // characters in every script.
+      if (!copyModeActive) return;
 
-      if (!copyModeActive) {
-        send({ type: 'ENTER_COPY_MODE', paneId });
-        // Defer word select until copy mode is active (not a fixed delay).
-        pendingSelectionRef.current = () =>
-          send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
-      } else {
-        send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
-      }
+      const cell = pixelToCell(e);
+      send({ type: 'COPY_MODE_WORD_SELECT', paneId, row: cell.y, col: cell.x });
     },
     [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell],
   );
@@ -535,17 +536,13 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       if (target.closest('.pane-header')) return;
       if (mouseAnyFlag) return;
 
+      // Same again: a triple-click selects the line natively. Only copy mode,
+      // whose selection is a cell range it has to track itself, needs telling.
+      if (!copyModeActive) return;
+
       e.preventDefault();
       const cell = pixelToCell(e);
-
-      if (!copyModeActive) {
-        send({ type: 'ENTER_COPY_MODE', paneId });
-        // Defer line select until copy mode is active (not a fixed delay).
-        pendingSelectionRef.current = () =>
-          send({ type: 'COPY_MODE_LINE_SELECT', paneId, row: cell.y });
-      } else {
-        send({ type: 'COPY_MODE_LINE_SELECT', paneId, row: cell.y });
-      }
+      send({ type: 'COPY_MODE_LINE_SELECT', paneId, row: cell.y });
     },
     [send, paneId, mouseAnyFlag, copyModeActive, pixelToCell],
   );

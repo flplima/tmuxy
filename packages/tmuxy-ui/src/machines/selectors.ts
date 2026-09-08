@@ -816,12 +816,20 @@ export function selectKeyboardElsewhere(context: AppMachineContext): boolean {
   );
 }
 
+/**
+ * Whether the active pane is in tmux's copy mode — the one with a cursor, vi
+ * keys and hints worth showing on the status line.
+ *
+ * Deliberately false for the scroll view. That one has no keys to advertise:
+ * it is scrollback you look at and select, and announcing a mode the user did
+ * not enter (and cannot type in) is exactly what makes it feel unlike a
+ * terminal. See ScrollbackMode.
+ */
 export function selectActivePaneCopyMode(context: AppMachineContext): boolean {
   if (!context.activePaneId) return false;
   const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
   if (pane?.inMode) return true;
-  if (context.copyModeStates[context.activePaneId]) return true;
-  return false;
+  return context.copyModeStates[context.activePaneId]?.mode === 'copy';
 }
 
 // ============================================

@@ -313,6 +313,19 @@
     'calt' 0;
 }
 
+/* Terminal text the browser may select.
+   `.app-container` turns selection off everywhere so a drag on the UI chrome
+   can't smear a highlight across it; a terminal that is NOT a full-screen
+   application turns it back on for its own content, which is what makes
+   selecting output work the way it does in any other terminal. Panes running a
+   mouse-tracking application deliberately do not get this: there the drag
+   belongs to the application, and a selection would fight it. */
+.terminal-selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
 .terminal-line {
   height: var(--line-height-terminal);
   line-height: inherit;

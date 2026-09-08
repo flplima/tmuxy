@@ -13,7 +13,7 @@
 
 import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
-import type { CopyModeState, CellLine } from '../../../tmux/types';
+import type { CopyModeState, CellLine, ScrollbackMode } from '../../../tmux/types';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
 import { mergeScrollbackChunk, getNeededChunk, isWrappedRow } from '../../../utils/copyMode';
 import { selectRightSidebarPane } from '../../selectors';
@@ -21,63 +21,95 @@ import { selectRightSidebarPane } from '../../selectors';
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
 
+/**
+ * Build the per-pane scrollback record both views share.
+ *
+ * Everything here is identical for the two modes — the loaded lines seeded
+ * from what is already on screen, the totals, the initial scroll position —
+ * so the only thing the callers decide is `mode` and what they tell tmux
+ * afterwards. Returns the geometry the caller needs for its fetch, or null
+ * when the pane has gone.
+ */
+function buildScrollbackState(
+  context: Ctx,
+  paneId: string,
+  mode: ScrollbackMode,
+  event: { scrollLines?: number; nativeScrollTop?: number },
+): { state: CopyModeState; historySize: number; height: number } | null {
+  const pane = context.panes.find((p) => p.tmuxId === paneId);
+  if (!pane) return null;
+
+  const historySize = pane.historySize ?? 0;
+  const totalLines = historySize + pane.height;
+  const bottom = Math.max(0, totalLines - pane.height);
+
+  const lines = new Map<number, CellLine>();
+  for (let i = 0; i < pane.content.length; i++) {
+    lines.set(historySize + i, pane.content[i]);
+  }
+
+  const loadedRanges: Array<[number, number]> =
+    pane.content.length > 0 ? [[historySize, historySize + pane.content.length - 1]] : [];
+
+  let scrollTop = bottom;
+  if (event.nativeScrollTop !== undefined) {
+    scrollTop = Math.max(0, Math.min(event.nativeScrollTop, bottom));
+  } else if (event.scrollLines) {
+    scrollTop = Math.max(0, bottom + event.scrollLines);
+  }
+
+  // The cursor is copy mode's alone, but it costs nothing to seed and keeps
+  // the record one shape: the scroll view simply never draws or moves it.
+  const initRow = historySize + pane.cursorY;
+  const initLine = lines.get(initRow);
+  const initLineText = initLine
+    ? initLine
+        .map((c) => c.c)
+        .join('')
+        .trimEnd()
+    : '';
+  const initCol = initLineText.length > 0 ? Math.min(pane.cursorX, initLineText.length - 1) : 0;
+
+  return {
+    historySize,
+    height: pane.height,
+    state: {
+      mode,
+      lines,
+      totalLines,
+      historySize,
+      loadedRanges,
+      loading: true,
+      width: pane.width,
+      height: pane.height,
+      cursorRow: initRow,
+      cursorCol: initCol,
+      selectionMode: null,
+      selectionAnchor: null,
+      scrollTop,
+    },
+  };
+}
+
 export const copyModeExitTimes = new Map<string, number>();
 export const COPY_MODE_REENTRY_COOLDOWN = 2000;
 
 export const copyModeActions = {
+  /**
+   * Open tmux's copy mode: the pane really enters `in_mode`, so the client can
+   * draw its cursor and run vi motions against a viewport tmux agrees is
+   * frozen. Reached by `prefix [`, a CLI `copy-mode`, or the reconciliation
+   * noticing tmux entered it on its own.
+   */
   copyMode_enter: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ event, context, enqueue }) => {
       if (event.type !== 'ENTER_COPY_MODE') return;
-      const pane = context.panes.find((p) => p.tmuxId === event.paneId);
-      if (!pane) return;
-
-      const historySize = pane.historySize ?? 0;
-      const totalLines = historySize + pane.height;
-      const scrollTop = Math.max(0, totalLines - pane.height);
-
-      const lines = new Map<number, CellLine>();
-      for (let i = 0; i < pane.content.length; i++) {
-        lines.set(historySize + i, pane.content[i]);
-      }
-
-      const loadedRanges: Array<[number, number]> =
-        pane.content.length > 0 ? [[historySize, historySize + pane.content.length - 1]] : [];
-
-      let initialScrollTop = scrollTop;
-      if (event.nativeScrollTop !== undefined) {
-        initialScrollTop = Math.max(0, Math.min(event.nativeScrollTop, scrollTop));
-      } else if (event.scrollLines) {
-        initialScrollTop = Math.max(0, scrollTop + event.scrollLines);
-      }
-
-      const initRow = historySize + pane.cursorY;
-      const initLine = lines.get(initRow);
-      const initLineText = initLine
-        ? initLine
-            .map((c) => c.c)
-            .join('')
-            .trimEnd()
-        : '';
-      const initCol = initLineText.length > 0 ? Math.min(pane.cursorX, initLineText.length - 1) : 0;
-
-      const copyState: CopyModeState = {
-        lines,
-        totalLines,
-        historySize,
-        loadedRanges,
-        loading: true,
-        width: pane.width,
-        height: pane.height,
-        cursorRow: initRow,
-        cursorCol: initCol,
-        selectionMode: null,
-        selectionAnchor: null,
-        scrollTop: initialScrollTop,
-      };
+      const built = buildScrollbackState(context, event.paneId, 'copy', event);
+      if (!built) return;
 
       enqueue(
         assign({
-          copyModeStates: { ...context.copyModeStates, [event.paneId]: copyState },
+          copyModeStates: { ...context.copyModeStates, [event.paneId]: built.state },
         }),
       );
 
@@ -92,8 +124,37 @@ export const copyModeActions = {
         sendTo('tmux', {
           type: 'FETCH_SCROLLBACK_CELLS' as const,
           paneId: event.paneId,
-          start: -historySize,
-          end: pane.height - 1,
+          start: -built.historySize,
+          end: built.height - 1,
+        }),
+      );
+    },
+  ),
+
+  /**
+   * Open the native-like scrollback view. Same record, same fetch — and
+   * deliberately no `copy-mode -t`: the pane keeps running, tmux never reports
+   * `in_mode`, and nothing about the application's own screen changes. That
+   * absence is the whole difference a user feels between this and copy mode.
+   */
+  copyMode_enterScroll: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
+    ({ event, context, enqueue }) => {
+      if (event.type !== 'ENTER_SCROLL_MODE') return;
+      const built = buildScrollbackState(context, event.paneId, 'scroll', event);
+      if (!built) return;
+
+      enqueue(
+        assign({
+          copyModeStates: { ...context.copyModeStates, [event.paneId]: built.state },
+        }),
+      );
+
+      enqueue(
+        sendTo('tmux', {
+          type: 'FETCH_SCROLLBACK_CELLS' as const,
+          paneId: event.paneId,
+          start: -built.historySize,
+          end: built.height - 1,
         }),
       );
     },
@@ -115,6 +176,24 @@ export const copyModeActions = {
       );
     },
   ),
+
+  /**
+   * Leave the native-like view: drop the record and the pane follows live
+   * output again.
+   *
+   * No `send-keys -X cancel` and no exit-time cooldown, both of which exist
+   * only for tmux's copy mode — cancel would be sent to a pane that was never
+   * in a mode (the application would see the keys), and the cooldown exists to
+   * outlast a stale `in_mode` that this view never sets. Recording one here
+   * would suppress a real `prefix [` for two seconds after any scroll.
+   */
+  copyMode_exitScroll: assign<Ctx, Evt, undefined, Evt, never>(({ context, event }) => {
+    if (event.type !== 'EXIT_SCROLL_MODE') return {};
+    if (!context.copyModeStates[event.paneId]) return {};
+    const newStates = { ...context.copyModeStates };
+    delete newStates[event.paneId];
+    return { copyModeStates: newStates };
+  }),
 
   copyMode_chunkLoaded: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
     ({ event, context, enqueue }) => {
@@ -358,13 +437,20 @@ export const copyModeActions = {
       const maxScrollTop = existing.totalLines - existing.height;
       const scrollTop = Math.max(0, Math.min(maxScrollTop, event.scrollTop));
 
+      // Back at the bottom with nothing selected: the user is done looking,
+      // so the pane follows live output again. Each view leaves by its own
+      // door — the scroll view has no tmux mode to cancel.
       if (
         maxScrollTop > 0 &&
         scrollTop >= maxScrollTop &&
         existing.scrollTop < maxScrollTop &&
         !existing.selectionMode
       ) {
-        enqueue.raise({ type: 'EXIT_COPY_MODE', paneId: event.paneId });
+        enqueue.raise(
+          existing.mode === 'scroll'
+            ? { type: 'EXIT_SCROLL_MODE', paneId: event.paneId }
+            : { type: 'EXIT_COPY_MODE', paneId: event.paneId },
+        );
         return;
       }
 

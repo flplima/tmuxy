@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { fromCallback } from 'xstate';
 import { copyModeState } from '../copyMode';
 import { copyModeActions, copyModeExitTimes } from '../../actions/copyMode';
 const copyModeGuards = {};
@@ -49,6 +50,7 @@ function makeCopyState(extra: Partial<CopyModeState> = {}): CopyModeState {
   lines.set(10, makeLine('hello world'));
   lines.set(11, makeLine('second line'));
   return {
+    mode: 'copy',
     lines,
     totalLines: 12,
     historySize: 10,
@@ -86,6 +88,84 @@ describe('copyMode state', () => {
     expect(ctx.copyModeStates['%1']).toBeUndefined();
     const exitTime = copyModeExitTimes.get('%1');
     expect(exitTime).toBeGreaterThanOrEqual(before);
+  });
+
+  it('ENTER_SCROLL_MODE opens the scroll view and tells tmux nothing', () => {
+    const pane = makePane('%1', [makeLine('line a'), makeLine('line b')]);
+    const sent: string[] = [];
+    const actor = mountState(
+      copyModeState,
+      copyModeActions,
+      copyModeGuards,
+      { panes: [pane] },
+      {
+        extraActors: {
+          tmux: fromCallback<{ type: string; command?: string }>(({ receive }) => {
+            receive((e) => {
+              if (e.type === 'SEND_COMMAND' && e.command) sent.push(e.command);
+            });
+            return () => {};
+          }),
+        },
+      },
+    );
+    const ctx = sendAndGetContext(actor, { type: 'ENTER_SCROLL_MODE', paneId: '%1' });
+
+    const state = ctx.copyModeStates['%1'];
+    expect(state).toBeDefined();
+    expect(state.mode).toBe('scroll');
+    expect(state.lines.size).toBeGreaterThan(0);
+    // The whole point: the pane is never put into tmux's copy mode, so the
+    // application keeps running and no cursor appears in it.
+    expect(sent.some((c) => c.startsWith('copy-mode'))).toBe(false);
+  });
+
+  it('EXIT_SCROLL_MODE drops the view without cancelling a mode tmux never entered', () => {
+    const sent: string[] = [];
+    copyModeExitTimes.delete('%1');
+    const actor = mountState(
+      copyModeState,
+      copyModeActions,
+      copyModeGuards,
+      { copyModeStates: { '%1': makeCopyState({ mode: 'scroll' }) } },
+      {
+        extraActors: {
+          tmux: fromCallback<{ type: string; command?: string }>(({ receive }) => {
+            receive((e) => {
+              if (e.type === 'SEND_COMMAND' && e.command) sent.push(e.command);
+            });
+            return () => {};
+          }),
+        },
+      },
+    );
+    const ctx = sendAndGetContext(actor, { type: 'EXIT_SCROLL_MODE', paneId: '%1' });
+
+    expect(ctx.copyModeStates['%1']).toBeUndefined();
+    // `-X cancel` would reach the application as keys; it is copy mode's exit.
+    expect(sent.some((c) => c.includes('-X cancel'))).toBe(false);
+    // And no cooldown is stamped: that exists to outlast a stale `in_mode`
+    // this view never sets, and would swallow a real `prefix [` for 2s.
+    expect(copyModeExitTimes.get('%1')).toBeUndefined();
+  });
+
+  it('scrolling back to the bottom leaves by the door the view came in through', () => {
+    const bottom = 40;
+    for (const mode of ['scroll', 'copy'] as const) {
+      const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
+        copyModeStates: {
+          '%1': makeCopyState({ mode, totalLines: bottom + 2, height: 2, scrollTop: 0 }),
+        },
+      });
+      const ctx = sendAndGetContext(actor, {
+        type: 'COPY_MODE_SCROLL',
+        paneId: '%1',
+        scrollTop: bottom,
+      });
+      // Either way the view closes; the difference is what it says to tmux,
+      // asserted in the two tests above.
+      expect(ctx.copyModeStates['%1']).toBeUndefined();
+    }
   });
 
   it('COPY_MODE_SELECTION_CLEAR clears selection but keeps cursor', () => {

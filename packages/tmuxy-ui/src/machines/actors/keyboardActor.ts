@@ -186,6 +186,24 @@ function realPaneId(id: string | null): string | null {
   return id !== null && id.startsWith('__placeholder_') ? null : id;
 }
 
+/**
+ * A key that only changes what the NEXT key means.
+ *
+ * The scroll view stays open through these: holding Shift to extend a
+ * selection, or Meta on the way to Cmd+C, is not the user asking to type.
+ */
+function isModifierOnlyKey(key: string): boolean {
+  return (
+    key === 'Shift' ||
+    key === 'Control' ||
+    key === 'Alt' ||
+    key === 'Meta' ||
+    key === 'CapsLock' ||
+    key === 'AltGraph' ||
+    key === 'Dead'
+  );
+}
+
 export function createKeyboardActor() {
   return fromCallback<KeyboardActorEvent, KeyboardActorInput>(({ input, receive }) => {
     let sessionName = 'tmuxy';
@@ -475,11 +493,20 @@ export function createKeyboardActor() {
       // The dock's pane can be in client-side copy mode too (wheel, drag), so
       // the pane whose copy state matters is the one holding the keyboard.
       let activeCopyState: CopyModeState | undefined;
+      let scrollbackPane: string | null = null;
       if (!leftSidebarFocused) {
-        const keyboardPane = overlayPaneId() ?? liveActivePaneId;
-        activeCopyState = keyboardPane ? liveCopyStates?.[keyboardPane] : undefined;
+        scrollbackPane = overlayPaneId() ?? liveActivePaneId;
+        activeCopyState = scrollbackPane ? liveCopyStates?.[scrollbackPane] : undefined;
       }
-      const copyModeActive = !!activeCopyState;
+      // Only tmux's copy mode takes the keyboard. The scroll view is a way of
+      // looking at scrollback, not a mode you type in: a keystroke there means
+      // the user is done reading, so it closes the view and goes to the pane,
+      // which is what every other terminal does.
+      const copyModeActive = activeCopyState?.mode === 'copy';
+      const scrollModePane = activeCopyState?.mode === 'scroll' ? scrollbackPane : null;
+
+      /** A selection the user made with the browser, anywhere in the app. */
+      const nativeSelection = () => window.getSelection()?.toString() ?? '';
 
       // Cmd+C / Ctrl+C: copy selection to clipboard (if in copy mode with selection)
       // or send SIGINT (if not in copy mode / no selection)
@@ -496,11 +523,31 @@ export function createKeyboardActor() {
             pendingCopyText = extractSelectedText(activeCopyState);
           }
           // Don't preventDefault — let browser fire native copy event
+        } else if (event.metaKey && nativeSelection()) {
+          // Cmd+C over a selection the browser owns: let it copy, and do not
+          // interrupt the process. Ctrl+C deliberately does NOT land here —
+          // interrupting has to stay reliable even with text selected, which
+          // is the contract every terminal keeps.
+          return;
         } else {
           event.preventDefault();
         }
         input.parent.send({ type: 'COPY_SELECTION' });
         return;
+      }
+
+      // The scroll view closes on the first real keystroke and the key goes on
+      // to the pane, so typing while scrolled up lands at the prompt with the
+      // view back at the bottom — the behaviour of any terminal. Modifier
+      // presses on their own are not "typing" and leave it open, or holding
+      // Shift to extend a selection would close what you are selecting from.
+      if (scrollModePane && !isModifierOnlyKey(event.key)) {
+        input.parent.send({ type: 'EXIT_SCROLL_MODE', paneId: scrollModePane });
+        // Escape is spent on leaving; anything else carries on to the pane.
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          return;
+        }
       }
 
       // Client-side copy mode: intercept all keys (must be checked before the

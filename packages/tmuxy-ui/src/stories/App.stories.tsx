@@ -1730,23 +1730,24 @@ const paneMode = (id: string): boolean =>
     .context.panes.find((p) => p.tmuxId === id)?.inMode === true;
 
 /**
- * Client-side copy-mode state of a pane — the restored scrollback engine keeps
- * loaded history lines, the scroll offset, and the selection in
- * `copyModeStates[paneId]` (see COPY-MODE.md). Undefined when not in copy mode.
+ * Client-side scrollback state of a pane — one record holding the loaded
+ * history lines, the scroll offset and the selection, plus the `mode` saying
+ * which view it is: the native-like `scroll` view or tmux's `copy` mode (see
+ * COPY-MODE.md). Undefined when the pane is following live output.
  */
-const paneCopyState = (
-  id: string,
-): { scrollTop: number; selectionMode: 'char' | 'line' | null; totalLines: number } | undefined =>
+type PaneScrollbackState = {
+  mode: 'scroll' | 'copy';
+  scrollTop: number;
+  selectionMode: 'char' | 'line' | null;
+  totalLines: number;
+};
+
+const paneCopyState = (id: string): PaneScrollbackState | undefined =>
   (
     window as unknown as {
       app: {
         getSnapshot(): {
-          context: {
-            copyModeStates: Record<
-              string,
-              { scrollTop: number; selectionMode: 'char' | 'line' | null; totalLines: number }
-            >;
-          };
+          context: { copyModeStates: Record<string, PaneScrollbackState> };
         };
       };
     }
@@ -1787,13 +1788,15 @@ export const CopyModeEnter: Story = {
 };
 
 /**
- * Copy mode scroll: entering copy mode renders scrollback in a natively-scrolling
- * container (the restored client-side engine — see COPY-MODE.md). Wheeling up
- * fetches history from tmux via `get_scrollback_cells` and scrolls the client
- * viewport back: earlier scrollback lines render, the client `scrollTop` moves
- * toward the top, and wheeling back to the bottom exits copy mode.
+ * The scroll view: wheeling up in a shell opens the native-like scrollback view
+ * — history fetched from tmux via `get_scrollback_cells` and rendered in a
+ * natively-scrolling container — and wheeling back to the bottom closes it.
+ *
+ * What makes it the scroll view rather than copy mode is asserted too: the mode
+ * on the client record, and tmux never reporting `in_mode` for the pane. A
+ * wheel gesture must not hand a pane a cursor and vi keys. See COPY-MODE.md.
  */
-export const CopyModeScrollAndYank: Story = {
+export const ScrollViewWheel: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -1823,12 +1826,16 @@ export const CopyModeScrollAndYank: Story = {
         await new Promise((r) => setTimeout(r, gapMs));
       }
     };
-    // Wheel up: enters client copy mode and scrolls the ScrollbackTerminal back.
+    // Wheel up: opens the scroll view and scrolls the ScrollbackTerminal back.
     await wheel(-120, 6, 250);
-    await waitFor(() => expect(paneCopyState(id), 'client copy mode active').toBeTruthy(), {
+    await waitFor(() => expect(paneCopyState(id), 'scroll view open').toBeTruthy(), {
       timeout: 15000,
       interval: 400,
     });
+    expect(paneCopyState(id)?.mode, 'opened as the scroll view, not copy mode').toBe('scroll');
+    // tmux was never told: the pane is not in a mode, so whatever runs in it
+    // carries on and no cursor is drawn over the scrollback.
+    expect(paneMode(id), 'tmux left out of it').toBe(false);
     // The rendered viewport shows earlier scrollback lines (100s, not the 199200 tail).
     await waitFor(() => expect(paneEl().textContent ?? '').toMatch(/1[0-9]\d(?!9200)/), {
       timeout: 15000,
@@ -1837,9 +1844,10 @@ export const CopyModeScrollAndYank: Story = {
     // The client scroll offset moved off the bottom of history.
     const cs = paneCopyState(id);
     expect(cs && cs.scrollTop < cs.totalLines - 1).toBe(true);
-    // Wheel back down to the bottom → copy mode exits.
+    // Wheel back down to the bottom → the view closes and the pane follows
+    // live output again.
     await wheel(120, 40, 100);
-    await waitFor(() => expect(paneCopyState(id), 'copy mode exited at bottom').toBeFalsy(), {
+    await waitFor(() => expect(paneCopyState(id), 'scroll view closed at bottom').toBeFalsy(), {
       timeout: 15000,
       interval: 500,
     });
