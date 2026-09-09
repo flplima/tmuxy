@@ -476,6 +476,17 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
       { text: 'Copy', icon: true },
       { text: 'Send keys', icon: true },
     ]);
+    // While the menu is up the selection is pinned: focus moving to the menu
+    // (on open) or to an item (on hover) collapses it on WebKit, and whatever
+    // collapses it, it comes back.
+    await ctx.page.mouse.move(selRect.x + 30, selRect.y + 14);
+    await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
+    await waitForCondition(
+      ctx.page,
+      async () => (await readSelection()) === selected,
+      3000,
+      'the selection to be restored under the open menu',
+    );
     await ctx.page.keyboard.press('Escape');
     await delay(DELAYS.SHORT);
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());

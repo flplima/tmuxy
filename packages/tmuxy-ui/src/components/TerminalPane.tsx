@@ -13,7 +13,11 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
-import { readNativeSelection, selectWordAtPoint } from '../utils/nativeSelection';
+import {
+  cloneNativeSelectionRange,
+  readNativeSelection,
+  selectWordAtPoint,
+} from '../utils/nativeSelection';
 import { PaneHeader } from './PaneHeader';
 import { SelectionContextMenu } from './SelectionContextMenu';
 import {
@@ -72,6 +76,8 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
     x: number;
     y: number;
     text: string;
+    /** The browser's selection the menu is about; null for copy mode's own. */
+    range: Range | null;
   } | null>(null);
   const historySize = pane?.historySize ?? 0;
   const paneHeight = pane?.height ?? 24;
@@ -267,7 +273,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
       // browser or a native terminal — no mode change, no cursor.
       if (copyState?.mode === 'copy' && copyState.selectionMode) {
         const text = extractSelectedText(copyState);
-        if (text) setSelectionMenu({ x: e.clientX, y: e.clientY, text });
+        if (text) setSelectionMenu({ x: e.clientX, y: e.clientY, text, range: null });
         return;
       }
 
@@ -276,7 +282,11 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
         selectWordAtPoint(e.clientX, e.clientY);
         text = readNativeSelection();
       }
-      if (text) setSelectionMenu({ x: e.clientX, y: e.clientY, text });
+      // The range is taken now, not when the menu mounts: by then the menu
+      // has focus, and WebKit has collapsed the selection it is about.
+      if (text) {
+        setSelectionMenu({ x: e.clientX, y: e.clientY, text, range: cloneNativeSelectionRange() });
+      }
     },
     [pane?.mouseAnyFlag, copyState],
   );
@@ -331,6 +341,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
           x={selectionMenu.x}
           y={selectionMenu.y}
           selectedText={selectionMenu.text}
+          selectionRange={selectionMenu.range}
           onClose={() => setSelectionMenu(null)}
         />
       )}

@@ -204,10 +204,10 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       haptics.trigger(10);
       send({ type: 'FOCUS_PANE', paneId });
       // Browser focus follows: an IME composes only into an editable element.
-      // Not on a right-click, though: focusing the input moves the document
-      // selection into it, and the context menu is about to ask what was
-      // selected.
-      if (e.button !== 2) focusKeyboardInput(paneId);
+      // Not on a right-click (or macOS's ctrl-click), though: focusing the
+      // input moves the document selection into it, and the context menu is
+      // about to ask what was selected.
+      if (e.button !== 2 && !e.ctrlKey) focusKeyboardInput(paneId);
 
       // Shift+click: focus only, don't forward or start a drag-selection.
       if (e.shiftKey) {

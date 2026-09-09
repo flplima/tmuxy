@@ -15,6 +15,18 @@ export function readNativeSelection(): string {
 }
 
 /**
+ * A copy of the selection's range, or null when nothing is selected — taken
+ * at the moment it matters, since focus moving later (to a menu, say)
+ * collapses the live selection on WebKit.
+ */
+export function cloneNativeSelectionRange(): Range | null {
+  if (typeof window === 'undefined') return null;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  return selection.getRangeAt(0).cloneRange();
+}
+
+/**
  * Select the word under a viewport point.
  *
  * For a right-click on unselected text: a menu offering "Copy" with nothing

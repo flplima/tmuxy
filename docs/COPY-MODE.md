@@ -134,7 +134,10 @@ extracted selection to the system clipboard via the keyboard actor's native `cop
 the browser selects — which also means double-click word boundaries come from the engine rather than
 a cell heuristic. Right-click reads that selection (`utils/nativeSelection.ts`), picking the word
 under the pointer first when nothing is selected; a right-click does not move browser focus to the
-hidden keyboard input, which would collapse the selection it is about to read.
+hidden keyboard input, which would collapse the selection it is about to read. While the menu is up
+the selection is pinned (`SelectionContextMenu`): the menu takes focus on open and each item on
+hover, and WebKit collapses the document selection whenever focus moves — so whatever collapses it,
+it is put back until the menu closes.
 
 A browser selection lives in DOM nodes, so the scroll view keeps them: `ScrollbackTerminal` mounts
 each row as its own absolutely positioned node, repaints a row only when its content changes (never
