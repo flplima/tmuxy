@@ -198,16 +198,23 @@ describe('IPC Commands', () => {
     await waitForRawWindowCount(driver, 1);
 
     // Two windows; tmux's current window is the FIRST, the pin names the second.
+    // Asked of tmux itself: the client's window list counts an optimistic
+    // placeholder before tmux has the window.
     await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
-    await waitForRawWindowCount(driver, 2);
-    const windows = (
-      await invokeCommand(driver, 'query_tmux', {
-        command: "list-windows -F '#{window_id} #{pane_id}'",
-      })
-    )
-      .trim()
-      .split('\n')
-      .map((line) => line.split(' '));
+    const listWindows = async () =>
+      (
+        await invokeCommand(driver, 'query_tmux', {
+          command: "list-windows -F '#{window_id} #{pane_id}'",
+        })
+      )
+        .trim()
+        .split('\n')
+        .map((line) => line.split(' '));
+    let windows = await listWindows();
+    for (let i = 0; i < 50 && windows.length < 2; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      windows = await listWindows();
+    }
     expect(windows.length).toBe(2);
     const [first, second] = windows;
     await invokeCommand(driver, 'run_tmux_command', { command: `select-window -t ${first[0]}` });
@@ -283,7 +290,7 @@ describe('IPC Commands', () => {
     // set asynchronously from the executor subprocess (after split+breakp) and
     // races the frontend's state snapshot under CI load — flake-prone even
     // though the no-crash invariant we care about is satisfied.
-    const result = await invokeCommand(driver, 'run_tmux_command', {
+    const result = await invokeCommand(driver, 'query_tmux', {
       command: 'display-message -p #{session_name}',
     });
     expect(result).toContain(sessionName);

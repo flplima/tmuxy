@@ -3350,10 +3350,13 @@ export const RapidCommandBurst: Story = {
 // predictor — the server never emits one — so a painted placeholder IS the
 // proof the UI didn't wait for the round-trip.
 
+/** The rejection reaches the user as a snackbar entry. */
 const appError = (): string | null =>
   (
-    window as unknown as { app: { getSnapshot(): { context: { error: string | null } } } }
-  ).app.getSnapshot().context.error;
+    window as unknown as {
+      app: { getSnapshot(): { context: { notifications: { text: string }[] } } };
+    }
+  ).app.getSnapshot().context.notifications[0]?.text ?? null;
 
 /** Sorted real (%N) pane ids currently rendered. */
 const realPaneIdsSorted = (canvas: Canvas): string[] =>

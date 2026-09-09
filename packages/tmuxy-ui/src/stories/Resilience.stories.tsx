@@ -301,7 +301,10 @@ export const KillPaneRejected: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const win = window as unknown as {
-      app?: { send: (e: unknown) => void; getSnapshot(): { context: { error: string | null } } };
+      app?: {
+        send: (e: unknown) => void;
+        getSnapshot(): { context: { notifications: { text: string }[] } };
+      };
     };
     const paneCount = () => canvas.getAllByRole('group', { name: /^Pane /i }).length;
 
@@ -313,7 +316,8 @@ export const KillPaneRejected: Story = {
       expect(paneCount()).toBe(2);
       await wait(70);
     }
-    expect(win.app!.getSnapshot().context.error).toBeTruthy();
+    // The rejection reaches the user as a snackbar entry.
+    expect(win.app!.getSnapshot().context.notifications.length).toBeGreaterThan(0);
   },
 };
 
