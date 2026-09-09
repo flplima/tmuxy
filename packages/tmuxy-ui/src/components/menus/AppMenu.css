@@ -59,6 +59,18 @@
   margin: 0;
 }
 
+/* Item icon: muted at rest, the item's colour on hover */
+.menu-item-icon {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  color: var(--text-muted);
+}
+
+.szh-menu__item:hover .menu-item-icon,
+.szh-menu__item--hover .menu-item-icon {
+  color: inherit;
+}
+
 /* Keybinding label (right-aligned muted text) */
 .menu-keybinding {
   margin-left: auto;

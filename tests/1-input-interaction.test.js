@@ -28,6 +28,7 @@ const {
   assertContentMatch,
   assertLayoutInvariants,
   getCopyModeState,
+  waitForCondition,
   waitForCopyMode,
   enterCopyModeAndWait,
   startMouseCapture,
@@ -368,7 +369,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     // and select, with no cursor and nothing said to tmux. A wheel gesture
     // handing the pane a cursor and vi keys is the bug this replaced.
     await ctx.page.mouse.move(box.x + 100, box.y + box.height / 2);
-    for (let i = 0; i < 8; i++) await ctx.page.mouse.wheel({ deltaY: -60 });
+    for (let i = 0; i < 8; i++) await ctx.page.mouse.wheel(0, -60);
     await waitForCondition(
       ctx.page,
       async () => (await getCopyModeState(ctx.page))?.mode === 'scroll',
@@ -401,7 +402,16 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     // text comes back without the grid's trailing padding.
     const selected = await ctx.page.evaluate(() => {
       const pre = document.querySelector('[data-scroll-mode="true"]');
-      const rows = [...pre.children].filter((d) => d.textContent.trim().length > 0);
+      // Rows on screen: the scrollback also keeps an overscan of rows above
+      // and below the viewport, and the right-click below must land on the
+      // selection, not on whatever is drawn where an off-screen row projects.
+      const box = document.querySelector('.pane-scroll-container').getBoundingClientRect();
+      const rows = [...pre.children]
+        .filter((d) => d.textContent.trim().length > 0)
+        .filter((d) => {
+          const r = d.getBoundingClientRect();
+          return r.top > box.top + 2 && r.bottom < box.bottom - 2;
+        });
       if (rows.length < 2) return null;
       const sel = window.getSelection();
       const range = document.createRange();
@@ -414,6 +424,60 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     expect(selected).not.toBeNull();
     expect(selected.trim().length).toBeGreaterThan(0);
     expect(selected).not.toMatch(/ {5}/);
+
+    // Step 3b: the selection survives scrolling — in either direction and all
+    // the way back to the bottom, where the view stays open for it — and a
+    // right-click on it, which opens the menu with just Copy and Send keys.
+    const readSelection = () => ctx.page.evaluate(() => window.getSelection()?.toString() ?? '');
+    const scrollBy = async (rows) => {
+      await ctx.page.evaluate((r) => {
+        const el = document.querySelector('.pane-scroll-container');
+        el.scrollTop +=
+          r * parseFloat(getComputedStyle(el).getPropertyValue('--line-height-terminal'));
+      }, rows);
+      await delay(DELAYS.MEDIUM);
+    };
+    await scrollBy(6);
+    expect(await readSelection()).toBe(selected);
+    await scrollBy(-6);
+    expect(await readSelection()).toBe(selected);
+    await ctx.page.evaluate(() => {
+      const el = document.querySelector('.pane-scroll-container');
+      el.scrollTop = el.scrollHeight;
+    });
+    await delay(DELAYS.LONG);
+    expect((await getCopyModeState(ctx.page))?.mode).toBe('scroll');
+    expect(await readSelection()).toBe(selected);
+
+    // Bring the selection back on screen (the bottom scrolled it out of the
+    // viewport; its rows stayed mounted) and right-click on it.
+    await ctx.page.evaluate(() => {
+      const range = window.getSelection().getRangeAt(0);
+      const node = range.startContainer;
+      const el = node.nodeType === 1 ? node : node.parentElement;
+      el.closest('.terminal-line').scrollIntoView({ block: 'center' });
+    });
+    await delay(DELAYS.MEDIUM);
+    expect(await readSelection()).toBe(selected);
+    const selRect = await ctx.page.evaluate(() => {
+      const r = window.getSelection().getRangeAt(0).getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await ctx.page.mouse.click(selRect.x, selRect.y, { button: 'right' });
+    await delay(DELAYS.MEDIUM);
+    expect(await readSelection()).toBe(selected);
+    const menuItems = await ctx.page.evaluate(() =>
+      [...document.querySelectorAll('.szh-menu__item')].map((el) => ({
+        text: el.textContent.trim(),
+        icon: !!el.querySelector('svg.menu-item-icon'),
+      })),
+    );
+    expect(menuItems).toEqual([
+      { text: 'Copy', icon: true },
+      { text: 'Send keys', icon: true },
+    ]);
+    await ctx.page.keyboard.press('Escape');
+    await delay(DELAYS.SHORT);
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
 
     // Step 4: typing closes the view and lands at the prompt, as in any
@@ -868,8 +932,11 @@ describe('Scenario 21: Touch Scrolling', () => {
     }
     expect(copyModeActive?.active).toBe(true);
 
-    // Exit copy mode by pressing q
-    await ctx.page.keyboard.press('q');
+    // Leave by the view's own door: Escape closes the scroll view and is
+    // spent, while `q` is copy mode's exit — in the scroll view it would be
+    // typed into the shell, and the next command would run as `qless`.
+    await ctx.page.keyboard.press(copyModeActive.mode === 'scroll' ? 'Escape' : 'q');
+    await waitForCopyMode(ctx.page, false);
     await delay(DELAYS.LONG);
 
     // Step 4: Touch scroll in alternate screen (less command)

@@ -120,7 +120,12 @@ export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPa
         // Forward scroll position to state machine
         const newScrollTop = Math.floor(scrollTop / charHeight);
         lastDomScrollTopRef.current = newScrollTop;
-        send({ type: 'COPY_MODE_SCROLL', paneId, scrollTop: newScrollTop });
+        send({
+          type: 'COPY_MODE_SCROLL',
+          paneId,
+          scrollTop: newScrollTop,
+          nativeSelection: copyState.mode === 'scroll' && readNativeSelection().length > 0,
+        });
         flashScrollIndicator();
       }
     },

@@ -60,6 +60,9 @@ export const Stacked: Story = {
     // Close the middle one; the others stay.
     await userEvent.click(within(alerts[1]).getByRole('button', { name: /dismiss/i }));
     await waitFor(() => expect(body.getAllByRole('alert')).toHaveLength(ERRORS.length - 1));
-    expect(body.queryByText(ERRORS[1])).not.toBeInTheDocument();
+    // (The trigger button still says it; the alert is what went away.)
+    expect(body.getAllByRole('alert').map((a) => a.textContent)).not.toContain(
+      expect.stringContaining(ERRORS[1]),
+    );
   },
 };

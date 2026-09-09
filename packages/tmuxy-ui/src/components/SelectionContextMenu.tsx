@@ -1,14 +1,15 @@
 /**
  * SelectionContextMenu - Right-click context menu for selected text.
  *
- * Appears on right-click with Copy, Search Google, and Ask ChatGPT actions.
+ * Two things to do with a selection: copy it, or type it into the pane.
  * Uses @szhsin/react-menu ControlledMenu (same pattern as PaneContextMenu).
  */
 
-import { ControlledMenu, MenuItem, MenuDivider } from '@szhsin/react-menu';
+import { ControlledMenu, MenuItem } from '@szhsin/react-menu';
 import '@szhsin/react-menu/dist/index.css';
 import { useAppSend } from '../machines/AppContext';
 import { escapeLiteralText } from '../tmux/keyBatching';
+import { CopyIcon, SendKeysIcon } from './menus/MenuIcons';
 import './menus/AppMenu.css';
 
 interface SelectionContextMenuProps {
@@ -28,6 +29,8 @@ export function SelectionContextMenu({
 }: SelectionContextMenuProps) {
   const send = useAppSend();
 
+  // Either action is the end of the selection's job: the scrollback view (or
+  // copy mode) closes with the menu.
   const exitAndClose = () => {
     send({ type: 'EXIT_COPY_MODE', paneId });
     onClose();
@@ -41,39 +44,20 @@ export function SelectionContextMenu({
           exitAndClose();
         }}
       >
+        <CopyIcon />
         Copy
       </MenuItem>
       <MenuItem
         onClick={() => {
-          send({ type: 'EXIT_COPY_MODE', paneId });
           send({
             type: 'SEND_COMMAND',
             command: `send-keys -t ${paneId} -l ${escapeLiteralText(selectedText)}`,
           });
-          onClose();
+          exitAndClose();
         }}
       >
+        <SendKeysIcon />
         Send keys
-      </MenuItem>
-      <MenuDivider />
-      <MenuItem
-        onClick={() => {
-          window.open(
-            'https://www.google.com/search?q=' + encodeURIComponent(selectedText),
-            '_blank',
-          );
-          exitAndClose();
-        }}
-      >
-        Search Google
-      </MenuItem>
-      <MenuItem
-        onClick={() => {
-          window.open('https://chatgpt.com/?prompt=' + encodeURIComponent(selectedText), '_blank');
-          exitAndClose();
-        }}
-      >
-        Ask ChatGPT
       </MenuItem>
     </ControlledMenu>
   );

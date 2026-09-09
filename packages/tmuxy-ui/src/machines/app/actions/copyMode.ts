@@ -439,12 +439,15 @@ export const copyModeActions = {
 
       // Back at the bottom with nothing selected: the user is done looking,
       // so the pane follows live output again. Each view leaves by its own
-      // door — the scroll view has no tmux mode to cancel.
+      // door — the scroll view has no tmux mode to cancel. A selection holds
+      // the view open, the client's in copy mode or the browser's in the
+      // scroll view: closing it would take the selection with it.
       if (
         maxScrollTop > 0 &&
         scrollTop >= maxScrollTop &&
         existing.scrollTop < maxScrollTop &&
-        !existing.selectionMode
+        !existing.selectionMode &&
+        !event.nativeSelection
       ) {
         enqueue.raise(
           existing.mode === 'scroll'

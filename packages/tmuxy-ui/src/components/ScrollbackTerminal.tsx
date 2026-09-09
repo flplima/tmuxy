@@ -6,7 +6,9 @@
  * Uses imperative DOM updates via terminalRendering.ts. NOTE: this is a
  * SEPARATE renderer from Terminal's React-based TerminalLine.tsx — the two
  * implementations must be kept in sync manually (styles, selection, cursor).
- * Selection is computed client-side from cursor/anchor positions.
+ * Copy mode's selection is computed client-side from cursor/anchor
+ * positions; the scroll view's is the browser's, and the rows it spans stay
+ * mounted for as long as it lasts.
  */
 
 import { useRef, useLayoutEffect, useMemo } from 'react';
@@ -104,21 +106,50 @@ function computeScrollbackSelection(
   };
 }
 
+type SelRange = ReturnType<ReturnType<typeof computeScrollbackSelection>>;
+
+const sameRange = (a: SelRange, b: SelRange): boolean =>
+  a === b || (a !== null && b !== null && a.startCol === b.startCol && a.endCol === b.endCol);
+
+/** The absolute row a selection endpoint sits in, if it is one of ours. */
+function rowOf(pre: HTMLElement, node: Node, offset: number): number | null {
+  // A range that starts or ends on the <pre> itself addresses a child by index.
+  const target =
+    node === pre ? (pre.childNodes[Math.min(offset, pre.childNodes.length - 1)] ?? null) : node;
+  const element = target instanceof Element ? target : (target?.parentElement ?? null);
+  const line = element?.closest<HTMLElement>('.terminal-line') ?? null;
+  if (!line || !pre.contains(line)) return null;
+  const row = Number(line.dataset.row);
+  return Number.isFinite(row) ? row : null;
+}
+
+/**
+ * The rows the browser's selection spans inside this scrollback, or null
+ * when nothing of ours is selected.
+ */
+function selectedRowSpan(pre: HTMLElement): { start: number; end: number } | null {
+  if (typeof window === 'undefined') return null;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  const a = rowOf(pre, range.startContainer, range.startOffset);
+  const b = rowOf(pre, range.endContainer, range.endOffset);
+  if (a === null || b === null) return null;
+  return { start: Math.min(a, b), end: Math.max(a, b) };
+}
+
 export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalProps) {
   const { charHeight } = useAppSelector(selectCharSize);
   const preRef = useRef<HTMLPreElement>(null);
-  // Indexed by div position (not by absolute row): each entry records what
-  // was last rendered into children[i]. Position-keyed tracking is required
-  // because scrolling shifts visibleStart, reusing the same divs for different
-  // rows. A row-keyed map skipped updates whenever the new row happened to
-  // overlap the previous render's row set, leaving stale content in the divs.
-  const prevLinesRef = useRef<
-    Array<{
-      row: number;
-      line: CellLine;
-      selRange: ReturnType<ReturnType<typeof computeScrollbackSelection>>;
-    }>
-  >([]);
+  // Mounted rows by absolute row, with what each was last painted with.
+  // Every row is positioned at its own `row * charHeight`, so any subset can
+  // be mounted and a row is never repainted because the window moved — only
+  // when its content changes. That is what keeps the browser's selection
+  // alive in the scroll view: its endpoints live in these nodes, and a node
+  // that is replaced takes the selection with it.
+  const rowsRef = useRef(
+    new Map<number, { el: HTMLDivElement; line: CellLine; selRange: SelRange }>(),
+  );
 
   const { totalLines, scrollTop, height, cursorRow, cursorCol, lines, loadedRanges } = copyState;
   const { selectionAnchor, selectionMode, width, mode } = copyState;
@@ -141,65 +172,69 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
   // Visible line range with overscan buffer (1 screen above + 1 screen below)
   const renderStart = Math.max(0, scrollTop - height);
   const renderEnd = Math.min(totalLines - 1, scrollTop + 2 * height - 1);
-  const visibleStart = renderStart;
-  const visibleEnd = renderEnd;
-  const visibleCount = visibleEnd - visibleStart + 1;
 
   const isCursorVisible =
-    isCopyMode && isActive && cursorRow >= visibleStart && cursorRow <= visibleEnd;
+    isCopyMode && isActive && cursorRow >= renderStart && cursorRow <= renderEnd;
 
   // Imperative DOM update
   useLayoutEffect(() => {
     const pre = preRef.current;
     if (!pre) return;
+    const rows = rowsRef.current;
 
-    const children = pre.children;
-    const prevArr = prevLinesRef.current;
-    const newPrevArr: typeof prevArr = new Array(visibleCount);
+    // In the scroll view the selection is the browser's: every row it spans
+    // stays mounted while the window moves on, so the selection survives the
+    // scroll and still reads back whole (selection text is document order,
+    // and an unmounted row would simply be missing from it).
+    const held = isCopyMode ? null : selectedRowSpan(pre);
+    const wanted = (row: number) =>
+      (row >= renderStart && row <= renderEnd) ||
+      (held !== null && row >= held.start && row <= held.end);
 
-    // Ensure correct number of line divs
-    if (children.length !== visibleCount) {
-      pre.textContent = '';
-      for (let i = 0; i < visibleCount; i++) {
-        const div = document.createElement('div');
-        div.className = 'terminal-line';
-        const row = visibleStart + i;
-        const line = lineFor(row, lines, loadedRanges);
-        const selRange = getSelectionRange(row);
-        renderLineToDOM(div, line, selRange);
-        pre.appendChild(div);
-        newPrevArr[i] = { row, line, selRange };
-      }
-    } else {
-      // Incremental update — compare per div position. When scrolling, the
-      // row at children[i] changes; rowChanged forces a redraw even if the
-      // new row's content happens to be reference-equal to what was at i
-      // before.
-      for (let i = 0; i < visibleCount; i++) {
-        const row = visibleStart + i;
-        const line = lineFor(row, lines, loadedRanges);
-        const selRange = getSelectionRange(row);
-        const prev = prevArr[i];
-
-        const rowChanged = !prev || prev.row !== row;
-        const lineChanged = !prev || prev.line !== line;
-        const selChanged =
-          !prev ||
-          (selRange !== prev.selRange &&
-            (selRange === null ||
-              prev.selRange === null ||
-              selRange?.startCol !== prev.selRange?.startCol ||
-              selRange?.endCol !== prev.selRange?.endCol));
-
-        if (rowChanged || lineChanged || selChanged) {
-          const div = children[i] as HTMLDivElement;
-          renderLineToDOM(div, line, selRange);
-        }
-        newPrevArr[i] = { row, line, selRange };
+    for (const [row, entry] of rows) {
+      if (!wanted(row)) {
+        entry.el.remove();
+        rows.delete(row);
       }
     }
-    prevLinesRef.current = newPrevArr;
-  }, [visibleStart, visibleCount, lines, loadedRanges, getSelectionRange]);
+
+    const ensure = (row: number) => {
+      const line = lineFor(row, lines, loadedRanges);
+      const selRange = getSelectionRange(row);
+      const top = `${row * charHeight}px`;
+      const entry = rows.get(row);
+      if (entry) {
+        if (entry.el.style.top !== top) entry.el.style.top = top;
+        if (entry.line !== line || !sameRange(entry.selRange, selRange)) {
+          renderLineToDOM(entry.el, line, selRange);
+          entry.line = line;
+          entry.selRange = selRange;
+        }
+        return;
+      }
+      const el = document.createElement('div');
+      el.className = 'terminal-line';
+      el.dataset.row = String(row);
+      el.style.position = 'absolute';
+      el.style.top = top;
+      el.style.left = '0';
+      el.style.right = '0';
+      renderLineToDOM(el, line, selRange);
+      // Document order is selection order: keep the rows ascending.
+      let next: Element | null = null;
+      for (const child of pre.children) {
+        if (Number((child as HTMLElement).dataset.row) > row) {
+          next = child;
+          break;
+        }
+      }
+      pre.insertBefore(el, next);
+      rows.set(row, { el, line, selRange });
+    };
+
+    for (let row = renderStart; row <= renderEnd; row++) ensure(row);
+    if (held) for (let row = held.start; row <= held.end; row++) ensure(row);
+  }, [renderStart, renderEnd, lines, loadedRanges, getSelectionRange, isCopyMode, charHeight]);
 
   // Cursor character
   const cursorChar = useMemo(() => {
@@ -209,16 +244,14 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
     return line[cursorCol].c;
   }, [isCursorVisible, lines, cursorRow, cursorCol]);
 
-  // Cursor position relative to the <pre> block (not absolute row)
-  const cursorRelY = cursorRow - renderStart;
-
   return (
     <div
       style={{
         position: 'absolute',
-        top: renderStart * charHeight,
+        top: 0,
         left: 0,
         right: 0,
+        height: totalLines * charHeight,
       }}
     >
       <pre
@@ -228,10 +261,10 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
         data-copy-mode={isCopyMode ? 'true' : undefined}
         data-scroll-mode={isCopyMode ? undefined : 'true'}
         ref={preRef}
-        style={{ position: 'relative' }}
+        style={{ position: 'relative', height: '100%' }}
       />
       {isCursorVisible && (
-        <Cursor x={cursorCol} y={cursorRelY} char={cursorChar} copyMode={true} mode="block" />
+        <Cursor x={cursorCol} y={cursorRow} char={cursorChar} copyMode={true} mode="block" />
       )}
     </div>
   );

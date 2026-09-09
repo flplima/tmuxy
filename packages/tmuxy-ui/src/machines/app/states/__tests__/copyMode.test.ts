@@ -168,6 +168,25 @@ describe('copyMode state', () => {
     }
   });
 
+  it('a browser selection holds the scroll view open at the bottom', () => {
+    // The scroll view's selection is the browser's; closing the view would
+    // unmount the rows it lives in. The component reports it on the event.
+    const bottom = 40;
+    const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
+      copyModeStates: {
+        '%1': makeCopyState({ mode: 'scroll', totalLines: bottom + 2, height: 2, scrollTop: 0 }),
+      },
+    });
+    const ctx = sendAndGetContext(actor, {
+      type: 'COPY_MODE_SCROLL',
+      paneId: '%1',
+      scrollTop: bottom,
+      nativeSelection: true,
+    });
+    expect(ctx.copyModeStates['%1']?.mode).toBe('scroll');
+    expect(ctx.copyModeStates['%1']?.scrollTop).toBe(bottom);
+  });
+
   it('COPY_MODE_SELECTION_CLEAR clears selection but keeps cursor', () => {
     const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
       copyModeStates: {

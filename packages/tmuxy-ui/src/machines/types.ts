@@ -775,7 +775,13 @@ export type CopyModeSelectionStartEvent = {
   col: number;
 };
 export type CopyModeSelectionClearEvent = { type: 'COPY_MODE_SELECTION_CLEAR'; paneId: string };
-export type CopyModeScrollEvent = { type: 'COPY_MODE_SCROLL'; paneId: string; scrollTop: number };
+export type CopyModeScrollEvent = {
+  type: 'COPY_MODE_SCROLL';
+  paneId: string;
+  scrollTop: number;
+  /** The browser has text selected in the scrollback (scroll view only). */
+  nativeSelection?: boolean;
+};
 export type CopyModeYankEvent = { type: 'COPY_MODE_YANK'; paneId: string };
 export type CopyModeKeyEvent = {
   type: 'COPY_MODE_KEY';

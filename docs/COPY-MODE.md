@@ -84,6 +84,8 @@ is closed — the `TMUX_STATE_UPDATE` reconciliation in `appMachine.ts` owns tha
 - `q` / `Escape` / `y` — handled by tmux's `copy-mode-vi` bindings; the pane leaves `in_mode` and the
   reconciliation drops the client state.
 - Scrolling back to the bottom of history with no active selection — `copyMode_scroll` auto-exits.
+  A selection holds the view open — copy mode's own, or the browser's in the scroll view, which
+  the scroll event reports (`nativeSelection`) since only the component can see it.
 - A 2-second re-entry cooldown (`COPY_MODE_REENTRY_COOLDOWN`) prevents a stale `in_mode` flag from
   immediately re-opening copy mode after an exit.
 
@@ -131,7 +133,14 @@ extracted selection to the system clipboard via the keyboard actor's native `cop
 **Everywhere else** the hook deliberately does nothing on those gestures and prevents no default, so
 the browser selects — which also means double-click word boundaries come from the engine rather than
 a cell heuristic. Right-click reads that selection (`utils/nativeSelection.ts`), picking the word
-under the pointer first when nothing is selected.
+under the pointer first when nothing is selected; a right-click does not move browser focus to the
+hidden keyboard input, which would collapse the selection it is about to read.
+
+A browser selection lives in DOM nodes, so the scroll view keeps them: `ScrollbackTerminal` mounts
+each row as its own absolutely positioned node, repaints a row only when its content changes (never
+because the window moved), and keeps every row a selection spans mounted while it lasts — so the
+selection survives scrolling, in either direction and all the way to the bottom, and reads back
+whole, since selection text is document order.
 
 **Wheel / touch** scroll the native container while a view is open; `onScroll` reports the new top row
 via `COPY_MODE_SCROLL`. Mouse-tracking applications (`mouse_any_flag`, e.g. nvim/htop) receive
@@ -142,8 +151,8 @@ forwarded SGR mouse sequences instead — that path is unchanged.
 Selected text is extracted client-side (`extractSelectedText`, which joins wrapped rows into logical
 lines). Keyboard yank (`y`/`Enter`) and `Ctrl/Cmd-C` set the extracted text on the keyboard actor's
 native `copy` event (`document.execCommand('copy')` → `clipboardData`). The right-click **Copy** action
-writes it via `navigator.clipboard.writeText`; the selection context menu also offers "Send keys", web
-search, and other actions.
+writes it via `navigator.clipboard.writeText`; the selection context menu's other item, **Send keys**,
+types the selection into the pane. Either closes the view.
 
 ## Key files
 
