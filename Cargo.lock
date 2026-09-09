@@ -5930,7 +5930,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tmuxy-connect"
-version = "0.0.10-alpha.54"
+version = "0.0.10-alpha.55"
 dependencies = [
  "ratatui",
  "serde",
@@ -5940,7 +5940,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-core"
-version = "0.0.10-alpha.54"
+version = "0.0.10-alpha.55"
 dependencies = [
  "async-trait",
  "backon",
@@ -5966,7 +5966,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-server"
-version = "0.0.10-alpha.54"
+version = "0.0.10-alpha.55"
 dependencies = [
  "async-stream",
  "axum",
@@ -5994,7 +5994,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-tauri-app"
-version = "0.0.10-alpha.54"
+version = "0.0.10-alpha.55"
 dependencies = [
  "clap",
  "nix",
@@ -6016,7 +6016,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-tree"
-version = "0.0.10-alpha.54"
+version = "0.0.10-alpha.55"
 dependencies = [
  "ratatui",
  "serde",
@@ -6025,7 +6025,7 @@ dependencies = [
 
 [[package]]
 name = "tmuxy-wasm"
-version = "0.0.10-alpha.54"
+version = "0.0.10-alpha.55"
 dependencies = [
  "base64 0.22.1",
  "serde",
