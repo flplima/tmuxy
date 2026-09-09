@@ -1314,10 +1314,9 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
 
   // Ground truth straight from tmux: the window tmux itself considers active.
   const tmuxActiveWindow = () => {
-    const out = tmuxExec(
-      `list-windows -t ${ctx.session.name} -F '#{window_id}|#{window_active}'`,
-      { timeout: 5000 },
-    );
+    const out = tmuxExec(`list-windows -t ${ctx.session.name} -F '#{window_id}|#{window_active}'`, {
+      timeout: 5000,
+    });
     const active = out
       .split('\n')
       .map((l) => l.split('|'))
@@ -1346,7 +1345,9 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
     });
     const truth = tmuxActiveWindow();
     expect(`${label}: ${state.activeWindowId}`).toBe(`${label}: ${truth}`);
-    expect(`${label}: ${JSON.stringify(state.flagged)}`).toBe(`${label}: ${JSON.stringify([truth])}`);
+    expect(`${label}: ${JSON.stringify(state.flagged)}`).toBe(
+      `${label}: ${JSON.stringify([truth])}`,
+    );
     expect(`${label}: ${state.activePaneWindow}`).toBe(`${label}: ${truth}`);
   };
 
@@ -1468,8 +1469,9 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
 
     // Land on the LAST tab by clicking it in the strip. No pane is clicked, so
     // nothing re-points tmux at this window behind the scenes.
-    const tabs = await page.$$('.tab-list .tab-name');
-    await tabs[tabs.length - 1].click();
+    // A locator, not a handle: the strip re-renders as the new tab's name
+    // settles, and a handle taken a moment earlier can point at a replaced node.
+    await page.locator('.tab-list .tab-name').last().click();
     await delay(DELAYS.SYNC);
     const target = await visibleTab();
     expect(target).toMatch(/^@\d+$/);
@@ -1559,6 +1561,11 @@ describe('Scenario: a rejected tmux command is reported in the snackbar', () => 
     // The close button dismisses this entry.
     const close = await item.$('button[aria-label="Dismiss notification"]');
     await close.click();
-    await waitForCondition(page, async () => (await findItem()) === null, 5000, 'the snackbar to close');
+    await waitForCondition(
+      page,
+      async () => (await findItem()) === null,
+      5000,
+      'the snackbar to close',
+    );
   }, 60000);
 });

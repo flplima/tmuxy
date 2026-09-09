@@ -215,7 +215,20 @@ describe('IPC Commands', () => {
       await new Promise((r) => setTimeout(r, 200));
       windows = await listWindows();
     }
-    expect(windows.length).toBe(2);
+    if (windows.length !== 2) {
+      // What tmux has, and what it said: a rejected new-window is a snackbar
+      // entry now, so the reason is on the page.
+      const all = await invokeCommand(driver, 'query_tmux', {
+        command:
+          "list-windows -a -F '#{session_name} #{window_id} #{window_width}x#{window_height}'",
+      });
+      const notes = await driver.execute(() =>
+        (window.app?.getSnapshot()?.context?.notifications || []).map((n) => n.text),
+      );
+      throw new Error(
+        `expected 2 windows in the session, tmux lists: ${JSON.stringify(all)}; notifications: ${JSON.stringify(notes)}`,
+      );
+    }
     const [first, second] = windows;
     await invokeCommand(driver, 'run_tmux_command', { command: `select-window -t ${first[0]}` });
 

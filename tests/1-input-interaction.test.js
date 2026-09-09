@@ -368,12 +368,18 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     // Step 2: the wheel opens the native-like scroll view — scrollback to read
     // and select, with no cursor and nothing said to tmux. A wheel gesture
     // handing the pane a cursor and vi keys is the bug this replaced.
+    // Paced ticks, each a full row or more, until the view opens: a burst of
+    // sub-row deltas can all land before the client has the pane's history
+    // size on a slow runner, and a tick that arrives then does nothing.
     await ctx.page.mouse.move(box.x + 100, box.y + box.height / 2);
-    for (let i = 0; i < 8; i++) await ctx.page.mouse.wheel(0, -60);
     await waitForCondition(
       ctx.page,
-      async () => (await getCopyModeState(ctx.page))?.mode === 'scroll',
-      10000,
+      async () => {
+        await ctx.page.mouse.wheel(0, -120);
+        await delay(100);
+        return (await getCopyModeState(ctx.page))?.mode === 'scroll';
+      },
+      15000,
       'the scroll view to open',
     );
     const scrolled = await getCopyModeState(ctx.page);
