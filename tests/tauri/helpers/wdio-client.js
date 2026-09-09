@@ -309,9 +309,11 @@ async function invokeCommand(driver, command, args = {}) {
         ?.invoke(cmd, a)
         .then((result) => {
           if (result == null) return done(null);
-          // Sanitize control characters (U+0000–U+001F) that break WebDriver JSON
+          // Sanitize the control characters that break WebDriver JSON — but
+          // keep newlines and tabs: a `query_tmux` listing is one row per line,
+          // and a caller splitting on '\n' must get its rows back.
           if (typeof result === 'string') {
-            return done(result.replace(/[\x00-\x1f]/g, ''));
+            return done(result.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ''));
           }
           done(JSON.parse(JSON.stringify(result)));
         })
