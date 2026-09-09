@@ -679,6 +679,8 @@
 .pane-layout-item.pane-shifting,
 .pane-layout-no-animations .pane-layout-item.pane-shifting,
 .pane-layout-resizing .pane-layout-item.pane-shifting {
+  /* Over a leaving pane (z 0); under an entering one (--z-pane-anim). */
+  z-index: var(--z-base);
   transition:
     left var(--transition-pane-enter),
     top var(--transition-pane-enter),
@@ -688,22 +690,23 @@
     background-color var(--transition-active);
 }
 
-/* Leaving pane: kept mounted by PaneLayout after the model dropped it,
-   re-rendered with the absorber's box as target — a translucent box
-   morphing into the survivor while fading out (reverse of enter). */
+/* Leaving pane: kept mounted by PaneLayout after the model dropped it, at
+   its last box — it shrinks into its own centre while fading out, BELOW the
+   survivor that grows over the space (z 0 against the survivor's 1+), so
+   the closing pane reads as receding behind the one taking its place. */
 .pane-layout-item.pane-leaving,
 .pane-layout-no-animations .pane-layout-item.pane-leaving,
 .pane-layout-resizing .pane-layout-item.pane-leaving {
   opacity: 0;
-  z-index: var(--z-pane-anim);
+  /* The scale itself is inline (AnimatedPaneWrapper's collapseTransform), as
+     the wrapper owns the transform; this rule times it and fixes the origin. */
+  transform-origin: center;
+  z-index: 0;
   pointer-events: none;
   transition:
-    left var(--transition-pane-leave),
-    top var(--transition-pane-leave),
-    width var(--transition-pane-leave),
-    height var(--transition-pane-leave),
+    transform var(--transition-pane-leave),
     opacity var(--transition-pane-leave);
-  will-change: left, top, width, height, opacity;
+  will-change: transform, opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {

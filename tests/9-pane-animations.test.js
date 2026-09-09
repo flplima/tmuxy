@@ -5,7 +5,7 @@
  * pre-split box at reduced opacity and converges to its final half-box while
  * fading in (`.pane-entering`), the source pane shifting on the same clock
  * (`.pane-shifting`). Killing a pane is the reverse: the dying pane keeps its
- * node mounted with `.pane-leaving`, morphing into the survivor's expanded
+ * node mounted with `.pane-leaving`, shrinking into its own centre under the survivor's expanded
  * box while fading out, then the node is removed.
  *
  * Verified through real user paths (prefix-key split, typing `exit`) with an
@@ -131,7 +131,8 @@ function countLifecycleClasses(page) {
 async function waitForAnimationsEnabled(page) {
   const gateOpen = () =>
     page.evaluate(
-      () => !document.querySelector('.pane-layout')?.classList.contains('pane-layout-no-animations'),
+      () =>
+        !document.querySelector('.pane-layout')?.classList.contains('pane-layout-no-animations'),
     );
 
   // The gate needs a QUIET model update — one carrying no dimension change and
@@ -161,7 +162,7 @@ describe('Pane split/kill animations', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Split morphs new pane out of the source box; exit morphs it back into the survivor', async () => {
+  test('Split morphs new pane out of the source box; exit shrinks into its own centre under the survivor', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -257,11 +258,12 @@ describe('Pane split/kill animations', () => {
     const killRec = await readAnimationRecorder(ctx.page);
     await stopAnimationRecorder(ctx.page);
 
-    // The dying pane's node outlived the model drop as .pane-leaving, faded
-    // out, and was removed.
+    // The dying pane's node outlived the model drop as .pane-leaving, shrank
+    // into its centre while fading out, and was removed.
     expect(killRec.leaveSeen).toBe(true);
     expect(killRec.leavePaneId).toBe(newPane.id);
     expect(killRec.leaveTransitionProps).toContain('opacity');
+    expect(killRec.leaveTransitionProps).toContain('transform');
 
     // Survivor reclaimed (≈) the full original box and still takes input.
     const [survivor] = await getVisiblePaneRects(ctx.page);

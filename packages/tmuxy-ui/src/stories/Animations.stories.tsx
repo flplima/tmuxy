@@ -11,8 +11,8 @@
  *                         from the source pane's pre-split box into place
  *  - SlowSplitOptimistic  optimistic placeholder node appears before a slow ack
  *  - SplitRejectedRollback optimistic node is inserted, then removed on reject
- *  - ClosePane            killed pane runs the leave morph (.pane-leaving) into
- *                         the survivor's box, then its node is removed
+ *  - ClosePane            killed pane shrinks into its own centre (.pane-leaving)
+ *                         under the growing survivor, then its node is removed
  *  - ResizePane           moving the divider rewrites pane geometry (animated)
  *  - OpenFloat            overlay portals into <body> and runs `float-appear`
  *  - OpenDrawer           drawer overlay runs the `slide-in-left` keyframe
@@ -333,7 +333,7 @@ export const ClosePane: Story = {
       story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'Killing a pane runs the leave morph: the model drops the pane but its node stays mounted with `.pane-leaving`, transitioning into the survivor’s expanded box while fading to 0, then the node is removed. Asserted via the `.pane-leaving` node’s presence + geometry target, `transitionstart`, the eventual removal of the exact pane id, and the survivor’s re-layout.',
+          'Killing a pane runs the leave morph: the model drops the pane but its node stays mounted with `.pane-leaving` at its own box, scaling down into its centre while fading to 0 — below the survivor, which grows over the space on the same clock — then the node is removed. Asserted via the `.pane-leaving` node staying at its box, a `transform` + `opacity` `transitionstart`, its z-index sitting under the survivor’s, a paint-aligned rAF sampler seeing the box shrink around a fixed centre, the eventual removal of the exact pane id, and the survivor’s re-layout.',
       },
     },
   },
@@ -346,6 +346,9 @@ export const ClosePane: Story = {
 
     const activeId = getApp().getSnapshot().context.activePaneId;
     expect(activeId).toBeTruthy();
+    const before = paneNodes(canvasElement)
+      .find((n) => n.dataset.paneId === activeId)!
+      .getBoundingClientRect();
 
     const leaveStarts = new Set<string>();
     const onTransitionStart = (e: Event) => {
@@ -356,13 +359,38 @@ export const ClosePane: Story = {
     };
     layout.addEventListener('transitionstart', onTransitionStart);
 
+    // Paint-aligned samples of the leaving pane's painted box, and the
+    // z-order between it and the survivor while both are in flight.
+    const leaveSamples: { cx: number; cy: number; area: number }[] = [];
+    let zOrder: { leaving: number; survivor: number } | null = null;
+    let sampling = true;
+    const sampleFrame = () => {
+      const leaving = layout.querySelector<HTMLElement>('.pane-layout-item.pane-leaving');
+      if (leaving) {
+        const r = leaving.getBoundingClientRect();
+        leaveSamples.push({
+          cx: r.x + r.width / 2,
+          cy: r.y + r.height / 2,
+          area: r.width * r.height,
+        });
+        const survivor = paneNodes(canvasElement).find((n) => n !== leaving);
+        if (survivor && zOrder === null) {
+          zOrder = {
+            leaving: Number(getComputedStyle(leaving).zIndex),
+            survivor: Number(getComputedStyle(survivor).zIndex) || 0,
+          };
+        }
+      }
+      if (sampling) requestAnimationFrame(sampleFrame);
+    };
+    requestAnimationFrame(sampleFrame);
+
     const recorder = new LayoutMutationRecorder(layout);
     try {
       getApp().send({ type: 'SEND_TMUX_COMMAND', command: `kill-pane -t ${activeId}` });
 
-      // The killed pane's node survives the model drop as .pane-leaving,
-      // retargeted at the absorber's box (inline width = full grid width,
-      // wider than the half-box it is morphing from).
+      // The killed pane's node survives the model drop as .pane-leaving, at
+      // the box it had — not the survivor's.
       const leaving = await waitFor(
         () => {
           const el = canvasElement.querySelector<HTMLElement>('.pane-layout-item.pane-leaving');
@@ -372,20 +400,35 @@ export const ClosePane: Story = {
         { timeout: 1000 },
       );
       expect(leaving.getAttribute('data-pane-id')).toBe(activeId);
+      expect(parseFloat(leaving.style.width)).toBeCloseTo(before.width, 0);
 
-      // The leave morph runs (opacity + geometry transitions started), the
+      // The leave morph runs (transform + opacity transitions started), the
       // node is removed after it, and the survivor re-laid-out to fill.
       await waitForPaneCount(canvas, 1);
       await waitFor(
         () => {
-          expect(leaveStarts.has('opacity')).toBe(true);
-          expect(recorder.removedPaneIds.has(activeId as string)).toBe(true);
+          expect([...leaveStarts]).toContain('opacity');
+          expect([...leaveStarts]).toContain('transform');
+          expect([...recorder.removedPaneIds]).toContain(activeId as string);
           expect(recorder.geometryRewrites).toBeGreaterThan(0);
           expect(canvasElement.querySelector('.pane-leaving')).toBeNull();
         },
         { timeout: 2000 },
       );
+      sampling = false;
+
+      // It receded behind the survivor: painted below it, shrinking around
+      // its own centre.
+      expect(zOrder).not.toBeNull();
+      expect(zOrder!.leaving).toBeLessThan(zOrder!.survivor);
+      expect(leaveSamples.length).toBeGreaterThan(1);
+      const first = leaveSamples[0];
+      const last = leaveSamples[leaveSamples.length - 1];
+      expect(last.area).toBeLessThan(first.area);
+      expect(Math.abs(last.cx - first.cx)).toBeLessThan(2);
+      expect(Math.abs(last.cy - first.cy)).toBeLessThan(2);
     } finally {
+      sampling = false;
       recorder.disconnect();
       layout.removeEventListener('transitionstart', onTransitionStart);
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rectOverlapArea, findEnterFromBox, findLeaveToBox } from '../paneTransitions';
+import { rectOverlapArea, findEnterFromBox } from '../paneTransitions';
 import type { PaneBox } from '../../constants';
 
 const box = (left: number, top: number, width: number, height: number): PaneBox => ({
@@ -85,49 +85,5 @@ describe('findEnterFromBox', () => {
       ['B', bNew],
     ]);
     expect(findEnterFromBox(bNew, prev, curr)).toBeNull();
-  });
-});
-
-describe('findLeaveToBox', () => {
-  it('finds the expanded absorber for a killed pane', () => {
-    // B (right half) killed; A expands to full width.
-    const aOld = box(0, 0, 400, 600);
-    const bOld = box(400, 0, 400, 600);
-    const aNew = box(0, 0, 800, 600);
-    const prev = new Map([
-      ['A', aOld],
-      ['B', bOld],
-    ]);
-    const curr = new Map([['A', aNew]]);
-    expect(findLeaveToBox(bOld, prev, curr)).toEqual(aNew);
-  });
-
-  it('picks the absorber among several survivors', () => {
-    // Three stacked panes; middle killed, top absorbs the space.
-    const topOld = box(0, 0, 800, 200);
-    const midOld = box(0, 200, 800, 200);
-    const botOld = box(0, 400, 800, 200);
-    const topNew = box(0, 0, 800, 400);
-    const prev = new Map([
-      ['T', topOld],
-      ['M', midOld],
-      ['B', botOld],
-    ]);
-    const curr = new Map([
-      ['T', topNew],
-      ['B', botOld],
-    ]);
-    expect(findLeaveToBox(midOld, prev, curr)).toEqual(topNew);
-  });
-
-  it('returns null when no survivor grew into the freed area', () => {
-    const aOld = box(0, 0, 400, 600);
-    const bOld = box(400, 0, 400, 600);
-    const prev = new Map([
-      ['A', aOld],
-      ['B', bOld],
-    ]);
-    const curr = new Map([['A', aOld]]);
-    expect(findLeaveToBox(bOld, prev, curr)).toBeNull();
   });
 });

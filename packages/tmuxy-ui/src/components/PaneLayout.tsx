@@ -26,7 +26,7 @@ import {
   PANE_ENTER_FROM_OPACITY,
   type PaneBox,
 } from '../constants';
-import { findEnterFromBox, findLeaveToBox } from '../utils/paneTransitions';
+import { findEnterFromBox } from '../utils/paneTransitions';
 import { gridExtent } from '../machines/app/helpers';
 import { LeavingPanesContext } from '../machines/LeavingPanesContext';
 import {
@@ -81,7 +81,8 @@ interface ShiftAnim {
 
 interface LeaveAnim {
   pane: TmuxPane;
-  toBox: PaneBox;
+  /** The pane's last box: it shrinks into its own centre there, under the survivor. */
+  box: PaneBox;
   timer?: number;
 }
 
@@ -396,7 +397,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // appears gets a FLIP enter (mounted at final geometry, rewound to the
   // split source's pre-split box before paint, transitioned into place
   // while fading in); a key that vanishes keeps rendering for the leave
-  // duration, morphing into the absorber's box while fading out; panes
+  // duration, shrinking into its own centre under the survivor while fading out; panes
   // whose box changed alongside an enter/leave get `pane-shifting` so they
   // animate on the same clock. All state is local (refs + a tick reducer)
   // — detection mutations in the render phase are add-only and keyed, so
@@ -533,10 +534,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       if (allPaneIds.has(v.pane.tmuxId)) continue; // moved, not dead
       const enter = enterAnimsRef.current.get(key);
       if (enter && performance.now() - enter.startedAt < TRANSIENT_PANE_MS) continue;
-      leavingRef.current.set(key, {
-        pane: v.pane,
-        toBox: findLeaveToBox(v.box, prevBoxes, currBoxes) ?? v.box,
-      });
+      leavingRef.current.set(key, { pane: v.pane, box: v.box });
     }
 
     // Shifts: while any enter/leave is in flight, pre-existing panes whose
@@ -751,8 +749,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         {renderItems.map(({ key, pane, hidden, zoomCollapsed, leave }) => {
           if (leave) {
             // The model already dropped this pane; keep its DOM node alive
-            // (same key → no remount) and retarget it at the absorber's box
-            // — .pane-leaving transitions it there while fading to 0.
+            // (same key → no remount) at its last box — .pane-leaving scales
+            // it into its own centre while fading to 0, below the survivor
+            // that grows over it.
             return (
               <AnimatedPaneWrapper
                 key={key}
@@ -762,10 +761,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
                 style={
                   {
                     position: 'absolute',
-                    left: leave.toBox.left,
-                    top: leave.toBox.top,
-                    width: leave.toBox.width,
-                    height: leave.toBox.height,
+                    left: leave.box.left,
+                    top: leave.box.top,
+                    width: leave.box.width,
+                    height: leave.box.height,
                     '--pane-h-padding-left': `${hPadding}px`,
                     '--pane-h-padding-right': `${hPadding}px`,
                   } as React.CSSProperties
@@ -773,6 +772,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
                 targetX={0}
                 targetY={0}
                 elevated={false}
+                // The wrapper owns the inline transform (a translate for
+                // drags), so the shrink is set here, where it wins.
+                collapseTransform="scale(0.6)"
               >
                 {children(pane)}
               </AnimatedPaneWrapper>
