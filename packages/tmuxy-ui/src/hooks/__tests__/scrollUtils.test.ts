@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sendScrollLines, sgrMouseCommand } from '../scrollUtils';
+import { sendScrollLines, sgrMouseCommand, takeWholeRows, scrollByRows } from '../scrollUtils';
 import type { AppMachineEvent } from '../../machines/types';
 
 function captureSends() {
@@ -9,6 +9,65 @@ function captureSends() {
   };
   return { events, send };
 }
+
+describe('takeWholeRows', () => {
+  it('takes the whole rows and carries the rest', () => {
+    expect(takeWholeRows(50, 18, 0)).toEqual({ rows: 2, remainder: 14 });
+  });
+
+  it('adds the carried remainder to the next delta', () => {
+    expect(takeWholeRows(4, 18, 14)).toEqual({ rows: 1, remainder: 0 });
+  });
+
+  it('takes nothing from a delta smaller than a row', () => {
+    expect(takeWholeRows(6, 18, 0)).toEqual({ rows: 0, remainder: 6 });
+  });
+
+  it('truncates towards zero in both directions', () => {
+    expect(takeWholeRows(-50, 18, 0)).toEqual({ rows: -2, remainder: -14 });
+  });
+
+  it('takes nothing when the row height is unknown', () => {
+    expect(takeWholeRows(50, 0, 0)).toEqual({ rows: 0, remainder: 0 });
+  });
+});
+
+describe('scrollByRows', () => {
+  const container = (scrollTop: number) => {
+    const el = document.createElement('div');
+    el.scrollTop = scrollTop;
+    return el;
+  };
+
+  it('moves by whole rows and lands on a row boundary', () => {
+    const el = container(36);
+    scrollByRows(el, 2, 18);
+    expect(el.scrollTop).toBe(72);
+    scrollByRows(el, -1, 18);
+    expect(el.scrollTop).toBe(54);
+  });
+
+  it('pulls a container left mid-row back onto the grid', () => {
+    // Something else moved it — a scrollIntoView, a font-size change. The
+    // next scroll snaps rather than carrying the offset for good.
+    const el = container(40);
+    scrollByRows(el, 1, 18);
+    expect(el.scrollTop).toBe(54);
+  });
+
+  it('stops at the top', () => {
+    const el = container(18);
+    scrollByRows(el, -5, 18);
+    expect(el.scrollTop).toBe(0);
+  });
+
+  it('does nothing without rows or a row height', () => {
+    const el = container(36);
+    scrollByRows(el, 0, 18);
+    scrollByRows(el, 3, 0);
+    expect(el.scrollTop).toBe(36);
+  });
+});
 
 describe('sendScrollLines', () => {
   it('returns false in normal shell mode (lets caller handle copy-mode proxy)', () => {

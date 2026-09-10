@@ -385,6 +385,26 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     const scrolled = await getCopyModeState(ctx.page);
     expect(scrolled.mode).toBe('scroll');
 
+    // The view moves a row at a time, like copy mode and like a full-screen
+    // application: the container never rests part-way through a row, so the
+    // top row is never drawn half on screen.
+    const rowAlignment = async () =>
+      ctx.page.evaluate(() => {
+        const el = document.querySelector('.pane-scroll-container');
+        const rowHeight = window.app.getSnapshot().context.charHeight;
+        return { scrollTop: el.scrollTop, rowHeight, offset: el.scrollTop % rowHeight };
+      });
+    let aligned = await rowAlignment();
+    expect(aligned.rowHeight).toBeGreaterThan(0);
+    expect(aligned.scrollTop).toBeGreaterThan(0);
+    expect(aligned.offset).toBeCloseTo(0, 5);
+
+    // And a wheel tick that is not a whole number of rows still lands on one.
+    await ctx.page.mouse.wheel(0, -Math.round(aligned.rowHeight * 1.5));
+    await delay(DELAYS.MEDIUM);
+    aligned = await rowAlignment();
+    expect(aligned.offset).toBeCloseTo(0, 5);
+
     // tmux is untouched: the pane never entered copy mode, so the application
     // in it carries on and no mode is advertised to the user.
     const duringScroll = await ctx.page.evaluate(() => {

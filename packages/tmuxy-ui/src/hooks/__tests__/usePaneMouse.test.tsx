@@ -127,11 +127,30 @@ describe('usePaneMouse.handleWheel', () => {
     expect(enterCopy).toBeUndefined();
   });
 
-  it('forwards wheel delta to scroll container when client copy mode is active', () => {
-    const { result, scrollRef } = setup({ scrollbackMode: 'copy' });
+  it('scrolls the container by whole rows, never part of one', () => {
+    // 50px of wheel over an 18px row is two rows and a bit; the bit is
+    // carried, not painted. A terminal scrolls a line at a time — copy mode
+    // and full-screen applications already do, and this is the same pane.
+    const { result, scrollRef } = setup({ scrollbackMode: 'copy', charHeight: 18 });
     scrollRef.current!.scrollTop = 0;
     result.current.handleWheel(wheelEvent(50));
-    expect(scrollRef.current!.scrollTop).toBe(50);
+    expect(scrollRef.current!.scrollTop).toBe(36);
+
+    // The carried 14px plus 4px is the third row, exactly.
+    result.current.handleWheel(wheelEvent(4));
+    expect(scrollRef.current!.scrollTop).toBe(54);
+  });
+
+  it('holds still until a gesture is worth a row, then moves one', () => {
+    const { result, scrollRef } = setup({ scrollbackMode: 'scroll', charHeight: 18 });
+    scrollRef.current!.scrollTop = 36;
+
+    result.current.handleWheel(wheelEvent(-6));
+    result.current.handleWheel(wheelEvent(-6));
+    expect(scrollRef.current!.scrollTop).toBe(36);
+
+    result.current.handleWheel(wheelEvent(-6));
+    expect(scrollRef.current!.scrollTop).toBe(18);
   });
 
   it('accumulates sub-line wheel deltas without sending events', () => {

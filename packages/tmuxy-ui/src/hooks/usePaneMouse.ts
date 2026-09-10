@@ -12,7 +12,7 @@
 import { useCallback, useRef, useState, useEffect, type RefObject } from 'react';
 import type { AppMachineEvent } from '../machines/types';
 import type { ScrollbackMode } from '../tmux/types';
-import { sendScrollLines, sgrMouseCommand } from './scrollUtils';
+import { sendScrollLines, sgrMouseCommand, takeWholeRows, scrollByRows } from './scrollUtils';
 import { haptics } from '../utils/haptics';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
 
@@ -442,10 +442,13 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       // it never opens over them.
       if (alternateOn || mouseAnyFlag) {
         e.preventDefault();
-        wheelRemainder.current += e.deltaY;
-        const lines = Math.trunc(wheelRemainder.current / charHeight);
+        const { rows: lines, remainder } = takeWholeRows(
+          e.deltaY,
+          charHeight,
+          wheelRemainder.current,
+        );
+        wheelRemainder.current = remainder;
         if (lines === 0) return;
-        wheelRemainder.current -= lines * charHeight;
 
         const cell = mouseAnyFlag ? pixelToCell(e as unknown as React.MouseEvent) : { x: 0, y: 0 };
         sendScrollLines({
@@ -464,11 +467,15 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       // delta to the scroll container by hand. The wrapper is non-scrollable,
       // so native scroll never reaches the inner pane-scroll-container;
       // adjusting scrollTop fires onScroll, which reports the new top row.
+      // A row at a time, like every other way this pane can scroll: copy mode
+      // moves a cursor that lives on a row, a full-screen application is sent
+      // rows, and the row is what `onScroll` reports back. Pixel-precise
+      // motion here was the odd one out, and left the top row half drawn.
       if (scrollbackOpen) {
         e.preventDefault();
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop += e.deltaY;
-        }
+        const { rows, remainder } = takeWholeRows(e.deltaY, charHeight, wheelRemainder.current);
+        wheelRemainder.current = remainder;
+        if (scrollRef.current) scrollByRows(scrollRef.current, rows, charHeight);
         return;
       }
 
@@ -486,10 +493,13 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       // a cursor and vi keys.
       if (historySize > 0 && e.deltaY < 0) {
         e.preventDefault();
-        wheelRemainder.current += e.deltaY;
-        const lines = Math.trunc(wheelRemainder.current / charHeight);
+        const { rows: lines, remainder } = takeWholeRows(
+          e.deltaY,
+          charHeight,
+          wheelRemainder.current,
+        );
+        wheelRemainder.current = remainder;
         if (lines === 0) return;
-        wheelRemainder.current -= lines * charHeight;
         send({ type: 'ENTER_SCROLL_MODE', paneId, scrollLines: lines });
         return;
       }

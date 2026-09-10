@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { Effect, Fiber } from 'effect';
 import type { AppMachineEvent } from '../machines/types';
-import { sendScrollLines } from './scrollUtils';
+import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
 import { focusMobileInput } from '../utils/mobileKeyboard';
 import { haptics } from '../utils/haptics';
 
@@ -105,10 +105,13 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
       if (alternateOn || mouseAnyFlag) {
         // Line-quantized mode: accumulate and send whole lines
         // Negate: finger down (positive deltaPixels) = scroll UP (negative lines)
-        remainderRef.current += -deltaPixels;
-        const lines = Math.trunc(remainderRef.current / charHeight);
+        const { rows: lines, remainder } = takeWholeRows(
+          -deltaPixels,
+          charHeight,
+          remainderRef.current,
+        );
+        remainderRef.current = remainder;
         if (lines === 0) return;
-        remainderRef.current -= lines * charHeight;
 
         sendScrollLines({
           send,
@@ -118,19 +121,22 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           mouseAnyFlag,
         });
       } else if (scrollbackOpen) {
-        // A view is open: proxy the pixel delta to its scroll container.
-        // Negate: finger down = scroll up (decrease scrollTop)
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop += -deltaPixels;
-        }
+        // A view is open: proxy the delta to its scroll container, a row at a
+        // time (see scrollByRows). Negate: finger down = scroll up.
+        const { rows, remainder } = takeWholeRows(-deltaPixels, charHeight, remainderRef.current);
+        remainderRef.current = remainder;
+        if (scrollRef.current) scrollByRows(scrollRef.current, rows, charHeight);
       } else if (historySize > 0 && deltaPixels > 0) {
         // Live screen, finger moving down, history behind it: open the scroll
         // view, exactly as a wheel-up does. Without this the container is
         // pinned to the bottom and the swipe goes nowhere.
-        remainderRef.current += -deltaPixels;
-        const lines = Math.trunc(remainderRef.current / charHeight);
+        const { rows: lines, remainder } = takeWholeRows(
+          -deltaPixels,
+          charHeight,
+          remainderRef.current,
+        );
+        remainderRef.current = remainder;
         if (lines === 0) return;
-        remainderRef.current -= lines * charHeight;
         send({ type: 'ENTER_SCROLL_MODE', paneId, scrollLines: lines });
       }
     },

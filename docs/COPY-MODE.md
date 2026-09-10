@@ -145,7 +145,11 @@ because the window moved), and keeps every row a selection spans mounted while i
 selection survives scrolling, in either direction and all the way to the bottom, and reads back
 whole, since selection text is document order.
 
-**Wheel / touch** scroll the native container while a view is open; `onScroll` reports the new top row
+**Wheel / touch** scroll the native container while a view is open, a whole row at a time
+(`takeWholeRows` / `scrollByRows` in `hooks/scrollUtils.ts`) — the sub-row part of a trackpad delta is
+carried into the next event rather than painted, so the container always rests on a row boundary and
+the top row is never half drawn. That matches the rest of the pane: copy mode moves a cursor that
+lives on a row, and a full-screen application is sent rows. `onScroll` reports the new top row
 via `COPY_MODE_SCROLL`. Mouse-tracking applications (`mouse_any_flag`, e.g. nvim/htop) receive
 forwarded SGR mouse sequences instead — that path is unchanged.
 
