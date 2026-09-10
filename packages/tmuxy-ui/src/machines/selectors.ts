@@ -784,6 +784,11 @@ export function selectAnimationsAllowed(context: AppMachineContext): boolean {
   return context.animationsAllowed;
 }
 
+/** Whether the keyboard is in one of the sidebar columns rather than the panes. */
+export function selectSidebarFocused(context: AppMachineContext): boolean {
+  return context.leftSidebarFocused || context.rightSidebarFocused;
+}
+
 /** The config's `@tmuxy-cursor-blink` switch. */
 export function selectCursorBlink(context: AppMachineContext): boolean {
   return context.cursorBlink;

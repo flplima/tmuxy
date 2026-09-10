@@ -16,6 +16,7 @@ vi.mock('../machines/AppContext', () => ({
   selectCellMetrics: vi.fn(),
   selectAnimationsAllowed: vi.fn(),
   selectCursorBlink: vi.fn(),
+  selectSidebarFocused: vi.fn(),
 }));
 
 // Mock child components that depend on machine context
@@ -81,6 +82,7 @@ function scene({
     if (selector === AppContext.selectCellMetrics) return { cellWidth: 8, cellGap: 0 };
     if (selector === AppContext.selectAnimationsAllowed) return true;
     if (selector === AppContext.selectCursorBlink) return true;
+    if (selector === AppContext.selectSidebarFocused) return false;
     if (typeof selector === 'function') return selector({ tabOverviewOpen: false });
     return undefined;
   });

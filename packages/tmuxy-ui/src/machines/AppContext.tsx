@@ -102,6 +102,7 @@ export {
   selectNotifications,
   selectAnimationsAllowed,
   selectCursorBlink,
+  selectSidebarFocused,
   selectPrefixActive,
   selectActivePaneCopyMode,
   selectThemeName,
