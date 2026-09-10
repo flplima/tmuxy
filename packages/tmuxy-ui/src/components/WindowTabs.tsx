@@ -258,15 +258,15 @@ export const WindowTabs = memo(function WindowTabs() {
               {/* What this tab is doing that its name does not say. Both are
                   window state, so a background tab shows them too. */}
               {window.collapsible && (
-                <Tooltip label="Stacked panes: only the active pane is expanded">
-                  <span className="tab-flag" aria-label="Stacked panes">
-                    ▤
+                <Tooltip label="Stacked Panes (prefix+S to toggle)">
+                  <span className="tab-flag" aria-label="Stacked Panes">
+                    {'\uf51e'}
                   </span>
                 </Tooltip>
               )}
               {window.zoomed && (
-                <Tooltip label="A pane is zoomed to fill the tab (prefix z)">
-                  <span className="tab-flag" aria-label="Zoomed pane">
+                <Tooltip label="Pane Zoom (prefix+z to toggle)">
+                  <span className="tab-flag" aria-label="Pane Zoom">
                     ⛶
                   </span>
                 </Tooltip>
