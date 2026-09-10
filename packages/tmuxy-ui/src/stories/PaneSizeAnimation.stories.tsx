@@ -305,3 +305,66 @@ export const ConfigAnimationsOffSnapsTheSize: Story = {
     expect(distinctValues(frames, mover, 'w')).toBe(2);
   },
 };
+
+// ---------------------------------------------------------------------------
+// The cursor never flies in from off the window while a row opens
+// ---------------------------------------------------------------------------
+
+export const TheCursorStaysInsideTheOpeningRow: Story = {
+  args: { height: 500, initCommands: ['split-window -v'] },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 500 },
+      description: {
+        story:
+          'A pane’s terminal is sized to its ROW COUNT and anchored to the bottom of the pane, so while a row is opening the terminal is taller than the pane and hangs off the top of it. A cursor on the first row is then inside the terminal and outside the pane — and the overlay used to follow it there, dragging in from above the window and landing with a jump when the pane caught up. Sampled per paint: while it is drawn at all, it is inside the pane area.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await waitForPanes(2, canvasElement);
+    await waitForAnimationsEnabled(getPaneLayout(canvasElement));
+
+    const overlay = () => document.querySelector<HTMLElement>('.smooth-cursor');
+    const shape = () => document.querySelector<HTMLElement>('.smooth-cursor-shape');
+    const gridBox = () => getPaneLayout(canvasElement).getBoundingClientRect();
+
+    /** The top of the painted cursor, from the clip polygon it is drawn with. */
+    const paintedTop = (): number | null => {
+      const el = shape();
+      if (!el || overlay()?.style.opacity !== '1') return null;
+      const polygon = getComputedStyle(el).clipPath.match(/polygon\(([^)]*)\)/);
+      if (!polygon) return null;
+      const ys = polygon[1].split(',').map((point) => parseFloat(point.trim().split(/\s+/)[1]));
+      return ys.length ? Math.min(...ys) : null;
+    };
+
+    // Park the focus on the bottom row, with the top one collapsed.
+    run('select-pane -t %1');
+    run('resize-pane -t %1 -D 12');
+    await new Promise((r) => setTimeout(r, 900));
+
+    // Now move up: the top row opens, the bottom collapses.
+    const seen: number[] = [];
+    let sampling = true;
+    const frame = () => {
+      const top = paintedTop();
+      if (top !== null) seen.push(top);
+      if (sampling) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+    run('select-pane -t %0');
+    run('resize-pane -t %0 -D 12');
+    await new Promise((r) => setTimeout(r, 1200));
+    sampling = false;
+
+    // It was drawn at some point, and never above the grid it lives in.
+    expect(seen.length, 'the cursor was never drawn').toBeGreaterThan(0);
+    const top = gridBox().top;
+    const highest = Math.min(...seen);
+    expect(
+      highest,
+      `the cursor was drawn ${Math.round(top - highest)}px above the pane grid`,
+    ).toBeGreaterThanOrEqual(top - 2);
+  },
+};

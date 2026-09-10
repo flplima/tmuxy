@@ -83,13 +83,39 @@ function targetOf(anchor: HTMLElement): Target | null {
   };
 }
 
-/** The box of the nearest ancestor that clips: a cursor scrolled out of it is not shown. */
+/**
+ * What is actually visible around the anchor: every clipping ancestor's box,
+ * intersected.
+ *
+ * The nearest one is not enough. A pane's terminal is sized to its ROW COUNT
+ * and anchored to the bottom of the pane, so while the pane is opening — a
+ * stack moving the focus to another row — the terminal is taller than the
+ * pane it is in and hangs off the top of it. A cursor on the first row is
+ * then inside the terminal, which does not clip it, and outside the pane,
+ * which does; following it there drags the overlay in from above the window
+ * and lands it with a jump when the pane catches up. Off screen is off
+ * screen: it is not drawn until it is somewhere you could see it.
+ */
 function clipRectOf(el: HTMLElement): DOMRect | null {
+  let left = -Infinity;
+  let top = -Infinity;
+  let right = Infinity;
+  let bottom = Infinity;
+  let found = false;
   for (let node = el.parentElement; node; node = node.parentElement) {
-    const overflow = getComputedStyle(node).overflow;
-    if (overflow !== 'visible') return node.getBoundingClientRect();
+    if (getComputedStyle(node).overflow === 'visible') continue;
+    const box = node.getBoundingClientRect();
+    // A wrapper with no box of its own (`display: contents`, an unlaid-out
+    // node) clips nothing; intersecting its empty rect would hide everything.
+    if (box.width === 0 || box.height === 0) continue;
+    left = Math.max(left, box.left);
+    top = Math.max(top, box.top);
+    right = Math.min(right, box.right);
+    bottom = Math.min(bottom, box.bottom);
+    found = true;
   }
-  return null;
+  if (!found) return null;
+  return new DOMRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
 }
 
 function cornersOf(t: Target): Pt[] {
@@ -176,6 +202,11 @@ export function SmoothCursor() {
         if (m.target) m.lostAt = now;
         m.target = null;
         root.style.opacity = '0';
+        // Out of sight is not the end of the story: a pane opening carries its
+        // cursor in from off its own edge, and no render announces the frames
+        // in between. Keep looking for as long as anything is still moving,
+        // or the cursor would stay hidden until something else re-rendered.
+        if (now < m.followUntil) m.raf = requestAnimationFrame(frame);
         return;
       }
 
