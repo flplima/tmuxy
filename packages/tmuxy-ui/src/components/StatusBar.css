@@ -206,33 +206,6 @@
   opacity: 0.85;
 }
 
-/* The tab's close button: quiet until hovered, like the pane header's. */
-.tab-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: inherit;
-  font-size: 10px;
-  line-height: 1;
-  opacity: 0.6;
-  cursor: pointer;
-  transition:
-    opacity var(--transition-fast),
-    background-color var(--transition-fast);
-}
-
-.tab-close:hover {
-  opacity: 1;
-  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
-}
-
 .tab-name:hover {
   background-color: var(--bg-medium);
   opacity: 0.8;

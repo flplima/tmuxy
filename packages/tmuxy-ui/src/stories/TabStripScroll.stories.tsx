@@ -175,3 +175,33 @@ export const NoButtonsWhenEverythingFits: Story = {
     expect(canvas.getByLabelText('Create new tab')).toBeInTheDocument();
   },
 };
+
+// ---------------------------------------------------------------------------
+// No ✕ on a tab
+// ---------------------------------------------------------------------------
+
+export const TabsCarryNoCloseButton: Story = {
+  args: { height: 420, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 420 },
+      description: {
+        story:
+          'A row of buttons each with a target you can hit by accident is a row you cannot click confidently, so no tab carries a ✕. Closing has three unhurried homes instead: the tab’s context menu, its card in the all-tabs view, and the hover preview.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /^Pane /i }, { timeout: 8000 });
+    const list = strip(canvasElement);
+    await waitFor(() => expect(list.querySelectorAll('.tab-name[data-window-id]').length).toBe(2));
+
+    expect(list.querySelector('.tab-close')).toBeNull();
+    expect(canvas.queryByLabelText(/^Close tab/)).toBeNull();
+    // Clicking anywhere on a tab selects it; there is no sub-target to miss.
+    for (const tab of list.querySelectorAll('.tab-name[data-window-id]')) {
+      expect(tab.querySelector('button')).toBeNull();
+    }
+  },
+};

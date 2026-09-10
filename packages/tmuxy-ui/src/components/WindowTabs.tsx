@@ -1,13 +1,17 @@
 /**
  * WindowTabs - the tmux window tabs in the status bar.
  *
- * Tabs sit left-aligned at their natural width, each with a close button on its
- * right, so the rest of the strip stays empty — and on the desktop that empty
- * header is what drags the OS window (see StatusBar). A lone tab sits in that
- * same left-aligned position with the `+` directly after it, but carries no
- * close button, takes no hover background, and is itself a drag handle for the
- * window: with nothing to switch to, it is a label on the window rather than a
- * control.
+ * Tabs sit left-aligned at their natural width, so the rest of the strip stays
+ * empty — and on the desktop that empty header is what drags the OS window
+ * (see StatusBar). A lone tab sits in that same left-aligned position with the
+ * `+` directly after it, takes no hover background, and is itself a drag handle
+ * for the window: with nothing to switch to, it is a label on the window
+ * rather than a control.
+ *
+ * No tab carries a ✕. A strip of buttons each with a target you can hit by
+ * accident is a strip you cannot click confidently, and closing has three
+ * unhurried homes already: the tab's context menu, its card in the all-tabs
+ * view, and the hover preview.
  *
  * The active tab is marked by BRIGHTNESS alone — full opacity and pure white
  * against the others' dimmed grey — with no pill or background behind it.
@@ -107,17 +111,6 @@ export const WindowTabs = memo(function WindowTabs() {
       }
       haptics.trigger(10);
       send({ type: 'SELECT_TAB', windowId: window.id });
-    },
-    [send],
-  );
-
-  // Closes the tab whose button was pressed, not the current window.
-  const handleCloseWindow = useCallback(
-    (e: React.MouseEvent, window: TmuxWindow) => {
-      e.preventDefault();
-      e.stopPropagation();
-      haptics.trigger(10);
-      send({ type: 'CLOSE_TAB', windowId: window.id });
     },
     [send],
   );
@@ -328,18 +321,6 @@ export const WindowTabs = memo(function WindowTabs() {
                   <span className="tab-flag" aria-label="Pane Zoom">
                     ⛶
                   </span>
-                </Tooltip>
-              )}
-              {!isSingleTab && (
-                <Tooltip label="Close tab">
-                  <button
-                    type="button"
-                    className="tab-close"
-                    onClick={(e) => handleCloseWindow(e, window)}
-                    aria-label={`Close tab ${visualIndex}`}
-                  >
-                    ✕
-                  </button>
                 </Tooltip>
               )}
             </span>

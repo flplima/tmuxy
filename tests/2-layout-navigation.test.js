@@ -1672,7 +1672,7 @@ describe('Scenario 11: Status Bar', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Bar visible → tab → session name → 2 windows → active distinct → click tab → rename → close via button', async () => {
+  test('Bar visible → tab → session name → 2 windows → active distinct → click tab → rename → close via context menu', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -1739,10 +1739,10 @@ describe('Scenario 11: Status Bar', () => {
     });
     expect(tabText).toContain('RENAMED_WINDOW');
 
-    // Step 8: Close a tab through the ACTUAL UI affordance the test name
-    // promises: right-click the inactive tab → "Close Tab" in the context
-    // menu. (The old version typed `kill-window -t :N` into the command
-    // prompt while the test name claimed "close via button".)
+    // Step 8: Close a tab the way the strip offers it — right-click the
+    // inactive tab → "Close Tab". Tabs carry no ✕ of their own: a row of
+    // buttons each with a target you can hit by accident is a row you cannot
+    // click confidently.
     const tabsForClose = await ctx.page.$$('.tab-name:not(.tab-add)');
     let tabToClose = null;
     for (const t of tabsForClose) {
