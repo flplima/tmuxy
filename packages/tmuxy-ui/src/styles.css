@@ -139,6 +139,11 @@
   --transition-normal: 0.15s ease;
   --transition-slow: 0.2s ease;
   --transition-layout: 100ms linear;
+  /* Panes changing SIZE: a resize landing on whole cells, a stack opening the
+     row the focus moved to. Longer and eased where --transition-layout is
+     short and linear, because these are boxes the eye is meant to follow
+     rather than a position correction. A theme may set either token. */
+  --transition-pane-size: 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
   /* Active/inactive pane fade: long enough to kill the hard flash on focus
      changes and swaps, short enough to feel instant. */
   --transition-active: 80ms ease-out;
@@ -529,10 +534,13 @@
      and surface INSTANTLY: the "everything hard-flashes" paint blink from the
      stability review (follow-up #9). */
   transition:
-    left var(--transition-layout),
-    top var(--transition-layout),
-    width var(--transition-layout),
-    height var(--transition-layout),
+    /* A resize or a stack navigation moves the shrinking pane's origin as well
+       as its size, so all four ride the same clock — split between two curves
+       and the box would visibly shear on its way. */
+    left var(--transition-pane-size),
+    top var(--transition-pane-size),
+    width var(--transition-pane-size),
+    height var(--transition-pane-size),
     /* transform only ever animates on the zoom collapse/expand (drag/shift
        override this transition), so it carries the zoom easing — this is what
        makes zoom-OUT (class removed → transform back to identity) expand out of

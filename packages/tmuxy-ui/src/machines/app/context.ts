@@ -84,6 +84,7 @@ export const FIELD_OWNERS = {
   resize: 'layout',
   resizeActive: 'layout',
   suppressLayoutTransition: 'layout',
+  lastUpdateAnimated: 'layout',
   groupSwitchPaneIds: 'layout',
   lastUpdateQuiet: 'layout',
 
@@ -197,6 +198,7 @@ export function createInitialContext(): AppMachineContext {
     browserStates: {},
     lastLayoutCommandTime: 0,
     suppressLayoutTransition: false,
+    lastUpdateAnimated: false,
     paneKeyOverrides: {},
     lastActivePaneByWindow: {},
     paneActivationOrder: [] as string[],

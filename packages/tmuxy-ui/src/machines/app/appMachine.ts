@@ -40,6 +40,7 @@ import { layoutState } from './states/layout';
 import { tabOverviewGlobalEvents } from './states/tabOverview';
 import { tabOverviewActions } from './actions/tabOverview';
 import { layoutActions } from './actions/layout';
+import { isBoxPermutation, samePanes } from './layoutChange';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { selectLeftSidebarPane, selectRightSidebarPane } from '../selectors';
 import type { TmuxClientModel, TmuxSnapshot } from '../../tmux/store';
@@ -1199,6 +1200,55 @@ export const appMachine = setup({
                 );
               });
 
+            // Hold the optimistic resize preview during the drag AND after
+            // release until the server geometry has STABLY caught up to the
+            // preview's prediction — i.e. this update matches the prediction
+            // AND is the SECOND consecutive quiet update (the oscillating
+            // burst has truly stopped, not a momentary repeat). A fast drag
+            // makes tmux emit a burst of oscillating %layout-change events
+            // after mouse-up; clearing on the first match lets a later stale
+            // one flash through (the pane wobbles a row), and clearing on the
+            // first update flashes back to an intermediate size. Masking until
+            // the burst settles avoids both. A never-settling resize (e.g.
+            // driven into a min-size clamp) is cleared by the fallback timer
+            // in layout_resizeCompleted.
+            const heldResize =
+              context.resizeActive ||
+              (context.resize !== null &&
+                !(
+                  !hasDimensionChange &&
+                  context.lastUpdateQuiet &&
+                  resizePreviewSettled(
+                    context.resize,
+                    transformed.panes,
+                    context.charWidth,
+                    context.charHeight,
+                  )
+                ))
+                ? context.resize
+                : null;
+
+            // Panes changing SIZE — a resize landing, a stack opening the row
+            // the focus moved to — animate: the eye can follow the boxes
+            // growing, and a jump cut reads as a glitch. Everything else keeps
+            // snapping, and each exclusion is a way the animation would be
+            // wrong rather than merely unnecessary:
+            //
+            //  - a swap is a permutation of the same boxes, and animating it
+            //    slides the two panes through each other;
+            //  - a split or a kill changes the pane set, and owns a morph of
+            //    its own (the enter/leave lifecycle in PaneLayout);
+            //  - a drag resize is already following the pointer exactly, and
+            //    its post-release burst is a stream of inconsistent boxes;
+            //  - an update arriving on the heels of another dirty one is one
+            //    frame of a burst, not a change anybody asked to watch.
+            const animateGeometry =
+              hasDimensionChange &&
+              context.lastUpdateQuiet &&
+              heldResize === null &&
+              samePanes(context.panes, transformed.panes) &&
+              !isBoxPermutation(context.panes, transformed.panes);
+
             // Preserve activePaneId during transient states (e.g., pane-group-add
             // sends null activePaneId between break-pane and swap-pane).
             // Also preserve during layout transitions — tmux briefly reports a
@@ -1237,42 +1287,20 @@ export const appMachine = setup({
                 floatPanes,
                 copyModeStates: updatedCopyModeStates,
                 browserStates: updatedBrowserStates,
-                // Hold the optimistic resize preview during the drag AND after
-                // release until the server geometry has STABLY caught up to the
-                // preview's prediction — i.e. this update matches the
-                // prediction AND is the SECOND consecutive quiet update (the
-                // oscillating burst has truly stopped, not a momentary repeat).
-                // A fast drag makes tmux emit a burst of oscillating
-                // %layout-change events after mouse-up; clearing on the first
-                // match lets a later stale one flash through (the pane wobbles a
-                // row), and clearing on the first update flashes back to an
-                // intermediate size. Masking until the burst settles avoids
-                // both. A never-settling resize (e.g. driven into a min-size
-                // clamp) is cleared by the fallback timer in
-                // layout_resizeCompleted.
-                resize:
-                  ctx.resizeActive ||
-                  (ctx.resize !== null &&
-                    !(
-                      !hasDimensionChange &&
-                      ctx.lastUpdateQuiet &&
-                      resizePreviewSettled(
-                        ctx.resize,
-                        transformed.panes,
-                        ctx.charWidth,
-                        ctx.charHeight,
-                      )
-                    ))
-                    ? ctx.resize
-                    : null,
+                resize: heldResize,
                 // Derived, no debounce timer: the flag rides the same React
-                // commit as the new geometry. It relaxes only after TWO
-                // consecutive quiet updates because a dirty optimistic
+                // commit as the new geometry. A change we chose to animate
+                // lifts it; everything else still snaps, and the quiet update
+                // that follows a snap keeps it on, because a dirty optimistic
                 // update and its instant quiet confirm can batch into one
-                // commit — releasing on the quiet update alone would let
-                // the batch's net geometry delta animate.
-                suppressLayoutTransition: hasDimensionChange || !ctx.lastUpdateQuiet,
+                // commit and the batch's net geometry delta would animate.
+                // After an animated change that same quiet update must NOT
+                // re-latch it, or the transition would be cut off a frame in.
+                suppressLayoutTransition: animateGeometry
+                  ? false
+                  : hasDimensionChange || (!ctx.lastUpdateQuiet && !ctx.lastUpdateAnimated),
                 lastUpdateQuiet: !hasDimensionChange,
+                lastUpdateAnimated: animateGeometry,
                 // Panes involved in in-flight GroupSwitch ops — mirrored
                 // from the store's op log so selectGroupSwitchPaneIds can
                 // suppress CSS transitions on the swapped panes without

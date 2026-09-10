@@ -48,6 +48,7 @@ const FIELD_OWNERS = {
   resize: 'layout',
   resizeActive: 'layout',
   suppressLayoutTransition: 'layout',
+  lastUpdateAnimated: 'layout',
 
   // ---- copyMode ----
   copyModeStates: 'copyMode',
