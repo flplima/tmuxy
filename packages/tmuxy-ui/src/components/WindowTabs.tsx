@@ -37,13 +37,14 @@
  * placeholder appears in the empty space.
  */
 
-import { memo, useMemo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useMemo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   useAppSend,
   useAppSelector,
   useAppSelectorShallow,
   selectVisibleWindows,
   selectTabDrop,
+  selectAnimationsAllowed,
 } from '../machines/AppContext';
 import { TabContextMenu } from './TabContextMenu';
 import { haptics } from '../utils/haptics';
@@ -52,6 +53,13 @@ import { DRAG_THRESHOLD_PX, LONG_PRESS_MS, capturePointer, dropIndex } from '../
 import type { TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
 import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
+
+/**
+ * How long the strip keeps checking that the current tab is still in view
+ * after a switch. Long enough for the layout around it to settle, short
+ * enough that a scroll the user makes afterwards is left alone.
+ */
+const SHOW_ACTIVE_TAB_SETTLE_MS = 600;
 
 interface TabContextMenuState {
   visible: boolean;
@@ -83,6 +91,7 @@ export const WindowTabs = memo(function WindowTabs() {
   const send = useAppSend();
   const rawWindows = useAppSelectorShallow(selectVisibleWindows);
   const tabDrop = useAppSelector(selectTabDrop);
+  const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const listRef = useRef<HTMLDivElement>(null);
   const longPressRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
@@ -126,6 +135,68 @@ export const WindowTabs = memo(function WindowTabs() {
   }, []);
 
   const isSingleTab = visibleWindows.length === 1;
+  const activeWindowId = visibleWindows.find((w) => w.active)?.id ?? null;
+
+  // ---- keep the current tab reachable --------------------------------------
+  // With more tabs than fit, switching by keyboard (ctrl+N, prefix n/p) can
+  // land on a tab that is scrolled off the strip: the tab you are now looking
+  // at would be the one you cannot see.
+  /**
+   * Bring the current tab into view, and say whether it already was.
+   *
+   * The move is a DELTA rather than an absolute target, so each call re-aims
+   * from wherever the strip has got to — which matters because the strip is
+   * still settling on the commit that switches tabs, and because a smooth
+   * scroll is in flight while it does.
+   */
+  const showActiveTab = useCallback((): boolean => {
+    const list = listRef.current;
+    if (!list || !activeWindowId) return true;
+    if (list.scrollWidth <= list.clientWidth) return true;
+    const tab = list.querySelector<HTMLElement>(`.tab-name[data-window-id="${activeWindowId}"]`);
+    if (!tab) return true;
+    const tabBox = tab.getBoundingClientRect();
+    const listBox = list.getBoundingClientRect();
+    const behind = listBox.left - tabBox.left;
+    const past = tabBox.right - listBox.right;
+    if (behind <= 0 && past <= 0) return true;
+    list.scrollTo({
+      left: list.scrollLeft + (behind > 0 ? -behind : past),
+      behavior: animationsAllowed ? 'smooth' : 'auto',
+    });
+    return false;
+  }, [activeWindowId, animationsAllowed]);
+
+  useLayoutEffect(() => {
+    // Keep re-aiming until it sticks, for a moment. The strip's width, the
+    // pager buttons and the tabs' own boxes all land over the next paint or
+    // two, and each of them can push a tab that was just brought to the edge
+    // back off it — the strip growing WIDER is not a resize of the strip, so
+    // nothing else would notice. Bounded, so a scroll the user makes later is
+    // never yanked back.
+    const deadline = performance.now() + SHOW_ACTIVE_TAB_SETTLE_MS;
+    let raf = requestAnimationFrame(function again() {
+      const settled = showActiveTab();
+      if (!settled || performance.now() < deadline) raf = requestAnimationFrame(again);
+    });
+    showActiveTab();
+    return () => cancelAnimationFrame(raf);
+  }, [showActiveTab, visibleWindows.length]);
+
+  // ...and again whenever the strip changes size under it. The pager buttons
+  // are the reason: they appear precisely BECAUSE the strip overflows, and
+  // they take their width out of it, so a tab scrolled to the edge a moment
+  // earlier is pushed back off it. A window resize and a sidebar opening do
+  // the same thing.
+  const showActiveTabRef = useRef(showActiveTab);
+  showActiveTabRef.current = showActiveTab;
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const observer = new ResizeObserver(() => showActiveTabRef.current());
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
 
   // ---- hover: the tab picture -----------------------------------------------
   const clearPreviewTimer = () => {

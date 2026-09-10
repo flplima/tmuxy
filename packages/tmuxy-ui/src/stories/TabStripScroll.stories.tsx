@@ -95,6 +95,18 @@ export const PagesAScreenfulAtATime: Story = {
       timeout: 8000,
     });
 
+    // The newest tab is current, and the strip keeps the current tab in view,
+    // so it opens at the far end. Switch to the first tab to bring it home —
+    // paging is what is under test here, not where the strip sits when it
+    // opens — and let that settle before touching the pager.
+    const firstId = list.querySelector<HTMLElement>('.tab-name[data-window-id]')!.dataset.windowId;
+    (window as unknown as { app: { send(e: unknown): void } }).app.send({
+      type: 'SELECT_TAB',
+      windowId: firstId,
+    });
+    await waitFor(() => expect(list.scrollLeft).toBeLessThan(8), { timeout: 6000 });
+    await new Promise((r) => setTimeout(r, 800));
+
     const left = await canvas.findByTestId('tab-scroll-left');
     const right = await canvas.findByTestId('tab-scroll-right');
     // Both are drawn, and big enough to hit.
@@ -104,7 +116,7 @@ export const PagesAScreenfulAtATime: Story = {
       expect(box.height).toBeGreaterThan(10);
     }
     // Parked at the start: nothing to the left, plenty to the right.
-    expect(list.scrollLeft).toBe(0);
+    expect(list.scrollLeft).toBeLessThan(8);
     expect(left).toBeDisabled();
     expect(right).toBeEnabled();
 
@@ -173,6 +185,81 @@ export const NoButtonsWhenEverythingFits: Story = {
     expect(canvasElement.querySelector('[data-testid="tab-scroll-right"]')).toBeNull();
     // The "+" is still there — the pair coming and going must not disturb it.
     expect(canvas.getByLabelText('Create new tab')).toBeInTheDocument();
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Switching to a tab that is off the strip brings it back
+// ---------------------------------------------------------------------------
+
+export const SwitchingScrollsTheTabIntoView: Story = {
+  args: { height: 420, initCommands: MANY_TABS },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 420 },
+      description: {
+        story:
+          'Switching by keyboard can land on a tab that is scrolled off the strip, which would leave the tab you are now looking at as the one you cannot see. The strip scrolls it back into view by the least amount that does it, so the tabs either side of it stay where they were.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /^Pane /i }, { timeout: 8000 });
+
+    const list = strip(canvasElement);
+    await waitFor(() => expect(list.scrollWidth).toBeGreaterThan(list.clientWidth + 20), {
+      timeout: 8000,
+    });
+
+    const tabs = () => [...list.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')];
+    const onScreen = (tab: HTMLElement) => {
+      const box = tab.getBoundingClientRect();
+      const frame = list.getBoundingClientRect();
+      return box.left >= frame.left - 1 && box.right <= frame.right + 1;
+    };
+    const byId = (id: string) => tabs().find((t) => t.dataset.windowId === id)!;
+    const app = (window as unknown as { app: { send(e: unknown): void } }).app;
+
+    // The newest tab is the current one, and it is the last on a strip that
+    // does not fit — so the strip has already brought it into view rather
+    // than leaving the tab you are looking at off the end.
+    const last = tabs()[tabs().length - 1];
+    const lastId = last.dataset.windowId as string;
+    expect(last.classList.contains('tab-name-active'), 'newest tab is current').toBe(true);
+    await waitFor(() => expect(onScreen(byId(lastId)), 'current tab in view at load').toBe(true), {
+      timeout: 6000,
+    });
+
+    // Switch to the first tab, which is off the other end, without touching
+    // the strip — the way ctrl+1 or prefix p does it.
+    const firstId = tabs()[0].dataset.windowId as string;
+    expect(onScreen(byId(firstId))).toBe(false);
+    app.send({ type: 'SELECT_TAB', windowId: firstId });
+    await waitFor(
+      () => {
+        const now = byId(firstId);
+        expect(now.classList.contains('tab-name-active'), 'first tab became current').toBe(true);
+        expect(onScreen(now), 'first tab scrolled into view').toBe(true);
+      },
+      { timeout: 6000 },
+    );
+    // It moved by the least amount that does it: the strip is back at its
+    // start rather than having centred anything.
+    expect(list.scrollLeft).toBeLessThan(20);
+
+    // ...and back to the far end again.
+    app.send({ type: 'SELECT_TAB', windowId: lastId });
+    await waitFor(
+      () => {
+        const now = byId(lastId);
+        expect(now.classList.contains('tab-name-active'), 'last tab became current again').toBe(
+          true,
+        );
+        expect(onScreen(now), 'last tab scrolled back into view').toBe(true);
+      },
+      { timeout: 6000 },
+    );
   },
 };
 
