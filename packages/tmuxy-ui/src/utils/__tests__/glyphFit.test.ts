@@ -15,12 +15,19 @@ describe('fitScale', () => {
 });
 
 describe('needsMeasure', () => {
-  it('skips ordinary text and considers symbols only', () => {
+  it("skips ASCII, which is the font's own and the hot path", () => {
     expect(needsMeasure('a')).toBe(false);
-    expect(needsMeasure('é')).toBe(false);
+    expect(needsMeasure('~')).toBe(false);
+    expect(needsMeasure('')).toBe(false);
+  });
+
+  it('considers everything else, because everything else can come from a fallback font', () => {
     expect(needsMeasure('❯')).toBe(true);
     expect(needsMeasure('⎿')).toBe(true);
-    expect(needsMeasure('')).toBe(false);
+    // Latin Extended looks ordinary and is exactly where a fallback hides.
+    expect(needsMeasure('é')).toBe(true);
+    expect(needsMeasure('ơ')).toBe(true);
+    expect(needsMeasure('ș')).toBe(true);
   });
 });
 

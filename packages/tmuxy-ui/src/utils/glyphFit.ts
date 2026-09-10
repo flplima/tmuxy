@@ -70,13 +70,21 @@ export function fitScale(ratio: number): number | null {
 }
 
 /**
- * Only symbols are candidates: ASCII, Latin and the rest of the BMP below
- * U+2000 are the font's own monospace glyphs. This keeps the per-cell check
- * a code-point compare for ordinary text.
+ * Everything but ASCII is a candidate, because everything but ASCII can come
+ * from a fallback font.
+ *
+ * A monospace font is monospace only for the glyphs it HAS. Ask it for `ơ` or
+ * `ș` and, if it does not have them, the browser draws them from whatever font
+ * does — at that font's advance, which owes nothing to the terminal's cell.
+ * Latin Extended is where that bites: the letters look ordinary, so nobody
+ * suspects them, and a Vietnamese or Romanian line quietly runs long.
+ *
+ * ASCII is the hot path and stays a code-point compare; everything else is
+ * measured once and cached.
  */
 export function needsMeasure(s: string): boolean {
   const cp = s.codePointAt(0);
-  return cp !== undefined && cp >= 0x2000;
+  return cp !== undefined && cp > 0x7f;
 }
 
 /** The font shorthand an element paints with, for a canvas probe. */
