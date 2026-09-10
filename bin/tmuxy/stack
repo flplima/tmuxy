@@ -8,6 +8,10 @@
 #                          row collapses to one line per pane (the header).
 #   stack off <window_id>  Turn the feature off. The backend evens the
 #                          first-level rows back out.
+#   stack toggle <window_id>
+#                          Turn it on for the rows the window already has, or
+#                          off if it is already on. Unlike `new` this adds no
+#                          pane: it is the switch on its own.
 #
 # The flag is the @tmuxy-collapsible window option (docs/TMUX.md). Everything
 # that reshapes the window lives in tmuxy-core (`layout.rs`,
@@ -35,13 +39,21 @@ case "$CMD" in
     WID="${2:?window id required}"
     _tmux set-option -u -w -t "$WID" "$COLLAPSIBLE_OPT"
     ;;
+  toggle)
+    WID="${2:?window id required}"
+    if [ "$(_tmux show-options -wqv -t "$WID" "$COLLAPSIBLE_OPT")" = "1" ]; then
+      _tmux set-option -u -w -t "$WID" "$COLLAPSIBLE_OPT"
+    else
+      _tmux set-option -w -t "$WID" "$COLLAPSIBLE_OPT" 1
+    fi
+    ;;
   relayout)
     # A tmux server that loaded the previous config still runs this from its
     # after-select-pane hook until it re-sources the config. The backend does
     # the reshaping now, so there is nothing left to do here.
     ;;
   *)
-    echo "usage: stack new <pane_id> | stack off <window_id>" >&2
+    echo "usage: stack new <pane_id> | stack off <window_id> | stack toggle <window_id>" >&2
     exit 1
     ;;
 esac

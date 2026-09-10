@@ -93,7 +93,7 @@ export function TabContextMenu({ windowId, x, y, onClose }: TabContextMenuProps)
       <MenuDivider />
       <MenuItem onClick={handleToggleCollapsible}>
         Toggle stacked Panes
-        <KeyLabel keybindings={keybindings} command="tmuxy-stack" />
+        <KeyLabel keybindings={keybindings} command="tmuxy-stack-toggle" />
       </MenuItem>
 
       <MenuItem onClick={handleRenameSpecificTab}>
