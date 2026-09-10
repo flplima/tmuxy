@@ -3794,9 +3794,11 @@ mod tests {
         let sent = r.commands[0]
             .trim_start_matches("select-layout -t @1 '")
             .trim_end_matches('\'');
+        // The top row asks for two: one of them is the status line tmux draws
+        // on a pane's top border, which for that row comes out of the pane.
         assert_eq!(
             crate::layout::first_level_heights(sent),
-            Some(vec![1, 28, 1])
+            Some(vec![2, 27, 1])
         );
 
         // tmux applies it and reports the new layout: already in shape, no echo.

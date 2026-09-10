@@ -288,6 +288,19 @@ pub fn first_level_heights(layout: &str) -> Option<Vec<u32>> {
     }
 }
 
+/// The height to give a collapsed first-level row: one row of content, plus
+/// one more for the row at the very top of the window.
+///
+/// tmuxy runs with `pane-border-status top`, so every pane has a status line
+/// drawn on its top border. For all but the topmost row that line sits on the
+/// separator the layout already reserves between rows. The top row has no
+/// separator above it, so tmux takes the line out of the pane itself — ask
+/// for one row there and the pane is left with nothing to show, which is why
+/// the first pane of a stack came out as a bare header.
+fn collapsed_height(index: usize, node: &Node) -> u32 {
+    node.min_height() + u32::from(index == 0)
+}
+
 /// The layout with every first-level row but the one holding `active_pane`
 /// collapsed to its minimum height. None when the root is not a vertical
 /// stack, the active pane is not in it, the rows already have these heights,
@@ -312,10 +325,10 @@ pub fn collapse_first_level(layout: &str, active_pane: u32) -> Option<String> {
         .iter()
         .enumerate()
         .filter(|(k, _)| *k != active)
-        .map(|(_, c)| c.min_height())
+        .map(|(k, c)| collapsed_height(k, c))
         .sum();
     let expanded = h.checked_sub(n - 1)?.checked_sub(collapsed)?;
-    if expanded < children[active].min_height() {
+    if expanded < collapsed_height(active, &children[active]) {
         return None;
     }
     let targets: Vec<u32> = children
@@ -325,11 +338,11 @@ pub fn collapse_first_level(layout: &str, active_pane: u32) -> Option<String> {
             if k == active {
                 expanded
             } else {
-                c.min_height()
+                collapsed_height(k, c)
             }
         })
         .collect();
-    if in_shape(children, &targets) {
+    if collapsed_in_shape(children, &targets, active) {
         return None;
     }
     let mut cy = y;
@@ -340,10 +353,27 @@ pub fn collapse_first_level(layout: &str, active_pane: u32) -> Option<String> {
     Some(serialize(&root))
 }
 
+/// Whether a collapsed stack already has the target heights.
+///
+/// Exact for the collapsed rows: they are one or two lines tall, so a line
+/// out is the difference between a pane that shows a line of its content and
+/// one that shows none. The expanded row is allowed a line either way —
+/// whatever tmux adjusts lands there, and matching it exactly would re-send
+/// the same request after every layout change it produced.
+fn collapsed_in_shape(children: &[Node], targets: &[u32], active: usize) -> bool {
+    children.iter().zip(targets).enumerate().all(|(k, (c, t))| {
+        if k == active {
+            c.h().abs_diff(*t) <= 1
+        } else {
+            c.h() == *t
+        }
+    })
+}
+
 /// Whether the rows already have (within one line of) the target heights.
-/// tmux adjusts what it is asked for — with `pane-border-status` the window's
-/// top row keeps an extra line for its status — so an exact comparison would
-/// re-send the same request after every layout change it produced.
+/// Used for evening out, where every row is many lines tall and a line either
+/// way is invisible — while an exact comparison would re-send the same
+/// request after every layout change it produced.
 fn in_shape(children: &[Node], targets: &[u32]) -> bool {
     children
         .iter()
@@ -420,7 +450,7 @@ mod tests {
             "0000,80x32,0,0[80x10,0,0,1,80x10,0,11{40x10,0,11,2,39x10,41,11,3},80x10,0,22,4]";
         let out = collapse_first_level(layout, 3).expect("relayout");
         let node = parse(&out).expect("parses back");
-        assert_eq!(first_level_heights(&out), Some(vec![1, 28, 1]));
+        assert_eq!(first_level_heights(&out), Some(vec![2, 27, 1]));
         // The nested pair kept its widths and took the row's full height.
         let Node::Split { children, .. } = &node else {
             panic!()
@@ -429,7 +459,7 @@ mod tests {
             panic!()
         };
         assert_eq!(pair.iter().map(Node::w).collect::<Vec<_>>(), vec![40, 39]);
-        assert!(pair.iter().all(|c| c.h() == 28));
+        assert!(pair.iter().all(|c| c.h() == 27));
         // Offsets are recomputed top to bottom.
         let Node::Leaf { y, .. } = &children[2] else {
             panic!()
@@ -442,17 +472,35 @@ mod tests {
 
     #[test]
     fn tmux_keeping_a_status_line_on_the_top_row_counts_as_in_shape() {
-        // Asked for [1, 28, 1], tmux reports [2, 27, 1]: the top row holds its
-        // border-status line. Re-sending would loop forever.
+        // [2, 27, 1] is the shape asked for, so there is nothing to send.
         let layout = "0000,80x32,0,0[80x2,0,0,1,80x27,0,3,2,80x1,0,31,3]";
         assert_eq!(collapse_first_level(layout, 2), None);
+    }
+
+    #[test]
+    fn the_top_row_keeps_a_line_of_its_own_to_show() {
+        // The reported bug: the first pane of a stack was a bare header with
+        // no content under it. tmuxy runs with `pane-border-status top`, so
+        // every row's status line sits on the separator above it — except the
+        // top row, which has no separator, so tmux takes the line out of the
+        // pane. Asked for one row, that pane had nothing left.
+        let layout = "0000,80x32,0,0[80x10,0,0,1,80x10,0,11,2,80x10,0,22,3]";
+        let out = collapse_first_level(layout, 3).expect("relayout");
+        assert_eq!(first_level_heights(&out), Some(vec![2, 1, 27]));
+
+        // And when the top row is the active one it is simply the big row —
+        // no extra line, it has plenty.
+        let out = collapse_first_level(layout, 1).expect("relayout");
+        assert_eq!(first_level_heights(&out), Some(vec![28, 1, 1]));
     }
 
     #[test]
     fn a_nested_stack_collapses_to_one_row_per_pane() {
         let layout = "0000,80x32,0,0[80x15,0,0[80x7,0,0,1,80x7,0,8,2],80x16,0,16,3]";
         let out = collapse_first_level(layout, 3).expect("relayout");
-        assert_eq!(first_level_heights(&out), Some(vec![3, 28]));
+        // One row per stacked pane, one separator between them, and one more
+        // for the status line the top row's border takes.
+        assert_eq!(first_level_heights(&out), Some(vec![4, 27]));
     }
 
     #[test]
