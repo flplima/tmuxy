@@ -27,6 +27,7 @@ import {
   selectSidebarCellMetrics,
 } from '../machines/AppContext';
 import { SIDEBAR_MAX_COLS, SIDEBAR_MIN_COLS } from '../machines/constants';
+import { Tooltip } from './Tooltip';
 
 interface SidebarResizeHandleProps {
   side: 'left' | 'right';
@@ -111,19 +112,20 @@ export const SidebarResizeHandle = memo(function SidebarResizeHandle({
   if (!windowId) return null;
 
   return (
-    <div
-      className={`sidebar-resize-handle sidebar-resize-handle-${side}${
-        dragging ? ' is-dragging' : ''
-      }`}
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={`Resize the ${side === 'left' ? 'tree' : 'terminal'} sidebar`}
-      title="Drag to resize · double-click for the default width"
-      onPointerDown={handleDown}
-      onPointerMove={handleMove}
-      onPointerUp={handleUp}
-      onPointerCancel={handleUp}
-      onDoubleClick={handleReset}
-    />
+    <Tooltip label="Drag to resize · double-click for the default width">
+      <div
+        className={`sidebar-resize-handle sidebar-resize-handle-${side}${
+          dragging ? ' is-dragging' : ''
+        }`}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={`Resize the ${side === 'left' ? 'tree' : 'terminal'} sidebar`}
+        onPointerDown={handleDown}
+        onPointerMove={handleMove}
+        onPointerUp={handleUp}
+        onPointerCancel={handleUp}
+        onDoubleClick={handleReset}
+      />
+    </Tooltip>
   );
 });

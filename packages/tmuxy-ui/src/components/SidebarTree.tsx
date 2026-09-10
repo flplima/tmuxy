@@ -47,6 +47,7 @@ import {
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
 import type { TmuxPane, TmuxWindow } from '../machines/types';
+import { Tooltip } from './Tooltip';
 
 /**
  * A flattened, keyboard-navigable row.
@@ -187,9 +188,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const windowBadge = (windowId: string) => gitBadge(git.panesByWindow.get(windowId) ?? []);
   const badgeSpan = (badge: { text: string; title: string } | null) =>
     badge && (
-      <span className="sidebar-tree-git" title={badge.title}>
-        {badge.text}
-      </span>
+      <Tooltip label={badge.title}>
+        <span className="sidebar-tree-git">{badge.text}</span>
+      </Tooltip>
     );
 
   // Flatten into the ordered row list (also the keyboard nav order).
@@ -587,9 +588,11 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               {connector(row.last)}
             </span>
             {row.pane.marked && (
-              <span className="sidebar-tree-mark" title="Marked pane" aria-label="Marked pane">
-                ⚑
-              </span>
+              <Tooltip label="Marked pane">
+                <span className="sidebar-tree-mark" aria-label="Marked pane">
+                  ⚑
+                </span>
+              </Tooltip>
             )}
             {getTabIcon(row.pane) && (
               <span className="sidebar-tree-icon" aria-hidden="true">

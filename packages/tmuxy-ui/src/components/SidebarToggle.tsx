@@ -13,6 +13,7 @@
 
 import { useAppSend, useAppSelector, selectSidebarLayout } from '../machines/AppContext';
 import { SidebarGlyph } from './SidebarColumn';
+import { Tooltip } from './Tooltip';
 
 interface SidebarToggleProps {
   side: 'left' | 'right';
@@ -37,19 +38,22 @@ export function SidebarToggle({ side }: SidebarToggleProps) {
   const labels = LABELS[side];
 
   return (
-    <button
-      className={`sidebar-toggle sidebar-toggle-${side}${shown ? ' sidebar-toggle-active' : ''}`}
-      aria-label={labels.aria}
-      aria-pressed={shown}
-      disabled={suppressed}
-      title={
+    <Tooltip
+      label={
         suppressed ? `${labels.title} — hidden while the tree overlays the panes` : labels.title
       }
-      onClick={() =>
-        send({ type: side === 'left' ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR' })
-      }
     >
-      <SidebarGlyph side={side} />
-    </button>
+      <button
+        className={`sidebar-toggle sidebar-toggle-${side}${shown ? ' sidebar-toggle-active' : ''}`}
+        aria-label={labels.aria}
+        aria-pressed={shown}
+        disabled={suppressed}
+        onClick={() =>
+          send({ type: side === 'left' ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR' })
+        }
+      >
+        <SidebarGlyph side={side} />
+      </button>
+    </Tooltip>
   );
 }

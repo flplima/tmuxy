@@ -43,6 +43,7 @@ import {
 import { LogProfiler } from '../utils/renderLog';
 import { Terminal } from './Terminal';
 import { nudgeCursorAnchor } from './cursorAnchor';
+import { Tooltip } from './Tooltip';
 
 interface DragState {
   windowId: string;
@@ -381,19 +382,20 @@ function TabOverviewInner() {
                 <span className="tab-overview-slot-label">
                   {slot.position}:{slot.window.name || `Tab ${slot.position}`}
                 </span>
-                <button
-                  type="button"
-                  className="tab-overview-slot-close"
-                  title="Close tab"
-                  aria-label={`Close tab ${slot.position}`}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    send({ type: 'CLOSE_TAB', windowId: slot.window.id });
-                  }}
-                >
-                  ✕
-                </button>
+                <Tooltip label="Close tab">
+                  <button
+                    type="button"
+                    className="tab-overview-slot-close"
+                    aria-label={`Close tab ${slot.position}`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      send({ type: 'CLOSE_TAB', windowId: slot.window.id });
+                    }}
+                  >
+                    ✕
+                  </button>
+                </Tooltip>
               </div>
               {/* The active tab's frame is the FLIP target: the live grid is
                   drawn over it, so its wireframe only shows through the

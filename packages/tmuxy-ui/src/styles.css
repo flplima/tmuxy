@@ -170,6 +170,8 @@
   /* A zoomed pane covers the whole layout — above every other pane state. */
   --z-zoomed: 5;
   --z-dropdown: 1000;
+  /* Above the menus (10000): a tooltip can describe a menu item. */
+  --z-tooltip: 10001;
 }
 
 /* ============================================

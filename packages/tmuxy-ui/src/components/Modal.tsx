@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { Tooltip } from './Tooltip';
 
 interface ModalProps {
   open: boolean;
@@ -72,9 +73,11 @@ export function Modal({
         {showHeader && (
           <div className="modal-header">
             <span className="modal-title">{title}</span>
-            <button className="modal-close" onClick={onClose} title="Close">
-              ×
-            </button>
+            <Tooltip label="Close">
+              <button className="modal-close" onClick={onClose} aria-label="Close">
+                ×
+              </button>
+            </Tooltip>
           </div>
         )}
         {children}

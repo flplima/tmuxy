@@ -37,6 +37,7 @@ import {
 import { cellMetricsStyle } from '../utils/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
 import type { TmuxPane } from '../machines/types';
+import { Tooltip } from './Tooltip';
 
 interface SidebarColumnProps {
   /** Which edge the column docks to; drives the border and focus cue side. */
@@ -128,15 +129,16 @@ export const SidebarColumn = memo(function SidebarColumn({
       {overlay && (
         <div className="sidebar-header">
           <span className="sidebar-header-title">{title}</span>
-          <button
-            type="button"
-            className="sidebar-header-close"
-            aria-label={closeLabel}
-            title={closeLabel}
-            onClick={handleClose}
-          >
-            <SidebarGlyph side={side} />
-          </button>
+          <Tooltip label={closeLabel}>
+            <button
+              type="button"
+              className="sidebar-header-close"
+              aria-label={closeLabel}
+              onClick={handleClose}
+            >
+              <SidebarGlyph side={side} />
+            </button>
+          </Tooltip>
         </div>
       )}
       <div className="sidebar-body">

@@ -15,6 +15,7 @@
 
 import { memo, useCallback } from 'react';
 import { useAppSend, useAppSelector } from '../machines/AppContext';
+import { Tooltip } from './Tooltip';
 
 export const SidebarTitle = memo(function SidebarTitle({
   side,
@@ -51,21 +52,22 @@ export const SidebarTitle = memo(function SidebarTitle({
     >
       <span className="sidebar-title-text">{label}</span>
       {side === 'left' && (
-        <button
-          type="button"
-          className="sidebar-title-switcher"
-          title="Switch session"
-          aria-label="Switch session"
-          aria-haspopup="menu"
-          onClick={(e) => {
-            e.stopPropagation();
-            openSessions();
-          }}
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
-            <path d="M2 3.75 L5 6.75 L8 3.75" strokeWidth="1.4" />
-          </svg>
-        </button>
+        <Tooltip label="Switch session">
+          <button
+            type="button"
+            className="sidebar-title-switcher"
+            aria-label="Switch session"
+            aria-haspopup="menu"
+            onClick={(e) => {
+              e.stopPropagation();
+              openSessions();
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
+              <path d="M2 3.75 L5 6.75 L8 3.75" strokeWidth="1.4" />
+            </svg>
+          </button>
+        </Tooltip>
       )}
     </span>
   );

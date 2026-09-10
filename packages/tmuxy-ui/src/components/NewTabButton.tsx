@@ -8,17 +8,19 @@
  */
 
 import { useAppSend } from '../machines/AppContext';
+import { Tooltip } from './Tooltip';
 
 export function NewTabButton() {
   const send = useAppSend();
   return (
-    <button
-      className="tab-add"
-      onClick={() => send({ type: 'CREATE_TAB' })}
-      title="New tab"
-      aria-label="Create new tab"
-    >
-      +
-    </button>
+    <Tooltip label="New tab">
+      <button
+        className="tab-add"
+        onClick={() => send({ type: 'CREATE_TAB' })}
+        aria-label="Create new tab"
+      >
+        +
+      </button>
+    </Tooltip>
   );
 }

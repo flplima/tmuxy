@@ -11,6 +11,7 @@ import { useAppSend, usePane, usePaneGroup } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import { getTabIcon, getTabText } from './paneTabDisplay';
 import type { TmuxPane } from '../tmux/types';
+import { Tooltip } from './Tooltip';
 
 /** Minimum pixels of movement before a mousedown becomes a drag */
 const DRAG_THRESHOLD = 5;
@@ -51,9 +52,11 @@ const PaneTab = memo(function PaneTab({
       aria-label={`Pane ${pane.tmuxId}`}
     >
       {pane.marked && (
-        <span className="pane-tab-mark" title="Marked pane (prefix m)" aria-label="Marked pane">
-          ⚑
-        </span>
+        <Tooltip label="Marked pane (prefix m)">
+          <span className="pane-tab-mark" aria-label="Marked pane">
+            ⚑
+          </span>
+        </Tooltip>
       )}
       {icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>}
       <span className="pane-tab-title">{text}</span>
@@ -320,26 +323,24 @@ export function PaneHeader({
           );
         })}
       </div>
-      <button
-        className="pane-header-menu"
-        onClick={handleMenuClick}
-        title="Pane menu"
-        aria-label="Pane menu"
-      >
-        ⋮
-      </button>
-      <button
-        className="pane-header-close"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (isFloat) onFloatClose?.();
-          else handleClosePane(e);
-        }}
-        title="Close pane"
-        aria-label="Close pane"
-      >
-        ✕
-      </button>
+      <Tooltip label="Pane menu">
+        <button className="pane-header-menu" onClick={handleMenuClick} aria-label="Pane menu">
+          ⋮
+        </button>
+      </Tooltip>
+      <Tooltip label="Close pane">
+        <button
+          className="pane-header-close"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isFloat) onFloatClose?.();
+            else handleClosePane(e);
+          }}
+          aria-label="Close pane"
+        >
+          ✕
+        </button>
+      </Tooltip>
       {contextMenu.visible && (
         <PaneContextMenu
           paneId={contextMenu.targetPaneId}
