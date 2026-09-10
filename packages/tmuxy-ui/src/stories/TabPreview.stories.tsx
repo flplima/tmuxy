@@ -167,3 +167,120 @@ export const LeavingTheStripEndsIt: Story = {
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
   },
 };
+
+// ---------------------------------------------------------------------------
+// The card takes the pointer, and closes the tab from its own corner
+// ---------------------------------------------------------------------------
+
+export const TheCardCanBeReachedAndClosesTheTab: Story = {
+  args: { height: 460, initCommands: THREE_TABS },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 460 },
+      description: {
+        story:
+          'Moving onto the card does not dismiss it — reaching for a control must not be what takes it away — and the ✕ in its corner closes the tab it is showing. The card sits below the strip, so the pointer has a gap to cross on the way; a short grace period covers the crossing.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /^Pane /i }, { timeout: 8000 });
+    await waitFor(() =>
+      expect(canvasElement.querySelectorAll('.tab-name[data-window-id]').length).toBe(3),
+    );
+
+    const bravo = tabButton(canvasElement, 'bravo');
+    const doomed = bravo.dataset.windowId as string;
+    await userEvent.hover(bravo);
+    const card = await waitForPreview(doomed);
+
+    // Room to breathe: the frame is not pressed against the card's edge.
+    const style = getComputedStyle(card);
+    expect(parseFloat(style.paddingTop)).toBeGreaterThanOrEqual(8);
+    expect(parseFloat(style.paddingLeft)).toBeGreaterThanOrEqual(8);
+
+    // Leave the tab for the card: it stays, because the card takes the pointer.
+    await userEvent.unhover(bravo);
+    await userEvent.hover(card);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(preview(), 'the card went away as the pointer reached it').not.toBeNull();
+
+    // Its ✕ sits in the top-right corner and closes that tab.
+    const close = canvasElement.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="tab-preview-close"]',
+    );
+    expect(close).not.toBeNull();
+    const closeBox = close!.getBoundingClientRect();
+    const cardBox = card.getBoundingClientRect();
+    expect(closeBox.right).toBeLessThanOrEqual(cardBox.right + 1);
+    expect(closeBox.top).toBeGreaterThanOrEqual(cardBox.top - 1);
+    expect(closeBox.top - cardBox.top).toBeLessThan(cardBox.height / 3);
+
+    await userEvent.click(close!);
+    await waitFor(
+      () =>
+        expect(
+          [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')].map(
+            (t) => t.dataset.windowId,
+          ),
+        ).not.toContain(doomed),
+      { timeout: 6000 },
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
+// It fades and slides, both ways, unless the config says not to
+// ---------------------------------------------------------------------------
+
+export const ItFadesAndSlidesBothWays: Story = {
+  args: { height: 460, initCommands: THREE_TABS },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 460 },
+      description: {
+        story:
+          'The card fades in with a short slide down from the strip it belongs to, and leaves the same way rather than blinking out — sampled per paint, so a declared animation that never runs would fail. With `@tmuxy-animations off` it simply appears and simply goes.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /^Pane /i }, { timeout: 8000 });
+    await waitFor(() =>
+      expect(canvasElement.querySelectorAll('.tab-name[data-window-id]').length).toBe(3),
+    );
+    const alpha = tabButton(canvasElement, 'alpha');
+    const pane = canvasElement.querySelector<HTMLElement>('.pane-layout-item');
+
+    /** Sample the card's painted opacity while `act` runs. */
+    const sample = async (act: () => void, ms: number) => {
+      const seen: number[] = [];
+      let sampling = true;
+      const frame = () => {
+        const el = preview();
+        if (el) seen.push(Number(getComputedStyle(el).opacity));
+        if (sampling) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+      act();
+      await new Promise((r) => setTimeout(r, ms));
+      sampling = false;
+      return seen;
+    };
+
+    // In: it is drawn part-way there, not switched on.
+    const appearing = await sample(() => void userEvent.hover(alpha), 1600);
+    await waitForPreview();
+    expect(appearing.some((o) => o > 0.02 && o < 0.98)).toBe(true);
+
+    // Out: the same, in reverse — and it is still in the DOM while it goes.
+    const leaving = await sample(() => {
+      void userEvent.unhover(alpha);
+      if (pane) void userEvent.hover(pane);
+    }, 900);
+    expect(leaving.some((o) => o > 0.02 && o < 0.98)).toBe(true);
+    await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
+  },
+};

@@ -1,24 +1,28 @@
-/* The hover preview: one card for the whole strip, which slides from button
-   to button rather than appearing and disappearing at each. That slide is the
-   whole point of reusing the node, so `left` and `top` carry a transition —
-   and, like every other piece of chrome, it stops when the config says no
-   animations. */
+/* The hover card: one for the whole strip, which slides from button to button
+   rather than appearing and disappearing at each. That slide is the point of
+   reusing the node, so `left` and `top` carry a transition of their own,
+   separate from the fade-and-slide it arrives and leaves on. Both stop when
+   the config says no animations. */
 .tab-preview {
   position: fixed;
   z-index: var(--z-tooltip);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm);
+  gap: var(--spacing-lg);
+  /* Room to breathe: the picture is the content, and a frame pressed against
+     the card's edge reads as a cropped screenshot rather than a preview. */
+  padding: var(--spacing-2xl);
   background: var(--bg-dark);
   border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
-  pointer-events: none;
+  /* The card takes the pointer: it holds a close button, and reaching for one
+     must not be what dismisses it. */
+  pointer-events: auto;
   transition:
     left var(--transition-normal),
     top var(--transition-normal);
-  animation: tab-preview-in var(--transition-fast);
+  animation: tab-preview-in var(--transition-normal);
 }
 
 /* The picture itself: the tab's aspect ratio, with the boxes positioned as
@@ -42,13 +46,65 @@
   text-overflow: ellipsis;
 }
 
+/* Closing the tab from its own picture. Top-right, over the frame's corner:
+   the card is small, and a row of its own for one button would cost more of
+   it than the button is worth. */
+.tab-preview-close {
+  position: absolute;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: color-mix(in srgb, var(--bg-dark) 80%, transparent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.tab-preview-close:hover {
+  color: var(--term-white);
+  background-color: var(--bg-medium);
+}
+
+/* Arriving and leaving: a fade with a short slide down from the strip it
+   belongs to, and the reverse on the way out. `forwards` holds the last frame
+   so the card does not flash back to full opacity before it is unmounted. */
 @keyframes tab-preview-in {
   from {
     opacity: 0;
+    transform: translateY(-6px);
   }
   to {
     opacity: 1;
+    transform: none;
   }
+}
+
+@keyframes tab-preview-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.tab-preview.is-leaving {
+  animation: tab-preview-out var(--transition-normal) forwards;
+  pointer-events: none;
 }
 
 .app-no-animations .tab-preview {

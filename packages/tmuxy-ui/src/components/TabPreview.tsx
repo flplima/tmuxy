@@ -19,15 +19,18 @@
  * config's animations switch reaches it, and clamped to the viewport.
  */
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  useAppSend,
   useAppSelector,
   useAppSelectorShallow,
   selectPanes,
   selectCharSize,
   selectContainerSize,
+  selectAnimationsAllowed,
 } from '../machines/AppContext';
+import { Tooltip } from './Tooltip';
 import { slotBoxes } from '../utils/tabOverview';
 import { useTabStill } from '../hooks/useTabStill';
 import { TabShot } from './TabShot';
@@ -35,6 +38,13 @@ import './TabPreview.css';
 
 /** How long a pointer has to rest on a tab before the FIRST preview opens. */
 export const TAB_PREVIEW_DELAY_MS = 1000;
+
+/**
+ * How long the card takes to fade and slide away. Must stay in sync with the
+ * `tab-preview-out` keyframes (TabPreview.css) — the node is held for exactly
+ * this long so the exit has something to play on.
+ */
+const TAB_PREVIEW_EXIT_MS = 150;
 
 const WIDTH_PX = 280;
 const GAP_PX = 6;
@@ -49,20 +59,42 @@ interface TabPreviewProps {
   windowId: string | null;
   /** Its name, for the caption — the strip already knows it. */
   label: string;
+  /** The pointer moved onto the card, or off it. */
+  onPointerEnter: () => void;
+  onPointerLeave: () => void;
 }
 
-export function TabPreview({ windowId, label }: TabPreviewProps) {
+export function TabPreview({ windowId, label, onPointerEnter, onPointerLeave }: TabPreviewProps) {
+  const send = useAppSend();
   const panes = useAppSelectorShallow(selectPanes);
+  const animations = useAppSelector(selectAnimationsAllowed);
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
-  const still = useTabStill(panes, windowId !== null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
 
+  // What is DRAWN, which outlives what is asked for: when the strip stops
+  // pointing at a tab the card stays for its exit, then goes.
+  const [card, setCard] = useState<{ windowId: string; label: string } | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  useEffect(() => {
+    if (windowId) {
+      setCard({ windowId, label });
+      setLeaving(false);
+      return;
+    }
+    setLeaving(true);
+    const timer = setTimeout(() => setCard(null), animations ? TAB_PREVIEW_EXIT_MS : 0);
+    return () => clearTimeout(timer);
+  }, [windowId, label, animations]);
+
+  const shownId = card?.windowId ?? null;
+  const still = useTabStill(panes, shownId !== null);
+
   useLayoutEffect(() => {
     const root = rootRef.current;
-    if (!root || !windowId) return;
-    const anchor = document.querySelector<HTMLElement>(`.tab-name[data-window-id="${windowId}"]`);
+    if (!root || !shownId) return;
+    const anchor = document.querySelector<HTMLElement>(`.tab-name[data-window-id="${shownId}"]`);
     if (!anchor) return;
     const tab = anchor.getBoundingClientRect();
     const box = root.getBoundingClientRect();
@@ -82,23 +114,24 @@ export function TabPreview({ windowId, label }: TabPreviewProps) {
         setFrameSize({ width: r.width, height: r.height });
       }
     }
-  }, [windowId, frameSize]);
+  }, [shownId, frameSize]);
 
-  if (!windowId) return null;
+  if (!card) return null;
 
   // The still is what keeps a busy tab from redrawing its picture on every
   // frame of output; until the first sample lands the live panes will do.
   const source = still ? panes.map((p) => (still[p.tmuxId] ? still[p.tmuxId] : p)) : panes;
-  const boxes = slotBoxes(source, windowId);
+  const boxes = slotBoxes(source, card.windowId);
 
   return createPortal(
     <div
       ref={rootRef}
-      className="tab-preview"
+      className={`tab-preview${leaving ? ' is-leaving' : ''}`}
       role="tooltip"
-      aria-hidden="true"
       data-testid="tab-preview"
-      data-window-id={windowId}
+      data-window-id={card.windowId}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
       // The picture is the tab's shape, so the frame takes the pane area's
       // aspect ratio rather than a fixed one.
       style={
@@ -110,6 +143,17 @@ export function TabPreview({ windowId, label }: TabPreviewProps) {
         } as React.CSSProperties
       }
     >
+      <Tooltip label="Close tab">
+        <button
+          type="button"
+          className="tab-preview-close"
+          aria-label={`Close ${card.label}`}
+          data-testid="tab-preview-close"
+          onClick={() => send({ type: 'CLOSE_TAB', windowId: card.windowId })}
+        >
+          ✕
+        </button>
+      </Tooltip>
       <div className="tab-preview-frame" aria-hidden="true">
         <TabShot
           boxes={boxes}
@@ -118,7 +162,7 @@ export function TabPreview({ windowId, label }: TabPreviewProps) {
           charHeight={charHeight}
         />
       </div>
-      <div className="tab-preview-label">{label}</div>
+      <div className="tab-preview-label">{card.label}</div>
     </div>,
     portalTarget(),
   );

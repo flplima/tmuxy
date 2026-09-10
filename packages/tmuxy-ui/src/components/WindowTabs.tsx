@@ -61,6 +61,12 @@ import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
  */
 const SHOW_ACTIVE_TAB_SETTLE_MS = 600;
 
+/**
+ * How long the hover card survives the pointer leaving the strip. Just enough
+ * to cross the gap between a tab and the card below it.
+ */
+const PREVIEW_GRACE_MS = 180;
+
 interface TabContextMenuState {
   visible: boolean;
   x: number;
@@ -209,6 +215,7 @@ export const WindowTabs = memo(function WindowTabs() {
   const handleTabEnter = (e: React.PointerEvent<HTMLSpanElement>, windowId: string) => {
     // A finger on a tab is pressing it, not asking about it.
     if (e.pointerType !== 'mouse') return;
+    cancelClose();
     // Already browsing: keep up with the pointer instead of waiting again.
     if (previewId !== null) {
       clearPreviewTimer();
@@ -224,19 +231,46 @@ export const WindowTabs = memo(function WindowTabs() {
 
   // Leaving the STRIP ends the browse; leaving one tab for the next does not,
   // which is what lets the same card slide along instead of blinking out.
+  //
+  // Not at once, though: the card sits just below the strip, and the pointer
+  // has to cross the gap to reach it. A grace period covers that crossing, and
+  // the card cancels it on the way in — otherwise a card you are reaching for
+  // is a card that closes as you reach.
+  const closeTimerRef = useRef<number | null>(null);
+  const cancelClose = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setPreviewId(null);
+    }, PREVIEW_GRACE_MS);
+  };
+
   const handleStripLeave = () => {
     clearPreviewTimer();
-    setPreviewId(null);
+    scheduleClose();
   };
 
   // A press is an action on the tab, and the picture is in the way of seeing
   // what it did.
   const dismissPreview = () => {
     clearPreviewTimer();
+    cancelClose();
     setPreviewId(null);
   };
 
-  useEffect(() => clearPreviewTimer, []);
+  useEffect(
+    () => () => {
+      clearPreviewTimer();
+      cancelClose();
+    },
+    [],
+  );
 
   const previewWindow = visibleWindows.find((w) => w.id === previewId) ?? null;
   const previewIndex = visibleWindows.findIndex((w) => w.id === previewId) + 1;
@@ -404,12 +438,16 @@ export const WindowTabs = memo(function WindowTabs() {
             New Tab
           </span>
         )}
-        {previewWindow && (
-          <TabPreview
-            windowId={previewWindow.id}
-            label={`${previewIndex}:${previewWindow.name || `Tab ${previewIndex}`}`}
-          />
-        )}
+        {/* Always mounted: the card owns its own exit, and unmounting it here
+            would take the animation with it. */}
+        <TabPreview
+          windowId={previewWindow?.id ?? null}
+          label={
+            previewWindow ? `${previewIndex}:${previewWindow.name || `Tab ${previewIndex}`}` : ''
+          }
+          onPointerEnter={cancelClose}
+          onPointerLeave={scheduleClose}
+        />
         {contextMenu.visible && (
           <TabContextMenu
             windowId={contextMenu.windowId}
