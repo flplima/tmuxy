@@ -39,6 +39,14 @@ const PROCESS_ICONS: Record<string, string> = {
 
 const DEFAULT_ICON = '\ue795'; //  nf-custom-terminal
 
+/**
+ * Below this, a character is ordinary text: ASCII, Latin, and the punctuation
+ * blocks that hold quotation marks, dashes and the like. Above it are the
+ * arrows, geometric shapes, dingbats, emoji and private-use icon fonts an
+ * application might lead its title with.
+ */
+const FIRST_SYMBOL_CODEPOINT = 0x2070;
+
 function getProcessIcon(command: string): string {
   const name = command.toLowerCase();
   if (PROCESS_ICONS[name]) return PROCESS_ICONS[name];
@@ -47,13 +55,44 @@ function getProcessIcon(command: string): string {
 }
 
 /**
+ * The icon an application put at the front of its own title, if it did.
+ *
+ * Plenty of them do — Claude Code announces `\u273b claude`, and the pattern is
+ * a symbol, a space, then the title. Drawing our guess at a process icon
+ * beside it gives the pane two icons, one of which is wrong, so the app's own
+ * wins: it knows what it is better than a table of executable names does.
+ *
+ * The test is deliberately narrow. A leading symbol only counts when a space
+ * follows it, because that is what makes it a prefix rather than the first
+ * character of a word, and only characters above the punctuation blocks count
+ * at all — a title starting with a quotation mark or a dash is a title, not an
+ * icon.
+ */
+export function splitTitleIcon(text: string): { icon: string | null; text: string } {
+  const first = text.codePointAt(0);
+  if (first === undefined || first < FIRST_SYMBOL_CODEPOINT) return { icon: null, text };
+  let end = String.fromCodePoint(first).length;
+  // An emoji presentation selector belongs to the glyph before it.
+  if (text.codePointAt(end) === 0xfe0f) end += 1;
+  if (text[end] !== ' ') return { icon: null, text };
+  const rest = text.slice(end + 1).trim();
+  return rest ? { icon: text.slice(0, end), text: rest } : { icon: null, text };
+}
+
+/**
  * Process/widget icon for a pane. A widget's own icon comes from its
  * registered definition (components/widgets), so adding a widget never means
- * editing a table here.
+ * editing a table here; an application's own icon comes from its title.
  */
-export function getTabIcon(pane: TmuxPane, widgetName?: string): string | null {
+export function getTabIcon(
+  pane: TmuxPane,
+  widgetName?: string,
+  titleOverride?: string,
+): string | null {
   const widgetIcon = widgetName ? getWidget(widgetName)?.icon : undefined;
   if (widgetIcon) return widgetIcon;
+  const own = splitTitleIcon(getTabText(pane, titleOverride)).icon;
+  if (own) return own;
   if (pane.command) return getProcessIcon(pane.command);
   return null;
 }
@@ -73,4 +112,12 @@ export function getTabText(pane: TmuxPane, titleOverride?: string): string {
   if (pane.inMode) return '[COPY MODE]';
   if (titleOverride) return titleOverride;
   return pane.title || pane.command || pane.borderTitle.trim() || 'shell';
+}
+
+/**
+ * The pane's title with any icon the application prefixed to it removed, so
+ * the icon is drawn once — in the icon's place — rather than twice.
+ */
+export function getTabLabel(pane: TmuxPane, titleOverride?: string): string {
+  return splitTitleIcon(getTabText(pane, titleOverride)).text;
 }

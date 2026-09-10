@@ -37,7 +37,7 @@ import {
   selectSessions,
   selectRepositories,
 } from '../machines/AppContext';
-import { getTabText, getTabIcon } from './paneTabDisplay';
+import { getTabLabel, getTabIcon } from './paneTabDisplay';
 import {
   findPaneGitContext,
   gitBadgeText,
@@ -600,7 +600,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
               </span>
             )}
             <span className="sidebar-tree-label">
-              {row.pane.tmuxId} {getTabText(row.pane)}
+              {row.pane.tmuxId} {getTabLabel(row.pane)}
             </span>
             {badgeSpan(gitBadge([row.pane.tmuxId]))}
             {/* Which pane the keyboard actually goes to, at a glance — the

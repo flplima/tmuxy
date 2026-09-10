@@ -9,7 +9,7 @@
 import { useRef, useEffect, useState, useCallback, memo } from 'react';
 import { useAppSend, usePane, usePaneGroup } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
-import { getTabIcon, getTabText } from './paneTabDisplay';
+import { getTabIcon, getTabLabel } from './paneTabDisplay';
 import type { TmuxPane } from '../tmux/types';
 import { Tooltip } from './Tooltip';
 import { measureTabStrip } from '../utils/tabStripDrop';
@@ -40,8 +40,8 @@ const PaneTab = memo(function PaneTab({
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
-  const icon = getTabIcon(pane, widgetName);
-  const text = getTabText(pane, titleOverride);
+  const icon = getTabIcon(pane, widgetName, titleOverride);
+  const text = getTabLabel(pane, titleOverride);
 
   return (
     <div

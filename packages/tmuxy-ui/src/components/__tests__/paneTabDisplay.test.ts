@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getTabText } from '../paneTabDisplay';
+import { getTabText, getTabLabel, getTabIcon, splitTitleIcon } from '../paneTabDisplay';
 import type { TmuxPane } from '../../tmux/types';
 
 const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
@@ -58,5 +58,57 @@ describe('getTabText', () => {
 
   it('reports copy mode ahead of any title', () => {
     expect(getTabText(pane({ title: '✳ tmuxy', inMode: true }))).toBe('[COPY MODE]');
+  });
+});
+
+describe('splitTitleIcon', () => {
+  it('takes a symbol the app put in front of its own title', () => {
+    expect(splitTitleIcon('\u273b claude')).toEqual({ icon: '\u273b', text: 'claude' });
+    expect(splitTitleIcon('\u{1f680} deploy')).toEqual({ icon: '\u{1f680}', text: 'deploy' });
+  });
+
+  it('keeps an emoji presentation selector with the glyph it belongs to', () => {
+    expect(splitTitleIcon('\u2757\ufe0f build failed')).toEqual({
+      icon: '\u2757\ufe0f',
+      text: 'build failed',
+    });
+  });
+
+  it('leaves ordinary titles alone', () => {
+    expect(splitTitleIcon('nvim README.md')).toEqual({ icon: null, text: 'nvim README.md' });
+    expect(splitTitleIcon('')).toEqual({ icon: null, text: '' });
+  });
+
+  it('wants a space after it: a symbol inside a word is part of the word', () => {
+    expect(splitTitleIcon('\u273bclaude')).toEqual({ icon: null, text: '\u273bclaude' });
+  });
+
+  it('leaves punctuation alone — a quoted title is a title, not an icon', () => {
+    expect(splitTitleIcon('\u201c a quote')).toEqual({ icon: null, text: '\u201c a quote' });
+    expect(splitTitleIcon('- a dash')).toEqual({ icon: null, text: '- a dash' });
+  });
+
+  it('is not an icon when nothing follows it', () => {
+    expect(splitTitleIcon('\u273b ')).toEqual({ icon: null, text: '\u273b ' });
+  });
+});
+
+describe('the icon an application announces', () => {
+  it('replaces our guess rather than sitting beside it', () => {
+    const claude = pane({ command: '2.1.251', title: '\u273b claude' });
+    // One icon, and it is the app's own.
+    expect(getTabIcon(claude)).toBe('\u273b');
+    // ...and the title no longer carries it, so it is drawn once.
+    expect(getTabLabel(claude)).toBe('claude');
+  });
+
+  it('falls back to the process icon when the app announced no icon', () => {
+    const shell = pane({ command: 'zsh', title: 'zsh' });
+    expect(getTabIcon(shell)).toBe('\ue795');
+    expect(getTabLabel(shell)).toBe('zsh');
+  });
+
+  it('leaves the plain title alone for the places that draw no icon', () => {
+    expect(getTabText(pane({ title: '\u273b claude' }))).toBe('\u273b claude');
   });
 });
