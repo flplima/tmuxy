@@ -1,0 +1,64 @@
+/* The hover preview: one card for the whole strip, which slides from button
+   to button rather than appearing and disappearing at each. That slide is the
+   whole point of reusing the node, so `left` and `top` carry a transition —
+   and, like every other piece of chrome, it stops when the config says no
+   animations. */
+.tab-preview {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--bg-dark);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  pointer-events: none;
+  transition:
+    left var(--transition-normal),
+    top var(--transition-normal);
+  animation: tab-preview-in var(--transition-fast);
+}
+
+/* The picture itself: the tab's aspect ratio, with the boxes positioned as
+   percentages of it (see TabShot). */
+.tab-preview-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--tab-overview-aspect, 16 / 9);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg-darkest, var(--bg-dark));
+}
+
+.tab-preview-label {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.8);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes tab-preview-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.app-no-animations .tab-preview {
+  transition: none;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-preview {
+    transition: none;
+    animation: none;
+  }
+}

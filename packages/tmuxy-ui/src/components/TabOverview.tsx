@@ -7,8 +7,8 @@
  *  - Each slot is a card: a header row with the tab's strip number and name
  *    and a ✕ that closes the tab, then a frame drawing the tab's pane layout
  *    to scale, each pane box showing the pane's screen as it was when the
- *    overview opened (the machine's `tabOverviewSnapshot`: a still, so a tab
- *    that keeps printing does not churn its thumbnail). The current tab's
+ *    it was a second ago (useTabStill, so a tab that keeps printing does not
+ *    churn its thumbnail every frame). The current tab's
  *    frame is the FLIP target: the live `.pane-layout` is scaled into it
  *    (see the CSS custom properties set on `.pane-container`).
  *  - The trailing slot is a dashed "+" that creates a tab.
@@ -41,7 +41,8 @@ import {
   stillPanes,
 } from '../utils/tabOverview';
 import { LogProfiler } from '../utils/renderLog';
-import { Terminal } from './Terminal';
+import { TabShot } from './TabShot';
+import { useTabStill } from '../hooks/useTabStill';
 import { nudgeCursorAnchor } from './cursorAnchor';
 import { Tooltip } from './Tooltip';
 
@@ -76,7 +77,10 @@ function TabOverviewInner() {
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
   const windows = useAppSelectorShallow(selectVisibleWindows);
   const livePanes = useAppSelectorShallow(selectPanes);
-  const snapshot = useAppSelector((ctx) => ctx.tabOverviewSnapshot);
+  // Re-read once a second: following the panes live makes a tab that keeps
+  // printing churn its card on every frame of output, and freezing them when
+  // the overview opens makes the cards go stale while you look at them.
+  const snapshot = useTabStill(livePanes, true);
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
   // Read by the activate helpers, which are stable callbacks: they must see
@@ -478,49 +482,12 @@ function TabOverviewInner() {
                   drawn over it, so its wireframe only shows through the
                   zoom animation. */}
               <div className="tab-overview-frame" aria-hidden="true">
-                {slot.boxes.map((box) => {
-                  // The pane's screen at its natural cell size, scaled into
-                  // the box (each axis on its own, so it fills the box the
-                  // way the pane fills its share of the tab).
-                  const naturalW = box.cols * charWidth;
-                  const naturalH = box.rows * charHeight;
-                  const shot =
-                    frameSize && naturalW > 0 && naturalH > 0
-                      ? {
-                          width: naturalW,
-                          height: naturalH,
-                          transform: `scale(${(frameSize.width * box.width) / 100 / naturalW}, ${
-                            (frameSize.height * box.height) / 100 / naturalH
-                          })`,
-                        }
-                      : null;
-                  return (
-                    <div
-                      key={box.paneId}
-                      className={`tab-overview-box${box.active ? ' is-active' : ''}`}
-                      style={{
-                        left: `${box.left}%`,
-                        top: `${box.top}%`,
-                        width: `${box.width}%`,
-                        height: `${box.height}%`,
-                      }}
-                    >
-                      {shot ? (
-                        <div className="tab-overview-shot" style={shot}>
-                          <Terminal
-                            content={box.content}
-                            width={box.cols}
-                            height={box.rows}
-                            isActive={false}
-                            paneId={box.paneId}
-                          />
-                        </div>
-                      ) : (
-                        <span className="tab-overview-box-label">{box.label}</span>
-                      )}
-                    </div>
-                  );
-                })}
+                <TabShot
+                  boxes={slot.boxes}
+                  frameSize={frameSize}
+                  charWidth={charWidth}
+                  charHeight={charHeight}
+                />
               </div>
             </div>
           );

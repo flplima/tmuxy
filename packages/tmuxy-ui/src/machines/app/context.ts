@@ -113,7 +113,6 @@ export const FIELD_OWNERS = {
   rightSidebarClosing: 'groupsAndFloats',
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
-  tabOverviewSnapshot: 'tabOverview',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -189,7 +188,6 @@ export function createInitialContext(): AppMachineContext {
     rightSidebarClosing: false,
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
-    tabOverviewSnapshot: null,
     enableAnimations: false,
     animationsAllowed: true,
     cursorBlink: true,

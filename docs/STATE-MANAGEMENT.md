@@ -139,6 +139,7 @@ The context holds all frontend state. Key fields:
 - `themeName`, `themeMode`, `availableThemes` — Theme settings
 - `enableAnimations` — CSS transitions toggle (disabled on load, enabled after state settles)
 - `animationsAllowed` — the config's `@tmuxy-animations` switch (`tmuxy.conf`, read with the appearance options); false strips the pane transitions and the float keyframes for the session, whatever `enableAnimations` settles to
+- The pictures a tab shows of itself — the Tab Overview's cards and the strip's hover preview — read the panes through `hooks/useTabStill.ts`, which re-samples once a second. Following the panes live churns a busy tab's thumbnail on every frame of output; freezing them when the picture opens lets it go stale while it is on screen. No machine field holds it: it is what the two components are looking at, not session state
 - `cursorBlink` — the config's `@tmuxy-cursor-blink` switch, read with the appearance options and flipped from View > Blinking Cursor; the backend writes the new value to the managed state file so it outlives a tmux restart. It is a permission, not an order: a running application that asked for a steady cursor through DECSCUSR still gets one, and the copy-mode cursor never blinks
 
 ### Actors

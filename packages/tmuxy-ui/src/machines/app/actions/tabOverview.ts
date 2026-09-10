@@ -1,7 +1,7 @@
 /**
  * Tab Overview actions — the Safari-style "all tabs" view.
  *
- * Owns context fields: tabOverviewOpen, tabOverviewSelected, tabOverviewSnapshot.
+ * Owns context fields: tabOverviewOpen, tabOverviewSelected.
  *
  * The overview is a client-side surface over the pane area: opening it zooms
  * the current tab out into a grid of every tab; picking a slot zooms that tab
@@ -30,11 +30,7 @@ const activeSlot = (context: Ctx) => {
   return idx === -1 ? 0 : idx;
 };
 
-/** The still the slots draw: every pane, by id, as it is right now. */
-const snapshotPanes = (context: Ctx) =>
-  Object.fromEntries(context.panes.map((p) => [p.tmuxId, p] as const));
-
-const closed = { tabOverviewOpen: false, tabOverviewSnapshot: null } as const;
+const closed = { tabOverviewOpen: false } as const;
 
 export const tabOverviewActions = {
   tabOverview_toggle: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
@@ -46,7 +42,6 @@ export const tabOverviewActions = {
           assign({
             tabOverviewOpen: true,
             tabOverviewSelected: activeSlot(context),
-            tabOverviewSnapshot: snapshotPanes(context),
           }),
         );
       }

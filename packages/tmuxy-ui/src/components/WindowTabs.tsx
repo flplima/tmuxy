@@ -20,6 +20,12 @@
  *
  * Right-click opens a context menu with tab operations.
  *
+ * Resting on a tab shows a picture of it (TabPreview). The first one waits a
+ * second, because a pointer crossing the strip on its way somewhere else is
+ * not asking for anything; after that, moving along the strip slides the same
+ * card from tab to tab, so browsing is browsing rather than a second's wait at
+ * every stop. Leaving the strip ends it.
+ *
  * The strip is also where a dragged PANE is dropped to leave its tab. That
  * gesture belongs to the drag machine, which owns the pointer for its whole
  * life; all the strip does is read where the drop would land and say so — the
@@ -27,7 +33,7 @@
  * placeholder appears in the empty space.
  */
 
-import { memo, useMemo, useCallback, useRef, useState } from 'react';
+import { memo, useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   useAppSend,
   useAppSelector,
@@ -41,6 +47,7 @@ import { LogProfiler } from '../utils/renderLog';
 import { DRAG_THRESHOLD_PX, LONG_PRESS_MS, capturePointer, dropIndex } from '../utils/tabOverview';
 import type { TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
+import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
 
 interface TabContextMenuState {
   visible: boolean;
@@ -76,6 +83,9 @@ export const WindowTabs = memo(function WindowTabs() {
   const longPressRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
   const [drag, setDrag] = useState<DragState | null>(null);
+  // The tab whose picture is showing, and the timer waiting to show the first.
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const previewTimerRef = useRef<number | null>(null);
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>({
     visible: false,
     x: 0,
@@ -124,6 +134,49 @@ export const WindowTabs = memo(function WindowTabs() {
 
   const isSingleTab = visibleWindows.length === 1;
 
+  // ---- hover: the tab picture -----------------------------------------------
+  const clearPreviewTimer = () => {
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+  };
+
+  const handleTabEnter = (e: React.PointerEvent<HTMLSpanElement>, windowId: string) => {
+    // A finger on a tab is pressing it, not asking about it.
+    if (e.pointerType !== 'mouse') return;
+    // Already browsing: keep up with the pointer instead of waiting again.
+    if (previewId !== null) {
+      clearPreviewTimer();
+      setPreviewId(windowId);
+      return;
+    }
+    clearPreviewTimer();
+    previewTimerRef.current = window.setTimeout(() => {
+      previewTimerRef.current = null;
+      setPreviewId(windowId);
+    }, TAB_PREVIEW_DELAY_MS);
+  };
+
+  // Leaving the STRIP ends the browse; leaving one tab for the next does not,
+  // which is what lets the same card slide along instead of blinking out.
+  const handleStripLeave = () => {
+    clearPreviewTimer();
+    setPreviewId(null);
+  };
+
+  // A press is an action on the tab, and the picture is in the way of seeing
+  // what it did.
+  const dismissPreview = () => {
+    clearPreviewTimer();
+    setPreviewId(null);
+  };
+
+  useEffect(() => clearPreviewTimer, []);
+
+  const previewWindow = visibleWindows.find((w) => w.id === previewId) ?? null;
+  const previewIndex = visibleWindows.findIndex((w) => w.id === previewId) + 1;
+
   // ---- pointer: drag to reorder --------------------------------------------
   // The strip is one row, so only the x axis decides where a tab lands.
   const centersExcluding = (windowId: string) =>
@@ -142,6 +195,7 @@ export const WindowTabs = memo(function WindowTabs() {
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLSpanElement>, index: number) => {
+    dismissPreview();
     const tab = visibleWindows[index];
     // A lone tab is the desktop window's drag handle, not a control.
     if (!tab || isSingleTab || e.button !== 0) return;
@@ -220,7 +274,11 @@ export const WindowTabs = memo(function WindowTabs() {
 
   return (
     <LogProfiler id="WindowTabs">
-      <div ref={listRef} className={`tab-list${isSingleTab ? ' tab-list-single' : ''}`}>
+      <div
+        ref={listRef}
+        className={`tab-list${isSingleTab ? ' tab-list-single' : ''}`}
+        onPointerLeave={handleStripLeave}
+      >
         {visibleWindows.map((window, idx) => {
           const visualIndex = idx + 1;
           const isDragged = dragging?.windowId === window.id;
@@ -246,6 +304,7 @@ export const WindowTabs = memo(function WindowTabs() {
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerCancel}
+              onPointerEnter={(e) => handleTabEnter(e, window.id)}
               onClick={() => handleWindowClick(window)}
               onContextMenu={(e) => handleContextMenu(e, window.id)}
               role="tab"
@@ -292,6 +351,12 @@ export const WindowTabs = memo(function WindowTabs() {
           <span className="tab-new-drop" aria-hidden="true">
             New Tab
           </span>
+        )}
+        {previewWindow && (
+          <TabPreview
+            windowId={previewWindow.id}
+            label={`${previewIndex}:${previewWindow.name || `Tab ${previewIndex}`}`}
+          />
         )}
         {contextMenu.visible && (
           <TabContextMenu
