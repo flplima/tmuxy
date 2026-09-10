@@ -193,9 +193,23 @@
 }
 
 /* A tab's state flags — stacked panes, a zoomed pane. Quiet next to the
-   name: they say what the tab is doing, they are not controls. */
+   name: they say what the tab is doing, they are not controls.
+
+   Each sits in a box of its own rather than flowing as text. An icon glyph is
+   drawn to fill a cell, but its ADVANCE is what the layout gets, and for the
+   Nerd Font icons those are not the same number: the stacked-panes glyph
+   paints a third wider than it advances and dips below the baseline, so as
+   plain inline text it ran into whatever came next and lost its bottom edge.
+   A box sized to the ink, with the glyph centred in it, draws all of it and
+   takes exactly the room it looks like it takes. */
 .tab-flag {
-  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.25em;
+  height: 1.25em;
+  overflow: visible;
   opacity: 0.55;
   font-size: var(--font-size-lg);
   line-height: 1;
