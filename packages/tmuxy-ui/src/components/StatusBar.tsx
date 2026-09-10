@@ -37,6 +37,7 @@ import { AppMenu } from './menus/AppMenu';
 import { SidebarToggle } from './SidebarToggle';
 import { TabOverviewToggle } from './TabOverviewToggle';
 import { NewTabButton } from './NewTabButton';
+import { TabStripScroll } from './TabStripScroll';
 import { SidebarTitle } from './SidebarTitle';
 import './StatusBar.css';
 
@@ -110,6 +111,10 @@ export const StatusBar = memo(function StatusBar({
       {/* Tab-level actions at the strip's right end: they sit BEFORE the
           dock's cluster, so a docked column never covers them. */}
       <div className="statusbar-actions">
+        {/* Before the "+": paging the strip is about the tabs already there,
+            and a button that comes and goes must not push the ones that
+            do not. */}
+        <TabStripScroll />
         <NewTabButton />
         <TabOverviewToggle />
       </div>

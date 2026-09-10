@@ -344,3 +344,39 @@
   white-space: nowrap;
   opacity: 0.7;
 }
+
+/* The ‹ › pair that pages an overflowing tab strip. Sized and coloured like
+   the "+" beside them — they are the same kind of quiet header control — and
+   the one at its end is dimmed rather than removed, so reaching an edge does
+   not shuffle the buttons next to it. */
+.tab-scroll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  min-width: 20px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.8);
+  line-height: 1;
+  flex-shrink: 0;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+.tab-scroll:hover:not(:disabled) {
+  color: var(--text-muted);
+  background-color: var(--bg-medium);
+}
+
+.tab-scroll:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
