@@ -91,8 +91,8 @@ export function TabContextMenu({ windowId, x, y, onClose }: TabContextMenuProps)
         <KeyLabel keybindings={keybindings} command="last-window" />
       </MenuItem>
       <MenuDivider />
-      <MenuItem type="checkbox" checked={collapsible} onClick={handleToggleCollapsible}>
-        Collapsible Panes
+      <MenuItem onClick={handleToggleCollapsible}>
+        Toggle stacked Panes
         <KeyLabel keybindings={keybindings} command="tmuxy-stack" />
       </MenuItem>
 

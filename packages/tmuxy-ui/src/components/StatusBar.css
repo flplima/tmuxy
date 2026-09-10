@@ -192,6 +192,20 @@
   white-space: nowrap;
 }
 
+/* A tab's state flags — stacked panes, a zoomed pane. Quiet next to the
+   name: they say what the tab is doing, they are not controls. */
+.tab-flag {
+  flex-shrink: 0;
+  opacity: 0.55;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: inherit;
+}
+
+.tab-name-active .tab-flag {
+  opacity: 0.85;
+}
+
 /* The tab's close button: quiet until hovered, like the pane header's. */
 .tab-close {
   display: flex;

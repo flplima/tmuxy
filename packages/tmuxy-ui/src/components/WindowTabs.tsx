@@ -28,6 +28,7 @@ import { haptics } from '../utils/haptics';
 import { LogProfiler } from '../utils/renderLog';
 import { DRAG_THRESHOLD_PX, LONG_PRESS_MS, capturePointer, dropIndex } from '../utils/tabOverview';
 import type { TmuxWindow } from '../machines/types';
+import { Tooltip } from './Tooltip';
 
 interface TabContextMenuState {
   visible: boolean;
@@ -240,16 +241,33 @@ export const WindowTabs = memo(function WindowTabs() {
               <span className="tab-name-label">
                 {visualIndex}:{window.name || `Tab ${visualIndex}`}
               </span>
+              {/* What this tab is doing that its name does not say. Both are
+                  window state, so a background tab shows them too. */}
+              {window.collapsible && (
+                <Tooltip label="Stacked panes: only the active pane is expanded">
+                  <span className="tab-flag" aria-label="Stacked panes">
+                    ▤
+                  </span>
+                </Tooltip>
+              )}
+              {window.zoomed && (
+                <Tooltip label="A pane is zoomed to fill the tab (prefix z)">
+                  <span className="tab-flag" aria-label="Zoomed pane">
+                    ⛶
+                  </span>
+                </Tooltip>
+              )}
               {!isSingleTab && (
-                <button
-                  type="button"
-                  className="tab-close"
-                  onClick={(e) => handleCloseWindow(e, window)}
-                  title="Close tab"
-                  aria-label={`Close tab ${visualIndex}`}
-                >
-                  ✕
-                </button>
+                <Tooltip label="Close tab">
+                  <button
+                    type="button"
+                    className="tab-close"
+                    onClick={(e) => handleCloseWindow(e, window)}
+                    aria-label={`Close tab ${visualIndex}`}
+                  >
+                    ✕
+                  </button>
+                </Tooltip>
               )}
             </span>
           );
