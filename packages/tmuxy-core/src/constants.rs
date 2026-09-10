@@ -101,6 +101,10 @@ pub mod tmux_options {
     /// `on`/`off`: the UI's layout animations (pane morphs, swaps, resizes,
     /// float keyframes). Off draws every change in place.
     pub const ANIMATIONS: &str = "@tmuxy-animations";
+    /// `on`/`off`: whether the cursor blinks. An application that asks for a
+    /// specific cursor (DECSCUSR) is still obeyed; this is what happens when
+    /// it has not.
+    pub const CURSOR_BLINK: &str = "@tmuxy-cursor-blink";
 }
 
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /

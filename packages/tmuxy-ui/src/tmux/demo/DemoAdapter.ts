@@ -308,6 +308,11 @@ export class DemoAdapter implements TmuxAdapter {
         return null as T;
       }
 
+      // The demo has no config to write to, so the blink lives only in the
+      // machine's context for as long as the page is open.
+      case 'set_cursor_blink':
+        return null as T;
+
       case 'get_theme_settings': {
         const stored = loadThemeFromStorage();
         return (stored || { theme: 'default', mode: 'dark' }) as T;

@@ -30,6 +30,9 @@ pub struct Appearance {
     pub blur: bool,
     /// Layout animations on or off (`@tmuxy-animations`).
     pub animations: bool,
+    /// Whether the cursor blinks when the application has not asked for a
+    /// particular cursor (`@tmuxy-cursor-blink`).
+    pub cursor_blink: bool,
 }
 
 impl Default for Appearance {
@@ -42,6 +45,7 @@ impl Default for Appearance {
             inactive_text_opacity: 0.7,
             blur: true,
             animations: true,
+            cursor_blink: true,
         }
     }
 }
@@ -123,6 +127,10 @@ pub async fn get_appearance(ctx: &Ctx) -> Appearance {
             &read_option(ctx, tmux_options::ANIMATIONS, "appearance:animations").await,
             defaults.animations,
         ),
+        cursor_blink: parse_flag(
+            &read_option(ctx, tmux_options::CURSOR_BLINK, "appearance:cursor-blink").await,
+            defaults.cursor_blink,
+        ),
     }
 }
 
@@ -139,6 +147,30 @@ pub async fn get_theme_settings(ctx: &Ctx) -> serde_json::Value {
         "mode": if mode.is_empty() { DEFAULT_MODE.to_string() } else { mode },
         "appearance": appearance,
     })
+}
+
+/// Turn the cursor's blink on or off, and remember the choice.
+///
+/// The live tmux option is what the clients read; the state file is what
+/// makes it survive a tmux server restart. A `@tmuxy-cursor-blink` line in
+/// the user's own `tmuxy.conf` is the default this starts from — set it
+/// there and the app never has to be told.
+pub async fn set_cursor_blink(ctx: &Ctx, enabled: bool) -> Result<(), String> {
+    ctx.tmux_call(
+        vec![
+            "set-option".into(),
+            "-g".into(),
+            tmux_options::CURSOR_BLINK.into(),
+            if enabled { "on".into() } else { "off".into() },
+        ],
+        "cursor-blink:set",
+    )
+    .await
+    .map_err(|e| format!("Failed to set cursor blink: {}", e))?;
+    if let Err(e) = session::write_managed_state(None, None, Some(enabled)) {
+        tracing::warn!(error = %e, "could not persist the cursor blink to tmuxy.state.json");
+    }
+    Ok(())
 }
 
 /// Set the theme (and optionally the mode) in tmux and persist the choice so
@@ -169,7 +201,7 @@ pub async fn set_theme(ctx: &Ctx, name: &str, mode: Option<&str>) -> Result<(), 
         .await
         .map_err(|e| format!("Failed to set theme mode: {}", e))?;
     }
-    if let Err(e) = session::write_managed_state(Some(name), mode) {
+    if let Err(e) = session::write_managed_state(Some(name), mode, None) {
         tracing::warn!(error = %e, "could not persist theme to tmuxy.state.json");
     }
     Ok(())
@@ -188,7 +220,7 @@ pub async fn set_theme_mode(ctx: &Ctx, mode: &str) -> Result<(), String> {
     )
     .await
     .map_err(|e| format!("Failed to set theme mode: {}", e))?;
-    if let Err(e) = session::write_managed_state(None, Some(mode)) {
+    if let Err(e) = session::write_managed_state(None, Some(mode), None) {
         tracing::warn!(error = %e, "could not persist theme mode to tmuxy.state.json");
     }
     Ok(())

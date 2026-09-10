@@ -468,6 +468,10 @@ pub struct ManagedState {
     pub theme: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme_mode: Option<String>,
+    /// Whether the cursor blinks (`@tmuxy-cursor-blink`), when the user has
+    /// chosen through the app rather than in `tmuxy.conf`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor_blink: Option<bool>,
     /// Preserve unknown keys across roundtrips so a newer build's state file
     /// isn't truncated when read+written by an older one.
     #[serde(flatten)]
@@ -503,6 +507,7 @@ pub fn read_managed_state() -> ManagedState {
 pub fn write_managed_state(
     theme: Option<&str>,
     theme_mode: Option<&str>,
+    cursor_blink: Option<bool>,
 ) -> std::io::Result<PathBuf> {
     let dir = config_dir();
     std::fs::create_dir_all(&dir)?;
@@ -514,6 +519,9 @@ pub fn write_managed_state(
     }
     if let Some(m) = theme_mode {
         state.theme_mode = Some(m.to_string());
+    }
+    if let Some(b) = cursor_blink {
+        state.cursor_blink = Some(b);
     }
 
     let body = serde_json::to_string_pretty(&state).map_err(std::io::Error::other)?;
@@ -534,9 +542,11 @@ pub fn session_name() -> String {
 
 pub fn apply_managed_state(session_name: &str) {
     let state = read_managed_state();
-    let pairs: [(Option<&str>, &str); 2] = [
+    let blink = state.cursor_blink.map(|on| if on { "on" } else { "off" });
+    let pairs: [(Option<&str>, &str); 3] = [
         (state.theme.as_deref(), tmux_options::THEME),
         (state.theme_mode.as_deref(), tmux_options::THEME_MODE),
+        (blink, tmux_options::CURSOR_BLINK),
     ];
     for (value, option) in pairs {
         let Some(v) = value else { continue };
@@ -1035,12 +1045,18 @@ mod tests {
         let state = ManagedState {
             theme: Some("dracula".into()),
             theme_mode: Some("dark".into()),
+            cursor_blink: Some(false),
             extra: serde_json::Map::new(),
         };
         let json = serde_json::to_string(&state).unwrap();
         let parsed: ManagedState = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.theme.as_deref(), Some("dracula"));
         assert_eq!(parsed.theme_mode.as_deref(), Some("dark"));
+        assert_eq!(parsed.cursor_blink, Some(false));
+
+        // An older build's file has no such key; the choice is simply unmade.
+        let old: ManagedState = serde_json::from_str(r#"{"theme":"nord"}"#).unwrap();
+        assert_eq!(old.cursor_blink, None);
     }
 
     #[test]

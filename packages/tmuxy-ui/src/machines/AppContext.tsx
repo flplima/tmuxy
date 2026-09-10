@@ -101,6 +101,7 @@ export {
   selectStatusMessage,
   selectNotifications,
   selectAnimationsAllowed,
+  selectCursorBlink,
   selectPrefixActive,
   selectActivePaneCopyMode,
   selectThemeName,

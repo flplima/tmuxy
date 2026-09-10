@@ -10,6 +10,12 @@ interface CursorProps {
   char?: string;
   mode?: CursorMode;
   copyMode?: boolean;
+  /**
+   * Whether this cursor should blink. It is a class rather than an animation
+   * here because the pane's cursor is only the anchor: SmoothCursor paints
+   * what the user sees and reads the flag off this element.
+   */
+  blink?: boolean;
 }
 
 /**
@@ -28,11 +34,19 @@ interface CursorProps {
  * the content uses in both renderers (Terminal and ScrollbackTerminal),
  * independent of glyph advance, font fallback and webfont load timing.
  */
-export function Cursor({ x, y, char = ' ', mode = 'block', copyMode = false }: CursorProps) {
+export function Cursor({
+  x,
+  y,
+  char = ' ',
+  mode = 'block',
+  copyMode = false,
+  blink = false,
+}: CursorProps) {
   const className = [
     'terminal-cursor',
     `terminal-cursor-${mode}`,
     copyMode ? 'terminal-cursor-copy' : '',
+    blink ? 'terminal-cursor-blink' : '',
   ]
     .filter(Boolean)
     .join(' ');

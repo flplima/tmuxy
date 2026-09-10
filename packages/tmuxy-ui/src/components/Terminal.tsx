@@ -162,11 +162,13 @@ export const Terminal: React.FC<TerminalProps> = ({
   // cursor's resting (0,0) read as a ghost cursor in its first row.
   const showCursor = isActive && (!cursorHidden || inMode);
 
-  // Derive cursor mode from DECSCUSR shape (blink is intentionally dropped —
-  // tmuxy doesn't render a blinking cursor regardless of what the running
-  // application requests via DECSCUSR).
+  // Derive cursor mode and blink from the DECSCUSR shape. Whether a blink is
+  // drawn at all is the config's call (`@tmuxy-cursor-blink`, applied as a
+  // class on the app container); a steady shape (2/4/6) overrides it, and the
+  // copy-mode cursor never blinks — it marks a position, it isn't a caret.
   const cursorStyle = useMemo(() => cursorShapeToMode(cursorShape), [cursorShape]);
   const cursorMode = inMode ? ('block' as CursorMode) : cursorStyle.mode;
+  const cursorBlinks = !inMode && cursorStyle.blink;
 
   // Resolve selection start: mouse drag (optimistic) takes priority, then backend (authoritative)
   const effectiveSelectionStart = useMemo(() => {
@@ -251,6 +253,7 @@ export const Terminal: React.FC<TerminalProps> = ({
           char={cursorChar}
           mode={cursorMode}
           copyMode={inMode}
+          blink={cursorBlinks}
         />
       )}
       {images && images.length > 0 && paneId && (

@@ -773,6 +773,11 @@ export function selectAnimationsAllowed(context: AppMachineContext): boolean {
   return context.animationsAllowed;
 }
 
+/** The config's `@tmuxy-cursor-blink` switch. */
+export function selectCursorBlink(context: AppMachineContext): boolean {
+  return context.cursorBlink;
+}
+
 /**
  * Select whether layout transitions should be suppressed (command-based resize)
  */

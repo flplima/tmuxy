@@ -751,6 +751,10 @@ async fn handle_command(
             tmuxy_core::theme::set_theme(&state.ctx, &name, mode.as_deref()).await?;
             Ok(serde_json::json!(null))
         }
+        ClientCommand::SetCursorBlink { enabled } => {
+            tmuxy_core::theme::set_cursor_blink(&state.ctx, enabled).await?;
+            Ok(serde_json::json!(null))
+        }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
         ClientCommand::ListGitWorktrees => {
             // The pane cwds come from tmux, not the request (see the variant),

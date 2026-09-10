@@ -473,6 +473,17 @@ fn build_app_menu(
             true,
             Some("CmdOrCtrl+0"),
         )?)
+        .separator()
+        // Like the theme items, this one carries no state of its own: the
+        // frontend holds the current value and the event flips it, so the
+        // native menu and the in-app one never disagree.
+        .item(&MenuItem::with_id(
+            app,
+            "view-cursor-blink",
+            "Toggle Blinking Cursor",
+            true,
+            None::<&str>,
+        )?)
         .build()?;
 
     // --- Edit (standard macOS) ---
@@ -759,6 +770,7 @@ fn handle_menu_event(app_handle: &tauri::AppHandle, event: tauri::menu::MenuEven
             "view-font-bigger" => Some("window.app?.send({ type: 'INCREASE_FONT_SIZE' })"),
             "view-font-smaller" => Some("window.app?.send({ type: 'DECREASE_FONT_SIZE' })"),
             "view-font-reset" => Some("window.app?.send({ type: 'RESET_FONT_SIZE' })"),
+            "view-cursor-blink" => Some("window.app?.send({ type: 'TOGGLE_CURSOR_BLINK' })"),
             "help-github" => Some("window.open('https://github.com/flplima/tmuxy', '_blank')"),
             "theme-mode-dark" => Some("window.app?.send({ type: 'SET_THEME_MODE', mode: 'dark' })"),
             "theme-mode-light" => {
@@ -1277,6 +1289,7 @@ pub fn run() {
             commands::get_scrollback_cells,
             commands::get_theme_settings,
             commands::set_theme,
+            commands::set_cursor_blink,
             commands::set_theme_mode,
             commands::get_themes_list,
             // Window chrome: the status bar doubles as the title bar

@@ -45,3 +45,37 @@
 .smooth-cursor.is-copy .smooth-cursor-char {
   color: var(--cursor-bg);
 }
+
+/* The blink. Two gates have to agree: `@tmuxy-cursor-blink` on the app
+   container (the config / View menu switch) and `is-blinking` on the overlay,
+   which mirrors what the pane's cursor asked for through DECSCUSR. It rides on
+   its own layer because the glide writes the root's and the glyph's opacity
+   every frame. The step-end curve is the hard on/off a terminal caret has, not
+   a fade. */
+.smooth-cursor-blink {
+  position: absolute;
+  inset: 0;
+}
+
+.app-cursor-blink .smooth-cursor.is-blinking .smooth-cursor-blink {
+  animation: smooth-cursor-blink 1.06s step-end infinite;
+}
+
+@keyframes smooth-cursor-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* A cursor that winks in and out is exactly the repetitive motion this asks to
+   be spared. */
+@media (prefers-reduced-motion: reduce) {
+  .app-cursor-blink .smooth-cursor.is-blinking .smooth-cursor-blink {
+    animation: none;
+  }
+}

@@ -343,6 +343,13 @@ export interface AppMachineContext {
    * settles to. Defaults to true, also on adapters without a config.
    */
   animationsAllowed: boolean;
+  /**
+   * The config's `@tmuxy-cursor-blink` switch, flipped from the View menu and
+   * written back to `tmuxy.state.json`. False keeps the cursor solid; true
+   * lets it blink, except where the running application asked for a steady
+   * cursor through DECSCUSR.
+   */
+  cursorBlink: boolean;
   /** Keybindings received from the server */
   keybindings: KeyBindings | null;
   /** Client-side copy mode state per pane */
@@ -852,6 +859,7 @@ export type LogAppendEvent = {
 // Theme events
 export type SetThemeEvent = { type: 'SET_THEME'; name: string };
 export type SetThemeModeEvent = { type: 'SET_THEME_MODE'; mode: 'dark' | 'light' };
+export type ToggleCursorBlinkEvent = { type: 'TOGGLE_CURSOR_BLINK' };
 export type ThemeSettingsReceivedEvent = {
   type: 'THEME_SETTINGS_RECEIVED';
   theme: string;
@@ -972,6 +980,7 @@ export type AppMachineEvent =
   | DismissNotificationEvent
   | SetThemeEvent
   | SetThemeModeEvent
+  | ToggleCursorBlinkEvent
   | ThemeSettingsReceivedEvent
   | ThemesListReceivedEvent
   | FetchTraceSettingsEvent

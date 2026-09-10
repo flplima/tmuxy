@@ -42,6 +42,7 @@ interface Target {
   height: number;
   mode: Mode;
   copy: boolean;
+  blink: boolean;
   char: string;
   font: string;
   letterSpacing: string;
@@ -75,6 +76,7 @@ function targetOf(anchor: HTMLElement): Target | null {
     height: mode === 'underline' ? 2 : r.height,
     mode,
     copy: cls.contains('terminal-cursor-copy'),
+    blink: cls.contains('terminal-cursor-blink'),
     char: anchor.textContent ?? ' ',
     font: cs.font,
     letterSpacing: cs.letterSpacing,
@@ -131,6 +133,7 @@ export function SmoothCursor() {
       `${ctx.tabOverviewOpen}|${ctx.sidebarMotion}|${ctx.leftSidebarOpen}|${ctx.rightSidebarOpen}|${ctx.containerWidth}x${ctx.containerHeight}|${ctx.charWidth}|${ctx.baseFontSize}|${ctx.activeWindowId}`,
   );
   const rootRef = useRef<HTMLDivElement>(null);
+  const blinkRef = useRef<HTMLDivElement>(null);
   const shapeRef = useRef<HTMLDivElement>(null);
   const charRef = useRef<HTMLSpanElement>(null);
   const motion = useRef<Motion>({
@@ -190,6 +193,13 @@ export function SmoothCursor() {
         m.leading = offsets.map((o) => o.x * dx + o.y * dy >= 0);
         glyph.style.font = target.font;
         glyph.style.letterSpacing = target.letterSpacing;
+        // A cursor that just moved is a cursor being typed at: restart the
+        // blink so it is solid while the user works and only starts winking
+        // once they stop. Rewinding the running animation avoids the reflow a
+        // class flip would cost on every keystroke.
+        blinkRef.current?.getAnimations?.().forEach((a) => {
+          a.currentTime = 0;
+        });
       }
       m.target = target;
 
@@ -217,6 +227,7 @@ export function SmoothCursor() {
 
       shape.style.clipPath = `polygon(${m.corners.map((c) => `${c.x}px ${c.y}px`).join(', ')})`;
       root.classList.toggle('is-copy', target.copy);
+      root.classList.toggle('is-blinking', target.blink);
       root.style.opacity = '1';
 
       const showGlyph = target.mode === 'block' && maxDist < GLYPH_AT_PX;
@@ -235,8 +246,13 @@ export function SmoothCursor() {
 
   return (
     <div ref={rootRef} className="smooth-cursor" aria-hidden="true" data-testid="smooth-cursor">
-      <div ref={shapeRef} className="smooth-cursor-shape" />
-      <span ref={charRef} className="smooth-cursor-char" />
+      {/* The blink lives on its own layer: the root's and the glyph's opacity
+          are written every frame by the glide, so an animation on either would
+          be overwritten. */}
+      <div ref={blinkRef} className="smooth-cursor-blink">
+        <div ref={shapeRef} className="smooth-cursor-shape" />
+        <span ref={charRef} className="smooth-cursor-char" />
+      </div>
     </div>
   );
 }

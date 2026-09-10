@@ -285,6 +285,10 @@ export class V86TmuxAdapter implements TmuxAdapter {
         saveThemeToStorage(loadThemeFromStorage()?.theme || 'default', mode);
         return null as T;
       }
+      case 'set_cursor_blink': {
+        this.engine.send(`set -g @tmuxy-cursor-blink ${args?.enabled ? 'on' : 'off'}`);
+        return null as T;
+      }
       case 'get_scrollback_cells': {
         const paneId = args?.paneId as string;
         const start = (args?.start as number | undefined) ?? -100;

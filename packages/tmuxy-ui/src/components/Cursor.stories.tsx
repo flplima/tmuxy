@@ -83,3 +83,33 @@ export const CopyMode: Story = {
     expect(getCursor(canvasElement)).toHaveClass('terminal-cursor-copy');
   },
 };
+
+export const Blinking: Story = {
+  args: { x: 0, y: 0, mode: 'block', char: 'M', blink: true },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'The pane cursor never animates itself — it is the anchor SmoothCursor glides to, and the overlay reads this flag off it to decide whether to wink. A default DECSCUSR shape (0, 1, 3, 5) asks for a blink and gets the class.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    expect(getCursor(canvasElement)).toHaveClass('terminal-cursor-blink');
+  },
+};
+
+export const Steady: Story = {
+  args: { x: 0, y: 0, mode: 'block', char: 'M' },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'A steady DECSCUSR shape (2, 4, 6) leaves the flag off, and so does copy mode, where the cursor marks a position rather than a caret. The overlay then holds the cursor painted whatever the config says.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    expect(getCursor(canvasElement)).not.toHaveClass('terminal-cursor-blink');
+  },
+};

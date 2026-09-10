@@ -35,6 +35,7 @@ import {
   selectThemeMode,
   selectAvailableThemes,
   selectTraceSettings,
+  selectCursorBlink,
 } from '../../machines/AppContext';
 import type { TraceLevel } from '../../machines/types';
 import { isTauri } from '../../tmux/adapters';
@@ -58,6 +59,7 @@ export function AppMenu() {
   const themeName = useAppSelector(selectThemeName);
   const themeMode = useAppSelector(selectThemeMode);
   const availableThemes = useAppSelector(selectAvailableThemes);
+  const cursorBlink = useAppSelector(selectCursorBlink);
   const activePaneId = useAppSelector((c) => c.activePaneId);
   // Widgets contribute their own items for whichever pane is active, the same
   // section the pane's ⋮ menu shows.
@@ -188,6 +190,16 @@ export function AppMenu() {
         <MenuItem onClick={() => send({ type: 'INCREASE_FONT_SIZE' })}>Make Text Bigger</MenuItem>
         <MenuItem onClick={() => send({ type: 'DECREASE_FONT_SIZE' })}>Make Text Smaller</MenuItem>
         <MenuItem onClick={() => send({ type: 'RESET_FONT_SIZE' })}>Make Text Normal Size</MenuItem>
+        <MenuDivider />
+        {/* One switch for the machine, written back to the tmuxy config —
+            not a per-client preference like the theme. */}
+        <MenuItem
+          type="checkbox"
+          checked={cursorBlink}
+          onClick={() => send({ type: 'TOGGLE_CURSOR_BLINK' })}
+        >
+          Blinking Cursor
+        </MenuItem>
       </SubMenu>
 
       {/*

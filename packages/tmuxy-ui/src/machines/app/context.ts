@@ -131,6 +131,7 @@ export const FIELD_OWNERS = {
   baseFontSize: 'uiPrefs',
   enableAnimations: 'uiPrefs',
   animationsAllowed: 'uiPrefs',
+  cursorBlink: 'uiPrefs',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
 /**
@@ -190,6 +191,7 @@ export function createInitialContext(): AppMachineContext {
     tabOverviewSnapshot: null,
     enableAnimations: false,
     animationsAllowed: true,
+    cursorBlink: true,
     keybindings: null,
     copyModeStates: {},
     browserStates: {},

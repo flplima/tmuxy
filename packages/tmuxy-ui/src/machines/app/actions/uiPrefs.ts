@@ -101,7 +101,12 @@ export const uiPrefsActions = {
     // The appearance has no client-side setting: the config is its only
     // source, so it always applies (and re-applies after a source-file).
     if (event.appearance) applyAppearance(event.appearance);
-    enqueue(assign({ animationsAllowed: event.appearance?.animations ?? true }));
+    enqueue(
+      assign({
+        animationsAllowed: event.appearance?.animations ?? true,
+        cursorBlink: event.appearance?.cursorBlink ?? true,
+      }),
+    );
     // localStorage takes precedence — server defaults only apply when
     // the user hasn't chosen a theme yet (e.g. first visit).
     const saved = loadThemeFromStorage();
@@ -109,6 +114,32 @@ export const uiPrefsActions = {
     applyTheme(event.theme, event.mode);
     saveThemeToStorage(event.theme, event.mode);
     enqueue(assign({ themeName: event.theme, themeMode: event.mode }));
+  }),
+
+  // The blinking cursor is one setting for the machine, not one per client:
+  // it lives in the tmux options the config seeds, so the flip goes to the
+  // backend on every transport and comes back through THEME_SETTINGS_RECEIVED.
+  uiPrefs_toggleCursorBlink: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ event, context, enqueue }) => {
+    if (event.type !== 'TOGGLE_CURSOR_BLINK') return;
+    const enabled = !context.cursorBlink;
+    enqueue(assign({ cursorBlink: enabled }));
+    enqueue(
+      sendTo('tmux', {
+        type: 'INVOKE' as const,
+        cmd: 'set_cursor_blink',
+        args: { enabled },
+      }),
+    );
   }),
 
   uiPrefs_setAvailableThemes: assign<Ctx, Evt, undefined, Evt, never>(({ event }) => {

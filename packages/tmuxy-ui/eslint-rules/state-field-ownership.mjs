@@ -94,6 +94,7 @@ const FIELD_OWNERS = {
   baseFontSize: 'uiPrefs',
   enableAnimations: 'uiPrefs',
   animationsAllowed: 'uiPrefs',
+  cursorBlink: 'uiPrefs',
 };
 
 const STATE_FILE_REGEX = /\/machines\/app\/(?:states|actions)\/([a-zA-Z0-9_-]+)\.ts$/;

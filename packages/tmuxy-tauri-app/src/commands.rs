@@ -277,6 +277,11 @@ pub async fn set_theme(
 }
 
 #[tauri::command]
+pub async fn set_cursor_blink(ctx: State<'_, Arc<Ctx>>, enabled: bool) -> Result<(), String> {
+    tmuxy_core::theme::set_cursor_blink(&ctx, enabled).await
+}
+
+#[tauri::command]
 pub async fn set_theme_mode(ctx: State<'_, Arc<Ctx>>, mode: String) -> Result<(), String> {
     tmuxy_core::theme::set_theme_mode(&ctx, &mode).await
 }

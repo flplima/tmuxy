@@ -3,7 +3,7 @@
  * local action-trace switch (docs/TELEMETRY.md).
  *
  * Owns context fields: themeName, themeMode, availableThemes, baseFontSize,
- * enableAnimations, traceSettings.
+ * enableAnimations, animationsAllowed, cursorBlink, traceSettings.
  *
  * Action implementations live in ../actions/uiPrefs.ts.
  *
@@ -18,6 +18,7 @@ export const uiPrefsState = {
     SET_THEME: { actions: 'uiPrefs_applyTheme' },
     SET_THEME_MODE: { actions: 'uiPrefs_applyThemeMode' },
     THEME_SETTINGS_RECEIVED: { actions: 'uiPrefs_acceptThemeSettings' },
+    TOGGLE_CURSOR_BLINK: { actions: 'uiPrefs_toggleCursorBlink' },
     THEMES_LIST_RECEIVED: { actions: 'uiPrefs_setAvailableThemes' },
     INCREASE_FONT_SIZE: { actions: 'uiPrefs_increaseFontSize' },
     DECREASE_FONT_SIZE: { actions: 'uiPrefs_decreaseFontSize' },

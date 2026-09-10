@@ -73,6 +73,10 @@ pub enum ClientCommand {
     SetThemeMode {
         mode: String,
     },
+    /// View menu: whether the cursor blinks (`@tmuxy-cursor-blink`).
+    SetCursorBlink {
+        enabled: bool,
+    },
     /// Debug menu: read the trace switch/level/path (docs/TELEMETRY.md).
     GetTraceSettings,
     SetTraceEnabled {

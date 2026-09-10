@@ -464,6 +464,8 @@ export interface Appearance {
   blur: boolean;
   /** Layout animations (`@tmuxy-animations`): pane morphs, swaps, resizes, float keyframes. */
   animations: boolean;
+  /** Whether the cursor blinks (`@tmuxy-cursor-blink`), unless the app asks for a steady one. */
+  cursorBlink: boolean;
 }
 
 /** `get_theme_settings` result / `theme-settings` push payload. */
