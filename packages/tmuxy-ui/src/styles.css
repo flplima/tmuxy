@@ -2329,3 +2329,25 @@
     transition: none;
   }
 }
+
+/* Renaming a tab or a pane in place: the field takes the shape of the label it
+   replaces, so the row does not jump when it appears. It gets a real border —
+   the one moment this chrome should look like something you type into. */
+.inline-rename {
+  min-width: 4ch;
+  max-width: 28ch;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--term-white);
+  border-radius: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  outline: none;
+}
+
+.inline-rename::selection {
+  background: color-mix(in srgb, var(--term-white) 35%, transparent);
+}

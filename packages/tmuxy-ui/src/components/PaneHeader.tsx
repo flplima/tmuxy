@@ -10,6 +10,7 @@ import { useRef, useEffect, useState, useCallback, memo } from 'react';
 import { useAppSend, usePane, usePaneGroup } from '../machines/AppContext';
 import { PaneContextMenu } from './PaneContextMenu';
 import { getTabIcon, getTabLabel } from './paneTabDisplay';
+import { InlineRename } from './InlineRename';
 import type { TmuxPane } from '../tmux/types';
 import { Tooltip } from './Tooltip';
 import { measureTabStrip } from '../utils/tabStripDrop';
@@ -29,6 +30,8 @@ const PaneTab = memo(function PaneTab({
   isActivePane,
   titleOverride,
   widgetName,
+  renaming,
+  onRenameEnd,
   onClick,
   onContextMenu,
 }: {
@@ -37,6 +40,10 @@ const PaneTab = memo(function PaneTab({
   isActivePane: boolean;
   titleOverride?: string;
   widgetName?: string;
+  /** This pane's title is being edited in place. */
+  renaming: boolean;
+  /** The new title, or null if the edit was abandoned. */
+  onRenameEnd: (name: string | null) => void;
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
@@ -60,7 +67,17 @@ const PaneTab = memo(function PaneTab({
         </Tooltip>
       )}
       {icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>}
-      <span className="pane-tab-title">{text}</span>
+      {renaming ? (
+        <InlineRename
+          className="pane-tab-input"
+          value={text}
+          ariaLabel={`Rename pane ${pane.tmuxId}`}
+          onCommit={(name) => onRenameEnd(name)}
+          onCancel={() => onRenameEnd(null)}
+        />
+      ) : (
+        <span className="pane-tab-title">{text}</span>
+      )}
     </div>
   );
 });
@@ -98,6 +115,8 @@ export function PaneHeader({
   const pendingDragRef = useRef<{ x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  // The pane whose title is being edited in its own header, if any.
+  const [renamingPaneId, setRenamingPaneId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
@@ -322,6 +341,16 @@ export function PaneHeader({
               isActivePane={isActivePane}
               titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
               widgetName={tabPane.tmuxId === paneId ? widgetName : undefined}
+              renaming={renamingPaneId === tabPane.tmuxId}
+              onRenameEnd={(name) => {
+                setRenamingPaneId(null);
+                if (name) {
+                  send({
+                    type: 'SEND_TMUX_COMMAND',
+                    command: `select-pane -t ${tabPane.tmuxId} -T ${JSON.stringify(name)}`,
+                  });
+                }
+              }}
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
             />
@@ -352,6 +381,7 @@ export function PaneHeader({
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={closeContextMenu}
+          onRename={() => setRenamingPaneId(contextMenu.targetPaneId)}
         />
       )}
     </div>

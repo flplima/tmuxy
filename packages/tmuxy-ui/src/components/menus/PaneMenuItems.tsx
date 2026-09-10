@@ -18,6 +18,9 @@ interface PaneMenuItemsProps {
   widgetItems?: WidgetMenuItem[];
   /** Called with the chosen widget item; its `event` is what to dispatch. */
   onWidgetAction?: (item: WidgetMenuItem) => void;
+  /** Start renaming the pane where its title is drawn; the header owns the
+   *  field. Absent where there is no title on screen to edit (the app menu). */
+  onRename?: () => void;
   /** The pane these items act on is tmux's marked pane. */
   isMarked?: boolean;
   /** Some pane (possibly another one) is marked, so swap/join with it make sense. */
@@ -30,6 +33,7 @@ export function PaneMenuItems({
   isSinglePane,
   widgetItems,
   onWidgetAction,
+  onRename,
   isMarked = false,
   hasMarked = false,
   onAction,
@@ -49,6 +53,12 @@ export function PaneMenuItems({
               {item.keyHint && <span className="menu-keybinding">{item.keyHint}</span>}
             </MenuItem>
           ))}
+          <MenuDivider />
+        </>
+      )}
+      {onRename && (
+        <>
+          <MenuItem onClick={onRename}>Rename Pane</MenuItem>
           <MenuDivider />
         </>
       )}

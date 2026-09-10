@@ -24,9 +24,11 @@ interface PaneContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
+  /** Start renaming this pane in its own header; the header owns the field. */
+  onRename?: () => void;
 }
 
-export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps) {
+export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContextMenuProps) {
   const send = useAppSend();
   const keybindings = useAppSelector(selectKeyBindings);
   const visiblePanes = useAppSelector(selectVisiblePanes);
@@ -62,6 +64,13 @@ export function PaneContextMenu({ paneId, x, y, onClose }: PaneContextMenuProps)
         onWidgetAction={handleWidgetAction}
         isMarked={markedPaneId === paneId}
         hasMarked={markedPaneId !== null}
+        onRename={
+          onRename &&
+          (() => {
+            onRename();
+            onClose();
+          })
+        }
         onAction={handleAction}
       />
     </ControlledMenu>

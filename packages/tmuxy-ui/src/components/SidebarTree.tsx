@@ -38,6 +38,7 @@ import {
   selectRepositories,
 } from '../machines/AppContext';
 import { getTabLabel, getTabIcon } from './paneTabDisplay';
+import { InlineRename } from './InlineRename';
 import {
   findPaneGitContext,
   gitBadgeText,
@@ -381,6 +382,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   }, [focused]);
 
   // Drag state: which pane is being dragged, and which tab is a hover target.
+  // The tab whose name is being edited in the tree, if any.
+  const [renamingWindowId, setRenamingWindowId] = useState<string | null>(null);
   const [dragPaneId, setDragPaneId] = useState<string | null>(null);
   const [dropWindowId, setDropWindowId] = useState<string | null>(null);
 
@@ -544,9 +547,24 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
                 setDropWindowId(null);
               }}
             >
-              <span className="sidebar-tree-label">
-                {row.position}:{row.window.name || `Tab ${row.position}`}
-              </span>
+              {renamingWindowId === row.window.id ? (
+                <InlineRename
+                  value={row.window.name}
+                  ariaLabel={`Rename tab ${row.position}`}
+                  onCommit={(name) => {
+                    setRenamingWindowId(null);
+                    send({
+                      type: 'SEND_TMUX_COMMAND',
+                      command: `rename-window -t ${row.window.id} -- ${JSON.stringify(name)}`,
+                    });
+                  }}
+                  onCancel={() => setRenamingWindowId(null)}
+                />
+              ) : (
+                <span className="sidebar-tree-label">
+                  {row.position}:{row.window.name || `Tab ${row.position}`}
+                </span>
+              )}
               {badgeSpan(windowBadge(row.window.id))}
             </div>
           );
@@ -627,7 +645,13 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         <PaneContextMenu paneId={menu.paneId} x={menu.x} y={menu.y} onClose={closeMenu} />
       )}
       {menu?.kind === 'tab' && (
-        <TabContextMenu windowId={menu.windowId} x={menu.x} y={menu.y} onClose={closeMenu} />
+        <TabContextMenu
+          windowId={menu.windowId}
+          x={menu.x}
+          y={menu.y}
+          onClose={closeMenu}
+          onRename={() => setRenamingWindowId(menu.windowId)}
+        />
       )}
     </div>
   );

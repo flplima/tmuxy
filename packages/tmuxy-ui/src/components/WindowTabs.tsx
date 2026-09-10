@@ -53,6 +53,7 @@ import { DRAG_THRESHOLD_PX, LONG_PRESS_MS, capturePointer, dropIndex } from '../
 import type { TmuxWindow } from '../machines/types';
 import { Tooltip } from './Tooltip';
 import { TabPreview, TAB_PREVIEW_DELAY_MS } from './TabPreview';
+import { InlineRename } from './InlineRename';
 
 /**
  * How long the strip keeps checking that the current tab is still in view
@@ -102,6 +103,8 @@ export const WindowTabs = memo(function WindowTabs() {
   const longPressRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
   const [drag, setDrag] = useState<DragState | null>(null);
+  // The tab being renamed, if any: the field takes the label's place.
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   // The tab whose picture is showing, and the timer waiting to show the first.
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewTimerRef = useRef<number | null>(null);
@@ -297,6 +300,8 @@ export const WindowTabs = memo(function WindowTabs() {
     const tab = visibleWindows[index];
     // A lone tab is the desktop window's drag handle, not a control.
     if (!tab || isSingleTab || e.button !== 0) return;
+    // A tab being renamed is a field, not a thing to drag.
+    if (renamingId === tab.id) return;
     if ((e.target as HTMLElement).closest('button')) return;
     capturePointer(e.currentTarget, e.pointerId);
     const state: DragState = {
@@ -409,9 +414,25 @@ export const WindowTabs = memo(function WindowTabs() {
               aria-selected={window.active}
               aria-label={`Tab ${visualIndex}: ${window.name}${window.active ? ' (active)' : ''}`}
             >
-              <span className="tab-name-label">
-                {visualIndex}:{window.name || `Tab ${visualIndex}`}
-              </span>
+              {renamingId === window.id ? (
+                <InlineRename
+                  className="tab-name-input"
+                  value={window.name}
+                  ariaLabel={`Rename tab ${visualIndex}`}
+                  onCommit={(name) => {
+                    setRenamingId(null);
+                    send({
+                      type: 'SEND_TMUX_COMMAND',
+                      command: `rename-window -t ${window.id} -- ${JSON.stringify(name)}`,
+                    });
+                  }}
+                  onCancel={() => setRenamingId(null)}
+                />
+              ) : (
+                <span className="tab-name-label">
+                  {visualIndex}:{window.name || `Tab ${visualIndex}`}
+                </span>
+              )}
               {/* What this tab is doing that its name does not say. Both are
                   window state, so a background tab shows them too. */}
               {window.collapsible && (
@@ -454,6 +475,10 @@ export const WindowTabs = memo(function WindowTabs() {
             x={contextMenu.x}
             y={contextMenu.y}
             onClose={closeContextMenu}
+            onRename={() => {
+              dismissPreview();
+              setRenamingId(contextMenu.windowId);
+            }}
           />
         )}
       </div>

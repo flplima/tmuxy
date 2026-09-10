@@ -559,6 +559,17 @@ export class DemoAdapter implements TmuxAdapter {
           if (target) this.tmux.markPane(target);
           break;
         }
+        // `-T <title>` names the pane; it does not select anything.
+        const titleIdx = parts.indexOf('-T');
+        if (titleIdx !== -1 && titleIdx + 1 < parts.length) {
+          const at = parts.indexOf('-t');
+          const target =
+            at !== -1 && at + 1 < parts.length
+              ? parts[at + 1]
+              : this.tmux.getState().active_pane_id;
+          if (target) this.tmux.setPaneTitle(target, parts[titleIdx + 1]);
+          break;
+        }
         const tIdx = parts.indexOf('-t');
         if (tIdx !== -1 && tIdx + 1 < parts.length) {
           const target = parts[tIdx + 1];

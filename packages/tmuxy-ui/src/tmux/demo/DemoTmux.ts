@@ -723,6 +723,14 @@ export class DemoTmux {
     return true;
   }
 
+  /** Name a pane (tmux `select-pane -T <title>`), the way an app's OSC 0/2 would. */
+  setPaneTitle(paneId: string, title: string): boolean {
+    const pane = this.panes.get(paneId);
+    if (!pane) return false;
+    pane.title = title;
+    return true;
+  }
+
   /**
    * Move a pane into another window (tmux `join-pane -s <pane> -t <window>`).
    * Splits the target window's active/first pane with the source pane; if the

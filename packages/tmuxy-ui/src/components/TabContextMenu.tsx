@@ -25,9 +25,11 @@ interface TabContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
+  /** Start renaming this tab where it is drawn; the caller owns the field. */
+  onRename: () => void;
 }
 
-export function TabContextMenu({ windowId, x, y, onClose }: TabContextMenuProps) {
+export function TabContextMenu({ windowId, x, y, onClose, onRename }: TabContextMenuProps) {
   const send = useAppSend();
   const keybindings = useAppSelector(selectKeyBindings);
   const allWindows = useAppSelectorShallow(selectWindows);
@@ -59,15 +61,11 @@ export function TabContextMenu({ windowId, x, y, onClose }: TabContextMenuProps)
     onClose();
   };
 
+  // Renaming happens in the tab itself — the strip owns the field, because
+  // that is where the name is. A prompt at the bottom of the window asked you
+  // to type a new name a long way from the thing being named.
   const handleRenameSpecificTab = () => {
-    // Select the window first, then prompt rename
-    send({ type: 'SEND_COMMAND', command: `select-window -t ${windowId}` });
-    setTimeout(() => {
-      send({
-        type: 'SEND_COMMAND',
-        command: 'command-prompt -I "#W" "rename-window -- \'%%\'"',
-      });
-    }, 50);
+    onRename();
     onClose();
   };
 
