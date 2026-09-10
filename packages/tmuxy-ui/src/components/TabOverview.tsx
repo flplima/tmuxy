@@ -79,10 +79,21 @@ function TabOverviewInner() {
   const snapshot = useAppSelector((ctx) => ctx.tabOverviewSnapshot);
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
+  // Read by the activate helpers, which are stable callbacks: they must see
+  // the slots of the render the click happened in, not the ones they closed
+  // over when they were created.
+  const slotsRef = useRef<ReturnType<typeof overviewSlots>>([]);
+  /**
+   * The card the user picked, while the grid is still being moved onto it.
+   * Set on activate, and the FLIP target follows it instead of the active
+   * tab's card until the overview closes a frame later.
+   */
+  const [opening, setOpening] = useState<{ index: number; windowId: string } | null>(null);
   const slots = useMemo(
     () => overviewSlots(windows, stillPanes(livePanes, snapshot)),
     [windows, livePanes, snapshot],
   );
+  slotsRef.current = slots;
   // A frame's pixel box, so each pane's still can be scaled from its cell
   // size into its share of the frame. Every frame has the same size (one grid
   // track, one aspect ratio), so one measurement serves them all.
@@ -108,12 +119,17 @@ function TabOverviewInner() {
     const root = rootRef.current;
     const container = root?.parentElement;
     if (container) {
-      if (dragOffset) container.style.setProperty('--tab-overview-motion', '0s');
+      // Moving onto the picked card is a re-aim, not a move to watch: it must
+      // land in the frame it is written in, or the grid would slide across
+      // the overview on its way there.
+      if (dragOffset || opening) container.style.setProperty('--tab-overview-motion', '0s');
       else container.style.removeProperty('--tab-overview-motion');
     }
     const layout = container?.querySelector<HTMLElement>('.pane-layout');
     const frame = root?.querySelector<HTMLElement>(
-      '.tab-overview-slot.is-active .tab-overview-frame',
+      opening
+        ? `.tab-overview-slot[data-window-id="${opening.windowId}"] .tab-overview-frame`
+        : '.tab-overview-slot.is-active .tab-overview-frame',
     );
     const anyFrame = root?.querySelector<HTMLElement>('.tab-overview-frame');
     if (anyFrame) {
@@ -139,14 +155,75 @@ function TabOverviewInner() {
     container.style.setProperty('--tab-overview-y', `${targetY - originY}px`);
     container.style.setProperty('--tab-overview-sx', String(sx));
     container.style.setProperty('--tab-overview-sy', String(sy));
+    // Moving onto the picked card has to be COMMITTED here, while the
+    // transition is off. Left to the next style recalculation the duration
+    // would already be back, and the browser would animate the re-aim itself
+    // — the grid sliding across the overview, with the grow that follows
+    // starting from wherever that slide had got to.
+    if (opening) void getComputedStyle(layout).transform;
     // The grid — and the cursor anchor inside it — just moved without any
     // pane rendering; the cursor overlay has to be told.
     nudgeCursorAnchor();
-  }, [slots.length, containerWidth, containerHeight, activeWindowId, frameSize, dragOffset]);
+  }, [
+    slots.length,
+    containerWidth,
+    containerHeight,
+    activeWindowId,
+    frameSize,
+    dragOffset,
+    opening,
+  ]);
+
+  // The grid is on the picked card and painted there; hand the clock back and
+  // close, so the grow starts from the card that was clicked.
+  useEffect(() => {
+    if (!opening) return;
+    // Two frames, not one: an effect's rAF runs in the NEXT frame's callback
+    // phase, which is still before that frame's style recalculation, so the
+    // move onto the card would not have been drawn yet.
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        rootRef.current?.parentElement?.style.removeProperty('--tab-overview-motion');
+        send({ type: 'TAB_OVERVIEW_ACTIVATE', index: opening.index });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [opening, send]);
+
+  /**
+   * Open the tab in slot `index`, growing the grid out of THAT slot.
+   *
+   * The FLIP target normally follows the ACTIVE tab's card, so opening a
+   * different tab grew the grid out of the card belonging to the tab being
+   * left — the thing that expanded came from the wrong side of the screen,
+   * which reads as a jump rather than as the card you clicked opening.
+   *
+   * Recording which card was picked re-points the target at it. The move has
+   * to be committed and painted before the overview closes, or the browser
+   * coalesces the two into one style change and the grow starts from wherever
+   * the grid was parked; so the measurement runs in the layout effect below
+   * with the transition off, and the close waits a frame.
+   */
+  const activateSlot = useCallback(
+    (index: number) => {
+      const slot = slotsRef.current[index];
+      // The trailing "+" has no card to grow out of; it creates a tab.
+      if (!slot) {
+        send({ type: 'TAB_OVERVIEW_ACTIVATE', index });
+        return;
+      }
+      setOpening({ index, windowId: slot.window.id });
+    },
+    [send],
+  );
 
   // ---- keyboard: the overview owns every key while it is open ---------------
-  const stateRef = useRef({ slots, selected, send });
-  stateRef.current = { slots, selected, send };
+  const stateRef = useRef({ slots, selected, send, activateSlot });
+  stateRef.current = { slots, selected, send, activateSlot };
   useEffect(() => {
     const columns = () => {
       const cards = gridRef.current?.querySelectorAll<HTMLElement>('.tab-overview-slot');
@@ -160,7 +237,7 @@ function TabOverviewInner() {
       return Math.max(1, n);
     };
     const handler = (e: KeyboardEvent) => {
-      const { slots: s, selected: sel, send: dispatch } = stateRef.current;
+      const { slots: s, selected: sel, send: dispatch, activateSlot: activate } = stateRef.current;
       const swallow = () => {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -203,7 +280,7 @@ function TabOverviewInner() {
         case 'Enter':
         case ' ':
           swallow();
-          dispatch({ type: 'TAB_OVERVIEW_ACTIVATE' });
+          activate(sel);
           return;
         case 'Delete':
         case 'Backspace':
@@ -217,7 +294,7 @@ function TabOverviewInner() {
           swallow();
           if (/^[1-9]$/.test(e.key)) {
             const index = Number(e.key) - 1;
-            if (s[index]) dispatch({ type: 'TAB_OVERVIEW_ACTIVATE', index });
+            if (s[index]) activate(index);
           }
         }
       }
@@ -306,7 +383,7 @@ function TabOverviewInner() {
       return;
     }
     // A press that never became a drag is a click: open that tab.
-    send({ type: 'TAB_OVERVIEW_ACTIVATE', index });
+    activateSlot(index);
   };
 
   const handlePointerCancel = () => {

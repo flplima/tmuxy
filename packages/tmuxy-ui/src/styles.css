@@ -2298,11 +2298,11 @@
 .pane-container.tab-overview-open .pane-layout {
   /* Display only while the overview is open: a click on the shrinking grid
      goes to the slot underneath it, never to a pane. */
-  pointer-events: none;
-  transform-origin: 0 0;
   transform: translate(var(--tab-overview-x, 0px), var(--tab-overview-y, 0px))
     scale(var(--tab-overview-sx, 1), var(--tab-overview-sy, 1));
   z-index: 1201;
+  /* Display only while the overview is open: a click on the shrinking grid
+     goes to the slot underneath it, never to a pane. */
   pointer-events: none;
 }
 
@@ -2310,6 +2310,13 @@
   /* The Tab Overview zeroes the duration while the current tab's card is
      dragged, so the grid rides with the pointer instead of trailing it. */
   transition: transform var(--tab-overview-motion, 200ms) ease;
+  /* Corner, not centre — and NOT scoped to the open state. Closing removes
+     that class while the transform is still animating back to identity, and
+     an origin that flips to the centre mid-flight throws the grid sideways by
+     half the width it has yet to grow. That was the jump on the way out,
+     while the way in looked fine: opening adds the class before anything
+     moves. */
+  transform-origin: 0 0;
 }
 
 .pane-container.tab-overview-open .float-modal,

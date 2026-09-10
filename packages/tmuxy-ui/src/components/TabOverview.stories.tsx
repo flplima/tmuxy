@@ -137,3 +137,77 @@ export const PlusCreatesAndCloseKills: Story = {
     await waitForOverview(false);
   },
 };
+
+export const OpensOutOfTheSlotYouClicked: Story = {
+  args: { height: 500, initCommands: ['rename-window main', 'new-window', 'rename-window logs'] },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'The live grid is scaled into a card while the overview is open, and clicking a card grows it back out. It has to grow out of the card you CLICKED: the target used to follow the tab that was current, so opening another tab expanded the grid from the wrong side of the screen, which reads as a jump rather than as that card opening. Sampled per paint — the grid starts at the clicked card’s box, is drawn at sizes in between, and ends filling the container.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /Pane/i }, { timeout: 8000 });
+    const user = userEvent.setup({ delay: 5 });
+
+    await user.keyboard('{Control>}0{/Control}');
+    const overview = (await waitForOverview(true)) as HTMLElement;
+    const layout = document.querySelector('.pane-container > .pane-layout') as HTMLElement;
+
+    // Let the zoom-out settle, so the grid is parked in the CURRENT tab's card.
+    const current = app().context.activeWindowId;
+    const currentCard = overview.querySelector(
+      `[data-testid="tab-overview-slot-${current}"] .tab-overview-frame`,
+    ) as HTMLElement;
+    await waitFor(() => {
+      const f = currentCard.getBoundingClientRect();
+      const l = layout.getBoundingClientRect();
+      expect(Math.abs(l.left - f.left)).toBeLessThan(2);
+    });
+
+    // The other tab's card, which is the one being clicked.
+    const other = tabs().find((w) => w.id !== current)!;
+    const otherCard = overview.querySelector(
+      `[data-testid="tab-overview-slot-${other.id}"] .tab-overview-frame`,
+    ) as HTMLElement;
+    const otherBox = otherCard.getBoundingClientRect();
+    // The two cards really are in different places, or this proves nothing.
+    expect(Math.abs(otherBox.left - currentCard.getBoundingClientRect().left)).toBeGreaterThan(20);
+
+    const boxes: DOMRect[] = [];
+    let sampling = true;
+    const frame = () => {
+      boxes.push(layout.getBoundingClientRect());
+      if (sampling) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+    await user.click(
+      overview.querySelector(`[data-testid="tab-overview-slot-${other.id}"]`) as HTMLElement,
+    );
+    await waitForOverview(false);
+    await waitFor(() => expect(app().context.activeWindowId).toBe(other.id));
+    await waitFor(() => expect(getComputedStyle(layout).transform).toBe('none'));
+    sampling = false;
+
+    // The grow starts at the frame before the width first climbs; that frame
+    // is where it grew OUT of, and it has to be the card that was clicked
+    // rather than the one being left. Both cards are the same size, so only
+    // the position tells them apart.
+    const growthAt = boxes.findIndex((b) => b.width > otherBox.width + 8);
+    expect(growthAt, 'the grid never grew').toBeGreaterThan(0);
+    const origin = boxes[growthAt - 1];
+    expect(
+      Math.abs(origin.left - otherBox.left),
+      `grew from x=${Math.round(origin.left)}, clicked card is at x=${Math.round(otherBox.left)}`,
+    ).toBeLessThan(6);
+
+    // ...and it grew rather than jumping: drawn at sizes in between on the way.
+    const full = boxes[boxes.length - 1].width;
+    expect(full).toBeGreaterThan(otherBox.width * 2);
+    const between = boxes.filter((b) => b.width > otherBox.width + 8 && b.width < full - 8);
+    expect(between.length).toBeGreaterThan(0);
+  },
+};
