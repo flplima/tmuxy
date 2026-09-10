@@ -11,12 +11,12 @@
  * no longer re-renders lines.
  */
 
-import { memo, useMemo, useCallback, CSSProperties } from 'react';
+import { memo, useMemo, useCallback, useSyncExternalStore, CSSProperties } from 'react';
 import { LogProfiler } from '../utils/renderLog';
 import type { CellLine, TerminalCell, CellStyle } from '../tmux/types';
 import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
 import { rowEdgeBackground } from './terminalRendering';
-import { glyphFit } from '../utils/glyphFit';
+import { glyphFit, subscribeGlyphFit, getGlyphFitVersion } from '../utils/glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls } from '../utils/urlDetect';
 import { openExternalUrl } from '../utils/openUrl';
@@ -103,6 +103,12 @@ export interface TerminalLineProps {
 
 export const TerminalLine = memo(
   function TerminalLine({ line, selectionRange }: TerminalLineProps) {
+    // How wide a symbol really is can only be measured against the font the
+    // page ends up using, and at first paint that is not yet the one it will
+    // settle on. The measurement cache says when it has changed its mind; a
+    // line already drawn has to be drawn again to act on it.
+    useSyncExternalStore(subscribeGlyphFit, getGlyphFitVersion, getGlyphFitVersion);
+
     // Check if a cell index falls within the selection range
     const isCellSelected = (idx: number): boolean => {
       if (!selectionRange) return false;

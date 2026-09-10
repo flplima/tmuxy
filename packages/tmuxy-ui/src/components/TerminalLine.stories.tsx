@@ -335,3 +335,46 @@ export const UnfilledWidthTakesTheLastCellsBackground: Story = {
     expect(parseFloat(after.width)).toBeCloseTo(lineBox.right - last.right, 0);
   },
 };
+
+/**
+ * The other way a glyph can be too big for its cell.
+ *
+ * `⎿` above is fat by ADVANCE: it pushes the rest of the run along, which is
+ * visible in the layout. A Nerd Font icon is fat by INK — it advances exactly
+ * one cell, so nothing shifts, and then paints a third of a cell past the box
+ * it was given, straight over whatever comes next. Measuring the advance alone
+ * misses it entirely.
+ */
+export const FatInkIcon: Story = {
+  args: {
+    line: [...text('  '), { c: '' }, ...text('  main')],
+  },
+  play: async ({ canvasElement }) => {
+    await cellGridReady();
+    const cellW = cellWidthOf(grid(canvasElement));
+
+    const box = canvasElement.querySelector('.terminal-fit') as HTMLElement | null;
+    expect(box, 'the icon was not given a box of its own to be shrunk in').not.toBeNull();
+    const glyph = box!.querySelector('.terminal-fit-glyph') as HTMLElement;
+
+    // It really is shrunk, and by enough: what gets PAINTED fits the cell.
+    // The layout box always did — the ink is the part that used to spill, so
+    // it is measured against the font directly.
+    const scale = Number(getComputedStyle(glyph).getPropertyValue('--glyph-fit'));
+    expect(scale, 'the icon was not shrunk at all').toBeLessThan(1);
+    expect(scale).toBeGreaterThan(0);
+
+    const style = getComputedStyle(glyph);
+    const canvas = document.createElement('canvas').getContext('2d')!;
+    canvas.font =
+      style.font || `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const metrics = canvas.measureText('\uf51e');
+    const naturalInk = metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight;
+    expect(naturalInk, 'the icon does not overflow its cell in this font').toBeGreaterThan(cellW);
+    expect(naturalInk * scale).toBeLessThanOrEqual(cellW + 1);
+
+    // ...and the text after it starts where the grid says, not shifted along.
+    const label = runCells(spanWithText(canvasElement, '  main'), cellW);
+    expect(label.start).toBeCloseTo(3, 1);
+  },
+};
