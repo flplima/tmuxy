@@ -12,6 +12,7 @@ import type {
   TraceSettings,
 } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
+import type { TabDrop } from '../utils/tabStripDrop';
 import { CONTAINER_PADDING_X } from '../constants';
 import {
   DEFAULT_CHAR_WIDTH,
@@ -199,6 +200,11 @@ export function selectDropTarget(context: AppMachineContext): {
 
 export function selectDraggedPaneId(context: AppMachineContext): string | null {
   return context.drag?.draggedPaneId ?? null;
+}
+
+/** Where a pane being dragged over the tab strip would land, if it is there. */
+export function selectTabDrop(context: AppMachineContext): TabDrop | null {
+  return context.drag?.tabDrop ?? null;
 }
 
 export function selectDragOffsetX(context: AppMachineContext): number {

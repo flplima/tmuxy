@@ -65,6 +65,7 @@ export {
   selectSessions,
   selectRepositories,
   selectDraggedPaneId,
+  selectTabDrop,
   selectDragOffsetX,
   selectDragOffsetY,
   selectDropTarget,

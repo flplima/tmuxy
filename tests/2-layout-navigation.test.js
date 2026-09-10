@@ -555,7 +555,9 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
     expect(after.map((t) => t.id)).toEqual(tmuxOrder);
     expect(after.find((t) => t.active).id).toBe(activeBefore);
     expect(
-      await page.evaluate(() => document.querySelector('.is-dragging, .is-drop-before, .is-drop-after')),
+      await page.evaluate(() =>
+        document.querySelector('.is-dragging, .is-drop-before, .is-drop-after'),
+      ),
     ).toBeNull();
   }, 60000);
 });
@@ -866,6 +868,213 @@ describe('Scenario 4b: Split right after a tab switch', () => {
       }
     }
   }, 120000);
+});
+
+// ==================== Scenario 4g: Drag a pane onto the tab strip ====================
+
+describe('Scenario 4g: Drag a pane onto the tab strip', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  /** How many panes each window holds, keyed by tmux window id. */
+  const panesByWindow = async () => {
+    const counts = {};
+    const out = await ctx.session.query("list-panes -s -F '#{window_id}'");
+    for (const line of String(out).split('\n')) {
+      if (line) counts[line] = (counts[line] || 0) + 1;
+    }
+    return counts;
+  };
+
+  /**
+   * The box of the header of the last pane in the VISIBLE tab.
+   *
+   * Every tab's panes are in the document and only one tab's are on screen, so
+   * "the last header" can belong to the tab being dragged to — and a pane
+   * dropped on the tab it already lives in goes nowhere.
+   */
+  const secondPaneHeaderBox = (page) =>
+    page.evaluate(() => {
+      const ctx = window.app.getSnapshot().context;
+      const here = new Set(
+        ctx.panes.filter((p) => p.windowId === ctx.activeWindowId).map((p) => p.tmuxId),
+      );
+      const items = [...document.querySelectorAll('.pane-layout-item')].filter((item) =>
+        here.has(item.querySelector('[data-pane-id]')?.dataset.paneId),
+      );
+      const item = items[items.length - 1];
+      const r = item.querySelector('.pane-header').getBoundingClientRect();
+      return {
+        x: r.left + r.width / 2,
+        y: r.top + r.height / 2,
+        paneId: item.querySelector('[data-pane-id]').dataset.paneId,
+      };
+    });
+
+  /**
+   * Press on the header and travel to (x, y) in steps, so the 5px threshold
+   * that turns a press into a drag is crossed the way a hand crosses it.
+   */
+  const dragHeaderTo = async (page, from, x, y) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (const t of [0.15, 0.4, 0.7, 1]) {
+      await page.mouse.move(from.x + (x - from.x) * t, from.y + (y - from.y) * t);
+      await delay(60);
+    }
+  };
+
+  // Dragging a pane's header up onto another tab's button moves the pane into
+  // that tab. While the pointer is over it the button says so, because a drop
+  // that silently rearranges two tabs is not something to find out afterwards.
+  test('drag a pane onto another tab: the tab highlights, and the drop moves the pane there', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    // A second tab to aim at, then back to the first, which gets a second pane.
+    await createWindowKeyboard(page);
+    await waitForWindowCount(page, 2);
+    await selectWindowKeyboard(page, 1);
+    await splitPaneKeyboard(page, 'vertical');
+    await waitForPaneCount(page, 2);
+
+    const windowIds = await page.evaluate(() =>
+      (window.app?.getSnapshot()?.context?.windows || [])
+        .filter((w) => w.windowType === 'tab')
+        .map((w) => w.id),
+    );
+    const sourceWindow = await page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activeWindowId,
+    );
+    const targetWindow = windowIds.find((id) => id !== sourceWindow);
+    const before = await panesByWindow();
+    expect(before[sourceWindow]).toBe(2);
+    expect(before[targetWindow]).toBe(1);
+
+    const header = await secondPaneHeaderBox(page);
+    const tabBox = await page.evaluate((id) => {
+      const el = document.querySelector(`.tab-name[data-window-id="${id}"]`);
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }, targetWindow);
+
+    await dragHeaderTo(page, header, tabBox.x, tabBox.y);
+
+    // The tab under the pointer says it would take the pane: it is marked, and
+    // the mark is visible — an outline it does not otherwise carry.
+    await waitForCondition(
+      page,
+      () =>
+        page.evaluate((id) => {
+          const el = document.querySelector(`.tab-name[data-window-id="${id}"]`);
+          if (!el || !el.classList.contains('is-pane-drop-target')) return false;
+          const outline = getComputedStyle(el).outlineWidth;
+          return parseFloat(outline) > 0;
+        }, targetWindow),
+      8000,
+      'the target tab to be highlighted as the drop target',
+    );
+    // No new-tab placeholder while the pointer is on a tab.
+    expect(await page.$('.tab-new-drop')).toBeNull();
+    // The other tab is not marked.
+    expect(
+      await page.evaluate(
+        (id) =>
+          document
+            .querySelector(`.tab-name[data-window-id="${id}"]`)
+            .classList.contains('is-pane-drop-target'),
+        sourceWindow,
+      ),
+    ).toBe(false);
+
+    await page.mouse.up();
+
+    await waitForCondition(
+      page,
+      async () => {
+        const counts = await panesByWindow();
+        return counts[targetWindow] === 2 && (counts[sourceWindow] || 0) === 1;
+      },
+      10000,
+      async () => `the pane to move tabs (panes: ${JSON.stringify(await panesByWindow())})`,
+    );
+    // The highlight goes away with the drag.
+    expect(await page.$('.tab-name.is-pane-drop-target')).toBeNull();
+  }, 150000);
+
+  // Dropped past the last tab, the pane becomes a tab of its own. The empty
+  // space has nothing to highlight, so a dashed placeholder stands in for the
+  // tab that would be created.
+  test('drag a pane to the empty strip: a dashed "New Tab" appears, and the drop breaks the pane out', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    await splitPaneKeyboard(page, 'vertical');
+    await waitForPaneCount(page, 2);
+    const sourceWindow = await page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activeWindowId,
+    );
+    expect((await panesByWindow())[sourceWindow]).toBe(2);
+
+    const header = await secondPaneHeaderBox(page);
+    // Well past the last tab, still inside the strip's row.
+    const empty = await page.evaluate(() => {
+      const list = document.querySelector('.tab-list');
+      const tabs = [...list.querySelectorAll('.tab-name[data-window-id]')];
+      const last = tabs[tabs.length - 1].getBoundingClientRect();
+      const strip = list.getBoundingClientRect();
+      return { x: Math.min(last.right + 160, strip.right - 20), y: strip.top + strip.height / 2 };
+    });
+
+    await dragHeaderTo(page, header, empty.x, empty.y);
+
+    // The placeholder is there, it says what it does, and it is drawn dashed
+    // and big enough to read — not a zero-size node in the DOM.
+    await waitForCondition(
+      page,
+      () =>
+        page.evaluate(() => {
+          const el = document.querySelector('.tab-new-drop');
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return (
+            el.textContent.trim() === 'New Tab' &&
+            r.width > 30 &&
+            r.height > 8 &&
+            cs.borderStyle === 'dashed' &&
+            parseFloat(cs.borderWidth) > 0
+          );
+        }),
+      8000,
+      'the dashed New Tab placeholder to appear in the strip',
+    );
+    // Nothing on the strip is claiming the pane at the same time.
+    expect(await page.$('.tab-name.is-pane-drop-target')).toBeNull();
+
+    await page.mouse.up();
+
+    await waitForWindowCount(page, 2);
+    await waitForCondition(
+      page,
+      async () => {
+        const counts = await panesByWindow();
+        const ids = Object.keys(counts);
+        return (
+          ids.length === 2 && counts[sourceWindow] === 1 && ids.every((id) => counts[id] === 1)
+        );
+      },
+      10000,
+      async () =>
+        `the pane to become its own tab (panes: ${JSON.stringify(await panesByWindow())})`,
+    );
+    expect(await page.$('.tab-new-drop')).toBeNull();
+  }, 150000);
 });
 
 // ==================== Scenario 4: Window Lifecycle ====================

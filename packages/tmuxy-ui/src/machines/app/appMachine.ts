@@ -1590,20 +1590,31 @@ export const appMachine = setup({
                   ghostY: pane?.y ?? 0,
                   ghostWidth: pane?.width ?? 0,
                   ghostHeight: pane?.height ?? 0,
+                  tabDrop: null,
                 },
               };
             }),
-            sendTo('dragLogic', ({ event, context }) => ({
-              ...event,
-              panes: context.activeWindowId
-                ? context.panes.filter((p) => p.windowId === context.activeWindowId)
-                : context.panes,
-              activePaneId: context.activePaneId,
-              charWidth: context.charWidth,
-              charHeight: context.charHeight,
-              containerWidth: context.containerWidth,
-              containerHeight: context.containerHeight,
-            })),
+            sendTo('dragLogic', ({ event, context }) => {
+              const pane = context.panes.find((p) => p.tmuxId === event.paneId);
+              return {
+                ...event,
+                panes: context.activeWindowId
+                  ? context.panes.filter((p) => p.windowId === context.activeWindowId)
+                  : context.panes,
+                activePaneId: context.activePaneId,
+                charWidth: context.charWidth,
+                charHeight: context.charHeight,
+                containerWidth: context.containerWidth,
+                containerHeight: context.containerHeight,
+                // A drop into a new tab is a break-pane, which tmux refuses
+                // for the only pane in a window — so the machine has to know
+                // how many the source window holds.
+                paneWindowId: pane?.windowId ?? null,
+                panesInWindow: pane
+                  ? context.panes.filter((p) => p.windowId === pane.windowId).length
+                  : 0,
+              };
+            }),
           ],
         },
         DRAG_MOVE: {

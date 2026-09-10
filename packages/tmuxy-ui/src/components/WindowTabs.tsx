@@ -19,10 +19,22 @@
  * a drop is swallowed so a drop never doubles as a select.
  *
  * Right-click opens a context menu with tab operations.
+ *
+ * The strip is also where a dragged PANE is dropped to leave its tab. That
+ * gesture belongs to the drag machine, which owns the pointer for its whole
+ * life; all the strip does is read where the drop would land and say so — the
+ * tab under the pointer lights up, and past the last tab a dashed "New Tab"
+ * placeholder appears in the empty space.
  */
 
 import { memo, useMemo, useCallback, useRef, useState } from 'react';
-import { useAppSend, useAppSelectorShallow, selectVisibleWindows } from '../machines/AppContext';
+import {
+  useAppSend,
+  useAppSelector,
+  useAppSelectorShallow,
+  selectVisibleWindows,
+  selectTabDrop,
+} from '../machines/AppContext';
 import { TabContextMenu } from './TabContextMenu';
 import { haptics } from '../utils/haptics';
 import { LogProfiler } from '../utils/renderLog';
@@ -59,6 +71,7 @@ interface DragState {
 export const WindowTabs = memo(function WindowTabs() {
   const send = useAppSend();
   const rawWindows = useAppSelectorShallow(selectVisibleWindows);
+  const tabDrop = useAppSelector(selectTabDrop);
   const listRef = useRef<HTMLDivElement>(null);
   const longPressRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
@@ -215,6 +228,7 @@ export const WindowTabs = memo(function WindowTabs() {
             'tab-name',
             window.active ? 'tab-name-active' : '',
             isDragged ? 'is-dragging' : '',
+            tabDrop?.kind === 'tab' && tabDrop.windowId === window.id ? 'is-pane-drop-target' : '',
             dropMarkerAt === idx ? 'is-drop-before' : '',
             dropMarkerAt === visibleWindows.length && idx === visibleWindows.length - 1
               ? 'is-drop-after'
@@ -272,6 +286,13 @@ export const WindowTabs = memo(function WindowTabs() {
             </span>
           );
         })}
+        {/* Where a pane dropped past the last tab would go. It sits in the
+            strip's own flow so it takes the space it would occupy. */}
+        {tabDrop?.kind === 'new' && (
+          <span className="tab-new-drop" aria-hidden="true">
+            New Tab
+          </span>
+        )}
         {contextMenu.visible && (
           <TabContextMenu
             windowId={contextMenu.windowId}

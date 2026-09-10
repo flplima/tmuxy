@@ -684,9 +684,15 @@ export class DemoAdapter implements TmuxAdapter {
       }
 
       case 'break-pane':
-      case 'breakp':
-        this.tmux.breakPane();
+      case 'breakp': {
+        // `-s <pane>` names the pane to break out; without it, the active one.
+        let src = '';
+        for (let i = 1; i < parts.length; i++) {
+          if (parts[i] === '-s' && i + 1 < parts.length) src = parts[++i];
+        }
+        this.tmux.breakPane(src || undefined);
         break;
+      }
 
       case 'join-pane':
       case 'joinp':

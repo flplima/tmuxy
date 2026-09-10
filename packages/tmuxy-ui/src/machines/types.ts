@@ -13,6 +13,7 @@ import type {
   CopyModeState,
   Appearance,
 } from '../tmux/types';
+import type { TabDrop, TabStripGeometry } from '../utils/tabStripDrop';
 
 // Re-export domain types
 export type { TmuxPane, TmuxWindow, ServerState, KeyBindings, KeyBinding, CopyModeState };
@@ -66,6 +67,13 @@ export interface DragState {
   ghostY: number;
   ghostWidth: number;
   ghostHeight: number;
+  /**
+   * Where on the tab strip the pointer is, if it is there at all. While this
+   * is set the drag has left the grid: no pane swaps, and releasing moves the
+   * pane to that tab (or into a tab of its own). The tab strip reads it to
+   * light up the tab under the pointer.
+   */
+  tabDrop: TabDrop | null;
 }
 
 /** Resize operation state */
@@ -444,6 +452,11 @@ export interface DragMachineContext {
   containerHeight: number;
   containerLeft: number;
   containerTop: number;
+  /** The tab strip's boxes, measured once when the drag started. */
+  tabStrip: TabStripGeometry | null;
+  /** The window the dragged pane came from, and how many panes it had. */
+  paneWindowId: string | null;
+  panesInWindow: number;
   drag: DragState | null;
 }
 
@@ -461,6 +474,9 @@ export type DragMachineEvent =
       containerHeight: number;
       containerLeft: number;
       containerTop: number;
+      tabStrip: TabStripGeometry | null;
+      paneWindowId: string | null;
+      panesInWindow: number;
     }
   | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
   | { type: 'DRAG_END' }
@@ -573,6 +589,7 @@ export type DragStartEvent = {
   startY: number;
   containerLeft: number;
   containerTop: number;
+  tabStrip: TabStripGeometry | null;
 };
 export type DragMoveEvent = { type: 'DRAG_MOVE'; clientX: number; clientY: number };
 export type DragEndEvent = { type: 'DRAG_END' };

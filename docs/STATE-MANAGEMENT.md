@@ -157,7 +157,7 @@ The machine invokes five persistent actors:
 
 ### Child Machines
 
-**`dragMachine`** (`tmuxy-ui/src/machines/drag/dragMachine.ts`) — Pane drag-to-swap. States: `idle` and `dragging`. During drag, finds swap targets based on cursor position and sends real-time `swap-pane` commands. Updates the parent's `drag` context via `DRAG_STATE_UPDATE`.
+**`dragMachine`** (`tmuxy-ui/src/machines/drag/dragMachine.ts`) — Pane drag-to-swap. States: `idle` and `dragging`. During drag, finds swap targets based on cursor position and sends real-time `swap-pane` commands. Updates the parent's `drag` context via `DRAG_STATE_UPDATE`. Carried up onto the tab strip the same drag means the pane leaves its tab: over a tab's button it joins that tab (`join-pane`), over the empty space past the last button it becomes a tab of its own (`break-pane`). The strip's boxes are measured once at drag start (`utils/tabStripDrop.ts`) because the machine owns the pointer and the strip sees no events of its own; while the pointer is up there no swap runs, and unlike a swap the move waits for the release, since passing over a tab on the way somewhere else must not rearrange two tabs.
 
 **`resizeMachine`** (`tmuxy-ui/src/machines/resize/resizeMachine.ts`) — Pane resize via divider dragging. States: `idle` and `resizing`. Tracks pixel delta, converts to character units, sends tmux `resize-pane` commands when delta >= 1 char. Throttles to avoid command spam.
 

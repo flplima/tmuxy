@@ -318,3 +318,29 @@
   color: var(--text-muted);
   background-color: var(--bg-medium);
 }
+
+/* Dropping a dragged pane on the strip. The tab under the pointer states that
+   it would take the pane — the same brightening the active tab uses, plus an
+   outline, since a background tab has no other way to stand out. */
+.tab-name.is-pane-drop-target {
+  background-color: var(--bg-medium);
+  outline: 1px solid var(--term-white);
+  outline-offset: -1px;
+  opacity: 1;
+}
+
+/* Past the last tab: the pane would become a tab of its own. Dashed, because
+   this tab does not exist yet. */
+.tab-new-drop {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: var(--spacing-md) var(--spacing-xl);
+  border: 1px dashed var(--term-white);
+  border-radius: var(--radius-md);
+  color: var(--term-white);
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  white-space: nowrap;
+  opacity: 0.7;
+}

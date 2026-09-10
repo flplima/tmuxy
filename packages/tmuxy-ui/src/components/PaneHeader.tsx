@@ -12,6 +12,7 @@ import { PaneContextMenu } from './PaneContextMenu';
 import { getTabIcon, getTabText } from './paneTabDisplay';
 import type { TmuxPane } from '../tmux/types';
 import { Tooltip } from './Tooltip';
+import { measureTabStrip } from '../utils/tabStripDrop';
 
 /** Minimum pixels of movement before a mousedown becomes a drag */
 const DRAG_THRESHOLD = 5;
@@ -210,6 +211,9 @@ export function PaneHeader({
           startY,
           containerLeft: containerRect?.left ?? 0,
           containerTop: containerRect?.top ?? 0,
+          // Measured once, here: the strip cannot reflow during a drag, and
+          // the machine's pointer listeners give it no element to ask.
+          tabStrip: measureTabStrip(),
         });
       }
     };
@@ -250,6 +254,7 @@ export function PaneHeader({
         startY,
         containerLeft: containerRect?.left ?? 0,
         containerTop: containerRect?.top ?? 0,
+        tabStrip: measureTabStrip(),
       });
     }, LONG_PRESS_MS);
 
