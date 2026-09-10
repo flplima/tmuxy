@@ -13,7 +13,9 @@
  */
 
 import { Terminal } from './Terminal';
+import { getTabIcon, getTabLabel } from './paneTabDisplay';
 import type { SlotBox } from '../utils/tabOverview';
+import type { TmuxPane } from '../tmux/types';
 
 interface TabShotProps {
   boxes: readonly SlotBox[];
@@ -21,12 +23,21 @@ interface TabShotProps {
   frameSize: { width: number; height: number } | null;
   charWidth: number;
   charHeight: number;
+  /**
+   * Caption each pane with the icon and title its own header shows. Pass the
+   * panes to turn it on: the picture then reads as the tab does, which is the
+   * point of a preview. The all-tabs grid leaves it off — a wall of cards is
+   * about which tab, not which pane.
+   */
+  panes?: readonly TmuxPane[];
 }
 
-export function TabShot({ boxes, frameSize, charWidth, charHeight }: TabShotProps) {
+export function TabShot({ boxes, frameSize, charWidth, charHeight, panes }: TabShotProps) {
   return (
     <>
       {boxes.map((box) => {
+        const pane = panes?.find((p) => p.tmuxId === box.paneId);
+        const icon = pane ? getTabIcon(pane) : null;
         // The pane's screen at its natural cell size, scaled into the box
         // (each axis on its own, so it fills the box the way the pane fills
         // its share of the tab).
@@ -53,6 +64,12 @@ export function TabShot({ boxes, frameSize, charWidth, charHeight }: TabShotProp
               height: `${box.height}%`,
             }}
           >
+            {pane && (
+              <div className="tab-shot-title">
+                {icon && <span className="tab-shot-icon">{icon}</span>}
+                <span className="tab-shot-name">{getTabLabel(pane)}</span>
+              </div>
+            )}
             {shot ? (
               <div className="tab-overview-shot" style={shot}>
                 <Terminal

@@ -75,8 +75,12 @@
   transition: opacity var(--transition-fast);
 }
 
+/* The column with the keyboard takes the theme's accent — the same colour the
+   active tab wears when the keyboard is in the panes. Only one surface can
+   have it at a time, which is what makes it mean "here". */
 .sidebar-title.is-focused {
   opacity: 1;
+  color: var(--tab-active-text, var(--term-white));
 }
 
 .sidebar-title-text {
@@ -220,7 +224,11 @@
   opacity: 0.85;
 }
 
-.tab-name:hover {
+.tab-name:hover,
+/* Its picture is up: the tab it belongs to keeps the lit look the pointer
+   gave it, so the card is visibly ABOUT that tab even once the pointer has
+   moved onto the card itself. */
+.tab-name.is-previewing {
   background-color: var(--bg-medium);
   opacity: 0.8;
 }
@@ -234,7 +242,15 @@
   color: var(--tab-active-text, var(--term-white));
 }
 
-.tab-name-active:hover {
+/* ...unless the keyboard has gone to a sidebar. The accent follows the focus,
+   so the tab drops back to plain white and says only which tab is current,
+   not where you are typing. */
+.app-container.has-sidebar-focus .tab-name-active {
+  color: var(--term-white);
+}
+
+.tab-name-active:hover,
+.tab-name-active.is-previewing {
   opacity: 1;
 }
 

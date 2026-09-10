@@ -388,6 +388,7 @@ export const WindowTabs = memo(function WindowTabs() {
           const className = [
             'tab-name',
             window.active ? 'tab-name-active' : '',
+            previewId === window.id ? 'is-previewing' : '',
             isDragged ? 'is-dragging' : '',
             tabDrop?.kind === 'tab' && tabDrop.windowId === window.id ? 'is-pane-drop-target' : '',
             dropMarkerAt === idx ? 'is-drop-before' : '',

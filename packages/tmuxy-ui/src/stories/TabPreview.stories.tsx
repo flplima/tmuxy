@@ -105,10 +105,14 @@ export const RestOpensItAndBrowsingCarriesIt: Story = {
     expect(box.top).toBeGreaterThanOrEqual(tab.bottom - 1);
     expect(box.left).toBeGreaterThanOrEqual(0);
     expect(box.right).toBeLessThanOrEqual(window.innerWidth);
-    // It says which tab it is, and shows that tab's screen rather than a
-    // wireframe of it.
-    expect(card.textContent).toContain('alpha');
+    // It shows that tab's screen rather than a wireframe of it, and names
+    // each pane the way that pane's own header does.
     await waitFor(() => expect(card.querySelector('.tab-overview-shot')).not.toBeNull());
+    expect(card.querySelectorAll('.tab-shot-title').length).toBeGreaterThan(0);
+
+    // The tab it belongs to stays lit while its card is up, so the card is
+    // visibly about that tab.
+    expect(alpha).toHaveClass('is-previewing');
 
     // Move along the strip: the SAME node follows, showing the next tab.
     await userEvent.hover(bravo);
@@ -116,7 +120,9 @@ export const RestOpensItAndBrowsingCarriesIt: Story = {
       timeout: 1000,
     });
     expect(preview(), 'a new card was created instead of moving the old one').toBe(card);
-    expect(card.textContent).toContain('bravo');
+    // The lit tab moves along with it.
+    expect(bravo).toHaveClass('is-previewing');
+    expect(alpha).not.toHaveClass('is-previewing');
     await waitFor(() => {
       const moved = card.getBoundingClientRect();
       const target = bravo.getBoundingClientRect();
@@ -206,16 +212,17 @@ export const TheCardCanBeReachedAndClosesTheTab: Story = {
     await new Promise((r) => setTimeout(r, 600));
     expect(preview(), 'the card went away as the pointer reached it').not.toBeNull();
 
-    // Its ✕ sits in the top-right corner and closes that tab.
+    // Its ✕ sits in the card's padding above the picture, not over it.
     const close = canvasElement.ownerDocument.querySelector<HTMLElement>(
       '[data-testid="tab-preview-close"]',
     );
     expect(close).not.toBeNull();
     const closeBox = close!.getBoundingClientRect();
     const cardBox = card.getBoundingClientRect();
+    const frameBox = card.querySelector('.tab-preview-frame')!.getBoundingClientRect();
     expect(closeBox.right).toBeLessThanOrEqual(cardBox.right + 1);
     expect(closeBox.top).toBeGreaterThanOrEqual(cardBox.top - 1);
-    expect(closeBox.top - cardBox.top).toBeLessThan(cardBox.height / 3);
+    expect(closeBox.bottom, 'the ✕ overlaps the picture').toBeLessThanOrEqual(frameBox.top + 1);
 
     await userEvent.click(close!);
     await waitFor(

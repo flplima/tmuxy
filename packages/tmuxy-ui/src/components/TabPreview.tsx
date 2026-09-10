@@ -36,8 +36,12 @@ import { useTabStill } from '../hooks/useTabStill';
 import { TabShot } from './TabShot';
 import './TabPreview.css';
 
-/** How long a pointer has to rest on a tab before the FIRST preview opens. */
-export const TAB_PREVIEW_DELAY_MS = 1000;
+/**
+ * How long a pointer has to rest on a tab before the FIRST preview opens.
+ * Long enough that crossing the strip shows nothing, short enough that
+ * stopping on a tab feels like it answered.
+ */
+export const TAB_PREVIEW_DELAY_MS = 500;
 
 /**
  * How long the card takes to fade and slide away. Must stay in sync with the
@@ -57,7 +61,7 @@ function portalTarget(): HTMLElement {
 interface TabPreviewProps {
   /** The tab being previewed, or null when nothing is. */
   windowId: string | null;
-  /** Its name, for the caption — the strip already knows it. */
+  /** Its name, for the close button's label — the strip already knows it. */
   label: string;
   /** The pointer moved onto the card, or off it. */
   onPointerEnter: () => void;
@@ -143,26 +147,30 @@ export function TabPreview({ windowId, label, onPointerEnter, onPointerLeave }: 
         } as React.CSSProperties
       }
     >
-      <Tooltip label="Close tab">
-        <button
-          type="button"
-          className="tab-preview-close"
-          aria-label={`Close ${card.label}`}
-          data-testid="tab-preview-close"
-          onClick={() => send({ type: 'CLOSE_TAB', windowId: card.windowId })}
-        >
-          ✕
-        </button>
-      </Tooltip>
+      {/* Its own row above the picture, so it sits in the card's padding
+          rather than over the thing you are looking at. */}
+      <div className="tab-preview-bar">
+        <Tooltip label="Close tab">
+          <button
+            type="button"
+            className="tab-preview-close"
+            aria-label={`Close ${card.label}`}
+            data-testid="tab-preview-close"
+            onClick={() => send({ type: 'CLOSE_TAB', windowId: card.windowId })}
+          >
+            ✕
+          </button>
+        </Tooltip>
+      </div>
       <div className="tab-preview-frame" aria-hidden="true">
         <TabShot
           boxes={boxes}
           frameSize={frameSize}
           charWidth={charWidth}
           charHeight={charHeight}
+          panes={source}
         />
       </div>
-      <div className="tab-preview-label">{card.label}</div>
     </div>,
     portalTarget(),
   );

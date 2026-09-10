@@ -8,7 +8,7 @@
   z-index: var(--z-tooltip);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-md);
   /* Room to breathe: the picture is the content, and a frame pressed against
      the card's edge reads as a cropped screenshot rather than a preview. */
   padding: var(--spacing-2xl);
@@ -36,31 +36,24 @@
   background: var(--bg-darkest, var(--bg-dark));
 }
 
-.tab-preview-label {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: calc(var(--tmuxy-font-size, 15px) * 0.8);
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Closing the tab from its own picture. It has a row of its own above the
+   frame, inside the card's padding, so it never sits over the thing you are
+   looking at — and no offset of its own, because the padding is the margin. */
+.tab-preview-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-height: 16px;
 }
 
-/* Closing the tab from its own picture. Top-right, over the frame's corner:
-   the card is small, and a row of its own for one button would cost more of
-   it than the button is worth. */
 .tab-preview-close {
-  position: absolute;
-  top: var(--spacing-md);
-  right: var(--spacing-md);
-  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   padding: 0;
-  background: color-mix(in srgb, var(--bg-dark) 80%, transparent);
+  background: transparent;
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
@@ -117,4 +110,45 @@
     transition: none;
     animation: none;
   }
+}
+
+/* Each pane in the picture says what it is, with the icon and title its own
+   header shows — a preview that names its panes is the tab, in miniature.
+   Over the top of the pane's screen, because the screen is the picture and
+   the caption is a label on it. */
+.tab-shot-title {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: 1px var(--spacing-md);
+  background: color-mix(in srgb, var(--bg-dark) 85%, transparent);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.tab-overview-box.is-active .tab-shot-title {
+  color: var(--term-white);
+}
+
+.tab-shot-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  flex: 0 0 auto;
+}
+
+.tab-shot-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
