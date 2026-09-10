@@ -902,6 +902,33 @@ export function createKeyboardActor() {
       }
     };
 
+    /**
+     * A pane taking browser focus gives it straight back.
+     *
+     * The pane wrapper is focusable (it is the grid's tab stop), so clicking
+     * into a pane moves focus off the hidden input — and an accent typed after
+     * that simply never arrives. A dead key is not a keystroke the browser
+     * reports: the OS composes `\u00b4` and `a` into `\u00e1` and delivers it only
+     * to whatever is being EDITED, so with focus on a plain div there is
+     * nowhere for the composed character to go. Ordinary keys were fine, which
+     * is why this reads as "diacritics stopped working" rather than "typing
+     * stopped working".
+     *
+     * Only the pane surfaces hand focus back. Menus, the sidebar tree and real
+     * form controls all take focus on purpose and keep it.
+     */
+    const handleFocusIn = (event: FocusEvent) => {
+      if (isTouchDevice()) return;
+      const target = event.target as HTMLElement | null;
+      const pane = target?.closest?.('[data-pane-id][tabindex]') as HTMLElement | null;
+      if (!pane || pane !== target) return;
+      const paneId = realPaneId(pane.dataset.paneId ?? null);
+      if (paneId === null) return;
+      focusKeyboardInput(paneId);
+      keyboardFocusEstablished = true;
+    };
+
+    window.addEventListener('focusin', handleFocusIn);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('compositionstart', handleCompositionStart);
     window.addEventListener('compositionend', handleCompositionEnd);
@@ -936,6 +963,7 @@ export function createKeyboardActor() {
     return () => {
       cleanupKeyboardInput();
       prefixMode.exit(false);
+      window.removeEventListener('focusin', handleFocusIn);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);

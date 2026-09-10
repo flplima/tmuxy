@@ -366,3 +366,130 @@ export const HiddenInputOwnsFocus: Story = {
     expect(promptLine(canvasElement).textContent ?? '').not.toContain('aabb');
   },
 };
+
+/**
+ * A dead key as the OS actually composes it, which is not a keydown at all.
+ *
+ * WebKit — the engine the desktop app runs on — routes a dead key through the
+ * IME when an editable element has focus: `compositionstart`, an update
+ * carrying the bare accent, then `compositionend` holding the finished
+ * character. Nothing about that reaches the keydown path, so the character
+ * arrives only if the hidden input is where the composition happened.
+ */
+const deadComposed = (accent: string, letter: string, composed: string) => () => {
+  const target = focusTarget();
+  target.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+  press({ key: 'Dead', keyCode: 229, isComposing: true });
+  target.dispatchEvent(new CompositionEvent('compositionupdate', { data: accent, bubbles: true }));
+  press({ key: letter, keyCode: 229, isComposing: true });
+  target.dispatchEvent(new CompositionEvent('compositionend', { data: composed, bubbles: true }));
+  if (target instanceof HTMLInputElement) {
+    target.value = composed;
+    target.dispatchEvent(
+      new InputEvent('input', { bubbles: true, data: composed, inputType: 'insertText' }),
+    );
+  }
+};
+
+export const DeadKeysThroughTheIME: Story = {
+  args: { height: 420 },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'The same accents again, composed the way WebKit does it: a composition on the hidden input rather than a keydown carrying the finished character. Both shapes have to work, because which one you get depends on the engine and on whether anything editable has focus.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const pairs: Array<[string, string, string]> = [
+      ['´', 'a', 'á'],
+      ['~', 'a', 'ã'],
+      ['^', 'e', 'ê'],
+      ['`', 'a', 'à'],
+      ['~', 'n', 'ñ'],
+      ['¨', 'u', 'ü'],
+    ];
+    const payload = pairs.map(([, , composed]) => composed).join('');
+    const rect = await typeRun(
+      canvasElement,
+      payload,
+      pairs.map(([accent, letter, composed]) => deadComposed(accent, letter, composed)),
+    );
+    expectPainted(canvasElement, rect, payload.length + 2);
+  },
+};
+
+/**
+ * Clicking into a pane must not cost you your accents.
+ *
+ * The pane wrapper is the grid's tab stop, so a click moves browser focus onto
+ * it — and a dead key is composed by the OS for whatever is being EDITED. With
+ * focus on a plain div there is nowhere for the composed character to go, and
+ * it is simply never delivered. Ordinary keys keep working, which is why this
+ * reads as "diacritics stopped working" rather than "typing stopped working".
+ * The pane hands focus straight back to the hidden input.
+ */
+export const ClickingAPaneKeepsAccentsTypable: Story = {
+  args: { height: 420 },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(promptLine(canvasElement)).toBeTruthy(), { timeout: 15000 });
+    const hidden = document.activeElement;
+    expect(hidden?.tagName).toBe('INPUT');
+
+    // Click the pane, the way anyone starts using one.
+    const pane = canvasElement.querySelector<HTMLElement>('.pane-wrapper[data-pane-id]')!;
+    pane.focus();
+    await waitFor(() => expect(document.activeElement).toBe(hidden));
+
+    // ...and a composed accent still lands.
+    const payload = 'áñ';
+    const rect = await typeRun(canvasElement, payload, [
+      deadComposed('´', 'a', 'á'),
+      deadComposed('~', 'n', 'ñ'),
+    ]);
+    expectPainted(canvasElement, rect, payload.length + 2);
+  },
+};
+
+/**
+ * The diacritics of the languages that use them most, typed as plain keys —
+ * the path a layout takes when the character has a key of its own.
+ *
+ * Portuguese and Spanish are the reported ones; the rest are here because a
+ * change to the text/chord split breaks them all at once, and a single payload
+ * covering French, German, Nordic, Polish, Czech, Turkish, Romanian, Hungarian
+ * and Vietnamese says so in one failure rather than in a bug report months
+ * later.
+ */
+export const DiacriticsOfManyLanguages: Story = {
+  args: { height: 420 },
+  play: async ({ canvasElement }) => {
+    // One run per language rather than one long one: a failure then names the
+    // language, and a run of a dozen cells does not accumulate enough
+    // sub-pixel rounding to blur the "one character, one cell" check.
+    const languages: Array<[string, string]> = [
+      ['Portuguese', 'áàâãçéêíóôõúü'],
+      ['Spanish', 'ñáéíóúü¿¡'],
+      ['French', 'àâçéèêëîïôùûœ'],
+      ['German', 'äöüß'],
+      ['Nordic', 'åøæ'],
+      ['Polish', 'ąćęłńóśźż'],
+      ['Czech', 'čďěňřšťůž'],
+      ['Turkish', 'çğıöşü'],
+      ['Romanian', 'ăâîșț'],
+      ['Hungarian', 'őű'],
+      ['Vietnamese', 'ơưđ'],
+    ];
+    for (const [language, payload] of languages) {
+      const chars = Array.from(payload);
+      const rect = await typeRun(canvasElement, payload, chars.map(plain));
+      try {
+        expectPainted(canvasElement, rect, chars.length + 2);
+      } catch (error) {
+        throw new Error(`${language} (${payload}): ${(error as Error).message}`);
+      }
+      press({ key: 'Enter' });
+    }
+  },
+};
