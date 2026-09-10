@@ -102,11 +102,16 @@ export const OpenShowsTree: Story = {
     // Renamed tab labels show up.
     expect(tree.textContent).toContain('main');
     expect(tree.textContent).toContain('logs');
-    // Drawer content has real size (catches zero-height / clip bugs).
+    // Drawer content has real size (catches zero-height / clip bugs). The
+    // column widens on a transition, so the size worth asserting is the one it
+    // settles at — reading it the frame the tree appears catches the drawer
+    // a pixel or two wide and says nothing about whether it is clipped.
     const content = document.querySelector('[data-testid="sidebar-content"]') as HTMLElement;
-    const rect = content.getBoundingClientRect();
-    expect(rect.width).toBeGreaterThan(50);
-    expect(rect.height).toBeGreaterThan(50);
+    await waitFor(() => {
+      const rect = content.getBoundingClientRect();
+      expect(rect.width).toBeGreaterThan(50);
+      expect(rect.height).toBeGreaterThan(50);
+    });
 
     // Clicking the toggle again closes the drawer.
     await userEvent.click(toggle);
