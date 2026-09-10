@@ -482,6 +482,93 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       expect(second.url).toBe('https://example.com/plain');
     });
 
+    // The reported bug: a long underline over unrelated text in Claude Code.
+    // A hyperlink is recorded against the cells it painted, and an
+    // application that repaints in place scrolls nothing and clears nothing —
+    // so the link's coordinates outlived its text and the next frame's
+    // characters inherited them. One `echo` does the whole thing: open the
+    // link (BEL-terminated, so the CR that follows is unambiguous), write the
+    // label, carriage-return back over it, repaint. Nothing about the pane
+    // moves, which is exactly the case that used to slip through.
+    test('a link repainted over does not leave its highlight on the new text', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      // A link on its own is an anchor — the control the rest of this test needs.
+      await runCommand(
+        ctx.page,
+        'echo -e "\\x1b]8;;http://ex.test/live\\x07LIVE-LINK\\x1b]8;;\\x07"',
+        'LIVE-LINK',
+      );
+      const liveAnchors = await ctx.page.evaluate(() =>
+        Array.from(document.querySelectorAll('.terminal-content a.terminal-hyperlink'))
+          .filter((a) => a.getAttribute('href') === 'http://ex.test/live')
+          .map((a) => a.textContent),
+      );
+      expect(liveAnchors).toContain('LIVE-LINK');
+
+      // Now the repaint: same cells, different text, no scroll and no clear.
+      // ZZZZZZZZ is one cell wider than CLICKME, so every marked cell changes.
+      await runCommand(
+        ctx.page,
+        'echo -e "\\x1b]8;;http://ex.test/stale\\x07CLICKME\\x1b]8;;\\x07\\rZZZZZZZZ"',
+        'ZZZZZZZZ',
+      );
+      await runCommand(ctx.page, 'echo REPAINT_RENDERED', 'REPAINT_RENDERED');
+
+      const repainted = await ctx.page.evaluate(() => {
+        const anchors = Array.from(document.querySelectorAll('.terminal-content a[href]'));
+        return {
+          // The repainted characters must not sit inside any link.
+          overNewText: anchors
+            .filter((a) => a.textContent.includes('Z'))
+            .map((a) => ({ text: a.textContent, href: a.getAttribute('href'), cls: a.className })),
+          // And the OSC 8 link itself is gone: its label is no longer on screen.
+          // (The echoed command line still shows the URL as plain text, which
+          // auto-links — inert, and a different class.)
+          staleHyperlinks: anchors
+            .filter(
+              (a) =>
+                a.classList.contains('terminal-hyperlink') &&
+                a.getAttribute('href') === 'http://ex.test/stale',
+            )
+            .map((a) => a.textContent),
+          text: document.querySelector('.terminal-content').textContent,
+        };
+      });
+
+      expect(repainted.text).toContain('ZZZZZZZZ');
+      expect(repainted.overNewText).toEqual([]);
+      expect(repainted.staleHyperlinks).toEqual([]);
+    });
+
+    // A URL butted against a UI separator with no space between them: the
+    // detector is an allowlist of what a URL may contain, so the separator
+    // ends it. Defined the other way round, one link swallowed the rest of
+    // the line — the same "highlight over wrong text" as above.
+    test('an auto-detected URL stops at a box-drawing separator', async () => {
+      if (ctx.skipIfNotReady()) return;
+
+      await ctx.setupPage();
+
+      await runCommand(
+        ctx.page,
+        'echo -e "\\u2502https://ex.test/page\\u2502Files:12\\u2502"',
+        'Files:12',
+      );
+
+      const autolinks = await ctx.page.evaluate(() =>
+        Array.from(document.querySelectorAll('.terminal-content a.terminal-autolink'))
+          .map((a) => a.textContent)
+          .filter((t) => t.includes('ex.test/page')),
+      );
+      expect(autolinks.length).toBeGreaterThan(0);
+      for (const text of autolinks) {
+        expect(text).toBe('https://ex.test/page');
+      }
+    });
+
     test('Multiple hyperlinks on same line render correctly', async () => {
       if (ctx.skipIfNotReady()) return;
 

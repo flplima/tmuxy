@@ -134,6 +134,24 @@ pub type TerminalLine = Vec<TerminalCell>;
 /// Pane content as structured cells (pre-parsed from ANSI)
 pub type PaneContent = Vec<TerminalLine>;
 
+/// One cell's character, as everything downstream spells it.
+///
+/// vt100 gives an unwritten cell — and the continuation half of a wide one —
+/// an empty string; a space keeps the joined line on the column grid. Shared
+/// so a hyperlink mark and the extraction that validates it are comparing the
+/// same spelling of the same cell.
+pub fn screen_cell_char(screen: &vt100::Screen, row: u16, col: u16) -> String {
+    let raw = screen
+        .cell(row, col)
+        .map(|c| c.contents())
+        .unwrap_or_default();
+    if raw.is_empty() {
+        " ".to_string()
+    } else {
+        raw.to_string()
+    }
+}
+
 /// Extract structured cells from a vt100 screen.
 /// This is the single source of truth for cell extraction, used by both
 /// parse_ansi_to_cells (polling mode) and PaneState::get_content (control mode).
@@ -153,19 +171,22 @@ pub fn extract_cells_with_urls(
     for row in 0..rows {
         let mut line: Vec<TerminalCell> = Vec::with_capacity(cols as usize);
 
-        for col in 0..cols {
+        // The row's text first, as a unit: a hyperlink is only still a
+        // hyperlink if the text it was written on is still there, and that is
+        // judged per run rather than per cell (see `OscParser::row_urls`).
+        let chars: Vec<String> = (0..cols)
+            .map(|col| screen_cell_char(screen, row, col))
+            .collect();
+        let row_urls = osc_parser.map(|p| p.row_urls(row as u32, &chars));
+
+        // `chars` is consumed here, so collecting the row up front costs no
+        // allocation over building each cell's string in place.
+        for (col, char_content) in chars.into_iter().enumerate() {
+            let col = col as u16;
             // `screen.cell` only returns None when row/col exceed the grid bounds,
             // which the `0..rows` / `0..cols` loops guarantee against.
             let Some(cell) = screen.cell(row, col) else {
                 continue;
-            };
-            // vt100 returns empty string for unwritten cells; use space to preserve
-            // column alignment when characters are joined on the frontend
-            let raw_content = cell.contents();
-            let char_content = if raw_content.is_empty() {
-                " ".to_string()
-            } else {
-                raw_content.to_string()
             };
 
             let fg = match cell.fgcolor() {
@@ -180,8 +201,9 @@ pub fn extract_cells_with_urls(
                 vt100::Color::Rgb(r, g, b) => Some(CellColor::Rgb { r, g, b }),
             };
 
-            // Get URL from OSC parser if available
-            let url = osc_parser.and_then(|p| p.get_url(row as u32, col as u32).cloned());
+            let url = row_urls
+                .as_ref()
+                .and_then(|urls| urls[col as usize].map(str::to_string));
 
             let style = CellStyle {
                 fg,

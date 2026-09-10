@@ -407,9 +407,22 @@ impl PaneState {
                 // Wrapped onto a new line: the character is at its start.
                 (row2, 0, col2)
             };
-            for c in from..to {
+            // The character each marked cell now holds is recorded with the
+            // mark: an overwrite is invisible to a coordinate map, so the text
+            // is what tells a live link from a dead one later. Read out of
+            // vt100 (not from `chunk`) so a wide glyph's continuation cell is
+            // spelled exactly as the extraction will spell it.
+            let marks: Vec<(u16, String)> = (from..to)
+                .map(|c| {
+                    (
+                        c,
+                        crate::screen_cell_char(self.terminal.screen(), mark_row, c),
+                    )
+                })
+                .collect();
+            for (c, ch) in marks {
                 self.osc_parser
-                    .mark_cell(u32::from(mark_row), u32::from(c), url);
+                    .mark_cell(u32::from(mark_row), u32::from(c), url, &ch);
             }
         }
     }
@@ -4287,20 +4300,21 @@ mod tests {
         let (rows, cols) = screen.size();
         let mut out: Vec<(String, String)> = Vec::new();
         for row in 0..rows {
+            let chars: Vec<String> = (0..cols)
+                .map(|col| crate::screen_cell_char(screen, row, col))
+                .collect();
+            let urls = pane.osc_parser.row_urls(u32::from(row), &chars);
             let mut run: Option<(String, String)> = None;
             for col in 0..cols {
-                let url = pane.osc_parser.get_url(u32::from(row), u32::from(col));
-                let ch = screen
-                    .cell(row, col)
-                    .map(|c| c.contents())
-                    .unwrap_or_default();
+                let url = urls[usize::from(col)];
+                let ch = chars[usize::from(col)].clone();
                 match (url, &mut run) {
                     (Some(u), Some((cur, text))) if cur == u => text.push_str(&ch),
                     (Some(u), _) => {
                         if let Some(done) = run.take() {
                             out.push(done);
                         }
-                        run = Some((u.clone(), ch.to_string()));
+                        run = Some((u.to_string(), ch));
                     }
                     (None, _) => {
                         if let Some(done) = run.take() {
@@ -4354,6 +4368,62 @@ mod tests {
             linked_text(&pane),
             vec![("https://example.com/s".to_string(), "LINK".to_string())],
             "the mark must travel with the line it was written on"
+        );
+    }
+
+    #[test]
+    fn a_link_does_not_reattach_to_text_redrawn_over_it() {
+        // The reported bug: a long underline over unrelated text in Claude
+        // Code. An application that repaints in place moves no lines, so
+        // nothing shifted or cleared the marks — the link's COORDINATES
+        // outlived its text, and the next frame's characters inherited them.
+        let mut pane = PaneState::new("%1", 40, 6);
+        pane.process_output(b"\x1b[?1049h\x1b[1;1H");
+        pane.process_output(&osc8("https://example.com/x", "CLICK-ME"));
+        assert_eq!(
+            linked_text(&pane),
+            vec![("https://example.com/x".to_string(), "CLICK-ME".to_string())]
+        );
+
+        pane.process_output(b"\x1b[1;1HTOTALLY UNRELATED TEXT");
+        assert!(
+            linked_text(&pane).is_empty(),
+            "the redrawn text must not inherit the link: {:?}",
+            linked_text(&pane)
+        );
+    }
+
+    #[test]
+    fn a_cleared_frame_drops_the_links_that_were_on_it() {
+        // Erase-in-display writes blanks through vt100 without moving a line,
+        // so it too left the marks where they were.
+        let mut pane = PaneState::new("%1", 40, 6);
+        pane.process_output(&osc8("https://example.com/y", "LINK-HERE"));
+        pane.process_output(b"\x1b[2J\x1b[1;1HFRESH FRAME CONTENT");
+
+        assert!(
+            linked_text(&pane).is_empty(),
+            "a link cleared off the screen must not come back on new text: {:?}",
+            linked_text(&pane)
+        );
+    }
+
+    #[test]
+    fn a_link_survives_output_that_leaves_its_text_alone() {
+        // The other half of the rule: only the cells whose text changed lose
+        // their link. A frame that redraws around a link keeps it clickable.
+        let mut pane = PaneState::new("%1", 40, 6);
+        pane.process_output(b"\x1b[?1049h\x1b[2;1H");
+        pane.process_output(&osc8("https://example.com/z", "STILL-A-LINK"));
+        pane.process_output(b"\x1b[1;1Hheader\x1b[3;1Hfooter");
+
+        assert_eq!(
+            linked_text(&pane),
+            vec![(
+                "https://example.com/z".to_string(),
+                "STILL-A-LINK".to_string()
+            )],
+            "a redraw of other rows must not drop the link"
         );
     }
 
@@ -4493,9 +4563,11 @@ mod tests {
 
     #[test]
     fn plain_output_records_no_links() {
+        // A URL in plain output is not an OSC 8 link; the frontend's own
+        // detector decides whether to offer it (utils/urlDetect.ts).
         let mut pane = PaneState::new("%1", 40, 6);
         pane.process_output(b"https://example.com/not-osc8\r\nplain text");
-        assert!(pane.osc_parser.cell_urls.is_empty());
+        assert!(linked_text(&pane).is_empty());
     }
 
     #[test]

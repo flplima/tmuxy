@@ -25,6 +25,25 @@ CSI cursor move, so the URL drifted onto unrelated text.) Because tmux strips
 OSC 8 from `capture-pane` history, the map is cleared on a capture refresh and
 repopulates from live output — a link is not restored by reloading the page.
 
+**A mark is only good while its text is.** Each mark also records the character
+that was under it, and the map is read back a row at a time
+(`OscParser::row_urls`), never by coordinate alone: a run of adjacent cells
+sharing one URL was written as one label, so it is validated as one — if any
+character under it has changed, the whole run goes. vt100 carries no per-cell
+hyperlink attribute, so a cell being overwritten is invisible to a coordinate
+map; without the check, an application that repaints in place (Claude Code,
+vim, htop) scrolled nothing and cleared nothing, and every frame's text
+inherited the last frame's link — a long underline over unrelated text. The
+run, not the cell, is the unit, or a redraw that happens to refill a cell with
+the same character leaves a stray underline under it.
+
+**Auto-detected URLs stop where a URL must.** `utils/urlDetect.ts` matches the
+characters RFC 3986 allows in a URI, plus Unicode letters, digits and marks for
+internationalised addresses. It is an allowlist on purpose: terminal UIs butt
+their text against separators with no space in between, and a class defined by
+what it excluded swallowed all of them — `…/bar│Files:12│Status:ok` came back
+as one link covering most of the line.
+
 OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser — all parsing lives in `tmuxy-core/src/control_mode/images.rs` and `tmuxy-core/src/control_mode/osc.rs` — but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. On the frontend, `Terminal.tsx` renders image placements and `TerminalLine.tsx` renders hyperlink cells.
 
 ## How tmux preserves the sequences

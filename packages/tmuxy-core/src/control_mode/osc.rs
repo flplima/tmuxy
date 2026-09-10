@@ -29,6 +29,19 @@ fn push_link(links: &mut Vec<(usize, usize, String)>, start: usize, end: usize, 
     }
 }
 
+/// A recorded hyperlink, and the character that was under it when it was
+/// recorded.
+///
+/// The character is the mark's proof of freshness. vt100 carries no per-cell
+/// hyperlink attribute, so a cell being overwritten is invisible to this map;
+/// without something to check against, a mark stayed on its coordinates and
+/// re-attached to whatever text a later frame drew there.
+#[derive(Debug, Clone)]
+pub struct CellMark {
+    url: String,
+    ch: String,
+}
+
 /// OSC parser state for a single pane
 #[derive(Debug, Default)]
 pub struct OscParser {
@@ -39,14 +52,18 @@ pub struct OscParser {
     viewport_height: u32,
     /// Pending clipboard content (from OSC 52)
     pub pending_clipboard: Option<String>,
-    /// Hyperlink URL per cell coordinate: (row, col) -> url.
+    /// Hyperlink per cell coordinate: (row, col) -> [`CellMark`].
     ///
     /// Written by the caller via [`OscParser::mark_cell`] once vt100 has told
     /// it where a byte actually landed — this parser deliberately keeps no
     /// cursor of its own. It used to, advancing on `\n` / `\r` / printable
     /// ASCII only, which made it blind to every CSI cursor movement (most of
     /// what a shell prompt emits) and drifted the whole map off the text.
-    pub cell_urls: HashMap<(u32, u32), String>,
+    ///
+    /// Read back through [`OscParser::row_urls`], never by coordinate alone:
+    /// a mark is only good while the character it was written on is still
+    /// there.
+    cell_urls: HashMap<(u32, u32), CellMark>,
     /// An incomplete OSC sequence split across `%output` chunks, carried into
     /// the next `process()` call so the sequence isn't torn (header rendered as
     /// garbage, payload lost).
@@ -110,17 +127,66 @@ impl OscParser {
     /// Record that the cell at `(row, col)` carries `url`. Called once vt100
     /// has been asked where the byte landed, so wrapping, scrolling, and every
     /// cursor-moving escape are already accounted for.
-    pub fn mark_cell(&mut self, row: u32, col: u32, url: &str) {
+    /// Record `url` on the cell at (`row`, `col`), which currently holds `ch`.
+    pub fn mark_cell(&mut self, row: u32, col: u32, url: &str, ch: &str) {
         if self.viewport_height > 0 && row >= self.viewport_height {
             return;
         }
-        self.cell_urls.insert((row, col), url.to_string());
+        self.cell_urls.insert(
+            (row, col),
+            CellMark {
+                url: url.to_string(),
+                ch: ch.to_string(),
+            },
+        );
     }
 
     /// Drop every cell mark, keeping the open-hyperlink state. Used when the
     /// grid the marks referred to is replaced wholesale (alternate screen).
     pub fn clear_cells(&mut self) {
         self.cell_urls.clear();
+    }
+
+    /// The hyperlink on each column of `row`, with stale marks dropped.
+    ///
+    /// `chars` is the row as it stands now, one entry per column, normalised
+    /// the way [`crate::screen_cell_char`] normalises it.
+    ///
+    /// A run of adjacent cells carrying the same URL was written as one label,
+    /// so it is validated as one: if any character under it has changed since
+    /// it was written, the whole run goes. Anything less leaves a link on the
+    /// cells a redraw happened to fill with the same character — and anything
+    /// per-cell-only would keep a stray underline under each of them.
+    ///
+    /// This is the only way out of the map. Reading it by coordinate alone is
+    /// what put a long underline over unrelated text in an application that
+    /// repaints in place (Claude Code, vim, htop): the link's coordinates
+    /// outlived the link's text.
+    pub fn row_urls(&self, row: u32, chars: &[String]) -> Vec<Option<&str>> {
+        let mut out: Vec<Option<&str>> = vec![None; chars.len()];
+        if self.cell_urls.is_empty() {
+            return out;
+        }
+        let mark_at = |col: usize| self.cell_urls.get(&(row, col as u32));
+        let mut col = 0usize;
+        while col < chars.len() {
+            let Some(mark) = mark_at(col) else {
+                col += 1;
+                continue;
+            };
+            let mut end = col + 1;
+            while end < chars.len() && mark_at(end).is_some_and(|m| m.url == mark.url) {
+                end += 1;
+            }
+            let intact = (col..end).all(|c| mark_at(c).is_some_and(|m| m.ch == chars[c]));
+            if intact {
+                for slot in out[col..end].iter_mut() {
+                    *slot = Some(mark.url.as_str());
+                }
+            }
+            col = end;
+        }
+        out
     }
 
     /// The URL currently open, if the stream is inside an OSC 8 pair.
@@ -272,11 +338,6 @@ impl OscParser {
         }
     }
 
-    /// Get URL for a specific cell coordinate
-    pub fn get_url(&self, row: u32, col: u32) -> Option<&String> {
-        self.cell_urls.get(&(row, col))
-    }
-
     /// Take pending clipboard content (clears it)
     pub fn take_clipboard(&mut self) -> Option<String> {
         self.pending_clipboard.take()
@@ -376,25 +437,75 @@ mod tests {
         assert_eq!(second.links, vec![(0, 2, "http://x".to_string())]);
     }
 
+    /// The row as `row_urls` wants it: one entry per column.
+    fn row(text: &str) -> Vec<String> {
+        text.chars().map(|c| c.to_string()).collect()
+    }
+
     #[test]
     fn shift_rows_up_moves_marks_and_drops_what_scrolls_off() {
         let mut parser = OscParser::new();
         parser.set_viewport_height(3);
-        parser.mark_cell(0, 0, "http://gone");
-        parser.mark_cell(2, 1, "http://kept");
+        parser.mark_cell(0, 0, "http://gone", "A");
+        parser.mark_cell(2, 1, "http://kept", "B");
 
         parser.shift_rows_up(1);
 
-        assert_eq!(parser.get_url(0, 0), None);
-        assert_eq!(parser.get_url(1, 1), Some(&"http://kept".to_string()));
+        assert_eq!(parser.row_urls(0, &row("A ")), vec![None, None]);
+        assert_eq!(
+            parser.row_urls(1, &row("xB")),
+            vec![None, Some("http://kept")]
+        );
     }
 
     #[test]
     fn marks_past_the_bottom_row_are_refused() {
         let mut parser = OscParser::new();
         parser.set_viewport_height(3);
-        parser.mark_cell(3, 0, "http://offscreen");
+        parser.mark_cell(3, 0, "http://offscreen", "A");
         assert!(parser.cell_urls.is_empty());
+    }
+
+    #[test]
+    fn a_run_whose_text_changed_is_dropped_whole() {
+        // The label was written as one thing, so it lives or dies as one. A
+        // redraw that changes any of it takes all of it — including the cells
+        // it happened to refill with the same character, which per-cell
+        // checking would leave underlined on their own.
+        let mut parser = OscParser::new();
+        parser.set_viewport_height(2);
+        for (col, ch) in "AB CD".chars().enumerate() {
+            parser.mark_cell(0, col as u32, "http://label", &ch.to_string());
+        }
+
+        assert_eq!(
+            parser.row_urls(0, &row("AB CD")),
+            vec![Some("http://label"); 5],
+            "untouched text keeps its link"
+        );
+        assert_eq!(
+            parser.row_urls(0, &row("XY CZ")),
+            vec![None; 5],
+            "the space and the C survived the redraw, but the run did not"
+        );
+    }
+
+    #[test]
+    fn two_runs_on_one_row_are_judged_separately() {
+        let mut parser = OscParser::new();
+        parser.set_viewport_height(2);
+        for (col, ch) in "AA".chars().enumerate() {
+            parser.mark_cell(0, col as u32, "http://a", &ch.to_string());
+        }
+        for (col, ch) in "BB".chars().enumerate() {
+            parser.mark_cell(0, col as u32 + 3, "http://b", &ch.to_string());
+        }
+
+        assert_eq!(
+            parser.row_urls(0, &row("AA ZZ")),
+            vec![Some("http://a"), Some("http://a"), None, None, None],
+            "the second link's text changed; the first one's did not"
+        );
     }
 
     #[test]
