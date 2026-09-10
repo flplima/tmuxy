@@ -147,10 +147,10 @@
   /* Active/inactive pane fade: long enough to kill the hard flash on focus
      changes and swaps, short enough to feel instant. */
   --transition-active: 80ms ease-out;
-  /* Pane enter/leave lifecycle (split/kill morph). Durations must stay in
-     sync with PANE_ENTER_MS / PANE_LEAVE_MS (constants/layout.ts). */
+  /* Pane enter/shift lifecycle: a pane arriving on a split, and the panes
+     that move or grow around one arriving or closing. Must stay in sync with
+     PANE_ENTER_MS (constants/layout.ts). */
   --transition-pane-enter: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  --transition-pane-leave: 160ms ease-in;
   /* Zoom toggle: the pane grows to fill the window. Same easing as the enter
      morph so a zoom reads as the same kind of motion as a split. */
   --transition-pane-zoom: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -700,29 +700,9 @@
     background-color var(--transition-active);
 }
 
-/* Leaving pane: kept mounted by PaneLayout after the model dropped it, at
-   its last box — it shrinks into its own centre while fading out, BELOW the
-   survivor that grows over the space (z 0 against the survivor's 1+), so
-   the closing pane reads as receding behind the one taking its place. */
-.pane-layout-item.pane-leaving,
-.pane-layout-no-animations .pane-layout-item.pane-leaving,
-.pane-layout-resizing .pane-layout-item.pane-leaving {
-  opacity: 0;
-  /* The scale itself is inline (AnimatedPaneWrapper's collapseTransform), as
-     the wrapper owns the transform; this rule times it and fixes the origin. */
-  transform-origin: center;
-  z-index: 0;
-  pointer-events: none;
-  transition:
-    transform var(--transition-pane-leave),
-    opacity var(--transition-pane-leave);
-  will-change: transform, opacity;
-}
-
 @media (prefers-reduced-motion: reduce) {
   :root {
     --transition-pane-enter: 0ms linear;
-    --transition-pane-leave: 0ms linear;
     --transition-pane-zoom: 0ms linear;
     --transition-sidebar: 0ms linear;
   }

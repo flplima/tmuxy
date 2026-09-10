@@ -81,11 +81,13 @@ export function computePaneBox(
   };
 }
 
-/* Pane enter/leave lifecycle (split/kill morph animations).
-   Durations must stay in sync with --transition-pane-enter /
-   --transition-pane-leave (styles.css) — JS timers hold the lifecycle
-   classes slightly past the CSS transition end. */
+/* Pane enter/shift lifecycle (the split morph, and the panes moving around
+   it). Must stay in sync with --transition-pane-enter (styles.css) — JS
+   timers hold the lifecycle classes slightly past the CSS transition end. */
 export const PANE_ENTER_MS = 180;
+/* How long a closed pane's absence keeps the shift lifecycle open, so the
+   survivors GROW into the space it left. The pane itself is not drawn for any
+   of it: closing is instant, and what animates is the space opening up. */
 export const PANE_LEAVE_MS = 160;
 // Opacity the entering pane starts from before fading in to full.
 export const PANE_ENTER_FROM_OPACITY = 0.4;

@@ -5,7 +5,9 @@
  * - Resize from dividers between panes
  * - Enter/leave/shift lifecycle: CSS-transition FLIP morphs for pane
  *   split/kill/geometry changes, tracked component-locally via refs and a
- *   tick reducer (see STATE-MANAGEMENT.md "Pane enter/leave animations")
+ *   tick reducer (see STATE-MANAGEMENT.md "Pane enter/leave animations").
+ *   A pane that CLOSES simply goes: what is animated is the space opening up,
+ *   i.e. the survivors growing into it.
  * - Events sent to appMachine on mouse actions
  */
 
@@ -28,7 +30,6 @@ import {
 } from '../constants';
 import { findEnterFromBox } from '../utils/paneTransitions';
 import { gridExtent } from '../machines/app/helpers';
-import { LeavingPanesContext } from '../machines/LeavingPanesContext';
 import {
   useAppSelector,
   useAppSend,
@@ -79,10 +80,14 @@ interface ShiftAnim {
   unlisten?: () => void;
 }
 
+/**
+ * A pane that has just gone. Nothing of it is drawn — it disappears on the
+ * commit that dropped it — but the entry stays for PANE_LEAVE_MS to hold the
+ * shift lifecycle open, which is what makes the surviving panes GROW into the
+ * space instead of snapping into it.
+ */
 interface LeaveAnim {
   pane: TmuxPane;
-  /** The pane's last box: it shrinks into its own centre there, under the survivor. */
-  box: PaneBox;
   timer?: number;
 }
 
@@ -396,7 +401,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // (prevViewRef, updated post-commit in a layout effect). A key that
   // appears gets a FLIP enter (mounted at final geometry, rewound to the
   // split source's pre-split box before paint, transitioned into place
-  // while fading in); a key that vanishes keeps rendering for the leave
+  // while fading in); a key that vanishes holds the shift clock open for the
   // duration, shrinking into its own centre under the survivor while fading out; panes
   // whose box changed alongside an enter/leave get `pane-shifting` so they
   // animate on the same clock. All state is local (refs + a tick reducer)
@@ -444,8 +449,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     activeWindowId === prevActiveWindowIdRef.current;
 
   if (!lifecycleEnabled && leavingRef.current.size > 0) {
-    // Window switch / drag / animations-off: in-flight leave morphs belong
-    // to a layout that no longer exists — drop them instantly.
+    // Window switch / drag / animations-off: the growth these were holding
+    // open belongs to a layout that no longer exists — drop them instantly.
     for (const l of leavingRef.current.values()) {
       if (l.timer !== undefined) clearTimeout(l.timer);
     }
@@ -534,7 +539,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       if (allPaneIds.has(v.pane.tmuxId)) continue; // moved, not dead
       const enter = enterAnimsRef.current.get(key);
       if (enter && performance.now() - enter.startedAt < TRANSIENT_PANE_MS) continue;
-      leavingRef.current.set(key, { pane: v.pane, box: v.box });
+      leavingRef.current.set(key, { pane: v.pane });
     }
 
     // Shifts: while any enter/leave is in flight, pre-existing panes whose
@@ -557,43 +562,22 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     }
   }
 
-  // Frozen pane snapshots for leave animations, exposed to usePane via
-  // context. Identity is kept stable across renders (rebuilt only when the
-  // leaving set actually changes) so live panes' usePane subscriptions
-  // don't churn on every PaneLayout render.
-  const leavingPanesMapRef = useRef<ReadonlyMap<string, TmuxPane>>(new Map());
-  {
-    const prevMap = leavingPanesMapRef.current;
-    const leaves = [...leavingRef.current.values()];
-    const changed =
-      prevMap.size !== leaves.length || leaves.some((l) => prevMap.get(l.pane.tmuxId) !== l.pane);
-    if (changed) {
-      leavingPanesMapRef.current = new Map(leaves.map((l) => [l.pane.tmuxId, l.pane]));
-    }
-  }
-  const leavingPanesMap = leavingPanesMapRef.current;
-
-  // Merge leaving panes into the render list at their sorted-key position:
-  // relative DOM order of kept keys must not change, or React would move
-  // nodes (insertBefore) and cancel their running CSS transitions.
+  // A closed pane leaves no node behind: the model dropped it, so it is gone
+  // from the render on the same commit. What is still tracked is the WINDOW
+  // its removal opened — `leavingRef` keeps the shift lifecycle running for
+  // PANE_LEAVE_MS so the surviving panes grow into the space on that clock
+  // rather than snapping to their new boxes.
   const renderItems: {
     key: string;
     pane: TmuxPane;
     hidden: boolean;
     zoomCollapsed: boolean;
-    leave?: LeaveAnim;
   }[] = renderedPanes.map(({ pane, hidden, zoomCollapsed }) => ({
     key: paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId,
     pane,
     hidden,
     zoomCollapsed,
   }));
-  if (leavingRef.current.size > 0) {
-    for (const [key, leave] of leavingRef.current) {
-      renderItems.push({ key, pane: leave.pane, hidden: false, zoomCollapsed: false, leave });
-    }
-    renderItems.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  }
 
   // Post-commit: FLIP freshly-entered panes, arm expiry timers, clean up
   // entries whose panes vanished, and snapshot this render for the next diff.
@@ -745,113 +729,77 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       ref={containerRef}
       className={`pane-layout ${isDragging ? 'pane-layout-dragging' : ''} ${isResizing || suppressLayoutTransition ? 'pane-layout-resizing' : ''} ${!enableAnimations ? 'pane-layout-no-animations' : ''}`}
     >
-      <LeavingPanesContext.Provider value={leavingPanesMap}>
-        {renderItems.map(({ key, pane, hidden, zoomCollapsed, leave }) => {
-          if (leave) {
-            // The model already dropped this pane; keep its DOM node alive
-            // (same key → no remount) at its last box — .pane-leaving scales
-            // it into its own centre while fading to 0, below the survivor
-            // that grows over it.
-            return (
-              <AnimatedPaneWrapper
-                key={key}
-                paneKey={key}
-                pane={pane}
-                className="pane-layout-item pane-inactive pane-leaving"
-                style={
-                  {
-                    position: 'absolute',
-                    left: leave.box.left,
-                    top: leave.box.top,
-                    width: leave.box.width,
-                    height: leave.box.height,
-                    '--pane-h-padding-left': `${hPadding}px`,
-                    '--pane-h-padding-right': `${hPadding}px`,
-                  } as React.CSSProperties
-                }
-                targetX={0}
-                targetY={0}
-                elevated={false}
-                // The wrapper owns the inline transform (a translate for
-                // drags), so the shrink is set here, where it wins.
-                collapseTransform="scale(0.6)"
-              >
-                {children(pane)}
-              </AnimatedPaneWrapper>
-            );
-          }
-
-          if (zoomCollapsed) {
-            // A zoomed sibling: keep it at its real box but transform it toward
-            // the grid centre, scaled down and faded out, so zoom IN reads as
-            // the panes collapsing into the middle while the zoomed pane grows
-            // — and zoom OUT reverses it (the DOM node persists by key, so the
-            // base transform/opacity transition runs both ways). computePaneBox
-            // via getPaneStyle; translate the pane's centre onto zoomCenter.
-            const box = getPaneStyle(pane);
-            const cx = (box.left as number) + (box.width as number) / 2;
-            const cy = (box.top as number) + (box.height as number) / 2;
-            return (
-              <AnimatedPaneWrapper
-                key={key}
-                paneKey={key}
-                pane={pane}
-                className="pane-layout-item pane-inactive pane-zoom-collapsing"
-                style={box}
-                targetX={0}
-                targetY={0}
-                elevated={false}
-                collapseTransform={`translate(${zoomCenter.x - cx}px, ${zoomCenter.y - cy}px) scale(var(--zoom-collapse-scale, 0.4))`}
-              >
-                {children(pane)}
-              </AnimatedPaneWrapper>
-            );
-          }
-
-          if (hidden) {
-            // Window-hidden (another tab's pane): mounted but display:none — no
-            // positioning math, no animation, no event handlers. Preserves
-            // <TerminalPane> + content so a tab switch shows it instantly.
-            return (
-              <AnimatedPaneWrapper
-                key={key}
-                paneKey={key}
-                pane={pane}
-                className="pane-layout-item pane-window-hidden"
-                style={{ display: 'none' }}
-                targetX={0}
-                targetY={0}
-                elevated={false}
-              >
-                {children(pane)}
-              </AnimatedPaneWrapper>
-            );
-          }
-
-          const isDraggedPane = pane.tmuxId === draggedPaneId;
-          const baseStyle = getPaneStyle(pane);
-
-          const isGroupSwitchPane = groupSwitchPanes?.has(pane.tmuxId) ?? false;
-          const style = isGroupSwitchPane ? { ...baseStyle, transition: 'none' } : baseStyle;
-
-          const shouldFollowCursor = isDraggedPane && isDragging;
-
+      {renderItems.map(({ key, pane, hidden, zoomCollapsed }) => {
+        if (zoomCollapsed) {
+          // A zoomed sibling: keep it at its real box but transform it toward
+          // the grid centre, scaled down and faded out, so zoom IN reads as
+          // the panes collapsing into the middle while the zoomed pane grows
+          // — and zoom OUT reverses it (the DOM node persists by key, so the
+          // base transform/opacity transition runs both ways). computePaneBox
+          // via getPaneStyle; translate the pane's centre onto zoomCenter.
+          const box = getPaneStyle(pane);
+          const cx = (box.left as number) + (box.width as number) / 2;
+          const cy = (box.top as number) + (box.height as number) / 2;
           return (
             <AnimatedPaneWrapper
               key={key}
               paneKey={key}
               pane={pane}
-              className={getPaneClassName(pane, key)}
-              style={style}
-              targetX={shouldFollowCursor ? dragOffset.x : 0}
-              targetY={shouldFollowCursor ? dragOffset.y : 0}
-              elevated={shouldFollowCursor}
+              className="pane-layout-item pane-inactive pane-zoom-collapsing"
+              style={box}
+              targetX={0}
+              targetY={0}
+              elevated={false}
+              collapseTransform={`translate(${zoomCenter.x - cx}px, ${zoomCenter.y - cy}px) scale(var(--zoom-collapse-scale, 0.4))`}
             >
               {children(pane)}
             </AnimatedPaneWrapper>
           );
-        })}
-      </LeavingPanesContext.Provider>
+        }
+
+        if (hidden) {
+          // Window-hidden (another tab's pane): mounted but display:none — no
+          // positioning math, no animation, no event handlers. Preserves
+          // <TerminalPane> + content so a tab switch shows it instantly.
+          return (
+            <AnimatedPaneWrapper
+              key={key}
+              paneKey={key}
+              pane={pane}
+              className="pane-layout-item pane-window-hidden"
+              style={{ display: 'none' }}
+              targetX={0}
+              targetY={0}
+              elevated={false}
+            >
+              {children(pane)}
+            </AnimatedPaneWrapper>
+          );
+        }
+
+        const isDraggedPane = pane.tmuxId === draggedPaneId;
+        const baseStyle = getPaneStyle(pane);
+
+        const isGroupSwitchPane = groupSwitchPanes?.has(pane.tmuxId) ?? false;
+        const style = isGroupSwitchPane ? { ...baseStyle, transition: 'none' } : baseStyle;
+
+        const shouldFollowCursor = isDraggedPane && isDragging;
+
+        return (
+          <AnimatedPaneWrapper
+            key={key}
+            paneKey={key}
+            pane={pane}
+            className={getPaneClassName(pane, key)}
+            style={style}
+            targetX={shouldFollowCursor ? dragOffset.x : 0}
+            targetY={shouldFollowCursor ? dragOffset.y : 0}
+            elevated={shouldFollowCursor}
+          >
+            {children(pane)}
+          </AnimatedPaneWrapper>
+        );
+      })}
 
       {/* Ghost indicator showing dragged pane's current grid position.
           Mirrors getPaneStyle exactly (same computePaneBox) so the ghost

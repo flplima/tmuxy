@@ -27,7 +27,6 @@ import {
   selectPaneGroupPanes as selectPaneGroupPanesFn,
   getActivePaneInGroup,
 } from './selectors';
-import { LeavingPanesContext } from './LeavingPanesContext';
 import { activeCloseTarget, executeMenuAction } from '../components/menus/menuActions';
 import type { TmuxAdapter } from '../tmux/types';
 import { createAdapter } from '../tmux/adapters';
@@ -249,14 +248,10 @@ export function useIsResizing(): boolean {
   return useSelector(actor, (snapshot) => snapshot.context.resize !== null);
 }
 
-/** Get a specific pane by ID (with resize preview). Falls back to the
- * frozen snapshot of a pane running its leave animation — the model has
- * already dropped it, but PaneLayout keeps it mounted for the exit morph. */
+/** Get a specific pane by ID (with resize preview). */
 export function usePane(paneId: string): TmuxPane | undefined {
   const actor = useAppActor();
-  const leavingPanes = useContext(LeavingPanesContext);
-  const pane = useSelector(actor, (snapshot) => selectPaneById(snapshot.context, paneId));
-  return pane ?? leavingPanes.get(paneId);
+  return useSelector(actor, (snapshot) => selectPaneById(snapshot.context, paneId));
 }
 
 /** Check if a pane is in the active window */
