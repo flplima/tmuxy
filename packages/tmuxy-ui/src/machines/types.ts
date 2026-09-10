@@ -77,9 +77,31 @@ export interface DragState {
 }
 
 /** Resize operation state */
+/** A pane's box in cells, as the resize snapshot and the limits see it. */
+export interface PaneCellBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Which edge of a pane a drag is moving. */
+export type ResizeHandle = 'n' | 's' | 'e' | 'w';
+
+/**
+ * How far the current drag may travel, in cells, signed the way the pointer
+ * moves: negative is left/up, positive is right/down. Both ends are what the
+ * panes being shrunk can still give before one of them would go below a
+ * single cell, which is where tmux stops.
+ */
+export interface ResizeLimits {
+  min: number;
+  max: number;
+}
+
 export interface ResizeState {
   paneId: string;
-  handle: 'n' | 's' | 'e' | 'w';
+  handle: ResizeHandle;
   startX: number;
   startY: number;
   originalPane: TmuxPane;
@@ -93,7 +115,14 @@ export interface ResizeState {
    * reconstructs the band from this frozen snapshot instead of the live server
    * panes, so nothing wobbles. See selectPreviewPanesUncached.
    */
-  originalGeometry: Record<string, { x: number; y: number; width: number; height: number }>;
+  originalGeometry: Record<string, PaneCellBox>;
+  /**
+   * How far this drag may travel before tmux would refuse it. Computed once
+   * from the frozen geometry (machines/resize/limits.ts) and applied to the
+   * delta, so the preview and the commands agree and neither can draw or ask
+   * for a layout that cannot exist.
+   */
+  limits: ResizeLimits;
   pixelDelta: { x: number; y: number };
   delta: { cols: number; rows: number };
   /** Last delta that was sent to tmux (to avoid duplicate commands) */
@@ -417,6 +446,12 @@ export interface AppMachineContext {
   lastLayoutCommandTime: number;
   /** Temporarily suppress layout transitions (e.g., command-based resize) */
   suppressLayoutTransition: boolean;
+  /**
+   * Whether the last model update was a geometry change we chose to animate.
+   * The quiet update that follows one must not re-latch the suppression, or
+   * the transition would be cut off a frame in.
+   */
+  lastUpdateAnimated: boolean;
   /** Maps real pane tmuxId → stable React key (placeholder ID it morphed from).
    *  Prevents unmount/remount flicker when optimistic placeholders are replaced
    *  by server-confirmed panes. */
@@ -497,7 +532,7 @@ export type ResizeMachineEvent =
   | {
       type: 'RESIZE_START';
       paneId: string;
-      handle: 'n' | 's' | 'e' | 'w';
+      handle: ResizeHandle;
       startX: number;
       startY: number;
       panes: TmuxPane[];
@@ -598,7 +633,7 @@ export type DragEndEvent = { type: 'DRAG_END' };
 export type ResizeStartEvent = {
   type: 'RESIZE_START';
   paneId: string;
-  handle: 'n' | 's' | 'e' | 'w';
+  handle: ResizeHandle;
   startX: number;
   startY: number;
 };

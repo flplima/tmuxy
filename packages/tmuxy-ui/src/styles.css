@@ -750,6 +750,20 @@
   transition: none;
 }
 
+/* A divider with nothing to give on either side — a stack of one-row panes,
+   say. It stays where it is and says so on hover rather than accepting a drag
+   tmux would refuse. The cursor is inline (see below); this is the rest. */
+.resize-divider-locked {
+  pointer-events: auto;
+}
+
+.resize-divider-locked:hover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--border-medium) 45%, transparent);
+}
+
 /* Divider cursor set via inline style to avoid class mutations during layout cycling */
 
 .pane-layout-dragging,

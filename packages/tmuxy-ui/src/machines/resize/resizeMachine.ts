@@ -18,6 +18,7 @@ import type {
   KeyPressEvent,
 } from '../types';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
+import { resizeLimits, clampDelta } from './limits';
 
 /** Minimum ms between resize command batches during a drag (see ResizeState.lastSentAt). */
 export const RESIZE_SEND_INTERVAL_MS = 80;
@@ -84,6 +85,16 @@ export const resizeMachine = setup({
                 return false;
               });
 
+              // Only this window's panes: coordinates are per-window, so a
+              // pane from another tab sitting at the same x/y would read as a
+              // neighbour and give the drag a limit that belongs to a layout
+              // nobody is looking at.
+              const geometry = Object.fromEntries(
+                event.panes
+                  .filter((p) => p.windowId === pane.windowId)
+                  .map((p) => [p.tmuxId, { x: p.x, y: p.y, width: p.width, height: p.height }]),
+              );
+
               const resize: ResizeState = {
                 paneId: event.paneId,
                 handle: event.handle,
@@ -91,12 +102,8 @@ export const resizeMachine = setup({
                 startY: event.startY,
                 originalPane: pane,
                 originalNeighbors: neighbors,
-                originalGeometry: Object.fromEntries(
-                  event.panes.map((p) => [
-                    p.tmuxId,
-                    { x: p.x, y: p.y, width: p.width, height: p.height },
-                  ]),
-                ),
+                originalGeometry: geometry,
+                limits: resizeLimits(geometry, event.paneId, event.handle),
                 pixelDelta: { x: 0, y: 0 },
                 delta: { cols: 0, rows: 0 },
                 lastSentDelta: { cols: 0, rows: 0 },
@@ -131,13 +138,17 @@ export const resizeMachine = setup({
             if (!context.resize) return;
 
             const { charWidth, charHeight } = context;
-            const { handle, lastSentDelta, lastSentAt, paneId } = context.resize;
+            const { handle, lastSentDelta, lastSentAt, paneId, limits } = context.resize;
 
             const pixelDeltaX = event.clientX - context.resize.startX;
             const pixelDeltaY = event.clientY - context.resize.startY;
 
-            const deltaCols = Math.round(pixelDeltaX / charWidth);
-            const deltaRows = Math.round(pixelDeltaY / charHeight);
+            // Held inside what the panes across the line can give up. Past
+            // that the divider simply stops: tmux would refuse the command,
+            // and drawing the move anyway is what let the preview run away
+            // from the layout.
+            const deltaCols = clampDelta(Math.round(pixelDeltaX / charWidth), limits);
+            const deltaRows = clampDelta(Math.round(pixelDeltaY / charHeight), limits);
 
             const colsChanged = deltaCols !== lastSentDelta.cols;
             const rowsChanged = deltaRows !== lastSentDelta.rows;

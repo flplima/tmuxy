@@ -13,6 +13,7 @@ import type {
 } from './types';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../utils/memoize';
 import type { TabDrop } from '../utils/tabStripDrop';
+import { clampDelta } from './resize/limits';
 import { CONTAINER_PADDING_X } from '../constants';
 import {
   DEFAULT_CHAR_WIDTH,
@@ -84,8 +85,12 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
     return activePanes;
   }
 
-  const deltaCols = Math.round(pixelDelta.x / charWidth);
-  const deltaRows = Math.round(pixelDelta.y / charHeight);
+  // The same clamp the machine puts on the commands, so the drawn band and
+  // the layout tmux is being asked for are the same thing. Without it the
+  // pane on the near side kept growing under the pointer while the one across
+  // the line bottomed out at a single cell, and they overlapped.
+  const deltaCols = clampDelta(Math.round(pixelDelta.x / charWidth), resize.limits);
+  const deltaRows = clampDelta(Math.round(pixelDelta.y / charHeight), resize.limits);
   const og = originalGeometry;
   const t = og[paneId] ?? {
     x: originalPane.x,

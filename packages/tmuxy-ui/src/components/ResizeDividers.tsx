@@ -4,6 +4,11 @@
  * Scans pane pairs to find shared edges (with 1-cell tmux divider gap),
  * merges overlapping segments, and renders invisible clickable dividers.
  *
+ * A divider whose panes have no room to give — a stack of one-row panes, say —
+ * is drawn as pinned and refuses the drag outright, rather than accepting a
+ * gesture tmux would throw away. The ones that can move are clamped instead,
+ * in the resize machine (machines/resize/limits.ts).
+ *
  * Keys use sequential indices (divider-0, divider-1, ...) in a canonical
  * sort order so React reconciles existing DOM nodes in-place across resize,
  * layout cycle, and split/placeholder-swap operations. The total number of
@@ -12,8 +17,9 @@
  */
 
 import { useAppSend } from '../machines/AppContext';
-import type { TmuxPane } from '../machines/types';
+import type { PaneCellBox, TmuxPane } from '../machines/types';
 import { haptics } from '../utils/haptics';
+import { resizeLimits, isLocked } from '../machines/resize/limits';
 
 interface ResizeDividersProps {
   panes: TmuxPane[];
@@ -171,26 +177,33 @@ export function ResizeDividers({
   const send = useAppSend();
   const { horizontal, vertical } = collectDividerSegments(panes);
   const dividers = resolveDividers(horizontal, vertical);
+  const geometry: Record<string, PaneCellBox> = Object.fromEntries(
+    panes.map((p) => [p.tmuxId, { x: p.x, y: p.y, width: p.width, height: p.height }]),
+  );
 
   return (
     <>
       {dividers.map((div, idx) => {
         const isH = div.orientation === 'h';
+        const handle = isH ? 's' : 'e';
+        const locked = isLocked(resizeLimits(geometry, div.paneId, handle));
         return (
           <div
             key={`divider-${idx}`}
-            className="resize-divider"
+            className={`resize-divider${locked ? ' resize-divider-locked' : ''}`}
+            data-testid={`resize-divider-${idx}`}
+            aria-disabled={locked || undefined}
             style={
               isH
                 ? {
-                    cursor: 'ns-resize',
+                    cursor: locked ? 'not-allowed' : 'ns-resize',
                     left: centeringOffset.x + div.start * charWidth,
                     top: centeringOffset.y + div.axisPos * charHeight - DIVIDER_THICKNESS / 2,
                     width: (div.end - div.start) * charWidth,
                     height: DIVIDER_THICKNESS,
                   }
                 : {
-                    cursor: 'ew-resize',
+                    cursor: locked ? 'not-allowed' : 'ew-resize',
                     // Center the 8px hit area in the 1-charWidth separator
                     // column at axisPos; the visible 1px line (via ::before)
                     // sits at the column's exact midpoint.
@@ -199,6 +212,7 @@ export function ResizeDividers({
                       div.axisPos * charWidth +
                       charWidth / 2 -
                       DIVIDER_THICKNESS / 2,
+
                     top: centeringOffset.y + Math.max(0, div.start - 1) * charHeight,
                     width: DIVIDER_THICKNESS,
                     height: (div.end - Math.max(0, div.start - 1)) * charHeight,
@@ -207,6 +221,9 @@ export function ResizeDividers({
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              // Nowhere to go: taking the drag would only collect a gesture
+              // tmux is going to refuse.
+              if (locked) return;
               haptics.trigger(10);
               document.addEventListener('mouseup', () => haptics.trigger('success'), {
                 once: true,
@@ -214,7 +231,7 @@ export function ResizeDividers({
               send({
                 type: 'RESIZE_START',
                 paneId: div.paneId,
-                handle: isH ? 's' : 'e',
+                handle,
                 startX: e.clientX,
                 startY: e.clientY,
               });
