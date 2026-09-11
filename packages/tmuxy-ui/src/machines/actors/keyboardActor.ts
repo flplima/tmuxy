@@ -914,20 +914,36 @@ export function createKeyboardActor() {
      * is why this reads as "diacritics stopped working" rather than "typing
      * stopped working".
      *
+     * Not while something is selected, though. Focusing an input moves the
+     * insertion point into it, which drops whatever the page had selected —
+     * and a right-click on a selection is a focus change too, so taking the
+     * focus back there would clear the very text the menu is about. The
+     * release of the pointer is the second chance: by then the selection is
+     * either deliberate (leave it, and leave the focus) or gone.
+     *
      * Only the pane surfaces hand focus back. Menus, the sidebar tree and real
      * form controls all take focus on purpose and keep it.
      */
-    const handleFocusIn = (event: FocusEvent) => {
-      if (isTouchDevice()) return;
-      const target = event.target as HTMLElement | null;
-      const pane = target?.closest?.('[data-pane-id][tabindex]') as HTMLElement | null;
-      if (!pane || pane !== target) return;
+    const hasSelection = (): boolean => {
+      const selection = window.getSelection();
+      return !!selection && !selection.isCollapsed && selection.toString().length > 0;
+    };
+
+    const restoreKeyboardFocus = () => {
+      if (isTouchDevice() || hasSelection()) return;
+      const active = document.activeElement as HTMLElement | null;
+      const pane = active?.closest?.('[data-pane-id][tabindex]') as HTMLElement | null;
+      if (!pane || pane !== active) return;
       const paneId = realPaneId(pane.dataset.paneId ?? null);
       if (paneId === null) return;
       focusKeyboardInput(paneId);
       keyboardFocusEstablished = true;
     };
 
+    const handleFocusIn = () => restoreKeyboardFocus();
+    const handlePointerUp = () => restoreKeyboardFocus();
+
+    window.addEventListener('pointerup', handlePointerUp);
     window.addEventListener('focusin', handleFocusIn);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('compositionstart', handleCompositionStart);
@@ -964,6 +980,7 @@ export function createKeyboardActor() {
       cleanupKeyboardInput();
       prefixMode.exit(false);
       window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);
