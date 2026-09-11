@@ -181,6 +181,10 @@ export function PaneHeader({
   const handleTabClick = (e: React.MouseEvent, clickedPaneId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    // Taking the pane and, for a group, bringing the clicked member into the
+    // visible slot. The focus is what makes a plain (ungrouped) header tab
+    // work at all: with one pane there is no group switch to do.
+    send({ type: 'FOCUS_PANE', paneId: clickedPaneId });
     send({ type: 'SELECT_PANE_GROUP_TAB', paneId: clickedPaneId });
   };
 
@@ -207,6 +211,15 @@ export function PaneHeader({
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.tagName === 'BUTTON') return;
+
+    // A header is a pane's title bar, so pressing it takes the pane — the same
+    // as pressing its body. Without this the only way to focus a pane was to
+    // click INSIDE it, which is exactly what you avoid doing when the thing
+    // you want is to move or rename the pane rather than type in it.
+    // A group's tabs each name a different pane and keep their own handler.
+    if (!target.closest('.pane-tab')) {
+      send({ type: 'FOCUS_PANE', paneId: tmuxId });
+    }
 
     pendingDragRef.current = { x: e.clientX, y: e.clientY };
 

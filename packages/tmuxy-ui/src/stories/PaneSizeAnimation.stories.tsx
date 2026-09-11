@@ -17,7 +17,7 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, within, waitFor } from 'storybook/test';
+import { expect, within, waitFor, fireEvent } from 'storybook/test';
 import { AppHarness } from './StoryHarness';
 
 const meta: Meta<typeof AppHarness> = {
@@ -366,5 +366,56 @@ export const TheCursorStaysInsideTheOpeningRow: Story = {
       highest,
       `the cursor was drawn ${Math.round(top - highest)}px above the pane grid`,
     ).toBeGreaterThanOrEqual(top - 2);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// A pane's header is its title bar, so pressing it takes the pane
+// ---------------------------------------------------------------------------
+
+export const PressingAHeaderTakesThePane: Story = {
+  args: { height: 500, initCommands: ['split-window -h'] },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 500 },
+      description: {
+        story:
+          'Clicking a pane’s header focuses that pane, the same as clicking its body. Without it the only way to focus a pane was to click INSIDE it — which is exactly what you avoid doing when what you want is to move or rename the pane rather than type in it.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await waitForPanes(2, canvasElement);
+    await waitForAnimationsEnabled(getPaneLayout(canvasElement));
+
+    const app = (
+      window as unknown as { app: { getSnapshot(): { context: { activePaneId: string } } } }
+    ).app;
+    const panes = paneNodes(canvasElement);
+    const other = panes
+      .map((n) => n.dataset.paneId as string)
+      .find((id) => id !== app.getSnapshot().context.activePaneId)!;
+
+    const header = canvasElement.querySelector<HTMLElement>(
+      `.pane-layout-item[data-pane-id="${other}"] .pane-header`,
+    )!;
+    // Press the header's own background, not a tab or a button on it.
+    const box = header.getBoundingClientRect();
+    fireEvent.mouseDown(header, {
+      clientX: box.right - 60,
+      clientY: box.top + box.height / 2,
+      button: 0,
+      bubbles: true,
+    });
+
+    await waitFor(() => expect(app.getSnapshot().context.activePaneId).toBe(other), {
+      timeout: 6000,
+    });
+    // ...and the pane shows it, which is what the user is looking for.
+    await waitFor(() =>
+      expect(
+        canvasElement.querySelector(`.pane-layout-item[data-pane-id="${other}"] .pane-header`),
+      ).toHaveClass('pane-header-active'),
+    );
   },
 };
