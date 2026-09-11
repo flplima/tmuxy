@@ -353,25 +353,35 @@ export const FatInkIcon: Story = {
     await cellGridReady();
     const cellW = cellWidthOf(grid(canvasElement));
 
-    const box = canvasElement.querySelector('.terminal-fit') as HTMLElement | null;
-    expect(box, 'the icon was not given a box of its own to be shrunk in').not.toBeNull();
-    const glyph = box!.querySelector('.terminal-fit-glyph') as HTMLElement;
-
-    // It really is shrunk, and by enough: what gets PAINTED fits the cell.
-    // The layout box always did — the ink is the part that used to spill, so
-    // it is measured against the font directly.
-    const scale = Number(getComputedStyle(glyph).getPropertyValue('--glyph-fit'));
-    expect(scale, 'the icon was not shrunk at all').toBeLessThan(1);
-    expect(scale).toBeGreaterThan(0);
-
-    const style = getComputedStyle(glyph);
-    const canvas = document.createElement('canvas').getContext('2d')!;
-    canvas.font =
-      style.font || `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-    const metrics = canvas.measureText('\uf51e');
+    // What the font actually does with this glyph decides what should happen
+    // to it, and that differs by machine: the same icon measures a third wider
+    // than its cell here and exactly one cell on a CI runner. So the contract
+    // is asserted rather than the glyph — too wide to paint means shrunk to
+    // fit, and fitting already means left alone.
+    const probe = document.createElement('canvas').getContext('2d')!;
+    const paneStyle = getComputedStyle(grid(canvasElement).querySelector('.terminal-content')!);
+    probe.font =
+      paneStyle.font ||
+      `${paneStyle.fontStyle} ${paneStyle.fontWeight} ${paneStyle.fontSize} ${paneStyle.fontFamily}`;
+    const metrics = probe.measureText('\uf51e');
     const naturalInk = metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight;
-    expect(naturalInk, 'the icon does not overflow its cell in this font').toBeGreaterThan(cellW);
-    expect(naturalInk * scale).toBeLessThanOrEqual(cellW + 1);
+
+    const box = canvasElement.querySelector('.terminal-fit') as HTMLElement | null;
+    if (naturalInk > cellW + 0.5) {
+      expect(
+        box,
+        'the icon paints past its cell and was not given a box to shrink in',
+      ).not.toBeNull();
+      const glyph = box!.querySelector('.terminal-fit-glyph') as HTMLElement;
+      const scale = Number(getComputedStyle(glyph).getPropertyValue('--glyph-fit'));
+      expect(scale, 'the icon was not shrunk at all').toBeLessThan(1);
+      expect(scale).toBeGreaterThan(0);
+      expect(naturalInk * scale).toBeLessThanOrEqual(cellW + 1);
+    } else {
+      // This font draws it inside its cell, so there is nothing to correct —
+      // and correcting it anyway would shrink a glyph that already fit.
+      expect(box, 'the icon fits its cell here and should have been left alone').toBeNull();
+    }
 
     // ...and the text after it starts where the grid says, not shifted along.
     const label = runCells(spanWithText(canvasElement, '  main'), cellW);
