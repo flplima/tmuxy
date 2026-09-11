@@ -64,10 +64,22 @@ export function TabShot({ boxes, frameSize, charWidth, charHeight, panes }: TabS
               height: `${box.height}%`,
             }}
           >
-            {pane && (
-              <div className="tab-shot-title">
-                {icon && <span className="tab-shot-icon">{icon}</span>}
-                <span className="tab-shot-name">{getTabLabel(pane)}</span>
+            {pane && shot && (
+              // The pane's real header, drawn at the pane's real size and put
+              // through the same scale as its screen. Reusing the markup is
+              // the point: a miniature that invents its own title bar stops
+              // looking like the tab it is a picture of the moment either one
+              // changes.
+              <div
+                className="tab-shot-header"
+                style={{ width: shot.width, transform: shot.transform }}
+              >
+                <div className={`pane-header${box.active ? ' pane-header-active' : ''}`}>
+                  <div className={`pane-tab${box.active ? ' pane-tab-active' : ''}`}>
+                    {icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>}
+                    <span className="pane-tab-title">{getTabLabel(pane)}</span>
+                  </div>
+                </div>
               </div>
             )}
             {shot ? (

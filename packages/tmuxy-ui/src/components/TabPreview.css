@@ -112,45 +112,19 @@
   }
 }
 
-/* Each pane in the picture says what it is, with the icon and title its own
-   header shows — a preview that names its panes is the tab, in miniature.
-   Over the top of the pane's screen, because the screen is the picture and
-   the caption is a label on it. */
-.tab-shot-title {
+/* Each pane in the picture wears its own header — the real one, at the real
+   size, put through the same scale as the pane's screen. Anything drawn to
+   look "about right" at miniature size stops matching the moment the header
+   itself changes; this cannot. It sits over the top of the screen, where the
+   header sits in the pane. */
+.tab-shot-header {
   position: absolute;
   top: 0;
   left: 0;
-  right: 0;
   z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  padding: 1px var(--spacing-md);
-  background: color-mix(in srgb, var(--bg-dark) 85%, transparent);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  line-height: 1.4;
-  white-space: nowrap;
+  transform-origin: 0 0;
   overflow: hidden;
   pointer-events: none;
-}
-
-.tab-overview-box.is-active .tab-shot-title {
-  color: var(--term-white);
-}
-
-.tab-shot-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.25em;
-  flex: 0 0 auto;
-}
-
-.tab-shot-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* The card opens its tab, so it reads as something to click. */

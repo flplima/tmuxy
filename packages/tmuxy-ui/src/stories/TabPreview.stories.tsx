@@ -114,7 +114,21 @@ export const RestOpensItAndBrowsingCarriesIt: Story = {
     // It shows that tab's screen rather than a wireframe of it, and names
     // each pane the way that pane's own header does.
     await waitFor(() => expect(card.querySelector('.tab-overview-shot')).not.toBeNull());
-    expect(card.querySelectorAll('.tab-shot-title').length).toBeGreaterThan(0);
+
+    // Each pane wears its real header, scaled with its screen rather than
+    // redrawn at miniature size: the same element the pane itself uses, so it
+    // cannot drift from the real thing.
+    const header = card.querySelector<HTMLElement>('.tab-shot-header .pane-header');
+    expect(header, 'the preview drew no pane header').not.toBeNull();
+    const scaled = header!.getBoundingClientRect();
+    const natural = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--pane-header-height'),
+    );
+    expect(scaled.height).toBeGreaterThan(0);
+    // Smaller than the real thing, because the whole picture is.
+    expect(scaled.height).toBeLessThan(natural);
+    // ...and it is showing the pane's title, not an invented caption.
+    expect(header!.querySelector('.pane-tab-title')?.textContent ?? '').toMatch(/\S/);
 
     // The tab it belongs to stays lit while its card is up, so the card is
     // visibly about that tab.
