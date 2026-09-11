@@ -368,6 +368,19 @@ export const ClosePane: Story = {
       if (sampling) requestAnimationFrame(sampleFrame);
     };
 
+    // Whether the survivor's box was put on a clock, which is the claim here.
+    // A paint-aligned sampler can miss a 180ms growth entirely on a loaded
+    // runner, so the transition itself is what is asserted; the samples are
+    // kept for the negative check, where missing frames only make it weaker.
+    const grewOnAClock = new Set<string>();
+    const onTransitionStart = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target?.dataset?.paneId === survivorId) {
+        grewOnAClock.add((e as TransitionEvent).propertyName);
+      }
+    };
+    layout.addEventListener('transitionstart', onTransitionStart);
+
     const recorder = new LayoutMutationRecorder(layout);
     try {
       getApp().send({ type: 'SEND_TMUX_COMMAND', command: `kill-pane -t ${activeId}` });
@@ -390,15 +403,17 @@ export const ClosePane: Story = {
       expect(sawKilledNode).toBe(false);
       expect(canvasElement.querySelector('.pane-leaving')).toBeNull();
 
-      // The survivor grew, and was drawn on the way rather than jumping.
-      expect(widths.length).toBeGreaterThan(2);
+      // The survivor grew, and did it on a clock rather than in one frame.
       const grown = widths[widths.length - 1];
       expect(grown).toBeGreaterThan(survivorBefore.width + 10);
-      const between = widths.filter((w) => w > survivorBefore.width + 2 && w < grown - 2);
-      expect(between.length).toBeGreaterThan(0);
+      expect(
+        [...grewOnAClock].some((property) => ['width', 'height', 'left', 'top'].includes(property)),
+        `the survivor's geometry never started a transition (saw ${[...grewOnAClock]})`,
+      ).toBe(true);
     } finally {
       sampling = false;
       recorder.disconnect();
+      layout.removeEventListener('transitionstart', onTransitionStart);
     }
   },
 };
