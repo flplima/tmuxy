@@ -44,6 +44,10 @@
   },
   "overrides": {
     "uuid": "^11.1.1",
-    "postcss": "^8.5.23"
+    "postcss": "^8.5.23",
+    "@puppeteer/browsers": "^3.2.2",
+    "pm2": {
+      "js-yaml": "^4.3.2"
+    }
   }
 }
