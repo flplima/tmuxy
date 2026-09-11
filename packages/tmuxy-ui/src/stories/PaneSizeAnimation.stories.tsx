@@ -121,6 +121,31 @@ async function sampleBoxes(
   return frames;
 }
 
+/**
+ * Which geometry properties actually started transitioning while `act` ran.
+ *
+ * This is what "on a clock" means, and unlike counting sampled frames it does
+ * not depend on the machine keeping up: a loaded CI runner can paint twice
+ * across a 150ms animation and see only a before and an after.
+ */
+async function geometryTransitions(
+  canvasElement: HTMLElement,
+  act: () => void,
+  ms = 700,
+): Promise<Set<string>> {
+  const layout = getPaneLayout(canvasElement);
+  const seen = new Set<string>();
+  const onStart = (e: Event) => {
+    const property = (e as TransitionEvent).propertyName;
+    if (['left', 'top', 'width', 'height'].includes(property)) seen.add(property);
+  };
+  layout.addEventListener('transitionstart', onStart);
+  act();
+  await new Promise((r) => setTimeout(r, ms));
+  layout.removeEventListener('transitionstart', onStart);
+  return seen;
+}
+
 /** How many distinct values a pane's measurement took across the samples. */
 function distinctValues(
   frames: Array<Record<string, { w: number; h: number; x: number; y: number }>>,
@@ -174,18 +199,16 @@ export const AResizeGrowsOnAClock: Story = {
     await waitForPanes(2, canvasElement);
     await waitForAnimationsEnabled(getPaneLayout(canvasElement));
 
-    const frames = await sampleBoxes(canvasElement, () => {
+    const before = paneNodes(canvasElement).map((n) => n.getBoundingClientRect().width);
+    const animated = await geometryTransitions(canvasElement, () => {
       run('select-pane -t %0');
       run('resize-pane -t %0 -R 8');
     });
 
-    const mover = biggestMover(frames, 'w');
-    expect(mover).not.toBe('');
-    // More than a before and an after: the box was drawn on its way.
-    expect(distinctValues(frames, mover, 'w')).toBeGreaterThan(2);
-    const first = frames[0][mover].w;
-    const last = frames[frames.length - 1][mover].w;
-    expect(Math.abs(last - first)).toBeGreaterThan(4);
+    // The boxes moved on a clock rather than arriving in one frame.
+    expect([...animated], 'no geometry transition started').not.toEqual([]);
+    const after = paneNodes(canvasElement).map((n) => n.getBoundingClientRect().width);
+    expect(Math.max(...after.map((w, i) => Math.abs(w - before[i])))).toBeGreaterThan(4);
   },
 };
 
@@ -211,19 +234,18 @@ export const AStackOpensTheRowItMovesTo: Story = {
     // The demo has no stack reshaper of its own — that lives in the backend —
     // so the shape a stack navigation produces is asked for directly: the row
     // holding the focus expands and the other collapses toward its header.
-    const frames = await sampleBoxes(canvasElement, () => {
+    const before = paneNodes(canvasElement).map((n) => n.getBoundingClientRect().height);
+    const animated = await geometryTransitions(canvasElement, () => {
       run('select-pane -t %1');
       run('resize-pane -t %1 -D 12');
     });
 
-    const mover = biggestMover(frames, 'h');
-    expect(mover).not.toBe('');
-    expect(distinctValues(frames, mover, 'h')).toBeGreaterThan(2);
-    // The other row moved with it: a stack opening one row closes another, and
-    // both have to be on the same clock or the boxes shear apart mid-flight.
-    const others = Object.keys(frames[frames.length - 1]).filter((id) => id !== mover);
-    expect(others.length).toBeGreaterThan(0);
-    expect(distinctValues(frames, others[0], 'h')).toBeGreaterThan(1);
+    // Both rows moved, and on a clock: a stack opening one row closes another,
+    // and they have to share the clock or the boxes shear apart mid-flight.
+    expect([...animated], 'no geometry transition started').not.toEqual([]);
+    const after = paneNodes(canvasElement).map((n) => n.getBoundingClientRect().height);
+    const moved = after.filter((h, i) => Math.abs(h - before[i]) > 4);
+    expect(moved.length).toBeGreaterThan(1);
   },
 };
 

@@ -4,9 +4,9 @@
  * Split runs the enter morph: the new pane appears at the source pane's
  * pre-split box at reduced opacity and converges to its final half-box while
  * fading in (`.pane-entering`), the source pane shifting on the same clock
- * (`.pane-shifting`). Killing a pane is the reverse: the dying pane keeps its
- * node mounted with `.pane-leaving`, shrinking into its own centre under the survivor's expanded
- * box while fading out, then the node is removed.
+ * (`.pane-shifting`). Killing a pane is not the reverse: the closed pane is
+ * gone on the commit that drops it, and what is animated is the space it
+ * left — the survivors growing into it on the same clock.
  *
  * Verified through real user paths (prefix-key split, typing `exit`) with an
  * in-page rAF sampler + `transitionstart` listener, asserting on bounding
@@ -29,9 +29,12 @@ const {
 } = require('./helpers');
 
 /**
- * Install an in-page recorder that rAF-samples any `.pane-entering` /
- * `.pane-leaving` node (rect + opacity) and records which CSS properties
- * actually started transitioning on them.
+ * Install an in-page recorder that rAF-samples any `.pane-entering` node
+ * (rect + opacity), records which CSS properties actually started
+ * transitioning on it, and notes whether the survivors of a close were put on
+ * a clock. A CLOSED pane is drawn no more — the node goes with the model — so
+ * what there is to record about it is that it went, and that the space it
+ * left was animated shut.
  */
 async function installAnimationRecorder(page) {
   await page.evaluate(() => {
@@ -41,10 +44,7 @@ async function installAnimationRecorder(page) {
       enterPaneId: null,
       enterSamples: [],
       enterTransitionProps: [],
-      leaveSeen: false,
-      leavePaneId: null,
-      leaveGone: false,
-      leaveTransitionProps: [],
+      shiftTransitionProps: [],
       lifecycleSightings: 0,
     };
     window.__animRec = rec;
@@ -54,7 +54,7 @@ async function installAnimationRecorder(page) {
       const t = e.target;
       if (!t || !t.classList) return;
       if (t.classList.contains('pane-entering')) rec.enterTransitionProps.push(e.propertyName);
-      if (t.classList.contains('pane-leaving')) rec.leaveTransitionProps.push(e.propertyName);
+      if (t.classList.contains('pane-shifting')) rec.shiftTransitionProps.push(e.propertyName);
     };
     layout.addEventListener('transitionstart', onTransitionStart);
 
@@ -72,14 +72,7 @@ async function installAnimationRecorder(page) {
           opacity: parseFloat(getComputedStyle(entering).opacity),
         });
       }
-      const leaving = layout.querySelector('.pane-layout-item.pane-leaving');
-      if (leaving) {
-        rec.leaveSeen = true;
-        rec.leavePaneId = leaving.getAttribute('data-pane-id');
-      } else if (rec.leaveSeen) {
-        rec.leaveGone = true;
-      }
-      if (entering || leaving || layout.querySelector('.pane-shifting')) {
+      if (entering || layout.querySelector('.pane-shifting')) {
         rec.lifecycleSightings++;
       }
       if (!window.__animRecStop) requestAnimationFrame(tick);
@@ -101,7 +94,7 @@ async function stopAnimationRecorder(page) {
 function getVisiblePaneRects(page) {
   return page.evaluate(() => {
     const items = document.querySelectorAll(
-      '.pane-layout-item[data-pane-id]:not(.pane-window-hidden):not(.pane-leaving)',
+      '.pane-layout-item[data-pane-id]:not(.pane-window-hidden)',
     );
     return Array.from(items).map((el) => {
       const r = el.getBoundingClientRect();
@@ -118,9 +111,7 @@ function getVisiblePaneRects(page) {
 }
 
 function countLifecycleClasses(page) {
-  return page.evaluate(
-    () => document.querySelectorAll('.pane-entering, .pane-leaving, .pane-shifting').length,
-  );
+  return page.evaluate(() => document.querySelectorAll('.pane-entering, .pane-shifting').length);
 }
 
 /**
@@ -162,7 +153,7 @@ describe('Pane split/kill animations', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('Split morphs new pane out of the source box; exit shrinks into its own centre under the survivor', async () => {
+  test('Split morphs new pane out of the source box; exit removes it at once and the survivor grows back', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
@@ -248,22 +239,22 @@ describe('Pane split/kill animations', () => {
 
     await waitForCondition(
       ctx.page,
-      async () => {
-        const rec = await readAnimationRecorder(ctx.page);
-        return rec.leaveGone && (await countLifecycleClasses(ctx.page)) === 0;
-      },
+      async () => (await countLifecycleClasses(ctx.page)) === 0,
       5000,
-      'leave animation settled',
+      'the close to settle',
     );
     const killRec = await readAnimationRecorder(ctx.page);
     await stopAnimationRecorder(ctx.page);
 
-    // The dying pane's node outlived the model drop as .pane-leaving, shrank
-    // into its centre while fading out, and was removed.
-    expect(killRec.leaveSeen).toBe(true);
-    expect(killRec.leavePaneId).toBe(newPane.id);
-    expect(killRec.leaveTransitionProps).toContain('opacity');
-    expect(killRec.leaveTransitionProps).toContain('transform');
+    // The closed pane is simply gone — nothing left fading or shrinking where
+    // it was. What was animated is the space it left: the survivor grew into
+    // it on a clock rather than snapping to its new box.
+    const stillThere = await ctx.page.evaluate(
+      (id) => !!document.querySelector(`.pane-layout-item[data-pane-id="${id}"]`),
+      newPane.id,
+    );
+    expect(stillThere).toBe(false);
+    expect(killRec.shiftTransitionProps.length).toBeGreaterThan(0);
 
     // Survivor reclaimed (≈) the full original box and still takes input.
     const [survivor] = await getVisiblePaneRects(ctx.page);
