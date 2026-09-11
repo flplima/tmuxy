@@ -13,7 +13,8 @@
  * fading in a second later at every stop.
  *
  * It follows the pointer only within the strip; leaving the strip ends the
- * browse, and the next preview waits its second again.
+ * browse, and the next preview waits its delay again. Clicking it opens that
+ * tab, the way clicking the button would — it IS the button, drawn larger.
  *
  * Positioning mirrors Tooltip: fixed, portalled into `.app-container` so the
  * config's animations switch reaches it, and clamped to the viewport.
@@ -66,9 +67,17 @@ interface TabPreviewProps {
   /** The pointer moved onto the card, or off it. */
   onPointerEnter: () => void;
   onPointerLeave: () => void;
+  /** The card was clicked: open that tab and put the card away. */
+  onActivate: (windowId: string) => void;
 }
 
-export function TabPreview({ windowId, label, onPointerEnter, onPointerLeave }: TabPreviewProps) {
+export function TabPreview({
+  windowId,
+  label,
+  onPointerEnter,
+  onPointerLeave,
+  onActivate,
+}: TabPreviewProps) {
   const send = useAppSend();
   const panes = useAppSelectorShallow(selectPanes);
   const animations = useAppSelector(selectAnimationsAllowed);
@@ -136,6 +145,10 @@ export function TabPreview({ windowId, label, onPointerEnter, onPointerLeave }: 
       data-window-id={card.windowId}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
+      // The card is a bigger version of the button it came from, so it does
+      // what that button does. Anything else makes you aim back at a strip of
+      // small targets to act on what you are already looking at.
+      onClick={() => onActivate(card.windowId)}
       // The picture is the tab's shape, so the frame takes the pane area's
       // aspect ratio rather than a fixed one.
       style={
@@ -156,7 +169,11 @@ export function TabPreview({ windowId, label, onPointerEnter, onPointerLeave }: 
             className="tab-preview-close"
             aria-label={`Close ${card.label}`}
             data-testid="tab-preview-close"
-            onClick={() => send({ type: 'CLOSE_TAB', windowId: card.windowId })}
+            onClick={(e) => {
+              // The one thing in the card that is not "open this tab".
+              e.stopPropagation();
+              send({ type: 'CLOSE_TAB', windowId: card.windowId });
+            }}
           >
             ✕
           </button>

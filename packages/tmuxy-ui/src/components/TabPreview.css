@@ -152,3 +152,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* The card opens its tab, so it reads as something to click. */
+.tab-preview {
+  cursor: pointer;
+}

@@ -33,6 +33,12 @@ const meta: Meta<typeof AppHarness> = {
 export default meta;
 type Story = StoryObj<typeof AppHarness>;
 
+interface Snap {
+  context: {
+    activeWindowId: string | null;
+  };
+}
+
 const THREE_TABS = [
   'rename-window alpha',
   'new-window',
@@ -288,6 +294,44 @@ export const ItFadesAndSlidesBothWays: Story = {
       if (pane) void userEvent.hover(pane);
     }, 900);
     expect(leaving.some((o) => o > 0.02 && o < 0.98)).toBe(true);
+    await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Clicking the card opens its tab
+// ---------------------------------------------------------------------------
+
+export const ClickingTheCardOpensThatTab: Story = {
+  args: { height: 460, initCommands: THREE_TABS },
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 460 },
+      description: {
+        story:
+          'The card is the tab’s button drawn larger, so it does what that button does: clicking it switches to that tab and puts the card away. Anything else would make you aim back at a strip of small targets to act on the thing you are already looking at. Its ✕ is the one part that means something else.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /^Pane /i }, { timeout: 8000 });
+    await waitFor(() =>
+      expect(canvasElement.querySelectorAll('.tab-name[data-window-id]').length).toBe(3),
+    );
+
+    const app = (window as unknown as { app: { getSnapshot(): Snap } }).app;
+    const current = app.getSnapshot().context.activeWindowId;
+    const target = [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')]
+      .map((t) => t.dataset.windowId as string)
+      .find((id) => id !== current)!;
+    const tab = canvasElement.querySelector<HTMLElement>(`.tab-name[data-window-id="${target}"]`)!;
+
+    await userEvent.hover(tab);
+    const card = await waitForPreview(target);
+
+    await userEvent.click(card);
+    await waitFor(() => expect(app.getSnapshot().context.activeWindowId).toBe(target));
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
   },
 };

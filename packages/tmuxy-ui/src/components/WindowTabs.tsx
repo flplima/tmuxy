@@ -469,6 +469,10 @@ export const WindowTabs = memo(function WindowTabs() {
           }
           onPointerEnter={cancelClose}
           onPointerLeave={scheduleClose}
+          onActivate={(id) => {
+            dismissPreview();
+            send({ type: 'SELECT_TAB', windowId: id });
+          }}
         />
         {contextMenu.visible && (
           <TabContextMenu
