@@ -174,6 +174,15 @@ export const layoutActions = {
           }),
         );
       }
+
+      // A float belongs to a tab, so the switch moves the keyboard with it: the
+      // target tab's topmost float takes it back, and leaving a tab drops the
+      // float that had it (the keyboard cannot stay on a surface that is no
+      // longer on screen). Raised rather than left to the model update, which
+      // cannot see it: this switch is optimistic, so by the time the update
+      // lands the new tab is already the active one and its float no longer
+      // looks like one that just came into view.
+      enqueue.raise({ type: 'SYNC_FLOAT_FOCUS' as const });
     },
   ),
 

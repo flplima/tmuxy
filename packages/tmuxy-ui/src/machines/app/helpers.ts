@@ -276,6 +276,7 @@ export function buildFloatPanesFromWindows(
       // resizes) but let explicit size metadata and flags win.
       floatPanes[paneId] = {
         ...existing,
+        parentWindowId: window.floatParent ?? null,
         width: metaWidth ?? existing.width,
         height: metaHeight ?? existing.height,
         drawer,
@@ -295,6 +296,7 @@ export function buildFloatPanesFromWindows(
         : (metaHeight ?? Math.min(pane.height * charHeight, containerHeight - 100));
       floatPanes[paneId] = {
         paneId,
+        parentWindowId: window.floatParent ?? null,
         width: defaultWidth,
         height: defaultHeight,
         drawer,

@@ -464,7 +464,7 @@ export const ResizePane: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// Open float — overlay portals into <body> and runs the float-appear keyframe
+// Open float — overlay lands in the pane container, float-appear keyframe runs
 // ---------------------------------------------------------------------------
 
 export const OpenFloat: Story = {
@@ -474,7 +474,7 @@ export const OpenFloat: Story = {
       story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'Creating a centered float portals a `.modal-overlay` into `document.body` and runs the `float-appear` keyframe on `.modal-container`. A body MutationObserver confirms the overlay insertion and an `animationstart` listener confirms the keyframe actually ran.',
+          'Creating a centered float inserts a `.modal-overlay` into the pane container and runs the `float-appear` keyframe on `.modal-container`. A MutationObserver on the container confirms the insertion, an `animationstart` listener confirms the keyframe actually ran, and the overlay is measured against the tab strip to prove the backdrop dims the tab content only.',
       },
     },
   },
@@ -482,7 +482,8 @@ export const OpenFloat: Story = {
     const canvas = within(canvasElement);
     await waitForPaneCount(canvas, 1);
 
-    const overlays = observeChildList(document.body, '.modal-overlay');
+    const paneContainer = document.querySelector('.pane-container') as HTMLElement;
+    const overlays = observeChildList(paneContainer, '.modal-overlay');
     const animationFired = waitForCssAnimation('.modal-container', {
       animationName: 'float-appear',
       timeout: 6000,
@@ -492,16 +493,28 @@ export const OpenFloat: Story = {
 
       // The keyframe ran for real...
       await animationFired;
-      // ...and the overlay node was inserted into <body>.
+      // ...and the overlay node was inserted into the pane container.
       await waitFor(
         () => {
           expect(overlays.added.length).toBeGreaterThanOrEqual(1);
         },
         { timeout: 1000 },
       );
-      const overlay = document.querySelector('.modal-overlay');
+      const overlay = document.querySelector('.modal-overlay') as HTMLElement;
       expect(overlay).not.toBeNull();
       expect(overlay).toHaveClass('float-modal');
+
+      // The backdrop dims the tab's content and nothing else: it fills the pane
+      // container exactly, and the tab strip above it stays uncovered.
+      const backdrop = overlay.querySelector('.modal-backdrop') as HTMLElement;
+      const box = backdrop.getBoundingClientRect();
+      const container = paneContainer.getBoundingClientRect();
+      expect(Math.abs(box.top - container.top)).toBeLessThanOrEqual(1);
+      expect(Math.abs(box.bottom - container.bottom)).toBeLessThanOrEqual(1);
+      expect(Math.abs(box.left - container.left)).toBeLessThanOrEqual(1);
+      expect(Math.abs(box.right - container.right)).toBeLessThanOrEqual(1);
+      const strip = document.querySelector('.tab-list') as HTMLElement;
+      expect(strip.getBoundingClientRect().bottom).toBeLessThanOrEqual(box.top + 1);
     } finally {
       overlays.disconnect();
     }
@@ -519,7 +532,7 @@ export const OpenDrawer: Story = {
       story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'A left drawer float runs the `slide-in-left` keyframe. The body MutationObserver confirms the overlay insertion and the `animationstart` listener confirms the slide-in keyframe was exercised.',
+          'A left drawer float runs the `slide-in-left` keyframe. The MutationObserver on the pane container confirms the overlay insertion and the `animationstart` listener confirms the slide-in keyframe was exercised.',
       },
     },
   },
@@ -527,7 +540,10 @@ export const OpenDrawer: Story = {
     const canvas = within(canvasElement);
     await waitForPaneCount(canvas, 1);
 
-    const overlays = observeChildList(document.body, '.modal-overlay');
+    const overlays = observeChildList(
+      document.querySelector('.pane-container') as HTMLElement,
+      '.modal-overlay',
+    );
     const slideFired = waitForCssAnimation('.modal-container', {
       animationName: 'slide-in-left',
       timeout: 6000,
@@ -560,12 +576,12 @@ export const CloseFloat: Story = {
       story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'Closing a float is an instant unmount (there is no exit keyframe), so the observable signal is the overlay node being removed. The body MutationObserver records the `.modal-overlay` removal and the DOM ends with no overlay.',
+          'Closing a float is an instant unmount (there is no exit keyframe), so the observable signal is the overlay node being removed. The MutationObserver on the pane container records the `.modal-overlay` removal and the DOM ends with no overlay.',
       },
     },
   },
   play: async () => {
-    // The float opened from initCommands — wait for its overlay to portal in.
+    // The float opened from initCommands — wait for its overlay to appear.
     const overlay = await waitFor(
       () => {
         const el = document.querySelector('.modal-overlay');
@@ -579,7 +595,10 @@ export const CloseFloat: Story = {
       ?.getAttribute('data-pane-id');
     expect(paneId).toBeTruthy();
 
-    const overlays = observeChildList(document.body, '.modal-overlay');
+    const overlays = observeChildList(
+      document.querySelector('.pane-container') as HTMLElement,
+      '.modal-overlay',
+    );
     try {
       // Same event the × button / backdrop click / Esc dispatch.
       getApp().send({ type: 'CLOSE_FLOAT', paneId });

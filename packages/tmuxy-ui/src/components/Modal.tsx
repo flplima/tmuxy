@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { Tooltip } from './Tooltip';
 
 interface ModalProps {
@@ -63,7 +62,12 @@ export function Modal({
 
   const showHeader = !hideHeader && title !== undefined;
 
-  return createPortal(
+  // Rendered in place, NOT portaled to the body: the overlay is absolutely
+  // positioned against its nearest positioned ancestor, and a float's ancestor
+  // is the pane container. That is what keeps the backdrop over the tab's
+  // content only — portaled to the body it resolved against the viewport and
+  // dimmed the sidebars, the tab strip and the status line with it.
+  return (
     <div className={`modal-overlay${className ? ` ${className}` : ''}`} style={{ zIndex }}>
       <div className={backdropClass} onClick={handleBackdropClick} />
       <div
@@ -82,7 +86,6 @@ export function Modal({
         )}
         {children}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

@@ -42,7 +42,7 @@ import { tabOverviewActions } from './actions/tabOverview';
 import { layoutActions } from './actions/layout';
 import { isBoxPermutation, samePanes } from './layoutChange';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
-import { selectLeftSidebarPane, selectRightSidebarPane } from '../selectors';
+import { selectLeftSidebarPane, selectRightSidebarPane, visibleFloats } from '../selectors';
 import type { TmuxClientModel, TmuxSnapshot } from '../../tmux/store';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
 import {
@@ -913,23 +913,34 @@ export const appMachine = setup({
               enqueue(sendTo('tmux', { type: 'CHECK_SESSION_SWITCH' as const }));
             }
 
-            // Auto-focus float management:
-            // - When a new float appears, auto-focus it (topmost = last in list)
-            // - When floats disappear, update focused float or clear it
-            const newFloatIds = Object.keys(floatPanes);
-            const prevFloatIds = Object.keys(context.floatPanes);
-            const addedFloatIds = newFloatIds.filter((id) => !prevFloatIds.includes(id));
+            // Auto-focus float management, over the floats of the tab in front
+            // of the user — a float belonging to another tab is off screen, and
+            // keys typed at this tab must not disappear into it:
+            // - one came into view (opened, or its tab came back): focus it
+            // - the focused one left (killed, or its tab did): focus the next
+            //   visible float, else hand the keyboard back to the panes
+            const visibleFloatIds = visibleFloats(
+              floatPanes,
+              transformed.windows,
+              transformed.activeWindowId,
+            ).map((f) => f.paneId);
+            const prevVisibleFloatIds = visibleFloats(
+              context.floatPanes,
+              context.windows,
+              context.activeWindowId,
+            ).map((f) => f.paneId);
+            const addedFloatIds = visibleFloatIds.filter((id) => !prevVisibleFloatIds.includes(id));
             let newFocusedFloat = context.focusedFloatPaneId;
             if (addedFloatIds.length > 0) {
-              // New float(s) appeared — focus the topmost one
-              newFocusedFloat = newFloatIds[newFloatIds.length - 1];
+              // Topmost = last in list
+              newFocusedFloat = visibleFloatIds[visibleFloatIds.length - 1];
               // Suppress layout animation: the split-window → break-pane
               // workaround creates a momentary extra pane in the active window
               // before it becomes a float. Disabling animation prevents the blink.
               enqueue(assign({ enableAnimations: false }));
-            } else if (newFocusedFloat && !floatPanes[newFocusedFloat]) {
-              // The focused float was removed — focus the new topmost, or clear
-              newFocusedFloat = newFloatIds.length > 0 ? newFloatIds[newFloatIds.length - 1] : null;
+            } else if (newFocusedFloat && !visibleFloatIds.includes(newFocusedFloat)) {
+              newFocusedFloat =
+                visibleFloatIds.length > 0 ? visibleFloatIds[visibleFloatIds.length - 1] : null;
             }
             if (newFocusedFloat !== context.focusedFloatPaneId) {
               enqueue(assign({ focusedFloatPaneId: newFocusedFloat }));

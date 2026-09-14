@@ -18,6 +18,7 @@ import {
   selectRightSidebarPane,
   selectDockRows,
   selectSidebarLayout,
+  visibleFloats,
 } from '../../selectors';
 import { calculateTargetSize } from '../../../utils/layout';
 import { isPlaceholderId } from '../../../utils/tabOverview';
@@ -219,6 +220,35 @@ export const groupsAndFloatsActions = {
     );
   }),
 
+  /**
+   * Hand the keyboard to the float of the tab now in front of the user, or back
+   * to that tab's panes when it has none.
+   *
+   * A float belongs to the tab it was opened over, so a tab switch takes one
+   * off screen and can bring another up, and the keyboard has to follow: it
+   * cannot stay on a surface nobody can see. The tab switch raises this because
+   * it flips the active window optimistically - by the time the server's model
+   * update arrives, the float on the new tab no longer looks like one that just
+   * came into view.
+   */
+  groupsAndFloats_syncFloatFocus: enqueueActions<
+    Ctx,
+    Evt,
+    undefined,
+    Evt,
+    never,
+    never,
+    never,
+    never,
+    never
+  >(({ context, enqueue }) => {
+    const floats = visibleFloats(context.floatPanes, context.windows, context.activeWindowId);
+    const next = floats.length > 0 ? floats[floats.length - 1].paneId : null;
+    if (next === context.focusedFloatPaneId) return;
+    enqueue(assign({ focusedFloatPaneId: next }));
+    enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: next }));
+  }),
+
   groupsAndFloats_closeFloat: enqueueActions<
     Ctx,
     Evt,
@@ -240,7 +270,7 @@ export const groupsAndFloatsActions = {
     const { [event.paneId]: _removed, ...remainingFloats } = context.floatPanes;
     enqueue(assign({ floatPanes: remainingFloats }));
     if (context.focusedFloatPaneId === event.paneId) {
-      const remaining = Object.values(remainingFloats);
+      const remaining = visibleFloats(remainingFloats, context.windows, context.activeWindowId);
       const nextFocused = remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
       enqueue(assign({ focusedFloatPaneId: nextFocused }));
       enqueue(
@@ -263,7 +293,9 @@ export const groupsAndFloatsActions = {
     never,
     never
   >(({ context, enqueue }) => {
-    const floats = Object.values(context.floatPanes);
+    // Only a float on the tab in front of the user: Escape must never kill one
+    // sitting over another tab.
+    const floats = visibleFloats(context.floatPanes, context.windows, context.activeWindowId);
     if (floats.length === 0) return;
     const topFloat = floats[floats.length - 1];
     enqueue(
@@ -274,7 +306,7 @@ export const groupsAndFloatsActions = {
     );
     const { [topFloat.paneId]: _removed, ...remainingFloats } = context.floatPanes;
     enqueue(assign({ floatPanes: remainingFloats }));
-    const remaining = Object.values(remainingFloats);
+    const remaining = visibleFloats(remainingFloats, context.windows, context.activeWindowId);
     const nextFocused = remaining.length > 0 ? remaining[remaining.length - 1].paneId : null;
     enqueue(assign({ focusedFloatPaneId: nextFocused }));
     enqueue(

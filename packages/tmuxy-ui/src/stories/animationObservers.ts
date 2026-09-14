@@ -89,8 +89,8 @@ export interface ChildListRecorder {
 
 /**
  * Records direct-child elements matching `selector` being added to / removed
- * from `root`. Used to watch float overlays (`.modal-overlay`) portaled into
- * `document.body`.
+ * from `root`. Used to watch a float's overlay (`.modal-overlay`) coming and
+ * going inside the pane container.
  */
 export function observeChildList(root: HTMLElement, selector: string): ChildListRecorder {
   const added: Element[] = [];

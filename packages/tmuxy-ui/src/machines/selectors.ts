@@ -5,7 +5,9 @@ import type {
   AppMachineContext,
   LogEntry,
   TmuxPane,
+  TmuxWindow,
   PaneGroup,
+  FloatPaneState,
   KeyBindings,
   SessionTreeNode,
   GitRepository,
@@ -578,6 +580,43 @@ export const selectMarkedPaneId = createMemoizedSelector(
   (ctx: AppMachineContext) => [ctx.panes] as const,
   (context: AppMachineContext): string | null =>
     context.panes.find((p) => p.marked)?.tmuxId ?? null,
+);
+
+/**
+ * The floats that belong to the tab the user is looking at, bottom-most first.
+ *
+ * A float is an overlay over the tab it was opened from (`@tmuxy-float-parent`),
+ * not over the session: opening one on tab 1 and switching to tab 2 must leave
+ * tab 2 clear. Its pane lives in its own window either way, so nothing else in
+ * the UI notices which tab it came from.
+ *
+ * Two floats are shown regardless: one whose window carries no parent (created
+ * by something that predates the tag), and one whose parent window has since
+ * closed — an orphan with no tab to come back to would otherwise be impossible
+ * to see, and so impossible to close.
+ *
+ * The plain `visibleFloats` is for callers holding a half-updated context (the
+ * model handler, deciding which float may take the keyboard next): the memoized
+ * selector caches one argument set, and calling it with a synthetic context
+ * would evict the entry every component reads from.
+ */
+export function visibleFloats(
+  floatPanes: Record<string, FloatPaneState>,
+  windows: TmuxWindow[],
+  activeWindowId: string | null,
+): FloatPaneState[] {
+  return Object.values(floatPanes).filter((float) => {
+    const parent = float.parentWindowId;
+    if (parent === null) return true;
+    if (parent === activeWindowId) return true;
+    return !windows.some((w) => w.id === parent);
+  });
+}
+
+export const selectVisibleFloats = createMemoizedSelector(
+  (ctx: AppMachineContext) => [ctx.floatPanes, ctx.activeWindowId, ctx.windows] as const,
+  (context: AppMachineContext): FloatPaneState[] =>
+    visibleFloats(context.floatPanes, context.windows, context.activeWindowId),
 );
 
 export const selectVisiblePanes = createMemoizedSelector(

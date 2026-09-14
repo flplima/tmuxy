@@ -19,6 +19,7 @@ import {
   useAppSelector,
   selectCharSize,
   selectContainerSize,
+  selectVisibleFloats,
 } from '../machines/AppContext';
 import { LogProfiler } from '../utils/renderLog';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
@@ -181,12 +182,15 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
 }
 
 /**
- * FloatContainer - Container for all float panes.
- * Renders inline inside .pane-container so overlays stay scoped.
+ * FloatContainer - the floats of the tab the user is on.
+ *
+ * Renders inline inside .pane-container, so each float's backdrop dims that
+ * tab's content and nothing else. A float belongs to the tab it was opened over
+ * (`selectVisibleFloats`), so switching tabs takes it off screen and coming back
+ * brings it up again.
  */
 export function FloatContainer() {
-  const floatPanes = useAppSelector((ctx) => ctx.floatPanes);
-  const visibleFloats = Object.values(floatPanes);
+  const visibleFloats = useAppSelector(selectVisibleFloats);
 
   if (visibleFloats.length === 0) return null;
 

@@ -1663,6 +1663,125 @@ describe('Scenario 6c: Float Backdrop Close', () => {
   }, 180000);
 });
 
+// ============ Scenario 6f: A float belongs to the tab it was opened over ============
+
+describe('Scenario 6f: Float Tab Scope', () => {
+  const ctx = createTestContext({ snapshot: true });
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  /** The tab buttons in strip order. */
+  async function tabButtons(page) {
+    return page.$$('.tab-name:not(.tab-add)');
+  }
+
+  /** Click whichever tab button is not the active one. */
+  async function clickOtherTab(page) {
+    for (const tab of await tabButtons(page)) {
+      const active = await tab.evaluate((el) => el.classList.contains('tab-name-active'));
+      if (!active) {
+        await tab.click();
+        return;
+      }
+    }
+    throw new Error('no inactive tab button to click');
+  }
+
+  test('Float over tab 1 → backdrop covers the tab content only → other tab is clear → back again', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // A second tab to switch to. It opens active, so click back to the first
+    // one: the float has to be opened over tab 1.
+    await createWindowKeyboard(ctx.page);
+    await waitForWindowCount(ctx.page, 2, 10000);
+    await clickOtherTab(ctx.page);
+    await delay(DELAYS.SYNC);
+    const homeWindowId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.activeWindowId,
+    );
+
+    // Step 1: open the float the way a user does
+    await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
+    await pressEnter(ctx.page);
+    await waitForFloatModal(ctx.page, 20000);
+    await delay(DELAYS.SYNC);
+    await verifyFloatVisible(ctx.page);
+
+    const floatPaneId = await ctx.page.evaluate(
+      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+    );
+    expect(floatPaneId).toMatch(/^%\d+$/);
+
+    // Step 2: the float is tagged with the tab it was opened over, and the
+    // backdrop dims that tab's content and nothing else — the tab strip above
+    // it stays uncovered, so the user can still switch tabs.
+    const scope = await ctx.page.evaluate(() => {
+      const backdrop = document.querySelector('.modal-backdrop');
+      const container = document.querySelector('.pane-container');
+      const strip = document.querySelector('.tab-list');
+      if (!backdrop || !container || !strip) return null;
+      const b = backdrop.getBoundingClientRect();
+      const c = container.getBoundingClientRect();
+      const s = strip.getBoundingClientRect();
+      return {
+        dTop: Math.abs(b.top - c.top),
+        dBottom: Math.abs(b.bottom - c.bottom),
+        dLeft: Math.abs(b.left - c.left),
+        dRight: Math.abs(b.right - c.right),
+        stripAbove: s.bottom <= b.top + 1,
+        parent:
+          window.app?.getSnapshot()?.context?.floatPanes?.[
+            window.app?.getSnapshot()?.context?.focusedFloatPaneId
+          ]?.parentWindowId,
+      };
+    });
+    expect(scope).not.toBeNull();
+    expect(scope.dTop).toBeLessThanOrEqual(1);
+    expect(scope.dBottom).toBeLessThanOrEqual(1);
+    expect(scope.dLeft).toBeLessThanOrEqual(1);
+    expect(scope.dRight).toBeLessThanOrEqual(1);
+    expect(scope.stripAbove).toBe(true);
+    expect(scope.parent).toBe(homeWindowId);
+
+    // Step 3: the other tab shows no float at all
+    await clickOtherTab(ctx.page);
+    await ctx.page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
+      timeout: 10000,
+      polling: 100,
+    });
+    expect(
+      await ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.focusedFloatPaneId),
+    ).toBeNull();
+    // And that tab's own pane takes input, rather than the hidden float.
+    const TOKEN = 'OTHER_TAB_' + Date.now();
+    await runCommand(ctx.page, `echo ${TOKEN}`, TOKEN);
+
+    // Step 4: back on its own tab, the same float is up again — one of it, not
+    // a second one.
+    await clickOtherTab(ctx.page);
+    await waitForFloatModal(ctx.page, 10000);
+    await verifyFloatVisible(ctx.page);
+    const backAgain = await ctx.page.evaluate(() => ({
+      count: document.querySelectorAll('.modal-overlay').length,
+      focused: window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+      active: window.app?.getSnapshot()?.context?.activeWindowId,
+    }));
+    expect(backAgain.count).toBe(1);
+    expect(backAgain.focused).toBe(floatPaneId);
+    expect(backAgain.active).toBe(homeWindowId);
+
+    // Leave the session without the float.
+    await ctx.page.keyboard.press('Escape');
+    await ctx.page.waitForFunction(() => document.querySelectorAll('.modal-overlay').length === 0, {
+      timeout: 10000,
+      polling: 100,
+    });
+  }, 180000);
+});
+
 // ==================== Scenario 11: Status Bar ====================
 
 describe('Scenario 11: Status Bar', () => {

@@ -10,6 +10,7 @@ import type { FloatPaneState } from '../../../types';
 function makeFloat(paneId: string, extra: Partial<FloatPaneState> = {}): FloatPaneState {
   return {
     paneId,
+    parentWindowId: null,
     width: 80,
     height: 24,
     backdrop: 'dim',
@@ -65,6 +66,23 @@ describe('groupsAndFloats state', () => {
     expect(ctx.floatPanes['pane-1']).toBeDefined();
     // After closing the top (pane-2), focus moves to the next one
     expect(ctx.focusedFloatPaneId).toBe('pane-1');
+  });
+
+  it('CLOSE_TOP_FLOAT leaves a float that belongs to another tab alone', () => {
+    // Escape closes the float the user can see. A float opened over tab @1 is
+    // not on screen while tab @0 is active, so it is not the one Escape means -
+    // and killing it would take a pane the user cannot even see.
+    const actor = mountState(groupsAndFloatsState, groupsAndFloatsActions, groupsAndFloatsGuards, {
+      windows: [
+        { id: '@0', index: 0, name: 'one', active: true, windowType: 'tab' },
+        { id: '@1', index: 1, name: 'two', active: false, windowType: 'tab' },
+      ] as never,
+      activeWindowId: '@0',
+      floatPanes: { 'pane-9': makeFloat('pane-9', { parentWindowId: '@1' }) },
+      focusedFloatPaneId: null,
+    });
+    const ctx = sendAndGetContext(actor, { type: 'CLOSE_TOP_FLOAT' });
+    expect(ctx.floatPanes['pane-9']).toBeDefined();
   });
 
   it('CLOSE_TOP_FLOAT no-ops when there are no floats', () => {

@@ -63,6 +63,8 @@ interface FakeWindow {
   sidebarHidden?: boolean;
   /** Only the active pane's first-level row is expanded (@tmuxy-collapsible). */
   collapsible?: boolean;
+  /** The tab a float was opened over (@tmuxy-float-parent). */
+  floatParent?: string | null;
   floatDrawer?: 'left' | 'right' | 'top' | 'bottom' | null;
   floatBg?: 'dim' | 'blur' | 'none' | null;
   floatNoheader?: boolean;
@@ -253,7 +255,7 @@ export class DemoTmux {
         name: w.name,
         active: w.id === this.activeWindowId,
         window_type: w.windowType === 'group' ? null : w.windowType,
-        float_parent: null,
+        float_parent: w.floatParent ?? null,
         float_width: w.floatWidth ?? null,
         float_height: w.floatHeight ?? null,
         float_drawer: w.floatDrawer ?? null,
@@ -1037,6 +1039,9 @@ export class DemoTmux {
       layoutCycle: 0,
       windowType: 'float',
       groupPanes: null,
+      // A float belongs to the tab it was opened over, exactly as
+      // bin/tmuxy/float-create tags it, so the UI can keep it on that tab.
+      floatParent: this.activeWindowId,
       floatDrawer: options.drawer ?? null,
       floatBg: options.bg ?? null,
       floatNoheader: options.hideHeader ?? false,

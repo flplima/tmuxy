@@ -7,12 +7,14 @@
  * (buildFloatPanesFromWindows) so FloatPane renders exactly like in
  * production.
  *
- * Floats portal into document.body via Modal — assertions query against
- * `document.body`, not `canvasElement`.
+ * A float's overlay is rendered inside the pane container, not portaled to the
+ * body, so its backdrop dims the tab's content and leaves the sidebars, the tab
+ * strip and the status line alone. Assertions still query the document: the
+ * overlay is outside `canvasElement`'s subtree in some story layouts.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, waitFor, within } from 'storybook/test';
+import { expect, fireEvent, waitFor, within } from 'storybook/test';
 import { AppHarness } from '../stories/StoryHarness';
 
 const meta: Meta<typeof AppHarness> = {
@@ -23,7 +25,7 @@ const meta: Meta<typeof AppHarness> = {
 export default meta;
 type Story = StoryObj<typeof AppHarness>;
 
-/** Wait until at least one float overlay portals into document.body. */
+/** Wait until at least one float overlay is on screen. */
 async function waitForFloat(): Promise<HTMLElement> {
   return waitFor(
     () => {
@@ -233,6 +235,60 @@ export const MultipleFloats: Story = {
     // The bottom drawer has the blur modifier.
     const bottomDrawer = overlays.find((o) => o.classList.contains('drawer-bottom'))!;
     expect(bottomDrawer.querySelector('.modal-backdrop-blur')).not.toBeNull();
+  },
+};
+
+// ---------------------------------------------------------------------------
+// A float belongs to the tab it was opened over
+// ---------------------------------------------------------------------------
+
+export const StaysOnItsOwnTab: Story = {
+  args: {
+    height: 500,
+    initCommands: [
+      'new-window',
+      'select-window -t @0',
+      'tmuxy-float-create --width 40 --height 10',
+    ],
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'A float is an overlay over the tab it was opened from (`@tmuxy-float-parent`), not over the session. Switching to the other tab takes it off screen and leaves that tab undimmed; switching back brings the same float pane up again.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const overlay = await waitForFloat();
+    const paneId = overlay
+      .querySelector('.float-container[data-pane-id]')
+      ?.getAttribute('data-pane-id');
+    expect(paneId).toBeTruthy();
+
+    const tabs = () => [
+      ...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]'),
+    ];
+    await waitFor(() => expect(tabs().length).toBe(2));
+    const home = tabs().find((t) => t.classList.contains('tab-name-active'))!;
+    const other = tabs().find((t) => t !== home)!;
+
+    fireEvent.click(other);
+
+    // Gone, and the tab it left behind is not dimmed by a leftover backdrop.
+    await waitFor(() => {
+      expect(document.querySelector('.modal-overlay')).toBeNull();
+      expect(document.querySelector('.modal-backdrop')).toBeNull();
+    });
+
+    fireEvent.click(home);
+
+    // Back, and it is the same pane rather than a second float.
+    const again = await waitForFloat();
+    expect(document.querySelectorAll('.modal-overlay').length).toBe(1);
+    expect(
+      again.querySelector('.float-container[data-pane-id]')?.getAttribute('data-pane-id'),
+    ).toBe(paneId);
   },
 };
 

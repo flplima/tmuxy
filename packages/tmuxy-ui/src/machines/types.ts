@@ -38,6 +38,14 @@ export type FloatBackdrop = 'dim' | 'blur' | 'none';
 export interface FloatPaneState {
   /** Pane ID (e.g., "%5") */
   paneId: string;
+  /**
+   * The tab the float belongs to (`@tmuxy-float-parent`), or null when its
+   * window carries no parent. A float is only shown while that tab is the
+   * active one: it was opened over a tab, so it is that tab's overlay and must
+   * not reappear over the next one. A float whose parent window is gone is
+   * orphaned and shown anywhere, so closing a tab can never hide it for good.
+   */
+  parentWindowId: string | null;
   /** Size in pixels */
   width: number;
   height: number;
@@ -701,6 +709,12 @@ export type BlurLeftSidebarEvent = { type: 'BLUR_LEFT_SIDEBAR' };
 export type ToggleRightSidebarEvent = { type: 'TOGGLE_RIGHT_SIDEBAR' };
 /** Re-derive the dock's row count and tell tmux when it changed. */
 export type SyncDockRowsEvent = { type: 'SYNC_DOCK_ROWS' };
+/**
+ * Re-derive which float holds the keyboard from the tab now in front of the
+ * user. Raised by the tab switch, which flips the active window optimistically
+ * and so knows before anything else that a float came on or off screen.
+ */
+export type SyncFloatFocusEvent = { type: 'SYNC_FLOAT_FOCUS' };
 /** The sidebar slide has run its course; the columns are where they will stay. */
 export type SidebarMotionSettledEvent = { type: 'SIDEBAR_MOTION_SETTLED' };
 export type FocusRightSidebarEvent = { type: 'FOCUS_RIGHT_SIDEBAR' };
@@ -999,6 +1013,7 @@ export type AppMachineEvent =
   | SidebarResizePreviewEvent
   | SidebarResizeCommitEvent
   | SyncDockRowsEvent
+  | SyncFloatFocusEvent
   | SidebarMotionSettledEvent
   | SidebarPreviewExpireEvent
   | SetBodySizeEvent
