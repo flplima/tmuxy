@@ -907,12 +907,62 @@ mod vt100_capture_test {
     }
 
     #[test]
-    fn variation_selector_keeps_the_base_width() {
-        // ❤ + VS16 stays a 1-column cell (tmux default:
-        // variation-selector-always-wide off).
+    fn variation_selector_widens_its_character() {
+        // ❤ + VS16 is a 2-column cell, as tmux has it: its
+        // `variation-selector-always-wide` defaults to on (tmux 3.7c puts the
+        // cursor at column 3 after it). A 1-column cell here left every later
+        // cell a column short of tmux's grid.
         let (col, cells) = combined_cells("\u{2764}\u{FE0F}X");
-        assert_eq!(col, 2);
+        assert_eq!(col, 3);
         assert_eq!(cells, vec!["\u{2764}\u{FE0F}", "X"]);
+    }
+
+    /// The background a row's cells carry, from the first column of `text`.
+    fn row_backgrounds(text: &str) -> Vec<(String, Option<crate::CellColor>)> {
+        let mut terminal = vt100::Parser::new(1, 20, 0);
+        terminal.process(text.as_bytes());
+        crate::extract_cells_from_screen(terminal.screen())[0]
+            .iter()
+            .map(|cell| {
+                let bg = cell.style.as_ref().and_then(|s| s.bg.clone());
+                (cell.char.clone(), bg)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_wide_character_paints_its_continuation_in_its_own_background() {
+        // An editor's cursor line is a coloured row. The half of ✅ that lies
+        // in the second column used to be cleared to the default background,
+        // so the row showed a black hole beside every wide glyph on it.
+        let cells = row_backgrounds("\x1b[48;5;237m\u{2705}X");
+        assert_eq!(
+            cells[0],
+            ("\u{2705}".to_string(), Some(crate::CellColor::Indexed(237)))
+        );
+        assert_eq!(
+            cells[1],
+            (" ".to_string(), Some(crate::CellColor::Indexed(237)))
+        );
+        assert_eq!(
+            cells[2],
+            ("X".to_string(), Some(crate::CellColor::Indexed(237)))
+        );
+    }
+
+    #[test]
+    fn a_character_widened_by_what_follows_keeps_its_background_too() {
+        // A flag is two narrow indicators until the second arrives and widens
+        // the first — a separate path that cleared the new half the same way.
+        let cells = row_backgrounds("\x1b[48;5;237m\u{1F1FA}\u{1F1F8}X");
+        assert_eq!(
+            cells[1],
+            (" ".to_string(), Some(crate::CellColor::Indexed(237)))
+        );
+        assert_eq!(
+            cells[2],
+            ("X".to_string(), Some(crate::CellColor::Indexed(237)))
+        );
     }
 
     #[test]

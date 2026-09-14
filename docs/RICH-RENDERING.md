@@ -151,7 +151,7 @@ tmux reports cursor positions and lays out everything on **its** grid; tmuxy re-
 | ZWJ sequence `👩‍💻` | one 2-column cell (the character after a ZWJ joins the previous cell) | 4 columns |
 | emoji + skin tone `👍🏽` | one 2-column cell (only for tmux's list of 66 base emoji; the modifier alone is its own 2-column character) | 4 columns |
 | two regional indicators `🇺🇸` | one 2-column cell (a third indicator starts a new cell) | 2 × 1 column |
-| text symbol + VS16 `❤️` | one 1-column cell (tmux default: `variation-selector-always-wide` off) | 1 column |
+| text symbol + VS16 `❤️` | one 2-column cell (tmux default: `variation-selector-always-wide` on) | 2 columns |
 | combining mark `é` | joins the previous cell, through a wide character's continuation half | 1 column |
 | `U+3164` Hangul filler | dropped | 1 column |
 | ZWJ / VS16 at column 0 | dropped | — |

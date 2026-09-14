@@ -252,6 +252,14 @@ describe('Scenario 16: Unicode Rendering', () => {
         marker: 'END_TONE_GRID',
       },
       {
+        name: 'VS16',
+        // ☑️ = ballot box + VS16: a narrow symbol that tmux widens to two cells
+        // (variation-selector-always-wide). The renderer used to keep it at one.
+        bytes: '\\xe2\\x98\\x91\\xef\\xb8\\x8f',
+        wideGlyph: '\u2611\ufe0f',
+        marker: 'END_VS16_GRID',
+      },
+      {
         name: 'flag',
         // 🇺🇸 = two regional indicators: one 2-cell glyph
         bytes: '\\xf0\\x9f\\x87\\xba\\xf0\\x9f\\x87\\xb8',

@@ -811,7 +811,12 @@ impl Screen {
             return zero_width;
         }
 
-        let mut force_wide = false;
+        // VS16 asks for emoji presentation, and tmux (with its default
+        // `variation-selector-always-wide on`) gives the character two columns
+        // for it. Keeping it one column put every cell after it a column to the
+        // left of where tmux has it: an app that draws the row, like an editor,
+        // then wrote its next character on top of the emoji.
+        let mut force_wide = c == VS16;
         if !zero_width {
             if pairs_with_previous(last.contents(), c) {
                 force_wide = true;
@@ -834,6 +839,11 @@ impl Screen {
         // continuation half and the cursor moves past it. (n == 1 here, so
         // col + 1 == pos.col.)
         last.set_wide(true);
+        // The continuation half is painted in the same colours as the
+        // character it belongs to, as tmux paints it: cleared to the default
+        // instead, a wide glyph on a coloured row left a default-background
+        // hole beside it.
+        let base_attrs = *last.attrs();
         let next_pos = at(col + 1);
         if self.grid().drawing_cell(next_pos).unwrap().is_wide() {
             if let Some(orphan) = self.grid_mut().drawing_cell_mut(at(col + 2)) {
@@ -841,7 +851,7 @@ impl Screen {
             }
         }
         let next = self.grid_mut().drawing_cell_mut(next_pos).unwrap();
-        next.clear(crate::attrs::Attrs::default());
+        next.clear(base_attrs);
         next.set_wide_continuation(true);
         self.grid_mut().col_inc(1);
         true
@@ -1033,7 +1043,10 @@ impl Screen {
                 // only happens if width > 1, and col_wrap takes width
                 // into account.
                 .unwrap();
-            next_cell.clear(crate::attrs::Attrs::default());
+            // Same colours as the wide character itself (see the widen path
+            // above): a default-cleared continuation is a hole in a coloured
+            // row, like the cursor line of an editor.
+            next_cell.clear(attrs);
             next_cell.set_wide_continuation(true);
             self.grid_mut().col_inc(1);
         }
