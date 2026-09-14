@@ -12,6 +12,8 @@ import { useAppSend } from '../machines/AppContext';
 import { escapeLiteralText } from '../tmux/keyBatching';
 import { CopyIcon, SendKeysIcon } from './menus/MenuIcons';
 import './menus/AppMenu.css';
+import { flashCopiedRange } from '../utils/copyFlash';
+import { writeClipboard } from '../utils/clipboard';
 
 interface SelectionContextMenuProps {
   paneId: string;
@@ -71,7 +73,8 @@ export function SelectionContextMenu({
     <ControlledMenu state="open" anchorPoint={{ x, y }} onClose={onClose} transition={false}>
       <MenuItem
         onClick={() => {
-          navigator.clipboard.writeText(selectedText);
+          writeClipboard(selectedText, paneId);
+          flashCopiedRange(selectionRange);
           exitAndClose();
         }}
       >

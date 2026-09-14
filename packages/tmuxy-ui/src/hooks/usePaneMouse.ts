@@ -156,6 +156,12 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     if (isDraggingForSelectionRef.current && dragStartRef.current) {
       setSelectionStart({ ...dragStartRef.current });
     }
+    // Releasing a drag in copy mode copies the selection and leaves the mode,
+    // as tmux's MouseDragEnd1Pane does; the copied text blinks first. Here, so
+    // a release outside the pane (the document listener) copies too.
+    if (isDraggingForSelectionRef.current && copyModeActive) {
+      send({ type: 'COPY_MODE_MOUSE_COPY', paneId });
+    }
     dragStartRef.current = null;
     lastCellRef.current = null;
     isDraggingForSelectionRef.current = false;
@@ -164,7 +170,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       document.removeEventListener('mouseup', documentMouseUpRef.current);
       documentMouseUpRef.current = null;
     }
-  }, [stopAutoScroll]);
+  }, [stopAutoScroll, copyModeActive, send, paneId]);
 
   // The box the cell grid starts in: the scroll container, inside the pane
   // content's horizontal padding. Measured from `.pane-content` itself, every
@@ -214,8 +220,13 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       // Browser focus follows: an IME composes only into an editable element.
       // Not on a right-click (or macOS's ctrl-click), though: focusing the
       // input moves the document selection into it, and the context menu is
-      // about to ask what was selected.
-      if (e.button !== 2 && !e.ctrlKey) focusKeyboardInput(paneId);
+      // about to ask what was selected. And not where the browser is about to
+      // own the drag, for the same reason: focusing here collapsed the page's
+      // selection as the drag began, so dragging across text selected nothing.
+      // There the keyboard actor hands focus back on release, if the gesture
+      // left nothing selected.
+      const browserOwnsDrag = !mouseAnyFlag && !copyModeActive;
+      if (e.button !== 2 && !e.ctrlKey && !browserOwnsDrag) focusKeyboardInput(paneId);
 
       // Shift+click: focus only, don't forward or start a drag-selection.
       if (e.shiftKey) {
@@ -260,7 +271,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         document.addEventListener('mouseup', cleanupDrag);
       }
     },
-    [send, paneId, mouseAnyFlag, alternateOn, pixelToCell, cleanupDrag],
+    [send, paneId, mouseAnyFlag, copyModeActive, alternateOn, pixelToCell, cleanupDrag],
   );
 
   // Handle mouse up

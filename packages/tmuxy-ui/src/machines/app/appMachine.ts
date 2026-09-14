@@ -55,6 +55,7 @@ import {
   gridExtent,
 } from './helpers';
 import { applyFontSize } from '../../utils/fontSizeManager';
+import { writeClipboard } from '../../utils/clipboard';
 import type { CopyModeState, CellLine } from '../../tmux/types';
 
 import { dragMachine } from '../drag/dragMachine';
@@ -460,17 +461,7 @@ export const appMachine = setup({
     // `lastClipboardWrite` so tests/UI can observe the most recent payload
     // without re-reading the system clipboard.
     TMUX_CLIPBOARD: {
-      actions: ({ event }) => {
-        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-          void navigator.clipboard.writeText(event.text).catch((err) => {
-            console.warn('[appMachine] OSC 52 clipboard write rejected:', err);
-          });
-        }
-        const win = globalThis as unknown as {
-          __tmuxyLastClipboard?: { paneId: string; text: string };
-        };
-        win.__tmuxyLastClipboard = { paneId: event.paneId, text: event.text };
-      },
+      actions: ({ event }) => writeClipboard(event.text, event.paneId),
     },
     // Backend gave up reconnecting. The status screen reads `fatalError` to
     // show a non-recoverable banner instead of the "connecting…" spinner.
@@ -1169,8 +1160,15 @@ export const appMachine = setup({
                   }),
                 );
               }
-              // Detect tmux exiting copy mode — clean up client-side copy mode
-              if (!newPane.inMode && prevPane?.inMode && context.copyModeStates[newPane.tmuxId]) {
+              // Detect tmux exiting copy mode — clean up client-side copy mode.
+              // Not a view that is closing after a copy: tmux left on purpose,
+              // and the view stays for the copied text's blink (copiedAt).
+              if (
+                !newPane.inMode &&
+                prevPane?.inMode &&
+                context.copyModeStates[newPane.tmuxId] &&
+                !context.copyModeStates[newPane.tmuxId].copiedAt
+              ) {
                 updatedCopyModeStates = { ...updatedCopyModeStates };
                 delete updatedCopyModeStates[newPane.tmuxId];
               }
@@ -1952,7 +1950,12 @@ export const appMachine = setup({
             // Check client-side copy mode first
             // (clipboard write is handled by keyboard actor's native copy event)
             if (paneId && context.copyModeStates[paneId]) {
-              // Exit copy mode (whether or not there was a selection to copy)
+              // A selection is a copy: it blinks and closes like a yank.
+              if (context.copyModeStates[paneId].selectionMode) {
+                enqueue.raise({ type: 'COPY_MODE_YANK', paneId });
+                return;
+              }
+              // Nothing selected: just exit copy mode
               copyModeExitTimes.set(paneId, Date.now());
               const newStates = { ...context.copyModeStates };
               delete newStates[paneId];

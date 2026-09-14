@@ -36,6 +36,8 @@ import {
   setKeyboardInputTarget,
   setupMobileKeyboard,
 } from '../../utils/mobileKeyboard';
+import { flashCopiedRange } from '../../utils/copyFlash';
+import { terminalTextOf } from '../../utils/nativeSelection';
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
@@ -502,7 +504,9 @@ export function createKeyboardActor() {
       // looking at scrollback, not a mode you type in: a keystroke there means
       // the user is done reading, so it closes the view and goes to the pane,
       // which is what every other terminal does.
-      const copyModeActive = activeCopyState?.mode === 'copy';
+      // A view closing after a copy is not copy mode any more: tmux has left it,
+      // so keys typed during the copied text's blink go to the pane.
+      const copyModeActive = activeCopyState?.mode === 'copy' && !activeCopyState.copiedAt;
       const scrollModePane = activeCopyState?.mode === 'scroll' ? scrollbackPane : null;
 
       /** A selection the user made with the browser, anywhere in the app. */
@@ -527,7 +531,9 @@ export function createKeyboardActor() {
           // Cmd+C over a selection the browser owns: let it copy, and do not
           // interrupt the process. Ctrl+C deliberately does NOT land here —
           // interrupting has to stay reliable even with text selected, which
-          // is the contract every terminal keeps.
+          // is the contract every terminal keeps. The copied text blinks.
+          const selection = window.getSelection();
+          if (selection && selection.rangeCount > 0) flashCopiedRange(selection.getRangeAt(0));
           return;
         } else {
           event.preventDefault();
@@ -893,13 +899,23 @@ export function createKeyboardActor() {
       }
     };
 
-    // Native copy event handler — uses pendingCopyText set by keydown handler
+    // Native copy event handler — uses pendingCopyText set by keydown handler,
+    // or, for a selection the browser owns in a terminal, the rows it covers
+    // read as a terminal copies them (the browser's own serialization breaks
+    // every styled run onto its own line; see readNativeSelection).
     const handleCopy = (event: ClipboardEvent) => {
       if (pendingCopyText) {
         event.preventDefault();
         event.clipboardData?.setData('text/plain', pendingCopyText);
         pendingCopyText = null;
+        return;
       }
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+      const text = terminalTextOf(selection.getRangeAt(0));
+      if (text === null) return;
+      event.preventDefault();
+      event.clipboardData?.setData('text/plain', text);
     };
 
     /**
@@ -940,9 +956,27 @@ export function createKeyboardActor() {
       keyboardFocusEstablished = true;
     };
 
-    const handleFocusIn = () => restoreKeyboardFocus();
-    const handlePointerUp = () => restoreKeyboardFocus();
+    // While the primary button is down a click or a drag is still going on,
+    // and the focus move it made is not answered yet: taking the focus back
+    // then collapsed the selection the drag was about to make. The release
+    // decides, once the selection is either there or not.
+    let primaryPointerDown = false;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button === 0) primaryPointerDown = true;
+    };
+    const handlePointerCancel = () => {
+      primaryPointerDown = false;
+    };
+    const handleFocusIn = () => {
+      if (!primaryPointerDown) restoreKeyboardFocus();
+    };
+    const handlePointerUp = () => {
+      primaryPointerDown = false;
+      restoreKeyboardFocus();
+    };
 
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('pointercancel', handlePointerCancel);
     window.addEventListener('pointerup', handlePointerUp);
     window.addEventListener('focusin', handleFocusIn);
     window.addEventListener('keydown', handleKeyDown);
@@ -981,6 +1015,8 @@ export function createKeyboardActor() {
       prefixMode.exit(false);
       window.removeEventListener('focusin', handleFocusIn);
       window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('pointercancel', handlePointerCancel);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);

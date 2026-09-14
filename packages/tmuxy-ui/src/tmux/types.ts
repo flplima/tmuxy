@@ -204,6 +204,12 @@ export interface CopyModeState {
   scrollTop: number;
   /** Pending selection to apply on first chunk load (visible-relative row) */
   pendingSelection?: { mode: 'char' | 'line'; row: number; col: number };
+  /**
+   * When the selection was copied, while the view is on its way out. tmux has
+   * already left its mode; the view stays for the copy flash (COPY_FLASH_MS)
+   * so the copied text blinks where it was, then closes.
+   */
+  copiedAt?: number;
 }
 
 // ============================================

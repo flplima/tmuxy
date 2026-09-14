@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fromCallback } from 'xstate';
 import { copyModeState } from '../copyMode';
 import { copyModeActions, copyModeExitTimes } from '../../actions/copyMode';
+import { COPY_FLASH_MS } from '../../../../utils/copyFlash';
 const copyModeGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { CopyModeState, CellLine, TmuxPane } from '../../../../tmux/types';
@@ -299,6 +300,87 @@ describe('copyMode state', () => {
       mode: 'char',
       row: 0,
       col: 3,
+    });
+  });
+
+  describe('copying with the mouse', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** A copy-mode view with "hello" selected on its first loaded row. */
+    const withSelection = (extra: Partial<CopyModeState> = {}) =>
+      makeCopyState({
+        selectionMode: 'char',
+        selectionAnchor: { row: 10, col: 0 },
+        cursorRow: 10,
+        cursorCol: 4,
+        ...extra,
+      });
+
+    it('a released drag copies the selection, leaves tmux copy mode at once, and closes the view after the blink', () => {
+      // tmux's MouseDragEnd1Pane runs copy-pipe-and-cancel: copy, then leave.
+      // The client does the same, except that its view stays for the blink so
+      // the copied text flashes where it is, then goes.
+      vi.useFakeTimers();
+      const sent: string[] = [];
+      const actor = mountState(
+        copyModeState,
+        copyModeActions,
+        copyModeGuards,
+        { copyModeStates: { '%1': withSelection() } },
+        {
+          extraActors: {
+            tmux: fromCallback<{ type: string; command?: string }>(({ receive }) => {
+              receive((e) => {
+                if (e.command) sent.push(e.command);
+              });
+            }),
+          },
+        },
+      );
+
+      const ctx = sendAndGetContext(actor, { type: 'COPY_MODE_MOUSE_COPY', paneId: '%1' });
+      const win = globalThis as unknown as { __tmuxyLastClipboard?: { text: string } };
+      expect(win.__tmuxyLastClipboard?.text).toBe('hello');
+      expect(sent).toContain('send-keys -t %1 -X cancel');
+      expect(ctx.copyModeStates['%1']?.copiedAt).toEqual(expect.any(Number));
+
+      vi.advanceTimersByTime(COPY_FLASH_MS - 1);
+      expect(actor.getSnapshot().context.copyModeStates['%1']).toBeDefined();
+      vi.advanceTimersByTime(1);
+      expect(actor.getSnapshot().context.copyModeStates['%1']).toBeUndefined();
+    });
+
+    it('a drag that selected nothing copies nothing and stays in copy mode', () => {
+      const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
+        copyModeStates: { '%1': makeCopyState() },
+      });
+      const ctx = sendAndGetContext(actor, { type: 'COPY_MODE_MOUSE_COPY', paneId: '%1' });
+      expect(ctx.copyModeStates['%1']?.copiedAt).toBeUndefined();
+    });
+
+    it('the end of a blink closes only the view that copy left, not one opened since', () => {
+      const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
+        copyModeStates: { '%1': withSelection({ copiedAt: 200 }) },
+      });
+      const ctx = sendAndGetContext(actor, {
+        type: 'COPY_MODE_COPIED_EXIT',
+        paneId: '%1',
+        copiedAt: 100,
+      });
+      expect(ctx.copyModeStates['%1']).toBeDefined();
+    });
+
+    it('a keyboard yank blinks and closes the same way', () => {
+      vi.useFakeTimers();
+      const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
+        copyModeStates: { '%1': withSelection() },
+      });
+      const ctx = sendAndGetContext(actor, { type: 'COPY_MODE_YANK', paneId: '%1' });
+      expect(ctx.copyModeStates['%1']?.copiedAt).toEqual(expect.any(Number));
+      vi.advanceTimersByTime(COPY_FLASH_MS);
+      expect(actor.getSnapshot().context.copyModeStates['%1']).toBeUndefined();
     });
   });
 

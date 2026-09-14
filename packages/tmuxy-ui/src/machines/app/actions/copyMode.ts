@@ -15,8 +15,15 @@ import { assign, enqueueActions, sendTo } from 'xstate';
 import type { AppMachineContext, AllAppMachineEvents } from '../../types';
 import type { CopyModeState, CellLine, ScrollbackMode } from '../../../tmux/types';
 import { handleCopyModeKey } from '../../../utils/copyModeKeys';
-import { mergeScrollbackChunk, getNeededChunk, isWrappedRow } from '../../../utils/copyMode';
+import {
+  mergeScrollbackChunk,
+  getNeededChunk,
+  isWrappedRow,
+  extractSelectedText,
+} from '../../../utils/copyMode';
 import { selectRightSidebarPane } from '../../selectors';
+import { COPY_FLASH_MS } from '../../../utils/copyFlash';
+import { writeClipboard } from '../../../utils/clipboard';
 
 type Ctx = AppMachineContext;
 type Evt = AllAppMachineEvents;
@@ -92,6 +99,40 @@ function buildScrollbackState(
 }
 
 export const copyModeExitTimes = new Map<string, number>();
+
+/** The `enqueue` an action in this file receives (xstate does not export it). */
+type Enqueue = Parameters<
+  Parameters<typeof enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>>[0]
+>[0]['enqueue'];
+
+/**
+ * Leave copy mode the way a copy does. tmux leaves its mode at once, as its
+ * `copy-pipe-and-cancel` would; the client's view stays just long enough for
+ * the copied text to blink where it is (`copiedAt`, drawn by the scrollback),
+ * then COPY_MODE_COPIED_EXIT closes it. The clipboard write itself happens on
+ * the path that copied — the keyboard's native copy event, or the mouse.
+ */
+function leaveAfterCopy(enqueue: Enqueue, context: Ctx, paneId: string): void {
+  const copyState = context.copyModeStates[paneId];
+  if (!copyState) return;
+  const copiedAt = Date.now();
+  copyModeExitTimes.set(paneId, copiedAt);
+  enqueue(
+    assign({
+      copyModeStates: { ...context.copyModeStates, [paneId]: { ...copyState, copiedAt } },
+    }),
+  );
+  enqueue(
+    sendTo('tmux', {
+      type: 'SEND_COMMAND' as const,
+      command: `send-keys -t ${paneId} -X cancel`,
+    }),
+  );
+  enqueue.raise(
+    { type: 'COPY_MODE_COPIED_EXIT' as const, paneId, copiedAt },
+    { delay: COPY_FLASH_MS },
+  );
+}
 export const COPY_MODE_REENTRY_COOLDOWN = 2000;
 
 export const copyModeActions = {
@@ -500,19 +541,37 @@ export const copyModeActions = {
     ({ event, context, enqueue }) => {
       if (event.type !== 'COPY_MODE_YANK') return;
       const copyState = context.copyModeStates[event.paneId];
-      if (!copyState || !copyState.selectionMode) return;
+      if (!copyState || !copyState.selectionMode || copyState.copiedAt) return;
+      leaveAfterCopy(enqueue, context, event.paneId);
+    },
+  ),
 
-      copyModeExitTimes.set(event.paneId, Date.now());
+  /**
+   * A drag in copy mode was released: copy what it selected and leave, the
+   * way tmux's `MouseDragEnd1Pane → copy-pipe-and-cancel` does. The release is
+   * the user gesture the clipboard write needs, and the action runs inside it.
+   */
+  copyMode_mouseCopy: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
+    ({ event, context, enqueue }) => {
+      if (event.type !== 'COPY_MODE_MOUSE_COPY') return;
+      const copyState = context.copyModeStates[event.paneId];
+      if (!copyState || copyState.mode !== 'copy' || copyState.copiedAt) return;
+      if (!copyState.selectionMode || !copyState.selectionAnchor) return;
+      const text = extractSelectedText(copyState);
+      if (text) enqueue(() => writeClipboard(text, event.paneId));
+      leaveAfterCopy(enqueue, context, event.paneId);
+    },
+  ),
+
+  /** The copy flash is over: close the view, unless it is no longer that copy's. */
+  copyMode_copiedExit: enqueueActions<Ctx, Evt, undefined, Evt, never, never, never, never, never>(
+    ({ event, context, enqueue }) => {
+      if (event.type !== 'COPY_MODE_COPIED_EXIT') return;
+      const copyState = context.copyModeStates[event.paneId];
+      if (!copyState || copyState.copiedAt !== event.copiedAt) return;
       const newStates = { ...context.copyModeStates };
       delete newStates[event.paneId];
       enqueue(assign({ copyModeStates: newStates }));
-
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_COMMAND' as const,
-          command: `send-keys -t ${event.paneId} -X cancel`,
-        }),
-      );
     },
   ),
 
@@ -533,16 +592,7 @@ export const copyModeActions = {
       const result = handleCopyModeKey(event.key, event.ctrlKey, event.shiftKey, copyState);
 
       if (result.action === 'yank') {
-        copyModeExitTimes.set(paneId, Date.now());
-        const newStates = { ...context.copyModeStates };
-        delete newStates[paneId];
-        enqueue(assign({ copyModeStates: newStates }));
-        enqueue(
-          sendTo('tmux', {
-            type: 'SEND_COMMAND' as const,
-            command: `send-keys -t ${paneId} -X cancel`,
-          }),
-        );
+        leaveAfterCopy(enqueue, context, paneId);
         return;
       }
 

@@ -24,6 +24,8 @@ export const copyModeState = {
     COPY_MODE_LINE_SELECT: { actions: 'copyMode_lineSelect' },
     COPY_MODE_SCROLL: { actions: 'copyMode_scroll' },
     COPY_MODE_YANK: { actions: 'copyMode_yank' },
+    COPY_MODE_MOUSE_COPY: { actions: 'copyMode_mouseCopy' },
+    COPY_MODE_COPIED_EXIT: { actions: 'copyMode_copiedExit' },
     COPY_MODE_KEY: { actions: 'copyMode_key' },
   },
 } as const;

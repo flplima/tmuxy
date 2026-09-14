@@ -849,6 +849,14 @@ export type CopyModeScrollEvent = {
   nativeSelection?: boolean;
 };
 export type CopyModeYankEvent = { type: 'COPY_MODE_YANK'; paneId: string };
+/** A mouse drag in copy mode was released: copy the selection and leave, as tmux does. */
+export type CopyModeMouseCopyEvent = { type: 'COPY_MODE_MOUSE_COPY'; paneId: string };
+/** The copy flash is over: close the view the copy at `copiedAt` left open. */
+export type CopyModeCopiedExitEvent = {
+  type: 'COPY_MODE_COPIED_EXIT';
+  paneId: string;
+  copiedAt: number;
+};
 export type CopyModeKeyEvent = {
   type: 'COPY_MODE_KEY';
   key: string;
@@ -993,6 +1001,8 @@ export type AppMachineEvent =
   | CopyModeSelectionClearEvent
   | CopyModeScrollEvent
   | CopyModeYankEvent
+  | CopyModeMouseCopyEvent
+  | CopyModeCopiedExitEvent
   | CopyModeKeyEvent
   | CopyModeWordSelectEvent
   | CopyModeLineSelectEvent

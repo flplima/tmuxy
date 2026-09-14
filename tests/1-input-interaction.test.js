@@ -1239,3 +1239,163 @@ describe('Scenario 7c: Mouse lands on the clicked cell', () => {
     await sendPrefixCommand(ctx.page, 'T', { shift: true });
   }, 180000);
 });
+
+// ==================== Scenario 7d: Selecting and copying with the mouse ====================
+
+describe('Scenario 7d: Selecting and copying with the mouse', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  /** Screen centres of the first and last cell of `text` in a rendered line. */
+  const cellsOf = (page, rootSelector, text) =>
+    page.evaluate(
+      ({ sel, needle }) => {
+        const lines = [...document.querySelectorAll(`${sel} .terminal-line`)].filter(
+          (l) => l.getBoundingClientRect().height > 0 && l.textContent.startsWith(needle),
+        );
+        const line = lines[lines.length - 1];
+        if (!line) return null;
+        const r = line.getBoundingClientRect();
+        const cellW = parseFloat(getComputedStyle(line).getPropertyValue('--cell-w'));
+        // Just inside the outer edges of the first and last cell: a browser
+        // selection starts and ends at the nearest character boundary, so a
+        // press on the middle of the first letter would leave it out.
+        return {
+          y: r.top + r.height / 2,
+          first: r.left + 1,
+          last: r.left + needle.length * cellW - 1,
+          box: {
+            left: r.left,
+            right: r.left + needle.length * cellW,
+            top: r.top,
+            bottom: r.bottom,
+          },
+        };
+      },
+      { sel: rootSelector, needle: text },
+    );
+
+  /** Press, sweep and release, pausing on the end so a throttled move lands there. */
+  const drag = async (page, from, to, y) => {
+    await page.mouse.move(from, y);
+    await page.mouse.down();
+    await page.mouse.move(to, y, { steps: 10 });
+    await delay(120);
+    await page.mouse.move(to + 0.5, y);
+    await page.mouse.up();
+  };
+
+  test('a drag selects text on the live screen, and Cmd+C blinks what it copied', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // 1. The drag itself. The pane used to focus the hidden keyboard input on
+    //    the press, which collapses the page's selection, so it selected nothing.
+    await runCommand(ctx.page, 'echo "DRAG_SELECT_ME and more"', 'DRAG_SELECT_ME');
+    const at = await cellsOf(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
+    expect(at).not.toBeNull();
+    await drag(ctx.page, at.first, at.last, at.y);
+    const selected = await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '');
+    expect(selected).toBe('DRAG_SELECT_ME');
+
+    // 2. Copying blinks the copied text: boxes laid over the selection, which
+    //    go away on their own.
+    await ctx.page.evaluate(() => {
+      window.addEventListener('copy', (e) => {
+        window.__copied = e.clipboardData.getData('text/plain');
+      });
+    });
+    await ctx.page.keyboard.press('Meta+c');
+    const flash = await ctx.page.evaluate(() =>
+      [...document.querySelectorAll('.copy-flash')].map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          left: r.left,
+          right: r.right,
+          top: r.top,
+          bottom: r.bottom,
+          animation: getComputedStyle(el).animationName,
+        };
+      }),
+    );
+    expect(flash.length).toBeGreaterThan(0);
+    expect(flash[0].animation).toBe('copy-flash');
+    expect(Math.abs(flash[0].left - at.box.left)).toBeLessThanOrEqual(2);
+    expect(Math.abs(flash[0].top - at.box.top)).toBeLessThanOrEqual(2);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        (await ctx.page.evaluate(() => document.querySelectorAll('.copy-flash').length)) === 0,
+      3000,
+      'the copy blink to finish',
+    );
+    // The selection is still there; copying did not take it away.
+    expect(await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe(
+      'DRAG_SELECT_ME',
+    );
+    expect(await ctx.page.evaluate(() => window.__copied)).toBe('DRAG_SELECT_ME');
+    await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
+
+    // 3. A row of differently-coloured runs copies as one line. Each run is its
+    //    own box, and the browser's own copy broke the line at every one.
+    await runCommand(ctx.page, 'printf "\\033[31mRED_RUN\\033[0m PLAIN_RUN\\n"', 'PLAIN_RUN');
+    const mixed = await cellsOf(ctx.page, '.pane-layout-item', 'RED_RUN PLAIN_RUN');
+    expect(mixed).not.toBeNull();
+    await drag(ctx.page, mixed.first, mixed.last, mixed.y);
+    await ctx.page.keyboard.press('Meta+c');
+    await delay(DELAYS.SHORT);
+    expect(await ctx.page.evaluate(() => window.__copied)).toBe('RED_RUN PLAIN_RUN');
+    await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
+  }, 120000);
+
+  test('in copy mode a drag copies on release, blinks, and leaves copy mode', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    await runCommand(ctx.page, 'echo "COPY_DRAG_ME and more"', 'COPY_DRAG_ME');
+    const cs = await enterCopyModeAndWait(ctx.page);
+    expect(cs.mode).toBe('copy');
+    await ctx.page.evaluate(() => {
+      delete window.__tmuxyLastClipboard;
+    });
+
+    const at = await cellsOf(ctx.page, '[data-copy-mode="true"]', 'COPY_DRAG_ME');
+    expect(at).not.toBeNull();
+
+    // Watch for the blink before releasing: it is on screen for under half a second.
+    await ctx.page.evaluate(() => {
+      window.__sawCopied = false;
+      const pre = document.querySelector('[data-copy-mode="true"]');
+      new MutationObserver(() => {
+        if (pre.getAttribute('data-copied') === 'true') window.__sawCopied = true;
+      }).observe(pre, { attributes: true, attributeFilter: ['data-copied'] });
+    });
+    await drag(ctx.page, at.first, at.last, at.y);
+
+    // Released: the selection is on the clipboard, the copied text blinked,
+    // and copy mode is over — on the client and in tmux.
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        (await ctx.page.evaluate(() => window.__tmuxyLastClipboard?.text ?? null)) !== null,
+      5000,
+      'the release to copy the selection',
+    );
+    expect(await ctx.page.evaluate(() => window.__tmuxyLastClipboard.text)).toBe('COPY_DRAG_ME');
+    await waitForCopyMode(ctx.page, false);
+    expect(await ctx.page.evaluate(() => window.__sawCopied)).toBe(true);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => window.app.getSnapshot().context.panes[0]?.inMode === false),
+      5000,
+      'tmux to leave copy mode',
+    );
+
+    // The pane is back at its prompt and takes input.
+    await runCommand(ctx.page, 'echo AFTER_COPY_DRAG', 'AFTER_COPY_DRAG');
+  }, 120000);
+});

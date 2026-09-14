@@ -26,6 +26,9 @@ triple-clicking select text on the live screen and in the scroll view without en
 and `Cmd+C` copies it. Only copy mode drives selection from the client, because only there is the
 selection anchored to a cursor the keyboard moves. Panes whose application tracks the mouse are
 deliberately left unselectable: there the drag belongs to the application and is forwarded as SGR.
+Where the browser owns the drag, the pane does not take the hidden keyboard input's focus on the
+press: focusing an input collapses the page's selection, so a drag across text selected nothing. The
+keyboard actor hands focus to the input on the release instead, and only if nothing was selected.
 
 ## Architecture
 
@@ -129,6 +132,10 @@ extracted selection to the system clipboard via the keyboard actor's native `cop
   (`COPY_MODE_SELECTION_START` / `COPY_MODE_CURSOR_MOVE`). Auto-scrolls when dragging past an edge.
 - **Double-click** — selects the word under the cursor (`COPY_MODE_WORD_SELECT`).
 - **Triple-click** — selects the whole logical line (`COPY_MODE_LINE_SELECT`), expanded across wrapped rows.
+- **Release** of a drag copies the selection to the clipboard and leaves copy mode
+  (`COPY_MODE_MOUSE_COPY`), as tmux's `MouseDragEnd1Pane → copy-pipe-and-cancel` does — the default
+  config binds exactly that, so a native tmux client behaves the same. tmux leaves its mode at once;
+  the client's view stays for the copy blink and then closes (`COPY_MODE_COPIED_EXIT`).
 
 **Everywhere else** the hook deliberately does nothing on those gestures and prevents no default, so
 the browser selects — which also means double-click word boundaries come from the engine rather than
@@ -156,7 +163,11 @@ forwarded SGR mouse sequences instead — that path is unchanged.
 ## Clipboard
 
 Selected text is extracted client-side (`extractSelectedText`, which joins wrapped rows into logical
-lines). Keyboard yank (`y`/`Enter`) and `Ctrl/Cmd-C` set the extracted text on the keyboard actor's
+lines). Every copy blinks the copied text where it is (`utils/copyFlash.ts`). Copy mode paints its own
+selection, so its copy sets `copiedAt` on the view, the scrollback marks itself `data-copied`, and the
+view closes when the blink is over — keyboard yank, `Ctrl/Cmd-C` and a drag release alike. A browser
+selection is covered by fixed boxes laid over its rectangles instead, on `Cmd+C` and on the
+right-click **Copy**. With animations off the highlight holds steady for the same time. Keyboard yank (`y`/`Enter`) and `Ctrl/Cmd-C` set the extracted text on the keyboard actor's
 native `copy` event (`document.execCommand('copy')` → `clipboardData`). The right-click **Copy** action
 writes it via `navigator.clipboard.writeText`; the selection context menu's other item, **Send keys**,
 types the selection into the pane. Either closes the view.

@@ -787,6 +787,44 @@
     background-color var(--transition-active);
 }
 
+/* The blink that says "copied" (utils/copyFlash.ts). Copy mode paints its own
+   selection, so its copied cells blink in place; a browser selection is covered
+   by fixed boxes laid over its rectangles. An inset shadow draws over a cell's
+   background (which the selection sets inline) and under its text, so the text
+   stays readable through the flash. */
+@keyframes copy-flash {
+  0%,
+  50%,
+  100% {
+    box-shadow: inset 0 0 0 100vmax transparent;
+  }
+  25%,
+  75% {
+    box-shadow: inset 0 0 0 100vmax
+      color-mix(in srgb, var(--tab-active-text, var(--accent-green)) 55%, transparent);
+  }
+}
+
+[data-copied='true'] .terminal-selected,
+.copy-flash {
+  animation: copy-flash 450ms steps(1, end) both;
+}
+
+.copy-flash {
+  position: fixed;
+  z-index: 1260;
+  pointer-events: none;
+  border-radius: 1px;
+}
+
+/* Animations off: the copied text holds a steady highlight for the same time. */
+.app-no-animations [data-copied='true'] .terminal-selected,
+.app-no-animations .copy-flash {
+  animation: none;
+  box-shadow: inset 0 0 0 100vmax
+    color-mix(in srgb, var(--tab-active-text, var(--accent-green)) 45%, transparent);
+}
+
 /* The config said no (`@tmuxy-animations off`): the keyframes the pane gate
    does not reach — floats appearing, drawers sliding — are stopped too. The
    pane grid itself follows `.pane-layout-no-animations`, which the selector

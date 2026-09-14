@@ -291,6 +291,8 @@ export function ScrollbackTerminal({ copyState, isActive }: ScrollbackTerminalPr
         data-testid="scrollback-terminal"
         data-copy-mode={isCopyMode ? 'true' : undefined}
         data-scroll-mode={isCopyMode ? undefined : 'true'}
+        // The selection was just copied: styles.css blinks it (utils/copyFlash).
+        data-copied={copyState.copiedAt ? 'true' : undefined}
         ref={preRef}
         style={{ position: 'relative', height: '100%' }}
       />
