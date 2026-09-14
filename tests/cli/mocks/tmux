@@ -66,6 +66,17 @@ case "${1:-}" in
       echo "mock captured content"
     fi
     ;;
+  display-message)
+    # Keyed on the format so one mock can answer both questions a script asks
+    # of the caller's pane. Unset by default: every test that does not set them
+    # sees the same empty answer this case replaced.
+    case "$*" in
+      *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
+      *'#{window_id}'*) echo "${MOCK_TMUX_WINDOW_ID:-}" ;;
+      *'#{pane_id}'*) echo "${MOCK_TMUX_PANE_ID:-}" ;;
+      *) ;;
+    esac
+    ;;
   run-shell)
     # Just log it, no output needed
     ;;

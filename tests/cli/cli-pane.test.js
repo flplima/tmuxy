@@ -238,6 +238,68 @@ describe('CLI pane subcommands', () => {
     });
   });
 
+  describe('pane float', () => {
+    // A float has to reach the UI as one step. The pane is born by splitting the
+    // caller's pane, which puts it in the tab the user is looking at until
+    // break-pane moves it out: if the split and the break are two tmux
+    // invocations, every attached client renders the tab with an extra pane for
+    // as long as the shell takes in between, and the float visibly "appears as a
+    // split first". One command list is one command queue, so the client sees
+    // both in the same batch of notifications and never paints the split.
+    const floatEnv = {
+      TMUX_SOCKET: 'tmuxy',
+      TMUX_PANE: '%5',
+      MOCK_TMUX_SESSION: 'main',
+      MOCK_TMUX_WINDOW_ID: '@3',
+      // The float window's only pane, as `display-message -p '#{pane_id}'`
+      // answers for it.
+      MOCK_TMUX_PANE_ID: '%99',
+      // What `list-windows -F '#{window_index}'` answers: the session holds
+      // windows 0 and 1, so 2 is the lowest index the float can claim.
+      MOCK_TMUX_LIST_WINDOWS: '0\n1',
+    };
+
+    test('creates the float in a single tmux command list', () => {
+      const { stdout, exitCode, tmuxCalls } = runCLI(
+        ['pane', 'float', '--width', '50', '--height', '12'],
+        { env: floatEnv },
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout.trim()).toBe('%99');
+
+      const lists = tmuxCalls.filter((c) => c.args[0] === 'run-shell');
+      expect(lists).toHaveLength(1);
+      // The new window's index is named up front because break-pane never says
+      // which window it made, and `set-option -w` with no target would tag the
+      // window the user is looking at instead. The trailing select-pane hands
+      // the caller's pane back: break-pane took the tab's active pane away.
+      expect(lists[0].args[1]).toBe(
+        'tmux -L tmuxy split-window -t %5' +
+          ' \\; break-pane -d -n float -t main:2' +
+          ' \\; set-option -w -t main:2 @tmuxy-window-type float' +
+          ' \\; set-option -w -t main:2 @tmuxy-float-parent @3' +
+          ' \\; set-option -w -t main:2 @tmuxy-float-width 50' +
+          ' \\; set-option -w -t main:2 @tmuxy-float-height 12' +
+          ' \\; resize-pane -t main:2 -x 50' +
+          ' \\; resize-pane -t main:2 -y 12' +
+          ' \\; select-pane -t %5',
+      );
+    });
+
+    test('a drawer float carries its direction and backdrop in the same list', () => {
+      const { exitCode, tmuxCalls } = runCLI(
+        ['pane', 'float', '--left', '--bg', 'blur', '--hide-header'],
+        { env: floatEnv },
+      );
+      expect(exitCode).toBe(0);
+      const list = tmuxCalls.find((c) => c.args[0] === 'run-shell').args[1];
+      expect(list).toContain('@tmuxy-float-drawer left');
+      expect(list).toContain('@tmuxy-float-bg blur');
+      expect(list).toContain('@tmuxy-float-noheader 1');
+      expect(list.indexOf('split-window')).toBeLessThan(list.indexOf('break-pane'));
+    });
+  });
+
   describe('pane unknown', () => {
     test('errors on unknown pane subcommand', () => {
       const { stderr, exitCode } = runCLI(['pane', 'unknown']);
