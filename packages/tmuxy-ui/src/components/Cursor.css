@@ -17,7 +17,7 @@
 
 .terminal-cursor-copy {
   background-color: var(--cursor-copy-bg);
-  color: var(--cursor-bg);
+  color: var(--term-black);
 }
 
 .terminal-cursor-underline {

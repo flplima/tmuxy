@@ -88,7 +88,6 @@
 
   --cursor-bg: var(--fallout-fg);
   --cursor-text: var(--fallout-bg);
-  --cursor-copy-bg: var(--fallout-fg-dim);
   --cursor-inactive: var(--fallout-fg-dim);
 
   --tmux-status-bg: var(--fallout-fg);
@@ -184,7 +183,6 @@
 
   --cursor-bg: var(--fallout-light-fg);
   --cursor-text: var(--fallout-light-bg);
-  --cursor-copy-bg: var(--fallout-light-fg-dim);
   --cursor-inactive: var(--fallout-light-fg-faint);
 
   --tmux-status-bg: var(--fallout-light-fg);

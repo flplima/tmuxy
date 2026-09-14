@@ -75,7 +75,6 @@
 
   --cursor-bg: var(--term-white);
   --cursor-text: var(--term-black);
-  --cursor-copy-bg: var(--term-blue);
   --cursor-inactive: var(--term-bright-black);
 
   --tmux-status-bg: var(--term-green);
@@ -156,7 +155,6 @@
 
   --cursor-bg: #383a42;
   --cursor-text: #fafafa;
-  --cursor-copy-bg: #4078f2;
   --cursor-inactive: #8e8e93;
 
   --tmux-status-bg: #00853e;

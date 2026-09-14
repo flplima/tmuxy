@@ -42,8 +42,9 @@
   opacity: 0;
 }
 
+/* Dark on the accent block, which is a light colour in every theme. */
 .smooth-cursor.is-copy .smooth-cursor-char {
-  color: var(--cursor-bg);
+  color: var(--term-black);
 }
 
 /* The blink. Two gates have to agree: `@tmuxy-cursor-blink` on the app

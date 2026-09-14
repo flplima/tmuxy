@@ -206,7 +206,11 @@ export const TerminalLine = memo(
             .filter(Boolean)
             .join(' ') || undefined;
         if (currentGroup.selected) {
-          style = { ...style, color: 'var(--term-black)', backgroundColor: '#c0c0c0' };
+          style = {
+            ...style,
+            color: 'var(--selection-fg)',
+            backgroundColor: 'var(--selection-bg)',
+          };
         }
 
         // Block Elements are drawn as CSS rectangles rather than font glyphs so

@@ -1301,6 +1301,29 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     const selected = await ctx.page.evaluate(() => window.getSelection()?.toString() ?? '');
     expect(selected).toBe('DRAG_SELECT_ME');
 
+    // The selection wears the terminal's colours reversed: the foreground as
+    // its background, the palette's gray for the text.
+    const paint = await ctx.page.evaluate(() => {
+      const node = window.getSelection().getRangeAt(0).startContainer;
+      const el = node.nodeType === 1 ? node : node.parentElement;
+      const sel = getComputedStyle(el, '::selection');
+      const probe = document.createElement('span');
+      probe.style.backgroundColor = 'var(--term-foreground)';
+      probe.style.color = 'var(--term-bright-black)';
+      document.body.appendChild(probe);
+      const want = getComputedStyle(probe);
+      const result = {
+        bg: sel.backgroundColor,
+        fg: sel.color,
+        wantBg: want.backgroundColor,
+        wantFg: want.color,
+      };
+      probe.remove();
+      return result;
+    });
+    expect(paint.wantBg).not.toBe('rgba(0, 0, 0, 0)');
+    expect({ bg: paint.bg, fg: paint.fg }).toEqual({ bg: paint.wantBg, fg: paint.wantFg });
+
     // 2. Copying blinks the copied text: boxes laid over the selection, which
     //    go away on their own.
     await ctx.page.evaluate(() => {
@@ -1373,7 +1396,56 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
         if (pre.getAttribute('data-copied') === 'true') window.__sawCopied = true;
       }).observe(pre, { attributes: true, attributeFilter: ['data-copied'] });
     });
-    await drag(ctx.page, at.first, at.last, at.y);
+    // Copy mode's block cursor is the theme's accent — green on the default theme.
+    const cursor = await ctx.page.evaluate(() => {
+      const shape = document.querySelector('.smooth-cursor.is-copy .smooth-cursor-shape');
+      const probe = document.createElement('span');
+      probe.style.backgroundColor = 'var(--term-green)';
+      document.body.appendChild(probe);
+      const result = {
+        bg: shape ? getComputedStyle(shape).backgroundColor : null,
+        want: getComputedStyle(probe).backgroundColor,
+      };
+      probe.remove();
+      return result;
+    });
+    expect(cursor.bg).toBe(cursor.want);
+
+    // Mid-drag, the selected cells wear the same reversed colours as a
+    // browser selection does.
+    await ctx.page.mouse.move(at.first, at.y);
+    await ctx.page.mouse.down();
+    await ctx.page.mouse.move(at.last, at.y, { steps: 10 });
+    await delay(120);
+    await ctx.page.mouse.move(at.last + 0.5, at.y);
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(
+          () => !!document.querySelector('[data-copy-mode="true"] .terminal-selected'),
+        ),
+      3000,
+      'the drag to select cells',
+    );
+    const cells = await ctx.page.evaluate(() => {
+      const cell = document.querySelector('[data-copy-mode="true"] .terminal-selected');
+      const probe = document.createElement('span');
+      probe.style.backgroundColor = 'var(--term-foreground)';
+      probe.style.color = 'var(--term-bright-black)';
+      document.body.appendChild(probe);
+      const got = getComputedStyle(cell);
+      const want = getComputedStyle(probe);
+      const result = {
+        bg: got.backgroundColor,
+        fg: got.color,
+        wantBg: want.backgroundColor,
+        wantFg: want.color,
+      };
+      probe.remove();
+      return result;
+    });
+    expect({ bg: cells.bg, fg: cells.fg }).toEqual({ bg: cells.wantBg, fg: cells.wantFg });
+    await ctx.page.mouse.up();
 
     // Released: the selection is on the clipboard, the copied text blinked,
     // and copy mode is over — on the client and in tmux.

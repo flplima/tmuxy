@@ -71,7 +71,6 @@
 
   --cursor-bg: #839496;
   --cursor-text: #002b36;
-  --cursor-copy-bg: #268bd2;
   --cursor-inactive: #586e75;
 
   --tmux-status-bg: #859900;
@@ -152,7 +151,6 @@
 
   --cursor-bg: #586e75;
   --cursor-text: #fdf6e3;
-  --cursor-copy-bg: #268bd2;
   --cursor-inactive: #93a1a1;
 
   --tmux-status-bg: #859900;

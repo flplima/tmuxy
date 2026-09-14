@@ -29,8 +29,8 @@ function applyStyleToElement(
 ): void {
   if (selected) {
     el.className = 'terminal-selected';
-    el.style.color = 'var(--term-black)';
-    el.style.backgroundColor = '#c0c0c0';
+    el.style.color = 'var(--selection-fg)';
+    el.style.backgroundColor = 'var(--selection-bg)';
   }
 
   if (!style) return;
@@ -258,8 +258,8 @@ export function renderLineToDOM(
     if (padLen > 0) {
       const span = document.createElement('span');
       span.className = 'terminal-selected';
-      span.style.color = 'var(--term-black)';
-      span.style.backgroundColor = '#c0c0c0';
+      span.style.color = 'var(--selection-fg)';
+      span.style.backgroundColor = 'var(--selection-bg)';
       span.textContent = ' '.repeat(padLen);
       el.appendChild(span);
     }

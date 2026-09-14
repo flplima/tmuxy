@@ -92,10 +92,21 @@
   --error-bg: rgba(255, 0, 0, 0.2);
   --error-border: rgba(255, 0, 0, 0.4);
 
+  /* The theme's accent: what the active tab is drawn in where a theme names
+     one (yellow on gruvbox), the palette's green otherwise. */
+  --theme-accent: var(--tab-active-text, var(--accent-green));
+
   /* Colors - Cursor */
   --cursor-bg: var(--term-white);
   --cursor-text: var(--term-black);
-  --cursor-copy-bg: var(--term-blue);
+  /* Copy mode's block cursor is the accent, so the mode is unmistakable. */
+  --cursor-copy-bg: var(--theme-accent);
+
+  /* Selected text, in copy mode and in the browser's own selection alike: the
+     terminal's colours reversed — the foreground as the background — with the
+     palette's gray for the text. */
+  --selection-bg: var(--term-foreground, var(--term-white));
+  --selection-fg: var(--term-bright-black);
 
   /* Colors - Tmux Status */
   --tmux-status-bg: var(--term-green);
@@ -483,7 +494,15 @@
 
 .terminal-cursor-copy {
   background-color: var(--cursor-copy-bg);
-  color: var(--text-primary);
+  color: var(--term-black);
+}
+
+/* The browser's selection over terminal text wears the same colours as copy
+   mode's (--selection-bg / --selection-fg). */
+.terminal-selectable::selection,
+.terminal-selectable *::selection {
+  background-color: var(--selection-bg);
+  color: var(--selection-fg);
 }
 
 .terminal-cursor-underline {

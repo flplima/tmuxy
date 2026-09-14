@@ -74,7 +74,6 @@
 
   --cursor-bg: #ebdbb2;
   --cursor-text: #282828;
-  --cursor-copy-bg: #458588;
   --cursor-inactive: #928374;
 
   /* Status bar: dark gray (instead of olive green) */
@@ -183,7 +182,6 @@
 
   --cursor-bg: #3c3836;
   --cursor-text: #fbf1c7;
-  --cursor-copy-bg: #076678;
   --cursor-inactive: #928374;
 
   /* Status bar: dark gray with cream text (matches dark mode treatment) */
