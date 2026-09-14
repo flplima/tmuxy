@@ -1211,12 +1211,26 @@ export class DemoTmux {
   // ============================================
 
   /**
-   * Navigate left/right to the neighbouring split, grouped pane or not. A
-   * group's hidden members are its own tabs, never a stop on the way across
-   * the tab (mirrors bin/tmuxy/nav).
+   * Navigate left/right: the neighbouring group member first, without
+   * wrapping, then the neighbouring split (mirrors bin/tmuxy/nav). From the
+   * last member of a group, right moves on to the pane on the right.
    */
   navHorizontal(direction: 'left' | 'right'): void {
-    if (!this.getActiveWindow()) return;
+    const activeWindow = this.getActiveWindow();
+    if (!activeWindow) return;
+
+    const groupPaneIds = this.findGroupForPane(this.activePaneId)?.groupPanes;
+    if (groupPaneIds && groupPaneIds.length > 1) {
+      const visibleId = groupPaneIds.find((id) => this.containsPane(activeWindow.layout, id));
+      if (visibleId) {
+        const next = groupPaneIds.indexOf(visibleId) + (direction === 'right' ? 1 : -1);
+        if (next >= 0 && next < groupPaneIds.length) {
+          this.groupSwitch(groupPaneIds[next]);
+          return;
+        }
+      }
+    }
+
     this.selectPaneByDirection(direction === 'right' ? 'Right' : 'Left');
   }
 

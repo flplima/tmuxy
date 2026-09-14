@@ -200,8 +200,8 @@ usage_nav() {
 Usage: tmuxy nav <direction>
 
 Directions:
-  left        Pane to the left, else the left sidebar if it is open
-  right       Pane to the right, else the right sidebar if it is open
+  left        Previous group member → pane to the left → left sidebar
+  right       Next group member → pane to the right → right sidebar
   up          Pane splits only (vertical)
   down        Pane splits only (vertical)
   next        Sequential forward (same as right)

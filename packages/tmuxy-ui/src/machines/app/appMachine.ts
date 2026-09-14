@@ -258,11 +258,12 @@ function resolveTabNavTarget(
  * the resolved target is already the visible pane (so the optimistic flip
  * can no-op cleanly).
  *
- * Matches the command-alias form (`tmuxy-pane-group-prev/next`) and the
- * expanded `run-shell` form. Horizontal pane nav (`tmuxy-nav-left/right`,
- * Ctrl+h / Ctrl+l) is NOT a group step: it moves to the neighbouring pane or
- * into a sidebar, grouped pane or not, so it never cycles a group's hidden
- * members in place of leaving the pane.
+ * Matches the command-alias form (`tmuxy-pane-group-prev/next`,
+ * `tmuxy-nav-left/right`) and the expanded `run-shell` form for both. The
+ * group commands wrap around the group. Horizontal pane nav (Ctrl+h /
+ * Ctrl+l) steps through the group too but stops at its ends: from the last
+ * member Ctrl+l returns null here, so the key falls through to the pane on
+ * the right or the sidebar, exactly as the `nav` script does.
  *
  * `pane-group-switch` is deliberately NOT matched — that's what
  * `SELECT_PANE_GROUP_TAB` itself emits and would recurse.
@@ -274,10 +275,17 @@ function resolvePaneGroupNavTarget(
   const trimmed = command.trim();
 
   let direction: 'prev' | 'next' | null = null;
+  let wrap = true;
   if (trimmed.match(/^tmuxy-pane-group-prev\b/) || trimmed.includes('/pane-group-prev')) {
     direction = 'prev';
   } else if (trimmed.match(/^tmuxy-pane-group-next\b/) || trimmed.includes('/pane-group-next')) {
     direction = 'next';
+  } else if (trimmed.match(/^tmuxy-nav-left\b/) || trimmed.match(/\/nav\s+left\b/)) {
+    direction = 'prev';
+    wrap = false;
+  } else if (trimmed.match(/^tmuxy-nav-right\b/) || trimmed.match(/\/nav\s+right\b/)) {
+    direction = 'next';
+    wrap = false;
   }
   if (!direction) return null;
 
@@ -290,7 +298,8 @@ function resolvePaneGroupNavTarget(
   if (!group || group.paneIds.length <= 1) return null;
 
   // Mirror the shell scripts' algorithm: index off the currently-visible pane
-  // (the one in the active window), step ±1 with wrap.
+  // (the one in the active window) and step ±1 — wrapping for the group
+  // commands, stopping at the ends for Ctrl+h / Ctrl+l.
   const visibleId = group.paneIds.find((id) => {
     const p = context.panes.find((pp) => pp.tmuxId === id);
     return p?.windowId === context.activeWindowId;
@@ -299,7 +308,11 @@ function resolvePaneGroupNavTarget(
 
   const idx = group.paneIds.indexOf(visibleId);
   const count = group.paneIds.length;
-  const targetIdx = direction === 'next' ? (idx + 1) % count : (idx - 1 + count) % count;
+  let targetIdx = direction === 'next' ? idx + 1 : idx - 1;
+  if (targetIdx < 0 || targetIdx >= count) {
+    if (!wrap) return null;
+    targetIdx = (targetIdx + count) % count;
+  }
   const target = group.paneIds[targetIdx];
   if (!target || target === visibleId) return null;
 
@@ -1532,8 +1545,8 @@ export const appMachine = setup({
 
             // Sidebar boundary (entering): Ctrl+h from the leftmost pane, or
             // Ctrl+l from the rightmost one, focuses that side's open column
-            // instead of doing a tmux `select-pane -L/-R` no-op — a grouped
-            // pane included.
+            // instead of doing a tmux `select-pane -L/-R` no-op. After group
+            // nav, so a grouped pane shows its remaining members first.
             if (navDir === 'left' || navDir === 'right') {
               const activePane = context.panes.find((p) => p.tmuxId === context.activePaneId);
               if (activePane) {
