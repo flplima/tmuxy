@@ -1782,6 +1782,97 @@ describe('Scenario 6f: Float Tab Scope', () => {
   }, 180000);
 });
 
+// ============ Scenario 6h: Ctrl+h / Ctrl+l leave a grouped pane ============
+
+describe('Scenario 6h: Horizontal nav from a grouped pane', () => {
+  const ctx = createTestContext({ snapshot: true });
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  /** Where the keyboard is, and which member of the group is showing. */
+  const where = (page) =>
+    page.evaluate(() => {
+      const c = window.app.getSnapshot().context;
+      const active = c.panes.find((p) => p.tmuxId === c.activePaneId);
+      const group = Object.values(c.paneGroups)[0];
+      const shown = group?.paneIds.find(
+        (id) => c.panes.find((p) => p.tmuxId === id)?.windowId === c.activeWindowId,
+      );
+      return {
+        active: c.activePaneId,
+        activeX: active?.x ?? null,
+        grouped: !!group?.paneIds.includes(c.activePaneId),
+        shown: shown ?? null,
+        dockFocused: c.rightSidebarFocused,
+      };
+    });
+
+  test('Ctrl+l and Ctrl+h move to the next pane and into the dock instead of cycling the group', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // Two panes side by side; the left one becomes a group of two.
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    await waitForPaneCount(ctx.page, 2);
+    await navigatePaneKeyboard(ctx.page, 'left');
+    await clickPaneGroupAdd(ctx.page);
+    await waitForGroupTabs(ctx.page, 2);
+    await waitForCondition(
+      ctx.page,
+      async () => (await where(ctx.page)).grouped,
+      10000,
+      'the grouped pane to hold the keyboard',
+    );
+    const start = await where(ctx.page);
+    expect(start.activeX).toBe(0);
+
+    // Ctrl+l from the grouped pane goes to the pane on its right. It used to
+    // step through the group's members and never leave the pane.
+    await navigatePaneKeyboard(ctx.page, 'right');
+    await waitForCondition(
+      ctx.page,
+      async () => (await where(ctx.page)).activeX > 0,
+      10000,
+      'Ctrl+l to reach the pane on the right',
+    );
+    expect((await where(ctx.page)).shown).toBe(start.shown);
+
+    // Ctrl+h comes back to the same member of the group, not the next one.
+    await navigatePaneKeyboard(ctx.page, 'left');
+    await waitForCondition(
+      ctx.page,
+      async () => (await where(ctx.page)).active === start.active,
+      10000,
+      'Ctrl+h to return to the grouped pane',
+    );
+    expect((await where(ctx.page)).shown).toBe(start.shown);
+
+    // With the dock open, Ctrl+l from the rightmost pane goes into it.
+    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+    await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 20000 });
+    await navigatePaneKeyboard(ctx.page, 'left'); // the dock hands the keyboard back
+    await waitForCondition(
+      ctx.page,
+      async () => (await where(ctx.page)).dockFocused === false,
+      10000,
+      'the dock to hand the keyboard back',
+    );
+    await navigatePaneKeyboard(ctx.page, 'right');
+    await navigatePaneKeyboard(ctx.page, 'right');
+    await waitForCondition(
+      ctx.page,
+      async () => (await where(ctx.page)).dockFocused === true,
+      10000,
+      'Ctrl+l from the rightmost pane to focus the dock',
+    );
+    expect((await where(ctx.page)).shown).toBe(start.shown);
+
+    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+  }, 180000);
+});
+
 // ==================== Scenario 11: Status Bar ====================
 
 describe('Scenario 11: Status Bar', () => {

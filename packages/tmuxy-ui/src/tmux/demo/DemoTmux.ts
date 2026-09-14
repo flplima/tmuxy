@@ -1210,38 +1210,14 @@ export class DemoTmux {
   // Unified Navigation (mirrors nav.sh)
   // ============================================
 
-  /** Navigate left/right: group pane tabs → horizontal pane splits (circular, no tab wrap) */
+  /**
+   * Navigate left/right to the neighbouring split, grouped pane or not. A
+   * group's hidden members are its own tabs, never a stop on the way across
+   * the tab (mirrors bin/tmuxy/nav).
+   */
   navHorizontal(direction: 'left' | 'right'): void {
-    const activeWindow = this.getActiveWindow();
-    if (!activeWindow) return;
-
-    // Step 1: Check if active pane is in a group
-    const groupWindow = this.findGroupForPane(this.activePaneId);
-    if (groupWindow) {
-      const groupPaneIds = groupWindow.groupPanes;
-      if (groupPaneIds && groupPaneIds.length > 1) {
-        // Find which pane from the group is visible in active window
-        const visibleId = groupPaneIds.find((id) => this.containsPane(activeWindow.layout, id));
-        if (visibleId) {
-          const idx = groupPaneIds.indexOf(visibleId);
-          // Circular wrap within group
-          if (direction === 'right') {
-            const nextIdx = (idx + 1) % groupPaneIds.length;
-            if (nextIdx !== idx) this.groupSwitch(groupPaneIds[nextIdx]);
-            return;
-          }
-          if (direction === 'left') {
-            const prevIdx = (idx - 1 + groupPaneIds.length) % groupPaneIds.length;
-            if (prevIdx !== idx) this.groupSwitch(groupPaneIds[prevIdx]);
-            return;
-          }
-        }
-      }
-    }
-
-    // Step 2: Try directional pane select (no tab fallback)
-    const tmuxDir = direction === 'right' ? 'Right' : 'Left';
-    this.selectPaneByDirection(tmuxDir);
+    if (!this.getActiveWindow()) return;
+    this.selectPaneByDirection(direction === 'right' ? 'Right' : 'Left');
   }
 
   /** Navigate up/down: vertical pane splits only (no group or tab fallback) */
