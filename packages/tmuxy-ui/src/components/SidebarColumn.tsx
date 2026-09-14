@@ -25,7 +25,7 @@
  * the UI doesn't render.
  */
 
-import { memo, useCallback, type CSSProperties } from 'react';
+import { memo, useCallback, useMemo, type CSSProperties } from 'react';
 import { TerminalPane } from './TerminalPane';
 import { getWidget } from './widgets';
 import {
@@ -211,6 +211,10 @@ function SidebarPane({
   const send = useAppSend();
   const { charHeight } = useAppSelector(selectCharSize);
   const dock = useAppSelector(selectSidebarCellMetrics);
+  const dockCell = useMemo(
+    () => ({ width: dock.cellWidth, height: dock.lineHeight }),
+    [dock.cellWidth, dock.lineHeight],
+  );
 
   if (!pane) {
     if (startFailed) {
@@ -264,7 +268,7 @@ function SidebarPane({
       style={{ height: pane.height * (side === 'right' ? dock.lineHeight : charHeight) }}
       data-pane-id={pane.tmuxId}
     >
-      <TerminalPane paneId={pane.tmuxId} chrome="none" isActive={focused} />
+      <TerminalPane paneId={pane.tmuxId} chrome="none" isActive={focused} cellSize={dockCell} />
     </div>
   );
 }

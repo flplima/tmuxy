@@ -166,15 +166,23 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     }
   }, [stopAutoScroll]);
 
-  // Convert pixel coordinates to terminal cell coordinates
-  // Uses the .pane-content element's rect so coordinates are relative to the
-  // terminal content area (below the header), not the entire pane wrapper.
+  // The box the cell grid starts in: the scroll container, inside the pane
+  // content's horizontal padding. Measured from `.pane-content` itself, every
+  // position read half a cell too far right, so a click on the right half of
+  // a cell went to the next column.
+  const gridRect = useCallback(
+    () => (scrollRef.current ?? contentRef.current)?.getBoundingClientRect(),
+    [contentRef, scrollRef],
+  );
+
+  // Convert pixel coordinates to terminal cell coordinates, relative to the
+  // cell grid (below the header, inside the padding).
   // Accounts for sub-line scroll offset when the scroll container is not
   // line-aligned (smooth scroll leaves fractional pixel offsets).
   // Does NOT clamp Y so we can detect above/below for auto-scroll.
   const pixelToCell = useCallback(
     (e: React.MouseEvent): { x: number; y: number } => {
-      const rect = contentRef.current?.getBoundingClientRect();
+      const rect = gridRect();
       if (!rect) return { x: 0, y: 0 };
       const relX = e.clientX - rect.left;
       let relY = e.clientY - rect.top;
@@ -188,7 +196,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         y: Math.floor(relY / charHeight),
       };
     },
-    [charWidth, charHeight, contentRef, scrollRef],
+    [charWidth, charHeight, gridRect, scrollRef],
   );
 
   // Handle mouse down
@@ -351,7 +359,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       }
 
       // Check if mouse is above or below content area for auto-scroll
-      const rect = contentRef.current?.getBoundingClientRect();
+      const rect = gridRect();
       if (rect && isDraggingForSelectionRef.current) {
         const relY = e.clientY - rect.top;
         const isAbove = relY < 0;
@@ -384,7 +392,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       mouseAnyFlag,
       copyModeActive,
       pixelToCell,
-      contentRef,
+      gridRect,
       options.paneHeight,
       startAutoScroll,
       stopAutoScroll,
@@ -402,7 +410,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       }
 
       // Start auto-scroll based on which edge the mouse left from
-      const rect = contentRef.current?.getBoundingClientRect();
+      const rect = gridRect();
       if (rect) {
         const relY = e.clientY - rect.top;
         const col = Math.max(0, Math.floor((e.clientX - rect.left) / charWidth));
@@ -413,7 +421,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
         }
       }
     },
-    [contentRef, charWidth, startAutoScroll],
+    [gridRect, charWidth, startAutoScroll],
   );
 
   // Accumulate sub-line pixel deltas across wheel events (trackpad support)

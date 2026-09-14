@@ -51,14 +51,24 @@ interface TerminalPaneProps {
    * holds the keyboard.
    */
   isActive?: boolean;
+  /**
+   * The cell the pane is drawn in, when it is not the pane grid's. The dock
+   * runs in the smaller sidebar font, and every pixel-to-cell conversion here
+   * (a click, a drag, the wheel, the scrollback height) has to use the cell
+   * the user sees: with the grid's larger one, a click in the dock reached
+   * tmux cells up and to the left of where it landed.
+   */
+  cellSize?: { width: number; height: number };
 }
 
-export function TerminalPane({ paneId, chrome = 'header', isActive }: TerminalPaneProps) {
+export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: TerminalPaneProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
-  const { charWidth, charHeight } = useAppSelector(selectCharSize);
+  const gridCell = useAppSelector(selectCharSize);
+  const charWidth = cellSize?.width ?? gridCell.charWidth;
+  const charHeight = cellSize?.height ?? gridCell.charHeight;
   const keyboardElsewhere = useAppSelector(selectKeyboardElsewhere);
   // The pane holds the keyboard: tmux's active pane in the active window with
   // nothing (float, dock, tree) focused over it — or whatever the dock's column

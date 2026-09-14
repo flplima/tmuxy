@@ -34,13 +34,18 @@ function describePaneCommands(ctx) {
  * Start the mouse capture Python script in the terminal.
  * Waits for READY signal and mouse-any-flag to be set.
  * Returns content box and char size for coordinate calculations.
+ *
+ * `terminal` names the terminal to start it in, as a selector. By default it
+ * starts in the active tiled pane — so a capture meant for the dock ran in
+ * the pane instead, and the dock's clicks reached a shell that reports
+ * nothing.
  */
-async function startMouseCapture(ctx) {
+async function startMouseCapture(ctx, { terminal } = {}) {
   try {
     fs.unlinkSync(MOUSE_LOG);
   } catch {}
-  await focusPage(ctx.page);
-  await typeInTerminal(ctx.page, `python3 ${MOUSE_CAPTURE_SCRIPT}`);
+  if (!terminal) await focusPage(ctx.page);
+  await typeInTerminal(ctx.page, `python3 ${MOUSE_CAPTURE_SCRIPT}`, { target: terminal });
   await pressEnter(ctx.page);
   // Wait for READY signal — check the log file (more reliable than DOM text
   // since raw mode output may not render immediately in the terminal).

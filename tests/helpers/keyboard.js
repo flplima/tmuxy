@@ -185,10 +185,15 @@ async function typeChar(page, char) {
 /**
  * Type text in terminal
  */
-async function typeInTerminal(page, text) {
-  // Click the active pane's terminal for reliable focus.
+async function typeInTerminal(page, text, { target } = {}) {
+  // Click the active pane's terminal for reliable focus, or `target` when the
+  // text is meant for another terminal (the dock's). Clicking the active pane
+  // there would take the keyboard away from the terminal the text is for.
   // Using the first [role="log"] would change the active pane via FOCUS_PANE.
-  const terminal = (await page.$('.pane-active [role="log"]')) || (await page.$('[role="log"]'));
+  const terminal =
+    (target && (await page.$(target))) ||
+    (await page.$('.pane-active [role="log"]')) ||
+    (await page.$('[role="log"]'));
   if (terminal) {
     await terminal.click();
   } else {

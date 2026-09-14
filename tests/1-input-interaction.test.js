@@ -22,6 +22,7 @@ const {
   sendKeyCombo,
   waitForPaneCount,
   splitPaneKeyboard,
+  sendPrefixCommand,
   killPaneKeyboard,
   resizePaneKeyboard,
   DELAYS,
@@ -64,6 +65,50 @@ async function dispatchTouchScroll(page, startX, startY, endY, steps = 10, stepD
     touchPoints: [],
   });
   await cdp.detach();
+}
+
+// ==================== Mouse Cell Helpers ====================
+
+/**
+ * The cell grid of a pane as the user sees it: the box the cells start in
+ * and the size of one cell, read from the rendered lines rather than from the
+ * app's idea of the grid — the dock draws its cells smaller than the panes.
+ */
+async function gridOf(page, rootSelector) {
+  const grid = await page.evaluate((sel) => {
+    const root = [...document.querySelectorAll(sel)].find(
+      (el) => el.getBoundingClientRect().width > 0 && el.querySelector('.terminal-line'),
+    );
+    if (!root) return null;
+    const box = root.querySelector('.pane-scroll-container').getBoundingClientRect();
+    const line = root.querySelector('.terminal-line');
+    return {
+      x: box.x,
+      y: box.y,
+      cellW: parseFloat(getComputedStyle(line).getPropertyValue('--cell-w')),
+      cellH: line.getBoundingClientRect().height,
+    };
+  }, rootSelector);
+  expect(grid).not.toBeNull();
+  return grid;
+}
+
+/**
+ * Click `frac` of the way across cell (col, row), both 0-based, and return the
+ * press tmux delivered for it.
+ */
+async function clickCell(page, grid, col, row, frac = 0.5) {
+  const before = (await readMouseEvents(0, 200)).filter((e) => e.type === 'press').length;
+  await page.mouse.click(grid.x + (col + frac) * grid.cellW, grid.y + (row + 0.5) * grid.cellH);
+  const start = Date.now();
+  let presses = [];
+  while (Date.now() - start < 5000) {
+    presses = (await readMouseEvents(0, 200)).filter((e) => e.type === 'press');
+    if (presses.length > before) break;
+    await delay(DELAYS.SHORT);
+  }
+  expect(presses.length).toBeGreaterThan(before);
+  return presses[presses.length - 1];
 }
 
 // ==================== Scenario 1: General Layout ====================
@@ -1118,5 +1163,79 @@ describe('Scenario 23: Multi-Viewport Layout', () => {
     // Restore default viewport
     await ctx.page.setViewportSize({ width: 1280, height: 720 });
     await delay(DELAYS.SYNC);
+  }, 180000);
+});
+
+// ==================== Scenario 7c: Mouse lands on the clicked cell ====================
+
+describe('Scenario 7c: Mouse lands on the clicked cell', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(async () => {
+    await ensureMouseCaptureStopped(ctx);
+    await ctx.afterEach();
+  }, ctx.hookTimeout);
+
+  test('a click reaches tmux at the cell under the pointer, in a pane and in the dock', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await waitForShellPrompt(ctx.page, 10000);
+
+    // 1. A tiled pane. The click on a cell's right half is the one that went
+    //    wrong: positions were read from the padded content box, half a cell
+    //    to the left of the first cell, so it landed in the next column.
+    await startMouseCapture(ctx);
+    const pane = await gridOf(ctx.page, '.pane-layout-item');
+    for (const [col, row, frac] of [
+      [10, 4, 0.5],
+      [20, 6, 0.8],
+      [3, 2, 0.2],
+    ]) {
+      const press = await clickCell(ctx.page, pane, col, row, frac);
+      expect({ at: [col, row, frac], x: press.x, y: press.y }).toEqual({
+        at: [col, row, frac],
+        x: col + 1,
+        y: row + 1,
+      });
+    }
+    await stopMouseCapture(ctx);
+
+    // 2. The dock. Its terminal runs in the smaller sidebar font, and clicks
+    //    there were converted with the pane grid's larger cell: they reached
+    //    tmux cells up and to the left of the pointer.
+    await sendPrefixCommand(ctx.page, 'T', { shift: true });
+    await ctx.page.waitForSelector('[data-testid="right-sidebar-content"] .terminal-line', {
+      timeout: 20000,
+    });
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === true),
+      10000,
+      'the dock to take the keyboard',
+    );
+    await waitForShellPrompt(ctx.page, 10000);
+    // Started in the dock's own terminal: by default the capture goes to the
+    // active tiled pane.
+    await startMouseCapture(ctx, {
+      terminal: '[data-testid="right-sidebar-content"] [role="log"]',
+    });
+    const dock = await gridOf(ctx.page, '[data-testid="right-sidebar-content"]');
+    expect(dock.cellW).toBeLessThan(pane.cellW);
+    for (const [col, row, frac] of [
+      [5, 8, 0.5],
+      [20, 15, 0.8],
+    ]) {
+      const press = await clickCell(ctx.page, dock, col, row, frac);
+      expect({ at: [col, row, frac], x: press.x, y: press.y }).toEqual({
+        at: [col, row, frac],
+        x: col + 1,
+        y: row + 1,
+      });
+    }
+    await stopMouseCapture(ctx);
+    await sendPrefixCommand(ctx.page, 'T', { shift: true });
   }, 180000);
 });
