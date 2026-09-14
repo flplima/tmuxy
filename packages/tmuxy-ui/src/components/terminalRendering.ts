@@ -215,6 +215,8 @@ export function renderLineToDOM(
       target = document.createElement('span');
     }
     applyStyleToElement(target as HTMLSpanElement, groupStyle, groupSelected);
+    // After the style: a selected span has its className replaced there.
+    if (groupWide) target.classList.add('terminal-wide');
     // Pin the span to an exact number of character cells, matching
     // TerminalLine's stable-grid behaviour: a glyph whose advance differs
     // from the cell (emoji, CJK) paints within/over its fixed box instead of

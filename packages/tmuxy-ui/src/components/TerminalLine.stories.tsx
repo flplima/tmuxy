@@ -388,3 +388,61 @@ export const FatInkIcon: Story = {
     expect(label.start).toBeCloseTo(3, 1);
   },
 };
+
+/** An editor's cursor line: every cell on the row carries its background. */
+const CURSOR_LINE = { bg: 237 };
+
+/**
+ * Emoji on a coloured row, as nvim draws them on its cursor line.
+ *
+ * ☑️ (a narrow symbol widened by VS16) and ✅ are both two columns to tmux,
+ * so each arrives as the glyph's cell plus a continuation cell. Both glyphs
+ * paint two cells wide from a one-cell box, so the paint order decides what
+ * the user sees: the next cell's background was drawn after the glyph and
+ * covered its right half.
+ * A hit test cannot see ink that overflows its box, so the lift is asserted
+ * through the paint order it relies on — the glyph's own stacking layer inside
+ * an isolated row — alongside the sizes the user sees.
+ */
+export const EmojiOnAColouredRow: Story = {
+  args: {
+    line: [
+      ...styled('1 ', CURSOR_LINE),
+      { c: '\u2611\ufe0f', s: CURSOR_LINE },
+      { c: ' ', s: CURSOR_LINE },
+      ...styled('|2 ', CURSOR_LINE),
+      { c: '\u2705', s: CURSOR_LINE },
+      { c: ' ', s: CURSOR_LINE },
+      ...styled('|end', CURSOR_LINE),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    await cellGridReady();
+    const cellW = cellWidthOf(grid(canvasElement));
+    const line = canvasElement.querySelector('.terminal-line') as HTMLElement;
+    expect(getComputedStyle(line).isolation).toBe('isolate');
+
+    for (const glyph of ['\u2611\ufe0f', '\u2705']) {
+      const span = spanWithText(canvasElement, glyph);
+      const next = span.nextElementSibling as HTMLElement;
+
+      // One cell of box on the grid...
+      expect(span.getBoundingClientRect().width / cellW).toBeCloseTo(1, 1);
+      // ...painting over the cell after it, not under it.
+      expect(span.classList.contains('terminal-wide')).toBe(true);
+      expect(getComputedStyle(span).position).toBe('relative');
+      expect(Number(getComputedStyle(span).zIndex)).toBeGreaterThan(0);
+      expect(getComputedStyle(next).zIndex).toBe('auto');
+
+      // Full size: never handed to the shrink-to-fit path, and its text still
+      // advances about two cells.
+      expect(span.querySelector('.terminal-fit-glyph')).toBeNull();
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      expect(range.getBoundingClientRect().width / cellW).toBeGreaterThan(1.2);
+
+      // The cell it spills into is the row's colour, not a hole in it.
+      expect(getComputedStyle(next).backgroundColor).toBe(getComputedStyle(span).backgroundColor);
+    }
+  },
+};

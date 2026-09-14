@@ -71,6 +71,23 @@ export function getAnsi256Color(index: number): string {
 }
 
 /**
+ * Symbols outside the wide blocks below that tmux still gives two columns:
+ * every code point Unicode marks East Asian Wide in the technical, geometric,
+ * Misc Symbols, Dingbats and arrows blocks, plus the few emoji below U+1F300.
+ * They are the symbols that default to emoji presentation, so they paint two
+ * cells wide in every font.
+ */
+const EMOJI_PRESENTATION_WIDE: ReadonlySet<number> = new Set([
+  0x231a, 0x231b, 0x23e9, 0x23ea, 0x23eb, 0x23ec, 0x23f0, 0x23f3, 0x25fd, 0x25fe, 0x2614, 0x2615,
+  0x2648, 0x2649, 0x264a, 0x264b, 0x264c, 0x264d, 0x264e, 0x264f, 0x2650, 0x2651, 0x2652, 0x2653,
+  0x267f, 0x2693, 0x26a1, 0x26aa, 0x26ab, 0x26bd, 0x26be, 0x26c4, 0x26c5, 0x26ce, 0x26d4, 0x26ea,
+  0x26f2, 0x26f3, 0x26f5, 0x26fa, 0x26fd, 0x2705, 0x270a, 0x270b, 0x2728, 0x274c, 0x274e, 0x2753,
+  0x2754, 0x2755, 0x2757, 0x2795, 0x2796, 0x2797, 0x27b0, 0x27bf, 0x2b1b, 0x2b1c, 0x2b50, 0x2b55,
+  0x1f004, 0x1f0cf, 0x1f18e, 0x1f191, 0x1f192, 0x1f193, 0x1f194, 0x1f195, 0x1f196, 0x1f197, 0x1f198,
+  0x1f199, 0x1f19a,
+]);
+
+/**
  * Whether a cell's character is double-width (occupies two terminal columns):
  * CJK ideographs, kana, Hangul, fullwidth forms, and emoji.
  *
@@ -92,13 +109,15 @@ export function isWideChar(s: string): boolean {
   if (s.includes('\uFE0F')) return true;
   const cp = s.codePointAt(0);
   if (cp === undefined) return false;
-  // Misc Symbols and Dingbats (U+2600–U+27BF) are deliberately NOT listed. Their
-  // text-presentation glyphs sit within a cell (measured: ❤ and ✔ advance 0.978),
-  // so isolating them buys almost nothing — while the block also contains ❯, the
-  // default zsh prompt character, which measures exactly 1.0 and would then get
-  // its own span on every prompt line. That is pure DOM fragmentation and extra
-  // mutation churn. The wide cases in that block carry U+FE0F and are caught
-  // above.
+  // Misc Symbols and Dingbats (U+2600–U+27BF) are NOT listed as a block. Most
+  // of their text-presentation glyphs sit within a cell (measured: ❤ and ✔
+  // advance 0.978), and the block also holds ❯, the default zsh prompt
+  // character, which would otherwise get its own span on every prompt line.
+  // Only the code points tmux itself gives two columns are listed: the ones
+  // Unicode marks East Asian Wide, which are exactly the symbols that default
+  // to emoji presentation (✅ ❌ ⭐ ⚡ …). Left out, they fell to the glyph-fit
+  // path, which squeezed a two-column emoji into one cell at half size.
+  if (EMOJI_PRESENTATION_WIDE.has(cp)) return true;
   return (
     (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
     cp === 0x2329 ||
@@ -115,6 +134,7 @@ export function isWideChar(s: string): boolean {
     (cp >= 0xff00 && cp <= 0xff60) || // Fullwidth Forms
     (cp >= 0xffe0 && cp <= 0xffe6) || // Fullwidth signs
     (cp >= 0x1f1e6 && cp <= 0x1f1ff) || // regional indicators (flags: a pair is one 2-cell cell)
+    (cp >= 0x1f200 && cp <= 0x1f265) || // enclosed ideographic supplement (🈚 🉐)
     (cp >= 0x1f300 && cp <= 0x1faff) || // emoji & pictographs
     (cp >= 0x20000 && cp <= 0x3fffd) // CJK Ext B and beyond
   );

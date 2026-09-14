@@ -321,6 +321,53 @@ describe('Scenario 16: Unicode Rendering', () => {
       await runCommand(ctx.page, `echo AFTER_${c.marker}`, `AFTER_${c.marker}`);
     }
   }, 180000);
+  test('A wide glyph on a coloured row keeps the row colour and is drawn above the next cell', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // An editor's cursor line is a coloured row. Two things went wrong on it:
+    // the second column of a wide glyph came out in the default background (a
+    // black hole beside every ✅), and the next cell's background was painted
+    // over the glyph's right half (a cropped ☑️). The row is printed with a
+    // background so both are visible, then parked in `read`.
+    await typeInTerminal(
+      ctx.page,
+      'printf "\\033[48;5;237mBGW \\xe2\\x9c\\x85X \\xe2\\x98\\x91\\xef\\xb8\\x8f END_BG_WIDE\\033[0m"; read -r _',
+    );
+    await pressEnter(ctx.page);
+    await waitForTerminalText(ctx.page, 'END_BG_WIDE');
+    await delay(DELAYS.SYNC);
+
+    const row = await ctx.page.evaluate(() => {
+      const spans = [...document.querySelectorAll('.terminal-line > span')];
+      const report = (glyph) => {
+        const span = spans.find((s) => s.textContent === glyph);
+        if (!span) return null;
+        const next = span.nextElementSibling;
+        const cs = getComputedStyle(span);
+        return {
+          bg: cs.backgroundColor,
+          nextBg: next ? getComputedStyle(next).backgroundColor : null,
+          lifted: cs.position === 'relative' && Number(cs.zIndex) > 0,
+          nextZ: next ? getComputedStyle(next).zIndex : null,
+        };
+      };
+      return { check: report('\u2705'), ballot: report('\u2611\ufe0f') };
+    });
+
+    // ✅ is two columns: its second column is the row's colour, not a hole.
+    expect(row.check).not.toBeNull();
+    expect(row.check.bg).not.toBe('rgba(0, 0, 0, 0)');
+    expect(row.check.nextBg).toBe(row.check.bg);
+    // Both glyphs paint above the cell they spill into.
+    expect(row.check.lifted).toBe(true);
+    expect(row.check.nextZ).toBe('auto');
+    expect(row.ballot).not.toBeNull();
+    expect(row.ballot.lifted).toBe(true);
+
+    await pressEnter(ctx.page);
+    await runCommand(ctx.page, 'echo AFTER_BG_WIDE', 'AFTER_BG_WIDE');
+  }, 180000);
 });
 
 // ==================== Scenario 16b: SGR 2 (faint/dim) ====================

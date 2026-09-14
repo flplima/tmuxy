@@ -23,6 +23,20 @@ describe('isWideChar', () => {
     expect(isWideChar('☑️')).toBe(true);
   });
 
+  it('treats the symbols tmux gives two columns as wide, and only those', () => {
+    // ✅ ❌ ⭐ ⚡ sit among narrow symbols but default to emoji presentation, and
+    // tmux gives them two columns. Classified narrow, they went to the glyph-fit
+    // path, which shrank a two-column emoji into one cell at half size.
+    for (const ch of ['✅', '❌', '⭐', '⚡', '⌛', '⬛', '➕', '🀄', '🆎', '🈚']) {
+      expect({ ch, wide: isWideChar(ch) }).toEqual({ ch, wide: true });
+    }
+    // Their text-presentation neighbours stay narrow — ❯ above all, the zsh
+    // prompt character, which would otherwise get a span of its own per prompt.
+    for (const ch of ['❯', '❤', '✔', '☑', '⚠', '→', '★']) {
+      expect({ ch, wide: isWideChar(ch) }).toEqual({ ch, wide: false });
+    }
+  });
+
   it('treats combined emoji cells as wide: ZWJ sequence, skin tone, flag', () => {
     // The backend (mirroring tmux's screen_write_combine) keeps each of these
     // in ONE cell. The first code point decides: 👩 / 👍 are pictographs; a

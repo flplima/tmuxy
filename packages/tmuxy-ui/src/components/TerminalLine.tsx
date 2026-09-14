@@ -198,8 +198,11 @@ export const TerminalLine = memo(
           );
 
         // Apply selection highlight — override fg/bg via inline style
+        // A wide glyph paints past its 1-cell box into the next cell; lifting
+        // it keeps that cell's background from painting over its right half.
+        const wideClass = currentGroup.wide ? 'terminal-wide' : undefined;
         const selectedClass =
-          [currentGroup.selected ? 'terminal-selected' : undefined, fitClass]
+          [currentGroup.selected ? 'terminal-selected' : undefined, fitClass, wideClass]
             .filter(Boolean)
             .join(' ') || undefined;
         if (currentGroup.selected) {

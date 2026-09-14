@@ -340,6 +340,17 @@
      eliminating sub-pixel gaps between span backgrounds */
   display: flex;
   white-space: pre;
+  /* The row is its own stacking context, so a lifted wide glyph (below) rises
+     above its neighbours and nothing outside the row. */
+  isolation: isolate;
+}
+
+/* A wide glyph owns a 1-cell box and paints across the next cell too. Spans
+   paint in order, so without a lift the next cell's background covers the
+   glyph's right half — an emoji on an editor's cursor line came out cropped. */
+.terminal-line > .terminal-wide {
+  position: relative;
+  z-index: 1;
 }
 
 /* Whatever a row does not fill takes its last cell's background, so a status
