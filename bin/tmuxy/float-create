@@ -43,19 +43,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Apply default dimensions based on mode
-if [ -z "$WIDTH" ] && [ -z "$HEIGHT" ]; then
-  case "$DRAWER" in
-    left|right)  WIDTH=60 ;;
-    top|bottom)  HEIGHT=40 ;;
-    *)           WIDTH=60; HEIGHT=40 ;;
-  esac
-elif [ -z "$WIDTH" ] && [ -n "$DRAWER" ]; then
-  case "$DRAWER" in left|right) WIDTH=60 ;; esac
-elif [ -z "$HEIGHT" ] && [ -n "$DRAWER" ]; then
-  case "$DRAWER" in top|bottom) HEIGHT=40 ;; esac
-fi
-
 # Act on the CALLER's pane, window and session, never on tmux's notion of the
 # current ones: with several clients attached to different sessions (a desktop
 # app on one, a web tab on another) "current" is whichever session was touched
@@ -71,6 +58,44 @@ fi
 
 CURRENT_WIN=$(_tmux display-message -p $CALLER_TARGET '#{window_id}')
 CURRENT_TYPE=$(window_type "$CURRENT_WIN")
+
+# Default float size, in terminal cells (never a percentage - tmux sizes panes
+# in cells, and so does the UI that draws the float over them).
+DEFAULT_WIDTH=60
+DEFAULT_HEIGHT=15
+
+# The default height, never taller than the tab it floats over: a float with
+# more rows than the window has nowhere to put them, and tmux would size the
+# pane down to the window anyway while the UI kept drawing the box past its
+# edge. Only the DEFAULT is capped - an explicit --height is the caller's call.
+WINDOW_ROWS=$(_tmux display-message -p $CALLER_TARGET '#{window_height}' 2>/dev/null || true)
+default_height() {
+  local rows
+  case "${WINDOW_ROWS:-}" in
+    '' | *[!0-9]*) rows=0 ;;
+    *) rows=$WINDOW_ROWS ;;
+  esac
+  if [ "$rows" -gt 0 ] && [ "$rows" -lt "$DEFAULT_HEIGHT" ]; then
+    printf '%s' "$rows"
+  else
+    printf '%s' "$DEFAULT_HEIGHT"
+  fi
+}
+
+# Apply default dimensions based on mode. A left/right drawer spans the full
+# height and a top/bottom one the full width, so each takes only the dimension
+# it actually docks by.
+if [ -z "$WIDTH" ] && [ -z "$HEIGHT" ]; then
+  case "$DRAWER" in
+    left|right)  WIDTH=$DEFAULT_WIDTH ;;
+    top|bottom)  HEIGHT=$(default_height) ;;
+    *)           WIDTH=$DEFAULT_WIDTH; HEIGHT=$(default_height) ;;
+  esac
+elif [ -z "$WIDTH" ] && [ -n "$DRAWER" ]; then
+  case "$DRAWER" in left|right) WIDTH=$DEFAULT_WIDTH ;; esac
+elif [ -z "$HEIGHT" ] && [ -n "$DRAWER" ]; then
+  case "$DRAWER" in top|bottom) HEIGHT=$(default_height) ;; esac
+fi
 
 # The lowest window index the caller's session is not using, scanning up from
 # its lowest one (so a `base-index 1` session never gets a stray window 0).

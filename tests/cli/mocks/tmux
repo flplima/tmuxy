@@ -74,6 +74,7 @@ case "${1:-}" in
       *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
       *'#{window_id}'*) echo "${MOCK_TMUX_WINDOW_ID:-}" ;;
       *'#{pane_id}'*) echo "${MOCK_TMUX_PANE_ID:-}" ;;
+      *'#{window_height}'*) echo "${MOCK_TMUX_WINDOW_ROWS:-}" ;;
       *) ;;
     esac
     ;;

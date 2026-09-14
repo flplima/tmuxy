@@ -286,6 +286,39 @@ describe('CLI pane subcommands', () => {
       );
     });
 
+    test('a bare float is 60x15 cells, and never taller than the tab', () => {
+      // The default size is in cells, not a share of the window, and the height
+      // is capped to the tab it floats over - a float with more rows than the
+      // window has nowhere to put them.
+      const bare = runCLI(['pane', 'float'], {
+        env: { ...floatEnv, MOCK_TMUX_WINDOW_ROWS: '40' },
+      });
+      expect(bare.exitCode).toBe(0);
+      const list = bare.tmuxCalls.find((c) => c.args[0] === 'run-shell').args[1];
+      expect(list).toContain('@tmuxy-float-width 60');
+      expect(list).toContain('@tmuxy-float-height 15');
+
+      const short = runCLI(['pane', 'float'], {
+        env: { ...floatEnv, MOCK_TMUX_WINDOW_ROWS: '9' },
+      });
+      expect(short.exitCode).toBe(0);
+      const shortList = short.tmuxCalls.find((c) => c.args[0] === 'run-shell').args[1];
+      expect(shortList).toContain('@tmuxy-float-height 9');
+    });
+
+    test('an explicit --height is taken as given, tall or not', () => {
+      // Only the DEFAULT is capped. Asking for a float taller than the tab is
+      // the caller's business, and tmux sizes the pane to what it can.
+      const { exitCode, tmuxCalls } = runCLI(['pane', 'float', '--height', '80'], {
+        env: { ...floatEnv, MOCK_TMUX_WINDOW_ROWS: '40' },
+      });
+      expect(exitCode).toBe(0);
+      const list = tmuxCalls.find((c) => c.args[0] === 'run-shell').args[1];
+      expect(list).toContain('@tmuxy-float-height 80');
+      // Width was not asked for and no drawer was named, so it stays unset.
+      expect(list).not.toContain('@tmuxy-float-width');
+    });
+
     test('a drawer float carries its direction and backdrop in the same list', () => {
       const { exitCode, tmuxCalls } = runCLI(
         ['pane', 'float', '--left', '--bg', 'blur', '--hide-header'],

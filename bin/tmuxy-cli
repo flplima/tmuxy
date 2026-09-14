@@ -425,8 +425,11 @@ Options:
   --right         Drawer docked to right edge
   --top           Drawer docked to top edge
   --bottom        Drawer docked to bottom edge
-  --width N       Width in columns (ignored for left/right drawers)
-  --height N      Height in rows (ignored for top/bottom drawers)
+  --width N       Width in columns, default 60 (a top/bottom drawer spans the
+                  full width, so it ignores this)
+  --height N      Height in rows, default 15 and never more than the tab's own
+                  height (a left/right drawer spans the full height, so it
+                  ignores this)
   --bg MODE       Backdrop: dim (default), blur, none
   --hide-header   Hide the title bar
 FEOF

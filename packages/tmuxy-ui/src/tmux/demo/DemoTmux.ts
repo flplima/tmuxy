@@ -86,6 +86,10 @@ export interface CreateFloatOptions {
  */
 const GROUP_WINDOW_INDEX_BASE = 1000;
 
+/** Default float size in cells, mirroring bin/tmuxy/float-create. */
+const FLOAT_DEFAULT_COLS = 60;
+const FLOAT_DEFAULT_ROWS = 15;
+
 // ============================================
 // DemoTmux Engine
 // ============================================
@@ -1008,10 +1012,11 @@ export class DemoTmux {
     const windowId = this.allocWindowId();
     const numericId = parseInt(paneId.slice(1));
 
-    // Float panes are smaller than full size. Caller-provided width/height
-    // are in tmux columns/rows; otherwise default to ~75% of the surface.
-    const floatW = options.width ?? Math.min(80, Math.floor(this.totalWidth * 0.75));
-    const floatH = options.height ?? Math.min(20, Math.floor(this.totalHeight * 0.75));
+    // Width and height are in tmux columns/rows. The defaults mirror
+    // bin/tmuxy/float-create: 60x15 cells, the height capped to the window it
+    // floats over.
+    const floatW = options.width ?? Math.min(FLOAT_DEFAULT_COLS, this.totalWidth);
+    const floatH = options.height ?? Math.min(FLOAT_DEFAULT_ROWS, this.totalHeight);
 
     const shell = this.makeShell(paneId, floatW, floatH);
     shell.writePrompt();
