@@ -834,6 +834,50 @@ describe('Scenario 23: Terminal Image Protocols', () => {
     await runCommand(ctx.page, 'echo AFTER_SIXEL', 'AFTER_SIXEL');
   }, 60000);
 
+  test('A terminal query is not a picture, and clear takes a picture away', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    const pictures = () =>
+      ctx.page.evaluate(
+        () =>
+          Array.from(document.querySelectorAll('.terminal-image')).filter((el) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          }).length,
+      );
+
+    // 1. nvim asks the terminal about its capabilities with XTGETTCAP when it
+    //    starts: a DCS string with a `q` in it, which used to be decoded as a
+    //    Sixel picture and left a black bar on the editor's first line.
+    await runCommand(
+      ctx.page,
+      `printf '\\eP+q5463;524742\\e\\\\' && echo QUERY_SENT`,
+      'QUERY_SENT',
+    );
+    await delay(DELAYS.SYNC);
+    expect(await pictures()).toBe(0);
+
+    // 2. A real picture still shows...
+    await runCommand(
+      ctx.page,
+      `printf '\\ePq#0;2;100;0;0#0~~~\\e\\\\' && echo PIC_SENT`,
+      'PIC_SENT',
+    );
+    await waitForImages(ctx.page);
+    expect(await pictures()).toBeGreaterThan(0);
+
+    // 3. ...and `clear` takes it away with the text, instead of leaving it
+    //    floating over whatever is drawn next.
+    await runCommand(ctx.page, 'clear && echo CLEARED', 'CLEARED');
+    await waitForCondition(
+      ctx.page,
+      async () => (await pictures()) === 0,
+      10000,
+      'the picture to leave the screen with clear',
+    );
+  }, 60000);
+
   test('Mixed content: text + image + text renders correctly', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();

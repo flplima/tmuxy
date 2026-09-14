@@ -92,6 +92,10 @@ pub struct ImageParser {
     /// carried into the next `process()` call so a large payload isn't torn —
     /// its header rendered as garbage text and the image dropped.
     pending: Vec<u8>,
+    /// The main screen's pictures, set aside while an application runs on the
+    /// alternate screen (`Some` exactly while it does), and put back when it
+    /// leaves — the way a terminal keeps the two screens apart.
+    main_screen_placements: Option<Vec<ImagePlacement>>,
 }
 
 /// Upper bound on a buffered incomplete image escape. Inline images can be
@@ -114,6 +118,7 @@ impl ImageParser {
 
     pub fn reset(&mut self) {
         self.placements.clear();
+        self.main_screen_placements = None;
         self.kitty_chunks.clear();
         self.cursor_row = 0;
         self.cursor_col = 0;
@@ -230,6 +235,17 @@ impl ImageParser {
             if i + 1 < content.len() && content[i] == 0x1B {
                 let nxt = content[i + 1];
 
+                // A screen clear or a screen switch takes the pictures on that
+                // screen with it. Only watched, never consumed: vt100 still has
+                // to clear its own grid.
+                if nxt == b'[' {
+                    self.observe_csi(&content[i..], &output);
+                } else if nxt == b'c' {
+                    // RIS: a full reset leaves nothing behind on either screen.
+                    self.placements.clear();
+                    self.main_screen_placements = None;
+                }
+
                 // iTerm2: ESC ] 1337 ; File= ...
                 if nxt == b']' {
                     if let Some((consumed, image)) = self.try_parse_iterm2(&content[i..]) {
@@ -286,6 +302,54 @@ impl ImageParser {
         ImageProcessResult {
             clean_bytes: output,
             new_images,
+        }
+    }
+
+    /// Retire pictures for the CSI sequences that empty a screen.
+    ///
+    /// A placement is anchored to cells, not drawn into them, so vt100 clearing
+    /// the grid never touched it: after `clear`, or after an editor quit, the
+    /// picture stayed on screen over whatever came next. `emitted` is the clean
+    /// output so far, to see whether an erase-below starts from the top left.
+    fn observe_csi(&mut self, data: &[u8], emitted: &[u8]) {
+        let mut j = 2;
+        let private = data.get(j) == Some(&b'?');
+        if private {
+            j += 1;
+        }
+        let start = j;
+        while j < data.len() && (data[j].is_ascii_digit() || data[j] == b';') {
+            j += 1;
+        }
+        let Some(&final_byte) = data.get(j) else {
+            return;
+        };
+        let params = &data[start..j];
+        match (private, final_byte) {
+            // ED 2 erases the whole screen; ED 0 (the default) erases from the
+            // cursor down, which is the whole screen right after a home — the
+            // `ESC [ H ESC [ J` pair curses applications clear with.
+            (false, b'J') => {
+                let erase_below = params.is_empty() || params == b"0";
+                if params == b"2" || (erase_below && ends_with_cursor_home(emitted)) {
+                    self.placements.clear();
+                }
+            }
+            (true, b'h') if names_alternate_screen(params) => {
+                match self.main_screen_placements {
+                    None => {
+                        self.main_screen_placements = Some(std::mem::take(&mut self.placements))
+                    }
+                    // Entering again clears the alternate screen.
+                    Some(_) => self.placements.clear(),
+                }
+            }
+            (true, b'l') if names_alternate_screen(params) => {
+                if let Some(main) = self.main_screen_placements.take() {
+                    self.placements = main;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -576,10 +640,15 @@ impl ImageParser {
         let consumed = end + 2;
         let body = &data[2..end];
 
-        // Sixel data starts after the `q` introducer.
+        // Sixel data starts after the `q` introducer, and all that may come
+        // before it is the introducer's numeric parameters (`P1;P2;P3`). Other
+        // DCS strings can hold a `q` too without being pictures: nvim asks the
+        // terminal about its capabilities with XTGETTCAP (`ESC P + q <hex>`)
+        // when it starts, and DECRQSS is `ESC P $ q`. Decoded as Sixel, those
+        // left a few black pixels wherever the cursor happened to be.
         let q_pos = match body.iter().position(|&b| b == b'q') {
-            Some(p) => p,
-            None => return Some((consumed, None)),
+            Some(p) if body[..p].iter().all(|&b| b.is_ascii_digit() || b == b';') => p,
+            _ => return Some((consumed, None)),
         };
         let sixel_payload = &body[q_pos + 1..];
 
@@ -635,6 +704,27 @@ impl ImageParser {
 // -------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------
+
+/// Whether the bytes end with a cursor move to the top left (CUP to 1;1).
+fn ends_with_cursor_home(bytes: &[u8]) -> bool {
+    [
+        &b"\x1b[H"[..],
+        b"\x1b[1;1H",
+        b"\x1b[;H",
+        b"\x1b[1H",
+        b"\x1b[f",
+        b"\x1b[1;1f",
+    ]
+    .iter()
+    .any(|home| bytes.ends_with(home))
+}
+
+/// Whether DECSET/DECRST parameters name an alternate-screen mode.
+fn names_alternate_screen(params: &[u8]) -> bool {
+    params
+        .split(|&b| b == b';')
+        .any(|p| p == b"1049" || p == b"1047" || p == b"47")
+}
 
 fn parse_iterm2_dim(raw: &str, px_per_cell: u16) -> u16 {
     // iTerm2 dimensions can be cells (`10`), pixels (`100px`), or percent
@@ -1038,6 +1128,83 @@ mod tests {
         assert_eq!(parser.placements[0].protocol, ImageProtocol::Sixel);
         assert_eq!(result.new_images.len(), 1);
         assert!(result.new_images[0].1.data.starts_with(b"\x89PNG"));
+    }
+
+    const SIXEL: &[u8] = b"\x1bPq#0;2;100;0;0#0~~\x1b\\";
+
+    #[test]
+    fn a_terminal_query_that_holds_a_q_is_not_a_picture() {
+        // nvim's startup capability query and a settings query: both are DCS
+        // strings with a `q` in them, and both used to be decoded as Sixel.
+        for query in [&b"\x1bP+q5463;524742\x1b\\"[..], b"\x1bP$qm\x1b\\"] {
+            let mut parser = ImageParser::new();
+            let result = parser.process(query);
+            assert!(result.new_images.is_empty(), "{query:?} made an image");
+            assert!(parser.placements.is_empty(), "{query:?} placed an image");
+        }
+    }
+
+    #[test]
+    fn sixel_with_introducer_parameters_still_decodes() {
+        let mut parser = ImageParser::new();
+        let result = parser.process(b"\x1bP0;1;0q#0;2;100;0;0#0~~\x1b\\");
+        assert_eq!(result.new_images.len(), 1);
+        assert_eq!(parser.placements.len(), 1);
+    }
+
+    #[test]
+    fn clearing_the_screen_takes_its_pictures_away() {
+        // `clear` sends home + ED 2; curses apps send home + ED 0. Either way
+        // the screen is empty, and a picture left on it floated over whatever
+        // was drawn next. The clear itself still reaches vt100.
+        for clear in [&b"\x1b[H\x1b[2J\x1b[3J"[..], b"\x1b[H\x1b[J", b"\x1b[2J"] {
+            let mut parser = ImageParser::new();
+            parser.process(SIXEL);
+            assert_eq!(parser.placements.len(), 1);
+            let result = parser.process(clear);
+            assert!(parser.placements.is_empty(), "{clear:?} left a picture");
+            assert_eq!(result.clean_bytes, clear);
+        }
+    }
+
+    #[test]
+    fn erasing_below_the_cursor_elsewhere_keeps_pictures() {
+        // ED 0 from the middle of the screen is a partial erase, not a clear.
+        let mut parser = ImageParser::new();
+        parser.process(SIXEL);
+        parser.process(b"\x1b[5;1H\x1b[J");
+        assert_eq!(parser.placements.len(), 1);
+    }
+
+    #[test]
+    fn the_alternate_screen_neither_shows_nor_leaves_pictures() {
+        // A picture in the shell must not show through an editor opened over
+        // it, a picture the editor drew must not outlive it, and the shell's
+        // picture is back when the editor quits.
+        let mut parser = ImageParser::new();
+        parser.process(SIXEL);
+        let shell_picture = parser.placements.clone();
+
+        parser.process(b"\x1b[?1049h");
+        assert!(parser.placements.is_empty());
+        parser.update_cursor(3, 4);
+        parser.process(SIXEL);
+        assert_eq!(parser.placements.len(), 1);
+
+        parser.process(b"\x1b[?1049l");
+        assert_eq!(parser.placements, shell_picture);
+    }
+
+    #[test]
+    fn a_full_reset_leaves_no_pictures_on_either_screen() {
+        let mut parser = ImageParser::new();
+        parser.process(SIXEL);
+        parser.process(b"\x1b[?1049h");
+        parser.process(SIXEL);
+        parser.process(b"\x1bc");
+        assert!(parser.placements.is_empty());
+        parser.process(b"\x1b[?1049l");
+        assert!(parser.placements.is_empty());
     }
 
     #[test]
