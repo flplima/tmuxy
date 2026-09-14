@@ -528,12 +528,15 @@ export function createKeyboardActor() {
           }
           // Don't preventDefault — let browser fire native copy event
         } else if (event.metaKey && nativeSelection()) {
-          // Cmd+C over a selection the browser owns: let it copy, and do not
+          // Cmd+C over a selection the browser owns: copy it, and do not
           // interrupt the process. Ctrl+C deliberately does NOT land here —
           // interrupting has to stay reliable even with text selected, which
-          // is the contract every terminal keeps. The copied text blinks.
-          const selection = window.getSelection();
-          if (selection && selection.rangeCount > 0) flashCopiedRange(selection.getRangeAt(0));
+          // is the contract every terminal keeps. The copy runs here rather
+          // than as the browser's default action, which only a Mac performs
+          // for Cmd+C (on Linux the key did nothing); the native copy event it
+          // fires is where the rows are read and the copied text blinks.
+          event.preventDefault();
+          document.execCommand('copy');
           return;
         } else {
           event.preventDefault();
@@ -912,10 +915,15 @@ export function createKeyboardActor() {
       }
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
-      const text = terminalTextOf(selection.getRangeAt(0));
+      const range = selection.getRangeAt(0);
+      const text = terminalTextOf(range);
       if (text === null) return;
       event.preventDefault();
       event.clipboardData?.setData('text/plain', text);
+      // Blink here, where every copy of a terminal selection passes — Cmd+C,
+      // and the desktop app's Edit ▸ Copy, whose key equivalent can reach the
+      // webview as a copy without the keydown ever arriving.
+      flashCopiedRange(range);
     };
 
     /**
