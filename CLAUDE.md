@@ -41,19 +41,13 @@ Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> -
 4. **Modular helpers** - Test helpers in `helpers/` directory, organized by domain.
 5. **Never modify ESLint rules** - Do not disable, remove, or weaken any ESLint rule. Do not add `eslint-disable` comments. If the user asks to disable or remove a rule, ask "Are you sure?" before proceeding.
 
-### React + XState
-
-1. **Avoid `useEffect`** - Side effects belong in the state machine, not components.
-2. **Components are for rendering** - Business logic goes in XState machines.
-3. **Derive, don't sync** - Derive values from state instead of syncing with `useEffect`.
-
 ### Tmux Control Mode (Critical)
 
 **All tmux commands must go through the control mode stdin connection**, not via external subprocess calls. Running external `tmux` commands while control mode is attached crashes tmux 3.5a. See [docs/TMUX.md](docs/TMUX.md) for version-specific workarounds.
 
 Use short command forms: `splitw`, `selectp`, `killp`, `resizep`, etc. **Exception:** `neww` crashes tmux 3.5a — always use `splitw ; breakp` instead (the server rewrites this automatically).
 
-Use `adapter.invoke('run_tmux_command', { command: '...' })` for all tmux mutations from the frontend (fire-and-forget, resolves `null` on every transport) and `adapter.query(command)` when the command's output is needed — reads are answered in-band on the same connection (`RunCommandWithReply`). Never add a subprocess or shell path for a client command; the routing policy is `tmuxy-core/src/command_router.rs` and both transports must call it. See `tmuxy-ui/src/tmux/adapters.ts` for the adapter implementations and [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for the SSE/HTTP protocol details.
+Use `adapter.invoke('run_tmux_command', { command: '...' })` for all tmux mutations from the frontend (fire-and-forget, resolves `null` on every transport) and `adapter.query(command)` when the command's output is needed — reads are answered in-band on the same connection (`RunCommandWithReply`). Never add a subprocess or shell path for a client command; the routing policy is `packages/tmuxy-core/src/command_router.rs` and both transports must call it. See `packages/tmuxy-ui/src/tmux/adapters.ts` for the adapter implementations and [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for the SSE/HTTP protocol details.
 
 ## Test Guidelines
 
@@ -66,7 +60,6 @@ Key rules:
 - **One feature, one test.** Cover create → verify visible → interact → close in a single test. Do not split into separate "check state" and "check DOM" tests.
 - **Never install Playwright browsers locally** (`npx playwright install`). In the dev environment, tests connect to an existing Chrome via CDP on port 9222. (CI is the exception: its workflows provision their own chromium because the runners start empty.)
 - All E2E tests run **sequentially** (`maxWorkers: 1`) — they share one tmux server.
-- Scrollback is a client-side reimplementation with **two views** over one engine (`copyModeStates[paneId].mode`): the native-like `scroll` view a wheel/touch scroll opens (no cursor, browser selection, tmux never told) and tmux's `copy` mode from `prefix [` (cursor, vi keys, cell selection). Both render in `ScrollbackTerminal` and fetch history on demand. Drive them via real user input (`prefix [` and vi keys for copy mode; wheel/touch for the scroll view) and assert on the rendered scrollback and on the client engine via `getCopyModeState()` (reads `copyModeStates[paneId]`: mode, loaded lines, cursor, selection, scrollTop) — not `send-keys -X` tmux commands. Selecting text outside copy mode is the browser's own selection, so assert it with `window.getSelection()`, and never re-add a mouse path that opens copy mode. See docs/COPY-MODE.md.
 
 ## Testing & Bug Fixes (Critical)
 
