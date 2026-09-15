@@ -335,6 +335,8 @@ jobs:
 
             auto_updates false
 
+            depends_on formula: "tmux"
+
             app "tmuxy.app"
 
             # Strip Gatekeeper's quarantine attribute so macOS Sequoia's

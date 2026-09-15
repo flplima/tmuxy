@@ -19,6 +19,10 @@
     "active": true,
     "targets": "all",
     "category": "DeveloperTool",
+    "linux": {
+      "deb": { "depends": ["tmux"] },
+      "rpm": { "depends": ["tmux"] }
+    },
     "resources": [
       "../../bin/tmuxy-cli",
       "../../bin/tmuxy/*"

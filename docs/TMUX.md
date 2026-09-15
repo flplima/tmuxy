@@ -6,6 +6,8 @@ This document covers how tmuxy interacts with tmux: control mode architecture, c
 
 Tmuxy targets **tmux 3.7a** (devcontainer, CI, and the in-browser v86 guest all build it from source). Several workarounds below were discovered on 3.3a/3.5a and are kept because they remain safe on 3.7a.
 
+The minimum is **tmux 3.3**. The desktop app and `tmuxy server` run `tmux -V` at startup and refuse an older or missing tmux with a message saying how to install or update it — a dialog on the desktop, stderr for the server (`tmuxy-core/src/tmux_check.rs`). A build that reports no version number (`tmux master`) is accepted. The Homebrew cask and the `.deb`/`.rpm` packages declare tmux as a dependency.
+
 ## Dedicated Server Socket
 
 Tmuxy never talks to the user's default tmux server. Every component targets a **dedicated socket**, resolved the same way everywhere:

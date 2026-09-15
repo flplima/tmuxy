@@ -1179,6 +1179,34 @@ pub fn run() {
                 );
             }
 
+            // Verify tmux is available — the monitor will create the session
+            // itself via control mode (avoids race between sync creation and
+            // async monitor connection where the session can die in between)
+            let tmux_bin = session::tmux_path();
+            let session_name = tmuxy_core::session::session_name();
+            tmuxy_core::debug_log::log(&format!("tmux binary: {}", tmux_bin));
+            eprintln!("[tmuxy] tmux binary: {}", tmux_bin);
+            eprintln!("[tmuxy] session name: {}", session_name);
+
+            // No tmux, or one too old, ends here in a dialog that says so and
+            // how to fix it — before any window opens. An error returned from
+            // setup instead aborts the process, and an app launched from
+            // Finder just vanishes.
+            match tmuxy_core::tmux_check::check_tmux() {
+                Ok(version) => eprintln!("[tmuxy] {version}"),
+                Err(e) => {
+                    tmuxy_core::debug_log::log(&format!("tmux check failed: {e}"));
+                    eprintln!("[tmuxy] {e}");
+                    rfd::MessageDialog::new()
+                        .set_level(rfd::MessageLevel::Error)
+                        .set_title("tmuxy can't start")
+                        .set_description(e.to_string())
+                        .set_buttons(rfd::MessageButtons::Ok)
+                        .show();
+                    std::process::exit(1);
+                }
+            }
+
             // Create the main window programmatically so we can flip
             // transparent + Overlay titlebar based on TMUXY_OPAQUE_WINDOW.
             // tauri.conf.json's `windows: []` prevents auto-creation.
@@ -1189,40 +1217,6 @@ pub fn run() {
             // out monochrome. TMUXY_OPAQUE_WINDOW=1 lets tests in headless
             // CI/dev envs render visibly without changing prod defaults.
             create_main_window(app)?;
-
-            // Verify tmux is available — the monitor will create the session
-            // itself via control mode (avoids race between sync creation and
-            // async monitor connection where the session can die in between)
-            let tmux_bin = session::tmux_path();
-            let session_name = tmuxy_core::session::session_name();
-            tmuxy_core::debug_log::log(&format!("tmux binary: {}", tmux_bin));
-            eprintln!("[tmuxy] tmux binary: {}", tmux_bin);
-            eprintln!("[tmuxy] session name: {}", session_name);
-
-            // Quick check that tmux is actually runnable
-            match std::process::Command::new(tmux_bin).arg("-V").output() {
-                Ok(output) if output.status.success() => {
-                    let version = String::from_utf8_lossy(&output.stdout);
-                    eprintln!("[tmuxy] {}", version.trim());
-                }
-                Ok(output) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let msg = format!(
-                        "tmux failed to run.\n\nbinary: {}\nexit code: {}\nstderr: {}",
-                        tmux_bin,
-                        output.status.code().unwrap_or(-1),
-                        stderr.trim()
-                    );
-                    return Err(msg.into());
-                }
-                Err(e) => {
-                    let msg = format!(
-                        "tmux binary not found or not executable.\n\nbinary: {}\nerror: {}",
-                        tmux_bin, e
-                    );
-                    return Err(msg.into());
-                }
-            }
 
             // Set up native menu bar (macOS) with event handler
             if cfg!(target_os = "macos") {

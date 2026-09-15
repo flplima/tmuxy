@@ -24,6 +24,8 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-webdriver = { version = "0.2", optional = true }
 tauri-plugin-window-state = "2"
+# A native error dialog before any window exists (no tmux, or one too old).
+rfd = "0.15"
 
 [features]
 webdriver = ["tauri-plugin-webdriver"]

@@ -23,6 +23,8 @@ pub mod session;
 #[cfg(feature = "native")]
 pub mod theme;
 #[cfg(feature = "native")]
+pub mod tmux_check;
+#[cfg(feature = "native")]
 pub mod tmux_service;
 #[cfg(feature = "native")]
 pub mod trace;
