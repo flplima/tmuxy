@@ -902,30 +902,16 @@
    Pattern: tab1  tab2  tab3   +
    ============================================ */
 
-/* A pane header's colour: the theme's gray bar (the pane outline's tone, or
-   what a theme names in --pane-header-base) taken halfway towards black on a
-   dark theme and towards white on a light one, so the bar sits a clear step
-   apart from the pane it heads. */
-:root {
-  --pane-header-shade: #000;
-}
-
-:root.theme-light {
-  --pane-header-shade: #fff;
-}
-
+/* A pane header's bar: the theme's gray — its dark gray on a dark theme, its
+   light gray on a light one (--border-medium) — at 30% on the background only,
+   so the title, icons and buttons on it stay fully opaque. Active and inactive
+   headers share it; the active one says so with its text colour. */
 .pane-header {
-  --pane-header-tone: color-mix(
-    in srgb,
-    var(--pane-header-base, var(--pane-active-border, var(--border-medium))) 50%,
-    var(--pane-header-shade)
-  );
   display: flex;
   align-items: center;
   height: var(--pane-header-height);
   margin: 0;
-  /* The header tone, at reduced opacity. */
-  background-color: color-mix(in srgb, var(--pane-header-tone) 35%, transparent);
+  background-color: color-mix(in srgb, var(--border-medium) 30%, transparent);
   font-family: var(--font-mono);
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
   /* Regular weight, active and inactive alike; the active header says so
@@ -939,8 +925,6 @@
 }
 
 .pane-header-active {
-  /* The same tone as the inactive bar, but fully opaque. */
-  background-color: var(--pane-header-tone);
   color: var(--pane-header-text-inactive);
 }
 

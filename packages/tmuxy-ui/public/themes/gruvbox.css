@@ -46,8 +46,6 @@
      header text both take gruvbox's yellow. */
   --tab-active-text: var(--term-yellow);
   --pane-header-text-active: var(--tab-active-text);
-  /* The header bar is bg1, not the yellow outline. */
-  --pane-header-base: #3c3836;
   --pane-header-text-inactive: #928374;
 
   --accent-green: #98971a;
@@ -94,9 +92,9 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
 }
 
-/* Gruvbox dark: the active pane's header is gruvbox's bg1 gray
-   (--pane-header-base) with everything on it in the yellow accent — the same
-   yellow as the pane's outline and the current tab in the app header. */
+/* Gruvbox dark: everything on the active pane's header is in the yellow
+   accent — the same yellow as the pane's outline and the current tab in the
+   app header. */
 :root.theme-dark .pane-header-active {
   color: var(--tab-active-text);
 }
@@ -153,7 +151,6 @@
 
   --tab-active-text: var(--term-yellow);
   --pane-header-text-active: var(--tab-active-text);
-  --pane-header-base: #bdae93;
   --pane-header-text-inactive: #928374;
 
   --accent-green: #797403;
@@ -198,8 +195,8 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
-/* Gruvbox light: same treatment as dark — bg3 as the header base, the yellow
-   accent for everything on it. */
+/* Gruvbox light: same treatment as dark — the yellow accent for everything on
+   the active header. */
 :root.theme-light .pane-header-active {
   color: var(--tab-active-text);
 }

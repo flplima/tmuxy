@@ -80,12 +80,14 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
 };
 
 /**
- * A computed colour as 0–255 channels. A `color-mix()` computes to
- * `color(srgb r g b)` with 0–1 channels rather than to `rgb()`.
+ * A computed colour as 0–255 channels plus alpha. A `color-mix()` computes to
+ * `color(srgb r g b / a)` with 0–1 channels rather than to `rgb()`.
  */
-const rgbOf = (value: string) => {
-  const channels = (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
-  return value.startsWith('color(srgb') ? channels.map((c) => c * 255) : channels;
+const colorOf = (value: string) => {
+  const numbers = (value.match(/[\d.]+/g) ?? []).map(Number);
+  const srgb = value.startsWith('color(srgb');
+  const rgb = numbers.slice(0, 3).map((c) => (srgb ? c * 255 : c));
+  return { rgb, alpha: numbers.length > 3 ? numbers[3] : 1 };
 };
 
 /** What a CSS colour expression resolves to in the page. */
@@ -95,64 +97,66 @@ const resolve = (css: string) => {
   document.body.appendChild(probe);
   const color = getComputedStyle(probe).color;
   probe.remove();
-  return rgbOf(color);
+  return colorOf(color).rgb;
 };
 
-const activeHeader = () =>
-  document.querySelector<HTMLElement>('.pane-layout-item.pane-active .pane-header');
+const near = (got: number[], want: number[]) =>
+  got.every((channel, i) => Math.abs(channel - want[i]) <= 1);
+
+/** Every pane header's bar, and the active header's title colour. */
+const headers = () => {
+  const bars = [...document.querySelectorAll<HTMLElement>('.pane-layout-item .pane-header')].map(
+    (el) => colorOf(getComputedStyle(el).backgroundColor),
+  );
+  const title = document.querySelector<HTMLElement>(
+    '.pane-layout-item.pane-active .pane-header .pane-tab-title',
+  );
+  return { bars, title: title ? colorOf(getComputedStyle(title).color) : null };
+};
 
 /**
- * A pane header is its theme's gray bar taken halfway to black on a dark
- * theme and halfway to white on a light one; gruvbox writes everything on the
- * active header in its yellow accent.
+ * A pane header's bar is the theme's gray — dark on a dark theme, light on a
+ * light one — at 30%, on the background alone: the text on it stays solid.
+ * Gruvbox writes everything on the active header in its yellow accent.
  */
-export const PaneHeaderToneAndGruvboxAccent: Story = {
+export const PaneHeaderGrayAndGruvboxAccent: Story = {
   args: { height: 500, initCommands: ['split-window -h'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /Pane %1/i }, { timeout: 8000 });
-    const near = (got: number[], want: number[]) =>
-      got.every((channel, i) => Math.abs(channel - want[i]) <= 1);
 
-    // Default, dark: half of the outline tone the header is built from.
+    const expectBars = (gray: number[]) => {
+      const { bars, title } = headers();
+      expect(bars.length).toBe(2);
+      for (const bar of bars) {
+        expect(near(bar.rgb, gray)).toBe(true);
+        expect(bar.alpha).toBeCloseTo(0.3, 2);
+      }
+      expect(title!.alpha).toBe(1);
+      return title!;
+    };
+
+    // Default, dark: its dark gray.
     app().send({ type: 'SET_THEME', name: 'default' });
     app().send({ type: 'SET_THEME_MODE', mode: 'dark' });
-    await waitFor(
-      () => {
-        const base = resolve('var(--pane-active-border, var(--border-medium))');
-        const got = rgbOf(getComputedStyle(activeHeader()!).backgroundColor);
-        expect(
-          near(
-            got,
-            base.map((c) => c / 2),
-          ),
-        ).toBe(true);
-      },
-      { timeout: 8000 },
-    );
+    await waitFor(() => expectBars(resolve('var(--border-medium)')), { timeout: 8000 });
 
-    // Gruvbox, dark: bg1 (#3c3836) halfway to black, yellow text on it.
+    // Gruvbox, dark: bg1, with the yellow accent on the active header.
     app().send({ type: 'SET_THEME', name: 'gruvbox' });
     await waitFor(
       () => {
-        const got = rgbOf(getComputedStyle(activeHeader()!).backgroundColor);
-        expect(near(got, [0x3c / 2, 0x38 / 2, 0x36 / 2])).toBe(true);
-        const title = activeHeader()!.querySelector<HTMLElement>('.pane-tab-title')!;
-        expect(getComputedStyle(title).color).toBe('rgb(215, 153, 33)');
+        const title = expectBars([0x3c, 0x38, 0x36]);
+        expect(title.rgb).toEqual([215, 153, 33]);
       },
       { timeout: 8000 },
     );
 
-    // Gruvbox, light: bg3 (#bdae93) halfway to white, still the yellow accent.
+    // Gruvbox, light: its light gray, still the yellow accent.
     app().send({ type: 'SET_THEME_MODE', mode: 'light' });
     await waitFor(
       () => {
-        const got = rgbOf(getComputedStyle(activeHeader()!).backgroundColor);
-        expect(near(got, [(0xbd + 255) / 2, (0xae + 255) / 2, (0x93 + 255) / 2])).toBe(true);
-        const title = activeHeader()!.querySelector<HTMLElement>('.pane-tab-title')!;
-        expect(getComputedStyle(title).color).toBe(
-          `rgb(${resolve('var(--term-yellow)').join(', ')})`,
-        );
+        const title = expectBars([0xd5, 0xc4, 0xa1]);
+        expect(title.rgb).toEqual(resolve('var(--term-yellow)'));
       },
       { timeout: 8000 },
     );
