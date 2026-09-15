@@ -415,8 +415,8 @@ jobs:
         run: npm run test:tauri
 
   # Storybook probes. Both jobs drive stories in a real Chromium against a
-  # `storybook dev` server — dev (not static) on purpose: the render-budget
-  # stories need development React so <Profiler> onRender fires.
+  # `storybook dev` server — dev (not static) on purpose: no build step, and
+  # stories compile on demand.
   storybook-probe:
     runs-on: ubuntu-latest
 

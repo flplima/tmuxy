@@ -1,6 +1,83 @@
-# Testing Guidelines
+# Testing
 
-Principles and rules for writing tests in tmuxy. Applies to all test types: E2E, integration, unit, and Tauri.
+How tmuxy is tested today, where a new test belongs, and the rules every test follows. The first half is the map (layers, CI, gaps); the second half is the guidelines per layer.
+
+## The Test Layers
+
+```
+                 cost / realism
+                       ^
+                       |   Desktop smoke (built app, Linux + macOS)   build-app.yml, main + tags only
+                       |   Tauri E2E (WebDriver -> WebKitGTK app)     tauri-e2e
+                       |   Web E2E + snapshots (Chromium -> server    e2e matrix (10 runners)
+                       |     -> tmux 3.7a)                            interaction-latency (perf gate)
+                       |   Storybook v86 probe (real tmux in an       storybook-v86-probe
+                       |     x86 emulator, in the browser)
+                       |   Storybook probe (DemoAdapter, Chromium)    storybook-probe
+                       |   CLI suite (mocked tmux)                    cli-tests
+                       |   Vitest (jsdom)  |  cargo test              unit-tests | rust-tests
+                       |   ESLint, tsc, Prettier, rustfmt, clippy     lint (+ pre-commit hook)
+                       +-------------------------------------------------------------------->
+```
+
+| Layer | Tool | Location | What it is for | Run locally | CI job | Fails the run? |
+|---|---|---|---|---|---|---|
+| Lint / types / format | ESLint, `tsc`, Prettier, rustfmt, clippy | `eslint.config.mjs` (tests), `packages/tmuxy-ui/eslint.config.js` (+ `eslint-rules/`), `Cargo.toml` `[workspace.lints.clippy]` | Static gates; bans skipped tests and tmux shortcuts in E2E code | `npm run lint`, `npx tsc --noEmit` (in `packages/tmuxy-ui`), `cargo clippy -p tmuxy-core -p tmuxy-server -p tmuxy-tauri-app -- -D warnings` | `lint` | Yes |
+| Rust unit + integration | `cargo test` (proptest, fixtures) | `#[cfg(test)]` modules in every crate; `packages/tmuxy-core/tests/` | Parser, state aggregator, reflow, command routing, server/Tauri seams; three core integration tests drive a real `tmux -CC` | `cargo test --workspace` (needs `tmux` on PATH) | `rust-tests` | Yes |
+| UI unit | Vitest + Testing Library, jsdom | `packages/tmuxy-ui/src/**/__tests__/`, `src/test/` (setup: `src/test/setup.ts`, config: `vite.config.ts`) | Pure logic, machine state handlers, adapters, a few mocked component renders, story smoke | `npm test -- --run` (plain `npm test` watches) | `unit-tests` | Yes |
+| CLI | Jest, mocked binaries | `tests/cli/` (`mocks/tmux`, `mocks/tmuxy-server`, `mocks/tmuxy-connect`) | `bin/tmuxy-cli` dispatch and argv; asserts every tmux call carries the dedicated socket flag | `npm run test:cli` | `cli-tests` | Yes |
+| Storybook probe | Playwright + `storybook dev` | `packages/tmuxy-ui/src/**/*.stories.tsx`, `scripts/probe-stories.mjs` | Every non-`v86` story renders and its play function passes (render, glitch, immediacy budgets) | `npm run storybook -w tmuxy-ui`, then `npm run test-storybook -w tmuxy-ui` | `storybook-probe` | Yes |
+| Storybook v86 probe | Playwright, v86 + `tmuxy-wasm` | `v86`-tagged stories (`src/stories/App.stories.tsx`, `src/stories/DeltaProtocol.stories.tsx`), `scripts/probe-spikes.mjs` | Real tmux behind the real UI with no server: optimistic updates, reconcile, `%output` rendering | `npm run test-storybook:v86 -w tmuxy-ui` (needs the assets below) | `storybook-v86-probe` | Gate step (3 stories): yes. Full sweep: no |
+| Web E2E | Jest + Playwright over CDP | `tests/1-…` to `tests/9-…`, `tests/helpers/` | Whole chain: keyboard/mouse in Chromium → server → tmux → SSE → DOM | `npm run test:e2e` (Chrome on 9222, see below) | `e2e` matrix, one runner per file | Yes, except `9-animations` (`soft`) |
+| Snapshot | Jest + Playwright | `tests/snapshots/snapshot.test.js` | Read-only UI ↔ tmux consistency checks (structure, then DOM invariants) | `npx jest tests/snapshots/` | `e2e (snapshots)` | Yes |
+| Interaction latency | Playwright | `packages/tmuxy-ui/scripts/measure-interactions.mjs`, `compare-interactions.mjs`, `perf/interaction-baseline.json` | Cost of key-echo, pane nav, zoom, split, tab switch, as a ratio to a keystroke | See [Interaction-Latency Tests](#interaction-latency-tests) | `interaction-latency` | Ratio budgets: yes. Absolute ms: warn only |
+| Tauri E2E | Jest + WebdriverIO + `tauri-driver`, Xvfb | `tests/tauri/` | Desktop IPC seam (`invoke`/`listen`), app lifecycle, state sync. Linux/WebKitGTK only | `npm run test:tauri` (Linux) | `tauri-e2e` | Yes |
+| Desktop smoke | WebdriverIO, `tauri-driver` / `tauri-webdriver` | `tests/smoke/` | The packaged app launches, runs a command, connects once; launch-environment regressions | Built by CI; `node tests/smoke/smoke-test.js <binary>` with a driver on 4444 | `build-app.yml` `build` matrix | `smoke-test.js` and macOS `macos-sparse-path-test.js`: yes. `hostile-config-test.js`: no |
+| Dependency audit | `npm audit`, `cargo audit` | `.cargo/audit.toml` | Production npm deps (high+) and the Rust workspace | same commands | `audit` | Yes |
+
+Not run by anything: `tests/qa-flicker-run.js`, `tests/qa-flicker-rerun.js`, `tests/qa-snapshot-run.js`, `tests/qa-snapshot-retest.js` (manual QA-agent scripts), `tests/tauri/trace-demo.js`, and the criterion benchmark `packages/tmuxy-core/benches/core_pipeline.rs` (see [PERFORMANCE.md](PERFORMANCE.md) Axis A).
+
+### CI Workflows
+
+| Workflow | Trigger | Jobs | Runner |
+|---|---|---|---|
+| `.github/workflows/lint-and-tests.yml` | push to `main`, PRs to `main` | `lint`, `unit-tests`, `rust-tests`, `cli-tests`, `e2e` (matrix), `interaction-latency`, `tauri-e2e`, `storybook-probe`, `storybook-v86-probe`, `audit` — all parallel | `ubuntu-latest` |
+| `.github/workflows/build-app.yml` | push to `main`, `v*` tags | `build` (Tauri build + smoke tests), then on tags `release`, `bump-cask`, `bump-formula` | `ubuntu-22.04` (amd64), `ubuntu-22.04-arm`, `macos-latest` |
+| `.github/workflows/deploy-demo.yml` | push to `main` touching the demo or UI source, manual | demo build + Pages deploy (no tests) | `ubuntu-latest` |
+
+**"Blocking" means the job turns the run red — nothing is enforced at merge.** `main` has no branch protection or required status checks; its only ruleset blocks deletion and force-push. Non-blocking by design: `e2e (9-animations)` (`continue-on-error` for `soft` suites, because it samples live CSS animation frames), the full v86 sweep (step-level `continue-on-error`; one shared emulator across ~115 stories is timing-sensitive), and `hostile-config-test.js` (step-level `continue-on-error`; tmux's pane-death timing makes it pass roughly 60% of the time).
+
+Jobs that need tmux build **3.7a** from source and cache it (`e2e`, `interaction-latency`, `tauri-e2e`). The macOS smoke test uses Homebrew's `tmux`, the Linux smoke test apt's `tmux`, and `rust-tests` installs none (see gaps).
+
+### Local Gates
+
+`.github/pre-commit` (enabled by `npm install` through the `prepare` script) runs Prettier and `eslint --fix` on `packages/tmuxy-ui/src`, `eslint tests/`, a check that `eslint.config.mjs` still bans `tmuxQuery`, `vitest related --run` for staged UI sources, `cargo fmt -p tmuxy-core -p tmuxy-server` and `cargo clippy -p tmuxy-core -p tmuxy-server`. Formatter rewrites are re-staged only for fully staged files.
+
+ESLint rules that exist to protect test quality (`eslint.config.mjs`):
+
+- `jest/no-disabled-tests` is an error for `tests/**/*.js`.
+- `tests/helpers/pane-ops.js`, `tests/helpers/keyboard.js` and every `tests/**/*.test.js` outside `tests/tauri/` may not call `tmuxQuery`/`tmuxRun`, `execSync` or import `child_process`. Setup and ground-truth reads go through `tmuxExec()` in `tests/helpers/tmux-socket.js`.
+
+Clippy warns on `unwrap_used` and `expect_used` workspace-wide; CI promotes all warnings to errors. Test files opt out explicitly with an `allow` attribute.
+
+## Which Layer Does a New Test Go In?
+
+Pick the cheapest layer that can still fail for the bug you care about. If the bug lives in the chain between two layers, the test belongs in the layer that contains the whole chain.
+
+| The behavior is… | Put the test in |
+|---|---|
+| A pure function, parser or state transition in TypeScript (layout math, copy-mode engine, key mapping, a machine handler) | Vitest, next to the code in `__tests__/` |
+| Rust parsing, aggregation, reflow or routing that can be fed recorded control-mode text | `cargo test` — a `#[cfg(test)]` module, or `packages/tmuxy-core/tests/` with a fixture |
+| Rust behavior that depends on how real tmux answers or orders replies | `packages/tmuxy-core/tests/` against a scratch socket, like `reply_channel.rs` |
+| What the `tmuxy` CLI sends to tmux | `tests/cli/` |
+| How a component looks or animates, render counts, flicker, optimistic paint timing with controlled latency or forced rejection | A Storybook story with a play function on `AppHarness`/`ProviderHarness` (`src/stories/StoryHarness.tsx`) |
+| "tmux did X and the UI showed it" without needing the Rust server or HTTP | A `v86`-tagged story on `V86AppHarness` |
+| A user-visible feature through the real server and transport: keyboard, mouse, touch, floats, groups, reconnect, OSC, widgets | Web E2E — extend the numbered file whose theme fits (below); a production bug with no better home goes in `tests/7-regression-bugs.test.js` |
+| Something that got slower but still works | An entry in `measure-interactions.mjs` plus a budget in `compare-interactions.mjs` |
+| Anything that differs on desktop: IPC commands, events, app lifecycle | `tests/tauri/tauri-app.test.js` |
+| The packaged app failing to start in a particular launch environment | `tests/smoke/` |
+
+Whatever the layer, the rules below apply: assert what the user sees, drive it through the user's path, and keep one feature in one test. A unit or story test does not replace an E2E test for a user path — it catches the bug earlier and cheaper.
 
 ## Core Principle: Test What the User Sees
 
@@ -80,11 +157,30 @@ For every assertion, ask: **"What bug would make this assertion fail?"** If you 
 
 ## E2E Tests
 
+### Suites
+
+`npm run test:e2e` runs every `*.test.js` under `tests/` except `tests/cli/` and `tests/tauri/` (`jest.config.js`). In CI each file below is its own matrix entry.
+
+| File | Covers |
+|---|---|
+| `tests/1-input-interaction.test.js` | Keyboard, paste, international input, mouse click/scroll/drag/SGR, mouse selection, copy mode navigate/yank, touch scroll (CDP touch events), viewport resize at 800x600 and 1920x1080 |
+| `tests/2-layout-navigation.test.js` | Windows/tabs, tab overview, marked and collapsible panes, zoom, drag to tab strip, pane groups, float lifecycle and close paths, sidebar tree, pinned dock, status bar, fzf in a float |
+| `tests/3-rendering-protocols.test.js` | OSC 8 hyperlinks, OSC 52 clipboard, Unicode, SGR faint, image protocols, browser widget |
+| `tests/4-session-connectivity.test.js` | Reload preserves state, offline/online connection overlay, multi-client, command routing, multi-session sidebar |
+| `tests/5-stress-stability.test.js` | Large output (`yes \| head -500`, `seq 1 2000`), rapid operations, a complex workflow, glitch detection |
+| `tests/6-nvim-performance.test.js` | nvim rendering, typing/scroll timing, cursor shape (DECSCUSR) |
+| `tests/7-regression-bugs.test.js` | One scenario per production bug the other suites missed |
+| `tests/8-tui-alternate-screen.test.js` | Heavy alt-screen TUI (`tests/fixtures/heavy-tui.sh`) compared line by line with `capture-pane`; wheel to a mouse-tracking TUI started before attach |
+| `tests/9-pane-animations.test.js` | Split/kill animations sampled per frame (non-blocking in CI) |
+| `tests/snapshots/snapshot.test.js` | Read-only UI ↔ tmux comparison, no interactions |
+
+Helpers live in `tests/helpers/`, one file per domain: `browser.js` (CDP connect or launch), `test-setup.js` (`createTestContext`), `TmuxTestSession.js`, `keyboard.js`, `pane-ops.js`, `window-ops.js`, `pane-groups.js`, `copy-mode.js` / `copy-mode-ui.js`, `mouse-capture.js`, `cell-grid.js`, `layout.js`, `glitch-detector.js`, `snapshot-compare.js`, `content-match.js`, `consistency.js`, `performance.js`, `ui.js`, `cli.js`, `tmux-socket.js`, `config.js`. Import them through `tests/helpers/index.js`.
+
 ### Environment
 
 - Tests connect to an existing Chrome via CDP on port 9222 — never install Playwright browsers locally (CI provisions its own chromium; that's the one exception)
 - All E2E tests run sequentially (`maxWorkers: 1`) — they share one tmux server
-- A tmuxy server must be reachable on port 9000; the suite builds and starts one itself if nothing answers
+- A tmuxy server must be reachable on `TMUXY_PORT` (default 9000, `tests/helpers/config.js`); the suite builds and starts one itself if nothing answers
 
 Start the Chrome the tests attach to with any system Chrome/Chromium:
 
@@ -101,7 +197,7 @@ The suite pins `TMUX_SOCKET` to **`tmuxy-test`** and clears `$TMUX` in `tests/je
 **The server under test has to be on that socket too.** It is the other half of every round trip: a server attached elsewhere leaves the tests reading and writing different tmux servers, and every one of them fails at "session not found" while the UI looks perfectly healthy. The suite gets this right on its own — a server it starts inherits the pinned socket, and CI sets `TMUX_SOCKET` for the whole e2e job. Only a server you started by hand can diverge, so start it to match:
 
 ```bash
-TMUX_SOCKET=tmuxy-test npm start        # or just let the suite start its own
+TMUX_SOCKET=tmuxy-test ./target/release/tmuxy-server   # or just let the suite start its own
 ```
 
 The setup step warns when it reuses a server it did not start, because a running server reports no socket and the mismatch cannot be detected — only flagged.
@@ -119,41 +215,14 @@ The Tauri suite (`tests/tauri/`) pins the same socket, in its `jest.global-setup
 - When you must wait, prefer polling for the expected state over sleeping a fixed duration
 - Flaky waits indicate the test is not waiting for the right condition
 
-### Visual Verification Helpers
+### Visual Verification
 
-Every E2E test that creates UI elements should verify they are visually present. Use bounding-rect checks:
+Every E2E test that creates UI elements verifies they are visually present, not just in the DOM:
 
-```
-// Instead of just checking DOM existence:
-const el = await page.$('.float-container');
-expect(el).not.toBeNull();  // NOT ENOUGH
-
-// Verify it is actually visible:
-const rect = await el.boundingBox();
-expect(rect).not.toBeNull();
-expect(rect.width).toBeGreaterThan(50);
-expect(rect.height).toBeGreaterThan(50);
-```
-
-For content visibility, verify the text is inside a visible container:
-
-```
-// Instead of just checking textContent:
-const text = await page.evaluate(() =>
-  document.querySelector('.float-container [role="log"]')?.textContent
-);
-expect(text).toContain(token);  // NOT ENOUGH
-
-// Also verify the container is visible:
-const logRect = await page.evaluate(() => {
-  const el = document.querySelector('.float-container [role="log"]');
-  if (!el) return null;
-  const r = el.getBoundingClientRect();
-  return { w: r.width, h: r.height };
-});
-expect(logRect.w).toBeGreaterThan(50);
-expect(logRect.h).toBeGreaterThan(50);
-```
+| Instead of | Also assert |
+|---|---|
+| The element handle is not null | Its `boundingBox()` exists with width and height above a meaningful floor (e.g. 50px) |
+| A container's `textContent` contains the token | That same container's `getBoundingClientRect()` has visible width and height |
 
 For terminal text, verify positions **in cells** and against tmux, not just that the text exists: `tests/helpers/cell-grid.js` converts bounding rects into cells using the published `--cell-w` (`getCellWidth`, `getCursorGeometry`, `getRunGeometry`), and tmux's `#{cursor_x}` (via `session.runCommand('display-message -p -t <session> ...')`) is the oracle for where a run must end. A wide glyph is expected to own a 1-cell box with ~2 cells of ink; the ASCII run after it must start on the cell tmux says.
 
@@ -175,7 +244,7 @@ When tests need to target specific tmux windows or panes (e.g., to kill a window
 
 ### No Skipped Tests
 
-Never commit `it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, or `xdescribe`. ESLint enforces this via `jest/no-disabled-tests` (error). Fix the test, fix the bug, or remove the test entirely.
+Never commit `it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, or `xdescribe`. ESLint enforces this via `jest/no-disabled-tests` (error) for `tests/`; the Vitest files under `packages/tmuxy-ui/src` have no such rule, so review catches them there. Fix the test, fix the bug, or remove the test entirely.
 
 ## Storybook Tests
 
@@ -183,47 +252,55 @@ Three tiers, cheapest first. All play functions follow the same rules as E2E tes
 
 | Tier | What runs | Where |
 |------|-----------|-------|
-| Vitest smoke (`stories/__tests__/stories.smoke.test.tsx`) | Pure component stories render; provider stories compose | `npm test` (CI: unit-tests job) |
-| Deterministic probe (`npm run test-storybook -w tmuxy-ui`) | Every non-`v86` story + its play function, fresh Chromium page each | CI: storybook-probe job |
-| v86 probe (`npm run test-storybook:v86 -w tmuxy-ui`) | Every `v86`-tagged story on ONE shared page (real tmux in the x86 emulator, snapshot-reset between stories; periodic cold-boot to cap accumulated drift) | CI: storybook-v86-probe job (**non-blocking** — inherently timing-sensitive at scale; reports for triage) |
+| Vitest smoke (`src/stories/__tests__/stories.smoke.test.tsx`) | Pure component stories render in jsdom; provider-backed stories are only imported and composed (mounting them exhausts the heap) | `npm test` (CI: `unit-tests`) |
+| Deterministic probe (`npm run test-storybook -w tmuxy-ui`) | Every non-`v86` story + its play function, fresh Chromium page each, 1280x800, 3 at a time | CI: `storybook-probe` (blocking) |
+| v86 probe (`npm run test-storybook:v86 -w tmuxy-ui`) | Every `v86`-tagged story on ONE shared page (real tmux in the x86 emulator, snapshot-reset between stories; periodic cold-boot to cap accumulated drift) | CI: `storybook-v86-probe`. A **blocking** gate step runs three stories (`split-optimistic-timeline`, `split-rejected-rollback`, `resize-pane-drag`); the full sweep is **non-blocking** and reports for triage |
 
-The `v86` tier needs two gitignored artifact sets that Storybook mounts as static dirs (`.storybook/main.ts`): `packages/tmuxy-wasm/pkg` from `npm run build:wasm` (needs the `wasm32-unknown-unknown` target and a `wasm-bindgen` CLI matching the version in `Cargo.lock`), and `packages/tmuxy-ui/v86-assets` from `npm run fetch:v86-image -w tmuxy-ui` plus `npm run build:v86-snapshot -w tmuxy-ui` (needs the `i686-unknown-linux-musl` target for the guest `tmuxy-tree` and `zstd`). Without them the `V86AppHarness` stories render the app's Connection Error screen with a failed dynamic import of `/wasm/tmuxy_wasm.js`. Both directories must at least exist for Storybook to start; the `storybook-probe` CI job creates them empty because it only runs the deterministic tier.
+The `v86` tier needs two gitignored artifact sets that Storybook mounts as static dirs (`.storybook/main.ts`): `packages/tmuxy-wasm/pkg` from `npm run build:wasm` (needs the `wasm32-unknown-unknown` target and a `wasm-bindgen` CLI matching the version in `Cargo.lock`), and `packages/tmuxy-ui/v86-assets` from `npm run fetch:v86-image -w tmuxy-ui` plus `npm run build:v86-snapshot -w tmuxy-ui` (needs the `i686-unknown-linux-musl` target for the guest `tmuxy-tree` and `zstd`). Without them the `V86AppHarness` stories render the app's Connection Error screen with a failed dynamic import of `/wasm/tmuxy_wasm.js`. Both directories must at least exist for Storybook to start; the `storybook-probe` CI job creates them empty because it only runs the deterministic tier. The `v86` tag is set at the meta level of a story file; `probe-stories.mjs` excludes it and `probe-spikes.mjs` selects it.
 
-**Seeing the raw tmux TUI.** The toolbar's "tmux view" global (`.storybook/preview.ts`, decorator in `stories/tmuxView.tsx`) attaches a second, read-only tmux client on the guest's VGA console and shows v86's rendering of it — tmux drawing its own borders, status line and cursor, no tmuxy code involved — either beside the story or as a cell-aligned translucent overlay. It applies to the shared-engine `Scenarios/Application` stories; use it to eyeball what tmux thinks the screen looks like versus what tmuxy rendered.
+**Seeing the raw tmux TUI.** The toolbar's "tmux view" global (`.storybook/preview.ts`, decorator in `src/stories/tmuxView.tsx`) attaches a second, read-only tmux client on the guest's VGA console and shows v86's rendering of it — tmux drawing its own borders, status line and cursor, no tmuxy code involved — either beside the story or as a cell-aligned translucent overlay. It applies to the shared-engine `Scenarios/Application` stories; use it to eyeball what tmux thinks the screen looks like versus what tmuxy rendered.
 
-Both probes expect a running Storybook (`npm run storybook -w tmuxy-ui`). CI runs the **dev** server (no build step needed; on-demand compilation). Filter the v86 probe to specific stories by id substring: `npm run test-storybook:v86 -- split-optimistic deltaprotocol`.
+Both probes expect a running Storybook (`npm run storybook -w tmuxy-ui`). CI runs the **dev** server (no build step needed; on-demand compilation). Filter the v86 probe to specific stories by id substring: `npm run test-storybook:v86 -w tmuxy-ui -- split-optimistic deltaprotocol`. Set `PROBE_TIMINGS_JSON=<path>` to write per-story timings.
 
 ### Choosing a harness
+
+Both are in `src/stories/StoryHarness.tsx`.
 
 - **`AppHarness` / `ProviderHarness`** (DemoAdapter, deterministic): component behavior, optimistic-update timing that needs controlled latency (`commandDelayMs`) or forced rejections (`failCommand`), render budgets.
 - **`V86AppHarness`** (real tmux): anything whose bugs live in the real chain — command transport, control-mode parsing, reconcile timing, `%output` rendering. If a story asserts "tmux did X", it belongs here.
 
 ### Immediacy assertions (optimistic rendering)
 
-"Immediate" is measured, not assumed: arm `armPaintProbe` (`stories/immediacy.ts`) just before the input, and assert the first matching DOM mutation lands within a few animation frames (≤5 absorbs userEvent dispatch overhead; a real round-trip takes dozens). A painted `__placeholder_*` pane id is itself proof of optimism — the server never emits one. After the optimistic paint, assert the reconcile is invisible: no pane-node removals (`LayoutMutationRecorder`), no highlight flaps (record the class/attribute history with a MutationObserver — polling misses one-frame reverts).
+"Immediate" is measured, not assumed: arm `armPaintProbe` (`src/stories/immediacy.ts`) just before the input, and assert the first matching DOM mutation lands within a few animation frames (≤5 absorbs userEvent dispatch overhead; a real round-trip takes dozens). A painted `__placeholder_*` pane id is itself proof of optimism — the server never emits one. After the optimistic paint, assert the reconcile is invisible: no pane-node removals (`LayoutMutationRecorder`), no highlight flaps (record the class/attribute history with a MutationObserver — polling misses one-frame reverts).
 
 ### Glitch budgets
 
-`stories/glitchRecorder.ts` is the story-side counterpart of `tests/helpers/glitch-detector.js`: MutationObserver-based node-flicker/attribute-churn detection plus rAF rect sampling for size jumps. Budgets are code: both harnesses read `stories/glitch-thresholds.json` — loosening a budget is a reviewable diff, not a silent drift.
+`src/stories/glitchRecorder.ts` is the story-side counterpart of `tests/helpers/glitch-detector.js`: MutationObserver-based node-flicker/attribute-churn detection plus rAF rect sampling for size jumps. Budgets are code: both harnesses read `src/stories/glitch-thresholds.json` — loosening a budget is a reviewable diff, not a silent drift.
 
-`stories/resizeGlitch.ts` (`ResizeGlitchRecorder`) is the resize-specific counterpart: it logs every pane's `top`/`left`/`width`/`height` — from both the inline-`style` MutationObserver (every React commit, so a 1-frame revert can't hide) and an rAF rect sampler — and flags any A→B→A *reversal*. A threshold-on-consecutive-frames detector misses these; a value that leaves and returns does not. It samples the outer box (top/left/width/height, via style + rAF) AND each pane's terminal-content top (`[role=log]`) — the content shifts a row when the header appears/disappears even while the box stays the same size. Because the resize stories drive a MONOTONIC drag, any reversal is a real glitch: a mid-drag grid shift, the pane flashing back to an old size after mouse-up, or an uninvolved pane's content jumping up a row. See `Scenarios/Application` → `ResizePaneDrag` (horizontal), `ResizePaneDragVertical` (stacked), `ResizePaneDragGrid` (2x2 tiled — a whole-band resize).
+`src/stories/resizeGlitch.ts` (`ResizeGlitchRecorder`) is the resize-specific counterpart: it logs every pane's `top`/`left`/`width`/`height` — from both the inline-`style` MutationObserver (every React commit, so a 1-frame revert can't hide) and an rAF rect sampler — and flags any A→B→A *reversal*. A threshold-on-consecutive-frames detector misses these; a value that leaves and returns does not. It samples the outer box (top/left/width/height, via style + rAF) AND each pane's terminal-content top (`[role=log]`) — the content shifts a row when the header appears/disappears even while the box stays the same size. Because the resize stories drive a MONOTONIC drag, any reversal is a real glitch: a mid-drag grid shift, the pane flashing back to an old size after mouse-up, or an uninvolved pane's content jumping up a row. See `Scenarios/Application` → `ResizePaneDrag` (horizontal), `ResizePaneDragVertical` (stacked), `ResizePaneDragGrid` (2x2 tiled — a whole-band resize).
 
 ### Render budgets
 
-`utils/renderLog.tsx` places `LogProfiler` markers inside key components; each marker records one entry per RENDER of its host component to `window.__tmuxyRenderLog` when a story enables it (`enableRenderLog()` before mount). Budgets assert render counts per component id (e.g. typing into pane A must not render `Pane:B` or `WindowTabs`). React's own `<Profiler onRender>` is deliberately not used — it over-reports in this tree, firing for subtrees that fully bailed out. MutationObserver cannot see this class of waste — a re-render that produces identical DOM still costs CPU.
+`src/utils/renderLog.tsx` places `LogProfiler` markers inside key components; each marker records one entry per RENDER of its host component to `window.__tmuxyRenderLog` when a story enables it (`enableRenderLog()` before mount). Budgets assert render counts per component id (e.g. typing into pane A must not render `Pane:B` or `WindowTabs`). React's own `<Profiler onRender>` is deliberately not used — it over-reports in this tree, firing for subtrees that fully bailed out. MutationObserver cannot see this class of waste — a re-render that produces identical DOM still costs CPU.
 
-## Unit Tests
+## UI Unit Tests
 
-- Use Vitest (configured in `packages/tmuxy-ui`)
-- Test pure logic: parsers, state transformations, utility functions
-- Do not test React component rendering in unit tests — that belongs in integration or E2E
+- Vitest with jsdom, configured in `packages/tmuxy-ui/vite.config.ts`; `src/test/setup.ts` installs jest-dom matchers, an in-memory `localStorage` for Node ≥ 22, and cleans up after each test
+- Tests live beside the code in `__tests__/` directories: `src/utils/`, `src/machines/` (state handlers share `src/machines/app/states/__tests__/testHarness.ts`), `src/tmux/` (adapters, key batching, the store, the demo backend), `src/components/`, `src/hooks/`
+- Test pure logic: parsers, state transformations, utility functions, adapter protocol handling
+- Component rendering in jsdom is limited to a few mocked-context tests in `src/test/` and the story smoke test. jsdom has no layout, so a jsdom render test can prove "does not throw" and "renders this text", never "is visible" — anything visual belongs in a story or E2E
 - Keep unit tests fast (< 1s per file)
 
-## Integration Tests
+## Rust Tests
 
-- Test interactions between two or more modules without the full system
-- Example: XState machine + mock adapter, or parser + real tmux output
-- Can use JSDOM for lightweight DOM assertions when visual correctness is not the concern
+- `cargo test --workspace` runs every crate's `#[cfg(test)]` modules plus the integration tests in `packages/tmuxy-core/tests/`. Most of the count is in `tmuxy-core`; `tmuxy-server`, `tmuxy-tauri-app`, `tmuxy-connect` and `tmuxy-wasm` have smaller suites; `tmuxy-tree` has none
+- Prefer fixtures over a live tmux: `control_mode_push_api.rs` feeds recorded `tmux -CC` text through the parser and aggregator, `terminal_fidelity.rs` and `pane_reflow_parity.rs` replay byte streams through the emulator (`tests/fixtures/`), and `state_aggregator_props.rs` is a proptest suite (its regressions file is committed)
+- `initial_state.rs`, `reply_channel.rs` and `pinned_split_race.rs` drive a real `tmux -CC` monitor on a per-process scratch socket and need a `tmux` binary; use that pattern only when the bug depends on how tmux itself answers
+- Test code opts out of the `unwrap_used`/`expect_used` lints with an `allow` attribute
+
+## CLI Tests
+
+`tests/cli/` has its own Jest config (`tests/cli/jest.config.js`) and runs `bin/tmuxy-cli` against the mock `tmux`, `tmuxy-server` and `tmuxy-connect` scripts in `tests/cli/mocks/`, which log every invocation. `tests/cli/helpers/run-cli.js` fails any recorded tmux call that does not lead with the dedicated socket flag, so socket isolation is enforced for every subcommand. It is hermetic: no tmux, no server, no browser.
 
 ## Interaction-Latency Tests
 
@@ -240,13 +317,17 @@ Adding an interaction means adding one entry in
 `packages/tmuxy-ui/scripts/measure-interactions.mjs` (how to trigger it, and
 the visible thing that says it happened) and one budget in
 `compare-interactions.mjs`. See [PERFORMANCE.md](PERFORMANCE.md) § Axis C for
-the design and the current numbers.
+the design and the current numbers. The other harnesses in that directory
+(`measure-latency.mjs`, `measure-keypaint.mjs`, `latency-proxy.mjs`) are manual
+Axis A/B tools and are not run in CI.
 
-## Tauri Tests
+## Desktop (Tauri) Tests
 
-- Tauri desktop app wraps the same React UI with native IPC instead of HTTP/SSE
-- Test the IPC boundary: commands that go through `invoke()` and events that come through `listen()`
-- Visual behavior tests should follow the same guidelines as E2E (verify visible, not just in DOM)
+The desktop app wraps the same React UI with native IPC instead of HTTP/SSE, so desktop tests cover the seam, not the UI again.
+
+- **Tauri E2E** (`tests/tauri/tauri-app.test.js`): Jest → WebdriverIO → `tauri-driver` on port 4444 → WebKitWebDriver → a debug build at `target/debug/tmuxy`. The global setup builds the frontend and the binary, starts Xvfb on `:99` and the driver; each test launches a fresh app with its own session. Covers app lifecycle, IPC commands through `invoke()`, events through `listen()`, and state sync. Linux only (WebKitGTK and Xvfb).
+- **Smoke tests** (`tests/smoke/`, run by `build-app.yml` after the release build): `smoke-test.js` launches the app on Linux (`tauri-driver` + Xvfb) and macOS (`tauri-webdriver` against a debug build with `--features webdriver`), types a command, sees the output, and reads `~/tmuxy-debug.log` to require no `FATAL` and at most two control-mode connects. `hostile-config-test.js` (Linux, non-blocking) plants a `default-command` that cannot exec and expects the bounded-retry `FATAL`. `macos-sparse-path-test.js` launches the release binary under launchd's sparse `PATH` and requires a stable connection.
+- Visual behavior assertions follow the same guidelines as E2E (verify visible, not just in DOM).
 
 ## What Not to Test
 
@@ -259,14 +340,19 @@ the design and the current numbers.
 ## Running Tests
 
 ```bash
-npm test                # Unit tests (Vitest)
-npm run test:e2e        # E2E tests (Jest + Playwright CDP); starts its own server if needed
+npm run lint                               # ESLint: tests/ and tmuxy-ui
+npm test -- --run                          # Vitest once (without --run it watches)
+cargo test --workspace                     # Rust (needs tmux on PATH)
+npm run test:cli                           # CLI suite, hermetic
 
-TMUX_SOCKET=tmuxy-test npm start        # a dev server the E2E suite can reuse
+npm run test:e2e                           # Web E2E + snapshots; starts its own server if needed
+npx jest tests/2-layout-navigation.test.js # One E2E file
 
-npm run storybook -w tmuxy-ui           # Storybook dev server (required for probes)
-npm run test-storybook -w tmuxy-ui      # Probe all non-v86 stories
-npm run test-storybook:v86 -w tmuxy-ui  # Probe v86 stories (shared engine)
+npm run storybook -w tmuxy-ui              # Storybook dev server (required for probes)
+npm run test-storybook -w tmuxy-ui         # Probe all non-v86 stories
+npm run test-storybook:v86 -w tmuxy-ui     # Probe v86 stories (shared engine)
+
+npm run test:tauri                         # Tauri E2E (Linux: tauri-driver, Xvfb, webkit2gtk-driver)
 
 # Interaction latency (needs a running server; --cdp reuses the dev browser)
 npm run perf:interactions -- --url http://localhost:9000 --out perf/interaction-report.json
@@ -281,10 +367,29 @@ npm run test:e2e -- --testNamePattern="Scenario 22"
 
 # Verbose output
 npm run test:e2e -- --verbose
-
-# Debug logging
-DEBUG_TESTS=1 npm run test:e2e
 ```
+
+When CI's E2E or latency job fails, its last step prints the tail of the server log (`/tmp/tmuxy-server.log`). A local suite-started server writes stderr to `/tmp/tmuxy-server-stderr.log`.
+
+## Known Gaps
+
+Facts as of this writing; the ones marked *unverified* could not be confirmed from the repository alone.
+
+| Gap | Evidence |
+|---|---|
+| No check is required to merge | `main` has no branch protection; its ruleset only blocks deletion and force-push. A red `lint-and-tests` run does not stop a merge. |
+| The packaged desktop app is only tested after merge | `build-app.yml` triggers on push to `main` and tags, never on PRs, so the Linux/macOS smoke and sparse-PATH tests cannot catch a regression before it lands. |
+| macOS WKWebView gets no functional desktop suite | `tests/tauri/` is Linux-only (`tests/tauri/helpers/xvfb.js`, `tests/tauri/helpers/tauri-driver.js`); macOS only gets `tests/smoke/smoke-test.js`, post-merge. |
+| Non-blocking jobs hide regressions by design | `e2e (9-animations)` is `soft`; the full v86 sweep and `tests/smoke/hostile-config-test.js` are `continue-on-error` (the latter passes ~60% of runs per its workflow comment). |
+| No phone-width coverage | E2E pages open at 1280x720 (`tests/helpers/browser.js`); the smallest viewport tested is 800x600 (`tests/1-input-interaction.test.js`, Scenario 23); both probes use 1280x800. No mobile or `hasTouch` browser context exists. Touch is covered only by CDP touch scroll (Scenario 21) and `src/utils/__tests__/mobileKeyboard.test.ts`. |
+| Reconnect backoff is never exercised at real timing | `packages/tmuxy-ui/src/tmux/__tests__/HttpAdapter.test.ts` injects `Schedule.spaced('1 millis')`; the production schedule in `src/tmux/HttpAdapter.ts` is exponential from 1s, capped at 30s. The E2E reconnect scenarios (`tests/4-session-connectivity.test.js`, 12 and 12b) reload and toggle offline, not a server that stays down across several retries. |
+| Output flood tests are light | The heaviest is `tests/5-stress-stability.test.js` Scenario 17: `yes \| head -500` and `seq 1 2000`. No sustained, multi-megabyte or backpressure test exists, and the latency gate measures no output throughput. |
+| The Axis A benchmark is not in CI | `packages/tmuxy-core/benches/core_pipeline.rs` is run by hand; `PROBE_TIMINGS_JSON` from `probe-spikes.mjs` is not collected by any job. |
+| Rust tests that need tmux run on an unpinned tmux | `initial_state.rs`, `reply_channel.rs`, `pinned_split_race.rs` need a `tmux` binary, but the `rust-tests` job installs none, unlike the jobs that build 3.7a. *Unverified:* that `ubuntu-latest` ships tmux (the job would otherwise fail) and which version. |
+| Lint does not cover every crate | CI `cargo fmt`/`clippy` cover only `tmuxy-core`, `tmuxy-server`, `tmuxy-tauri-app` — not `tmuxy-tree`, `tmuxy-connect`, `tmuxy-wasm`. The pre-commit hook omits `tmuxy-tauri-app` and runs clippy without `-D warnings`. |
+| Skipped Vitest tests are not linted | `jest/no-disabled-tests` applies to `tests/**/*.js` only; `packages/tmuxy-ui/eslint.config.js` has no equivalent. No skipped tests exist today. |
+| Uncovered crates and scripts | `packages/tmuxy-tree` has no tests; `packages/tmuxy-demo` has none and `deploy-demo.yml` deploys without testing; the `tests/qa-*.js` scripts and `tests/tauri/trace-demo.js` are run by no job. |
+| Local E2E can pass vacuously | Without Chrome on 9222 every test skips green (see Environment); only `CI=1` turns that into a failure. |
 
 ## Related
 
