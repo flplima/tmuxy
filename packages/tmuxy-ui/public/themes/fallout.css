@@ -58,8 +58,6 @@
   --border-medium: #1a3d1a;
   --border-light: #1f4a1f;
 
-  --pane-header-bg-active: #1a3d1a;
-  --pane-header-bg-inactive: #081408;
   --pane-header-text-active: var(--fallout-fg);
   --pane-header-text-inactive: var(--fallout-fg-dim);
 
@@ -153,8 +151,6 @@
   --border-medium: #a0a380;
   --border-light: #959878;
 
-  --pane-header-bg-active: #acaf8a;
-  --pane-header-bg-inactive: #b8bb95;
   --pane-header-text-active: var(--fallout-light-fg);
   --pane-header-text-inactive: var(--fallout-light-fg-dim);
 

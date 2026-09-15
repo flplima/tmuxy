@@ -41,8 +41,6 @@
   --border-medium: #292e42;
   --border-light: #343a52;
 
-  --pane-header-bg-active: #343a52;
-  --pane-header-bg-inactive: #16161e;
   --pane-header-text-active: #c0caf5;
   --pane-header-text-inactive: #414868;
 
@@ -121,8 +119,6 @@
   --border-medium: #c4c5ca;
   --border-light: #b8b9be;
 
-  --pane-header-bg-active: #c4c5ca;
-  --pane-header-bg-inactive: #d7d8dd;
   --pane-header-text-active: #3760bf;
   --pane-header-text-inactive: #8990b3;
 

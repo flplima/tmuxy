@@ -58,8 +58,6 @@
   --border-medium: #1a3050;
   --border-light: #1f3a5e;
 
-  --pane-header-bg-active: #1a3050;
-  --pane-header-bg-inactive: #050d16;
   --pane-header-text-active: var(--cold-fg);
   --pane-header-text-inactive: var(--cold-fg-dim);
 
@@ -153,8 +151,6 @@
   --border-medium: #a5b8b8;
   --border-light: #98acac;
 
-  --pane-header-bg-active: #b0c2c2;
-  --pane-header-bg-inactive: #c0d0d0;
   --pane-header-text-active: var(--cold-light-fg);
   --pane-header-text-inactive: var(--cold-light-fg-dim);
 

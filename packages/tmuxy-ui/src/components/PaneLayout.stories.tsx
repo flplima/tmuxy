@@ -20,7 +20,7 @@ export default meta;
 type Story = StoryObj<typeof AppHarness>;
 
 interface AppActor {
-  send(event: { type: string; name?: string }): void;
+  send(event: { type: string; name?: string; mode?: string }): void;
   getSnapshot(): { context: { activePaneId: string | null } };
 }
 const app = () => (window as unknown as { app: AppActor }).app;
@@ -76,5 +76,86 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
     // `l` hands the keyboard back: the green returns.
     await user.keyboard('l');
     await waitFor(() => expect(activeOutline()).toBe('rgb(215, 153, 33)'), { timeout: 5000 });
+  },
+};
+
+/**
+ * A computed colour as 0–255 channels. A `color-mix()` computes to
+ * `color(srgb r g b)` with 0–1 channels rather than to `rgb()`.
+ */
+const rgbOf = (value: string) => {
+  const channels = (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+  return value.startsWith('color(srgb') ? channels.map((c) => c * 255) : channels;
+};
+
+/** What a CSS colour expression resolves to in the page. */
+const resolve = (css: string) => {
+  const probe = document.createElement('span');
+  probe.style.color = css;
+  document.body.appendChild(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return rgbOf(color);
+};
+
+const activeHeader = () =>
+  document.querySelector<HTMLElement>('.pane-layout-item.pane-active .pane-header');
+
+/**
+ * A pane header is its theme's gray bar taken halfway to black on a dark
+ * theme and halfway to white on a light one; gruvbox writes everything on the
+ * active header in its yellow accent.
+ */
+export const PaneHeaderToneAndGruvboxAccent: Story = {
+  args: { height: 500, initCommands: ['split-window -h'] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /Pane %1/i }, { timeout: 8000 });
+    const near = (got: number[], want: number[]) =>
+      got.every((channel, i) => Math.abs(channel - want[i]) <= 1);
+
+    // Default, dark: half of the outline tone the header is built from.
+    app().send({ type: 'SET_THEME', name: 'default' });
+    app().send({ type: 'SET_THEME_MODE', mode: 'dark' });
+    await waitFor(
+      () => {
+        const base = resolve('var(--pane-active-border, var(--border-medium))');
+        const got = rgbOf(getComputedStyle(activeHeader()!).backgroundColor);
+        expect(
+          near(
+            got,
+            base.map((c) => c / 2),
+          ),
+        ).toBe(true);
+      },
+      { timeout: 8000 },
+    );
+
+    // Gruvbox, dark: bg1 (#3c3836) halfway to black, yellow text on it.
+    app().send({ type: 'SET_THEME', name: 'gruvbox' });
+    await waitFor(
+      () => {
+        const got = rgbOf(getComputedStyle(activeHeader()!).backgroundColor);
+        expect(near(got, [0x3c / 2, 0x38 / 2, 0x36 / 2])).toBe(true);
+        const title = activeHeader()!.querySelector<HTMLElement>('.pane-tab-title')!;
+        expect(getComputedStyle(title).color).toBe('rgb(215, 153, 33)');
+      },
+      { timeout: 8000 },
+    );
+
+    // Gruvbox, light: bg3 (#bdae93) halfway to white, still the yellow accent.
+    app().send({ type: 'SET_THEME_MODE', mode: 'light' });
+    await waitFor(
+      () => {
+        const got = rgbOf(getComputedStyle(activeHeader()!).backgroundColor);
+        expect(near(got, [(0xbd + 255) / 2, (0xae + 255) / 2, (0x93 + 255) / 2])).toBe(true);
+        const title = activeHeader()!.querySelector<HTMLElement>('.pane-tab-title')!;
+        expect(getComputedStyle(title).color).toBe(
+          `rgb(${resolve('var(--term-yellow)').join(', ')})`,
+        );
+      },
+      { timeout: 8000 },
+    );
+    app().send({ type: 'SET_THEME_MODE', mode: 'dark' });
   },
 };
