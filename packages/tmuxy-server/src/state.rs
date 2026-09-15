@@ -348,17 +348,78 @@ async fn browse_handler(Path(path): Path<String>) -> Response {
     read_file_response(&format!("/{}", path.trim_start_matches('/')))
 }
 
+/// A local file, served so the browser widget can frame it in any build.
+///
+/// The Vite dev server serves the app cross-origin-isolated (COOP
+/// `same-origin`, COEP `require-corp`), and under that policy a framed
+/// document is blocked unless it opts in too: the widget showed the browser's
+/// broken-page placeholder for every local HTML file. `credentialless` is that
+/// opt-in without the cost `require-corp` would carry — a page's own
+/// cross-origin scripts and images still load, just without credentials — and
+/// `Cross-Origin-Resource-Policy` lets the file itself be embedded. Outside an
+/// isolated parent both headers change nothing.
 fn read_file_response(path: &str) -> Response {
     match std::fs::read(path) {
-        Ok(content) => build_response(
-            StatusCode::OK,
-            tmuxy_core::mime::content_type_for_path(path),
-            content,
-        ),
+        Ok(content) => {
+            let mut response = build_response(
+                StatusCode::OK,
+                tmuxy_core::mime::content_type_for_path(path),
+                content,
+            );
+            let headers = response.headers_mut();
+            headers.insert(
+                axum::http::header::HeaderName::from_static("cross-origin-embedder-policy"),
+                axum::http::HeaderValue::from_static("credentialless"),
+            );
+            headers.insert(
+                axum::http::header::HeaderName::from_static("cross-origin-resource-policy"),
+                axum::http::HeaderValue::from_static("cross-origin"),
+            );
+            response
+        }
         Err(e) => json_response(
             StatusCode::NOT_FOUND,
             &serde_json::json!({ "error": format!("{}", e) }),
         ),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod file_route_tests {
+    use super::*;
+
+    #[test]
+    fn a_served_file_can_be_framed_by_a_cross_origin_isolated_app() {
+        // The dev app is served with COEP `require-corp`; a frame that does
+        // not opt in is replaced by the browser's broken-page placeholder.
+        let path = std::env::temp_dir().join(format!("tmuxy-browse-{}.html", std::process::id()));
+        std::fs::write(&path, "<h1>framed</h1>").unwrap();
+        let response = read_file_response(path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        };
+        assert_eq!(
+            header("cross-origin-embedder-policy").as_deref(),
+            Some("credentialless")
+        );
+        assert_eq!(
+            header("cross-origin-resource-policy").as_deref(),
+            Some("cross-origin")
+        );
+    }
+
+    #[test]
+    fn a_missing_file_is_a_404() {
+        let response = read_file_response("/tmp/tmuxy-no-such-file-for-the-browse-route.html");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }
 
