@@ -104,8 +104,29 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get install -y --no-install-recommends \
-            tmux webkit2gtk-driver xvfb x11-utils
+            libevent-dev libncurses-dev bison webkit2gtk-driver xvfb x11-utils
           cargo install tauri-driver
+
+      # ubuntu-22.04's apt tmux is 3.2a, below the 3.3 the app refuses to
+      # launch without. Same source-built 3.7a as lint-and-tests.yml, keyed
+      # per runner image so the 22.04 and arm builds link their own libevent.
+      - name: Cache tmux 3.7a (Linux)
+        if: matrix.platform == 'linux'
+        id: tmux-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/bin/tmux
+            /usr/local/share/tmux
+          key: ${{ matrix.os }}-tmux-3.7a-v1
+
+      - name: Build tmux 3.7a (Linux, cache miss)
+        if: matrix.platform == 'linux' && steps.tmux-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz
+          cd tmux-3.7a && ./configure && make -j$(nproc) && sudo make install
+          cd .. && rm -rf tmux-3.7a
+          tmux -V
 
       - name: Install smoke test deps (macOS)
         if: matrix.platform == 'macos'
