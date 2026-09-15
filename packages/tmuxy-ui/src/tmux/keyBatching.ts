@@ -11,6 +11,33 @@ export function escapeLiteralText(text: string): string {
   return "'" + text.replace(/'/g, "'\\''") + "'";
 }
 
+/** Longest literal a single `send-keys -l` carries before the text is split. */
+const LITERAL_CHUNK_SIZE = 500;
+
+/**
+ * The command lines that type `text` into `target` literally, one per line.
+ *
+ * Control mode reads one command per line, so a newline inside a quoted
+ * literal would end the `send-keys` there and run the rest of the text as tmux
+ * commands of its own — `run-shell` included. Each line of text goes as its own
+ * `send-keys -l` (split into chunks so no command line grows unbounded), with
+ * an `Enter` between lines: what pasting the text into a terminal does.
+ */
+export function literalTextCommands(target: string, text: string): string {
+  const lines = text.split(/\r?\n/);
+  const commands: string[] = [];
+  lines.forEach((line, i) => {
+    for (let j = 0; j < line.length; j += LITERAL_CHUNK_SIZE) {
+      const chunk = line.slice(j, j + LITERAL_CHUNK_SIZE);
+      commands.push(`send-keys -t ${target} -l ${escapeLiteralText(chunk)}`);
+    }
+    if (i < lines.length - 1) {
+      commands.push(`send-keys -t ${target} Enter`);
+    }
+  });
+  return commands.join('\n');
+}
+
 /**
  * Unescape literal text from tmux send-keys -l format.
  * Reverses: 'text' → text, 'it'\''s' → it's

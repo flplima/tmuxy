@@ -9,7 +9,7 @@ import { useEffect } from 'react';
 import { ControlledMenu, MenuItem } from '@szhsin/react-menu';
 import '@szhsin/react-menu/dist/index.css';
 import { useAppSend } from '../machines/AppContext';
-import { escapeLiteralText } from '../tmux/keyBatching';
+import { literalTextCommands } from '../tmux/keyBatching';
 import { CopyIcon, SendKeysIcon } from './menus/MenuIcons';
 import './menus/AppMenu.css';
 import { flashCopiedRange } from '../utils/copyFlash';
@@ -85,7 +85,7 @@ export function SelectionContextMenu({
         onClick={() => {
           send({
             type: 'SEND_COMMAND',
-            command: `send-keys -t ${paneId} -l ${escapeLiteralText(selectedText)}`,
+            command: literalTextCommands(paneId, selectedText),
           });
           exitAndClose();
         }}

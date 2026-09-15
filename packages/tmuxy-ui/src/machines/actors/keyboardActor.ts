@@ -38,6 +38,7 @@ import {
 } from '../../utils/mobileKeyboard';
 import { flashCopiedRange } from '../../utils/copyFlash';
 import { terminalTextOf } from '../../utils/nativeSelection';
+import { escapeLiteralText, literalTextCommands } from '../../tmux/keyBatching';
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
@@ -166,16 +167,6 @@ function formatTmuxKey(event: KeyboardEvent): string {
 }
 
 /**
- * Escape text for use with tmux send-keys -l (literal mode)
- * This handles special characters that might be interpreted by tmux
- */
-function escapeLiteralText(text: string): string {
-  // Escape single quotes by ending quote, adding escaped quote, starting new quote
-  // 'text' -> 'text'\''more'
-  return "'" + text.replace(/'/g, "'\\''") + "'";
-}
-
-/**
  * Placeholder pane ids (`__placeholder_*`) are client-side predictions from the
  * optimistic store — tmux has never heard of them. Targeting one (the
  * `select-pane` pin or a `send-keys -t`) makes real tmux reject the whole
@@ -301,7 +292,7 @@ export function createKeyboardActor() {
       const textTarget = paneId === null ? keyTarget() : (realPaneId(paneId) ?? sessionName);
       input.parent.send({
         type: 'SEND_TMUX_COMMAND',
-        command: `send-keys -t ${textTarget} -l ${escapeLiteralText(text)}`,
+        command: literalTextCommands(textTarget, text),
       });
     });
 
@@ -858,11 +849,9 @@ export function createKeyboardActor() {
       if (!composedText) return;
       input.parent.send({
         type: 'SEND_TMUX_COMMAND',
-        command: `send-keys -t ${target} -l ${escapeLiteralText(composedText)}`,
+        command: literalTextCommands(target, composedText),
       });
     };
-
-    const PASTE_CHUNK_SIZE = 500;
 
     const handlePaste = (event: ClipboardEvent) => {
       if (!enabled) return;
@@ -870,36 +859,12 @@ export function createKeyboardActor() {
       const text = event.clipboardData?.getData('text/plain');
       if (!text) return;
 
-      // Build multiple send-keys commands joined by \n. Control mode processes
-      // each line as a separate command, so this keeps them atomic and ordered.
-      // For each text line: send-keys -l 'text', then send-keys Enter.
-      const lines = text.split('\n');
-      const commands: string[] = [];
-
-      const pasteTarget = keyTarget();
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.length > 0) {
-          // Chunk long lines
-          for (let j = 0; j < line.length; j += PASTE_CHUNK_SIZE) {
-            const chunk = line.slice(j, j + PASTE_CHUNK_SIZE);
-            commands.push(`send-keys -t ${pasteTarget} -l ${escapeLiteralText(chunk)}`);
-          }
-        }
-        if (i < lines.length - 1) {
-          commands.push(`send-keys -t ${pasteTarget} Enter`);
-        }
-      }
-
-      if (commands.length > 0) {
-        // Send all commands as \n-separated string in a single call.
-        // The backend writes this to control mode stdin, which processes
-        // each line as a separate command in order.
-        input.parent.send({
-          type: 'SEND_TMUX_COMMAND',
-          command: commands.join('\n'),
-        });
-      }
+      // One control-mode command per line of text, sent in a single call so
+      // the lines reach the pane in order.
+      input.parent.send({
+        type: 'SEND_TMUX_COMMAND',
+        command: literalTextCommands(keyTarget(), text),
+      });
     };
 
     // Native copy event handler — uses pendingCopyText set by keydown handler,
