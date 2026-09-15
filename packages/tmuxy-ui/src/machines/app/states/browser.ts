@@ -1,6 +1,6 @@
 /**
- * browser state — parallel state for the browser widget's per-pane history,
- * zoom and refresh (components/widgets/browser).
+ * browser state — parallel state for the browser widget's per-pane zoom and
+ * refresh (components/widgets/browser).
  *
  * Owns context field: browserStates.
  *
@@ -12,9 +12,6 @@
 
 export const browserState = {
   on: {
-    BROWSER_NAVIGATE: { actions: 'browser_navigate' },
-    BROWSER_BACK: { actions: 'browser_back' },
-    BROWSER_FORWARD: { actions: 'browser_forward' },
     BROWSER_ZOOM: { actions: 'browser_zoom' },
     BROWSER_RELOAD: { actions: 'browser_reload' },
     BROWSER_COPY_URL: { actions: 'browser_copyUrl' },

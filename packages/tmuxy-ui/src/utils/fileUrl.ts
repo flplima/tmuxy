@@ -44,28 +44,3 @@ export function fileUrl(absPath: string): string {
   }
   return `/api/browse${encodePath(absPath)}`;
 }
-
-/**
- * The inverse of `fileUrl` for the two path-shaped forms, so a page that
- * navigated inside its iframe can be reported back as the plain path the user
- * typed. Anything else (an http(s) site, a data: URI) is returned unchanged.
- */
-export function pathFromFileUrl(url: string): string {
-  const patterns = [
-    /^https?:\/\/[^/]*\/api\/browse(\/.*)$/,
-    /^\/api\/browse(\/.*)$/,
-    /^tmuxyfile:\/\/[^/]*(\/.*)$/,
-    /^http:\/\/tmuxyfile\.localhost(\/.*)$/,
-  ];
-  for (const pattern of patterns) {
-    const match = pattern.exec(url);
-    if (match) {
-      try {
-        return decodeURIComponent(match[1]);
-      } catch {
-        return match[1];
-      }
-    }
-  }
-  return url;
-}

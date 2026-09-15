@@ -51,7 +51,7 @@ export function classifySource(src: string): SourceKind {
 }
 
 /** True for sources the webview can load as-is, without going through a file route. */
-function isRemote(src: string): boolean {
+export function isRemote(src: string): boolean {
   return /^(?:https?:|data:|blob:)/i.test(src);
 }
 

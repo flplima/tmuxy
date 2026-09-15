@@ -230,24 +230,20 @@ export interface SessionTreeNode {
 }
 
 /**
- * A browser-widget pane's history and zoom.
+ * A browser-widget pane's zoom and refresh count.
  *
- * `pushed` holds only the pages navigated to *after* the one the pane's widget
- * marker declares; that opening source is always history entry 0 and is read
- * from the pane content instead of being stored, so a pane that has never been
- * navigated needs no record at all. See components/widgets/browser/view.ts.
+ * The page is not stored: it is the source the pane's widget marker declares,
+ * read from the pane content, so a pane nobody has zoomed or refreshed needs no
+ * record at all. See components/widgets/browser/view.ts.
  */
 export interface BrowserPaneState {
   /**
    * The marker source this record belongs to. A pane outlives the browser
    * running in it — close one and open another and the pane id is the same —
    * so a record whose source no longer matches the pane's is a previous
-   * browser's history and is ignored.
+   * browser's and is ignored.
    */
   source: string;
-  pushed: string[];
-  /** Cursor into [markerSource, ...pushed]. */
-  index: number;
   zoom: number;
   /** Bumped by a refresh; changes the load so a cached response is bypassed. */
   reloadNonce: number;
@@ -392,7 +388,7 @@ export interface AppMachineContext {
   keybindings: KeyBindings | null;
   /** Client-side copy mode state per pane */
   copyModeStates: Record<string, CopyModeState>;
-  /** Browser widget history and zoom per pane (absent until the user acts) */
+  /** Browser widget zoom and refresh per pane (absent until the user acts) */
   browserStates: Record<string, BrowserPaneState>;
   /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
   paneActivationOrder: string[];
@@ -755,19 +751,10 @@ export type CloseTabEvent = { type: 'CLOSE_TAB'; windowId: string };
 export type WriteToPaneEvent = { type: 'WRITE_TO_PANE'; paneId: string; data: string };
 
 // Browser widget (components/widgets/browser). Sent by the widget's own pane
-// menu section, its ctrl+r binding, and the frame itself when a page it serves
-// follows a link.
+// menu section and its ctrl+r binding.
 // Every mutating event carries `source` — the page the pane's widget marker
 // declares — so the machine can tell a record belonging to the browser now
 // running in the pane from one left by a previous browser in the same pane.
-export type BrowserNavigateEvent = {
-  type: 'BROWSER_NAVIGATE';
-  paneId: string;
-  source: string;
-  url: string;
-};
-export type BrowserBackEvent = { type: 'BROWSER_BACK'; paneId: string; source: string };
-export type BrowserForwardEvent = { type: 'BROWSER_FORWARD'; paneId: string; source: string };
 export type BrowserZoomEvent = {
   type: 'BROWSER_ZOOM';
   paneId: string;
@@ -1036,9 +1023,6 @@ export type AppMachineEvent =
   | ReorderTabEvent
   | CloseTabEvent
   | WriteToPaneEvent
-  | BrowserNavigateEvent
-  | BrowserBackEvent
-  | BrowserForwardEvent
   | BrowserZoomEvent
   | BrowserReloadEvent
   | BrowserCopyUrlEvent

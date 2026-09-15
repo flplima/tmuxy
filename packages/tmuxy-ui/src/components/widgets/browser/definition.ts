@@ -21,20 +21,8 @@ export const browserWidget: WidgetDefinition = {
 
   selectMenuItems: (context, paneId, lines): WidgetMenuItem[] => {
     const view = selectBrowserView(context, paneId, lines);
-    const source = view.source;
+    const source = view.url;
     return [
-      {
-        id: 'browser-back',
-        label: 'Back',
-        disabled: !view.canGoBack,
-        event: { type: 'BROWSER_BACK', paneId, source },
-      },
-      {
-        id: 'browser-forward',
-        label: 'Forward',
-        disabled: !view.canGoForward,
-        event: { type: 'BROWSER_FORWARD', paneId, source },
-      },
       {
         id: 'browser-zoom-in',
         label: 'Zoom In',

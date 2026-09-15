@@ -1022,24 +1022,18 @@ describe('Category 17: Widgets', () => {
       expect(tab.icon).toBe('\uf0ac'); // nf-fa-globe
       expect(tab.hasTerminal).toBe(false);
 
-      // The ⋮ menu carries the browser's own section. Back has nowhere to go
-      // on the opening page; Zoom In visibly enlarges the rendered document.
+      // The ⋮ menu carries the browser's own section; Zoom In visibly enlarges
+      // the rendered document.
       await wCtx.page.evaluate(() => {
         const pane = document.querySelector('[role=group][aria-label^="Widget pane"]');
         pane.querySelector('.pane-header-menu').click();
       });
       const menu = await wCtx.page.evaluate(() => {
         const items = [...document.querySelectorAll('[role="menuitem"]')];
-        return {
-          // The widget's items lead the menu, ahead of the generic pane ones.
-          leading: items.slice(0, 7).map((el) => el.textContent.trim()),
-          backDisabled: items[0]?.getAttribute('aria-disabled') === 'true',
-        };
+        // The widget's items lead the menu, ahead of the generic pane ones.
+        return { leading: items.slice(0, 5).map((el) => el.textContent.trim()) };
       });
-      expect(menu.backDisabled).toBe(true);
       expect(menu.leading.map((label) => label.replace(/ctrl\+[a-z]$/, ''))).toEqual([
-        'Back',
-        'Forward',
         'Zoom In',
         'Zoom Out',
         'Copy Current URL',

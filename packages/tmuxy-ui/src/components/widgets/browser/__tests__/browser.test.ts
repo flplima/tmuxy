@@ -1,6 +1,6 @@
 /**
  * The browser widget's pure halves: reading its source out of pane content,
- * deciding how to show it, and deriving history/zoom from machine state.
+ * deciding how to show it, and deriving zoom and refresh from machine state.
  *
  * These are the pieces the rendered widget, the pane title and the ⋮ menu all
  * agree through — a disagreement here is a pane whose tab names one page while
@@ -87,59 +87,36 @@ describe('browserView', () => {
   const lines = ['__SRC__:/home/me/index.html'];
   const state = (over: Partial<BrowserPaneState> = {}): BrowserPaneState => ({
     source: '/home/me/index.html',
-    pushed: [],
-    index: 0,
     zoom: 1,
     reloadNonce: 0,
     ...over,
   });
 
-  it('shows the pane marker source with nowhere to go, before any navigation', () => {
-    const view = browserView(undefined, lines);
-    expect(view.url).toBe('/home/me/index.html');
-    expect(view.zoom).toBe(1);
-    expect(view.canGoBack).toBe(false);
-    expect(view.canGoForward).toBe(false);
+  it('shows the pane marker source at zoom 1 before the user does anything', () => {
+    expect(browserView(undefined, lines)).toEqual({
+      url: '/home/me/index.html',
+      zoom: 1,
+      reloadNonce: 0,
+    });
   });
 
-  it('treats the marker source as history entry 0, ahead of what was pushed', () => {
-    const view = browserView(state({ pushed: ['/home/me/next.html'], index: 1 }), lines);
-    expect(view.entries).toEqual(['/home/me/index.html', '/home/me/next.html']);
-    expect(view.url).toBe('/home/me/next.html');
-    expect(view.canGoBack).toBe(true);
-    expect(view.canGoForward).toBe(false);
-  });
-
-  it('goes back to the opening page from a pushed one', () => {
-    const view = browserView(state({ pushed: ['/home/me/next.html'], index: 0 }), lines);
-    expect(view.url).toBe('/home/me/index.html');
-    expect(view.canGoBack).toBe(false);
-    expect(view.canGoForward).toBe(true);
-  });
-
-  it('survives a cursor left past the end of a shortened history', () => {
-    const view = browserView(state({ pushed: [], index: 3 }), lines);
-    expect(view.url).toBe('/home/me/index.html');
-    expect(view.index).toBe(0);
+  it("applies this browser's zoom and refreshes", () => {
+    expect(browserView(state({ zoom: 2, reloadNonce: 3 }), lines)).toEqual({
+      url: '/home/me/index.html',
+      zoom: 2,
+      reloadNonce: 3,
+    });
   });
 
   it('ignores the record a previous browser left in the same pane', () => {
     // Closing a browser and opening another reuses the pane id, so the old
-    // record is still there — with a cursor into a history that no longer
-    // describes what this pane is showing.
-    const stale = state({
-      source: '/home/me/old.html',
-      pushed: ['/home/me/old-next.html'],
-      index: 1,
-      zoom: 2,
-      reloadNonce: 4,
+    // record is still there — describing a page this pane no longer shows.
+    const stale = state({ source: '/home/me/old.html', zoom: 2, reloadNonce: 4 });
+    expect(browserView(stale, lines)).toEqual({
+      url: '/home/me/index.html',
+      zoom: 1,
+      reloadNonce: 0,
     });
-    const view = browserView(stale, lines);
-    expect(view.url).toBe('/home/me/index.html');
-    expect(view.entries).toEqual(['/home/me/index.html']);
-    expect(view.zoom).toBe(1);
-    expect(view.reloadNonce).toBe(0);
-    expect(view.canGoBack).toBe(false);
   });
 });
 

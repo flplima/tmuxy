@@ -1,12 +1,11 @@
 /**
- * The browser widget's history and zoom, derived from machine state.
+ * The browser widget's zoom and refresh, derived from machine state.
  *
- * `browserStates[paneId]` holds only what the *user* did — the pages navigated
- * to and the zoom chosen. The first history entry is never stored: it is the
- * source the pane's widget marker declares, which the machine cannot see and
- * does not need to, since it arrives with every render. That keeps the machine
- * free of a seeding round-trip on mount (there is nothing to seed) and makes a
- * pane that has only ever shown its opening page carry no state at all.
+ * `browserStates[paneId]` holds only what the *user* did — the zoom chosen and
+ * the refreshes asked for. The page itself is never stored: it is the source
+ * the pane's widget marker declares, which the machine cannot see and does not
+ * need to, since it arrives with every render. So a pane nobody has zoomed or
+ * refreshed carries no state at all.
  */
 
 import type { AppMachineContext, BrowserPaneState } from '../../../machines/types';
@@ -22,35 +21,21 @@ export function clampZoom(zoom: number): number {
 }
 
 export interface BrowserView {
-  /** The page the pane's widget marker declares — history entry 0. */
-  source: string;
-  /** The source currently shown. */
+  /** The page the pane's widget marker declares, and the one shown. */
   url: string;
-  /** Full history, opening source first. */
-  entries: string[];
-  index: number;
   zoom: number;
   reloadNonce: number;
-  canGoBack: boolean;
-  canGoForward: boolean;
 }
 
 export function browserView(state: BrowserPaneState | undefined, lines: string[]): BrowserView {
-  const source = parseSource(lines);
+  const url = parseSource(lines);
   // A record from a browser that used to run in this pane is not this
-  // browser's history — the pane id survives closing one and opening another.
-  const own = state?.source === source ? state : undefined;
-  const entries = [source, ...(own?.pushed ?? [])];
-  const index = Math.min(own?.index ?? 0, entries.length - 1);
+  // browser's — the pane id survives closing one and opening another.
+  const own = state?.source === url ? state : undefined;
   return {
-    source,
-    url: entries[index] ?? '',
-    entries,
-    index,
+    url,
     zoom: own?.zoom ?? 1,
     reloadNonce: own?.reloadNonce ?? 0,
-    canGoBack: index > 0,
-    canGoForward: index < entries.length - 1,
   };
 }
 
