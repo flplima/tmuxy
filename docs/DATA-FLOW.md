@@ -17,7 +17,7 @@ The web version uses two HTTP endpoints on the Axum server:
 **`POST /commands?session=<name>`** — HTTP POST (client-to-server):
 - Request body: `{ "cmd": "command_name", "args": {...} }`
 - Response: `{ "result": ... }` or `{ "error": "message" }`
-- **No authentication by default** (optional `--password` HTTP Basic gate) — see [SECURITY.md](SECURITY.md). Without a password, network reachability is the only gate.
+- **Loopback by default** — a routable `--host` needs an HTTP Basic password (or an explicit `--no-auth`), and every API route refuses requests from other origins — see [SECURITY.md](SECURITY.md).
 
 SSE was chosen over WebSocket because: server-to-client is the dominant direction, `EventSource` has built-in browser reconnection, SSE works through all proxies/CDNs, and the standard `Last-Event-Id` mechanism gives us a clean reconnect path (see below).
 
@@ -245,7 +245,7 @@ IME composition — pinyin, kana, hangul, the emoji picker — bypasses keydown 
 ```
 
 **Data flow:**
-1. User runs `tmuxy server` on the VM (binds to `0.0.0.0:9000` by default)
+1. User runs `TMUXY_PASSWORD=… tmuxy server --host 0.0.0.0` on the VM (plain `tmuxy server` listens on `127.0.0.1:9000` only, and a routable address needs a password or an explicit `--no-auth`)
 2. User opens `https://vm-ip:9000` in their browser (requires a reverse proxy for HTTPS — see below)
 3. Browser opens SSE connection to `/events?session=<name>`
 4. All subsequent commands use HTTP POST to `/commands?session=<name>`
@@ -253,8 +253,8 @@ IME composition — pinyin, kana, hangul, the emoji picker — bypasses keydown 
 
 **Security considerations (critical):**
 
-The tmuxy server has **no authentication by default** (an optional `--password` / `TMUXY_PASSWORD` HTTP Basic gate exists — see SECURITY.md) and **no TLS**. Exposing it directly on a public IP means:
-- Without a password, anyone who discovers the IP and port can connect to and control your tmux session
+The tmuxy server has **no TLS**, and on a routable address its only gate is an HTTP Basic password (`--password` / `TMUXY_PASSWORD`) — or none, with `--no-auth`. See SECURITY.md. Exposing it directly on a public IP means:
+- Anyone who discovers the IP and port can try the password, with no rate limit — and with `--no-auth` simply controls your tmux session
 - All traffic is in cleartext (eavesdropping reveals terminal content and lets attackers inject commands; Basic-auth credentials are only base64, not encrypted)
 - `run-shell` commands allow arbitrary code execution on the server
 - File reading endpoints have no path restrictions
@@ -263,9 +263,9 @@ The tmuxy server has **no authentication by default** (an optional `--password` 
 1. **Never expose tmuxy directly to the internet.** Use one of:
    - SSH tunnel: `ssh -L 9000:localhost:9000 user@vm` (recommended for single user)
    - VPN: WireGuard, Tailscale, or similar (recommended for mobile access)
-   - Reverse proxy with authentication: nginx/Caddy + basic auth or OAuth + TLS
-2. **Bind to localhost:** Use `tmuxy server --host 127.0.0.1` if accessed only via SSH tunnel
-3. **Set a password:** `tmuxy server --password …` gates all routes with HTTP Basic auth — a barrier against opportunistic scans, but pair it with TLS since credentials cross the wire in cleartext
+   - Reverse proxy with authentication: nginx/Caddy + basic auth or OAuth + TLS (start the server with `--allowed-host <public name>`)
+2. **Keep the default address for a tunnel:** plain `tmuxy server` listens on 127.0.0.1, which is all an SSH tunnel needs
+3. **Set a password on any other address:** `TMUXY_PASSWORD=… tmuxy server --host …` gates all routes with HTTP Basic auth — a barrier against opportunistic scans, but pair it with TLS since credentials cross the wire in cleartext
 4. **Use a reverse proxy for TLS:** The server does not support HTTPS natively
 
 See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
@@ -280,7 +280,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
 **Limitations:**
 - No offline capability — requires constant network connection
 - No compression — JSON payloads can be large during rapid output (mitigated by delta protocol)
-- No authentication by default — optional `--password` Basic auth, otherwise rely on external layers (SSH, VPN, reverse proxy)
+- Only HTTP Basic auth (`--password`) built in; for anything stronger rely on external layers (SSH, VPN, reverse proxy)
 - Latency affects typing feel — no local echo or input prediction (see [NON-GOALS.md](NON-GOALS.md))
 
 ### Scenario 4: Fully Client-Side — Real tmux in the Browser (v86 + WASM)

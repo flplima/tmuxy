@@ -3,11 +3,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use clap::{Args, Subcommand};
 use rust_embed::Embed;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, warn};
 
 use crate::dev;
+use crate::request_guard::HostPolicy;
 use crate::state::{build_response, AppState};
 
 #[derive(Embed)]
@@ -23,16 +25,29 @@ pub struct ServerArgs {
     #[arg(long, default_value = "9000")]
     pub port: u16,
 
-    /// Host to bind to
-    #[arg(long, default_value = "0.0.0.0")]
+    /// Address to listen on. The default is reachable from this machine only
+    /// (and through an SSH tunnel). Any other address needs --password, or
+    /// --no-auth to serve it open.
+    #[arg(long, default_value = "127.0.0.1")]
     pub host: String,
 
     /// Require HTTP Basic auth with this password (any username is accepted).
-    /// Falls back to the TMUXY_PASSWORD env var. When neither is set the server
-    /// runs with NO authentication — anyone who can reach the port gets full
-    /// shell access. Prefer TMUXY_PASSWORD to keep the secret out of `ps`.
+    /// Falls back to the TMUXY_PASSWORD env var. Prefer TMUXY_PASSWORD to keep
+    /// the secret out of `ps`.
     #[arg(long)]
     pub password: Option<String>,
+
+    /// Serve a non-loopback --host with no password. Anyone who can reach the
+    /// port gets a shell as you, so only on a network where that is already
+    /// true of everyone on it (a container's published port, a private VPN).
+    #[arg(long)]
+    pub no_auth: bool,
+
+    /// A hostname requests may be addressed to besides loopback ones — the
+    /// public name of a reverse proxy that forwards its `Host`. Repeatable;
+    /// also read from TMUXY_ALLOWED_HOSTS (comma-separated).
+    #[arg(long = "allowed-host", value_name = "HOST")]
+    pub allowed_hosts: Vec<String>,
 
     /// Run in development mode (proxy to Vite dev server)
     #[arg(long)]
@@ -65,20 +80,89 @@ fn with_optional_auth(app: axum::Router, password: Option<String>) -> axum::Rout
     }
 }
 
-/// Print the auth status, and warn loudly when the server is reachable off-box
-/// with no password — matching the threat model in docs/SECURITY.md.
-fn announce_security(host: &str, password_set: bool) {
+/// Where the server listens, and which `Host` names its API answers.
+#[derive(Debug, PartialEq, Eq)]
+struct Listen {
+    ip: IpAddr,
+    policy: HostPolicy,
+}
+
+/// Resolve `--host` against the auth settings. A loopback address is served as
+/// it is. Any other address puts a shell on the network, so it needs a
+/// password — or `--no-auth`, saying out loud that the network is trusted.
+/// See docs/SECURITY.md.
+fn resolve_listen(
+    host: &str,
+    password_set: bool,
+    no_auth: bool,
+    allowed_hosts: Vec<String>,
+) -> Result<Listen, String> {
+    let ip: IpAddr = if host.eq_ignore_ascii_case("localhost") {
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
+    } else {
+        host.trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse()
+            .map_err(|_| {
+                format!("--host {host} is not an IP address (try 127.0.0.1, ::1 or 0.0.0.0)")
+            })?
+    };
+    if ip.is_loopback() {
+        return Ok(Listen {
+            ip,
+            policy: HostPolicy::Loopback {
+                allowed: allowed_hosts,
+            },
+        });
+    }
+    if !password_set && !no_auth {
+        return Err(format!(
+            "refusing to listen on {ip} with no password: anyone who can reach it would get a shell as you.\n\
+             Set TMUXY_PASSWORD (or --password), listen on --host 127.0.0.1, or pass --no-auth on a network you trust."
+        ));
+    }
+    Ok(Listen {
+        ip,
+        policy: HostPolicy::Any,
+    })
+}
+
+/// `--allowed-host` values plus the comma-separated `TMUXY_ALLOWED_HOSTS`.
+fn resolve_allowed_hosts(flag: Vec<String>) -> Vec<String> {
+    let env = std::env::var("TMUXY_ALLOWED_HOSTS").unwrap_or_default();
+    flag.into_iter()
+        .chain(
+            env.split(',')
+                .map(str::trim)
+                .filter(|h| !h.is_empty())
+                .map(String::from),
+        )
+        .collect()
+}
+
+/// Stop before serving anything when there is no usable tmux: every client
+/// would otherwise sit reconnecting to a monitor that can never attach.
+fn require_tmux() {
+    match tmuxy_core::tmux_check::check_tmux() {
+        Ok(version) => tracing::info!(%version, "tmux found"),
+        Err(e) => {
+            eprintln!("tmuxy server: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Print the auth status, and warn loudly about a routable address served with
+/// `--no-auth` — matching the threat model in docs/SECURITY.md.
+fn announce_security(listen: &Listen, password_set: bool) {
     if password_set {
         println!(
             "tmuxy server: HTTP Basic auth enabled (any username; use the configured password)"
         );
-        return;
-    }
-    let localhost_only = host == "127.0.0.1" || host == "localhost" || host == "::1";
-    if !localhost_only {
+    } else if listen.policy == HostPolicy::Any {
         eprintln!(
-            "warning: no password set and bound to {host} — anyone who can reach this port has \
-             full shell access. Set --password / TMUXY_PASSWORD, or bind --host 127.0.0.1."
+            "warning: --no-auth on {} — anyone who can reach this port has full shell access.",
+            listen.ip
         );
     }
 }
@@ -120,13 +204,23 @@ pub async fn run(args: ServerArgs) {
     let dev_mode = args.dev || std::env::var("TMUXY_DEV").is_ok();
     let password = resolve_password(args.password.clone());
     match args.action {
-        None if dev_mode => {
-            announce_trace(args.trace.clone(), true);
-            start_dev_server(args.port, password).await
-        }
         None => {
+            let allowed_hosts = resolve_allowed_hosts(args.allowed_hosts);
+            let listen =
+                match resolve_listen(&args.host, password.is_some(), args.no_auth, allowed_hosts) {
+                    Ok(listen) => listen,
+                    Err(message) => {
+                        eprintln!("tmuxy server: {message}");
+                        std::process::exit(2);
+                    }
+                };
+            require_tmux();
             announce_trace(args.trace.clone(), dev_mode);
-            start_server(args.port, args.host, password).await
+            if dev_mode {
+                start_dev_server(args.port, listen, password).await
+            } else {
+                start_server(args.port, listen, password).await
+            }
         }
         Some(ServerAction::Stop) => stop_server(),
         Some(ServerAction::Status) => server_status(),
@@ -149,7 +243,7 @@ pub async fn run(args: ServerArgs) {
 }
 
 /// Start the development server with Vite and demo proxies
-async fn start_dev_server(requested_port: u16, password: Option<String>) {
+async fn start_dev_server(requested_port: u16, listen: Listen, password: Option<String>) {
     // Honor PORT env (legacy) when present, otherwise fall back to the CLI arg.
     let port = std::env::var("PORT")
         .ok()
@@ -209,7 +303,7 @@ async fn start_dev_server(requested_port: u16, password: Option<String>) {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    let app = crate::state::api_routes()
+    let app = crate::state::api_routes(listen.policy.clone())
         .route(
             "/demo",
             axum::routing::any(|req: Request| async move { dev::proxy_to_demo(req).await }),
@@ -225,9 +319,9 @@ async fn start_dev_server(requested_port: u16, password: Option<String>) {
     let password_set = password.is_some();
     let app = with_optional_auth(app, password);
 
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
-    println!("tmuxy dev server running at http://localhost:{}", port);
-    announce_security("0.0.0.0", password_set);
+    let addr = std::net::SocketAddr::new(listen.ip, port);
+    println!("tmuxy dev server running at http://{addr}");
+    announce_security(&listen, password_set);
     println!(
         "[dev] Vite proxied from port {}, demo proxied from port {}",
         dev::VITE_PORT,
@@ -245,7 +339,7 @@ async fn start_dev_server(requested_port: u16, password: Option<String>) {
 }
 
 /// Start the production server with embedded frontend assets
-async fn start_server(port: u16, host: String, password: Option<String>) {
+async fn start_server(port: u16, listen: Listen, password: Option<String>) {
     write_pid_file();
     tmuxy_core::session::ensure_config();
     tmuxy_core::session::ensure_themes();
@@ -253,18 +347,16 @@ async fn start_server(port: u16, host: String, password: Option<String>) {
 
     let state = Arc::new(AppState::new());
 
-    let app = crate::state::api_routes()
+    let app = crate::state::api_routes(listen.policy.clone())
         .fallback(serve_embedded)
         .with_state(state.clone());
     let password_set = password.is_some();
     let app = with_optional_auth(app, password);
 
-    let addr: std::net::SocketAddr = format!("{}:{}", host, port)
-        .parse()
-        .unwrap_or_else(|_| std::net::SocketAddr::from(([0, 0, 0, 0], port)));
+    let addr = std::net::SocketAddr::new(listen.ip, port);
 
-    println!("tmuxy server running at http://{}:{}", host, port);
-    announce_security(&host, password_set);
+    println!("tmuxy server running at http://{addr}");
+    announce_security(&listen, password_set);
 
     let listener = bind_with_retry(addr, 5).await;
 
@@ -490,5 +582,54 @@ async fn shutdown_signal(state: Arc<AppState>, children: Vec<Option<dev::ViteChi
 
     for child in children.into_iter().flatten() {
         child.kill();
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    fn loopback(allowed: Vec<String>) -> HostPolicy {
+        HostPolicy::Loopback { allowed }
+    }
+
+    #[test]
+    fn loopback_is_served_without_a_password() {
+        for host in ["127.0.0.1", "localhost", "::1", "[::1]"] {
+            let listen = resolve_listen(host, false, false, vec![]).unwrap();
+            assert!(listen.ip.is_loopback(), "{host}");
+            assert_eq!(listen.policy, loopback(vec![]), "{host}");
+        }
+    }
+
+    #[test]
+    fn a_routable_address_needs_a_password_or_no_auth() {
+        assert!(resolve_listen("0.0.0.0", false, false, vec![]).is_err());
+        assert_eq!(
+            resolve_listen("0.0.0.0", true, false, vec![])
+                .unwrap()
+                .policy,
+            HostPolicy::Any
+        );
+        assert_eq!(
+            resolve_listen("192.168.1.20", false, true, vec![])
+                .unwrap()
+                .policy,
+            HostPolicy::Any
+        );
+    }
+
+    #[test]
+    fn a_host_that_is_not_an_address_is_an_error_rather_than_every_interface() {
+        assert!(resolve_listen("::1:9000", false, false, vec![]).is_err());
+        assert!(resolve_listen("my-laptop", true, false, vec![]).is_err());
+    }
+
+    #[test]
+    fn allowed_hosts_ride_along_on_a_loopback_bind() {
+        let listen =
+            resolve_listen("127.0.0.1", false, false, vec!["tmux.example.com".into()]).unwrap();
+        assert_eq!(listen.policy, loopback(vec!["tmux.example.com".into()]));
     }
 }

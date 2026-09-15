@@ -48,7 +48,9 @@ echo ""
 tmux "$SOCKET_FLAG" "$SOCKET" has-session -t tmuxy 2>/dev/null \
     || tmux "$SOCKET_FLAG" "$SOCKET" new-session -d -s tmuxy -x 200 -y 50
 
+# The container's published port reaches the server on the container's own
+# interface, not its loopback, and only this machine can reach that port.
 exec cargo watch \
     -w packages/tmuxy-core/src \
     -w packages/tmuxy-server/src \
-    -x "run -p tmuxy-server -- --port $PORT --dev"
+    -x "run -p tmuxy-server -- --port $PORT --host 0.0.0.0 --no-auth --dev"

@@ -18,7 +18,7 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header, Method, Request, StatusCode},
+    http::{header, Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -59,12 +59,6 @@ pub async fn require_basic_auth(
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    // Let CORS preflight through unauthenticated — an OPTIONS request carries
-    // no credentials and returns only CORS headers, no data.
-    if req.method() == Method::OPTIONS {
-        return next.run(req).await;
-    }
-
     let ok = req
         .headers()
         .get(header::AUTHORIZATION)

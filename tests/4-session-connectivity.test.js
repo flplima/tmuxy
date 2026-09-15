@@ -329,6 +329,81 @@ describe('Scenario 22: Token-Free Command Routing', () => {
   }, 180000);
 });
 
+// ==================== Scenario 22b: Other Origins Cannot Drive tmux ====================
+
+describe('Scenario 22b: Other origins cannot drive tmux', () => {
+  const ctx = createTestContext();
+  beforeAll(ctx.beforeAll, ctx.hookTimeout);
+  afterAll(ctx.afterAll);
+  beforeEach(ctx.beforeEach);
+  afterEach(ctx.afterEach, ctx.hookTimeout);
+
+  test('a page on another origin posts a command → tmux never runs it → the app itself still can', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    const session = ctx.session.name;
+    const commandsUrl = `${TMUXY_URL}/commands?session=${encodeURIComponent(session)}`;
+    const option = '@tmuxy-e2e-origin';
+    const readOption = () => tmuxExec(`show-options -t ${session} -qv ${option}`);
+    const commandBody = (value) =>
+      JSON.stringify({
+        cmd: 'run_tmux_command',
+        args: { command: `set-option -t ${session} ${option} ${value}` },
+      });
+
+    // A site the user happens to have open in the same browser: another
+    // origin, posting the command the way any page can without a CORS
+    // preflight — text/plain, no-cors.
+    const http = require('http');
+    const site = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<!doctype html><title>elsewhere</title>');
+    });
+    await new Promise((resolve) => site.listen(0, '127.0.0.1', resolve));
+    const elsewhere = await ctx.browser.newPage();
+    try {
+      await elsewhere.goto(`http://127.0.0.1:${site.address().port}/`);
+      await elsewhere.evaluate(
+        async ({ url, body }) => {
+          await fetch(url, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body,
+          }).catch(() => {});
+        },
+        { url: commandsUrl, body: commandBody('forged') },
+      );
+    } finally {
+      await elsewhere.close();
+      site.close();
+    }
+    await delay(DELAYS.SYNC);
+    expect(readOption()).toBe('');
+
+    // The same command from the app's own page goes through: what was refused
+    // above was where the command came from, not the command.
+    await ctx.page.bringToFront();
+    await ctx.page.evaluate(
+      async ({ url, body }) => {
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+      },
+      { url: commandsUrl, body: commandBody('allowed') },
+    );
+    await waitForCondition(
+      ctx.page,
+      async () => readOption() === 'allowed',
+      10000,
+      "the app's own command to set the option",
+    );
+  }, 180000);
+});
+
 // ==================== Scenario 24: Multi-Session Sidebar Tree (web) ====================
 
 describe('Scenario 24: Multi-Session Sidebar Tree (web)', () => {

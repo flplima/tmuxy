@@ -14,7 +14,8 @@ use tmuxy_core::{Ctx, RetryPolicy};
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
-use tower_http::cors::{Any, CorsLayer};
+
+use crate::request_guard::HostPolicy;
 
 /// Number of recent broadcast messages retained per session for
 /// `Last-Event-Id` replay and lagged-subscriber recovery. Sized to match the
@@ -298,7 +299,11 @@ impl AppState {
 
 /// Build the API routes shared between dev server and production CLI.
 /// Returns a Router that needs `.fallback_service(...)` and `.with_state(state)`.
-pub fn api_routes() -> Router<Arc<AppState>> {
+///
+/// Every route answers only the app itself: `host_policy` says which `Host`
+/// names count as this server (see `request_guard`). No CORS headers are sent,
+/// so no other origin can read a response either.
+pub fn api_routes(host_policy: HostPolicy) -> Router<Arc<AppState>> {
     Router::new()
         .route("/events", get(crate::sse::sse_handler))
         .route("/commands", post(crate::sse::commands_handler))
@@ -312,12 +317,10 @@ pub fn api_routes() -> Router<Arc<AppState>> {
         .route("/api/file", get(file_handler))
         .route("/api/browse/{*path}", get(browse_handler))
         .route("/api/images/{pane_id}/{image_id}", get(image_handler))
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(host_policy),
+            crate::request_guard::require_same_origin,
+        ))
 }
 
 // ============================================
@@ -348,6 +351,12 @@ async fn browse_handler(Path(path): Path<String>) -> Response {
     read_file_response(&format!("/{}", path.trim_start_matches('/')))
 }
 
+/// The Content-Security-Policy every file route answers with: the document
+/// renders sandboxed — its scripts run, in an opaque origin of their own and
+/// never the server's.
+const FILE_SANDBOX_CSP: &str =
+    "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads";
+
 /// A local file, served so the browser widget can frame it in any build.
 ///
 /// The Vite dev server serves the app cross-origin-isolated (COOP
@@ -374,6 +383,14 @@ fn read_file_response(path: &str) -> Response {
             headers.insert(
                 axum::http::header::HeaderName::from_static("cross-origin-resource-policy"),
                 axum::http::HeaderValue::from_static("cross-origin"),
+            );
+            // Rendered with the server's origin, an HTML file could POST tmux
+            // commands like the app does. `sandbox` gives it an opaque origin
+            // of its own, whether the browser widget frames it or someone
+            // opens its URL directly.
+            headers.insert(
+                axum::http::header::CONTENT_SECURITY_POLICY,
+                axum::http::HeaderValue::from_static(FILE_SANDBOX_CSP),
             );
             response
         }
@@ -414,6 +431,10 @@ mod file_route_tests {
             header("cross-origin-resource-policy").as_deref(),
             Some("cross-origin")
         );
+        // Sandboxed: an HTML file never runs with the server's origin.
+        let csp = header("content-security-policy").unwrap_or_default();
+        assert!(csp.starts_with("sandbox "), "{csp}");
+        assert!(!csp.contains("allow-same-origin"), "{csp}");
     }
 
     #[test]
@@ -473,4 +494,87 @@ pub fn find_workspace_root() -> std::path::PathBuf {
         .unwrap_or_else(|| {
             std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
         })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod api_guard_tests {
+    use super::*;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    fn app() -> Router {
+        api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::new()))
+    }
+
+    /// The POST a hostile page can make without a preflight: `text/plain`,
+    /// `no-cors`, the command JSON as its body.
+    fn forged_command(origin: &'static str, site: &'static str) -> Request<Body> {
+        Request::post("/commands")
+            .header("host", "localhost:9000")
+            .header("origin", origin)
+            .header("sec-fetch-site", site)
+            .header("content-type", "text/plain")
+            .body(Body::from(
+                r#"{"cmd":"run_tmux_command","args":{"command":"run-shell 'touch /tmp/pwned'"}}"#,
+            ))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_page_on_another_origin_cannot_post_a_command() {
+        for (origin, site) in [
+            ("https://evil.example", "cross-site"),
+            ("http://localhost:3000", "same-site"),
+            ("null", "cross-site"),
+        ] {
+            let response = app().oneshot(forged_command(origin, site)).await.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{origin}");
+            assert!(response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_page_on_another_origin_cannot_read_a_file() {
+        let request = Request::get("/api/file?path=/etc/hosts")
+            .header("host", "localhost:9000")
+            .header("sec-fetch-site", "cross-site")
+            .body(Body::empty())
+            .unwrap();
+        let response = app().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn the_app_itself_reaches_the_handler() {
+        // An empty body gets past the guard and is refused by the handler's
+        // decoder — a 400, not the guard's 403.
+        let request = Request::post("/commands")
+            .header("host", "localhost:9000")
+            .header("origin", "http://localhost:9000")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::empty())
+            .unwrap();
+        let response = app().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn a_session_name_that_would_split_the_command_line_is_refused() {
+        for request in [
+            Request::get("/events?session=x%0Arun-shell%20id").body(Body::empty()),
+            Request::post("/commands?session=x%0Arun-shell%20id").body(Body::empty()),
+        ] {
+            let mut request = request.unwrap();
+            request.headers_mut().insert(
+                "host",
+                axum::http::HeaderValue::from_static("localhost:9000"),
+            );
+            let response = app().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+    }
 }

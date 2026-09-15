@@ -7,10 +7,8 @@ use axum::{
     },
     Json,
 };
-use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -258,6 +256,30 @@ pub struct SessionQuery {
     session: Option<String>,
 }
 
+/// A `?session=` the server will not write into a command line; a 400.
+struct InvalidSession;
+
+impl IntoResponse for InvalidSession {
+    fn into_response(self) -> Response {
+        (StatusCode::BAD_REQUEST, "invalid session name\n").into_response()
+    }
+}
+
+impl SessionQuery {
+    /// The session the request names — the default one when it names none.
+    /// The name is written into control-mode command lines, where a newline
+    /// (or any control character) would end the command and start another.
+    fn session(self) -> Result<String, InvalidSession> {
+        let session = self
+            .session
+            .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
+        if session.is_empty() || session.chars().any(char::is_control) {
+            return Err(InvalidSession);
+        }
+        Ok(session)
+    }
+}
+
 // ============================================
 // SSE Handler (GET /events)
 // ============================================
@@ -266,10 +288,11 @@ pub async fn sse_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SessionQuery>,
     headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let session = query
-        .session
-        .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
+) -> Response {
+    let session = match query.session() {
+        Ok(session) => session,
+        Err(rejection) => return rejection.into_response(),
+    };
 
     // Browser passes the id of the last event it received via the standard
     // `Last-Event-Id` header on reconnect. If we can find it in the per-session
@@ -387,7 +410,7 @@ pub async fn sse_handler(
             trace_enabled: tmuxy_core::trace::is_enabled(),
         };
         if let Some(s) = encode_event(&conn_info) {
-            yield Ok(Event::default().event("connection-info").data(s));
+            yield Ok::<_, std::convert::Infallible>(Event::default().event("connection-info").data(s));
         }
 
         // Send keybindings to each new SSE client. For reconnecting clients
@@ -478,7 +501,9 @@ pub async fn sse_handler(
         }
     };
 
-    Sse::new(stream).keep_alive(KeepAlive::default().interval(Duration::from_secs(1)))
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default().interval(Duration::from_secs(1)))
+        .into_response()
 }
 
 // ============================================
@@ -491,10 +516,10 @@ pub async fn commands_handler(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    // Session from the query param, defaulting to the standard session name.
-    let session = query
-        .session
-        .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
+    let session = match query.session() {
+        Ok(session) => session,
+        Err(rejection) => return rejection.into_response(),
+    };
 
     // Connection ID from the header. Every SSE client is handed its own id in
     // the `connection-info` greeting, so a missing header means the caller
@@ -1257,11 +1282,11 @@ pub async fn start_monitoring(
                 let working_dir = connect_config
                     .working_dir
                     .as_ref()
-                    .map(|d| format!(" -c '{}'", d.display()))
+                    .map(|d| format!(" -c {}", executor::tmux_quote(&d.display().to_string())))
                     .unwrap_or_default();
                 let create_cmd = format!(
                     "new-session -d -s {} -x {} -y {}{}",
-                    session,
+                    executor::tmux_quote(&session),
                     tmuxy_core::control_mode::INITIAL_PTY_COLS,
                     tmuxy_core::control_mode::INITIAL_PTY_ROWS,
                     working_dir

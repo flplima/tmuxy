@@ -14,54 +14,91 @@ Tmuxy assumes:
 - **Server runs as the same user** who owns the tmux session
 - **All connected clients are equally trusted** (no per-client permissions)
 
+It does **not** assume the user's browser is trusted: the same browser that has tmuxy open visits other sites, and any of them can try to send requests to the tmuxy server. See [Cross-Origin Requests](#cross-origin-requests).
+
 If any of these assumptions are violated, the risks described below apply.
 
-## Authentication
+## Where the Server Listens
 
-**By default the web server performs no authentication.** With no password configured, any client that can reach the server's network port can open an SSE connection, send arbitrary commands via `POST /commands`, and read filesystem entries via `/api/file` and `/api/browse`. There are no session tokens, no API keys, no cookies, and no per-user permissions.
+`tmuxy server` listens on **127.0.0.1** by default: reachable from this machine only, and from anywhere an SSH tunnel brings that port. No password is needed there.
 
-This default is intended for a trusted network (loopback, LAN, SSH tunnel, VPN, or behind an authenticating reverse proxy). The default threat model assumes everyone who can reach the server is authorized to control it.
+Any other `--host` (a LAN address, a VPN address, `0.0.0.0`) puts a shell on the network, so the server **refuses to start** unless one of these is given:
+
+| Flag | Meaning |
+|------|---------|
+| `--password …` or `TMUXY_PASSWORD` | Every route requires HTTP Basic auth (below) |
+| `--no-auth` | Serve it open. Only for a network where everyone who can reach the port may already run commands as you — a container's published port, a VPN with nobody else on it. The server prints a warning at startup. |
+
+A `--host` that is not an IP address is an error; the server never falls back to listening on every interface. The routing and the startup check live in `tmuxy-server/src/server.rs`.
 
 ### Optional HTTP Basic Auth
 
-For a lightweight barrier against unauthenticated access (e.g. a port scan reaching an exposed instance), start the server with a password:
+For a barrier against unauthenticated access (e.g. a port scan reaching an exposed instance), start the server with a password:
 
 ```bash
-tmuxy server --password 'your-secret'      # password on the command line
-TMUXY_PASSWORD='your-secret' tmuxy server  # or via env var (keeps it out of `ps`)
+TMUXY_PASSWORD='your-secret' tmuxy server --host 0.0.0.0  # env var keeps it out of `ps`
+tmuxy server --host 0.0.0.0 --password 'your-secret'      # or on the command line
 ```
 
-When a password is set, **every** route — the frontend, `/events` (SSE), `/commands`, and all `/api/*` endpoints — requires HTTP Basic auth. The browser shows a native login prompt on first load; enter **any username** and the configured password (only the password is checked). Once entered, the browser caches the credentials and attaches them automatically to the SSE stream and every request — no per-request login. The password is compared in constant time, and unauthenticated requests get a `401` with a `WWW-Authenticate` challenge.
+When a password is set, **every** route — the frontend, `/events` (SSE), `/commands`, and all `/api/*` endpoints — requires HTTP Basic auth. The browser shows a native login prompt on first load; enter **any username** and the configured password (only the password is checked). Once entered, the browser caches the credentials and attaches them automatically to the SSE stream and every request. The password is compared in constant time, and unauthenticated requests get a `401` with a `WWW-Authenticate` challenge.
 
-Prefer `TMUXY_PASSWORD` over `--password` so the secret does not appear in the process list. Basic auth is **not** a substitute for TLS (#2) — over plain HTTP the credentials are base64, not encrypted; combine it with an SSH tunnel, VPN, or a TLS-terminating reverse proxy. The Tauri desktop app talks over local IPC (not HTTP) and is unaffected.
+Basic auth is **not** a substitute for TLS (#2) — over plain HTTP the credentials are base64, not encrypted; combine it with an SSH tunnel, VPN, or a TLS-terminating reverse proxy.
 
-When the server binds to a non-loopback address (the `0.0.0.0` default) with no password, it prints a startup warning pointing at `--password` / `--host 127.0.0.1`.
+### Behind a Reverse Proxy
+
+A proxy on the same machine forwards to `127.0.0.1`, but it usually passes its public name through as the `Host` header, which the server does not recognise as itself (see below). Name it: `tmuxy server --allowed-host tmux.example.com` (repeatable, or `TMUXY_ALLOWED_HOSTS` comma-separated).
 
 ### Tauri Desktop App
 
-The Tauri app has no network-level authentication concerns — all communication is local IPC within the app process. No tokens, no network exposure.
+The desktop app serves no HTTP: all communication is local IPC within the app process. Its webview currently runs with no Content-Security-Policy (`csp: null` in `tmuxy-tauri-app/tauri.conf.json`).
+
+## Cross-Origin Requests
+
+The API is a remote shell, and a browser sends requests on behalf of whatever page is open in it. A site the user visits can POST to `http://localhost:9000/commands` without a CORS preflight (a `text/plain` body is enough), and a site whose domain is re-pointed at 127.0.0.1 (DNS rebinding) looks same-origin to the browser. So every API route checks where a request came from before any handler runs (`tmuxy-server/src/request_guard.rs`):
+
+| Header | Rule | Stops |
+|--------|------|-------|
+| `Sec-Fetch-Site` | Must be `same-origin` (the app) or `none` (typed in the address bar) | Any other origin, including another port on localhost and a sandboxed page |
+| `Origin` | Must name the host the request was sent to | The same, in a browser without Fetch Metadata |
+| `Host` (loopback bind only) | Must be a loopback name or an `--allowed-host` | DNS rebinding |
+
+The API sends **no CORS headers**, so no other origin can read a response even when a request is let through. A request with none of these headers is not a browser acting for a page (`curl`, a script) and is allowed. Cached Basic-auth credentials do not help a hostile page: its requests are refused by origin before the password matters.
+
+On a routable bind the `Host` rule is off — the server cannot know every name it is reached by — and the password is what stops rebinding, because the browser holds no credentials for the rebound origin. With `--no-auth` on a routable address, DNS rebinding is **not** prevented.
+
+## Local Files Are Served Sandboxed
+
+`/api/file` and `/api/browse` read any file the server process can read, with a real content type, so an HTML file would render with the server's own origin and could use the API like the app does. Both routes answer with `Content-Security-Policy: sandbox` (without `allow-same-origin`), so the document runs in an opaque origin of its own whether the browser widget frames it or someone opens its URL. The browser widget also frames every local page with the `sandbox` attribute, which covers the desktop app's `tmuxyfile:` scheme too (`tmuxy-ui/src/components/widgets/browser/TmuxyBrowser.tsx`).
+
+The cost: a local page cannot use cookies or storage, and a link followed inside it is invisible to the widget. Websites are other origins already and are framed without a sandbox.
+
+## Input That Reaches Control Mode
+
+Control mode reads one command per line, so a newline inside anything written into a command line would end that command and start another.
+
+- **Session names** from `/events?session=` and `/commands?session=` are refused with `400` when empty or containing a control character, and are quoted wherever the server builds a command from one (`tmuxy-server/src/sse.rs`).
+- **Literal text** — a paste, an IME composition, the selection menu's *Send keys* — is typed one line at a time, one `send-keys -l` per line with `Enter` between them (`literalTextCommands` in `tmuxy-ui/src/tmux/keyBatching.ts`). Multi-line text pasted into a shell still runs as commands in that shell, exactly as in any terminal.
 
 ## Known Risks
 
-### 1. Unauthenticated Remote Access (High)
+### 1. Remote Access When Exposed (High)
 
-**Risk:** Exposing the tmuxy server on a public IP without authentication gives anyone full control over the tmux session.
+**Risk:** A server reachable from other machines gives whoever reaches it full control over the tmux session.
 
 **Impact:** Arbitrary command execution on the host machine via `run-shell` commands or by typing into any pane.
 
 **Mitigation:**
+- The default listens on 127.0.0.1 only, and a routable address needs a password or an explicit `--no-auth` ([Where the Server Listens](#where-the-server-listens))
 - **Never expose tmuxy directly to the internet**
-- Set a password: `tmuxy server --password …` (or `TMUXY_PASSWORD=…`) — see [Optional HTTP Basic Auth](#optional-http-basic-auth). Not a replacement for TLS; layer it with one of the below.
-- Use SSH tunnel: `ssh -L 9000:localhost:9000 user@server`
-- Use VPN: WireGuard, Tailscale, or similar
+- Use an SSH tunnel: `ssh -L 9000:localhost:9000 user@server`
+- Use a VPN: WireGuard, Tailscale, or similar
 - Use a reverse proxy with authentication (nginx + basic auth, Caddy + OAuth)
-- Bind to localhost: `tmuxy server --host 127.0.0.1`
 
 ### 2. No TLS/HTTPS (High)
 
 **Risk:** All communication is over plain HTTP. Terminal content and commands are transmitted in cleartext.
 
-**Impact:** Network eavesdropping can observe all terminal output and see all keystrokes sent to tmux. Combined with the lack of authentication (#1), any observer on-path can also inject commands.
+**Impact:** Network eavesdropping can observe all terminal output and see all keystrokes sent to tmux. An observer on-path can also capture Basic-auth credentials and inject commands.
 
 **Mitigation:**
 - Use a reverse proxy (nginx, Caddy) with TLS certificates for HTTPS
@@ -70,39 +107,39 @@ The Tauri app has no network-level authentication concerns — all communication
 
 ### 3. Arbitrary Command Execution (High)
 
-**Risk:** Any client that reaches the server can send any tmux command, including `run-shell` which executes arbitrary shell commands within the tmux server process.
+**Risk:** Any client allowed through can send any tmux command, including `run-shell` which executes arbitrary shell commands within the tmux server process.
 
 **Impact:** Full shell access as the user running the tmux server. Can read/write files, start processes, modify system state.
 
-**Context:** This is by design — tmuxy is a tmux UI, and tmux provides full shell access. Combined with #1 (no authentication), network reachability alone is sufficient for code execution.
+**Context:** This is by design — tmuxy is a tmux UI, and tmux provides full shell access. Reaching the server as an allowed client is sufficient for code execution.
 
 What the server does *not* do is interpolate a client's command into a shell of its own: every command goes down the monitor's control-mode connection as a tmux command line, reads included, so there is no `sh -c` for shell metacharacters to escape from.
 
 ### 4. Unrestricted File Access (High)
 
-**Risk:** The `/api/file` and `/api/browse` endpoints read arbitrary files, with no path restrictions beyond Unix file permissions. `/api/browse` additionally serves them with a real content type, so an HTML file it hands out is *rendered* by whatever loads it — the browser widget frames those responses.
+**Risk:** The `/api/file` and `/api/browse` endpoints read arbitrary files, with no path restrictions beyond Unix file permissions.
 
-**Impact:** Information disclosure — SSH keys, configuration files, source code, credentials, and any file readable by the server process.
+**Impact:** Information disclosure to any allowed client — SSH keys, configuration files, source code, credentials, and any file readable by the server process. Other origins are refused ([Cross-Origin Requests](#cross-origin-requests)) and a served page is sandboxed ([Local Files Are Served Sandboxed](#local-files-are-served-sandboxed)).
 
 **Mitigation:** The server should run as an unprivileged user. Do not run tmuxy as root.
 
-### 5. Default Bind Address (Medium)
+### 5. `--no-auth` on a Routable Address (Medium)
 
-**Risk:** The server binds to `0.0.0.0` by default, making it accessible from any network interface.
+**Risk:** Everyone on the network can reach the server with no password, and the `Host` check that stops DNS rebinding is off.
 
-**Impact:** On a machine connected to multiple networks (e.g., LAN + public WiFi), the server is reachable from all of them.
+**Impact:** Anyone on the network — and a hostile site the user visits, through DNS rebinding — gets shell access.
 
-**Mitigation:** Use `--host 127.0.0.1` for localhost-only access. Use firewall rules to restrict port access.
+**Mitigation:** Use a password instead, or listen on 127.0.0.1 and tunnel. Keep `--no-auth` to an isolated network such as a container's published port on a single-user machine.
 
-### 6. Permissive CORS (Low)
+### 6. Browsers Without Fetch Metadata (Low)
 
-**Risk:** CORS headers allow requests from any origin (`Access-Control-Allow-Origin: *`).
+**Risk:** A browser that sends neither `Sec-Fetch-Site` nor `Origin` on a simple `GET` (old releases) lets a hostile page trigger `GET` routes — open an event stream, request a file.
 
-**Impact:** A malicious website opened by a user who is also running tmuxy locally could make cross-origin requests to the tmuxy server if it can guess the port. With no authentication (#1), guessing the port is the only barrier.
+**Impact:** The page cannot read any response (no CORS headers), and a session name that would inject a command is refused. The requests themselves still reach the server.
 
 ### 7. No Audit Logging (Medium)
 
-**Risk:** No logging of commands executed, sessions created, or clients connected.
+**Risk:** No logging of commands executed, sessions created, or clients connected. Requests refused by the origin check are logged as warnings.
 
 **Impact:** No forensic trail if unauthorized access occurs.
 
@@ -145,7 +182,7 @@ No network exposure. Use the Tauri app for local development — it communicates
 Developer → SSH tunnel → localhost:9000 → tmuxy server → tmux
 ```
 
-1. Run `tmuxy server --host 127.0.0.1` on the remote machine
+1. Run `tmuxy server` on the remote machine (it listens on 127.0.0.1)
 2. From your local machine: `ssh -L 9000:localhost:9000 user@remote`
 3. Open `http://localhost:9000` in your browser
 
@@ -158,7 +195,7 @@ Mobile/Laptop → VPN (WireGuard/Tailscale) → tmuxy server → tmux
 ```
 
 1. Set up a VPN between your devices and the remote machine
-2. Run `tmuxy server` on the remote machine (bind to VPN interface or `0.0.0.0` with firewall rules)
+2. Run `TMUXY_PASSWORD=… tmuxy server --host <vpn address>` on the remote machine
 3. Access via the VPN IP address
 
 This is the recommended approach for mobile access where SSH tunnels are impractical.
@@ -169,16 +206,17 @@ This is the recommended approach for mobile access where SSH tunnels are impract
 Browser → HTTPS → nginx/Caddy (+ auth) → HTTP → tmuxy server → tmux
 ```
 
-1. Run `tmuxy server --host 127.0.0.1` on the server
+1. Run `tmuxy server --allowed-host <public name>` on the server
 2. Configure nginx or Caddy with:
    - TLS certificate (Let's Encrypt or self-signed)
    - Authentication (basic auth, OAuth, client certificates)
    - Proxy pass to `http://127.0.0.1:9000`
-   - WebSocket/SSE support enabled
+   - SSE support enabled (no response buffering)
 
 ### What NOT to Do
 
-- **Do NOT** expose tmuxy directly on a public IP without authentication
+- **Do NOT** expose tmuxy directly on a public IP
+- **Do NOT** pass `--no-auth` on a network other people share
 - **Do NOT** run tmuxy as root
 - **Do NOT** use tmuxy on shared/multi-tenant servers without network isolation
 - **Do NOT** store secrets (API keys, passwords, SSH passphrases) in tmux sessions that are connected to tmuxy on a network
@@ -187,7 +225,10 @@ Browser → HTTPS → nginx/Caddy (+ auth) → HTTP → tmuxy server → tmux
 
 Implemented:
 
-- **Optional HTTP Basic auth** — `tmuxy server --password …` / `TMUXY_PASSWORD` gates every route (see [above](#optional-http-basic-auth)).
+- **Loopback by default** — a routable address needs a password or `--no-auth`
+- **Optional HTTP Basic auth** — `--password` / `TMUXY_PASSWORD` gates every route
+- **Cross-origin guard** — Fetch Metadata, `Origin` and `Host` checks on every API route; no CORS headers
+- **Sandboxed file routes** — served HTML never runs with the server's origin
 
 Not yet implemented, but would improve the security posture:
 
@@ -197,7 +238,8 @@ Not yet implemented, but would improve the security posture:
 - **Read-only mode** — View terminal output without command execution
 - **Audit logging** — Log all commands and client connections
 - **Path restrictions** — Limit `/api/file` and `/api/browse` to specific directories
-- **Rate limiting** — Prevent command flooding
+- **Rate limiting** — Prevent command flooding and password guessing
+- **Desktop webview CSP** — A Content-Security-Policy for the Tauri app
 
 ## Related
 

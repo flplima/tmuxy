@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod command;
 mod dev;
+pub mod request_guard;
 pub mod server;
 pub mod sse;
 pub mod state;
