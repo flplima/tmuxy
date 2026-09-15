@@ -23,8 +23,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# The three workflows that must pass on a plain push to main.
+# The workflows that must pass on a plain push to main. Deploy Demo is
+# path-filtered (tmuxy-demo / tmuxy-ui sources), so it only has to pass when
+# the commit triggered it.
 EXPECTED=("lint and tests" "Build App" "Deploy Demo")
+OPTIONAL=("Deploy Demo")
 
 case "$MODE" in
   commit)
@@ -36,6 +39,7 @@ case "$MODE" in
     [ -n "$ARG" ] || { echo "usage: wait-ci tag <version>" >&2; exit 2; }
     LABEL="tag v$ARG"
     EXPECTED=("Build App")
+    OPTIONAL=()
     query() { gh run list --workflow build-app.yml --branch "v$ARG" --json name,status,conclusion; }
     ;;
   *)
@@ -54,6 +58,9 @@ while :; do
   for wf in "${EXPECTED[@]}"; do
     ROW=$(printf '%s' "$RUNS" | jq -r --arg n "$wf" '[.[] | select(.name == $n)][0] // empty')
     if [ -z "$ROW" ]; then
+      if [[ " ${OPTIONAL[*]:-} " == *" $wf "* ]]; then
+        LINE+="  $wf: not triggered by this commit\n"; continue
+      fi
       DONE=0; LINE+="  $wf: not started yet\n"; continue
     fi
     STATUS=$(printf '%s' "$ROW" | jq -r '.status')
