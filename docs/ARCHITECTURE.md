@@ -66,7 +66,7 @@ back to a shell. That is what ctrl+c in a widget pane does.
 
 | Widget | Started by | Content it reads |
 |--------|-----------|------------------|
-| `browser` | `tmuxy widget browser <file\|url\|->` | `__SRC__:<path or url>` — one source: an HTML file, a website, a markdown file (rendered, mermaid included), or an image |
+| `browser` | `tmuxy widget browser [--color-filter] <file\|url\|->` | `__SRC__:<path or url>` — one source: an HTML file, a website, a markdown file (rendered, mermaid included), or an image. `--color-filter` writes `__COLOR_FILTER__` first, and a page or image is then recoloured into the theme (luminance onto a foreground → gray → background ramp, `utils/themeColorFilter.ts`); markdown is already drawn in theme colours |
 | `tree` | `tmuxy widget tree` | none — the tabs/panes tree is derived from state the app already holds |
 
 A widget registers a **definition**, not just a component, so it can furnish the parts of the pane

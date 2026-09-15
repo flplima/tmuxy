@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, within } from 'storybook/test';
 import { TmuxyBrowser } from './TmuxyBrowser';
 import { ProviderHarness } from '../../../stories/StoryHarness';
+import { rampTables, readThemeRamp } from '../../../utils/themeColorFilter';
 import type { WidgetProps } from '../index';
 
 // 1×1 opaque PNG, small enough to embed and decode instantly.
@@ -31,11 +32,11 @@ const MARKDOWN = [
  */
 type FileSrcWindow = { __tmuxyFileSrc?: (path: string) => string | undefined };
 
-function widgetProps(src: string): WidgetProps {
+function widgetProps(src: string, colorFilter = false): WidgetProps {
   return {
     paneId: '%0',
     widgetName: 'browser',
-    lines: [`__SRC__:${src}`],
+    lines: [...(colorFilter ? ['__COLOR_FILTER__'] : []), `__SRC__:${src}`],
     lastLine: `__SRC__:${src}`,
     rawContent: [],
     writeStdin: () => {},
@@ -62,11 +63,11 @@ const meta: Meta<typeof TmuxyBrowser> = {
 export default meta;
 type Story = StoryObj<typeof TmuxyBrowser>;
 
-function Harness({ src }: { src: string }) {
+function Harness({ src, colorFilter = false }: { src: string; colorFilter?: boolean }) {
   return (
     <ProviderHarness height={420}>
       <div style={{ width: 640, height: 420 }}>
-        <TmuxyBrowser {...widgetProps(src)} />
+        <TmuxyBrowser {...widgetProps(src, colorFilter)} />
       </div>
     </ProviderHarness>
   );
@@ -126,5 +127,47 @@ export const WebPage: Story = {
     // No chrome: the only controls on screen belong to the harness, not to
     // the widget's own subtree.
     expect(canvasElement.querySelectorAll('.widget-browser button').length).toBe(0);
+  },
+};
+
+/**
+ * `--color-filter`: the image is drawn through a filter that maps its
+ * luminance onto the theme's foreground → gray → background ramp. Without the
+ * flag the same image is drawn as it is.
+ */
+export const ColorFilterRecoloursAnImage: Story = {
+  render: () => (
+    <div style={{ display: 'flex' }}>
+      <div data-testid="filtered">
+        <Harness src={PNG_DATA_URI} colorFilter />
+      </div>
+      <div data-testid="plain">
+        <Harness src={PNG_DATA_URI} />
+      </div>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const filtered = await waitFor(() => {
+      const img = canvasElement.querySelector<HTMLImageElement>('[data-testid="filtered"] img');
+      expect(img).not.toBeNull();
+      return img!;
+    });
+    const svgFilter = await waitFor(() => {
+      const el = canvasElement.querySelector<SVGFilterElement>('[data-testid="filtered"] filter');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(getComputedStyle(filtered).filter).toContain(`#${svgFilter.id}`);
+
+    // The ramp is the theme's, read live.
+    const ramp = readThemeRamp();
+    expect(ramp).not.toBeNull();
+    const want = rampTables(ramp!);
+    expect(svgFilter.querySelector('feFuncR')!.getAttribute('tableValues')).toBe(want.r);
+    expect(svgFilter.querySelector('feFuncG')!.getAttribute('tableValues')).toBe(want.g);
+    expect(svgFilter.querySelector('feFuncB')!.getAttribute('tableValues')).toBe(want.b);
+
+    const plain = canvasElement.querySelector<HTMLImageElement>('[data-testid="plain"] img')!;
+    expect(getComputedStyle(plain).filter).toBe('none');
   },
 };

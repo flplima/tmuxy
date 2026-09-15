@@ -180,7 +180,8 @@ Usage: tmuxy widget <command> [args...]
 Commands:
   browser       Show a page: a local HTML file, a URL, a markdown file
                 (rendered, with mermaid), or an image. `-` reads markdown
-                from stdin.
+                from stdin. --color-filter recolours a page or an image
+                into the theme's colours.
   tree          Display the tabs+panes tree (the left sidebar's content)
 EOF
 }
@@ -642,7 +643,15 @@ cmd_widget() {
   case "$sub" in
     browser|web)
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy widget browser <file|url|->"; return ;;
+        --help|-h)
+          cat <<'BEOF'
+Usage: tmuxy widget browser [--color-filter] <file|url|->
+
+Options:
+  --color-filter  Recolour a page or an image into the theme's colours
+                  (markdown is already drawn in them)
+BEOF
+          return ;;
         "") echo "Error: file, url or - required" >&2; return 1 ;;
       esac
       exec "$SCRIPTS_DIR/tmuxy-widget-browser" "$@"

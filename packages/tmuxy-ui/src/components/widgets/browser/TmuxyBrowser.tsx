@@ -12,13 +12,45 @@
  * (`X-Frame-Options`) show their own refusal — tmuxy does not proxy them.
  */
 
-import { useRef, type CSSProperties } from 'react';
+import { memo, useRef, useSyncExternalStore, type CSSProperties } from 'react';
 import { useAppSend, useAppSelector } from '../../../machines/AppContext';
 import type { WidgetProps } from '../index';
 import { browserView } from './view';
-import { classifySource, loadUrl } from './source';
+import { classifySource, loadUrl, parseColorFilter } from './source';
+import { rampTables, readThemeRamp, themeFilterId } from '../../../utils/themeColorFilter';
+import { getThemeVersion, subscribeTheme } from '../../../utils/themeManager';
 import { pathFromFileUrl } from '../../../utils/fileUrl';
 import { MarkdownView } from './MarkdownView';
+
+/**
+ * The SVG filter `--color-filter` points the content at: luminance mapped onto
+ * a ramp of theme colours (utils/themeColorFilter). Memoised on its id, so the
+ * pane's content ticks do not re-read the theme; the theme subscription is
+ * what re-renders it, once the new theme's colours have landed. Renders
+ * nothing until the theme's colours resolve.
+ */
+const ThemeColorFilter = memo(function ThemeColorFilter({ id }: { id: string }) {
+  useSyncExternalStore(subscribeTheme, getThemeVersion, getThemeVersion);
+  const ramp = readThemeRamp();
+  if (!ramp) return null;
+  const tables = rampTables(ramp);
+  return (
+    <svg aria-hidden="true" width="0" height="0" style={{ position: 'absolute' }}>
+      <filter id={id} colorInterpolationFilters="sRGB">
+        {/* Luminance (Rec. 709) into every channel, alpha untouched. */}
+        <feColorMatrix
+          type="matrix"
+          values="0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0 0 0 1 0"
+        />
+        <feComponentTransfer>
+          <feFuncR type="table" tableValues={tables.r} />
+          <feFuncG type="table" tableValues={tables.g} />
+          <feFuncB type="table" tableValues={tables.b} />
+        </feComponentTransfer>
+      </filter>
+    </svg>
+  );
+});
 
 /** Strip the cache-buster a refresh adds, so a reported URL is the real one. */
 function withoutReloadParam(url: string): string {
@@ -52,6 +84,11 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
 
   const src = loadUrl(view.url, view.reloadNonce);
   const kind = classifySource(view.url);
+  // Markdown is drawn by the app in the theme's colours already; the filter is
+  // for what brings its own: a page in the frame, and images.
+  const filterId = parseColorFilter(lines) ? themeFilterId(paneId) : null;
+  const themeFilter = filterId ? <ThemeColorFilter id={filterId} /> : null;
+  const filterStyle = filterId ? { filter: `url(#${filterId})` } : undefined;
 
   // Zoom reaches the rendered views as a CSS variable: markdown scales by type
   // size (so lines re-wrap to the pane, as page zoom does) while the frame and
@@ -69,10 +106,11 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
   if (kind === 'image') {
     return (
       <div className="widget-browser widget-browser-image">
+        {themeFilter}
         <img
           src={src}
           alt={view.url}
-          style={{ transform: `scale(${view.zoom})` }}
+          style={{ transform: `scale(${view.zoom})`, ...filterStyle }}
           data-testid="browser-image"
         />
       </div>
@@ -88,6 +126,7 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
 
   return (
     <div className="widget-browser">
+      {themeFilter}
       <iframe
         key={loadSeqRef.current}
         className="widget-browser-frame"
@@ -101,6 +140,7 @@ export function TmuxyBrowser({ paneId, lines }: WidgetProps) {
           height: `${100 / view.zoom}%`,
           transform: `scale(${view.zoom})`,
           transformOrigin: '0 0',
+          ...filterStyle,
         }}
         onLoad={(e) => {
           // Links followed inside a page we serve ourselves are same-origin,

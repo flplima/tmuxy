@@ -15,6 +15,7 @@ const IMAGE_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i;
 const MARKDOWN_EXTENSIONS = /\.(?:md|markdown)$/i;
 
 const SRC_MARKER = '__SRC__:';
+const COLOR_FILTER_MARKER = '__COLOR_FILTER__';
 
 /**
  * Read the source out of the pane's widget content.
@@ -28,6 +29,15 @@ export function parseSource(lines: string[]): string {
   const at = joined.indexOf(SRC_MARKER);
   if (at === -1) return '';
   return joined.slice(at + SRC_MARKER.length).trim();
+}
+
+/**
+ * Whether the widget was started with `--color-filter`: the page or image is
+ * recoloured into the theme (utils/themeColorFilter). The script writes the
+ * marker before the source, so it never runs into the source's text.
+ */
+export function parseColorFilter(lines: string[]): boolean {
+  return lines.join('').includes(COLOR_FILTER_MARKER);
 }
 
 export function classifySource(src: string): SourceKind {

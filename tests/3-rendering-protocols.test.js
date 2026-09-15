@@ -1074,6 +1074,56 @@ describe('Category 17: Widgets', () => {
       await waitForTerminalText(wCtx.page, 'AFTER_BROWSER_WIDGET');
     }, 120000);
 
+    test('--color-filter recolours a page into the theme and closes back to a shell', async () => {
+      if (wCtx.skipIfNotReady()) return;
+      await wCtx.setupPage();
+
+      // A page with its own palette: black text on white paper.
+      const file = `/tmp/tmuxy-browser-filter-${Date.now()}.html`;
+      await sendWidgetCommand(
+        wCtx.page,
+        `printf '<body style="background:#fff;color:#000"><h1>FILTER_PAGE</h1></body>' > ${file}; ${TMUXY_CLI} widget browser --color-filter ${file}`,
+      );
+      await waitForDomSelector(wCtx.page, '.widget-browser-frame', 30000);
+
+      // The frame is drawn through the theme filter, and the filter's ramp runs
+      // from the theme's foreground through its gray to its background.
+      const filter = await wCtx.page.evaluate(() => {
+        const frame = document.querySelector('.widget-browser-frame');
+        const svgFilter = document.querySelector('filter[id^="tmuxy-theme-filter-"]');
+        const probe = document.createElement('span');
+        document.body.appendChild(probe);
+        const channel = (name) => {
+          probe.style.color = `var(${name})`;
+          const [r] = getComputedStyle(probe).color.match(/\d+/g).map(Number);
+          return Number((r / 255).toFixed(4));
+        };
+        const want = [
+          channel('--term-foreground'),
+          channel('--term-bright-black'),
+          channel('--term-background'),
+        ];
+        probe.remove();
+        return {
+          css: frame ? getComputedStyle(frame).filter : null,
+          id: svgFilter?.id ?? null,
+          red: svgFilter?.querySelector('feFuncR')?.getAttribute('tableValues') ?? null,
+          want,
+        };
+      });
+      expect(filter.id).not.toBeNull();
+      expect(filter.css).toContain(`#${filter.id}`);
+      expect(filter.red.split(' ').map(Number)).toEqual(filter.want);
+
+      await sendKeyCombo(wCtx.page, 'Control', 'c');
+      await waitForCondition(
+        wCtx.page,
+        () => wCtx.page.evaluate(() => document.querySelector('.widget-browser') === null),
+        20000,
+        'the browser widget to close',
+      );
+    }, 120000);
+
     test('Renders an image source as a real picture', async () => {
       if (wCtx.skipIfNotReady()) return;
       await wCtx.setupPage();

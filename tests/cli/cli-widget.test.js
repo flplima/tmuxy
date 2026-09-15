@@ -10,7 +10,13 @@ describe('CLI widget subcommands', () => {
     test('shows help', () => {
       const { stdout, exitCode } = runCLI(['widget', 'browser', '--help']);
       expect(exitCode).toBe(0);
-      expect(stdout).toContain('Usage: tmuxy widget browser');
+      expect(stdout).toContain('Usage: tmuxy widget browser [--color-filter]');
+    });
+
+    test('--color-filter still needs a source', () => {
+      const { stderr, exitCode } = runCLI(['widget', 'browser', '--color-filter']);
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain('Usage: tmuxy-widget-browser [--color-filter]');
     });
 
     test('errors with no source', () => {

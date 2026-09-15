@@ -1,4 +1,28 @@
 const THEME_LINK_ID = 'tmuxy-theme';
+
+/**
+ * Bumped whenever the colours the document resolves may have changed: the
+ * theme stylesheet finished loading, or the mode class flipped. Anything that
+ * reads theme colours out of the DOM (not through CSS) subscribes to this,
+ * because a theme switch swaps the stylesheet asynchronously — reading at the
+ * moment of the switch would read the previous theme.
+ */
+let themeVersion = 0;
+const themeListeners = new Set<() => void>();
+
+function bumpThemeVersion(): void {
+  themeVersion += 1;
+  for (const listener of themeListeners) listener();
+}
+
+export function subscribeTheme(listener: () => void): () => void {
+  themeListeners.add(listener);
+  return () => themeListeners.delete(listener);
+}
+
+export function getThemeVersion(): number {
+  return themeVersion;
+}
 const LS_THEME_KEY = 'tmuxy-theme-name';
 const LS_MODE_KEY = 'tmuxy-theme-mode';
 
@@ -16,6 +40,8 @@ export function loadTheme(name: string): void {
     link.id = THEME_LINK_ID;
     link.rel = 'stylesheet';
     link.href = href;
+    // `load` fires again each time the href changes and the new sheet lands.
+    link.addEventListener('load', bumpThemeVersion);
     document.head.appendChild(link);
   }
 }
@@ -25,6 +51,7 @@ export function applyThemeMode(mode: 'dark' | 'light'): void {
   const html = document.documentElement;
   html.classList.remove('theme-dark', 'theme-light');
   html.classList.add(`theme-${mode}`);
+  bumpThemeVersion();
 }
 
 /** Load theme CSS and apply mode class. */

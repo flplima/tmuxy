@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { browserTitle, classifySource, loadUrl, parseSource } from '../source';
+import { browserTitle, classifySource, loadUrl, parseColorFilter, parseSource } from '../source';
 import { browserView, clampZoom, MAX_ZOOM, MIN_ZOOM } from '../view';
 import type { BrowserPaneState } from '../../../../machines/types';
 
@@ -22,6 +22,20 @@ describe('parseSource', () => {
   it('is empty until the marker arrives', () => {
     expect(parseSource([])).toBe('');
     expect(parseSource(['', ' '])).toBe('');
+  });
+});
+
+describe('parseColorFilter', () => {
+  it('is on when the script wrote the marker ahead of the source', () => {
+    const lines = ['__COLOR_FILTER__', '__SRC__:https://example.com/'];
+    expect(parseColorFilter(lines)).toBe(true);
+    // ...and the source still reads as the source, marker and all ahead of it.
+    expect(parseSource(lines)).toBe('https://example.com/');
+  });
+
+  it('is off without the marker', () => {
+    expect(parseColorFilter(['__SRC__:/tmp/page.html'])).toBe(false);
+    expect(parseColorFilter([])).toBe(false);
   });
 });
 

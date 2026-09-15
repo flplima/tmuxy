@@ -2,9 +2,13 @@
 # Show a page in a tmuxy browser widget pane
 #
 # Usage:
-#   tmuxy-widget-browser <file>      Local HTML, markdown or image file
-#   tmuxy-widget-browser <url>       A website, or a remote image/markdown
-#   tmuxy-widget-browser -           Render markdown read from stdin
+#   tmuxy-widget-browser [--color-filter] <file>   Local HTML, markdown or image file
+#   tmuxy-widget-browser [--color-filter] <url>    A website, or a remote image/markdown
+#   tmuxy-widget-browser [--color-filter] -        Render markdown read from stdin
+#
+# --color-filter recolours a page or an image into the theme's colours (dark
+# ink to the foreground, light paper to the background). Markdown is already
+# drawn in the theme's colours and is left as it is.
 #
 # The widget takes a single resolved source and shows it: HTML and websites go
 # in a frame, markdown is rendered (mermaid included), images are drawn. The
@@ -14,7 +18,12 @@
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
-SOURCE="${1:?Usage: tmuxy-widget-browser <file|url|->}"
+COLOR_FILTER=""
+if [ "${1:-}" = "--color-filter" ]; then
+  COLOR_FILTER=1
+  shift
+fi
+SOURCE="${1:?Usage: tmuxy-widget-browser [--color-filter] <file|url|->}"
 
 if [ "$SOURCE" = "-" ]; then
   # Stdin has nowhere to live: the widget fetches its source by path or URL,
@@ -46,6 +55,11 @@ else
 fi
 
 # Emit the source through the widget marker, then block so the pane — and the
-# widget rendered in place of it — stays up until the user closes it.
-{ echo "__SRC__:${RESOLVED}"; while true; do sleep 3600; done; } |
-  "${SCRIPTS_DIR}/tmuxy-widget" browser
+# widget rendered in place of it — stays up until the user closes it. The
+# colour filter's marker goes first: the source is read as everything after its
+# own marker, so anything written later would run into it.
+{
+  if [ -n "$COLOR_FILTER" ]; then echo "__COLOR_FILTER__"; fi
+  echo "__SRC__:${RESOLVED}"
+  while true; do sleep 3600; done
+} | "${SCRIPTS_DIR}/tmuxy-widget" browser
